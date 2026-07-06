@@ -6,6 +6,7 @@ import { PlanningGrid, type EmployeeRow } from "./planning-grid";
 import { PlanningMensuel, type CreneauJour } from "./planning-mensuel";
 import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
 import { ShiftsManager } from "./shifts-manager";
+import { BesoinsManager } from "./besoins-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 
@@ -55,6 +56,21 @@ export default async function PlanningPage({
       tauxHoraireUSD: s.tauxHoraireUSD != null ? Number(s.tauxHoraireUSD) : null,
     }));
   const shiftParId = new Map(shifts.map((s) => [s.id, s]));
+
+  // Config des effectifs requis (shift × poste × jour) qui pilote la génération auto « couverture ».
+  const [postesRows, besoinsRows] = await Promise.all([
+    prisma.employee.findMany({ where: { actif: true }, select: { poste: true }, distinct: ["poste"], orderBy: { poste: "asc" } }),
+    prisma.besoinShift.findMany(),
+  ]);
+  const postesBesoin = postesRows.map((p) => p.poste).filter(Boolean);
+  const shiftsBesoin = shifts.filter((s) => s.actif && !s.systeme).map((s) => ({ id: s.id, nom: s.nom }));
+  const besoinsPanel = peutModifier ? (
+    <BesoinsManager
+      shifts={shiftsBesoin}
+      postes={postesBesoin}
+      besoins={besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }))}
+    />
+  ) : null;
 
   const onglets = (
     <div className="flex overflow-hidden rounded-md border text-sm">
@@ -185,6 +201,7 @@ export default async function PlanningPage({
         </div>
 
         <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
+      {besoinsPanel}
         {legende}
 
         {/* Aperçu calendrier (lecture) */}
@@ -272,6 +289,7 @@ export default async function PlanningPage({
       </div>
 
       <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
+      {besoinsPanel}
       {legende}
 
       {employees.length === 0 ? (

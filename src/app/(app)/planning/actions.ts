@@ -67,15 +67,20 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
   const utiliserModeles = formData.get("modeles") === "on"; // coché par défaut dans le formulaire
   const ecraser = formData.get("ecraser") === "on";
 
-  const [employees, shifts, feries, existants, modeles] = await Promise.all([
+  const [employees, shifts, feries, existants, modeles, besoins, congesApprouves] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
-      select: { id: true, heuresParJour: true, heuresHebdomadaires: true, poste: true, secteur: true },
+      select: { id: true, nom: true, heuresParJour: true, heuresHebdomadaires: true, poste: true, secteur: true },
     }),
     prisma.shift.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debut, lte: fin } } }),
-    prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true } }),
+    prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, shiftId: true } }),
     utiliserModeles ? prisma.planningModele.findMany() : Promise.resolve([]),
+    prisma.besoinShift.findMany(),
+    prisma.leaveRequest.findMany({
+      where: { statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
+      select: { employeeId: true, dateDebut: true, dateFin: true },
+    }),
   ]);
 
   // Shift de repli selon la FICHE (poste/secteur) pour les employés SANS modèle hebdo :
@@ -128,33 +133,135 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
     (joursParSemaine.get(cle) ?? joursParSemaine.set(cle, []).get(cle)!).push(new Date(d));
   }
 
+  // Congés validés : intervalles par employé (un salarié en congé n'est pas planifiable ce jour-là).
+  const congesParEmp = new Map<string, { debut: Date; fin: Date }[]>();
+  for (const c of congesApprouves) {
+    (congesParEmp.get(c.employeeId) ?? congesParEmp.set(c.employeeId, []).get(c.employeeId)!).push({
+      debut: new Date(c.dateDebut),
+      fin: new Date(c.dateFin),
+    });
+  }
+  const estEnConge = (empId: string, d: Date) =>
+    (congesParEmp.get(empId) ?? []).some((iv) => d >= iv.debut && d <= iv.fin);
+
+  const lundiIso = (d: Date) => {
+    const dow = d.getUTCDay();
+    const l = new Date(d);
+    l.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+    return iso(l);
+  };
+  const posteOf = new Map(employees.map((e) => [e.id, e.poste]));
+  const maxJoursSem = (e: { heuresParJour: unknown; heuresHebdomadaires: unknown }) =>
+    nbParSemaine > 0
+      ? Math.min(joursActifs.size, nbParSemaine)
+      : Math.min(joursActifs.size, Math.max(1, Math.round((Number(e.heuresHebdomadaires) || 48) / (Number(e.heuresParJour) || 8))));
+  const joursPlats = [...joursParSemaine.values()].flat().sort((a, b) => a.getTime() - b.getTime());
+
   const aCreer: { employeeId: string; date: Date; shiftId: string }[] = [];
-  for (const emp of employees) {
-    const modele = modeleParEmp.get(emp.id);
-    if (modele && modele.size > 0) {
-      // L'employé a un modèle hebdomadaire : on affecte son shift/rôle du jour de la semaine.
-      for (const jours of joursParSemaine.values()) {
-        for (const d of jours) {
-          const shiftId = shiftDuModele(modele, d);
-          if (!shiftId) continue; // pas de shift ce jour-là dans le modèle = repos
-          if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
-          aCreer.push({ employeeId: emp.id, date: d, shiftId });
+
+  if (besoins.length > 0) {
+    // ===== Génération « couverture d'abord » : remplir chaque besoin (shift × poste × jour) =====
+    const empsParPoste = new Map<string, typeof employees>();
+    for (const e of employees) {
+      (empsParPoste.get(e.poste) ?? empsParPoste.set(e.poste, []).get(e.poste)!).push(e);
+    }
+    const occupeJour = new Set<string>(); // `${empId}_${isoD}` — 1 seul shift/jour
+    const compteSem = new Map<string, number>(); // `${empId}_${lundiIso}` — quota hebdo
+    const couverture = new Map<string, number>(); // `${isoD}_${shiftId}_${poste}` — déjà couvert
+    const totalAffecte = new Map<string, number>(); // empId -> nb total (équité/rotation)
+    const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+
+    // Créneaux existants conservés (si on n'écrase pas) : comptent dans la couverture et les quotas.
+    if (!ecraser) {
+      for (const ex of existants) {
+        const isoD = iso(new Date(ex.date));
+        occupeJour.add(`${ex.employeeId}_${isoD}`);
+        bump(compteSem, `${ex.employeeId}_${lundiIso(new Date(ex.date))}`);
+        bump(totalAffecte, ex.employeeId);
+        const p = posteOf.get(ex.employeeId);
+        if (p) bump(couverture, `${isoD}_${ex.shiftId}_${p}`);
+      }
+    }
+    const affecter = (empId: string, d: Date, shiftId: string, poste: string) => {
+      const isoD = iso(d);
+      aCreer.push({ employeeId: empId, date: d, shiftId });
+      occupeJour.add(`${empId}_${isoD}`);
+      bump(compteSem, `${empId}_${lundiIso(d)}`);
+      bump(totalAffecte, empId);
+      bump(couverture, `${isoD}_${shiftId}_${poste}`);
+    };
+
+    // 1) Modèles hebdo (affectations fixes prioritaires) s'ils sont activés : comptent dans la couverture.
+    if (utiliserModeles) {
+      for (const emp of employees) {
+        const mod = modeleParEmp.get(emp.id);
+        if (!mod || mod.size === 0) continue;
+        for (const d of joursPlats) {
+          const shiftId = shiftDuModele(mod, d);
+          if (!shiftId || occupeJour.has(`${emp.id}_${iso(d)}`) || estEnConge(emp.id, d)) continue;
+          affecter(emp.id, d, shiftId, emp.poste);
         }
       }
-      continue;
     }
-    // Sinon : shift selon la FICHE (caisse / cuisine / salle / journée), réparti selon les heures.
-    const shiftEmp = shiftPourEmploye(emp);
-    if (!shiftEmp) continue;
-    const hj = Number(emp.heuresParJour) || 8;
-    const hh = Number(emp.heuresHebdomadaires) || 48;
-    const nbSem = nbParSemaine > 0
-      ? Math.min(joursActifs.size, nbParSemaine)
-      : Math.min(joursActifs.size, Math.max(1, Math.round(hh / hj)));
-    for (const jours of joursParSemaine.values()) {
-      for (const d of jours.slice(0, nbSem)) {
-        if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
-        aCreer.push({ employeeId: emp.id, date: d, shiftId: shiftEmp.id });
+
+    // 2) Couverture : pour chaque jour × besoin du jour, compléter jusqu'au nombre requis.
+    const besoinsParDow = new Map<number, typeof besoins>();
+    for (const b of besoins) {
+      (besoinsParDow.get(b.jourSemaine) ?? besoinsParDow.set(b.jourSemaine, []).get(b.jourSemaine)!).push(b);
+    }
+    for (const d of joursPlats) {
+      const isoD = iso(d);
+      const lundi = lundiIso(d);
+      for (const b of besoinsParDow.get(d.getUTCDay()) ?? []) {
+        if (!shiftsActifsIds.has(b.shiftId)) continue;
+        let have = couverture.get(`${isoD}_${b.shiftId}_${b.poste}`) ?? 0;
+        if (have >= b.nombreRequis) continue;
+        const pool = (empsParPoste.get(b.poste) ?? []).filter(
+          (e) =>
+            !occupeJour.has(`${e.id}_${isoD}`) &&
+            !estEnConge(e.id, d) &&
+            (compteSem.get(`${e.id}_${lundi}`) ?? 0) < maxJoursSem(e),
+        );
+        // Équité : d'abord ceux qui ont le moins travaillé, puis le moins cette semaine.
+        pool.sort(
+          (a, b2) =>
+            (totalAffecte.get(a.id) ?? 0) - (totalAffecte.get(b2.id) ?? 0) ||
+            (compteSem.get(`${a.id}_${lundi}`) ?? 0) - (compteSem.get(`${b2.id}_${lundi}`) ?? 0),
+        );
+        for (const e of pool) {
+          if (have >= b.nombreRequis) break;
+          affecter(e.id, d, b.shiftId, b.poste);
+          have++;
+        }
+      }
+    }
+  } else {
+    // ===== Aucun besoin défini : ancienne logique centrée employé (rôle selon fiche / modèle) =====
+    for (const emp of employees) {
+      const modele = modeleParEmp.get(emp.id);
+      if (modele && modele.size > 0) {
+        for (const jours of joursParSemaine.values()) {
+          for (const d of jours) {
+            const shiftId = shiftDuModele(modele, d);
+            if (!shiftId) continue;
+            if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
+            aCreer.push({ employeeId: emp.id, date: d, shiftId });
+          }
+        }
+        continue;
+      }
+      const shiftEmp = shiftPourEmploye(emp);
+      if (!shiftEmp) continue;
+      const hj = Number(emp.heuresParJour) || 8;
+      const hh = Number(emp.heuresHebdomadaires) || 48;
+      const nbSem = nbParSemaine > 0
+        ? Math.min(joursActifs.size, nbParSemaine)
+        : Math.min(joursActifs.size, Math.max(1, Math.round(hh / hj)));
+      for (const jours of joursParSemaine.values()) {
+        for (const d of jours.slice(0, nbSem)) {
+          if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
+          aCreer.push({ employeeId: emp.id, date: d, shiftId: shiftEmp.id });
+        }
       }
     }
   }
@@ -278,5 +385,26 @@ export async function reactiverShift(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
   await prisma.shift.update({ where: { id }, data: { actif: true } });
+  revalidatePath("/planning");
+}
+
+/**
+ * Définit l'effectif requis pour un shift × poste × jour de la semaine (0=dim…6=sam).
+ * nombreRequis ≤ 0 efface le besoin. Pilote la génération auto « couverture d'abord ».
+ */
+export async function definirBesoin(shiftId: string, poste: string, jourSemaine: number, nombreRequis: number) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  if (!shiftId || !poste || jourSemaine < 0 || jourSemaine > 6) return;
+  const n = Math.round(Number(nombreRequis) || 0);
+  if (n <= 0) {
+    await prisma.besoinShift.deleteMany({ where: { shiftId, poste, jourSemaine } });
+  } else {
+    await prisma.besoinShift.upsert({
+      where: { shiftId_poste_jourSemaine: { shiftId, poste, jourSemaine } },
+      update: { nombreRequis: n },
+      create: { shiftId, poste, jourSemaine, nombreRequis: n },
+    });
+  }
   revalidatePath("/planning");
 }

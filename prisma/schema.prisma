@@ -261,6 +261,21 @@ model Shift {
   updatedAt  DateTime @updatedAt
 
   creneaux PlanningCreneau[]
+  besoins  BesoinShift[]
+}
+
+// Effectif requis par shift × poste × jour de la semaine — pilote la génération auto (couverture).
+model BesoinShift {
+  id           String   @id @default(uuid())
+  shiftId      String
+  shift        Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  poste        String // doit correspondre à Employee.poste
+  jourSemaine  Int // 0=dimanche … 6=samedi
+  nombreRequis Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([shiftId, poste, jourSemaine])
 }
 
 // Planning hebdomadaire prévisionnel (A3) : un shift par employé et par jour.
