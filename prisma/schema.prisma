@@ -1,0 +1,662 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  VIEWER
+}
+
+enum EmployeeCategory {
+  BRIGADE
+  BACKOFFICE
+}
+
+enum EmployeeType {
+  NATIONAL
+  EXPATRIE
+}
+
+enum AttendanceCode {
+  P // Présence — payé 100%
+  O // Repos — payé 100%
+  M // Maladie — payé 2/3
+  A // Absence justifiée — payé 100%
+  N // Absence non justifiée — non payé
+  C // Congé payé — 100%
+  F // Jour férié — payé 100%
+  S // Congé sans solde — non payé
+}
+
+enum PayrollStatus {
+  BROUILLON
+  VALIDE
+}
+
+enum LeaveStatus {
+  EN_ATTENTE
+  APPROUVE
+  REFUSE
+}
+
+// Machine à états d'un paiement de salaire (transitions contrôlées).
+enum PaymentStatus {
+  PAS_VALIDE // bulletin calculé, pas encore validé (ex-EN_ATTENTE / PREPARE / ANNULE)
+  VALIDE     // validé par un responsable, prêt à payer
+  PAYE       // paiement effectué
+}
+
+enum ModePaiement {
+  ESPECES
+  VIREMENT
+  MOBILE_MONEY
+  CHEQUE
+  AUTRE
+}
+
+// Compte utilisateur applicatif, lié au user Supabase Auth (id = auth.users.id)
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  nom       String
+  role      Role     @default(VIEWER)
+  actif     Boolean  @default(true)
+  employeeId String?  @unique // compte lié à une fiche employé (même personne)
+  employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leavesApproved      LeaveRequest[]   @relation("ApprovedBy")
+  paiementsConfirmes  PayrollLine[]    @relation("PayeParUser")
+  transitionsPaie     TransitionPaie[]
+  versionsBulletin    VersionBulletin[]
+  actionsAudit        JournalAudit[]
+}
+
+// Paramètres OPÉRATIONNELS (non légaux) — une seule ligne (id fixe "singleton").
+// Les paramètres légaux (CNSS, IPR, INPP, ONEM, HS, congés...) sont dans ParametreLegal.
+model Config {
+  id            String   @id @default("singleton")
+  tauxChangeCDF Decimal  @db.Decimal(10, 2)
+  anneeCourante Int
+  moisCourant   Int
+  updatedAt     DateTime @updatedAt
+}
+
+enum StatutValidation {
+  A_VALIDER
+  VALIDE
+}
+
+// Exercice fiscal : toutes les valeurs légales sont versionnées par exercice,
+// modifiables uniquement par l'ADMIN (le directeur), jamais codées en dur.
+model ExerciceFiscal {
+  id        Int     @id @default(autoincrement())
+  annee     Int     @unique
+  actif     Boolean @default(false)
+
+  parametres  ParametreLegal[]
+  tranchesIpr TrancheIprCDF[]
+}
+
+model ParametreLegal {
+  id               Int              @id @default(autoincrement())
+  exerciceId       Int
+  exercice         ExerciceFiscal   @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+  cle              String
+  valeur           Decimal?         @db.Decimal(16, 6) // null = inconnu (ex. plafond CNSS non publié)
+  unite            String? // "taux", "CDF", "USD", "heures", "jours", "personnes", "choix"
+  libelle          String
+  source           String?
+  statutValidation StatutValidation @default(A_VALIDER)
+  commentaire      String?
+  updatedAt        DateTime         @updatedAt
+
+  @@unique([exerciceId, cle])
+}
+
+// Barème IPR officiel DGI — tranches ANNUELLES en CDF (diviser par 12 pour le mensuel).
+model TrancheIprCDF {
+  id               Int              @id @default(autoincrement())
+  exerciceId       Int
+  exercice         ExerciceFiscal   @relation(fields: [exerciceId], references: [id], onDelete: Cascade)
+  ordre            Int
+  plafondAnnuelCDF Decimal?         @db.Decimal(18, 2) // null = dernière tranche (au-delà)
+  taux             Decimal          @db.Decimal(5, 4)
+  statutValidation StatutValidation @default(A_VALIDER)
+
+  @@unique([exerciceId, ordre])
+}
+
+model JourFerie {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date
+  designation String
+  annee       Int
+
+  @@unique([date])
+}
+
+model Employee {
+  id                String           @id @default(uuid())
+  matricule         String           @unique
+  nom               String
+  sexe              String
+  etatCivil         String
+  poste             String
+  secteur           String
+  categorie         EmployeeCategory
+  salaireMensuel    Decimal          @db.Decimal(12, 2)
+  transportJourCDF  Decimal          @db.Decimal(12, 2) @default(0)
+  transportMoisCDF  Decimal          @db.Decimal(12, 2) @default(0)
+  transportMoisUSD  Decimal          @db.Decimal(12, 2) @default(0)
+  cnssMontant       Decimal          @db.Decimal(12, 2) @default(0)
+  enfants           Int              @default(0)
+  type              EmployeeType     @default(NATIONAL)
+  dateNaissance     DateTime?        @db.Date
+  telephone         String?
+  email             String?
+  adresse           String?
+  photoUrl          String?
+  banque            String?
+  compteBancaire    String?
+  mobileMoney       String?
+  idExterneIVMS     String? // identifiant du salarié dans IVMS-4200 (appariement pointage)
+  dateEmbauche      DateTime         @db.Date
+  contrat           String
+  heuresParJour     Decimal          @db.Decimal(5, 2) @default(8)
+  heuresHebdomadaires Decimal        @db.Decimal(5, 2) @default(48)
+  fraisMedicauxMoisCourant Decimal   @db.Decimal(12, 2) @default(0)
+  actif             Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  attendances    Attendance[]
+  overtimeEntries OvertimeEntry[]
+  payrollLines   PayrollLine[]
+  leaveRequests  LeaveRequest[]
+  remplaceDans   LeaveRequest[] @relation("Remplacant")
+  contrats       Contrat[]
+  historiqueSalaire HistoriqueSalaire[]
+  dossierDisciplinaire DossierDisciplinaire[]
+  evaluations    Evaluation[]
+  documents      DocumentEmploye[]
+  planningCreneaux PlanningCreneau[]
+  primes         Prime[]
+  acomptes       AcompteSalaire[]
+  compte         User?          @relation("CompteEmploye")
+}
+
+// Prime appliquée à un employé pour un mois donné (répercutée sur le bulletin de la période).
+model Prime {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  nom        String // ex. "Prime de performance"
+  montantUSD Decimal  @db.Decimal(12, 2)
+  mois       Int
+  annee      Int
+  createdAt  DateTime @default(now())
+  creeParId  String?
+
+  @@index([employeeId, annee, mois])
+}
+
+enum StatutAcompte {
+  EN_ATTENTE
+  APPROUVE
+  REFUSE
+}
+
+// Types de congés/absences paramétrables. joursPayes / tauxPct = null → « À VALIDER »
+// (par un comptable-juriste) et non appliqués en paie tant que non renseignés.
+model TypeConge {
+  id         String  @id @default(uuid())
+  nom        String  @unique
+  joursPayes Int? // nombre de jours payés (null = À VALIDER)
+  tauxPct    Int? // taux de rémunération en % (null = À VALIDER)
+  ordre      Int     @default(0)
+  systeme    Boolean @default(false)
+  actif      Boolean @default(true)
+}
+
+// Demande d'acompte sur salaire : à approuver/refuser ; si approuvée, déduite du net du mois.
+model AcompteSalaire {
+  id           String        @id @default(uuid())
+  employeeId   String
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  montantUSD   Decimal       @db.Decimal(12, 2)
+  mois         Int
+  annee        Int
+  motif        String?
+  statut       StatutAcompte @default(EN_ATTENTE)
+  dateDemande  DateTime      @default(now())
+  decideParId  String?
+  dateDecision DateTime?
+
+  @@index([employeeId, annee, mois])
+}
+
+// Shift = créneau de planning CONFIGURABLE (modifiable/ajoutable depuis l'onglet Planning).
+// Matin/Après-midi/Soir/Nuit ont des heures ; Repos/Congé/Férié sont « système » (heures nulles,
+// non supprimables). « Nuit » sert au planning — AUCUNE majoration de nuit n'est appliquée en paie.
+model Shift {
+  id         String   @id @default(uuid())
+  nom        String
+  heureDebut String? // "HH:MM" (null pour Repos/Congé/Férié)
+  heureFin   String?
+  couleur    String   @default("indigo") // clé de palette (mappée en classes Tailwind)
+  dureeHeures    Decimal? @db.Decimal(5, 2) // durée en heures (si null, déduite de heureDebut/heureFin)
+  tauxHoraireUSD Decimal? @db.Decimal(12, 4) // taux horaire de ce rôle (si null, taux par défaut de l employé)
+  ordre      Int      @default(0)
+  systeme    Boolean  @default(false) // Repos/Congé/Férié : non supprimables
+  actif      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  creneaux PlanningCreneau[]
+}
+
+// Planning hebdomadaire prévisionnel (A3) : un shift par employé et par jour.
+model PlanningCreneau {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  shiftId    String
+  shift      Shift    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+enum TypeContrat {
+  CDD
+  CDI
+  STAGE
+  JOURNALIER
+}
+
+enum StatutContrat {
+  ACTIF
+  EXPIRE
+  RESILIE
+}
+
+// Contrat de travail : dates, période d'essai, échéance (pour alertes CDD).
+model Contrat {
+  id                String        @id @default(uuid())
+  employeeId        String
+  employee          Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type              TypeContrat
+  dateDebut         DateTime      @db.Date
+  dateFin           DateTime?     @db.Date // null pour CDI
+  finPeriodeEssai   DateTime?     @db.Date
+  heuresHebdo       Decimal       @db.Decimal(5, 2) @default(48)
+  salaireMensuel    Decimal       @db.Decimal(12, 2)
+  devise            String        @default("USD")
+  poste             String
+  statut            StatutContrat @default(ACTIF)
+  documentUrl       String?
+  createdAt         DateTime      @default(now())
+
+  @@index([employeeId])
+}
+
+// Historique salarial et promotions.
+model HistoriqueSalaire {
+  id             String   @id @default(uuid())
+  employeeId     String
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date           DateTime @default(now())
+  ancienSalaire  Decimal? @db.Decimal(12, 2)
+  nouveauSalaire Decimal  @db.Decimal(12, 2)
+  ancienPoste    String?
+  nouveauPoste   String?
+  motif          String // "Promotion", "Ajustement", "Embauche"...
+  decideParId    String?
+
+  @@index([employeeId])
+}
+
+enum TypeDisciplinaire {
+  AVERTISSEMENT
+  SANCTION
+  MISE_A_PIED
+  MESURE
+}
+
+// Dossier disciplinaire : sanctions, avertissements, mesures avec dates et pièces.
+model DossierDisciplinaire {
+  id          String            @id @default(uuid())
+  employeeId  String
+  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type        TypeDisciplinaire
+  date        DateTime          @db.Date
+  motif       String
+  description String?
+  documentUrl String?
+  emisParId   String?
+  createdAt   DateTime          @default(now())
+
+  @@index([employeeId])
+}
+
+// Évaluations de performance.
+model Evaluation {
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  note        Int? // sur 100, optionnel
+  commentaire String?
+  evaluateur  String?
+  documentUrl String?
+  createdAt   DateTime @default(now())
+
+  @@index([employeeId])
+}
+
+enum TypeDocument {
+  CONTRAT
+  CARTE_IDENTITE
+  DIPLOME
+  PHOTO
+  CV
+  CERTIFICAT_MEDICAL
+  AVERTISSEMENT
+  LETTRE
+  AUTRE
+}
+
+// Gestion documentaire par métadonnées (type, émission, expiration).
+model DocumentEmploye {
+  id            String       @id @default(uuid())
+  employeeId    String
+  employee      Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type          TypeDocument
+  nom           String
+  fichierUrl    String
+  dateEmission  DateTime?    @db.Date
+  dateExpiration DateTime?   @db.Date // pour alertes (carte d'identité, certificat médical...)
+  importeParId  String?
+  createdAt     DateTime     @default(now())
+
+  @@index([employeeId])
+}
+
+enum SourcePointage {
+  MANUEL
+  IVMS_RAPPORT
+  IVMS_API
+}
+
+// Trace chaque import de pointage (rapport IVMS-4200 ou API) : source, résultat, anomalies.
+model ImportPointage {
+  id            String         @id @default(uuid())
+  source        SourcePointage
+  nomFichier    String?
+  mois          Int
+  annee         Int
+  nbLignes      Int            @default(0)
+  nbAppliques   Int            @default(0)
+  anomalies     Json? // liste des anomalies détectées (non appliquées silencieusement)
+  importeParId  String?
+  date          DateTime       @default(now())
+
+  @@index([annee, mois])
+}
+
+model Attendance {
+  id         String         @id @default(uuid())
+  employeeId String
+  employee   Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime       @db.Date
+  code       AttendanceCode
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+model OvertimeEntry {
+  id                String   @id @default(uuid())
+  employeeId        String
+  employee          Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date              DateTime @db.Date
+  heuresTravaillees Decimal  @db.Decimal(5, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+model PayrollRun {
+  id          String        @id @default(uuid())
+  mois        Int
+  annee       Int
+  statut      PayrollStatus @default(BROUILLON)
+  dateCalcul  DateTime      @default(now())
+  tauxChangeUtilise Decimal @db.Decimal(10, 2)
+
+  lignes PayrollLine[]
+
+  @@unique([mois, annee])
+}
+
+model PayrollLine {
+  id             String     @id @default(uuid())
+  payrollRunId   String
+  payrollRun     PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employeeId     String
+  employee       Employee   @relation(fields: [employeeId], references: [id])
+
+  // Brigade — jours & HS (0 pour backoffice)
+  joursPayes100  Int     @default(0)
+  joursPayes2_3  Int     @default(0)
+  joursNonPayes  Int     @default(0)
+  nombreAbsences Int     @default(0) // A + N + S sur la période
+  remuneration100 Decimal @db.Decimal(12, 2) @default(0)
+  remuneration2_3 Decimal @db.Decimal(12, 2) @default(0)
+  hsValorisee    Decimal @db.Decimal(12, 2) @default(0)
+
+  // Détail heures (snapshot au moment du calcul)
+  heuresTravaillees     Decimal @db.Decimal(6, 2) @default(0)
+  heuresContractuelles  Decimal @db.Decimal(6, 2) @default(0)
+  heuresSupp30          Decimal @db.Decimal(6, 2) @default(0)
+  heuresSupp60          Decimal @db.Decimal(6, 2) @default(0)
+  heuresSupp100         Decimal @db.Decimal(6, 2) @default(0)
+
+  // Congés & frais médicaux
+  joursCongePris     Int     @default(0)
+  indemniteCongesUSD Decimal @db.Decimal(12, 2) @default(0)
+  fraisMedicauxUSD   Decimal @db.Decimal(12, 2) @default(0)
+
+  // Commun
+  transportUSD       Decimal @db.Decimal(12, 2) @default(0)
+  primesUSD          Decimal @db.Decimal(12, 2) @default(0)
+  acompteUSD         Decimal @db.Decimal(12, 2) @default(0)
+  salBrutUSD         Decimal @db.Decimal(12, 2)
+  cnssSalarieUSD     Decimal @db.Decimal(12, 2)
+  netImposableUSD    Decimal @db.Decimal(12, 2)
+  iprCalculeUSD      Decimal @db.Decimal(12, 2)
+  allocFamilialeUSD  Decimal @db.Decimal(12, 2)
+  salNetUSD          Decimal @db.Decimal(12, 2)
+  salNetCDF          Decimal @db.Decimal(14, 2)
+  cnssPatronalUSD    Decimal @db.Decimal(12, 2)
+  inppUSD            Decimal @db.Decimal(12, 2) @default(0)
+  onemUSD            Decimal @db.Decimal(12, 2) @default(0)
+  coutEmployeurUSD   Decimal @db.Decimal(12, 2)
+  coutEmployeurCDF   Decimal @db.Decimal(14, 2)
+
+  // Machine à états du paiement
+  statutPaiement PaymentStatus @default(PAS_VALIDE)
+  datePaiement   DateTime?
+  modePaiement   ModePaiement?
+  payeParId      String?
+  payePar        User?         @relation("PayeParUser", fields: [payeParId], references: [id])
+
+  transitions      TransitionPaie[]
+  versionsBulletin VersionBulletin[]
+
+  @@unique([payrollRunId, employeeId])
+}
+
+// Journal des transitions de la machine à états de paie (traçabilité complète).
+model TransitionPaie {
+  id            String        @id @default(uuid())
+  payrollLineId String
+  payrollLine   PayrollLine   @relation(fields: [payrollLineId], references: [id], onDelete: Cascade)
+  deStatut      PaymentStatus
+  versStatut    PaymentStatus
+  date          DateTime      @default(now())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  modePaiement  ModePaiement?
+  preuveUrl     String? // pièce justificative (preuve de paiement) éventuelle
+  commentaire   String?
+
+  @@index([payrollLineId])
+}
+
+// Versions immuables d'un bulletin : un bulletin émis n'est jamais écrasé, une nouvelle
+// version est créée à chaque recalcul/réémission. Le snapshot fige tous les montants.
+model VersionBulletin {
+  id            String      @id @default(uuid())
+  payrollLineId String
+  payrollLine   PayrollLine @relation(fields: [payrollLineId], references: [id], onDelete: Cascade)
+  numeroVersion Int
+  snapshot      Json // copie figée de la PayrollLine + employé au moment de l'émission
+  genereLe      DateTime    @default(now())
+  genreParId    String
+  genrePar      User        @relation(fields: [genreParId], references: [id])
+
+  @@unique([payrollLineId, numeroVersion])
+  @@index([payrollLineId])
+}
+
+// Journal d'audit : chaque modification sensible (salaire, contrat, congé, présence,
+// statut de paie...) enregistre qui / quand / ancienne valeur / nouvelle valeur.
+model JournalAudit {
+  id             String   @id @default(uuid())
+  entite         String // ex. "PayrollLine", "Employee", "LeaveRequest"
+  entiteId       String
+  champ          String // champ modifié, ou "statut", "creation", "suppression"
+  ancienneValeur String?
+  nouvelleValeur String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  date           DateTime @default(now())
+
+  @@index([entite, entiteId])
+  @@index([date])
+}
+
+model LeaveRequest {
+  id            String      @id @default(uuid())
+  employeeId    String
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type          String
+  dateDebut     DateTime    @db.Date
+  dateFin       DateTime    @db.Date
+  nbJours       Decimal     @db.Decimal(5, 2)
+  motif         String?
+  remplacantId  String?
+  remplacant    Employee?   @relation("Remplacant", fields: [remplacantId], references: [id])
+  statut        LeaveStatus @default(EN_ATTENTE)
+  approuveParId String?
+  approuvePar   User?       @relation("ApprovedBy", fields: [approuveParId], references: [id])
+  dateEnreg     DateTime    @default(now())
+
+  @@index([employeeId])
+}
+
+enum TypeTaxe {
+  CNSS
+  IPR
+  INPP
+  ONEM
+}
+
+enum StatutDeclaration {
+  A_DECLARER
+  DECLARE
+  PAYE
+}
+
+// Suivi des déclarations mensuelles (CNSS avant le 15 du mois suivant ; délai IPR À VALIDER).
+// Les montants sont figés au moment du marquage pour l'historique ; tant que A_DECLARER,
+// la page recalcule depuis la paie du mois.
+model DeclarationTaxe {
+  id            String            @id @default(uuid())
+  type          TypeTaxe
+  mois          Int
+  annee         Int
+  montantUSD    Decimal           @db.Decimal(14, 2)
+  montantCDF    Decimal           @db.Decimal(16, 2)
+  echeance      DateTime          @db.Date
+  statut        StatutDeclaration @default(A_DECLARER)
+  marqueParId   String?
+  dateMarquage  DateTime?
+
+  @@unique([type, mois, annee])
+}
+
+/// Notifications in-app (cloche) destinées à la Direction : demandes de congé / d'acompte,
+/// clôture de paie proche… `lu` global (petite structure, 1–2 comptes Direction).
+model Notification {
+  id        String   @id @default(uuid())
+  type      String   // CONGE | ACOMPTE | CLOTURE | AUTRE
+  message   String
+  lien      String?
+  lu        Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([lu, createdAt])
+}
+
+/// Fin de contrat (démission / licenciement / fin CDD) + solde de tout compte (loi RDC).
+/// Les indemnités légales (préavis, licenciement) sont saisies par l'utilisateur — jamais
+/// inventées par le logiciel — et à faire valider par un juriste.
+model FinContrat {
+  id                       String   @id @default(uuid())
+  employeeId               String
+  motif                    String   // DEMISSION | LICENCIEMENT | FIN_CDD | AUTRE
+  dateFin                  DateTime @db.Date
+  salaireJournalierUSD     Decimal  @db.Decimal(12, 2)
+  joursTravaillesMois      Int      @default(0)
+  salaireProrataUSD        Decimal  @db.Decimal(12, 2) @default(0)
+  joursCongesNonPris       Decimal  @db.Decimal(6, 2) @default(0)
+  indemniteCongesUSD       Decimal  @db.Decimal(12, 2) @default(0)
+  preavisJours             Int      @default(0)
+  indemnitePreavisUSD      Decimal  @db.Decimal(12, 2) @default(0)
+  indemniteLicenciementUSD Decimal  @db.Decimal(12, 2) @default(0)
+  autresUSD                Decimal  @db.Decimal(12, 2) @default(0)
+  totalUSD                 Decimal  @db.Decimal(12, 2) @default(0)
+  commentaire              String?
+  createdAt                DateTime @default(now())
+  creeParId                String?
+
+  @@index([employeeId])
+}
+
+/// Modèle hebdomadaire de planning par employé : le shift (rôle) habituel pour chaque jour de la
+/// semaine (0=dim … 6=sam). Sert à la génération automatique — gère les rôles variables (ex.
+/// Aimée serveuse lun/mer/ven, assistante admin mar/jeu). Pas de shift pour un jour = repos.
+model PlanningModele {
+  id         String @id @default(uuid())
+  employeeId String
+  jour       Int
+  shiftId    String
+
+  @@unique([employeeId, jour])
+  @@index([employeeId])
+}

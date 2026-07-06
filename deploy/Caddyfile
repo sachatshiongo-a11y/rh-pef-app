@@ -1,0 +1,8 @@
+# Caddy — reverse proxy + HTTPS automatique (Let's Encrypt) pour l'app RH.
+# Placer en /etc/caddy/Caddyfile puis : sudo systemctl reload caddy
+# Prérequis DNS : un enregistrement A « rh.patesenfolie.cd » → IP publique du VPS Combell.
+
+rh.patesenfolie.cd {
+    encode zstd gzip
+    reverse_proxy localhost:3000
+}

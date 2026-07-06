@@ -1,0 +1,19 @@
+# Service systemd — lance l'app Next.js au démarrage et la redémarre en cas de crash.
+# Installer : sudo cp deploy/rh-pef.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#            sudo systemctl enable --now rh-pef
+
+[Unit]
+Description=RH Pates en Folie (Next.js)
+After=network.target
+
+[Service]
+Type=simple
+User=rhpef
+WorkingDirectory=/opt/rh-pef-app
+EnvironmentFile=/opt/rh-pef-app/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

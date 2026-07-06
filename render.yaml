@@ -1,0 +1,45 @@
+# Déploiement Render (offre gratuite) — https://render.com
+# 1. Pousser ce projet sur un dépôt GitHub (privé).
+# 2. Sur Render : New + → Blueprint → sélectionner ce dépôt (Render lit ce fichier).
+# 3. Renseigner les variables d'environnement marquées « sync: false » (valeurs secrètes)
+#    dans le tableau de bord Render (jamais dans le code).
+#
+# ⚠️ Offre gratuite : le service se met en veille après ~15 min d'inactivité et met ~30 s à se
+#    réveiller à la 1re requête. Parfait pour tester ; passer à une offre payante (~7 $/mois) ou un
+#    petit VPS pour supprimer ce délai.
+
+services:
+  - type: web
+    name: rh-pef
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /login
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # --- Secrets à renseigner dans le tableau de bord Render ---
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # --- E-mail (Google Workspace) ---
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_USER
+        value: sachatshiongo@patesenfolie.cd
+      - key: SMTP_PASS
+        sync: false # mot de passe d'application Google (16 lettres)
+      - key: SMTP_FROM
+        value: RH Pâtes en Folie <sachatshiongo@patesenfolie.cd>

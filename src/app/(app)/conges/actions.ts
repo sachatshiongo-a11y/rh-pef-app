@@ -1,0 +1,185 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
+import { verifySession, requireRole } from "@/lib/auth";
+import { journaliser } from "@/lib/audit";
+import { calculerJoursOuvrables } from "@/lib/payroll";
+import { creerNotification } from "@/lib/notifications";
+
+function revaliderConges() {
+  revalidatePath("/conges");
+  revalidatePath("/a-valider");
+  revalidatePath("/employes");
+  revalidatePath("/dashboard");
+}
+
+export async function demanderConge(formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+
+  const employeeId = String(formData.get("employeeId"));
+  const type = String(formData.get("type"));
+  const dateDebut = new Date(String(formData.get("dateDebut")));
+  const dateFin = new Date(String(formData.get("dateFin")));
+  const nbJours = calculerJoursOuvrables(dateDebut, dateFin);
+  const motif = String(formData.get("motif") ?? "").trim() || null;
+  const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
+
+  await prisma.leaveRequest.create({
+    data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: "EN_ATTENTE" },
+  });
+
+  const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
+  await creerNotification({
+    type: "CONGE",
+    message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+    lien: "/a-valider",
+  });
+
+  revalidatePath("/conges");
+  revalidatePath("/employes");
+  revalidatePath("/", "layout");
+}
+
+/** Seuls les comptes Admin (Directrice, Sacha) peuvent autoriser ou refuser une demande. */
+export async function approuverConge(leaveRequestId: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+
+  await prisma.leaveRequest.update({
+    where: { id: leaveRequestId },
+    data: { statut: "APPROUVE", approuveParId: user.id },
+  });
+  await journaliser(prisma, {
+    entite: "LeaveRequest",
+    entiteId: leaveRequestId,
+    champ: "statut",
+    nouvelleValeur: "APPROUVE",
+    userId: user.id,
+  });
+
+  revaliderConges();
+}
+
+export async function refuserConge(leaveRequestId: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+
+  await prisma.leaveRequest.update({
+    where: { id: leaveRequestId },
+    data: { statut: "REFUSE", approuveParId: user.id },
+  });
+  await journaliser(prisma, {
+    entite: "LeaveRequest",
+    entiteId: leaveRequestId,
+    champ: "statut",
+    nouvelleValeur: "REFUSE",
+    userId: user.id,
+  });
+
+  revaliderConges();
+}
+
+/**
+ * Supprime UNE demande de congé (A2) : la retire de la liste (≠ la refuser, qui la garde en
+ * historique avec le statut REFUSE). La suppression est tracée au journal d'audit (qui, quand,
+ * quelle demande), même si la demande n'apparaît plus. Réservé à l'Admin.
+ */
+export async function supprimerConge(leaveRequestId: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+
+  const demande = await prisma.leaveRequest.findUnique({
+    where: { id: leaveRequestId },
+    include: { employee: { select: { nom: true, matricule: true } } },
+  });
+  if (!demande) return;
+
+  const resume = `${demande.type} de ${demande.employee.nom} (${demande.employee.matricule}) du ${new Date(
+    demande.dateDebut
+  ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.delete({ where: { id: leaveRequestId } });
+    await journaliser(tx, {
+      entite: "LeaveRequest",
+      entiteId: leaveRequestId,
+      champ: "suppression",
+      ancienneValeur: resume,
+      userId: user.id,
+    });
+  });
+
+  revaliderConges();
+}
+
+/** ACTION GROUPÉE : approuve plusieurs demandes en attente d'un coup. */
+export async function approuverCongesEnLot(ids: string[]): Promise<number> {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  let n = 0;
+  for (const id of ids) {
+    const d = await prisma.leaveRequest.findUnique({ where: { id } });
+    if (!d || d.statut !== "EN_ATTENTE") continue;
+    await prisma.leaveRequest.update({
+      where: { id },
+      data: { statut: "APPROUVE", approuveParId: user.id },
+    });
+    await journaliser(prisma, {
+      entite: "LeaveRequest",
+      entiteId: id,
+      champ: "statut",
+      nouvelleValeur: "APPROUVE",
+      userId: user.id,
+    });
+    n++;
+  }
+  revaliderConges();
+  return n;
+}
+
+/** ACTION GROUPÉE : refuse plusieurs demandes en attente d'un coup. */
+export async function refuserCongesEnLot(ids: string[]): Promise<number> {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  let n = 0;
+  for (const id of ids) {
+    const d = await prisma.leaveRequest.findUnique({ where: { id } });
+    if (!d || d.statut !== "EN_ATTENTE") continue;
+    await prisma.leaveRequest.update({
+      where: { id },
+      data: { statut: "REFUSE", approuveParId: user.id },
+    });
+    await journaliser(prisma, {
+      entite: "LeaveRequest",
+      entiteId: id,
+      champ: "statut",
+      nouvelleValeur: "REFUSE",
+      userId: user.id,
+    });
+    n++;
+  }
+  revaliderConges();
+  return n;
+}
+
+/** Supprime toutes les demandes de congé (journal complet). Action destructive réservée à l'Admin. */
+export async function reinitialiserConges() {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+
+  const nb = await prisma.leaveRequest.count();
+  await prisma.$transaction(async (tx) => {
+    await tx.leaveRequest.deleteMany({});
+    await journaliser(tx, {
+      entite: "LeaveRequest",
+      entiteId: "*",
+      champ: "suppression_totale",
+      ancienneValeur: `${nb} demande(s) supprimée(s)`,
+      userId: user.id,
+    });
+  });
+
+  revaliderConges();
+}
