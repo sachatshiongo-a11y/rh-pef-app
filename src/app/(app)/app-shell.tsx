@@ -135,7 +135,7 @@ export function AppShell({
                       onClick={fermer}
                       className="flex items-center gap-2.5 rounded-md px-2 py-2 text-sm hover:bg-accent hover:text-accent-foreground lg:py-1.5"
                     >
-                      <span aria-hidden>{item.icone}</span>
+                      <span aria-hidden className="lg:hidden">{item.icone}</span>
                       <span className="flex-1">{item.label}</span>
                       {badge > 0 && (
                         <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">
