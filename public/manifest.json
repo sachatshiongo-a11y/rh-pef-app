@@ -1,8 +1,8 @@
 {
   "name": "Pâtes en Folie — RH & Paie",
-  "short_name": "PEF RH",
+  "short_name": "RH PEF",
   "description": "Gestion RH et paie de Pâtes en Folie",
-  "start_url": "/dashboard",
+  "start_url": "/accueil",
   "display": "standalone",
   "background_color": "#fdfbf7",
   "theme_color": "#8b5e3c",
@@ -20,13 +20,13 @@
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-192.png",
+      "src": "/icons/icon-maskable-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/icon-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
