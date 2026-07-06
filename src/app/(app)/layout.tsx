@@ -22,15 +22,10 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     titre: "Temps de travail",
     items: [
       { href: "/planning", label: "Planning", icone: "🗓" },
-      { href: "/conges", label: "Congés", icone: "🏖" },
-      { href: "/absences", label: "Calendrier absences", icone: "📆" },
-    ],
-  },
-  {
-    titre: "Saisie de paie",
-    items: [
       { href: "/presences", label: "Présences", icone: "📋" },
       { href: "/heures-supp", label: "Heures supp.", icone: "⏱" },
+      { href: "/conges", label: "Congés", icone: "🏖" },
+      { href: "/absences", label: "Calendrier absences", icone: "📆" },
     ],
   },
   {

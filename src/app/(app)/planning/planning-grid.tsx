@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useTransition } from "react";
-import { saisirCreneau } from "./actions";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { saisirCreneau, saisirCreneauxEnLot } from "./actions";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 import { Avatar } from "@/components/avatar";
 
@@ -34,6 +34,31 @@ export function PlanningGrid({
   const [isPending, startTransition] = useTransition();
   const tableRef = useRef<HTMLTableElement>(null);
   const parId = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
+
+  // Actions groupées : sélection d'employés + affectation d'un shift sur des jours ciblés.
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [bulkShift, setBulkShift] = useState<string>(shifts[0]?.id ?? "");
+  const [bulkJours, setBulkJours] = useState<Set<number>>(new Set(isoDates.map((_, i) => i)));
+  function toggleEmp(id: string) {
+    setSelection((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleJour(i: number) {
+    setBulkJours((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  }
+  function appliquerBulk(shiftId: string) {
+    const emps = [...selection];
+    const jours = [...bulkJours];
+    if (emps.length === 0 || jours.length === 0) return;
+    const entrees: { employeeId: string; dateIso: string; shiftId: string }[] = [];
+    for (const empId of emps)
+      for (const ji of jours) {
+        const iso = isoDates[ji];
+        const sel = tableRef.current?.querySelector<HTMLSelectElement>(`select[data-emp="${empId}"][data-iso="${iso}"]`);
+        if (sel) { sel.value = shiftId; couleur(sel, shiftId); }
+        entrees.push({ employeeId: empId, dateIso: iso, shiftId });
+      }
+    startTransition(() => saisirCreneauxEnLot(entrees));
+  }
 
   function couleur(el: HTMLSelectElement, shiftId: string) {
     const s = parId.get(shiftId);
@@ -79,11 +104,40 @@ export function PlanningGrid({
   }
 
   return (
+    <div>
+      {peutModifier && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm">
+          <span className="font-medium">{selection.size} employé(s)</span>
+          <span className="text-muted-foreground">→ affecter</span>
+          <select value={bulkShift} onChange={(e) => setBulkShift(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
+            {shifts.map((s) => (<option key={s.id} value={s.id}>{libelleShift(s.nom, s.heureDebut, s.heureFin)}</option>))}
+          </select>
+          <span className="text-muted-foreground">sur</span>
+          <div className="flex flex-wrap gap-1">
+            {labelsJours.map((lbl, i) => (
+              <label key={i} className={`cursor-pointer rounded border px-1.5 py-0.5 text-[11px] ${bulkJours.has(i) ? "border-primary bg-primary/10" : ""}`}>
+                <input type="checkbox" className="sr-only" checked={bulkJours.has(i)} onChange={() => toggleJour(i)} />
+                {lbl}
+              </label>
+            ))}
+          </div>
+          <button onClick={() => appliquerBulk(bulkShift)} disabled={isPending || selection.size === 0} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Affecter</button>
+          <button onClick={() => appliquerBulk("")} disabled={isPending || selection.size === 0} className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive disabled:opacity-50">Vider</button>
+          <button onClick={() => setSelection(new Set())} className="text-xs text-muted-foreground underline">Désélectionner</button>
+        </div>
+      )}
     <div className="overflow-x-auto rounded-xl border">
       <table ref={tableRef} className="w-full text-sm">
         <thead className="bg-muted/50 text-left">
           <tr>
-            <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">Employé</th>
+            <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">
+              <span className="flex items-center gap-2">
+                {peutModifier && (
+                  <input type="checkbox" checked={employees.length > 0 && employees.every((e) => selection.has(e.id))} onChange={(e) => setSelection(e.target.checked ? new Set(employees.map((x) => x.id)) : new Set())} aria-label="Tout sélectionner" />
+                )}
+                Employé
+              </span>
+            </th>
             {labelsJours.map((lbl, i) => (
               <th
                 key={isoDates[i]}
@@ -101,10 +155,15 @@ export function PlanningGrid({
           {employees.map((e, rowIndex) => (
             <tr key={e.id} className="border-t">
               <td className="sticky left-0 z-10 whitespace-nowrap bg-background px-3 py-1.5">
-                <Link href={`/employes/${e.id}`} className="flex items-center gap-2 hover:text-primary hover:underline">
-                  <Avatar nom={e.nom} taille={26} photoUrl={e.photoUrl} />
-                  {e.nom}
-                </Link>
+                <span className="flex items-center gap-2">
+                  {peutModifier && (
+                    <input type="checkbox" checked={selection.has(e.id)} onChange={() => toggleEmp(e.id)} aria-label={`Sélectionner ${e.nom}`} />
+                  )}
+                  <Link href={`/employes/${e.id}`} className="flex items-center gap-2 hover:text-primary hover:underline">
+                    <Avatar nom={e.nom} taille={26} photoUrl={e.photoUrl} />
+                    {e.nom}
+                  </Link>
+                </span>
               </td>
               {isoDates.map((iso, colIndex) => {
                 const value = creneauMap[`${e.id}_${iso}`] ?? "";
@@ -156,6 +215,7 @@ export function PlanningGrid({
         </tfoot>
       </table>
       {isPending && <p className="p-2 text-xs text-muted-foreground">Enregistrement...</p>}
+    </div>
     </div>
   );
 }

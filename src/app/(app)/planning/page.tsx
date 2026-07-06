@@ -97,7 +97,7 @@ export default async function PlanningPage({
       chargerParametresPaie(),
     ]);
     const modeleMap: Record<string, string> = {};
-    for (const m of modeles) modeleMap[`${m.employeeId}_${m.jour}`] = m.shiftId;
+    for (const m of modeles) modeleMap[`${m.employeeId}_${m.jour}_${m.semaine}`] = m.shiftId;
     // Taux horaire par défaut de chaque employé = salaire mensuel ÷ (heures/jour × jours ouvrables).
     const tauxDefautParEmp: Record<string, number> = {};
     for (const e of employees) {

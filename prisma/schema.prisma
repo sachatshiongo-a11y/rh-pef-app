@@ -655,8 +655,9 @@ model PlanningModele {
   id         String @id @default(uuid())
   employeeId String
   jour       Int
+  semaine    Int    @default(0) // 0 = chaque semaine ; 1 = semaine A ; 2 = semaine B (bi-hebdo)
   shiftId    String
 
-  @@unique([employeeId, jour])
+  @@unique([employeeId, jour, semaine])
   @@index([employeeId])
 }

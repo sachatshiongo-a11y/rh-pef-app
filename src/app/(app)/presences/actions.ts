@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
-import { dureeShift } from "../planning/creneaux";
+import { dureeShift, pariteSemaine } from "../planning/creneaux";
 import type { AttendanceCode } from "@prisma/client";
 
 async function appliquerPresence(
@@ -32,10 +32,14 @@ async function appliquerPresence(
     if (!dejaSaisi) {
       const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
       let heures = Number(employee.heuresParJour);
-      const jour = new Date(date).getUTCDay();
-      const modele = await prisma.planningModele.findUnique({
-        where: { employeeId_jour: { employeeId, jour } },
+      const dObj = new Date(date);
+      const jour = dObj.getUTCDay();
+      // Modèle du jour : couche de la parité (semaine A/B), sinon couche « chaque semaine ».
+      const modeles = await prisma.planningModele.findMany({
+        where: { employeeId, jour, semaine: { in: [pariteSemaine(dObj), 0] } },
       });
+      const modele =
+        modeles.find((m) => m.semaine === pariteSemaine(dObj)) ?? modeles.find((m) => m.semaine === 0);
       if (modele) {
         const shift = await prisma.shift.findUnique({ where: { id: modele.shiftId } });
         if (shift) {

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { pariteSemaine } from "./creneaux";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -23,18 +24,19 @@ export async function saisirCreneau(employeeId: string, dateIso: string, shiftId
   revalidatePath("/planning");
 }
 
-/** Enregistre / efface le shift du MODÈLE hebdomadaire d'un employé pour un jour (0=dim…6=sam). */
-export async function saisirModele(employeeId: string, jour: number, shiftId: string) {
+/** Enregistre / efface le shift du MODÈLE d'un employé pour un jour (0=dim…6=sam) et une couche
+ *  de semaine (0=chaque semaine, 1=semaine A, 2=semaine B). */
+export async function saisirModele(employeeId: string, jour: number, shiftId: string, semaine = 0) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
-  if (jour < 0 || jour > 6) return;
+  if (jour < 0 || jour > 6 || semaine < 0 || semaine > 2) return;
   if (!shiftId) {
-    await prisma.planningModele.deleteMany({ where: { employeeId, jour } });
+    await prisma.planningModele.deleteMany({ where: { employeeId, jour, semaine } });
   } else {
     await prisma.planningModele.upsert({
-      where: { employeeId_jour: { employeeId, jour } },
+      where: { employeeId_jour_semaine: { employeeId, jour, semaine } },
       update: { shiftId },
-      create: { employeeId, jour, shiftId },
+      create: { employeeId, jour, semaine, shiftId },
     });
   }
   revalidatePath("/planning");
@@ -83,12 +85,17 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
   const feriesIso = new Set(feries.map((f) => iso(new Date(f.date))));
   const existSet = new Set(existants.map((c) => `${c.employeeId}_${iso(new Date(c.date))}`));
   const shiftsActifsIds = new Set(shifts.map((s) => s.id));
-  // Modèle : employeeId -> (jour 0-6 -> shiftId) ; seuls les shifts encore actifs.
-  const modeleParEmp = new Map<string, Map<number, string>>();
+  // Modèle : employeeId -> ("jour_semaine" -> shiftId) ; seuls les shifts encore actifs.
+  const modeleParEmp = new Map<string, Map<string, string>>();
   for (const m of modeles) {
     if (!shiftsActifsIds.has(m.shiftId)) continue;
-    (modeleParEmp.get(m.employeeId) ?? modeleParEmp.set(m.employeeId, new Map()).get(m.employeeId)!).set(m.jour, m.shiftId);
+    (modeleParEmp.get(m.employeeId) ?? modeleParEmp.set(m.employeeId, new Map()).get(m.employeeId)!).set(`${m.jour}_${m.semaine}`, m.shiftId);
   }
+  // Shift du modèle pour une date : couche de la parité (semaine A/B) sinon couche « chaque semaine ».
+  const shiftDuModele = (mod: Map<string, string>, d: Date): string | undefined => {
+    const dow = d.getUTCDay();
+    return mod.get(`${dow}_${pariteSemaine(d)}`) ?? mod.get(`${dow}_0`);
+  };
 
   // Jours retenus de la période (selon jours de semaine choisis, fériés optionnels), par semaine.
   const joursParSemaine = new Map<string, Date[]>();
@@ -109,7 +116,7 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
       // L'employé a un modèle hebdomadaire : on affecte son shift/rôle du jour de la semaine.
       for (const jours of joursParSemaine.values()) {
         for (const d of jours) {
-          const shiftId = modele.get(d.getUTCDay());
+          const shiftId = shiftDuModele(modele, d);
           if (!shiftId) continue; // pas de shift ce jour-là dans le modèle = repos
           if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
           aCreer.push({ employeeId: emp.id, date: d, shiftId });
@@ -138,6 +145,30 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
   }
   if (aCreer.length > 0) {
     await prisma.planningCreneau.createMany({ data: aCreer, skipDuplicates: true });
+  }
+  revalidatePath("/planning");
+}
+
+/** Affecte (ou efface) un shift en LOT : plusieurs employés × plusieurs jours en un aller-retour. */
+export async function saisirCreneauxEnLot(
+  entrees: { employeeId: string; dateIso: string; shiftId: string }[]
+) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const aVider = entrees.filter((e) => !e.shiftId);
+  const aPoser = entrees.filter((e) => e.shiftId);
+  if (aVider.length > 0) {
+    await prisma.planningCreneau.deleteMany({
+      where: { OR: aVider.map((e) => ({ employeeId: e.employeeId, date: new Date(e.dateIso + "T00:00:00Z") })) },
+    });
+  }
+  for (const e of aPoser) {
+    const date = new Date(e.dateIso + "T00:00:00Z");
+    await prisma.planningCreneau.upsert({
+      where: { employeeId_date: { employeeId: e.employeeId, date } },
+      update: { shiftId: e.shiftId },
+      create: { employeeId: e.employeeId, date, shiftId: e.shiftId },
+    });
   }
   revalidatePath("/planning");
 }
