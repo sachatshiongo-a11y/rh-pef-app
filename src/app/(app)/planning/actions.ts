@@ -70,7 +70,7 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
   const [employees, shifts, feries, existants, modeles] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
-      select: { id: true, heuresParJour: true, heuresHebdomadaires: true },
+      select: { id: true, heuresParJour: true, heuresHebdomadaires: true, poste: true, secteur: true },
     }),
     prisma.shift.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debut, lte: fin } } }),
@@ -78,8 +78,27 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
     utiliserModeles ? prisma.planningModele.findMany() : Promise.resolve([]),
   ]);
 
+  // Shift de repli selon la FICHE (poste/secteur) pour les employés SANS modèle hebdo :
+  //   caissier(ère) → Caisse ; secteur Cuisine → Matin cuisine ; secteur Salle → Matin/midi salle ;
+  //   autres (transport, direction, backoffice) → Journée 8h-17h. Le shift Admin (réservé, via
+  //   modèle uniquement) et Nuit ne sont JAMAIS affectés automatiquement.
+  const parNom = (re: RegExp) => shifts.find((s) => re.test(s.nom));
+  const shiftCaisse = parNom(/caisse/i);
+  const shiftCuisine = parNom(/matin cuisine/i);
+  const shiftSalle = parNom(/matin\/midi salle/i);
+  const shiftJournee =
+    parNom(/journée 8h-17h/i) ?? shifts.find((s) => !s.systeme && !/admin|nuit/i.test(s.nom));
   const shiftChoisi = shiftIdParam ? shifts.find((s) => s.id === shiftIdParam) : null;
-  const defaut = shiftChoisi ?? shifts.find((s) => !s.systeme && !/nuit/i.test(s.nom)) ?? shifts.find((s) => !s.systeme);
+
+  const shiftPourEmploye = (emp: { poste: string | null; secteur: string | null }) => {
+    if (shiftChoisi) return shiftChoisi; // choix explicite de l'utilisateur
+    const poste = (emp.poste ?? "").toLowerCase();
+    const secteur = (emp.secteur ?? "").toLowerCase();
+    if (/caissi/.test(poste)) return shiftCaisse ?? shiftJournee;
+    if (/cuisine/.test(secteur)) return shiftCuisine ?? shiftJournee;
+    if (/salle/.test(secteur)) return shiftSalle ?? shiftJournee;
+    return shiftJournee;
+  };
 
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const feriesIso = new Set(feries.map((f) => iso(new Date(f.date))));
@@ -124,8 +143,9 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
       }
       continue;
     }
-    // Sinon : répartition selon les heures (1er shift de jour sur N jours ouvrables).
-    if (!defaut) continue;
+    // Sinon : shift selon la FICHE (caisse / cuisine / salle / journée), réparti selon les heures.
+    const shiftEmp = shiftPourEmploye(emp);
+    if (!shiftEmp) continue;
     const hj = Number(emp.heuresParJour) || 8;
     const hh = Number(emp.heuresHebdomadaires) || 48;
     const nbSem = nbParSemaine > 0
@@ -134,7 +154,7 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
     for (const jours of joursParSemaine.values()) {
       for (const d of jours.slice(0, nbSem)) {
         if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
-        aCreer.push({ employeeId: emp.id, date: d, shiftId: defaut.id });
+        aCreer.push({ employeeId: emp.id, date: d, shiftId: shiftEmp.id });
       }
     }
   }

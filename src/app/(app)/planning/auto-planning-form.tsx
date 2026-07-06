@@ -54,11 +54,16 @@ export function AutoPlanningForm({
               <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">Shift par défaut — employés SANS modèle</span>
                 <select name="shiftId" defaultValue="" className="rounded border border-input bg-background px-2 py-1.5">
-                  <option value="">Automatique (1er shift de jour)</option>
+                  <option value="">Automatique — selon la fiche (cuisine / salle / caisse)</option>
                   {shifts.map((s) => (
                     <option key={s.id} value={s.id}>{s.nom}</option>
                   ))}
                 </select>
+                <span className="text-[11px] text-muted-foreground">
+                  Automatique : secteur Cuisine → Matin cuisine · Salle → Matin/midi salle · Caissière →
+                  Caisse · autres → Journée 8h-17h. Le shift Admin n&apos;est jamais affecté automatiquement
+                  (réservé, via le modèle d&apos;Aimée).
+                </span>
               </label>
 
               <div>
