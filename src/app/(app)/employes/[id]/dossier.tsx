@@ -33,6 +33,19 @@ function StatutContratBadge({ statut }: { statut: string }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${s.classe}`}>{s.label}</span>;
 }
 
+const BADGE_DISCIPLINAIRE: Record<string, { label: string; classe: string }> = {
+  AVERTISSEMENT: { label: "Avertissement", classe: "bg-amber-100 text-amber-800" },
+  SANCTION: { label: "Sanction", classe: "bg-red-100 text-red-800" },
+  MISE_A_PIED: { label: "Mise à pied", classe: "bg-red-100 text-red-800" },
+  MESURE: { label: "Mesure", classe: "bg-slate-200 text-slate-700" },
+};
+const BORDURE_DISCIPLINAIRE: Record<string, string> = {
+  AVERTISSEMENT: "border-l-amber-400",
+  SANCTION: "border-l-red-400",
+  MISE_A_PIED: "border-l-red-500",
+  MESURE: "border-l-slate-300",
+};
+
 const TYPE_DOC_LABEL: Record<string, string> = {
   CONTRAT: "Contrat",
   CARTE_IDENTITE: "Carte d'identité",
@@ -184,41 +197,44 @@ export function DossierEmploye({
       <>
       {/* Historique salarial */}
       <Section title="Historique salarial & promotions">
-        <table className="mb-3 w-full text-sm [&_td]:px-3 [&_th]:px-3">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="py-1">Date</th>
-              <th className="py-1">Motif</th>
-              <th className="py-1">Ancien poste</th>
-              <th className="py-1">Nouveau poste</th>
-              <th className="py-1 text-right">Ancien salaire</th>
-              <th className="py-1 text-right">Nouveau salaire</th>
-            </tr>
-          </thead>
-          <tbody>
-            {historique.map((h) => (
-              <tr key={h.id} className="border-t">
-                <td className="py-1.5">{d(h.date)}</td>
-                <td className="py-1.5">{h.motif}</td>
-                <td className="py-1.5">{h.ancienPoste ?? "—"}</td>
-                <td className="py-1.5">{h.nouveauPoste ?? "—"}</td>
-                <td className="py-1.5 text-right">
-                  {h.ancienSalaire ? Number(h.ancienSalaire).toLocaleString("fr-FR") + " $" : "—"}
-                </td>
-                <td className="py-1.5 text-right">{Number(h.nouveauSalaire).toLocaleString("fr-FR")} $</td>
-              </tr>
-            ))}
-            {historique.length === 0 && (
-              <tr>
-                <td colSpan={6} className="py-3 text-center text-muted-foreground">
-                  Aucun changement enregistré.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        {historique.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Aucun changement enregistré.
+          </p>
+        ) : (
+          <ol className="relative mb-4 ml-2 border-l pl-6">
+            {historique.map((h) => {
+              const ancien = h.ancienSalaire != null ? Number(h.ancienSalaire) : null;
+              const nouveau = Number(h.nouveauSalaire);
+              const delta = ancien != null && ancien > 0 ? ((nouveau - ancien) / ancien) * 100 : null;
+              return (
+                <li key={h.id} className="mb-4 last:mb-0">
+                  <span className="absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full bg-primary ring-4 ring-background" aria-hidden />
+                  <p className="text-xs text-muted-foreground">{d(h.date)}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">{h.motif}</span>
+                    <span className="text-sm font-medium">
+                      {ancien != null ? `${money(ancien)} → ` : ""}{money(nouveau)}
+                    </span>
+                    {delta != null && delta !== 0 && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${delta > 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                        {delta > 0 ? "▲ +" : "▼ "}{delta.toFixed(1).replace(".", ",")} %
+                      </span>
+                    )}
+                  </div>
+                  {(h.ancienPoste || h.nouveauPoste) && h.ancienPoste !== h.nouveauPoste && (
+                    <p className="text-xs text-muted-foreground">
+                      {h.ancienPoste ?? "—"} → {h.nouveauPoste ?? "—"}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
         {estAdmin && (
-          <form action={changerSalaire.bind(null, employeeId)} className="flex flex-wrap items-end gap-2">
+          <form action={changerSalaire.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
+            <p className="w-full text-sm font-medium">Changer le salaire / poste (tracé à l&apos;historique)</p>
             <input name="nouveauSalaire" type="number" step="0.01" placeholder="Nouveau salaire $" defaultValue={salaireMensuel} className={inputCls} required />
             <input name="nouveauPoste" placeholder="Nouveau poste (optionnel)" defaultValue={poste} className={inputCls} />
             <select name="motif" className={inputCls} defaultValue="Ajustement">
@@ -233,35 +249,29 @@ export function DossierEmploye({
 
       {/* Dossier disciplinaire */}
       <Section title="Dossier disciplinaire">
-        <table className="mb-3 w-full text-sm">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="py-1">Date</th>
-              <th className="py-1">Type</th>
-              <th className="py-1">Motif</th>
-              <th className="py-1">Description</th>
-            </tr>
-          </thead>
-          <tbody>
+        {disciplinaire.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Aucune sanction ni avertissement. ✔
+          </p>
+        ) : (
+          <div className="mb-4 space-y-2">
             {disciplinaire.map((s) => (
-              <tr key={s.id} className="border-t">
-                <td className="py-1.5">{d(s.date)}</td>
-                <td className="py-1.5">{s.type}</td>
-                <td className="py-1.5">{s.motif}</td>
-                <td className="py-1.5">{s.description ?? "—"}</td>
-              </tr>
+              <div key={s.id} className={`flex flex-wrap items-start gap-3 rounded-xl border border-l-4 bg-card p-3 ${BORDURE_DISCIPLINAIRE[s.type] ?? "border-l-slate-300"}`}>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_DISCIPLINAIRE[s.type]?.classe ?? "bg-muted"}`}>
+                  {BADGE_DISCIPLINAIRE[s.type]?.label ?? s.type}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{s.motif}</p>
+                  {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
+                </div>
+                <span className="text-xs text-muted-foreground">{d(s.date)}</span>
+              </div>
             ))}
-            {disciplinaire.length === 0 && (
-              <tr>
-                <td colSpan={4} className="py-3 text-center text-muted-foreground">
-                  Aucune sanction ni avertissement.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+          </div>
+        )}
         {peutModifier && (
-          <form action={ajouterDisciplinaire.bind(null, employeeId)} className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <form action={ajouterDisciplinaire.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
+            <p className="col-span-2 text-sm font-medium md:col-span-4">Ajouter un avertissement / une sanction</p>
             <select name="type" className={inputCls} defaultValue="AVERTISSEMENT">
               <option value="AVERTISSEMENT">Avertissement</option>
               <option value="SANCTION">Sanction</option>
@@ -281,35 +291,36 @@ export function DossierEmploye({
 
       {/* Évaluations */}
       <Section title="Évaluations">
-        <table className="mb-3 w-full text-sm">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="py-1">Date</th>
-              <th className="py-1 text-right">Note</th>
-              <th className="py-1">Évaluateur</th>
-              <th className="py-1">Commentaire</th>
-            </tr>
-          </thead>
-          <tbody>
-            {evaluations.map((e) => (
-              <tr key={e.id} className="border-t">
-                <td className="py-1.5">{d(e.date)}</td>
-                <td className="py-1.5 text-right">{e.note !== null ? `${e.note}/100` : "—"}</td>
-                <td className="py-1.5">{e.evaluateur ?? "—"}</td>
-                <td className="py-1.5">{e.commentaire ?? "—"}</td>
-              </tr>
-            ))}
-            {evaluations.length === 0 && (
-              <tr>
-                <td colSpan={4} className="py-3 text-center text-muted-foreground">
-                  Aucune évaluation.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        {evaluations.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Aucune évaluation.
+          </p>
+        ) : (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            {evaluations.map((e) => {
+              const note = e.note !== null ? Number(e.note) : null;
+              const couleurNote = note === null ? "" : note >= 70 ? "text-emerald-700" : note >= 40 ? "text-amber-700" : "text-red-700";
+              const barre = note === null ? "" : note >= 70 ? "bg-emerald-500" : note >= 40 ? "bg-amber-500" : "bg-red-500";
+              return (
+                <div key={e.id} className="rounded-xl border bg-card p-4">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{d(e.date)}{e.evaluateur ? ` · par ${e.evaluateur}` : ""}</span>
+                    <span className={`text-lg font-bold ${couleurNote}`}>{note !== null ? `${note}/100` : "—"}</span>
+                  </div>
+                  {note !== null && (
+                    <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div className={`h-full ${barre}`} style={{ width: `${note}%` }} />
+                    </div>
+                  )}
+                  {e.commentaire && <p className="text-sm text-muted-foreground">{e.commentaire}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
         {peutModifier && (
-          <form action={ajouterEvaluation.bind(null, employeeId)} className="flex flex-wrap items-end gap-2">
+          <form action={ajouterEvaluation.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
+            <p className="w-full text-sm font-medium">Ajouter une évaluation</p>
             <LabeledInput name="date" label="Date" type="date" required />
             <input name="note" type="number" min="0" max="100" placeholder="Note /100" className={`${inputCls} w-24`} />
             <input name="evaluateur" placeholder="Évaluateur" className={inputCls} />
