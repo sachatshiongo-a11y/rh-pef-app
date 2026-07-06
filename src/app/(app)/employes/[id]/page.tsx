@@ -19,6 +19,26 @@ function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
 
+// Types de primes courants en RDC (Code du travail + pratique). Liste de SUGGESTIONS : la saisie
+// reste libre (on peut taper un autre libellé). À faire valider par un comptable/juriste congolais.
+const TYPES_PRIME = [
+  "Prime de rendement / performance",
+  "Prime d'ancienneté",
+  "Prime d'assiduité",
+  "Prime de transport",
+  "Prime de logement",
+  "Prime de fin d'année (gratification)",
+  "Prime de risque",
+  "Prime de fonction",
+  "Prime de responsabilité",
+  "Prime de représentation",
+  "Prime de fidélité",
+  "Prime de pénibilité",
+  "Prime de salissure",
+  "Indemnité de vie chère",
+  "Gratification exceptionnelle",
+];
+
 function ancienneteEnMois(dateEmbauche: Date, reference: Date) {
   return (
     (reference.getFullYear() - dateEmbauche.getFullYear()) * 12 +
@@ -494,7 +514,18 @@ export default async function FicheEmployePage({
             <form action={ajouterPrime.bind(null, employee.id)} className="rounded-lg border p-3">
               <p className="mb-2 text-sm font-medium">Appliquer une prime</p>
               <div className="flex flex-wrap items-end gap-2">
-                <input name="nom" defaultValue="Prime de performance" className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input
+                  name="nom"
+                  defaultValue="Prime de rendement / performance"
+                  list="types-primes"
+                  placeholder="Type de prime"
+                  className="min-w-52 flex-1 rounded border border-input bg-background px-2 py-1 text-sm"
+                />
+                <datalist id="types-primes">
+                  {TYPES_PRIME.map((t) => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
                 <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
                 <button type="submit" className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">Ajouter</button>
               </div>
