@@ -19,7 +19,7 @@ export function EmployeeForm({
   joursOuvrablesMois: number;
 }) {
   return (
-    <form action={action} className="grid max-w-3xl grid-cols-2 gap-4">
+    <form action={action} className="grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
       <Field label="Matricule (auto si vide)" name="matricule" defaultValue={employee?.matricule} />
       <Field label="Nom et prénom" name="nom" defaultValue={employee?.nom} required />
 

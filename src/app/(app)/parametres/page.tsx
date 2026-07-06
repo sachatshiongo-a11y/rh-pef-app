@@ -244,7 +244,8 @@ export default async function ParametresPage() {
           </button>
         </form>
 
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[24rem] text-sm">
           <tbody>
             {joursFeries.map((j) => (
               <tr key={j.id} className="border-t">
@@ -261,6 +262,7 @@ export default async function ParametresPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Section>
     </div>
   );
