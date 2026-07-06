@@ -13,6 +13,7 @@ import { ajouterPrime, supprimerPrime, demanderAcompte, ajouterFraisMedical, sup
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
+import { HorairesModele } from "./horaires-modele";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -73,11 +74,21 @@ export default async function FicheEmployePage({
     }),
   ]);
 
-  const [primes, acomptes, fraisMed] = await Promise.all([
+  const [primes, acomptes, fraisMed, modeleEntries, shiftsPlanning] = await Promise.all([
     prisma.prime.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.acompteSalaire.findMany({ where: { employeeId: id }, orderBy: { dateDemande: "desc" }, take: 30 }),
     prisma.fraisMedical.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
+    prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true, semaine: true, shiftId: true } }),
+    prisma.shift.findMany({ where: { actif: true }, select: { id: true, nom: true, heureDebut: true, heureFin: true, dureeHeures: true } }),
   ]);
+  // Horaire réel = shifts du modèle hebdo (durées converties depuis Decimal).
+  const shiftsHoraire = shiftsPlanning.map((s) => ({
+    id: s.id,
+    nom: s.nom,
+    heureDebut: s.heureDebut,
+    heureFin: s.heureFin,
+    dureeHeures: s.dureeHeures != null ? Number(s.dureeHeures) : null,
+  }));
   const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
   const finContrats =
     tab === "fin"
@@ -312,10 +323,20 @@ export default async function FicheEmployePage({
             value={new Date(employee.dateEmbauche).toLocaleDateString("fr-FR")}
           />
           <Info label="Ancienneté" value={`${anciennete} mois`} />
-          <Info label="Heures / jour (seuil HS)" value={String(employee.heuresParJour)} />
-          <Info label="Heures / semaine" value={String(employee.heuresHebdomadaires)} />
+          <Info label="Seuil heures supp. (h/jour)" value={`${String(employee.heuresParJour)} h`} />
+          <Info label="Heures / semaine" value={`${String(employee.heuresHebdomadaires)} h`} />
           <Info label="Heures / mois (contractuelles)" value={`${Math.round(heuresMoisContrat * 10) / 10} h`} />
         </dl>
+      </Section>
+
+      {/* Horaire réel (jours et durées variables) reconstitué depuis le modèle hebdomadaire */}
+      <Section title="Horaire de travail réel">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Reconstitué depuis le <span className="font-medium">modèle hebdomadaire</span> (Planning → Modèle hebdo).
+          Reflète les jours réellement travaillés et les horaires variables. Le « seuil heures supp. » ci-dessus
+          est une valeur distincte, utilisée uniquement pour déclencher les heures supplémentaires.
+        </p>
+        <HorairesModele entries={modeleEntries} shifts={shiftsHoraire} />
       </Section>
 
       {/* Détails salariaux */}
