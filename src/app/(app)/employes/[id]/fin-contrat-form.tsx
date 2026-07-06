@@ -58,6 +58,13 @@ export function FinContratForm({
   const indemPreavis = salaireJournalier * (Number(preavis) || 0);
   const total = salaireProrata + indemConges + indemPreavis + (Number(licenciement) || 0) + (Number(autres) || 0);
 
+  const Champ = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+
   return (
     <form
       action={terminerContrat.bind(null, employeeId)}
@@ -66,69 +73,75 @@ export function FinContratForm({
           e.preventDefault();
         }
       }}
-      className="space-y-3"
     >
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Motif</span>
-          <select name="motif" value={motif} onChange={(e) => changerMotif(e.target.value)} className={cls}>
-            <option value="DEMISSION">Démission</option>
-            <option value="LICENCIEMENT">Licenciement</option>
-            <option value="FIN_CDD">Fin de CDD</option>
-            <option value="AUTRE">Autre</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Date de fin</span>
-          <input name="dateFin" type="date" required className={cls} />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Jours de présence (mois en cours, auto)</span>
-          <input name="joursTravaillesMois" type="number" min="0" step="1" value={joursTravailles} onChange={(e) => setJoursTravailles(e.target.value)} className={cls} />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Jours de congés non pris (auto)</span>
-          <input name="joursCongesNonPris" type="number" min="0" step="0.5" value={joursConges} onChange={(e) => setJoursConges(e.target.value)} className={cls} />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Préavis (jours) — loi RDC ⚠</span>
-          <input name="preavisJours" type="number" min="0" step="1" value={preavis} onChange={(e) => setPreavis(e.target.value)} className={cls} />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Indemnité de licenciement $ — loi RDC ⚠</span>
-          <input name="indemniteLicenciementUSD" type="number" min="0" step="0.01" value={licenciement} onChange={(e) => setLicenciement(e.target.value)} className={cls} disabled={motif !== "LICENCIEMENT"} />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Autres indemnités $</span>
-          <input name="autresUSD" type="number" min="0" step="0.01" value={autres} onChange={(e) => setAutres(e.target.value)} className={cls} />
-        </label>
-        <label className="flex flex-col gap-1 text-sm md:col-span-1">
-          <span className="text-muted-foreground">Commentaire</span>
-          <input name="commentaire" placeholder="optionnel" className={cls} />
-        </label>
+      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+        {/* Colonne saisie, en 3 blocs clairs */}
+        <div className="space-y-4">
+          <div className="rounded-xl border p-4">
+            <p className="mb-3 text-sm font-semibold">Motif &amp; date</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Champ label="Motif du départ">
+                <select name="motif" value={motif} onChange={(e) => changerMotif(e.target.value)} className={cls}>
+                  <option value="DEMISSION">Démission</option>
+                  <option value="LICENCIEMENT">Licenciement</option>
+                  <option value="FIN_CDD">Fin de CDD</option>
+                  <option value="AUTRE">Autre</option>
+                </select>
+              </Champ>
+              <Champ label="Date de fin"><input name="dateFin" type="date" required className={cls} /></Champ>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+            <p className="mb-1 text-sm font-semibold text-emerald-800">Calculé automatiquement</p>
+            <p className="mb-3 text-xs text-emerald-700">D&apos;après les présences saisies et les congés approuvés — ajustable si besoin.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Champ label="Jours de présence (mois en cours)">
+                <input name="joursTravaillesMois" type="number" min="0" step="1" value={joursTravailles} onChange={(e) => setJoursTravailles(e.target.value)} className={cls} />
+              </Champ>
+              <Champ label="Jours de congés non pris">
+                <input name="joursCongesNonPris" type="number" min="0" step="0.5" value={joursConges} onChange={(e) => setJoursConges(e.target.value)} className={cls} />
+              </Champ>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+            <p className="mb-1 text-sm font-semibold text-amber-800">Indemnités légales — à valider (Code du travail RDC)</p>
+            <p className="mb-3 text-xs text-amber-700">Pré-remplies depuis Paramètres → paramètres légaux (ancienneté × barème). À faire valider par un juriste.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Champ label="Préavis (jours)">
+                <input name="preavisJours" type="number" min="0" step="1" value={preavis} onChange={(e) => setPreavis(e.target.value)} className={cls} />
+              </Champ>
+              <Champ label="Indemnité de licenciement $">
+                <input name="indemniteLicenciementUSD" type="number" min="0" step="0.01" value={licenciement} onChange={(e) => setLicenciement(e.target.value)} className={cls} disabled={motif !== "LICENCIEMENT"} />
+              </Champ>
+              <Champ label="Autres indemnités $">
+                <input name="autresUSD" type="number" min="0" step="0.01" value={autres} onChange={(e) => setAutres(e.target.value)} className={cls} />
+              </Champ>
+              <Champ label="Commentaire"><input name="commentaire" placeholder="optionnel" className={cls} /></Champ>
+            </div>
+          </div>
+        </div>
+
+        {/* Carte solde de tout compte, mise en avant */}
+        <aside className="lg:sticky lg:top-4 h-max rounded-xl border bg-card p-4 shadow-sm">
+          <p className="text-sm font-semibold">Solde de tout compte</p>
+          <div className="mt-3 space-y-1.5 text-sm">
+            <div className="flex justify-between"><span className="text-muted-foreground">Salaire au prorata <span className="text-xs">({joursTravailles || 0} j × {fmt(salaireJournalier)})</span></span><span className="font-medium">{fmt(salaireProrata)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Congés non pris <span className="text-xs">({joursConges || 0} j)</span></span><span className="font-medium">{fmt(indemConges)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Préavis <span className="text-xs">({preavis || 0} j)</span></span><span className="font-medium">{fmt(indemPreavis)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Licenciement</span><span className="font-medium">{fmt(Number(licenciement) || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Autres</span><span className="font-medium">{fmt(Number(autres) || 0)}</span></div>
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t pt-3">
+            <span className="font-semibold">Total à verser</span>
+            <span className="text-xl font-bold">{fmt(total)}</span>
+          </div>
+          <button className="mt-4 w-full rounded-md bg-destructive px-4 py-2.5 text-sm font-medium text-white hover:opacity-90">
+            Terminer le contrat &amp; archiver
+          </button>
+        </aside>
       </div>
-
-      {/* Récapitulatif du solde de tout compte */}
-      <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-        <div className="flex justify-between py-0.5"><span>Salaire au prorata ({joursTravailles || 0} j × {fmt(salaireJournalier)})</span><span className="font-medium">{fmt(salaireProrata)}</span></div>
-        <div className="flex justify-between py-0.5"><span>Indemnité congés non pris ({joursConges || 0} j)</span><span className="font-medium">{fmt(indemConges)}</span></div>
-        <div className="flex justify-between py-0.5"><span>Indemnité de préavis ({preavis || 0} j)</span><span className="font-medium">{fmt(indemPreavis)}</span></div>
-        <div className="flex justify-between py-0.5"><span>Indemnité de licenciement</span><span className="font-medium">{fmt(Number(licenciement) || 0)}</span></div>
-        <div className="flex justify-between py-0.5"><span>Autres</span><span className="font-medium">{fmt(Number(autres) || 0)}</span></div>
-        <div className="mt-1 flex justify-between border-t pt-1.5 text-base font-bold"><span>Solde de tout compte</span><span>{fmt(total)}</span></div>
-      </div>
-
-      <p className="text-xs text-muted-foreground">
-        Jours de présence et congés non pris <span className="font-medium">calculés automatiquement</span>{" "}
-        (présences saisies et congés approuvés). Le préavis et l&apos;indemnité de licenciement sont
-        pré-remplis depuis les <span className="font-medium">Paramètres → paramètres légaux</span>{" "}
-        (ancienneté × barème) ; ils dépendent du <span className="font-medium">Code du travail RDC</span> et
-        restent <span className="font-medium">à faire valider par un juriste</span> (modifiables ici).
-      </p>
-
-      <button className="rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white">
-        Terminer le contrat & archiver le solde
-      </button>
     </form>
   );
 }

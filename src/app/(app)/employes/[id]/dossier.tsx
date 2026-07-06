@@ -104,60 +104,53 @@ export function DossierEmploye({
       <>
       {/* Contrats */}
       <Section title="Contrats">
-        <div className="mb-4 overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm [&_td]:px-3 [&_th]:px-3">
-            <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="py-2">Type</th>
-                <th className="py-2">Début</th>
-                <th className="py-2">Fin</th>
-                <th className="py-2">Fin essai</th>
-                <th className="py-2">Poste</th>
-                <th className="py-2 text-right">Salaire</th>
-                <th className="py-2">Statut</th>
-                <th className="py-2">Document</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contrats.map((c) => {
-                const expireBientot = c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
-                const essaiBientot =
-                  c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
-                return (
-                  <tr key={c.id} className="border-t">
-                    <td className="py-2 font-medium">{c.type}</td>
-                    <td className="py-2">{d(c.dateDebut)}</td>
-                    <td className={`py-2 ${expireBientot ? "font-semibold text-amber-700" : ""}`}>
-                      {d(c.dateFin)}
-                    </td>
-                    <td className={`py-2 ${essaiBientot ? "font-semibold text-amber-700" : ""}`}>
-                      {d(c.finPeriodeEssai)}
-                    </td>
-                    <td className="py-2">{c.poste}</td>
-                    <td className="py-2 text-right">
-                      {Number(c.salaireMensuel).toLocaleString("fr-FR")} {c.devise}
-                    </td>
-                    <td className="py-2"><StatutContratBadge statut={c.statut} /></td>
-                    <td className="py-2">
-                      {c.documentUrl ? (
-                        <a href={c.documentUrl} target="_blank" className="font-medium text-primary underline">Ouvrir</a>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {contrats.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-center text-muted-foreground">
-                    Aucun contrat enregistré.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {contrats.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Aucun contrat enregistré.
+          </p>
+        ) : (
+          <div className="mb-4 grid gap-3 md:grid-cols-2">
+            {contrats.map((c) => {
+              const expireBientot = c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
+              const essaiBientot = c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
+              return (
+                <div key={c.id} className="rounded-xl border bg-card p-4">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
+                      <p className="text-sm text-muted-foreground">
+                        du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
+                      </p>
+                    </div>
+                    <StatutContratBadge statut={c.statut} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Salaire mensuel</p>
+                      <p className="font-medium">{Number(c.salaireMensuel).toLocaleString("fr-FR")} {c.devise}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Fin de période d&apos;essai</p>
+                      <p className={`font-medium ${essaiBientot ? "text-amber-700" : ""}`}>{d(c.finPeriodeEssai)}</p>
+                    </div>
+                  </div>
+                  {(expireBientot || essaiBientot) && (
+                    <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+                      {expireBientot ? "Contrat arrivant à échéance (30 j)" : "Fin de période d'essai proche (30 j)"}
+                    </p>
+                  )}
+                  <div className="mt-3 border-t pt-2">
+                    {c.documentUrl ? (
+                      <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {peutModifier && (
           <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
             <p className="col-span-2 text-sm font-medium md:col-span-4">Ajouter / importer un contrat</p>
@@ -328,50 +321,44 @@ export function DossierEmploye({
 
       {/* Documents */}
       <Section title="Documents">
-        <div className="mb-4 overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm [&_td]:px-3 [&_th]:px-3">
-            <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="py-2">Type</th>
-                <th className="py-2">Nom</th>
-                <th className="py-2">Émission</th>
-                <th className="py-2">Expiration</th>
-                <th className="py-2 text-right">Fichier</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((doc) => {
-                const expire = doc.dateExpiration && new Date(doc.dateExpiration) <= dans30j;
-                return (
-                  <tr key={doc.id} className="border-t">
-                    <td className="py-2">
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-                        {TYPE_DOC_LABEL[doc.type] ?? doc.type}
-                      </span>
-                    </td>
-                    <td className="py-2 font-medium">{doc.nom}</td>
-                    <td className="py-2">{d(doc.dateEmission)}</td>
-                    <td className={`py-2 ${expire ? "font-semibold text-amber-700" : ""}`}>
-                      {d(doc.dateExpiration)}
-                    </td>
-                    <td className="py-2 text-right">
-                      <a href={doc.fichierUrl} target="_blank" className="font-medium text-primary underline">
-                        Ouvrir
-                      </a>
-                    </td>
-                  </tr>
-                );
-              })}
-              {documents.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-muted-foreground">
-                    Aucun document importé.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {documents.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Aucun document importé.
+          </p>
+        ) : (
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {documents.map((doc) => {
+              const expire = doc.dateExpiration && new Date(doc.dateExpiration) <= dans30j;
+              return (
+                <a
+                  key={doc.id}
+                  href={doc.fichierUrl}
+                  target="_blank"
+                  className="group flex gap-3 rounded-xl border bg-card p-3 transition hover:border-primary hover:shadow-sm"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium group-hover:text-primary">{doc.nom}</p>
+                    <span className="mt-0.5 inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
+                      {TYPE_DOC_LABEL[doc.type] ?? doc.type}
+                    </span>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {doc.dateEmission ? `Émis le ${d(doc.dateEmission)}` : "Sans date"}
+                      {doc.dateExpiration && (
+                        <span className={expire ? "font-semibold text-amber-700" : ""}> · exp. {d(doc.dateExpiration)}</span>
+                      )}
+                    </p>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        )}
         {peutModifier && (
           <form action={ajouterDocument.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
             <p className="col-span-2 text-sm font-medium md:col-span-4">Importer un document</p>

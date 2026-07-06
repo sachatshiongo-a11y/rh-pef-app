@@ -4,13 +4,20 @@ import { verifySession } from "@/lib/auth";
 import { demanderConge, approuverConge, refuserConge, reinitialiserConges } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
-
+import { Avatar } from "@/components/avatar";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
   REFUSE: "bg-red-100 text-red-800",
   EN_ATTENTE: "bg-amber-100 text-amber-800",
 };
+const LIBELLE_CONGE: Record<string, string> = { APPROUVE: "Approuvé", REFUSE: "Refusé", EN_ATTENTE: "En attente" };
+const BORDURE_CONGE: Record<string, string> = { APPROUVE: "border-l-emerald-400", REFUSE: "border-l-red-400", EN_ATTENTE: "border-l-amber-400" };
+const MOIS_COURT = ["JAN", "FÉV", "MAR", "AVR", "MAI", "JUIN", "JUIL", "AOÛ", "SEP", "OCT", "NOV", "DÉC"];
+function chipDate(dt: Date) {
+  const x = new Date(dt);
+  return { j: x.getUTCDate(), m: MOIS_COURT[x.getUTCMonth()] };
+}
 
 export default async function CongesPage({
   searchParams,
@@ -43,6 +50,13 @@ export default async function CongesPage({
   );
   const filtreActif = !!(sp.statut || sp.type || q);
 
+  const now = new Date();
+  const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
+  const enCours = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) <= now && new Date(d.dateFin) >= now).length;
+  const dans30 = new Date(Date.now() + 30 * 86_400_000);
+  const aVenir = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) > now && new Date(d.dateDebut) <= dans30).length;
+  const nbApprouve = demandesAll.filter((d) => d.statut === "APPROUVE").length;
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -59,9 +73,25 @@ export default async function CongesPage({
         )}
       </div>
 
+      {/* Synthèse façon Factorial */}
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        {[
+          { label: "En attente", value: nbAttente, classe: "text-amber-600", lien: "?statut=EN_ATTENTE" },
+          { label: "En congé aujourd'hui", value: enCours, classe: "text-emerald-600", lien: "?statut=APPROUVE" },
+          { label: "À venir (30 j)", value: aVenir, classe: "text-sky-600", lien: "?statut=APPROUVE" },
+          { label: "Approuvés (total)", value: nbApprouve, classe: "text-foreground", lien: "?statut=APPROUVE" },
+        ].map((c) => (
+          <Link key={c.label} href={`/conges${c.lien}`} className="rounded-xl border bg-card p-4 shadow-sm transition hover:border-primary">
+            <p className="text-xs text-muted-foreground">{c.label}</p>
+            <p className={`mt-1 text-2xl font-bold ${c.classe}`}>{c.value}</p>
+          </Link>
+        ))}
+      </div>
+
       {peutGerer && (
-        <div className="mb-8 rounded-lg border p-5">
-          <h2 className="mb-4 text-base font-semibold">Nouvelle demande de congé</h2>
+        <details className="mb-6 rounded-xl border">
+          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold">+ Nouvelle demande de congé</summary>
+          <div className="border-t p-5">
           <form action={demanderConge} className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="employeeId" className="text-sm font-medium">
@@ -156,7 +186,8 @@ export default async function CongesPage({
               </button>
             </div>
           </form>
-        </div>
+          </div>
+        </details>
       )}
 
       <form method="GET" className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3">
@@ -186,75 +217,59 @@ export default async function CongesPage({
         )}
       </form>
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              <th className="px-3 py-2">Employé</th>
-              <th className="px-3 py-2">Type</th>
-              <th className="px-3 py-2">Début</th>
-              <th className="px-3 py-2">Fin</th>
-              <th className="px-3 py-2 text-right">Jours</th>
-              <th className="px-3 py-2">Statut</th>
-              <th className="px-3 py-2">Approuvé par</th>
-              <th className="px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {demandes.map((d) => (
-              <tr key={d.id} className="border-t">
-                <td className="px-3 py-2">
-                  <Link href={`/employes/${d.employee.id}`} className="text-primary underline">
-                    {d.employee.nom}
-                  </Link>
-                </td>
-                <td className="px-3 py-2">{d.type}</td>
-                <td className="px-3 py-2">{new Date(d.dateDebut).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-2">{new Date(d.dateFin).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-2 text-right">{Number(d.nbJours)}</td>
-                <td className="px-3 py-2">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_CONGE[d.statut] ?? ""}`}>
-                    {d.statut.replace("_", " ")}
-                  </span>
-                </td>
-                <td className="px-3 py-2">{d.approuvePar?.nom ?? "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    {peutApprouver && d.statut === "EN_ATTENTE" && (
-                      <>
-                        <form action={approuverConge.bind(null, d.id)} className="inline">
-                          <button type="submit" className={BTN_VALIDER}>
-                            ✓ Approuver
-                          </button>
-                        </form>
-                        <form action={refuserConge.bind(null, d.id)} className="inline">
-                          <button type="submit" className={BTN_REFUSER}>
-                            ✕ Refuser
-                          </button>
-                        </form>
-                      </>
-                    )}
-                    <a
-                      href={`/conges/demande/${d.id}`}
-                      target="_blank"
-                      className="text-primary underline"
-                    >
-                      PDF
-                    </a>
+      {demandes.length === 0 ? (
+        <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+          Aucune demande de congé {filtreActif ? "pour ce filtre" : "enregistrée"}.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {demandes.map((d) => {
+            const cd = chipDate(d.dateDebut);
+            const cf = chipDate(d.dateFin);
+            return (
+              <div key={d.id} className={`flex flex-wrap items-center gap-3 rounded-xl border border-l-4 bg-card p-3 ${BORDURE_CONGE[d.statut] ?? ""}`}>
+                <Avatar nom={d.employee.nom} photoUrl={d.employee.photoUrl} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">
+                    <Link href={`/employes/${d.employee.id}`} className="font-semibold hover:underline">{d.employee.nom}</Link>{" "}
+                    <span className="text-muted-foreground">— {d.type.toLowerCase()}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {Number(d.nbJours)} jour(s){d.approuvePar ? ` · approuvé par ${d.approuvePar.nom}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-center rounded-lg border bg-background px-2 py-1 leading-none">
+                    <span className="text-[9px] font-medium text-muted-foreground">{cd.m}</span>
+                    <span className="text-sm font-semibold">{cd.j}</span>
                   </div>
-                </td>
-              </tr>
-            ))}
-            {demandes.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
-                  Aucune demande de congé enregistrée.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  <span className="text-muted-foreground">→</span>
+                  <div className="flex flex-col items-center rounded-lg border bg-background px-2 py-1 leading-none">
+                    <span className="text-[9px] font-medium text-muted-foreground">{cf.m}</span>
+                    <span className="text-sm font-semibold">{cf.j}</span>
+                  </div>
+                </div>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_CONGE[d.statut] ?? ""}`}>
+                  {LIBELLE_CONGE[d.statut] ?? d.statut}
+                </span>
+                <div className="flex items-center gap-2">
+                  {peutApprouver && d.statut === "EN_ATTENTE" && (
+                    <>
+                      <form action={approuverConge.bind(null, d.id)} className="inline">
+                        <button type="submit" className={BTN_VALIDER}>✓ Approuver</button>
+                      </form>
+                      <form action={refuserConge.bind(null, d.id)} className="inline">
+                        <button type="submit" className={BTN_REFUSER}>✕ Refuser</button>
+                      </form>
+                    </>
+                  )}
+                  <a href={`/conges/demande/${d.id}`} target="_blank" className="text-sm text-primary underline">PDF</a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
