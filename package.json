@@ -22,10 +22,12 @@
     },
     "mac": {
       "target": "dmg",
+      "icon": "build/icon.icns",
       "category": "public.app-category.business"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": "AppImage"
