@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
+import { EmployeeName } from "@/components/employee-name";
 import type { PaymentStatus } from "@prisma/client";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
@@ -40,13 +41,13 @@ export default async function DocumentsPage({
 
   const [bulletinsAll, contratsAll, documentsAll, congesAll] = await Promise.all([
     prisma.payrollLine.findMany({
-      include: { employee: { select: { id: true, nom: true, matricule: true } }, payrollRun: true },
+      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: true },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }, { employee: { nom: "asc" } }],
       take: 1000,
     }),
-    prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true } } }, orderBy: { dateDebut: "desc" }, take: 1000 }),
-    prisma.documentEmploye.findMany({ include: { employee: { select: { id: true, nom: true } } }, orderBy: { createdAt: "desc" }, take: 1000 }),
-    prisma.leaveRequest.findMany({ include: { employee: { select: { id: true, nom: true } } }, orderBy: { dateEnreg: "desc" }, take: 1000 }),
+    prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateDebut: "desc" }, take: 1000 }),
+    prisma.documentEmploye.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { createdAt: "desc" }, take: 1000 }),
+    prisma.leaveRequest.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateEnreg: "desc" }, take: 1000 }),
   ]);
 
   const annees = [
@@ -164,7 +165,7 @@ export default async function DocumentsPage({
                   <tr key={b.id} className="border-t">
                     <td className="px-3 py-2 capitalize">{new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</td>
                     <td className="px-3 py-2 font-mono text-xs">{b.employee.matricule}</td>
-                    <td className="px-3 py-2"><EmpLink id={b.employee.id} nom={b.employee.nom} /></td>
+                    <td className="px-3 py-2"><EmpLink id={b.employee.id} nom={b.employee.nom} photoUrl={b.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
                     <td className="px-3 py-2"><Badge classe={COULEUR_STATUT[b.statutPaiement]}>{LIBELLE_STATUT[b.statutPaiement]}</Badge></td>
                     <td className="whitespace-nowrap px-3 py-2">
@@ -185,7 +186,7 @@ export default async function DocumentsPage({
               <tbody>
                 {contrats.map((c) => (
                   <tr key={c.id} className="border-t">
-                    <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} /></td>
+                    <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{c.type}</td>
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
@@ -204,7 +205,7 @@ export default async function DocumentsPage({
               <tbody>
                 {documents.map((d) => (
                   <tr key={d.id} className="border-t">
-                    <td className="px-3 py-2"><EmpLink id={d.employee.id} nom={d.employee.nom} /></td>
+                    <td className="px-3 py-2"><EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{d.nom}</td>
                     <td className="px-3 py-2">{d.type}</td>
                     <td className="px-3 py-2">{fr(d.dateExpiration)}</td>
@@ -222,7 +223,7 @@ export default async function DocumentsPage({
               <tbody>
                 {conges.map((c) => (
                   <tr key={c.id} className="border-t">
-                    <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} /></td>
+                    <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{c.type}</td>
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
@@ -247,8 +248,8 @@ function Thead({ cols }: { cols: string[] }) {
     </thead>
   );
 }
-function EmpLink({ id, nom }: { id: string; nom: string }) {
-  return <Link href={`/employes/${id}`} className="text-primary underline">{nom}</Link>;
+function EmpLink({ id, nom, photoUrl }: { id: string; nom: string; photoUrl?: string | null }) {
+  return <EmployeeName id={id} nom={nom} photoUrl={photoUrl} />;
 }
 function Vide({ n, cols }: { n: number; cols: number }) {
   if (n > 0) return null;

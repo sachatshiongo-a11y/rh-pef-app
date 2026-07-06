@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "./actions";
 import { StatusActions } from "./status-actions";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
+import { EmployeeName } from "@/components/employee-name";
 import type { PaymentStatus, ModePaiement } from "@prisma/client";
 
 export type PaieRow = {
@@ -180,9 +180,7 @@ function Groupe({
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">{l.matricule}</td>
                 <td className="px-3 py-2">
-                  <Link href={`/employes/${l.employeeId}`} className="text-primary underline">
-                    {l.nom}
-                  </Link>
+                  <EmployeeName id={l.employeeId} nom={l.nom} photoUrl={l.photoUrl} />
                 </td>
                 <td className="px-3 py-2 text-right">{money(l.salBrutUSD)}</td>
                 <td className="px-3 py-2 text-right">{money(l.salNetUSD)}</td>
