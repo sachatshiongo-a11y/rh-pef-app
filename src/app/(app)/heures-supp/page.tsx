@@ -82,7 +82,7 @@ export default async function HeuresSuppPage() {
     <div>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Heures supplémentaires</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Heures supplémentaires</h1>
           <p className="text-sm text-muted-foreground capitalize">{periode}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Saisissez les heures réellement travaillées par jour. Les 6 premières heures supp. de la

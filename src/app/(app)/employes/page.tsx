@@ -41,7 +41,7 @@ export default async function EmployesPage({
     <div>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Employés</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Employés</h1>
           <p className="text-sm text-muted-foreground">
             {employes.length} affiché(s){filtreActif ? ` sur ${tous.length}` : " actif(s)"}
           </p>

@@ -124,7 +124,7 @@ export default async function PlanningPage({
       <div>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">Modèle hebdomadaire</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Modèle hebdomadaire</h1>
             <p className="text-sm text-muted-foreground">Le shift/rôle habituel de chaque employé, par jour de la semaine</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">{onglets}</div>
@@ -187,7 +187,7 @@ export default async function PlanningPage({
       <div>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">Planning mensuel</h1>
+            <h1 className="text-xl font-semibold sm:text-2xl">Planning mensuel</h1>
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -279,7 +279,7 @@ export default async function PlanningPage({
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Planning hebdomadaire</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Planning hebdomadaire</h1>
           <p className="text-sm text-muted-foreground">Semaine du {titrePeriode}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">

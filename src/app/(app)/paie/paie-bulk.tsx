@@ -193,9 +193,9 @@ function Groupe({
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-xs">
-                  <a href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline" title="Télécharger le bulletin en USD">$</a>
+                  <a href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline" title="Télécharger le bulletin en USD">$</a>
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline" title="Télécharger le bulletin en CDF">CDF</a>
+                  <a href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline" title="Télécharger le bulletin en CDF">CDF</a>
                 </td>
                 <td className="px-3 py-2">
                   <StatusActions

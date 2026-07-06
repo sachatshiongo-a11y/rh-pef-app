@@ -42,7 +42,7 @@ export default async function ParametresPage() {
   if (!estAdmin) {
     return (
       <div>
-        <h1 className="mb-2 text-2xl font-semibold">Paramètres</h1>
+        <h1 className="mb-2 text-xl font-semibold sm:text-2xl">Paramètres</h1>
         <p className="text-sm text-muted-foreground">
           Seul le directeur (compte ADMIN) peut consulter et modifier les paramètres.
         </p>
@@ -56,7 +56,7 @@ export default async function ParametresPage() {
 
   return (
     <div className="max-w-5xl">
-      <h1 className="mb-6 text-2xl font-semibold">Paramètres</h1>
+      <h1 className="mb-6 text-xl font-semibold sm:text-2xl">Paramètres</h1>
 
       <Section title="Utilisateurs & accès">
         <UsersAdmin users={userRows} employes={employesActifs} monId={user.id} />

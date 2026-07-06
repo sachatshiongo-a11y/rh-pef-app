@@ -2,7 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
-import { calculerCongesAcquis } from "@/lib/payroll";
+import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
 
 export async function GET(
@@ -40,7 +40,11 @@ export async function GET(
       dateDebut: { gte: debutAnnee },
     },
   });
-  const congesPris = approuvees.reduce((acc, l) => acc + Number(l.nbJours), 0);
+  // Seuls les congés DÉDUCTIBLES (annuels) entament le solde ; les congés spéciaux
+  // (maternité, paternité, maladie, accident…) n'y touchent pas — même logique que partout ailleurs.
+  const congesPris = approuvees
+    .filter((l) => congeDeductibleDuSolde(l.type))
+    .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
 
   const buffer = await renderToBuffer(

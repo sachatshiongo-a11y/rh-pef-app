@@ -98,7 +98,7 @@ export default async function HistoriquePage({
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     <Link href={`/historique/${r.id}`} className="text-primary underline">Détails</Link>
                     {" · "}
-                    <a href={`/paie/export?mois=${r.mois}&annee=${r.annee}`} className="text-primary underline">Excel</a>
+                    <a href={`/paie/export?mois=${r.mois}&annee=${r.annee}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">Excel</a>
                   </td>
                 </tr>
               );

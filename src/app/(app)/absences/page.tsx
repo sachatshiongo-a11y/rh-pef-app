@@ -169,7 +169,7 @@ export default async function AbsencesPage({
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Calendrier des absences</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Calendrier des absences</h1>
           <p className="text-sm capitalize text-muted-foreground">{titre}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">

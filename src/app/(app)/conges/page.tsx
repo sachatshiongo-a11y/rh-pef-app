@@ -60,7 +60,7 @@ export default async function CongesPage({
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Congés</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Congés</h1>
         {peutApprouver && demandes.length > 0 && (
           <form action={reinitialiserConges}>
             <ConfirmSubmitButton
@@ -83,7 +83,7 @@ export default async function CongesPage({
         ].map((c) => (
           <Link key={c.label} href={`/conges${c.lien}`} className="rounded-xl border bg-card p-4 shadow-sm transition hover:border-primary">
             <p className="text-xs text-muted-foreground">{c.label}</p>
-            <p className={`mt-1 text-2xl font-bold ${c.classe}`}>{c.value}</p>
+            <p className={`mt-1 text-xl font-bold sm:text-2xl ${c.classe}`}>{c.value}</p>
           </Link>
         ))}
       </div>

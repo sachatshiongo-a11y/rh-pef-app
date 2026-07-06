@@ -131,57 +131,37 @@ export default async function PaiePage({
       )}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Paie</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Paie</h1>
           <p className="text-sm capitalize text-muted-foreground">{periode}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {run && (
-            <a
-              href="/paie/export"
-              className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
-            >
+            <a href="/paie/export" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Livre de paie (Excel)
             </a>
           )}
           {run && (
-            <a
-              href="/paie/export-pdf"
-              className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
-            >
+            <a href="/paie/export-pdf" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Livre de paie (PDF)
             </a>
           )}
           {run && (
-            <a
-              href="/paie/bulletins-pdf?devise=USD"
-              target="_blank"
-              className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
-            >
+            <a href="/paie/bulletins-pdf?devise=USD" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins PDF ($)
             </a>
           )}
           {run && (
-            <a
-              href="/paie/bulletins-pdf?devise=CDF"
-              target="_blank"
-              className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
-            >
+            <a href="/paie/bulletins-pdf?devise=CDF" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins PDF (CDF)
             </a>
           )}
           {run && (
-            <a
-              href="/paie/bulletins-zip?devise=USD"
-              className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
-            >
+            <a href="/paie/bulletins-zip?devise=USD" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins séparés ZIP ($)
             </a>
           )}
           {run && (
-            <a
-              href="/paie/bulletins-zip?devise=CDF"
-              className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
-            >
+            <a href="/paie/bulletins-zip?devise=CDF" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins séparés ZIP (CDF)
             </a>
           )}

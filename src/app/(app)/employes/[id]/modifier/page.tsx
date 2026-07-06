@@ -30,7 +30,7 @@ export default async function ModifierEmployePage({
       <Link href={`/employes/${employee.id}`} className="text-sm text-primary underline">
         ← Retour à la fiche
       </Link>
-      <h1 className="mb-6 mt-2 text-2xl font-semibold">Modifier — {employee.nom}</h1>
+      <h1 className="mb-6 mt-2 text-xl font-semibold sm:text-2xl">Modifier — {employee.nom}</h1>
 
       {/* Photo — modifiable uniquement ici (page Modifier) */}
       <div className="mb-6 flex items-center gap-4 rounded-xl border bg-card p-4">

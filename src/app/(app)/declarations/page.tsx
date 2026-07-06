@@ -57,7 +57,7 @@ export default async function DeclarationsPage({
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Déclarations</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Déclarations</h1>
           <p className="text-sm capitalize text-muted-foreground">{periode}</p>
         </div>
         <div className="flex items-center gap-2">

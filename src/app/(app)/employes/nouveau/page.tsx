@@ -10,7 +10,7 @@ export default async function NouvelEmployePage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-semibold">Nouvel employé</h1>
+      <h1 className="mb-6 text-xl font-semibold sm:text-2xl">Nouvel employé</h1>
       <EmployeeForm action={creerEmploye} joursOuvrablesMois={parametres.joursOuvrablesMois} />
     </div>
   );

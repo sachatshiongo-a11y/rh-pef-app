@@ -487,11 +487,11 @@ export default async function FicheEmployePage({
                     nom={`${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
                   />
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline">
+                  <a href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
                     $
                   </a>
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
+                  <a href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
                     CDF
                   </a>
                 </td>

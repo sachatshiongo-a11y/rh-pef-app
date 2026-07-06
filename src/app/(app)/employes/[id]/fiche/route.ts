@@ -2,7 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerCongesAcquis, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
@@ -42,8 +42,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     (new Date(annee, mois - 1).getFullYear() - new Date(employee.dateEmbauche).getFullYear()) * 12 +
     (new Date(annee, mois - 1).getMonth() - new Date(employee.dateEmbauche).getMonth());
   const congesAcquis = calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
+  // Congés spéciaux (maternité, maladie…) NON déduits du solde — même logique que partout.
   const congesPris = leaveRequests
-    .filter((l) => l.statut === "APPROUVE" && new Date(l.dateDebut) >= debutAnnee)
+    .filter((l) => l.statut === "APPROUVE" && new Date(l.dateDebut) >= debutAnnee && congeDeductibleDuSolde(l.type))
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
 
   const periodePresences = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {

@@ -6,3 +6,250 @@
 - Local:         http://localhost:3000
 - Network:       http://192.168.100.129:3000
 ✓ Ready in 160ms
+⨯ Error [PrismaClientKnownRequestError]: 
+Invalid `prisma.config.findUnique()` invocation:
+
+
+Transaction API error: Unable to start a transaction in the given time.
+    at async n (.next/server/chunks/ssr/[root-of-the-server]__0z31tk7._.js:4:3002)
+    at async o (.next/server/chunks/ssr/[root-of-the-server]__0z31tk7._.js:4:3590) {
+  code: 'P2028',
+  meta: { modelName: 'Config' },
+  clientVersion: '7.8.0',
+  digest: '2261434975'
+}
+⨯ Error [PrismaClientKnownRequestError]: 
+Invalid `prisma.config.findUniqueOrThrow()` invocation:
+
+
+Transaction API error: Unable to start a transaction in the given time.
+    at async f (.next/server/chunks/ssr/_0yl-25f._.js:1:965)
+    at async n (.next/server/chunks/ssr/[root-of-the-server]__0xthssy._.js:1:7916) {
+  code: 'P2028',
+  meta: { modelName: 'Config' },
+  clientVersion: '7.8.0',
+  digest: '1958758538'
+}
+Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+⨯ unhandledRejection:  Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+⨯ Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+⨯ unhandledRejection:  Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+⨯ unhandledRejection:  Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}
+⨯ unhandledRejection:  Error [ChunkLoadError]: Failed to load chunk server/chunks/ssr/src_09osrm9._.js from module 26599
+    at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:766:27) {
+  digest: '23137633',
+  [cause]: Error: Cannot find module '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/src_09osrm9._.js'
+  Require stack:
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js
+  - /Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js
+      at Context.loadChunkAsync [as l] (.next/server/chunks/ssr/[turbopack]_runtime.js:761:34) {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: [
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/chunks/ssr/[turbopack]_runtime.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/.next/server/app/(app)/a-valider/page.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/require.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/next.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/server/lib/start-server.js',
+      '/Users/sachatshiongo/Projects/rh-pef-app/node_modules/next/dist/cli/next-start.js'
+    ]
+  }
+}

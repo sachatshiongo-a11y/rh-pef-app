@@ -76,7 +76,7 @@ export default async function PresencesPage() {
     <div>
       <div className="mb-4 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Présences</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Présences</h1>
           <p className="text-sm text-muted-foreground capitalize">{periode}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Cliquez une case puis tapez directement une lettre (P, O, M, A, N, C, F, S) ou ouvrez la

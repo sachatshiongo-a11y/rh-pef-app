@@ -152,7 +152,7 @@ export default async function AccueilPage() {
       <div className="mb-6 flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-sm">
         <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />
         <div>
-          <h1 className="text-2xl font-semibold">Bonjour {prenom}</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Bonjour {prenom}</h1>
           <p className="text-sm capitalize text-muted-foreground">
             {user.role === "ADMIN" ? "Direction" : user.role === "MANAGER" ? "Responsable RH" : "Consultation"} ·{" "}
             {dateDuJour} · Paie de{" "}

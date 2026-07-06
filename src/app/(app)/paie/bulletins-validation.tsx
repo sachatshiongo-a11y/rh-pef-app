@@ -100,7 +100,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
               Agrandir
             </button>
             {sel && (
-              <a href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+              <a href={`${src}&dl=1`} target="_blank" rel="noopener noreferrer" className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                 Télécharger
               </a>
             )}
@@ -136,7 +136,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                     </button>
                   ))}
                 </div>
-                <a href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                <a href={`${src}&dl=1`} target="_blank" rel="noopener noreferrer" className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                   Télécharger
                 </a>
                 <button onClick={() => setAgrandi(false)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">

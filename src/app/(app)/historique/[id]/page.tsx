@@ -31,7 +31,7 @@ export default async function HistoriqueDetailPage({
       <Link href="/historique" className="text-sm text-primary underline">
         ← Retour à l&apos;historique
       </Link>
-      <h1 className="mt-2 mb-6 text-2xl font-semibold capitalize">Paie — {periode}</h1>
+      <h1 className="mt-2 mb-6 text-xl font-semibold sm:text-2xl capitalize">Paie — {periode}</h1>
 
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
