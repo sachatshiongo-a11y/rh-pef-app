@@ -235,17 +235,17 @@ export default async function FicheEmployePage({
       <Link href="/employes" className="mb-3 inline-block text-sm text-primary underline">
         ← Retour à la liste
       </Link>
-      <div className="mb-6 flex flex-wrap items-center gap-4 rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:mb-6 sm:gap-4 sm:p-5">
         <div className="flex flex-col items-center gap-1">
           {employee.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={employee.photoUrl} alt={employee.nom} className="h-16 w-16 rounded-full object-cover" />
+            <img src={employee.photoUrl} alt={employee.nom} className="h-12 w-12 rounded-full object-cover sm:h-16 sm:w-16" />
           ) : (
-            <Avatar nom={employee.nom} taille={64} />
+            <Avatar nom={employee.nom} taille={48} />
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold">{employee.nom}</h1>
+          <h1 className="text-lg font-semibold sm:text-2xl">{employee.nom}</h1>
           <p className="text-sm text-muted-foreground">
             {employee.matricule} — {employee.poste} · {employee.secteur}
           </p>
@@ -256,17 +256,17 @@ export default async function FicheEmployePage({
             <Chip>{soldeConges} j de congés</Chip>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full gap-2 sm:w-auto">
           <a
             href={`/employes/${employee.id}/fiche`}
             target="_blank"
-            className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
+            className="flex-1 rounded-md border px-3 py-1.5 text-center text-sm font-medium hover:bg-accent sm:flex-none sm:px-4 sm:py-2"
           >
             Exporter (PDF)
           </a>
           <Link
             href={`/employes/${employee.id}/modifier`}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="flex-1 rounded-md bg-primary px-3 py-1.5 text-center text-sm font-medium text-primary-foreground sm:flex-none sm:px-4 sm:py-2"
           >
             Modifier
           </Link>

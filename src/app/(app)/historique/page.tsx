@@ -35,9 +35,9 @@ export default async function HistoriquePage({
 
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-semibold">Historique de paie</h1>
+      <h1 className="mb-4 text-xl font-semibold sm:text-2xl">Historique de paie</h1>
 
-      <form method="GET" className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3">
+      <form method="GET" className="mb-5 flex flex-wrap items-end gap-2 rounded-xl border bg-card p-2.5 sm:gap-3 sm:p-3">
         <label className="flex flex-col gap-1 text-xs">
           Année
           <select name="annee" defaultValue={sp.annee ?? ""} className="rounded-md border border-input bg-background px-3 py-1.5 text-sm">
