@@ -79,7 +79,7 @@ export function AppShell({
 
       {/* Barre latérale : tiroir coulissant sur mobile, fixe sur grand écran */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -174,8 +174,8 @@ export function AppShell({
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-auto">
-        {/* En-tête mobile : hamburger + titre + cloche */}
-        <header className="flex items-center gap-2 border-b bg-background px-4 py-2 lg:hidden">
+        {/* En-tête mobile : hamburger + titre + cloche — collant, sous l'encoche (safe-area) */}
+        <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
           <button
             type="button"
             onClick={() => setOpen(true)}

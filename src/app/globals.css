@@ -127,5 +127,45 @@
   }
   html {
     @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
+/* ---- Fluidité mobile (PWA) ---- */
+
+/* Supprime le flash bleu au tap sur les éléments interactifs. */
+a,
+button,
+label,
+input,
+select,
+textarea,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Défilement à inertie + pas de « rebond » de la page quand on scrolle un tableau. */
+.overflow-x-auto,
+.overflow-y-auto,
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Masque la scrollbar horizontale des tableaux (on balaie au doigt) — rendu plus net. */
+.overflow-x-auto {
+  scrollbar-width: none;
+}
+.overflow-x-auto::-webkit-scrollbar {
+  height: 0;
+}
+
+/* Sur mobile, les champs de saisie < 16px déclenchent un zoom automatique iOS (effet saccadé) :
+   on force 16px pour les champs où l'on tape. */
+@media (max-width: 640px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea {
+    font-size: 16px;
   }
 }

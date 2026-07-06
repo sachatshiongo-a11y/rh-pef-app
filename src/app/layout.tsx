@@ -25,6 +25,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#8b5e3c",
+  viewportFit: "cover", // permet d'utiliser les safe-area (encoche / barre d'accueil iPhone)
 };
 
 export default function RootLayout({
