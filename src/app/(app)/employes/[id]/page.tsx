@@ -9,7 +9,7 @@ import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
 import { BulletinViewerButton } from "./bulletin-viewer";
 import { Avatar } from "@/components/avatar";
-import { ajouterPrime, supprimerPrime, demanderAcompte } from "../../paie/remuneration-actions";
+import { ajouterPrime, supprimerPrime, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
@@ -73,10 +73,12 @@ export default async function FicheEmployePage({
     }),
   ]);
 
-  const [primes, acomptes] = await Promise.all([
+  const [primes, acomptes, fraisMed] = await Promise.all([
     prisma.prime.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.acompteSalaire.findMany({ where: { employeeId: id }, orderBy: { dateDemande: "desc" }, take: 30 }),
+    prisma.fraisMedical.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
   ]);
+  const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
   const finContrats =
     tab === "fin"
       ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
@@ -480,7 +482,36 @@ export default async function FicheEmployePage({
                 <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Demander</button>
               </div>
             </form>
+            <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
+              <p className="mb-2 text-sm font-medium">Ajouter un frais médical (avec certificat)</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input name="certificat" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="text-xs" />
+                <button type="submit" className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">Ajouter</button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Remboursé sur le bulletin de la période (non imposable). PDF ou image.</p>
+            </form>
           </div>
+        )}
+
+        {fraisMedMoisCourant.length > 0 && (
+          <>
+            <p className="mb-2 mt-2 text-xs font-semibold uppercase text-muted-foreground">Frais médicaux (mois en cours)</p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {fraisMedMoisCourant.map((f) => (
+                <span key={f.id} className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-800">
+                  {formatMoney(Number(f.montantUSD))}{f.motif ? ` · ${f.motif}` : ""}
+                  {f.certificatUrl && <a href={f.certificatUrl} target="_blank" className="underline">certificat</a>}
+                  {estAdmin && (
+                    <form action={supprimerFraisMedical.bind(null, f.id)} className="inline">
+                      <button className="text-sky-900/70 hover:text-sky-900" title="Supprimer">✕</button>
+                    </form>
+                  )}
+                </span>
+              ))}
+            </div>
+          </>
         )}
 
         <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Primes (mois en cours)</p>

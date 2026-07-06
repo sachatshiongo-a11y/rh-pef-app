@@ -48,6 +48,7 @@ export async function calculerPaieDuMois() {
     primesDuMois,
     acomptesDuMois,
     congesDuMois,
+    fraisMedDuMois,
   ] = await Promise.all([
       prisma.employee.findMany({ where: { actif: true } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -65,7 +66,13 @@ export async function calculerPaieDuMois() {
       prisma.leaveRequest.findMany({
         where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
       }),
+      prisma.fraisMedical.findMany({ where: { mois, annee } }),
     ]);
+
+  // Frais médicaux du mois (avec certificat) sommés par employé.
+  const fraisMedParEmp = new Map<string, number>();
+  for (const f of fraisMedDuMois)
+    fraisMedParEmp.set(f.employeeId, (fraisMedParEmp.get(f.employeeId) ?? 0) + Number(f.montantUSD));
 
   // Jours de congé (ouvrables) réellement posés dans le mois, par employé, depuis les demandes.
   const joursCongeParEmp = new Map<string, number>();
@@ -165,7 +172,7 @@ export async function calculerPaieDuMois() {
     }
     const salaireHoraire = sommeH > 0 ? sommeHT / sommeH : tauxDefaut;
     const salaireJournalier = salaireHoraire * Number(employee.heuresParJour);
-    const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant);
+    const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant) + (fraisMedParEmp.get(employee.id) ?? 0);
     if (fraisMedicauxUSD !== 0) employesFraisMedicaux.push(employee.id);
 
     const hs = calculerHeuresSupp({

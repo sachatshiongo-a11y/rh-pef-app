@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
-import { creerNotification } from "@/lib/notifications";
+import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 
 async function periodeCourante() {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -54,6 +54,59 @@ export async function supprimerPrime(id: string) {
   revalidatePath("/paie");
 }
 
+/** Téléverse un certificat vers Supabase Storage (bucket employes, préfixe certificats/). */
+async function televerserCertificat(employeeId: string, file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  if (!["pdf", "png", "jpg", "jpeg", "webp"].includes(ext)) throw new Error("Certificat : PDF ou image uniquement.");
+  if (file.size > 15 * 1024 * 1024) throw new Error("Fichier trop lourd (max 15 Mo).");
+  const path = `certificats/${employeeId}-${Date.now()}.${ext}`;
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const res = await fetch(`${base}/storage/v1/object/employes/${path}`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" },
+    body: Buffer.from(await file.arrayBuffer()),
+  });
+  if (!res.ok) throw new Error("Échec du téléversement du certificat.");
+  return `${base}/storage/v1/object/public/employes/${path}`;
+}
+
+/** Ajoute un frais médical (avec certificat) pour la période en cours. Répercuté au calcul de la paie. */
+export async function ajouterFraisMedical(employeeId: string, formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const montantUSD = Number(formData.get("montantUSD"));
+  if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant de frais médical invalide.");
+  const motif = String(formData.get("motif") ?? "").trim() || null;
+  const { mois, annee } = await periodeCourante();
+
+  let certificatUrl: string | null = null;
+  const fichier = formData.get("certificat");
+  if (fichier instanceof File && fichier.size > 0) certificatUrl = await televerserCertificat(employeeId, fichier);
+
+  await prisma.fraisMedical.create({ data: { employeeId, montantUSD, mois, annee, motif, certificatUrl, creeParId: user.id } });
+  await journaliser(prisma, {
+    entite: "FraisMedical",
+    entiteId: employeeId,
+    champ: "ajout",
+    nouvelleValeur: `${montantUSD} $ (${mois}/${annee})${certificatUrl ? " + certificat" : ""}`,
+    userId: user.id,
+  });
+  revalidatePath(`/employes/${employeeId}`);
+  revalidatePath("/paie");
+}
+
+export async function supprimerFraisMedical(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const fm = await prisma.fraisMedical.findUnique({ where: { id } });
+  if (!fm) return;
+  await prisma.fraisMedical.delete({ where: { id } });
+  await journaliser(prisma, { entite: "FraisMedical", entiteId: fm.employeeId, champ: "suppression", ancienneValeur: `${Number(fm.montantUSD)} $`, userId: user.id });
+  revalidatePath(`/employes/${fm.employeeId}`);
+  revalidatePath("/paie");
+}
+
 /** Demande d'acompte sur salaire (à approuver dans les Demandes de validation). */
 export async function demanderAcompte(employeeId: string, formData: FormData) {
   const user = await verifySession();
@@ -63,7 +116,7 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
   const motif = String(formData.get("motif") ?? "").trim() || null;
   const { mois, annee } = await periodeCourante();
 
-  await prisma.acompteSalaire.create({
+  const acompte = await prisma.acompteSalaire.create({
     data: { employeeId, montantUSD, mois, annee, motif, statut: "EN_ATTENTE" },
   });
 
@@ -72,6 +125,7 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
     type: "ACOMPTE",
     message: `Nouvelle demande d'acompte — ${emp?.nom ?? "employé"}, ${montantUSD.toFixed(2)} $.`,
     lien: "/a-valider",
+    refId: acompte.id,
   });
 
   revalidatePath(`/employes/${employeeId}`);
@@ -95,9 +149,11 @@ async function deciderAcompte(id: string, statut: "APPROUVE" | "REFUSE") {
     nouvelleValeur: `${statut} — ${Number(a.montantUSD)} $ (${a.mois}/${a.annee})`,
     userId: user.id,
   });
+  await supprimerNotificationsPour(id);
   revalidatePath("/a-valider");
   revalidatePath(`/employes/${a.employeeId}`);
   revalidatePath("/paie");
+  revalidatePath("/", "layout");
 }
 
 export async function approuverAcompte(id: string) {

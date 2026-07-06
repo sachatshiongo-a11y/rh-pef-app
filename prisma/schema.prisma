@@ -189,6 +189,7 @@ model Employee {
   planningCreneaux PlanningCreneau[]
   primes         Prime[]
   acomptes       AcompteSalaire[]
+  fraisMed       FraisMedical[]
   compte         User?          @relation("CompteEmploye")
 }
 
@@ -615,6 +616,7 @@ model DeclarationTaxe {
 model Notification {
   id        String   @id @default(uuid())
   type      String   // CONGE | ACOMPTE | CLOTURE | AUTRE
+  refId     String?  // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
   message   String
   lien      String?
   lu        Boolean  @default(false)
@@ -660,4 +662,21 @@ model PlanningModele {
 
   @@unique([employeeId, jour, semaine])
   @@index([employeeId])
+}
+
+/// Frais médical d'un employé pour un mois donné, avec certificat (justificatif) — s'ajoute au
+/// remboursement de frais médicaux du bulletin de la période.
+model FraisMedical {
+  id            String   @id @default(uuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  montantUSD    Decimal  @db.Decimal(12, 2)
+  mois          Int
+  annee         Int
+  motif         String?
+  certificatUrl String?
+  createdAt     DateTime @default(now())
+  creeParId     String?
+
+  @@index([employeeId, annee, mois])
 }

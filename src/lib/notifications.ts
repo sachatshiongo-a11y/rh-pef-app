@@ -17,9 +17,10 @@ export async function creerNotification(params: {
   type: "CONGE" | "ACOMPTE" | "CLOTURE" | "AUTRE";
   message: string;
   lien?: string;
+  refId?: string;
 }) {
   await prisma.notification.create({
-    data: { type: params.type, message: params.message, lien: params.lien ?? null },
+    data: { type: params.type, message: params.message, lien: params.lien ?? null, refId: params.refId ?? null },
   });
 
   // Notification e-mail aux comptes Direction (best-effort ; no-op si SMTP non configuré).
@@ -29,6 +30,11 @@ export async function creerNotification(params: {
     `RH Pâtes en Folie — ${params.message}`,
     `${params.message}\n\nConnectez-vous pour traiter la demande.`
   );
+}
+
+/** Supprime les notifications liées à une demande (appelée quand la demande est traitée). */
+export async function supprimerNotificationsPour(refId: string) {
+  await prisma.notification.deleteMany({ where: { refId } });
 }
 
 const JOUR_PAIE = 30;

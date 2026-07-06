@@ -5,12 +5,13 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
-import { creerNotification } from "@/lib/notifications";
+import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 
 function revaliderConges() {
   revalidatePath("/conges");
   revalidatePath("/a-valider");
   revalidatePath("/employes");
+  revalidatePath("/", "layout");
   revalidatePath("/dashboard");
 }
 
@@ -26,7 +27,7 @@ export async function demanderConge(formData: FormData) {
   const motif = String(formData.get("motif") ?? "").trim() || null;
   const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
 
-  await prisma.leaveRequest.create({
+  const demande = await prisma.leaveRequest.create({
     data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: "EN_ATTENTE" },
   });
 
@@ -35,6 +36,7 @@ export async function demanderConge(formData: FormData) {
     type: "CONGE",
     message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
     lien: "/a-valider",
+    refId: demande.id,
   });
 
   revalidatePath("/conges");
@@ -58,6 +60,7 @@ export async function approuverConge(leaveRequestId: string) {
     nouvelleValeur: "APPROUVE",
     userId: user.id,
   });
+  await supprimerNotificationsPour(leaveRequestId);
 
   revaliderConges();
 }
@@ -77,6 +80,7 @@ export async function refuserConge(leaveRequestId: string) {
     nouvelleValeur: "REFUSE",
     userId: user.id,
   });
+  await supprimerNotificationsPour(leaveRequestId);
 
   revaliderConges();
 }
@@ -100,6 +104,7 @@ export async function supprimerConge(leaveRequestId: string) {
     demande.dateDebut
   ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
 
+  await supprimerNotificationsPour(leaveRequestId);
   await prisma.$transaction(async (tx) => {
     await tx.leaveRequest.delete({ where: { id: leaveRequestId } });
     await journaliser(tx, {
@@ -133,6 +138,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<number> {
       nouvelleValeur: "APPROUVE",
       userId: user.id,
     });
+    await supprimerNotificationsPour(id);
     n++;
   }
   revaliderConges();
@@ -158,6 +164,7 @@ export async function refuserCongesEnLot(ids: string[]): Promise<number> {
       nouvelleValeur: "REFUSE",
       userId: user.id,
     });
+    await supprimerNotificationsPour(id);
     n++;
   }
   revaliderConges();

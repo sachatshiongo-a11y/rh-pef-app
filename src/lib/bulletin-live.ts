@@ -39,12 +39,13 @@ export async function calculerBulletinLive(
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  const [attendances, overtimeEntries, joursFeriesDuMois, primesDuMois, acomptesDuMois, creneauxMois] =
+  const [attendances, overtimeEntries, joursFeriesDuMois, primesDuMois, fraisMedDuMois, acomptesDuMois, creneauxMois] =
     await Promise.all([
       prisma.attendance.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
       prisma.overtimeEntry.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.prime.findMany({ where: { employeeId, mois, annee } }),
+      prisma.fraisMedical.findMany({ where: { employeeId, mois, annee } }),
       prisma.acompteSalaire.findMany({ where: { employeeId, mois, annee, statut: "APPROUVE" } }),
       prisma.planningCreneau.findMany({
         where: { employeeId, date: { gte: debutMois, lte: finMois } },
@@ -110,7 +111,8 @@ export async function calculerBulletinLive(
       : Number(employee.transportMoisUSD);
   const primesUSD = primesDuMois.reduce((s, p) => s + Number(p.montantUSD), 0);
   const acompteUSD = acomptesDuMois.reduce((s, a) => s + Number(a.montantUSD), 0);
-  const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant);
+  const fraisMedicauxUSD =
+    Number(employee.fraisMedicauxMoisCourant) + fraisMedDuMois.reduce((s, f) => s + Number(f.montantUSD), 0);
 
   const ligne =
     employee.categorie === "BRIGADE"

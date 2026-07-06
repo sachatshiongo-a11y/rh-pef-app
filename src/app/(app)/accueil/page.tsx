@@ -8,6 +8,7 @@ import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
+const MOIS_COURT = ["JAN", "FÉV", "MAR", "AVR", "MAI", "JUIN", "JUIL", "AOÛ", "SEP", "OCT", "NOV", "DÉC"];
 const STYLE_ALERTE: Record<Alerte["niveau"], string> = {
   urgent: "bg-red-500",
   warning: "bg-amber-500",
@@ -47,6 +48,8 @@ export default async function AccueilPage() {
     alertes,
     absencesAVenir,
     runsHistorique,
+    employesAnniv,
+    contratsEcheance,
   ] = await Promise.all([
     prisma.employee.count({ where: { categorie: "BRIGADE", actif: true } }),
     prisma.employee.count({ where: { categorie: "BACKOFFICE", actif: true } }),
@@ -63,6 +66,19 @@ export default async function AccueilPage() {
       take: 10,
     }),
     prisma.payrollRun.findMany({ orderBy: [{ annee: "desc" }, { mois: "desc" }], take: 6, include: { lignes: { select: { salNetUSD: true, coutEmployeurUSD: true } } } }),
+    prisma.employee.findMany({ where: { actif: true, dateNaissance: { not: null } }, select: { id: true, nom: true, photoUrl: true, dateNaissance: true } }),
+    prisma.contrat.findMany({
+      where: {
+        statut: "ACTIF",
+        OR: [
+          { dateFin: { gte: maintenant, lte: dans30j } },
+          { finPeriodeEssai: { gte: maintenant, lte: dans30j } },
+        ],
+      },
+      include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+      orderBy: { dateFin: "asc" },
+      take: 10,
+    }),
   ]);
 
   const lignes = run?.lignes ?? [];
@@ -75,8 +91,22 @@ export default async function AccueilPage() {
   });
   const masseNette = lignes.reduce((a, l) => a + Number(l.salNetUSD), 0);
   const coutTotal = lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0);
-  const tempsTravail = lignes.reduce((a, l) => a + Number(l.heuresTravaillees), 0);
+  const hsValoriseeTotal = lignes.reduce((a, l) => a + Number(l.hsValorisee), 0);
+  const transportTotal = lignes.reduce((a, l) => a + Number(l.transportUSD), 0);
   const fraisMedicaux = lignes.reduce((a, l) => a + Number(l.fraisMedicauxUSD), 0);
+
+  // Anniversaires à venir (30 j) : on compare mois/jour (indépendamment de l'année).
+  const jourAnnee = (d: Date) => d.getUTCMonth() * 31 + d.getUTCDate();
+  const ajd = jourAnnee(new Date(Date.UTC(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate())));
+  const fin30 = jourAnnee(new Date(dans30j.getUTCFullYear(), dans30j.getUTCMonth(), dans30j.getUTCDate()));
+  const anniversaires = employesAnniv
+    .map((e) => {
+      const dn = new Date(e.dateNaissance!);
+      return { id: e.id, nom: e.nom, photoUrl: e.photoUrl, jour: dn.getUTCDate(), mois: dn.getUTCMonth(), cle: jourAnnee(dn) };
+    })
+    .filter((e) => (fin30 >= ajd ? e.cle >= ajd && e.cle <= fin30 : e.cle >= ajd || e.cle <= fin30))
+    .sort((a, b) => a.cle - b.cle)
+    .slice(0, 6);
 
   const historique = [...runsHistorique].reverse().map((r) => ({
     periode: new Date(r.annee, r.mois - 1).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
@@ -108,10 +138,10 @@ export default async function AccueilPage() {
     { label: "Effectif backoffice", value: String(effectifBackoffice) },
     { label: "Masse salariale nette", value: usd(masseNette) },
     { label: "Coût total employeur", value: usd(coutTotal) },
-    { label: "Temps de travail (mois)", value: `${tempsTravail} h` },
+    { label: "Heures supp. valorisées", value: usd(hsValoriseeTotal) },
+    { label: "Frais de transport", value: usd(transportTotal) },
     { label: "Frais médicaux (mois)", value: usd(fraisMedicaux) },
     { label: "Congés en cours", value: String(congesEnCours) },
-    { label: "Taux CDF/USD", value: config ? `${Number(config.tauxChangeCDF)} CDF` : "—" },
   ];
 
   const dateDuJour = maintenant.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -204,17 +234,32 @@ export default async function AccueilPage() {
             {historique.length === 0 ? (
               <p className="text-sm text-muted-foreground">Aucune paie enregistrée.</p>
             ) : (
-              <div className="flex h-36 items-end gap-3">
-                {historique.map((h) => (
-                  <div key={h.periode} className="flex flex-1 flex-col items-center gap-1">
-                    <div className="flex h-28 w-full items-end justify-center gap-1">
-                      <div className="w-1/2 rounded-t bg-primary/80" style={{ height: `${Math.max(3, (h.net / maxSerie) * 112)}px` }} title={`Net ${h.periode} : ${usd(h.net)}`} />
-                      <div className="w-1/2 rounded-t bg-amber-500" style={{ height: `${Math.max(3, (h.cout / maxSerie) * 112)}px` }} title={`Coût employeur ${h.periode} : ${usd(h.cout)}`} />
-                    </div>
-                    <span className="text-xs capitalize text-muted-foreground">{h.periode}</span>
-                  </div>
-                ))}
-              </div>
+              (() => {
+                const n = historique.length;
+                const W = 340, H = 140, padX = 24, padTop = 20, padBottom = 26;
+                const innerW = W - 2 * padX, innerH = H - padTop - padBottom;
+                const x = (i: number) => (n === 1 ? W / 2 : padX + (i / (n - 1)) * innerW);
+                const y = (v: number) => padTop + (1 - v / maxSerie) * innerH;
+                const ligne = (cle: "net" | "cout") => historique.map((h, i) => `${x(i)},${y(h[cle])}`).join(" ");
+                return (
+                  <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 160 }}>
+                    <polyline points={ligne("cout")} fill="none" stroke="#f59e0b" strokeWidth={2} />
+                    <polyline points={ligne("net")} fill="none" stroke="#6b3f2a" strokeWidth={2} />
+                    {historique.map((h, i) => (
+                      <g key={h.periode}>
+                        <circle cx={x(i)} cy={y(h.cout)} r={2.5} fill="#f59e0b" />
+                        <circle cx={x(i)} cy={y(h.net)} r={2.5} fill="#6b3f2a" />
+                        <text x={x(i)} y={y(h.net) - 6} textAnchor="middle" fontSize={8} fontWeight={700} fill="#6b3f2a">
+                          {usd(h.net).replace(",00", "").replace(" ", "")}
+                        </text>
+                        <text x={x(i)} y={H - 8} textAnchor="middle" fontSize={8} fill="#78716c" className="capitalize">
+                          {h.periode}
+                        </text>
+                      </g>
+                    ))}
+                  </svg>
+                );
+              })()
             )}
           </div>
         </div>
@@ -241,9 +286,50 @@ export default async function AccueilPage() {
             )}
           </div>
 
+          {/* Anniversaires à venir */}
+          <div className="rounded-2xl border bg-card shadow-sm">
+            <div className="border-b px-5 py-3"><h2 className="font-semibold">Anniversaires à venir</h2></div>
+            {anniversaires.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucun anniversaire (30 j).</p>
+            ) : (
+              <ul className="divide-y">
+                {anniversaires.map((a) => (
+                  <li key={a.id} className="flex items-center gap-3 px-5 py-3">
+                    <Avatar nom={a.nom} taille={32} photoUrl={a.photoUrl} />
+                    <Link href={`/employes/${a.id}`} className="min-w-0 flex-1 truncate text-sm font-medium hover:underline">{a.nom}</Link>
+                    <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">{String(a.jour).padStart(2, "0")} {MOIS_COURT[a.mois]}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Contrats arrivant à échéance */}
+          <div className="rounded-2xl border bg-card shadow-sm">
+            <div className="border-b px-5 py-3"><h2 className="font-semibold">Contrats à échéance (30 j)</h2></div>
+            {contratsEcheance.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucun contrat à échéance.</p>
+            ) : (
+              <ul className="divide-y">
+                {contratsEcheance.map((c) => {
+                  const dateEch = c.dateFin ?? c.finPeriodeEssai;
+                  return (
+                    <li key={c.id} className="flex items-center gap-3 px-5 py-3">
+                      <Avatar nom={c.employee.nom} taille={32} photoUrl={c.employee.photoUrl} />
+                      <div className="min-w-0 flex-1">
+                        <Link href={`/employes/${c.employee.id}`} className="block truncate text-sm font-medium hover:underline">{c.employee.nom}</Link>
+                        <p className="text-xs text-muted-foreground">{c.type}{c.dateFin ? " — fin" : " — fin d'essai"}</p>
+                      </div>
+                      <span className="whitespace-nowrap text-xs font-medium text-amber-700">{dateEch ? libelleJour(new Date(dateEch)) : ""}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
           <div className="space-y-2">
             <LienCarte href="/documents" titre="Documents & archives" desc="Contrats, bulletins, congés" />
-            <LienCarte href="/presences" titre="Présences & absences" desc="Historique et saisie" />
             <LienCarte href="/absences" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
             <LienCarte href="/historique" titre="Historique de paie" desc="Masse salariale par mois" />
           </div>
