@@ -8,12 +8,14 @@ import { LIBELLE_STATUT } from "@/lib/paie-etats";
  * backoffice, triées par nom) et mêmes colonnes que le tableau à l'écran, plus le détail des
  * retenues pour l'usage comptable.
  */
-export async function GET() {
+export async function GET(request: Request) {
   await verifySession();
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  const mois = config.moisCourant;
-  const annee = config.anneeCourante;
+  // Mois/année optionnels (?mois=&annee=) pour exporter n'importe quel mois de l'historique.
+  const sp = new URL(request.url).searchParams;
+  const mois = Number(sp.get("mois")) || config.moisCourant;
+  const annee = Number(sp.get("annee")) || config.anneeCourante;
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },

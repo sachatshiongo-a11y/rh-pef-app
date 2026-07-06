@@ -68,15 +68,9 @@ export function EmployeeForm({
 
       <SalaireHoraire
         salaireMensuelInit={employee?.salaireMensuel?.toString() ?? ""}
+        heuresHebdoInit={employee?.heuresHebdomadaires?.toString() ?? "48"}
         heuresParJourInit={employee?.heuresParJour?.toString() ?? "8"}
         joursOuvrablesMois={joursOuvrablesMois}
-      />
-      <Field
-        label="Heures hebdomadaires"
-        name="heuresHebdomadaires"
-        type="number"
-        step="0.5"
-        defaultValue={employee?.heuresHebdomadaires?.toString() ?? "48"}
       />
       <Field
         label="ID pointeuse IVMS (optionnel)"
@@ -168,49 +162,52 @@ const champCls =
   "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
 /**
- * Salaire mensuel + heures/jour + taux horaire synchronisés. Le salaire mensuel reste la donnée
- * enregistrée ; le taux horaire = salaire mensuel ÷ (heures/jour × jours ouvrables/mois). Modifier
- * l'un recalcule l'autre en direct.
+ * Salaire mensuel + heures hebdo + heures/jour + taux horaire synchronisés.
+ * Heures/mois = heures hebdo × jours ouvrables ÷ 6 (gère les temps partiels : Rachel 36h/sem,
+ * Aimée 25h/sem). Taux horaire = salaire mensuel ÷ heures/mois. « Heures/jour » = seuil quotidien
+ * d'heures supplémentaires (indépendant). Enregistrés : salaire mensuel, heures hebdo, heures/jour.
  */
 function SalaireHoraire({
   salaireMensuelInit,
+  heuresHebdoInit,
   heuresParJourInit,
   joursOuvrablesMois,
 }: {
   salaireMensuelInit: string;
+  heuresHebdoInit: string;
   heuresParJourInit: string;
   joursOuvrablesMois: number;
 }) {
   const round2 = (n: number) => (Math.round(n * 100) / 100).toString();
   const round4 = (n: number) => (Math.round(n * 10000) / 10000).toString();
+  const moisDepuisHebdo = (hebdo: number) => (joursOuvrablesMois * hebdo) / 6;
 
-  const heuresMoisInit = (Number(heuresParJourInit) * joursOuvrablesMois || 0).toString();
+  const heuresMoisInit = round2(moisDepuisHebdo(Number(heuresHebdoInit) || 0));
   const tauxInit =
     Number(salaireMensuelInit) && Number(heuresMoisInit)
       ? round4(Number(salaireMensuelInit) / Number(heuresMoisInit))
       : "";
 
   const [mensuel, setMensuel] = useState(salaireMensuelInit);
-  const [heuresJour, setHeuresJour] = useState(heuresParJourInit);
+  const [hebdo, setHebdo] = useState(heuresHebdoInit);
   const [heuresMois, setHeuresMois] = useState(heuresMoisInit);
   const [taux, setTaux] = useState(tauxInit);
 
-  // Règles de synchronisation (salaire mensuel + heures/jour sont les données enregistrées).
   function onMensuel(v: string) {
     setMensuel(v);
     const hm = Number(heuresMois);
     if (Number(v) && hm) setTaux(round4(Number(v) / hm));
   }
-  function onHeuresJour(v: string) {
-    setHeuresJour(v);
-    const hm = Number(v) * joursOuvrablesMois;
+  function onHebdo(v: string) {
+    setHebdo(v);
+    const hm = moisDepuisHebdo(Number(v));
     setHeuresMois(hm ? round2(hm) : "");
     if (Number(mensuel) && hm) setTaux(round4(Number(mensuel) / hm));
   }
   function onHeuresMois(v: string) {
     setHeuresMois(v);
     const hm = Number(v);
-    if (hm && joursOuvrablesMois) setHeuresJour(round2(hm / joursOuvrablesMois));
+    if (hm) setHebdo(round2((hm * 6) / joursOuvrablesMois));
     if (Number(mensuel) && hm) setTaux(round4(Number(mensuel) / hm));
   }
   function onTaux(v: string) {
@@ -226,8 +223,8 @@ function SalaireHoraire({
         <input id="salaireMensuel" name="salaireMensuel" type="number" step="0.01" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="heuresParJour" className="text-sm font-medium">Heures / jour</label>
-        <input id="heuresParJour" name="heuresParJour" type="number" step="0.5" value={heuresJour} onChange={(e) => onHeuresJour(e.target.value)} className={champCls} />
+        <label htmlFor="heuresHebdomadaires" className="text-sm font-medium">Heures / semaine</label>
+        <input id="heuresHebdomadaires" name="heuresHebdomadaires" type="number" step="0.5" value={hebdo} onChange={(e) => onHebdo(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="heuresMois" className="text-sm font-medium">Heures / mois (modifiable)</label>
@@ -237,10 +234,11 @@ function SalaireHoraire({
         <label htmlFor="tauxHoraire" className="text-sm font-medium">Taux horaire $/h (modifiable)</label>
         <input id="tauxHoraire" type="number" step="0.0001" value={taux} onChange={(e) => onTaux(e.target.value)} className={champCls} />
       </div>
+      <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" type="number" step="0.5" defaultValue={heuresParJourInit} />
       <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
-        Heures/mois = heures/jour × {joursOuvrablesMois} jours ouvrables. Taux horaire = salaire mensuel
-        ÷ heures/mois. Modifier l&apos;un de ces champs met les autres à jour (seuls le salaire mensuel
-        et les heures/jour sont enregistrés).
+        Heures/mois = heures/semaine × {joursOuvrablesMois} jours ÷ 6. Taux horaire = salaire mensuel ÷
+        heures/mois. « Heures/jour » sert de seuil quotidien d&apos;heures supplémentaires. Enregistrés :
+        salaire mensuel, heures/semaine, heures/jour.
       </p>
     </>
   );

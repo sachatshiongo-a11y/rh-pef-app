@@ -95,8 +95,10 @@ export default async function HistoriquePage({
                   <td className="px-3 py-2 text-right">{r.lignes.length}</td>
                   <td className="px-3 py-2 text-right">{money(masseNette)}</td>
                   <td className="px-3 py-2 text-right">{money(coutTotal)}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="whitespace-nowrap px-3 py-2 text-right">
                     <Link href={`/historique/${r.id}`} className="text-primary underline">Détails</Link>
+                    {" · "}
+                    <a href={`/paie/export?mois=${r.mois}&annee=${r.annee}`} className="text-primary underline">Excel</a>
                   </td>
                 </tr>
               );

@@ -145,8 +145,14 @@ export async function calculerPaieDuMois() {
 
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);
-    const tauxDefaut =
-      Number(employee.salaireMensuel) / (parametres.joursOuvrablesMois * Number(employee.heuresParJour));
+    // Heures contractuelles du mois = jours ouvrables × (heures hebdo ÷ 6 jours) — reflète le vrai
+    // temps partiel (Rachel 36h/sem, Aimée 25h/sem) et reste identique pour les temps plein (48h/sem).
+    const heuresHebdo = Number(employee.heuresHebdomadaires) || 0;
+    const heuresMoisContrat =
+      heuresHebdo > 0
+        ? parametres.joursOuvrablesMois * (heuresHebdo / 6)
+        : parametres.joursOuvrablesMois * Number(employee.heuresParJour);
+    const tauxDefaut = Number(employee.salaireMensuel) / heuresMoisContrat;
     // Taux effectif = Σ(heures du jour × taux du rôle du jour) ÷ Σ heures ; sinon taux par défaut.
     const rolesEmp = tauxRoleParJour.get(employee.id);
     const heuresEmp = heureParJour.get(employee.id) ?? new Map<string, number>();
@@ -180,7 +186,7 @@ export async function calculerPaieDuMois() {
     );
     const indemniteCongesUSD = joursCongePris * salaireJournalier;
     const nombreAbsences = codes.filter((c) => c === "A" || c === "N" || c === "S").length;
-    const heuresContractuelles = Number(employee.heuresParJour) * parametres.joursOuvrablesMois;
+    const heuresContractuelles = Math.round(heuresMoisContrat * 100) / 100;
 
     // Transport (B3) : brigade = tarif journalier (CDF) × jours de présence réelle (code P),
     // converti en USD au taux du mois. Backoffice = forfait mensuel fixe (transportMoisUSD).

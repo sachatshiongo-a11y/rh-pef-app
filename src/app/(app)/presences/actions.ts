@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
+import { dureeShift } from "../planning/creneaux";
 import type { AttendanceCode } from "@prisma/client";
 
 async function appliquerPresence(
@@ -21,16 +22,33 @@ async function appliquerPresence(
     create: { employeeId, date: new Date(date), code },
   });
 
-  // Un jour de présence (P) pré-remplit les heures supp. avec l'horaire contractuel de
-  // l'employé, pour n'avoir plus qu'à ajuster en cas d'heures sup. réelles (ou pas).
+  // Un jour de présence (P) pré-remplit les heures supp. avec la DURÉE DU SHIFT du jour (modèle
+  // hebdo de l'employé) — ex. Caisse 12h pour Rachel, Admin 3,5h pour Aimée. À défaut de modèle,
+  // on retombe sur l'horaire contractuel (heures/jour). Ajustable ensuite dans la grille.
   if (code === "P") {
     const dejaSaisi = await prisma.overtimeEntry.findUnique({
       where: { employeeId_date: { employeeId, date: new Date(date) } },
     });
     if (!dejaSaisi) {
       const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+      let heures = Number(employee.heuresParJour);
+      const jour = new Date(date).getUTCDay();
+      const modele = await prisma.planningModele.findUnique({
+        where: { employeeId_jour: { employeeId, jour } },
+      });
+      if (modele) {
+        const shift = await prisma.shift.findUnique({ where: { id: modele.shiftId } });
+        if (shift) {
+          const d = dureeShift({
+            heureDebut: shift.heureDebut,
+            heureFin: shift.heureFin,
+            dureeHeures: shift.dureeHeures != null ? Number(shift.dureeHeures) : null,
+          });
+          if (d > 0) heures = d;
+        }
+      }
       await prisma.overtimeEntry.create({
-        data: { employeeId, date: new Date(date), heuresTravaillees: employee.heuresParJour },
+        data: { employeeId, date: new Date(date), heuresTravaillees: heures },
       });
     }
   }

@@ -56,7 +56,12 @@ export async function calculerBulletinLive(
   const codes = attendances.map((a) => a.code as CodePresence);
 
   // Option A — taux horaire effectif (pondéré par les heures selon le taux du rôle de chaque jour).
-  const tauxDefaut = Number(employee.salaireMensuel) / (parametres.joursOuvrablesMois * Number(employee.heuresParJour));
+  const heuresHebdo = Number(employee.heuresHebdomadaires) || 0;
+  const heuresMoisContrat =
+    heuresHebdo > 0
+      ? parametres.joursOuvrablesMois * (heuresHebdo / 6)
+      : parametres.joursOuvrablesMois * Number(employee.heuresParJour);
+  const tauxDefaut = Number(employee.salaireMensuel) / heuresMoisContrat;
   const tauxRoleParJour = new Map<string, number>();
   for (const c of creneauxMois) {
     if (c.shift?.tauxHoraireUSD != null)
