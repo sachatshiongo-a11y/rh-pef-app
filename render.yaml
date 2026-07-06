@@ -49,3 +49,10 @@ services:
       # Jeton partagé : même valeur ici (dashboard Render) et en secret GitHub Actions « CRON_SECRET ».
       - key: CRON_SECRET
         sync: false
+      # --- Web Push (notifications navigateur/PWA) ---
+      - key: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+        value: BG9tzVF6q5pBges9bsHynpzI1tD9cww3K_f3MSG6Pmu0G1Lmj_OBiw5OBEPZE_1CIigPCWoyM-ZaVd_5WcxjYv4
+      - key: VAPID_SUBJECT
+        value: mailto:sachatshiongo@patesenfolie.cd
+      - key: VAPID_PRIVATE_KEY
+        sync: false # clé privée VAPID (secrète)

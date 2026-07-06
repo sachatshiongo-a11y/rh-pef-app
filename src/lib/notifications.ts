@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { envoyerEmail } from "@/lib/email";
+import { envoyerPush } from "@/lib/push";
 
 export type NotificationItem = {
   id: string;
@@ -23,13 +24,21 @@ export async function creerNotification(params: {
     data: { type: params.type, message: params.message, lien: params.lien ?? null, refId: params.refId ?? null },
   });
 
-  // Notification e-mail aux comptes Direction (best-effort ; no-op si SMTP non configuré).
-  const admins = await prisma.user.findMany({ where: { role: "ADMIN", actif: true }, select: { email: true } });
-  await envoyerEmail(
-    admins.map((a) => a.email),
-    `RH Pâtes en Folie — ${params.message}`,
-    `${params.message}\n\nConnectez-vous pour traiter la demande.`
-  );
+  // Notification e-mail + push aux comptes Direction (best-effort ; no-op si non configuré).
+  const admins = await prisma.user.findMany({ where: { role: "ADMIN", actif: true }, select: { id: true, email: true } });
+  await Promise.all([
+    envoyerEmail(
+      admins.map((a) => a.email),
+      `RH Pâtes en Folie — ${params.message}`,
+      `${params.message}\n\nConnectez-vous pour traiter la demande.`
+    ),
+    envoyerPush(admins.map((a) => a.id), {
+      title: "RH Pâtes en Folie",
+      body: params.message,
+      url: params.lien ?? "/a-valider",
+      tag: params.refId ?? params.type,
+    }),
+  ]);
 }
 
 /** Supprime les notifications liées à une demande (appelée quand la demande est traitée). */

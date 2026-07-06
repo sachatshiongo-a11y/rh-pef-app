@@ -76,6 +76,19 @@ model User {
   transitionsPaie     TransitionPaie[]
   versionsBulletin    VersionBulletin[]
   actionsAudit        JournalAudit[]
+  pushSubscriptions   PushSubscription[]
+}
+
+// Abonnement Web Push d'un appareil (navigateur/PWA) d'un utilisateur. Un utilisateur peut avoir
+// plusieurs appareils. Supprimé automatiquement si l'endpoint devient invalide (410/404).
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
 }
 
 // Paramètres OPÉRATIONNELS (non légaux) — une seule ligne (id fixe "singleton").

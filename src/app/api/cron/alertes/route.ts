@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { calculerAlertes } from "@/lib/alertes";
 import { envoyerEmail } from "@/lib/email";
+import { envoyerPush } from "@/lib/push";
 import { prisma } from "@/lib/prisma";
 
 // Toujours exécuté à la demande (jamais mis en cache) : c'est un déclencheur.
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
 
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", actif: true },
-    select: { email: true },
+    select: { id: true, email: true },
   });
 
   const base = "https://rh.patesenfolie.cd";
@@ -56,11 +57,21 @@ export async function GET(request: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  await envoyerEmail(
-    admins.map((a) => a.email),
-    `RH Pâtes en Folie — ${aEnvoyer.length} rappel(s) du jour`,
-    corps,
-  );
+  await Promise.all([
+    envoyerEmail(
+      admins.map((a) => a.email),
+      `RH Pâtes en Folie — ${aEnvoyer.length} rappel(s) du jour`,
+      corps,
+    ),
+    envoyerPush(admins.map((a) => a.id), {
+      title: `RH Pâtes en Folie — ${aEnvoyer.length} rappel(s)`,
+      body: urgents.length
+        ? `${urgents.length} urgent(s) · ${warnings.length} à venir`
+        : `${warnings.length} échéance(s) à venir`,
+      url: "/accueil",
+      tag: "rappels-du-jour",
+    }),
+  ]);
 
   return NextResponse.json({ envoye: true, nombre: aEnvoyer.length, urgents: urgents.length });
 }

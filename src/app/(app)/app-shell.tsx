@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
+import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 
 // Menu groupé façon PayFit : sections + icônes.
@@ -158,10 +159,13 @@ export function AppShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
+          <div className="mt-1">
+            <PushToggle />
+          </div>
           <form action={logout}>
             <button
               type="submit"
-              className="mt-2 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
             >
               Déconnexion
             </button>
