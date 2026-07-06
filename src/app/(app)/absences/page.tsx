@@ -11,15 +11,29 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-// Chaque type d'absence = couleur + libellé (jamais d'icône décorative).
+// Chaque type d'absence = couleur + libellé (jamais d'icône décorative). Les types sont
+// configurables (table TypeConge) : la couleur est dérivée du NOM de façon stable (comme les
+// avatars), les types connus gardent leur couleur historique. Aucun type n'est renommé « Autre ».
 const TYPE_STYLE: Record<string, { chip: string; point: string }> = {
   "Congé annuel": { chip: "bg-blue-100 text-blue-800", point: "bg-blue-500" },
   "Congé maladie": { chip: "bg-amber-100 text-amber-800", point: "bg-amber-500" },
   "Congé maternité": { chip: "bg-pink-100 text-pink-800", point: "bg-pink-500" },
-  Autre: { chip: "bg-slate-200 text-slate-700", point: "bg-slate-500" },
 };
+const TYPE_PALETTE: { chip: string; point: string }[] = [
+  { chip: "bg-emerald-100 text-emerald-800", point: "bg-emerald-500" },
+  { chip: "bg-violet-100 text-violet-800", point: "bg-violet-500" },
+  { chip: "bg-cyan-100 text-cyan-800", point: "bg-cyan-500" },
+  { chip: "bg-rose-100 text-rose-800", point: "bg-rose-500" },
+  { chip: "bg-lime-100 text-lime-800", point: "bg-lime-600" },
+  { chip: "bg-orange-100 text-orange-800", point: "bg-orange-500" },
+  { chip: "bg-teal-100 text-teal-800", point: "bg-teal-500" },
+  { chip: "bg-slate-200 text-slate-700", point: "bg-slate-500" },
+];
 function styleType(t: string) {
-  return TYPE_STYLE[t] ?? TYPE_STYLE.Autre;
+  if (TYPE_STYLE[t]) return TYPE_STYLE[t];
+  let h = 0;
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0;
+  return TYPE_PALETTE[h % TYPE_PALETTE.length];
 }
 function isoJour(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -126,7 +140,7 @@ export default async function AbsencesPage({
       const iso = isoJour(cur);
       (absentsParJour.get(iso) ?? absentsParJour.set(iso, []).get(iso)!).push({
         nom: d.employee.nom,
-        type: TYPE_STYLE[d.type] ? d.type : "Autre",
+        type: d.type,
       });
       cur = new Date(cur.getTime() + 86_400_000);
     }
@@ -145,7 +159,7 @@ export default async function AbsencesPage({
     );
   }
 
-  const typesPresents = Array.from(new Set(demandesAff.map((d) => (TYPE_STYLE[d.type] ? d.type : "Autre"))));
+  const typesPresents = Array.from(new Set(demandesAff.map((d) => d.type))).sort();
   const isoAuj = isoJour(new Date(Date.UTC(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate())));
   const filtresQS = `${filtreType ? `&type=${encodeURIComponent(filtreType)}` : ""}${filtreEmp ? `&emp=${filtreEmp}` : ""}`;
   const enMois = vue === "mois";
@@ -214,7 +228,7 @@ export default async function AbsencesPage({
 
       {/* Légende (couleur + libellé) */}
       <div className="mb-4 flex flex-wrap gap-2">
-        {(typesPresents.length > 0 ? typesPresents : Object.keys(TYPE_STYLE)).map((t) => (
+        {(typesPresents.length > 0 ? typesPresents : typeOptions).map((t) => (
           <span key={t} className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
             <span className={`h-2.5 w-2.5 rounded-full ${styleType(t).point}`} aria-hidden />
             {t}

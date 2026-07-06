@@ -8,6 +8,7 @@ import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
 import { ShiftsManager } from "./shifts-manager";
 import { BesoinsManager } from "./besoins-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
+import { CouvertureBar, calculerCouverture } from "./couverture-bar";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -64,12 +65,10 @@ export default async function PlanningPage({
   ]);
   const postesBesoin = postesRows.map((p) => p.poste).filter(Boolean);
   const shiftsBesoin = shifts.filter((s) => s.actif && !s.systeme).map((s) => ({ id: s.id, nom: s.nom }));
+  const besoinsDTO = besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
+  const nomShift = (id: string) => shiftParId.get(id)?.nom ?? "?";
   const besoinsPanel = peutModifier ? (
-    <BesoinsManager
-      shifts={shiftsBesoin}
-      postes={postesBesoin}
-      besoins={besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }))}
-    />
+    <BesoinsManager shifts={shiftsBesoin} postes={postesBesoin} besoins={besoinsDTO} />
   ) : null;
 
   const onglets = (
@@ -159,7 +158,7 @@ export default async function PlanningPage({
       prisma.employee.findMany({
         where: { actif: true },
         orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-        select: { id: true, nom: true, categorie: true, photoUrl: true },
+        select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true },
       }),
       prisma.planningCreneau.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -203,6 +202,10 @@ export default async function PlanningPage({
         <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
       {besoinsPanel}
         {legende}
+        <CouvertureBar
+          jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
+          isoAujourdhui={isoAujourdhui}
+        />
 
         {/* Aperçu calendrier (lecture) */}
         <div className="mb-6">
@@ -250,7 +253,7 @@ export default async function PlanningPage({
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-      select: { id: true, nom: true, categorie: true, photoUrl: true },
+      select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true },
     }),
     prisma.planningCreneau.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
@@ -291,6 +294,10 @@ export default async function PlanningPage({
       <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
       {besoinsPanel}
       {legende}
+      <CouvertureBar
+        jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
+        isoAujourdhui={isoAujourdhui}
+      />
 
       {employees.length === 0 ? (
         <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
