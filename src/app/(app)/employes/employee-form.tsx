@@ -180,7 +180,7 @@ function SalaireHoraire({
 }) {
   const round2 = (n: number) => (Math.round(n * 100) / 100).toString();
   const round4 = (n: number) => (Math.round(n * 10000) / 10000).toString();
-  const moisDepuisHebdo = (hebdo: number) => (joursOuvrablesMois * hebdo) / 6;
+  const moisDepuisHebdo = (hebdo: number) => (hebdo * 52) / 12; // 52/12 semaines par mois (précis)
 
   const heuresMoisInit = round2(moisDepuisHebdo(Number(heuresHebdoInit) || 0));
   const tauxInit =
@@ -207,7 +207,7 @@ function SalaireHoraire({
   function onHeuresMois(v: string) {
     setHeuresMois(v);
     const hm = Number(v);
-    if (hm) setHebdo(round2((hm * 6) / joursOuvrablesMois));
+    if (hm) setHebdo(round2((hm * 12) / 52));
     if (Number(mensuel) && hm) setTaux(round4(Number(mensuel) / hm));
   }
   function onTaux(v: string) {
@@ -236,7 +236,7 @@ function SalaireHoraire({
       </div>
       <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" type="number" step="0.5" defaultValue={heuresParJourInit} />
       <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
-        Heures/mois = heures/semaine × {joursOuvrablesMois} jours ÷ 6. Taux horaire = salaire mensuel ÷
+        Heures/mois = heures/semaine × 52/12 (≈ 4,33 semaines). Taux horaire = salaire mensuel ÷
         heures/mois. « Heures/jour » sert de seuil quotidien d&apos;heures supplémentaires. Enregistrés :
         salaire mensuel, heures/semaine, heures/jour.
       </p>

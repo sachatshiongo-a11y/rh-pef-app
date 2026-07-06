@@ -40,8 +40,19 @@ export function AutoPlanningForm({
               onSubmit={() => setOuvert(false)}
               className="space-y-3 text-sm"
             >
+              {/* Le cœur : chaque employé reçoit TOUS les shifts de son modèle hebdo (rôle par jour,
+                  semaine A/B), selon ses heures et infos. */}
+              <label className="flex items-start gap-2 rounded-md bg-primary/5 p-2 text-xs">
+                <input type="checkbox" name="modeles" value="on" defaultChecked className="mt-0.5" />
+                <span>
+                  <span className="font-medium">Suivre les modèles hebdomadaires</span> — affecte à chaque
+                  employé ses rôles/shifts par jour (Caisse, Matin cuisine, Soir salle…), y compris
+                  l&apos;alternance semaine A/B, d&apos;après son modèle et ses heures.
+                </span>
+              </label>
+
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Shift à affecter</span>
+                <span className="text-xs text-muted-foreground">Shift par défaut — employés SANS modèle</span>
                 <select name="shiftId" defaultValue="" className="rounded border border-input bg-background px-2 py-1.5">
                   <option value="">Automatique (1er shift de jour)</option>
                   {shifts.map((s) => (
@@ -51,7 +62,7 @@ export function AutoPlanningForm({
               </label>
 
               <div>
-                <span className="text-xs text-muted-foreground">Jours de la semaine</span>
+                <span className="text-xs text-muted-foreground">Jours à couvrir (repli sans modèle)</span>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {JOURS.map((j) => (
                     <label key={j.v} className="flex items-center gap-1 rounded border px-2 py-1 text-xs">
@@ -63,13 +74,10 @@ export function AutoPlanningForm({
               </div>
 
               <label className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">Jours / semaine (0 = selon les heures)</span>
+                <span className="text-xs text-muted-foreground">Jours / semaine sans modèle (0 = selon les heures)</span>
                 <input name="nbParSemaine" type="number" min="0" max="7" defaultValue="0" className="w-16 rounded border border-input bg-background px-2 py-1" />
               </label>
 
-              <label className="flex items-center gap-2 text-xs">
-                <input type="checkbox" name="modeles" value="on" defaultChecked /> Utiliser les modèles hebdomadaires (rôles fixes par jour)
-              </label>
               <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" name="inclureFeries" /> Couvrir aussi les jours fériés
               </label>

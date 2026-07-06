@@ -91,17 +91,17 @@ export default async function PlanningPage({
       prisma.employee.findMany({
         where: { actif: true },
         orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-        select: { id: true, nom: true, photoUrl: true, salaireMensuel: true, heuresParJour: true },
+        select: { id: true, nom: true, photoUrl: true, salaireMensuel: true, heuresParJour: true, heuresHebdomadaires: true },
       }),
       prisma.planningModele.findMany(),
       chargerParametresPaie(),
     ]);
     const modeleMap: Record<string, string> = {};
     for (const m of modeles) modeleMap[`${m.employeeId}_${m.jour}_${m.semaine}`] = m.shiftId;
-    // Taux horaire par défaut de chaque employé = salaire mensuel ÷ (heures/jour × jours ouvrables).
+    // Taux horaire par défaut = salaire mensuel ÷ (heures/semaine × 52/12) — précis.
     const tauxDefautParEmp: Record<string, number> = {};
     for (const e of employees) {
-      const denom = Number(e.heuresParJour) * params.joursOuvrablesMois;
+      const denom = ((Number(e.heuresHebdomadaires) || Number(e.heuresParJour) * 6) * 52) / 12;
       tauxDefautParEmp[e.id] = denom > 0 ? Number(e.salaireMensuel) / denom : 0;
     }
 

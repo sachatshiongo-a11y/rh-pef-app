@@ -105,8 +105,11 @@ export default async function FicheEmployePage({
   const resumePresences = resumerPresences(attendances.map((a) => a.code as CodePresence));
 
   const parametres = await chargerParametresPaie();
-  const salaireJournalier = Number(employee.salaireMensuel) / parametres.joursOuvrablesMois;
-  const salaireHoraire = salaireJournalier / Number(employee.heuresParJour);
+  // Heures/mois = heures/semaine × 52/12 (précis) — NE suppose PAS un travail tous les jours.
+  const heuresMoisContrat =
+    (Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6) * 52 / 12;
+  const salaireHoraire = heuresMoisContrat > 0 ? Number(employee.salaireMensuel) / heuresMoisContrat : 0;
+  const salaireJournalier = salaireHoraire * Number(employee.heuresParJour); // paie d'un jour travaillé
 
   // Transport du mois calculé comme en paie : brigade = tarif journalier × jours de présence P ;
   // backoffice = forfait mensuel fixe. (B3)
@@ -289,7 +292,7 @@ export default async function FicheEmployePage({
         <HeuresTravailleesCard
           periode={periodeLabel}
           heuresTravaillees={apercuBulletin.heuresTravaillees}
-          heuresContractuelles={Number(employee.heuresParJour) * parametres.joursOuvrablesMois}
+          heuresContractuelles={Math.round(heuresMoisContrat)}
           heuresSupp={apercuBulletin.hs30 + apercuBulletin.hs60 + apercuBulletin.hs100}
         />
       )}
@@ -309,8 +312,9 @@ export default async function FicheEmployePage({
             value={new Date(employee.dateEmbauche).toLocaleDateString("fr-FR")}
           />
           <Info label="Ancienneté" value={`${anciennete} mois`} />
-          <Info label="Heures / jour" value={String(employee.heuresParJour)} />
-          <Info label="Heures hebdomadaires" value={String(employee.heuresHebdomadaires)} />
+          <Info label="Heures / jour (seuil HS)" value={String(employee.heuresParJour)} />
+          <Info label="Heures / semaine" value={String(employee.heuresHebdomadaires)} />
+          <Info label="Heures / mois (contractuelles)" value={`${Math.round(heuresMoisContrat * 10) / 10} h`} />
         </dl>
       </Section>
 

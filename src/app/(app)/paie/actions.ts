@@ -20,6 +20,8 @@ import type { ModePaiement, PaymentStatus } from "@prisma/client";
 
 // États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
 const STATUTS_FIGES: PaymentStatus[] = ["VALIDE", "PAYE"];
+// Conversion PRÉCISE heures/semaine → heures/mois : 52 semaines ÷ 12 mois = 4,3333 (aucune estimation).
+const SEMAINES_PAR_MOIS = 52 / 12;
 
 export async function calculerPaieDuMois() {
   const user = await verifySession();
@@ -152,13 +154,10 @@ export async function calculerPaieDuMois() {
 
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);
-    // Heures contractuelles du mois = jours ouvrables × (heures hebdo ÷ 6 jours) — reflète le vrai
-    // temps partiel (Rachel 36h/sem, Aimée 25h/sem) et reste identique pour les temps plein (48h/sem).
-    const heuresHebdo = Number(employee.heuresHebdomadaires) || 0;
-    const heuresMoisContrat =
-      heuresHebdo > 0
-        ? parametres.joursOuvrablesMois * (heuresHebdo / 6)
-        : parametres.joursOuvrablesMois * Number(employee.heuresParJour);
+    // Heures contractuelles du mois = heures/SEMAINE × 52/12 (PAS heures/jour × jours ouvrables,
+    // qui supposerait un travail tous les jours). Ex. Aimée 43 → 186,3 ; Rachel 36 → 156 ; plein 48 → 208.
+    const heuresHebdo = Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6;
+    const heuresMoisContrat = heuresHebdo * SEMAINES_PAR_MOIS;
     const tauxDefaut = Number(employee.salaireMensuel) / heuresMoisContrat;
     // Taux effectif = Σ(heures du jour × taux du rôle du jour) ÷ Σ heures ; sinon taux par défaut.
     const rolesEmp = tauxRoleParJour.get(employee.id);

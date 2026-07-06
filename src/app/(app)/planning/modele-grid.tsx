@@ -13,7 +13,7 @@ const COUCHES = [
 ];
 
 const money = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
-// Nombre moyen de semaines par mois (52 / 12) pour l'estimation mensuelle.
+// 52/12 semaines par mois (précis) pour l'estimation mensuelle, cohérent avec le calcul de paie.
 const SEMAINES_PAR_MOIS = 52 / 12;
 
 const JOURS = [
