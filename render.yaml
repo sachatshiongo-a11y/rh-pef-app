@@ -14,7 +14,9 @@ services:
     runtime: node
     region: frankfurt
     plan: free
-    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy && npm run build
+    # --include=dev : NODE_ENV=production ci-dessous ferait sinon sauter les devDependencies
+    # (tailwindcss, @tailwindcss/postcss, typescript…) qui sont nécessaires au build Next.
+    buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm start
     healthCheckPath: /login
     autoDeploy: true
