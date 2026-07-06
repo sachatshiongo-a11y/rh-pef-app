@@ -110,12 +110,12 @@ export default async function DocumentsPage({
         <p className="text-sm text-muted-foreground">Tous les bulletins, contrats, documents et demandes</p>
       </div>
 
-      <div className="mb-5 flex flex-wrap gap-2">
+      <div className="mb-5 flex gap-2 overflow-x-auto">
         {onglets.map((o) => (
           <Link
             key={o.cle}
             href={qs(o.cle)}
-            className={`rounded-full border px-4 py-1.5 text-sm ${onglet === o.cle ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            className={`shrink-0 whitespace-nowrap rounded-full border px-4 py-1.5 text-sm ${onglet === o.cle ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
           >
             {o.label} <span className="opacity-70">({o.n})</span>
           </Link>

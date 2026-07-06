@@ -78,7 +78,7 @@ export function AppShell({
 
       {/* Barre latérale : tiroir coulissant sur mobile, fixe sur grand écran */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-muted/30 p-4 transition-transform duration-200 lg:static lg:z-auto lg:max-w-none lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >

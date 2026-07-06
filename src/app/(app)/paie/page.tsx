@@ -226,13 +226,13 @@ export default async function PaiePage({
         </div>
       </div>
 
-      {/* Sous-onglets */}
-      <div className="mb-5 flex flex-wrap gap-2 border-b">
+      {/* Sous-onglets — défilement horizontal sur mobile (tiennent dans la largeur) */}
+      <div className="mb-5 flex gap-2 overflow-x-auto border-b">
         {sousOnglets.map((o) => (
           <Link
             key={o.cle}
             href={`/paie?vue=${o.cle}`}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm ${
+            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm ${
               vue === o.cle ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >

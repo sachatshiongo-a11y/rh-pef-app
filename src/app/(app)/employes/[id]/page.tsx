@@ -262,8 +262,8 @@ export default async function FicheEmployePage({
         </div>
       </div>
 
-      {/* Onglets internes de la fiche (façon PayFit) */}
-      <div className="mb-5 flex flex-wrap gap-2 border-b">
+      {/* Onglets internes de la fiche (façon PayFit) — défilement horizontal sur mobile */}
+      <div className="mb-5 flex gap-2 overflow-x-auto border-b">
         {[
           { cle: "apercu", label: "Aperçu" },
           { cle: "conges", label: "Congés & absences" },
@@ -275,7 +275,7 @@ export default async function FicheEmployePage({
           <Link
             key={o.cle}
             href={`/employes/${employee.id}?tab=${o.cle}`}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm ${
+            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm ${
               tab === o.cle
                 ? "border-primary font-medium text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
