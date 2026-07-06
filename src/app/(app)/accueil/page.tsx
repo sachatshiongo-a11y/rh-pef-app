@@ -26,6 +26,9 @@ export default async function AccueilPage() {
   const user = await verifySession();
   const prenom = user.nom.split(" ")[0];
   const peutValider = user.role === "ADMIN";
+  // Photo de profil = celle de la fiche employé liée au compte (si liée).
+  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
+  const maPhoto = moi?.employe?.photoUrl ?? null;
   const maintenant = new Date();
   const dans30j = new Date(Date.now() + 30 * 86_400_000);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -117,7 +120,7 @@ export default async function AccueilPage() {
     <div className="max-w-6xl">
       {/* Bandeau d'accueil */}
       <div className="mb-6 flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-sm">
-        <Avatar nom={user.nom} taille={56} />
+        <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />
         <div>
           <h1 className="text-2xl font-semibold">Bonjour {prenom}</h1>
           <p className="text-sm capitalize text-muted-foreground">

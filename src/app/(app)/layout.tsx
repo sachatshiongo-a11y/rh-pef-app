@@ -5,6 +5,7 @@ import { verifySession } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { chargerNotifications } from "@/lib/notifications";
 import { NotificationBell } from "@/components/notification-bell";
+import { Avatar } from "@/components/avatar";
 
 // Menu groupé façon PayFit : sections + icônes.
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string }[] }[] = [
@@ -74,10 +75,12 @@ async function chargerBadges(): Promise<Record<string, number>> {
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await verifySession();
   const estAdmin = user.role === "ADMIN";
-  const [badges, notif] = await Promise.all([
+  const [badges, notif, moi] = await Promise.all([
     chargerBadges(),
     estAdmin ? chargerNotifications() : Promise.resolve(null),
+    prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
   ]);
+  const maPhoto = moi?.employe?.photoUrl ?? null;
 
   return (
     <div className="flex min-h-screen">
@@ -136,10 +139,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="mt-3 border-t pt-3">
-          <p className="px-2 text-sm font-medium">{user.nom}</p>
-          <p className="px-2 text-xs text-muted-foreground">
-            {user.role === "ADMIN" ? "Direction" : user.role === "MANAGER" ? "Responsable RH" : "Consultation"}
-          </p>
+          <div className="flex items-center gap-2 px-2">
+            <Avatar nom={user.nom} taille={32} photoUrl={maPhoto} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{user.nom}</p>
+              <p className="text-xs text-muted-foreground">
+                {user.role === "ADMIN" ? "Direction" : user.role === "MANAGER" ? "Responsable RH" : "Consultation"}
+              </p>
+            </div>
+          </div>
           <form action={logout}>
             <button
               type="submit"
