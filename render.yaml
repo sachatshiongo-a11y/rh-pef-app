@@ -45,3 +45,7 @@ services:
         sync: false # mot de passe d'application Google (16 lettres)
       - key: SMTP_FROM
         value: RH Pâtes en Folie <sachatshiongo@patesenfolie.cd>
+      # --- Rappels quotidiens (planning GitHub Actions -> /api/cron/alertes) ---
+      # Jeton partagé : même valeur ici (dashboard Render) et en secret GitHub Actions « CRON_SECRET ».
+      - key: CRON_SECRET
+        sync: false
