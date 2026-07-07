@@ -48,7 +48,7 @@ export function ReconciliationForm({ articles }: { articles: Art[] }) {
             {articles.map((a) => {
               const e = ecart(a);
               return (
-                <tr key={a.id} className="border-t">
+                <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                   <td className="px-3 py-1.5 font-medium">{a.designation}</td>
                   <td className="px-3 py-1.5 text-right text-muted-foreground">{qte(a.theorique)}</td>
                   <td className="px-3 py-1.5 text-right">

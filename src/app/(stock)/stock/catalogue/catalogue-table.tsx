@@ -96,24 +96,24 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
         </form>
       )}
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[64rem] text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              <th className="px-2 py-2"><input type="checkbox" checked={sel.size === articles.length && articles.length > 0} onChange={(e) => toutSel(e.target.checked)} /></th>
-              <th className="px-2 py-2">Désignation</th>
-              <th className="px-2 py-2">Catégorie</th>
-              <th className="px-2 py-2">Fournisseur</th>
-              <th className="px-2 py-2 text-right">Prix USD</th>
-              <th className="px-2 py-2 text-right">Stock</th>
-              <th className="px-2 py-2 text-right">Min</th>
-              <th className="px-2 py-2 text-right">Seuil urgent</th>
-              <th className="px-2 py-2">Alerte</th>
+      <div className="max-h-[72vh] overflow-auto rounded-lg border">
+        <table className="w-full min-w-[64rem] border-separate border-spacing-0 text-sm">
+          <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
+            <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold">
+              <th><input type="checkbox" checked={sel.size === articles.length && articles.length > 0} onChange={(e) => toutSel(e.target.checked)} /></th>
+              <th>Désignation</th>
+              <th>Catégorie</th>
+              <th>Fournisseur</th>
+              <th className="text-right">Prix USD</th>
+              <th className="text-right">Stock</th>
+              <th className="text-right">Min</th>
+              <th className="text-right">Seuil urgent</th>
+              <th>Alerte</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
             {articles.map((a) => (
-              <tr key={a.id} className={`border-t ${sel.has(a.id) ? "bg-primary/5" : ""}`}>
+              <tr key={a.id} className={`hover:bg-accent/40 ${sel.has(a.id) ? "bg-primary/10" : "even:bg-muted/25"}`}>
                 <td className="px-2 py-1"><input type="checkbox" checked={sel.has(a.id)} onChange={() => toggle(a.id)} /></td>
                 <td className="px-2 py-1 font-medium">{a.designation}</td>
                 <td className="px-2 py-1">

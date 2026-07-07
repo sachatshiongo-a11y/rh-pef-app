@@ -40,7 +40,7 @@ export default async function MouvementsPage() {
           </thead>
           <tbody>
             {mouvements.map((m) => (
-              <tr key={m.id} className="border-t">
+              <tr key={m.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                 <td className="px-3 py-2 text-muted-foreground">{new Date(m.date).toLocaleDateString("fr-FR")}</td>
                 <td className="px-3 py-2 font-medium">{m.article.designation}</td>
                 <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${TYPE_CLASSE[m.type]}`}>{TYPE_LABEL[m.type]}</span></td>

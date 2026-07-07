@@ -32,7 +32,7 @@ export default async function CommandesPage() {
           </thead>
           <tbody>
             {commandes.map((c) => (
-              <tr key={c.id} className="border-t">
+              <tr key={c.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                 <td className="px-3 py-2 font-medium">{c.numero}</td>
                 <td className="px-3 py-2">{c.fournisseur?.nom ?? "—"}</td>
                 <td className="px-3 py-2 text-muted-foreground">{new Date(c.date).toLocaleDateString("fr-FR")}</td>

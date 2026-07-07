@@ -77,7 +77,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
           </thead>
           <tbody>
             {fournisseurs.map((f) => (
-              <tr key={f.id} className="border-t">
+              <tr key={f.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                 {CH.map((c) => (
                   <td key={c} className="px-2 py-1">
                     {estDirection

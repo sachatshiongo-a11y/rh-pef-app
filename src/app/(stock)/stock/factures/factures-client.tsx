@@ -91,7 +91,7 @@ export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[];
                     <td className="px-3 py-1.5 text-right text-xs text-muted-foreground">{totalGroupe > 0 ? `reste ${usd(totalGroupe)}` : ""}</td>
                   </tr>
                   {g.factures.map((f) => (
-                    <tr key={f.id} className="border-t">
+                    <tr key={f.id} className="border-t hover:bg-accent/40">
                       <td className="px-3 py-2 font-medium">{f.nom}</td>
                       <td className="px-3 py-2 text-muted-foreground">{f.numero ?? "—"}</td>
                       <td className="px-3 py-2 text-muted-foreground">{f.date ?? "—"}</td>
