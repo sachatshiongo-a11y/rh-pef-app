@@ -1,4 +1,5 @@
 import type { ApercuBulletin } from "@/lib/bulletin-live";
+import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
 
 function fmtUSD(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -38,21 +39,24 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
       <div className="grid gap-0 md:grid-cols-2">
         <div>
           <p className="bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase text-emerald-800">Gains</p>
-          <Ligne label="Rémunération" usd={Number(l.remuneration100) + Number(l.remuneration2_3)} />
+          <Ligne label={L.base} usd={Number(l.remuneration100)} />
+          {Number(l.remuneration2_3) > 0 && <Ligne label={L.maladie} usd={Number(l.remuneration2_3)} />}
           {/* Primes : une ligne par prime ; rien du tout s'il n'y en a aucune (pas de ligne « 0 »). */}
           {apercu.primes.map((p, i) => (
             <Ligne key={i} label={p.nom} usd={p.montantUSD} />
           ))}
-          <Ligne label="Salaire brut imposable" usd={Number(l.salBrutUSD)} />
-          <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
-          <Ligne label="Allocation familiale" usd={Number(l.allocFamilialeUSD)} signe="+" />
-          <Ligne label="Frais médicaux" usd={Number(l.fraisMedicauxUSD)} signe="+" />
+          <Ligne label={L.brut} usd={Number(l.salBrutUSD)} />
+          {(Number(l.allocFamilialeUSD) > 0 || Number(l.fraisMedicauxUSD) > 0) && (
+            <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
+          )}
+          {Number(l.allocFamilialeUSD) > 0 && <Ligne label={L.alloc} usd={Number(l.allocFamilialeUSD)} signe="+" />}
+          {Number(l.fraisMedicauxUSD) > 0 && <Ligne label={L.fraisMedicaux} usd={Number(l.fraisMedicauxUSD)} signe="+" />}
         </div>
         <div className="border-l">
           <p className="bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase text-amber-800">Retenues</p>
-          <Ligne label="CNSS — part salarié" usd={Number(l.cnssSalarieUSD)} signe="-" />
-          <Ligne label="IPR" usd={Number(l.iprCalculeUSD)} signe="-" />
-          <Ligne label="Acompte sur salaire" usd={Number(l.acompteUSD)} signe="-" />
+          <Ligne label={L.cnss} usd={Number(l.cnssSalarieUSD)} signe="-" />
+          <Ligne label={L.ipr} usd={Number(l.iprCalculeUSD)} signe="-" />
+          {Number(l.acompteUSD) > 0 && <Ligne label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />}
           <Ligne label="Total retenues" usd={totalRetenues} signe="-" />
           <p className="mt-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground">Heures</p>
           <div className="flex items-center justify-between px-3 py-1.5 text-sm">

@@ -313,7 +313,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             : Number(ligne.primesUSD) > 0 && (
                 <Row designation="Primes" montant={m(Number(ligne.primesUSD))} />
               )}
-          <Row designation="Rémunération brute imposable" montant={m(Number(ligne.salBrutUSD))} section />
+          <Row designation="Salaire brut imposable" montant={m(Number(ligne.salBrutUSD))} section />
 
           <Row designation="CNSS" base={m(Number(ligne.salBrutUSD))} partSal={m(Number(ligne.cnssSalarieUSD))} partEmp={m(Number(ligne.cnssPatronalUSD))} />
           <Row designation="INPP" partEmp={m(Number(ligne.inppUSD))} />

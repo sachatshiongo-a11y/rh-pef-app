@@ -5,6 +5,7 @@ import { StatusActions } from "./status-actions";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
+import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
 import type { PaieRow } from "./paie-bulk";
 import type { Devise } from "@/lib/pdf/theme";
 
@@ -80,18 +81,18 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   Aperçu du bulletin
                 </summary>
                 <div className="mt-2 space-y-0.5 text-xs">
-                  <MiniLigne label="Salaire de base" usd={r.baseUSD} />
-                  {r.hsUSD > 0 && <MiniLigne label="Heures supp." usd={r.hsUSD} />}
-                  {r.transportUSD > 0 && <MiniLigne label="Transport" usd={r.transportUSD} />}
+                  <MiniLigne label={L.base} usd={r.baseUSD} />
+                  {r.hsUSD > 0 && <MiniLigne label={L.hs} usd={r.hsUSD} />}
+                  {r.transportUSD > 0 && <MiniLigne label={L.transport} usd={r.transportUSD} />}
                   {r.primesUSD > 0 && <MiniLigne label="Primes" usd={r.primesUSD} />}
-                  <MiniLigne label="Salaire brut" usd={r.salBrutUSD} fort />
-                  <MiniLigne label="CNSS" usd={-r.cnssUSD} />
-                  <MiniLigne label="IPR" usd={-r.iprUSD} />
-                  {r.acompteUSD > 0 && <MiniLigne label="Acompte" usd={-r.acompteUSD} />}
-                  {r.allocUSD > 0 && <MiniLigne label="Allocation familiale" usd={r.allocUSD} />}
-                  {r.fraisMedUSD > 0 && <MiniLigne label="Frais médicaux" usd={r.fraisMedUSD} />}
+                  <MiniLigne label={L.brut} usd={r.salBrutUSD} fort />
+                  <MiniLigne label={L.cnss} usd={-r.cnssUSD} />
+                  <MiniLigne label={L.ipr} usd={-r.iprUSD} />
+                  {r.acompteUSD > 0 && <MiniLigne label={L.acompte} usd={-r.acompteUSD} />}
+                  {r.allocUSD > 0 && <MiniLigne label={L.alloc} usd={r.allocUSD} />}
+                  {r.fraisMedUSD > 0 && <MiniLigne label={L.fraisMedicaux} usd={r.fraisMedUSD} />}
                   <div className="mt-1 flex items-center justify-between border-t pt-1 text-sm font-semibold">
-                    <span>Net à payer</span>
+                    <span>{L.net}</span>
                     <span>
                       {money(r.salNetUSD)}
                       <span className="ml-1 text-xs font-normal text-muted-foreground">

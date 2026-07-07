@@ -420,6 +420,19 @@ model DocumentEmploye {
   @@index([employeeId])
 }
 
+// Fiche de poste : une par intitulé de poste (Employee.poste). Description libre + fichier
+// importé (PDF ou Word), stocké dans Supabase Storage (URL conservée ici).
+model FichePoste {
+  id          String   @id @default(uuid())
+  poste       String   @unique
+  description String?  @db.Text
+  fichierUrl  String?
+  fichierNom  String?
+  creeParId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 enum SourcePointage {
   MANUEL
   IVMS_RAPPORT

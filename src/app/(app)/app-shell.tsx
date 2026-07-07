@@ -16,6 +16,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
       { href: "/accueil", label: "Tableau de bord", icone: "🏠" },
       { href: "/a-valider", label: "Demandes de validation", icone: "✅" },
       { href: "/employes", label: "Employés", icone: "👥" },
+      { href: "/fiches-poste", label: "Fiches de poste", icone: "📄" },
       { href: "/paie", label: "Paie", icone: "💵" },
     ],
   },
