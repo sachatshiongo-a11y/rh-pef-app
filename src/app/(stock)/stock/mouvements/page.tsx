@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { qte } from "@/lib/stock";
-import { SortieForm } from "./mouvements-client";
+import { MouvementForm } from "./mouvements-client";
 
 const TYPE_LABEL: Record<string, string> = { ENTREE: "Entrée", SORTIE: "Sortie", AJUSTEMENT: "Ajustement" };
 const TYPE_CLASSE: Record<string, string> = {
@@ -25,7 +25,7 @@ export default async function MouvementsPage() {
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
       </div>
 
-      <SortieForm articles={articles} />
+      <MouvementForm articles={articles} />
 
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[40rem] text-sm">

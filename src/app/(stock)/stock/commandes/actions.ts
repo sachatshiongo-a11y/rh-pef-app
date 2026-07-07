@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 
 const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
@@ -89,6 +89,7 @@ export async function creerBonCommande(formData: FormData) {
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
 export async function validerBonCommande(id: string, _formData: FormData) {
   const user = await garde();
+  requireRole(user, ["ADMIN"]); // seule la Direction valide un bon de commande
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } });
   if (bc.statut !== "BROUILLON") throw new Error("Ce bon de commande est déjà validé.");
   await prisma.bonDeCommande.update({ where: { id }, data: { statut: "VALIDE" } });

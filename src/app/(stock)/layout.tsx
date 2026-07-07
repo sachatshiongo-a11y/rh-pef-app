@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { verifySession, estStock } from "@/lib/auth";
 import { StockShell } from "./stock-shell";
 
@@ -8,8 +9,10 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user.role)) redirect("/entree");
 
+  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
+
   return (
-    <StockShell userNom={user.nom} doubleAcces={user.role === "ADMIN"}>
+    <StockShell userNom={user.nom} userRole={user.role} maPhoto={moi?.employe?.photoUrl ?? null} doubleAcces={user.role === "ADMIN"}>
       {children}
     </StockShell>
   );

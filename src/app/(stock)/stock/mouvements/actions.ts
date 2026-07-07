@@ -10,14 +10,18 @@ const dec = (v: FormDataEntryValue): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Sortie de stock (consommation) : décrémente l'inventaire et trace un MouvementStock SORTIE. */
-export async function sortieStock(formData: FormData) {
+/**
+ * Mouvement de stock manuel (entrée ou sortie), multi-lignes. ENTRÉE incrémente l'inventaire,
+ * SORTIE le décrémente. Trace un MouvementStock par ligne.
+ */
+export async function mouvementManuel(formData: FormData) {
   const user = await verifySession();
   requireModule(user, "stock");
 
+  const type = String(formData.get("type") ?? "SORTIE") === "ENTREE" ? "ENTREE" : "SORTIE";
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);
-  const origine = String(formData.get("origine") ?? "").trim() || "Sortie / consommation";
+  const origine = String(formData.get("origine") ?? "").trim() || (type === "ENTREE" ? "Entrée manuelle" : "Sortie / consommation");
 
   const lignes = ids
     .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
@@ -26,16 +30,16 @@ export async function sortieStock(formData: FormData) {
 
   await prisma.$transaction(async (tx) => {
     for (const l of lignes) {
-      await tx.mouvementStock.create({ data: { articleId: l.articleId, type: "SORTIE", quantite: l.quantite, origine, creeParId: user.id } });
+      await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, creeParId: user.id } });
       await tx.stock.upsert({
         where: { articleId: l.articleId },
-        update: { quantite: { decrement: l.quantite } },
-        create: { articleId: l.articleId, quantite: -l.quantite },
+        update: { quantite: type === "ENTREE" ? { increment: l.quantite } : { decrement: l.quantite } },
+        create: { articleId: l.articleId, quantite: type === "ENTREE" ? l.quantite : -l.quantite },
       });
     }
   });
 
-  await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} sorties`, champ: "sortie", nouvelleValeur: origine, userId: user.id });
+  await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} ${type.toLowerCase()}(s)`, champ: type.toLowerCase(), nouvelleValeur: origine, userId: user.id });
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");

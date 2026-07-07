@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import { changerStatutBonCommande, validerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const [bc, acheteur] = await Promise.all([
     prisma.bonDeCommande.findUnique({
       where: { id },
@@ -38,9 +41,13 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
         <span className={`rounded-full px-3 py-1 text-sm font-medium ${STATUT_BC_CLASSE[bc.statut]}`}>{STATUT_BC_LABEL[bc.statut]}</span>
         <div className="flex flex-wrap items-center gap-2">
           {estBrouillon ? (
-            <form action={validerBonCommande.bind(null, bc.id)}>
-              <button className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">✓ Valider le bon de commande</button>
-            </form>
+            estDirection ? (
+              <form action={validerBonCommande.bind(null, bc.id)}>
+                <button className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">✓ Valider le bon de commande</button>
+              </form>
+            ) : (
+              <span className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">En attente de validation par la Direction</span>
+            )
           ) : (
             <>
               {peutExporter && (

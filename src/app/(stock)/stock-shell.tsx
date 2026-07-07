@@ -4,25 +4,43 @@ import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { Avatar } from "@/components/avatar";
 import { logout } from "@/app/login/actions";
 
-const NAV: { href: string; label: string; icone: string }[] = [
-  { href: "/stock", label: "Tableau de bord", icone: "🏠" },
-  { href: "/stock/catalogue", label: "Catalogue", icone: "📦" },
-  { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
-  { href: "/stock/commandes", label: "Bons de commande", icone: "📝" },
-  { href: "/stock/mouvements", label: "Mouvements", icone: "🔁" },
-  { href: "/stock/reconciliation", label: "Réconciliation", icone: "⚖️" },
-  { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
-  { href: "/stock/factures", label: "Factures", icone: "🧾" },
+const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string }[] }[] = [
+  {
+    titre: "Pilotage",
+    items: [{ href: "/stock", label: "Tableau de bord", icone: "🏠" }],
+  },
+  {
+    titre: "Stock",
+    items: [
+      { href: "/stock/catalogue", label: "Catalogue", icone: "📦" },
+      { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
+      { href: "/stock/mouvements", label: "Mouvements", icone: "🔁" },
+      { href: "/stock/reconciliation", label: "Réconciliation", icone: "⚖️" },
+    ],
+  },
+  {
+    titre: "Achats",
+    items: [
+      { href: "/stock/commandes", label: "Bons de commande", icone: "📝" },
+      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
+      { href: "/stock/factures", label: "Factures", icone: "🧾" },
+    ],
+  },
 ];
 
 export function StockShell({
   userNom,
+  userRole,
+  maPhoto,
   doubleAcces,
   children,
 }: {
   userNom: string;
+  userRole: string;
+  maPhoto: string | null;
   doubleAcces: boolean;
   children: React.ReactNode;
 }) {
@@ -30,6 +48,7 @@ export function StockShell({
   const pathname = usePathname();
   const fermer = () => setOpen(false);
   const actif = (href: string) => (href === "/stock" ? pathname === href : pathname.startsWith(href));
+  const roleLabel = userRole === "ADMIN" ? "Direction" : "Responsable stock";
 
   return (
     <div className="flex min-h-screen">
@@ -50,34 +69,52 @@ export function StockShell({
           </button>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-0.5">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={fermer}
-              className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm lg:py-1.5 ${
-                actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
-              }`}
-            >
-              <span aria-hidden>{item.icone}</span>
-              <span className="flex-1">{item.label}</span>
-            </Link>
+        {/* Recherche article (raccourci vers le catalogue) */}
+        <form method="GET" action="/stock/catalogue" className="mb-4" onSubmit={fermer}>
+          <div className="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5">
+            <span className="text-sm text-muted-foreground" aria-hidden>🔍</span>
+            <input name="q" placeholder="Rechercher un article…" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+          </div>
+        </form>
+
+        <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
+          {NAV_GROUPS.map((groupe) => (
+            <div key={groupe.titre}>
+              <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{groupe.titre}</p>
+              <div className="flex flex-col gap-0.5">
+                {groupe.items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={fermer}
+                    className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm lg:py-1.5 ${
+                      actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
+                    }`}
+                  >
+                    <span aria-hidden className="lg:hidden">{item.icone}</span>
+                    <span className="flex-1">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
         <div className="mt-3 border-t pt-3">
-          <p className="truncate px-2 text-sm font-medium">{userNom}</p>
-          <p className="px-2 text-xs text-muted-foreground">Espace Stock</p>
+          <div className="flex items-center gap-2 px-2">
+            <Avatar nom={userNom} taille={32} photoUrl={maPhoto} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{userNom}</p>
+              <p className="text-xs text-muted-foreground">{roleLabel}</p>
+            </div>
+          </div>
           {doubleAcces && (
             <Link href="/choix-espace" onClick={fermer} className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
               🔄 Changer d&apos;espace
             </Link>
           )}
           <form action={logout}>
-            <button type="submit" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
-              Déconnexion
-            </button>
+            <button type="submit" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">Déconnexion</button>
           </form>
         </div>
       </aside>
@@ -88,6 +125,7 @@ export function StockShell({
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
           <span className="truncate font-medium">Stock &amp; Achats</span>
+          <div className="ml-auto"><Avatar nom={userNom} taille={28} photoUrl={maPhoto} /></div>
         </header>
         <div className="p-4 lg:p-8">{children}</div>
       </main>
