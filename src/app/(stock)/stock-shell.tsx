@@ -9,6 +9,7 @@ import { logout } from "@/app/login/actions";
 const NAV: { href: string; label: string; icone: string }[] = [
   { href: "/stock", label: "Tableau de bord", icone: "🏠" },
   { href: "/stock/catalogue", label: "Catalogue", icone: "📦" },
+  { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
   { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
   { href: "/stock/factures", label: "Factures", icone: "🧾" },
 ];

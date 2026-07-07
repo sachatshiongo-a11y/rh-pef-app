@@ -47,13 +47,13 @@ export const STATUT_FACTURE_CLASSE: Record<string, string> = {
 };
 
 /** Formate un montant USD (2 décimales) — ou tiret si nul/absent. */
-export function usd(v: Prisma.Decimal | number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
+export function usd(v: Prisma.Decimal | number | string | null | undefined): string {
+  if (v === null || v === undefined || v === "") return "—";
   return `${Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 }
 
 /** Formate une quantité (jusqu'à 3 décimales, sans zéros inutiles). */
-export function qte(v: Prisma.Decimal | number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
+export function qte(v: Prisma.Decimal | number | string | null | undefined): string {
+  if (v === null || v === undefined || v === "") return "—";
   return Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 3 });
 }

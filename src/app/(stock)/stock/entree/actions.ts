@@ -1,0 +1,48 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
+import { verifySession, requireModule } from "@/lib/auth";
+import { journaliser } from "@/lib/audit";
+
+const dec = (v: FormDataEntryValue): number => {
+  const n = Number(String(v ?? "").replace(",", ".").trim());
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Liste d'achat → inventaire : chaque ligne (article + quantité) crée un MouvementStock d'ENTRÉE
+ * et incrémente le stock de l'article. Tout est appliqué dans une transaction.
+ */
+export async function entreeListeAchat(formData: FormData) {
+  const user = await verifySession();
+  requireModule(user, "stock");
+
+  const ids = formData.getAll("articleId").map(String);
+  const qtes = formData.getAll("quantite").map(dec);
+  const origine = String(formData.get("origine") ?? "").trim() || "Liste d'achat";
+
+  const lignes = ids
+    .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
+    .filter((l) => l.articleId && l.quantite > 0);
+
+  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article + quantité).");
+
+  await prisma.$transaction(async (tx) => {
+    for (const l of lignes) {
+      await tx.mouvementStock.create({
+        data: { articleId: l.articleId, type: "ENTREE", quantite: l.quantite, origine, creeParId: user.id },
+      });
+      await tx.stock.upsert({
+        where: { articleId: l.articleId },
+        update: { quantite: { increment: l.quantite } },
+        create: { articleId: l.articleId, quantite: l.quantite },
+      });
+    }
+  });
+
+  await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} entrées`, champ: "entree (liste d'achat)", nouvelleValeur: origine, userId: user.id });
+  revalidatePath("/stock/entree");
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock");
+}
