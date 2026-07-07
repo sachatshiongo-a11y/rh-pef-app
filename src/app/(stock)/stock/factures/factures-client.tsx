@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { creerFacture, marquerPayee } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 
@@ -18,7 +18,9 @@ type Four = { id: string; nom: string };
 type Bon = { id: string; numero: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
-export function FacturesUI({ factures, fournisseurs, bons }: { factures: FactureRow[]; fournisseurs: Four[]; bons: Bon[] }) {
+export type Groupe = { titre: string; factures: FactureRow[] };
+
+export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[]; fournisseurs: Four[]; bons: Bon[] }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [ajout, setAjout] = useState(false);
@@ -76,23 +78,34 @@ export function FacturesUI({ factures, fournisseurs, bons }: { factures: Facture
             </tr>
           </thead>
           <tbody>
-            {factures.map((f) => (
-              <tr key={f.id} className="border-t">
-                <td className="px-3 py-2 font-medium">{f.nom}</td>
-                <td className="px-3 py-2 text-muted-foreground">{f.numero ?? "—"}</td>
-                <td className="px-3 py-2 text-muted-foreground">{f.date ?? "—"}</td>
-                <td className="px-3 py-2 text-muted-foreground">{f.echeance ?? "—"}</td>
-                <td className="px-3 py-2 text-right">{usd(f.montant)}</td>
-                <td className="px-3 py-2 text-right">{f.reste > 0 ? <span className="font-medium text-red-700">{usd(f.reste)}</span> : "—"}</td>
-                <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></td>
-                <td className="px-3 py-2 text-right">
-                  {f.statut !== "REGLEE" && (
-                    <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded border px-2 py-1 text-xs hover:bg-accent">Marquer payée</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {factures.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Aucune facture.</td></tr>}
+            {groupes.map((g) => {
+              const totalGroupe = g.factures.reduce((t, f) => t + f.reste, 0);
+              return (
+                <Fragment key={g.titre}>
+                  <tr className="bg-muted/40">
+                    <td colSpan={7} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g.titre} · {g.factures.length} facture(s)</td>
+                    <td className="px-3 py-1.5 text-right text-xs text-muted-foreground">{totalGroupe > 0 ? `reste ${usd(totalGroupe)}` : ""}</td>
+                  </tr>
+                  {g.factures.map((f) => (
+                    <tr key={f.id} className="border-t">
+                      <td className="px-3 py-2 font-medium">{f.nom}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{f.numero ?? "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{f.date ?? "—"}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{f.echeance ?? "—"}</td>
+                      <td className="px-3 py-2 text-right">{usd(f.montant)}</td>
+                      <td className="px-3 py-2 text-right">{f.reste > 0 ? <span className="font-medium text-red-700">{usd(f.reste)}</span> : "—"}</td>
+                      <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></td>
+                      <td className="px-3 py-2 text-right">
+                        {f.statut !== "REGLEE" && (
+                          <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded border px-2 py-1 text-xs hover:bg-accent">Marquer payée</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
+            {groupes.length === 0 && <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">Aucune facture.</td></tr>}
           </tbody>
         </table>
       </div>

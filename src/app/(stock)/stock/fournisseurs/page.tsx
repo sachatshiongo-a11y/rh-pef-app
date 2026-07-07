@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { FournisseursClient, type FournRow } from "./fournisseurs-client";
 
 export default async function FournisseursPage() {
+  const user = await verifySession();
   const fournisseurs = await prisma.fournisseur.findMany({
     orderBy: { nom: "asc" },
     include: { _count: { select: { articles: true, factures: true } } },
@@ -27,7 +29,7 @@ export default async function FournisseursPage() {
         <h1 className="text-xl font-semibold sm:text-2xl">Fournisseurs</h1>
         <span className="text-sm text-muted-foreground">{rows.length} fournisseur(s)</span>
       </div>
-      <FournisseursClient fournisseurs={rows} />
+      <FournisseursClient fournisseurs={rows} estDirection={user.role === "ADMIN"} />
     </div>
   );
 }
