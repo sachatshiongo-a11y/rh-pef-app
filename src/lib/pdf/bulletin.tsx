@@ -215,6 +215,10 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   });
   const faitLe = new Date().toLocaleDateString("fr-FR");
 
+  // Le mode de paiement n'est une information certaine qu'une fois le salaire effectivement payé.
+  // Tant que le bulletin n'est pas au statut « Payé », la mention reste vide (pas de « Espèces »
+  // par défaut sur un bulletin non validé/non payé).
+  const estPaye = ligne.statutPaiement === "PAYE";
   const modePaiement = employee.banque
     ? `Virement — ${employee.banque}${employee.compteBancaire ? ` (${employee.compteBancaire})` : ""}`
     : employee.mobileMoney
@@ -348,26 +352,31 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         <Text style={styles.totalValue}>{m(Number(ligne.salNetUSD))}</Text>
       </View>
 
-      {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + mode de paiement */}
-      <View style={styles.mentions} wrap={false}>
-        {congesPeriode.length > 0 && (
-          <>
-            <Text style={styles.mentionTitre}>Congés pris sur la période</Text>
-            {congesPeriode.map((c, i) => (
-              <Text key={i} style={styles.mentionLigne}>
-                • du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {joursOuvrables(c.dateDebut, c.dateFin)} jour(s) ouvrable(s)
+      {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + mode de paiement
+          (uniquement une fois le bulletin payé). La boîte n'est rendue que si l'une des deux existe. */}
+      {(congesPeriode.length > 0 || estPaye) && (
+        <View style={styles.mentions} wrap={false}>
+          {congesPeriode.length > 0 && (
+            <>
+              <Text style={styles.mentionTitre}>Congés pris sur la période</Text>
+              {congesPeriode.map((c, i) => (
+                <Text key={i} style={styles.mentionLigne}>
+                  • du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {joursOuvrables(c.dateDebut, c.dateFin)} jour(s) ouvrable(s)
+                </Text>
+              ))}
+              <Text style={[styles.mentionLigne, { fontWeight: 700 }]}>
+                Total congés : {congesPeriode.reduce((s, c) => s + joursOuvrables(c.dateDebut, c.dateFin), 0)} jour(s)
               </Text>
-            ))}
-            <Text style={[styles.mentionLigne, { fontWeight: 700 }]}>
-              Total congés : {congesPeriode.reduce((s, c) => s + joursOuvrables(c.dateDebut, c.dateFin), 0)} jour(s)
+            </>
+          )}
+          {estPaye && (
+            <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
+              <Text style={styles.mentionLabel}>Mode de paiement : </Text>
+              {modePaiement}
             </Text>
-          </>
-        )}
-        <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
-          <Text style={styles.mentionLabel}>Mode de paiement : </Text>
-          {modePaiement}
-        </Text>
-      </View>
+          )}
+        </View>
+      )}
 
       <Text style={styles.conservation}>
         Ce bulletin de paie doit être conservé par le salarié sans limitation de durée.
