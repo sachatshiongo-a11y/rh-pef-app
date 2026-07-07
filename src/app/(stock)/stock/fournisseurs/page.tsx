@@ -27,7 +27,10 @@ export default async function FournisseursPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Fournisseurs</h1>
-        <span className="text-sm text-muted-foreground">{rows.length} fournisseur(s)</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">{rows.length} fournisseur(s)</span>
+          <a href="/stock/fournisseurs/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
+        </div>
       </div>
       <FournisseursClient fournisseurs={rows} estDirection={user.role === "ADMIN"} />
     </div>

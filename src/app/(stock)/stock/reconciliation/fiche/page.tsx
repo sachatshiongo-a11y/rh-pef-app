@@ -50,9 +50,15 @@ export default async function FicheComptagePage({ searchParams }: { searchParams
       </div>
 
       <div className="fiche space-y-6">
-        <div className="flex items-baseline justify-between border-b pb-2">
-          <h2 className="text-lg font-semibold">Fiche de comptage — {dateJour}</h2>
-          <span className="text-sm text-muted-foreground">{articles.length} article(s){domaine ? ` · ${DOM_LABEL[domaine]}` : ""}</span>
+        <div className="flex items-center justify-between border-b pb-3">
+          <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-pates-en-folie.png" alt="Pâtes en Folie" style={{ height: 48, width: "auto" }} />
+            <div>
+              <h2 className="text-lg font-semibold">Fiche de comptage — {domaine ? DOM_LABEL[domaine] : "Inventaire"}</h2>
+              <p className="text-sm text-muted-foreground">TOLYA SARL · {dateJour} · {articles.length} article(s)</p>
+            </div>
+          </div>
         </div>
 
         {[...parDomaine.entries()].map(([dom, arts]) => (

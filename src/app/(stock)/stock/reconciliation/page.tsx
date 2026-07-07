@@ -17,10 +17,12 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const articles = await prisma.articleStock.findMany({ where, orderBy: { designation: "asc" }, include: { stock: true } });
   const rows = articles.map((a) => ({ id: a.id, designation: a.designation, theorique: a.stock ? Number(a.stock.quantite) : 0 }));
 
-  const pdfParams = new URLSearchParams();
-  if (q) pdfParams.set("q", q);
-  if (domaine) pdfParams.set("domaine", domaine);
-  const pdfHref = `/stock/reconciliation/fiche${pdfParams.toString() ? `?${pdfParams}` : ""}`;
+  const ficheHref = (dom: string) => {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    p.set("domaine", dom);
+    return `/stock/reconciliation/fiche?${p}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -32,9 +34,10 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
             ajustement et le stock est mis au réel. Filtrez pour compter par lot.
           </p>
         </div>
-        <a href={pdfHref} target="_blank" rel="noopener" className="shrink-0 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-          🖨️ Fiche de comptage à imprimer
-        </a>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <a href={ficheHref("NOURRITURE")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">🖨️ Fiche Nourriture</a>
+          <a href={ficheHref("BOISSON")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">🖨️ Fiche Boissons</a>
+        </div>
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">

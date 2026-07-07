@@ -23,6 +23,7 @@ export default async function MouvementsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
+        <a href="/stock/mouvements/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
       </div>
 
       <MouvementForm articles={articles} />

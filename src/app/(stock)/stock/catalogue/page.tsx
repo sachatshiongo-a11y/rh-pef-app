@@ -41,9 +41,12 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Catalogue</h1>
-        <span className="text-sm text-muted-foreground">{rows.length} article(s)</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground">{rows.length} article(s)</span>
+          <a href="/stock/catalogue/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
+        </div>
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">

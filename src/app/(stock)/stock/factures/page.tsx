@@ -68,7 +68,10 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
-        <span className="text-sm">Reste à payer : <span className="font-semibold text-red-700">{usd(dus._sum.resteAPayerUSD)}</span></span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm">Reste à payer : <span className="font-semibold text-red-700">{usd(dus._sum.resteAPayerUSD)}</span></span>
+          <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
