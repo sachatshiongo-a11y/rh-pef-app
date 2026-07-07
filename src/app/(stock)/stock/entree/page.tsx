@@ -18,7 +18,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 
-  const [articles, mouvements] = await Promise.all([
+  const [articles, mouvements, config] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
     prisma.mouvementStock.findMany({
       where: { type: "ENTREE" },
@@ -26,7 +26,9 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       take: 400,
       include: { article: { select: { designation: true } } },
     }),
+    prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
+  const taux = config ? Number(config.tauxChangeCDF) : 0;
 
   // Groupement par période
   const groupes: { cle: string; titre: string; lignes: typeof mouvements }[] = [];
@@ -65,7 +67,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         </p>
       </div>
 
-      <ListeAchatForm articles={articles} />
+      <ListeAchatForm articles={articles} taux={taux} />
 
       <div>
         <div className="mb-2 flex items-center gap-2 text-sm">

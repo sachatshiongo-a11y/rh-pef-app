@@ -79,6 +79,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
         <div className="flex items-center gap-3">
           <span className="text-sm">Reste à payer : <span className="font-semibold text-red-700">{usd(dus._sum.resteAPayerUSD)}</span></span>
+          <a href="/stock/factures/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ PDF</a>
           <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
         </div>
       </div>

@@ -29,6 +29,7 @@ export default async function FournisseursPage() {
         <h1 className="text-xl font-semibold sm:text-2xl">Fournisseurs</h1>
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">{rows.length} fournisseur(s)</span>
+          <a href="/stock/fournisseurs/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ PDF</a>
           <a href="/stock/fournisseurs/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
         </div>
       </div>

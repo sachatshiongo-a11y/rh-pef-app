@@ -20,18 +20,36 @@ export async function entreeListeAchat(formData: FormData) {
 
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);
+  const montants = formData.getAll("montant").map(dec); // montant payé par ligne (facultatif)
+  const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
   const origine = String(formData.get("origine") ?? "").trim() || "Liste d'achat";
 
+  // Taux CDF/USD partagé avec la RH (Config) — utilisé pour convertir un achat en francs.
+  let taux: number | null = null;
+  if (devise === "CDF") {
+    const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+    taux = config ? Number(config.tauxChangeCDF) : null;
+    if (!taux) throw new Error("Taux de change CDF/USD non défini (Config).");
+  }
+
   const lignes = ids
-    .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
+    .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0, montant: montants[i] ?? 0 }))
     .filter((l) => l.articleId && l.quantite > 0);
 
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article + quantité).");
 
   await prisma.$transaction(async (tx) => {
     for (const l of lignes) {
+      const aMontant = l.montant > 0;
+      const montantUSD = aMontant ? (devise === "CDF" ? l.montant / (taux as number) : l.montant) : null;
       await tx.mouvementStock.create({
-        data: { articleId: l.articleId, type: "ENTREE", quantite: l.quantite, origine, creeParId: user.id },
+        data: {
+          articleId: l.articleId, type: "ENTREE", quantite: l.quantite, origine, creeParId: user.id,
+          devise: aMontant ? devise : null,
+          montantOrigine: aMontant ? l.montant : null,
+          tauxChangeUtilise: aMontant && devise === "CDF" ? taux : null,
+          montantUSD,
+        },
       });
       await tx.stock.upsert({
         where: { articleId: l.articleId },

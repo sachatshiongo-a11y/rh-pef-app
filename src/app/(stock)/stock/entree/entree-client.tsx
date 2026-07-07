@@ -6,10 +6,11 @@ import { entreeListeAchat } from "./actions";
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
-export function ListeAchatForm({ articles }: { articles: Art[] }) {
+export function ListeAchatForm({ articles, taux }: { articles: Art[]; taux: number }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [nbLignes, setNbLignes] = useState(4);
+  const [devise, setDevise] = useState<"USD" | "CDF">("USD");
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -32,12 +33,28 @@ export function ListeAchatForm({ articles }: { articles: Art[] }) {
         </p>
       )}
 
-      <label className="flex max-w-md flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Origine / libellé (optionnel)</span>
-        <input name="origine" placeholder="Liste d'achat semaine…" className={inp} />
-      </label>
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="flex flex-1 flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Origine / libellé (optionnel)</span>
+          <input name="origine" placeholder="Liste d'achat semaine… / Achat légumes frais" className={inp} />
+        </label>
+        <div className="text-sm">
+          <span className="text-muted-foreground">Devise du montant</span>
+          <div className="mt-1 inline-flex overflow-hidden rounded-md border">
+            <button type="button" onClick={() => setDevise("USD")} className={`px-3 py-1.5 ${devise === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>USD</button>
+            <button type="button" onClick={() => setDevise("CDF")} className={`px-3 py-1.5 ${devise === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>CDF (FC)</button>
+          </div>
+          <input type="hidden" name="devise" value={devise} />
+        </div>
+        {devise === "CDF" && <span className="pb-1.5 text-xs text-muted-foreground">Taux : 1 USD = {taux.toLocaleString("fr-FR")} FC (converti automatiquement)</span>}
+      </div>
 
       <div className="space-y-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="min-w-64 flex-1">Article</span>
+          <span className="w-28">Quantité</span>
+          <span className="w-32">Montant payé ({devise})</span>
+        </div>
         {Array.from({ length: nbLignes }).map((_, i) => (
           <div key={i} className="flex items-center gap-2">
             <select name="articleId" defaultValue="" className={`${inp} min-w-64 flex-1`}>
@@ -45,6 +62,7 @@ export function ListeAchatForm({ articles }: { articles: Art[] }) {
               {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
             </select>
             <input name="quantite" type="number" step="0.001" min="0" placeholder="Qté" className={`${inp} w-28`} />
+            <input name="montant" type="number" step="0.01" min="0" placeholder={`Montant ${devise}`} className={`${inp} w-32`} />
           </div>
         ))}
       </div>
@@ -55,6 +73,7 @@ export function ListeAchatForm({ articles }: { articles: Art[] }) {
           {isPending ? "Enregistrement…" : "Valider l'entrée en stock"}
         </button>
       </div>
+      <p className="text-xs text-muted-foreground">Le montant est facultatif. En CDF, il est converti en USD au taux courant et enregistré sur le mouvement (utile pour l&apos;achat de légumes frais payés en francs).</p>
     </form>
   );
 }
