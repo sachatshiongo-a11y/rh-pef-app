@@ -39,6 +39,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     montant: x.montantUSD.toString(),
     reste: Number(x.resteAPayerUSD),
     statut: x.statut,
+    modePaiement: x.modePaiement ?? "",
   });
 
   // Groupement (l'ordre des groupes suit l'ordre des lignes déjà triées)

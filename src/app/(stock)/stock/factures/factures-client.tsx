@@ -13,7 +13,10 @@ export type FactureRow = {
   montant: string;
   reste: number;
   statut: string;
+  modePaiement: string;
 };
+
+const MODES = ["Espèces", "Virement", "Mobile Money", "Chèque", "Autre"];
 type Four = { id: string; nom: string };
 type Bon = { id: string; numero: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -24,6 +27,7 @@ export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[];
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [ajout, setAjout] = useState(false);
+  const [payerId, setPayerId] = useState<string | null>(null);
 
   const run = (fn: () => Promise<void>) => {
     setErreur(null);
@@ -97,7 +101,17 @@ export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[];
                       <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></td>
                       <td className="px-3 py-2 text-right">
                         {f.statut !== "REGLEE" && (
-                          <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded border px-2 py-1 text-xs hover:bg-accent">Marquer payée</button>
+                          payerId === f.id ? (
+                            <form action={(fd) => run(async () => { await marquerPayee(f.id, fd); setPayerId(null); })} className="flex items-center justify-end gap-1">
+                              <select name="modePaiement" defaultValue={f.modePaiement || "Espèces"} className="rounded border border-input bg-background px-1.5 py-1 text-xs" title="Mode de paiement">
+                                {MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                              <button disabled={isPending} className="rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">Régler</button>
+                              <button type="button" onClick={() => setPayerId(null)} className="px-1 text-xs text-muted-foreground">✕</button>
+                            </form>
+                          ) : (
+                            <button onClick={() => setPayerId(f.id)} className="rounded border px-2 py-1 text-xs hover:bg-accent">Marquer payée</button>
+                          )
                         )}
                       </td>
                     </tr>
