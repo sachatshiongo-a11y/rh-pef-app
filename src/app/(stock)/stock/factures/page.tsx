@@ -7,6 +7,15 @@ type SP = { statut?: string; tri?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
 const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
+// Convertit un délai de paiement texte (« 30 jours », « Paiement à la livraison ») en nombre de jours.
+function delaiEnJours(s: string | null): number | null {
+  if (!s) return null;
+  const m = s.match(/(\d+)/);
+  if (m) return Number(m[1]);
+  if (s.toLowerCase().includes("livraison")) return 0;
+  return null;
+}
+
 export default async function FacturesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const f = sp.statut;
@@ -26,7 +35,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const [factures, dus, fournisseurs, bons] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true } }),
-    prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
     prisma.bonDeCommande.findMany({ orderBy: [{ annee: "desc" }, { sequence: "desc" }], take: 100, select: { id: true, numero: true } }),
   ]);
 
@@ -88,7 +97,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
-      <FacturesUI groupes={groupes} fournisseurs={fournisseurs} bons={bons} />
+      <FacturesUI
+        groupes={groupes}
+        fournisseurs={fournisseurs.map((f) => ({ id: f.id, nom: f.nom, delaiJours: delaiEnJours(f.delaiPaiement) }))}
+        bons={bons}
+      />
     </div>
   );
 }

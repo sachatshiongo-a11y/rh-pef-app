@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, type NiveauAlerte } from "@/lib/stock";
 
@@ -112,8 +112,16 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
             </tr>
           </thead>
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
-            {articles.map((a) => (
-              <tr key={a.id} className={`hover:bg-accent/40 ${sel.has(a.id) ? "bg-primary/10" : "even:bg-muted/25"}`}>
+            {articles.map((a, i) => (
+              <Fragment key={a.id}>
+              {(i === 0 || articles[i - 1].domaine !== a.domaine) && (
+                <tr>
+                  <td colSpan={9} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+                    {a.domaine === "NOURRITURE" ? "🍽 Nourriture" : "🥤 Boissons"} ({articles.filter((x) => x.domaine === a.domaine).length})
+                  </td>
+                </tr>
+              )}
+              <tr className={`hover:bg-accent/40 ${sel.has(a.id) ? "bg-primary/10" : "even:bg-muted/25"}`}>
                 <td className="px-2 py-1"><input type="checkbox" checked={sel.has(a.id)} onChange={() => toggle(a.id)} /></td>
                 <td className="px-2 py-1 font-medium">{a.designation}</td>
                 <td className="px-2 py-1">
@@ -134,6 +142,7 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
                 <td className="px-2 py-1"><input type="number" step="0.001" defaultValue={a.seuilUrgent} disabled={isPending} onBlur={(e) => { if (e.target.value !== a.seuilUrgent) champ(a.id, "seuilUrgent", e.target.value); }} className={`${cellCls} text-right`} /></td>
                 <td className="px-2 py-1">{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
               </tr>
+              </Fragment>
             ))}
             {articles.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>

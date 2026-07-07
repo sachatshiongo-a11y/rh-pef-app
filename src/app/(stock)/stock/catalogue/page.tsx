@@ -16,7 +16,7 @@ export default async function CataloguePage({ searchParams }: { searchParams: Pr
     ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
   };
   const [articles, categories, fournisseurs] = await Promise.all([
-    prisma.articleStock.findMany({ where, orderBy: { designation: "asc" }, include: { stock: true } }),
+    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
   ]);
