@@ -3,14 +3,22 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import { changerStatutBonCommande } from "../actions";
+import { ReceptionForm } from "./reception-client";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const bc = await prisma.bonDeCommande.findUnique({
     where: { id },
-    include: { lignes: true, fournisseur: true },
+    include: {
+      lignes: true,
+      fournisseur: true,
+      receptions: { orderBy: { date: "desc" }, include: { _count: { select: { mouvements: true } } } },
+    },
   });
   if (!bc) notFound();
+
+  const lignesArticle = bc.lignes.filter((l) => l.articleId).map((l) => ({ id: l.id, designation: l.designation, quantite: l.quantite.toString() }));
+  const receptionnable = bc.statut !== "RECU" && bc.statut !== "ANNULE" && lignesArticle.length > 0;
 
   return (
     <div className="max-w-4xl space-y-5">
@@ -78,6 +86,25 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
           </select>
           <button className="rounded-md border px-2 py-1 text-xs hover:bg-accent">Mettre à jour</button>
         </form>
+      </div>
+
+      <div className="rounded-lg border p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold">Réception</h2>
+          {receptionnable && <ReceptionForm bcId={bc.id} lignes={lignesArticle} />}
+        </div>
+        {bc.receptions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucune réception enregistrée.</p>
+        ) : (
+          <ul className="divide-y text-sm">
+            {bc.receptions.map((r) => (
+              <li key={r.id} className="flex items-center justify-between py-1.5">
+                <span>Réception du {new Date(r.date).toLocaleDateString("fr-FR")}</span>
+                <span className="text-muted-foreground">{r._count.mouvements} entrée(s) en stock</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {bc.commentaire && <p className="text-sm text-muted-foreground">Note : {bc.commentaire}</p>}

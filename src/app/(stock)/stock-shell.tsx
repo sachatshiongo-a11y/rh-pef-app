@@ -11,6 +11,7 @@ const NAV: { href: string; label: string; icone: string }[] = [
   { href: "/stock/catalogue", label: "Catalogue", icone: "📦" },
   { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
   { href: "/stock/commandes", label: "Bons de commande", icone: "📝" },
+  { href: "/stock/mouvements", label: "Mouvements", icone: "🔁" },
   { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
   { href: "/stock/factures", label: "Factures", icone: "🧾" },
 ];
