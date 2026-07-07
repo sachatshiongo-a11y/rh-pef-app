@@ -46,6 +46,22 @@ export const STATUT_FACTURE_CLASSE: Record<string, string> = {
   ECHUE_NON_REGLEE: "bg-red-100 text-red-800",
 };
 
+export const STATUT_BC_LABEL: Record<string, string> = {
+  BROUILLON: "Brouillon",
+  ENVOYE: "Envoyé",
+  RECU_PARTIEL: "Reçu partiel",
+  RECU: "Reçu",
+  ANNULE: "Annulé",
+};
+
+export const STATUT_BC_CLASSE: Record<string, string> = {
+  BROUILLON: "bg-muted text-muted-foreground",
+  ENVOYE: "bg-blue-100 text-blue-800",
+  RECU_PARTIEL: "bg-amber-100 text-amber-800",
+  RECU: "bg-emerald-100 text-emerald-800",
+  ANNULE: "bg-red-100 text-red-800",
+};
+
 /** Formate un montant USD (2 décimales) — ou tiret si nul/absent. */
 export function usd(v: Prisma.Decimal | number | string | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
