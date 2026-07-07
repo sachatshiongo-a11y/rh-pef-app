@@ -39,9 +39,10 @@ export async function creerFacture(formData: FormData) {
   const ref = dateStr ?? echeanceStr ?? AUJ();
   const d = new Date(ref);
 
+  const bonDeCommandeId = String(formData.get("bonDeCommandeId") ?? "").trim() || null;
   const fac = await prisma.factureFournisseur.create({
     data: {
-      fournisseurId, fournisseurNom,
+      fournisseurId, fournisseurNom, bonDeCommandeId,
       numero: String(formData.get("numero") ?? "").trim() || null,
       date: dateStr ? new Date(dateStr) : null,
       dateEcheance: echeanceStr ? new Date(echeanceStr) : null,

@@ -17,6 +17,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
         lignes: true,
         fournisseur: true,
         receptions: { orderBy: { date: "desc" }, include: { _count: { select: { mouvements: true } } } },
+        factures: { orderBy: { date: "desc" } },
       },
     }),
     prisma.parametresAchat.findUnique({ where: { id: "singleton" } }),
@@ -27,6 +28,8 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
   const estBrouillon = bc.statut === "BROUILLON";
   const peutExporter = !estBrouillon && bc.statut !== "ANNULE";
   const receptionnable = ["VALIDE", "ENVOYE", "RECU_PARTIEL"].includes(bc.statut) && lignesArticle.length > 0;
+  const totalFacture = bc.factures.reduce((t, f) => t + Number(f.montantUSD), 0);
+  const ecartFacture = totalFacture - Number(bc.totalUSD);
 
   return (
     <div className="max-w-4xl space-y-5">
@@ -155,6 +158,36 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
           )}
         </div>
       )}
+
+      {/* Comparaison avec la/les facture(s) */}
+      <div className="rounded-lg border p-4">
+        <h2 className="mb-3 text-base font-semibold">Comparaison commande / facture</h2>
+        {bc.factures.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Aucune facture liée. À la réception, enregistrez la facture depuis l&apos;onglet
+            <span className="font-medium"> Factures</span> en la reliant à ce bon de commande.
+          </p>
+        ) : (
+          <>
+            <ul className="mb-3 divide-y text-sm">
+              {bc.factures.map((f) => (
+                <li key={f.id} className="flex items-center justify-between py-1.5">
+                  <span>{f.numero ? `Facture ${f.numero}` : "Facture"}{f.date ? ` · ${new Date(f.date).toLocaleDateString("fr-FR")}` : ""}</span>
+                  <span className="font-medium">{usd(f.montantUSD)}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="grid grid-cols-3 gap-3 text-center text-sm">
+              <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Commandé</p><p className="font-semibold">{usd(bc.totalUSD)}</p></div>
+              <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Facturé</p><p className="font-semibold">{usd(totalFacture)}</p></div>
+              <div className={`rounded-md border p-2 ${Math.abs(ecartFacture) < 0.01 ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
+                <p className="text-xs text-muted-foreground">Écart</p>
+                <p className={`font-semibold ${Math.abs(ecartFacture) < 0.01 ? "text-emerald-700" : "text-amber-800"}`}>{ecartFacture > 0 ? "+" : ""}{usd(ecartFacture)}</p>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Statut avancé (corrections) */}
       <form action={changerStatutBonCommande.bind(null, bc.id)} className="flex items-center gap-2 text-sm text-muted-foreground">

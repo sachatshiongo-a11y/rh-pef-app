@@ -963,6 +963,7 @@ model BonDeCommande {
 
   lignes     LigneBonDeCommande[]
   receptions Reception[]
+  factures   FactureFournisseur[]
 
   @@index([annee, mois])
   @@schema("stock")
@@ -1025,24 +1026,27 @@ enum StatutFacture {
 // fournisseurs.xlsx » (feuilles mensuelles). Montants en USD. Fournisseur optionnel (certaines
 // factures viennent de fournisseurs hors catalogue) + libellé figé.
 model FactureFournisseur {
-  id              String        @id @default(uuid())
+  id              String         @id @default(uuid())
   fournisseurId   String?
-  fournisseur     Fournisseur?  @relation(fields: [fournisseurId], references: [id])
+  fournisseur     Fournisseur?   @relation(fields: [fournisseurId], references: [id])
+  bonDeCommandeId String?
+  bonDeCommande   BonDeCommande? @relation(fields: [bonDeCommandeId], references: [id])
   fournisseurNom  String // libellé figé (tel qu'écrit dans le suivi)
   numero          String?
-  date            DateTime?     @db.Date
-  dateEcheance    DateTime?     @db.Date
-  datePaiement    DateTime?     @db.Date
-  montantUSD      Decimal       @db.Decimal(14, 2)
-  montantRegleUSD Decimal       @default(0) @db.Decimal(14, 2)
-  resteAPayerUSD  Decimal       @default(0) @db.Decimal(14, 2)
-  statut          StatutFacture @default(A_REGLER)
+  date            DateTime?      @db.Date
+  dateEcheance    DateTime?      @db.Date
+  datePaiement    DateTime?      @db.Date
+  montantUSD      Decimal        @db.Decimal(14, 2)
+  montantRegleUSD Decimal        @default(0) @db.Decimal(14, 2)
+  resteAPayerUSD  Decimal        @default(0) @db.Decimal(14, 2)
+  statut          StatutFacture  @default(A_REGLER)
   modePaiement    String?
   mois            Int
   annee           Int
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime       @default(now())
 
   @@index([annee, mois])
   @@index([fournisseurId])
+  @@index([bonDeCommandeId])
   @@schema("stock")
 }

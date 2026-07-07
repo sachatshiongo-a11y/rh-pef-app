@@ -15,9 +15,10 @@ export type FactureRow = {
   statut: string;
 };
 type Four = { id: string; nom: string };
+type Bon = { id: string; numero: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
-export function FacturesUI({ factures, fournisseurs }: { factures: FactureRow[]; fournisseurs: Four[] }) {
+export function FacturesUI({ factures, fournisseurs, bons }: { factures: FactureRow[]; fournisseurs: Four[]; bons: Bon[] }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [ajout, setAjout] = useState(false);
@@ -47,6 +48,10 @@ export function FacturesUI({ factures, fournisseurs }: { factures: FactureRow[];
           </select>
           <input name="fournisseurNom" placeholder="Nom fournisseur *" required className={inp} />
           <input name="numero" placeholder="N° facture" className={inp} />
+          <select name="bonDeCommandeId" defaultValue="" className={inp}>
+            <option value="">— bon de commande lié —</option>
+            {bons.map((b) => <option key={b.id} value={b.id}>{b.numero}</option>)}
+          </select>
           <input name="modePaiement" placeholder="Mode de paiement" className={inp} />
           <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Date<input name="date" type="date" className={inp} /></label>
           <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Échéance<input name="dateEcheance" type="date" className={inp} /></label>

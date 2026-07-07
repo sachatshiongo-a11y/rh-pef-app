@@ -16,10 +16,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         ? { statut: f }
         : {};
 
-  const [factures, dus, fournisseurs] = await Promise.all([
+  const [factures, dus, fournisseurs, bons] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy: [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }], include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    prisma.bonDeCommande.findMany({ orderBy: [{ annee: "desc" }, { sequence: "desc" }], take: 100, select: { id: true, numero: true } }),
   ]);
 
   const rows: FactureRow[] = factures.map((x) => ({
@@ -56,7 +57,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         })}
       </div>
 
-      <FacturesUI factures={rows} fournisseurs={fournisseurs} />
+      <FacturesUI factures={rows} fournisseurs={fournisseurs} bons={bons} />
     </div>
   );
 }
