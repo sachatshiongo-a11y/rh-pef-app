@@ -226,6 +226,11 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
       ? `Mobile Money — ${employee.mobileMoney}`
       : "Espèces";
 
+  // Le détail des primes n'est affiché que s'il correspond au total inclus dans le brut calculé
+  // (sinon on affiche le total stocké, pour ne pas montrer une prime absente du brut/net).
+  const sommePrimes = primes.reduce((s, p) => s + Number(p.montantUSD), 0);
+  const primesCoherentes = Math.abs(sommePrimes - Number(ligne.primesUSD)) < 0.01;
+
   const heuresTravaillees = Number(ligne.heuresTravaillees);
   const hs30 = Number(ligne.heuresSupp30);
   const hs60 = Number(ligne.heuresSupp60);
@@ -304,9 +309,11 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <Row designation="Heures supplémentaires" base={`${totHS} h`} montant={m(Number(ligne.hsValorisee))} />
           )}
           <Row designation="Frais de transport" montant={m(Number(ligne.transportUSD))} />
-          {/* Primes détaillées (une ligne par prime). Repli sur le total si le détail n'est
-              pas fourni (compatibilité). */}
-          {primes.length > 0
+          {/* Primes détaillées (une ligne par prime) UNIQUEMENT si leur somme correspond au montant
+              de primes réellement inclus dans le brut calculé. Sinon (bulletin figé alors qu'une
+              prime a été ajoutée après, ou calcul non rafraîchi) on affiche le total stocké pour
+              rester cohérent avec le brut/CNSS/IPR/net. */}
+          {primesCoherentes && primes.length > 0
             ? primes.map((p, i) => (
                 <Row key={`prime-${i}`} designation={p.nom} montant={m(Number(p.montantUSD))} />
               ))

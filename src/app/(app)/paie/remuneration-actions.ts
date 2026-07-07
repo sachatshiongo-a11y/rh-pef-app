@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
+import { recalculerPaieSiCalculee } from "./actions";
 
 async function periodeCourante() {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -33,6 +34,7 @@ export async function ajouterPrime(employeeId: string, formData: FormData) {
     nouvelleValeur: `${nom} : ${montantUSD} $ (${mois}/${annee})`,
     userId: user.id,
   });
+  await recalculerPaieSiCalculee(); // répercute la prime sur le bulletin déjà calculé (non figé)
   revalidatePath(`/employes/${employeeId}`);
   revalidatePath("/paie");
 }
@@ -50,6 +52,7 @@ export async function supprimerPrime(id: string) {
     ancienneValeur: `${prime.nom} : ${Number(prime.montantUSD)} $`,
     userId: user.id,
   });
+  await recalculerPaieSiCalculee();
   revalidatePath(`/employes/${prime.employeeId}`);
   revalidatePath("/paie");
 }
@@ -68,6 +71,7 @@ export async function supprimerAcompte(id: string) {
     ancienneValeur: `${acompte.mois}/${acompte.annee} : ${Number(acompte.montantUSD)} $`,
     userId: user.id,
   });
+  await recalculerPaieSiCalculee();
   revalidatePath(`/employes/${acompte.employeeId}`);
   revalidatePath("/paie");
 }
@@ -110,6 +114,7 @@ export async function ajouterFraisMedical(employeeId: string, formData: FormData
     nouvelleValeur: `${montantUSD} $ (${mois}/${annee})${certificatUrl ? " + certificat" : ""}`,
     userId: user.id,
   });
+  await recalculerPaieSiCalculee();
   revalidatePath(`/employes/${employeeId}`);
   revalidatePath("/paie");
 }
@@ -121,6 +126,7 @@ export async function supprimerFraisMedical(id: string) {
   if (!fm) return;
   await prisma.fraisMedical.delete({ where: { id } });
   await journaliser(prisma, { entite: "FraisMedical", entiteId: fm.employeeId, champ: "suppression", ancienneValeur: `${Number(fm.montantUSD)} $`, userId: user.id });
+  await recalculerPaieSiCalculee();
   revalidatePath(`/employes/${fm.employeeId}`);
   revalidatePath("/paie");
 }
@@ -168,6 +174,8 @@ async function deciderAcompte(id: string, statut: "APPROUVE" | "REFUSE") {
     userId: user.id,
   });
   await supprimerNotificationsPour(id);
+  // Un acompte APPROUVÉ est déduit du net → recalculer le bulletin déjà calculé (non figé).
+  if (statut === "APPROUVE") await recalculerPaieSiCalculee();
   revalidatePath("/a-valider");
   revalidatePath(`/employes/${a.employeeId}`);
   revalidatePath("/paie");

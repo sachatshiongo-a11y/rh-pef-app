@@ -310,6 +310,21 @@ export async function calculerPaieDuMois() {
 }
 
 /**
+ * Recalcule la paie du mois courant UNIQUEMENT si elle a déjà été calculée (une PayrollRun existe),
+ * afin de répercuter un changement de prime / acompte / frais médical sur les lignes non figées
+ * (les lignes VALIDÉES/PAYÉES sont préservées par calculerPaieDuMois). Ne crée jamais de run.
+ * À appeler après toute modification qui doit se refléter sur le bulletin en cours.
+ */
+export async function recalculerPaieSiCalculee() {
+  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  if (!config) return;
+  const run = await prisma.payrollRun.findUnique({
+    where: { mois_annee: { mois: config.moisCourant, annee: config.anneeCourante } },
+  });
+  if (run) await calculerPaieDuMois();
+}
+
+/**
  * Cœur d'une transition de la machine à états de paie (En attente → Préparé → Validé → Payé,
  * annulation possible). Enregistre la transition, journalise l'audit, fige un snapshot immuable
  * du bulletin au passage en « Validé ». Retourne false si la transition n'est pas autorisée
