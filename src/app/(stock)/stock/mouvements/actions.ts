@@ -22,6 +22,8 @@ export async function mouvementManuel(formData: FormData) {
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);
   const origine = String(formData.get("origine") ?? "").trim() || (type === "ENTREE" ? "Entrée manuelle" : "Sortie / consommation");
+  const dateStr = String(formData.get("date") ?? "").trim();
+  const date = dateStr ? new Date(dateStr) : new Date();
 
   const lignes = ids
     .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
@@ -30,7 +32,7 @@ export async function mouvementManuel(formData: FormData) {
 
   await prisma.$transaction(async (tx) => {
     for (const l of lignes) {
-      await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, creeParId: user.id } });
+      await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, date, creeParId: user.id } });
       await tx.stock.upsert({
         where: { articleId: l.articleId },
         update: { quantite: type === "ENTREE" ? { increment: l.quantite } : { decrement: l.quantite } },
