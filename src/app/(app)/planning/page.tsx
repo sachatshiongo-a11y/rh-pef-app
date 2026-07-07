@@ -91,14 +91,25 @@ export default async function PlanningPage({
   }
 
   const legende = (
-    <div className="mb-4 flex flex-wrap gap-2">
-      {shiftsActifs.map((s) => (
-        <span key={s.id} className={`rounded-md px-2 py-1 text-xs ${paletteDe(s.couleur).classe}`}>
-          {libelleShift(s.nom, s.heureDebut, s.heureFin)}
-        </span>
-      ))}
-    </div>
+    <details className="mb-4">
+      <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Légende des shifts</summary>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {shiftsActifs.map((s) => (
+          <span key={s.id} className={`rounded-md px-2 py-1 text-xs ${paletteDe(s.couleur).classe}`}>
+            {libelleShift(s.nom, s.heureDebut, s.heureFin)}
+          </span>
+        ))}
+      </div>
+    </details>
   );
+
+  // Panneaux de configuration (shifts + effectifs requis) regroupés côte à côte pour épurer la vue.
+  const configPanels = peutModifier ? (
+    <div className="mb-4 grid items-start gap-3 md:grid-cols-2">
+      <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
+      {besoinsPanel}
+    </div>
+  ) : null;
 
   // -------------------------------------------------------------- VUE MODÈLE
   if (vue === "modele") {
@@ -199,18 +210,20 @@ export default async function PlanningPage({
           </div>
         </div>
 
-        <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
-      {besoinsPanel}
+        {configPanels}
         {legende}
         <CouvertureBar
           jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
           isoAujourdhui={isoAujourdhui}
         />
 
-        {/* Aperçu calendrier (lecture) */}
-        <div className="mb-6">
-          <PlanningMensuel mois={mois} annee={annee} creneauxParJour={creneauxParJour} feriesIso={feriesIso} isoAujourdhui={isoAujourdhui} />
-        </div>
+        {/* Aperçu calendrier (lecture) — replié par défaut, les grilles éditables ci-dessous font foi */}
+        <details className="mb-6">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Aperçu calendrier du mois</summary>
+          <div className="mt-3">
+            <PlanningMensuel mois={mois} annee={annee} creneauxParJour={creneauxParJour} feriesIso={feriesIso} isoAujourdhui={isoAujourdhui} />
+          </div>
+        </details>
 
         {/* Grilles éditables du mois (défilement horizontal) */}
         {employees.length === 0 ? (
@@ -291,8 +304,7 @@ export default async function PlanningPage({
         </div>
       </div>
 
-      <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
-      {besoinsPanel}
+      {configPanels}
       {legende}
       <CouvertureBar
         jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
