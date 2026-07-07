@@ -137,34 +137,23 @@ export default async function PaiePage({
         </div>
         <div className="flex flex-wrap gap-2">
           {run && (
-            <TelechargerLien href="/paie/export" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
-              Livre de paie (Excel)
-            </TelechargerLien>
-          )}
-          {run && (
-            <TelechargerLien href="/paie/export-pdf" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
-              Livre de paie (PDF)
-            </TelechargerLien>
-          )}
-          {run && (
-            <TelechargerLien href="/paie/bulletins-pdf?devise=USD" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
-              Bulletins PDF ($)
-            </TelechargerLien>
-          )}
-          {run && (
-            <TelechargerLien href="/paie/bulletins-pdf?devise=CDF" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
-              Bulletins PDF (CDF)
-            </TelechargerLien>
-          )}
-          {run && (
-            <TelechargerLien href="/paie/bulletins-zip?devise=USD" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
-              Bulletins séparés ZIP ($)
-            </TelechargerLien>
-          )}
-          {run && (
-            <TelechargerLien href="/paie/bulletins-zip?devise=CDF" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
-              Bulletins séparés ZIP (CDF)
-            </TelechargerLien>
+            <details className="group relative">
+              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2 [&::-webkit-details-marker]:hidden">
+                Exporter
+                <span aria-hidden className="text-xs transition-transform group-open:rotate-180">▾</span>
+              </summary>
+              <div className="absolute right-0 z-30 mt-1 w-64 rounded-lg border bg-background p-1 shadow-lg">
+                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Livre de paie</p>
+                <TelechargerLien href="/paie/export" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (Excel)</TelechargerLien>
+                <TelechargerLien href="/paie/export-pdf" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (PDF)</TelechargerLien>
+                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins (un seul PDF)</p>
+                <TelechargerLien href="/paie/bulletins-pdf?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins PDF ($)</TelechargerLien>
+                <TelechargerLien href="/paie/bulletins-pdf?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins PDF (CDF)</TelechargerLien>
+                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins séparés (ZIP)</p>
+                <TelechargerLien href="/paie/bulletins-zip?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP ($)</TelechargerLien>
+                <TelechargerLien href="/paie/bulletins-zip?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP (CDF)</TelechargerLien>
+              </div>
+            </details>
           )}
           {peutGerer && (
             <form action={calculerPaieDuMois}>
@@ -207,13 +196,15 @@ export default async function PaiePage({
         </div>
       </div>
 
-      {/* Sous-onglets — défilement horizontal sur mobile (tiennent dans la largeur) */}
-      <div className="mb-5 flex gap-2 overflow-x-auto border-b">
+      {/* Sous-onglets — COLLANTS (restent visibles au défilement) et COULISSANTS horizontalement
+          sur mobile. Sur mobile ils se calent juste sous l'en-tête de l'app ; sur ordinateur en
+          haut de la zone de contenu. */}
+      <div className="sticky top-[calc(env(safe-area-inset-top,0px)+52px)] z-10 -mx-4 mb-5 flex gap-2 overflow-x-auto border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:top-0 lg:mx-0 lg:px-0">
         {sousOnglets.map((o) => (
           <Link
             key={o.cle}
             href={`/paie?vue=${o.cle}`}
-            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm ${
+            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm ${
               vue === o.cle ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -260,13 +251,17 @@ export default async function PaiePage({
             Vérifier les bulletins
           </h2>
           <BulletinsValidation rows={rows} peutValider={estAdmin} />
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h2 className="mb-2 hidden text-sm font-semibold uppercase tracking-wide text-muted-foreground lg:block">
             Tableau détaillé &amp; actions groupées
           </h2>
         </>
       )}
 
-      <PaieBulk brigade={brigade} backoffice={backoffice} peutGerer={peutGerer} estAdmin={estAdmin} />
+      {/* Tableau détaillé large : ordinateur uniquement (dense, défilement horizontal). Sur mobile,
+          la validation se fait via les cartes ci-dessus. */}
+      <div className="hidden lg:block">
+        <PaieBulk brigade={brigade} backoffice={backoffice} peutGerer={peutGerer} estAdmin={estAdmin} />
+      </div>
       </>
       )}
 

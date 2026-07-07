@@ -35,7 +35,62 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
   }
 
   return (
-    <div className="mb-6 grid items-start gap-4 lg:grid-cols-[300px_1fr]">
+    <>
+      {/* ————— MOBILE : une carte par salarié (net, statut, télécharger, valider). Pas d'aperçu
+          PDF ni de tableau large : lecture et validation simples au doigt. ————— */}
+      <div className="mb-6 lg:hidden">
+        <input
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Rechercher un salarié…"
+          className="mb-3 w-full rounded-md border px-3 py-2 text-sm"
+        />
+        <div className="space-y-2">
+          {filtres.map((r) => (
+            <div key={r.id} className="rounded-xl border bg-card p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Avatar nom={r.nom} taille={32} photoUrl={r.photoUrl} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{r.nom}</p>
+                    <p className="text-xs text-muted-foreground">Net : {money(r.salNetUSD)}</p>
+                  </div>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${COULEUR_STATUT[r.statutPaiement]}`}>
+                  {LIBELLE_STATUT[r.statutPaiement]}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
+                <TelechargerLien
+                  href={`/paie/bulletin/${r.id}?devise=USD&dl=1`}
+                  className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+                >
+                  Bulletin $
+                </TelechargerLien>
+                <TelechargerLien
+                  href={`/paie/bulletin/${r.id}?devise=CDF&dl=1`}
+                  className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+                >
+                  Bulletin CDF
+                </TelechargerLien>
+                {peutValider && (
+                  <div className="ml-auto">
+                    <StatusActions payrollLineId={r.id} statut={r.statutPaiement} peutValider={peutValider} modePaiementDefaut={r.modePaiementDefaut} />
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {filtres.length === 0 && (
+            <p className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
+              Aucun résultat.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ————— ORDINATEUR : liste des salariés + aperçu PDF collant ————— */}
+      <div className="mb-6 hidden items-start gap-4 lg:grid lg:grid-cols-[300px_1fr]">
       {/* Liste des salariés — collante et à la même hauteur que l'aperçu */}
       <div className="overflow-hidden rounded-xl border bg-card lg:sticky lg:top-4 lg:flex lg:max-h-[82vh] lg:flex-col">
         <div className="border-b p-2">
@@ -169,6 +224,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
