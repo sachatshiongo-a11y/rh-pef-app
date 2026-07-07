@@ -4,22 +4,27 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  schemas  = ["public", "stock"]
 }
 
 enum Role {
   ADMIN
   MANAGER
   VIEWER
+  STOCK
+  @@schema("public")
 }
 
 enum EmployeeCategory {
   BRIGADE
   BACKOFFICE
+  @@schema("public")
 }
 
 enum EmployeeType {
   NATIONAL
   EXPATRIE
+  @@schema("public")
 }
 
 enum AttendanceCode {
@@ -31,17 +36,20 @@ enum AttendanceCode {
   C // Congé payé — 100%
   F // Jour férié — payé 100%
   S // Congé sans solde — non payé
+  @@schema("public")
 }
 
 enum PayrollStatus {
   BROUILLON
   VALIDE
+  @@schema("public")
 }
 
 enum LeaveStatus {
   EN_ATTENTE
   APPROUVE
   REFUSE
+  @@schema("public")
 }
 
 // Machine à états d'un paiement de salaire (transitions contrôlées).
@@ -49,6 +57,7 @@ enum PaymentStatus {
   PAS_VALIDE // bulletin calculé, pas encore validé (ex-EN_ATTENTE / PREPARE / ANNULE)
   VALIDE     // validé par un responsable, prêt à payer
   PAYE       // paiement effectué
+  @@schema("public")
 }
 
 enum ModePaiement {
@@ -57,6 +66,7 @@ enum ModePaiement {
   MOBILE_MONEY
   CHEQUE
   AUTRE
+  @@schema("public")
 }
 
 // Compte utilisateur applicatif, lié au user Supabase Auth (id = auth.users.id)
@@ -77,6 +87,7 @@ model User {
   versionsBulletin    VersionBulletin[]
   actionsAudit        JournalAudit[]
   pushSubscriptions   PushSubscription[]
+  @@schema("public")
 }
 
 // Abonnement Web Push d'un appareil (navigateur/PWA) d'un utilisateur. Un utilisateur peut avoir
@@ -89,6 +100,7 @@ model PushSubscription {
   p256dh    String
   auth      String
   createdAt DateTime @default(now())
+  @@schema("public")
 }
 
 // Paramètres OPÉRATIONNELS (non légaux) — une seule ligne (id fixe "singleton").
@@ -99,11 +111,13 @@ model Config {
   anneeCourante Int
   moisCourant   Int
   updatedAt     DateTime @updatedAt
+  @@schema("public")
 }
 
 enum StatutValidation {
   A_VALIDER
   VALIDE
+  @@schema("public")
 }
 
 // Exercice fiscal : toutes les valeurs légales sont versionnées par exercice,
@@ -115,6 +129,7 @@ model ExerciceFiscal {
 
   parametres  ParametreLegal[]
   tranchesIpr TrancheIprCDF[]
+  @@schema("public")
 }
 
 model ParametreLegal {
@@ -131,6 +146,7 @@ model ParametreLegal {
   updatedAt        DateTime         @updatedAt
 
   @@unique([exerciceId, cle])
+  @@schema("public")
 }
 
 // Barème IPR officiel DGI — tranches ANNUELLES en CDF (diviser par 12 pour le mensuel).
@@ -144,6 +160,7 @@ model TrancheIprCDF {
   statutValidation StatutValidation @default(A_VALIDER)
 
   @@unique([exerciceId, ordre])
+  @@schema("public")
 }
 
 model JourFerie {
@@ -153,6 +170,7 @@ model JourFerie {
   annee       Int
 
   @@unique([date])
+  @@schema("public")
 }
 
 model Employee {
@@ -204,6 +222,7 @@ model Employee {
   acomptes       AcompteSalaire[]
   fraisMed       FraisMedical[]
   compte         User?          @relation("CompteEmploye")
+  @@schema("public")
 }
 
 // Prime appliquée à un employé pour un mois donné (répercutée sur le bulletin de la période).
@@ -219,12 +238,14 @@ model Prime {
   creeParId  String?
 
   @@index([employeeId, annee, mois])
+  @@schema("public")
 }
 
 enum StatutAcompte {
   EN_ATTENTE
   APPROUVE
   REFUSE
+  @@schema("public")
 }
 
 // Types de congés/absences paramétrables. joursPayes / tauxPct = null → « À VALIDER »
@@ -237,6 +258,7 @@ model TypeConge {
   ordre      Int     @default(0)
   systeme    Boolean @default(false)
   actif      Boolean @default(true)
+  @@schema("public")
 }
 
 // Demande d'acompte sur salaire : à approuver/refuser ; si approuvée, déduite du net du mois.
@@ -254,6 +276,7 @@ model AcompteSalaire {
   dateDecision DateTime?
 
   @@index([employeeId, annee, mois])
+  @@schema("public")
 }
 
 // Shift = créneau de planning CONFIGURABLE (modifiable/ajoutable depuis l'onglet Planning).
@@ -275,6 +298,7 @@ model Shift {
 
   creneaux PlanningCreneau[]
   besoins  BesoinShift[]
+  @@schema("public")
 }
 
 // Effectif requis par shift × poste × jour de la semaine — pilote la génération auto (couverture).
@@ -289,6 +313,7 @@ model BesoinShift {
   updatedAt    DateTime @updatedAt
 
   @@unique([shiftId, poste, jourSemaine])
+  @@schema("public")
 }
 
 // Planning hebdomadaire prévisionnel (A3) : un shift par employé et par jour.
@@ -303,6 +328,7 @@ model PlanningCreneau {
   updatedAt  DateTime @updatedAt
 
   @@unique([employeeId, date])
+  @@schema("public")
 }
 
 enum TypeContrat {
@@ -310,12 +336,14 @@ enum TypeContrat {
   CDI
   STAGE
   JOURNALIER
+  @@schema("public")
 }
 
 enum StatutContrat {
   ACTIF
   EXPIRE
   RESILIE
+  @@schema("public")
 }
 
 // Contrat de travail : dates, période d'essai, échéance (pour alertes CDD).
@@ -336,6 +364,7 @@ model Contrat {
   createdAt         DateTime      @default(now())
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 // Historique salarial et promotions.
@@ -352,6 +381,7 @@ model HistoriqueSalaire {
   decideParId    String?
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 enum TypeDisciplinaire {
@@ -359,6 +389,7 @@ enum TypeDisciplinaire {
   SANCTION
   MISE_A_PIED
   MESURE
+  @@schema("public")
 }
 
 // Dossier disciplinaire : sanctions, avertissements, mesures avec dates et pièces.
@@ -375,6 +406,7 @@ model DossierDisciplinaire {
   createdAt   DateTime          @default(now())
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 // Évaluations de performance.
@@ -390,6 +422,7 @@ model Evaluation {
   createdAt   DateTime @default(now())
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 enum TypeDocument {
@@ -402,6 +435,7 @@ enum TypeDocument {
   AVERTISSEMENT
   LETTRE
   AUTRE
+  @@schema("public")
 }
 
 // Gestion documentaire par métadonnées (type, émission, expiration).
@@ -418,6 +452,7 @@ model DocumentEmploye {
   createdAt     DateTime     @default(now())
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 // Fiche de poste : une par intitulé de poste (Employee.poste). Description libre + fichier
@@ -431,12 +466,14 @@ model FichePoste {
   creeParId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  @@schema("public")
 }
 
 enum SourcePointage {
   MANUEL
   IVMS_RAPPORT
   IVMS_API
+  @@schema("public")
 }
 
 // Trace chaque import de pointage (rapport IVMS-4200 ou API) : source, résultat, anomalies.
@@ -453,6 +490,7 @@ model ImportPointage {
   date          DateTime       @default(now())
 
   @@index([annee, mois])
+  @@schema("public")
 }
 
 model Attendance {
@@ -466,6 +504,7 @@ model Attendance {
 
   @@unique([employeeId, date])
   @@index([date])
+  @@schema("public")
 }
 
 model OvertimeEntry {
@@ -479,6 +518,7 @@ model OvertimeEntry {
 
   @@unique([employeeId, date])
   @@index([date])
+  @@schema("public")
 }
 
 model PayrollRun {
@@ -492,6 +532,7 @@ model PayrollRun {
   lignes PayrollLine[]
 
   @@unique([mois, annee])
+  @@schema("public")
 }
 
 model PayrollLine {
@@ -550,6 +591,7 @@ model PayrollLine {
   versionsBulletin VersionBulletin[]
 
   @@unique([payrollRunId, employeeId])
+  @@schema("public")
 }
 
 // Journal des transitions de la machine à états de paie (traçabilité complète).
@@ -567,6 +609,7 @@ model TransitionPaie {
   commentaire   String?
 
   @@index([payrollLineId])
+  @@schema("public")
 }
 
 // Versions immuables d'un bulletin : un bulletin émis n'est jamais écrasé, une nouvelle
@@ -583,6 +626,7 @@ model VersionBulletin {
 
   @@unique([payrollLineId, numeroVersion])
   @@index([payrollLineId])
+  @@schema("public")
 }
 
 // Journal d'audit : chaque modification sensible (salaire, contrat, congé, présence,
@@ -600,6 +644,7 @@ model JournalAudit {
 
   @@index([entite, entiteId])
   @@index([date])
+  @@schema("public")
 }
 
 model LeaveRequest {
@@ -619,6 +664,7 @@ model LeaveRequest {
   dateEnreg     DateTime    @default(now())
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 enum TypeTaxe {
@@ -626,12 +672,14 @@ enum TypeTaxe {
   IPR
   INPP
   ONEM
+  @@schema("public")
 }
 
 enum StatutDeclaration {
   A_DECLARER
   DECLARE
   PAYE
+  @@schema("public")
 }
 
 // Suivi des déclarations mensuelles (CNSS avant le 15 du mois suivant ; délai IPR À VALIDER).
@@ -650,6 +698,7 @@ model DeclarationTaxe {
   dateMarquage  DateTime?
 
   @@unique([type, mois, annee])
+  @@schema("public")
 }
 
 /// Notifications in-app (cloche) destinées à la Direction : demandes de congé / d'acompte,
@@ -664,6 +713,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([lu, createdAt])
+  @@schema("public")
 }
 
 /// Fin de contrat (démission / licenciement / fin CDD) + solde de tout compte (loi RDC).
@@ -689,6 +739,7 @@ model FinContrat {
   creeParId                String?
 
   @@index([employeeId])
+  @@schema("public")
 }
 
 /// Modèle hebdomadaire de planning par employé : le shift (rôle) habituel pour chaque jour de la
@@ -703,6 +754,7 @@ model PlanningModele {
 
   @@unique([employeeId, jour, semaine])
   @@index([employeeId])
+  @@schema("public")
 }
 
 /// Frais médical d'un employé pour un mois donné, avec certificat (justificatif) — s'ajoute au
@@ -720,4 +772,5 @@ model FraisMedical {
   creeParId     String?
 
   @@index([employeeId, annee, mois])
+  @@schema("public")
 }

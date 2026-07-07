@@ -6,7 +6,7 @@ import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import type { Role } from "@prisma/client";
 
-const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER"];
+const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "STOCK"];
 
 /** Crée un utilisateur : compte Supabase Auth (email + mot de passe) + profil applicatif (rôle). */
 export async function creerUtilisateur(formData: FormData) {

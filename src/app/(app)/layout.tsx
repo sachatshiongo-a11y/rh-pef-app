@@ -1,5 +1,6 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { verifySession, estRH } from "@/lib/auth";
 import { chargerNotifications } from "@/lib/notifications";
 import { AppShell } from "./app-shell";
 
@@ -30,6 +31,10 @@ async function chargerBadges(): Promise<Record<string, number>> {
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await verifySession();
+  // Garde de LECTURE de l'espace RH : un compte sans accès RH (ex. rôle STOCK) est renvoyé
+  // vers le résolveur d'entrée, qui l'oriente vers son propre espace. Le cloisonnement ne
+  // repose donc pas sur le seul masquage des liens.
+  if (!estRH(user.role)) redirect("/entree");
   const estAdmin = user.role === "ADMIN";
   const [badges, notif, moi] = await Promise.all([
     chargerBadges(),

@@ -94,7 +94,7 @@ export function AppShell({
               priority
               className="h-auto w-full max-w-36"
             />
-            <p className="mt-1 text-xs text-muted-foreground">Gestion RH & Paie</p>
+            <p className="mt-1 text-xs text-muted-foreground">Gestion</p>
           </div>
           {/* Fermer le tiroir (mobile) */}
           <button
@@ -163,6 +163,15 @@ export function AppShell({
           <div className="mt-1">
             <PushToggle />
           </div>
+          {userRole === "ADMIN" && (
+            <Link
+              href="/choix-espace"
+              onClick={fermer}
+              className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            >
+              🔄 Changer d&apos;espace
+            </Link>
+          )}
           <form action={logout}>
             <button
               type="submit"
@@ -187,7 +196,7 @@ export function AppShell({
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="truncate font-medium">RH Pâtes en Folie</span>
+          <span className="truncate font-medium">Pâtes en Folie — Gestion</span>
           {notif && (
             <div className="ml-auto">
               <NotificationBell {...notif} />

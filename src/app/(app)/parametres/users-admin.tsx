@@ -23,11 +23,13 @@ const ROLE_LABEL: Record<string, string> = {
   ADMIN: "Direction",
   MANAGER: "RH",
   VIEWER: "Consultation",
+  STOCK: "Stock",
 };
 const ROLE_DESC: Record<string, string> = {
-  ADMIN: "Accès total : valide tout, paie, paramètres",
+  ADMIN: "Accès total : RH, paie, paramètres ET Stock & Achats",
   MANAGER: "Saisit les demandes et vérifie les bulletins, mais ne valide rien",
   VIEWER: "Consultation seule",
+  STOCK: "Espace Stock & Achats uniquement (aucun accès RH ni paie)",
 };
 
 const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
@@ -174,9 +176,9 @@ export function UsersAdmin({
         </button>
       </form>
       <p className="text-xs text-muted-foreground">
-        <span className="font-medium">Direction</span> = accès total · <span className="font-medium">RH</span> =
+        <span className="font-medium">Direction</span> = accès total (RH + Stock) · <span className="font-medium">RH</span> =
         saisit les demandes et vérifie les bulletins sans rien valider · <span className="font-medium">Consultation</span> =
-        lecture seule.
+        lecture seule · <span className="font-medium">Stock</span> = espace Stock &amp; Achats uniquement.
       </p>
     </div>
   );

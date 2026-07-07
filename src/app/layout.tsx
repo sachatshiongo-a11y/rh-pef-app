@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pâtes en Folie — RH & Paie",
-  description: "Gestion RH et paie de Pâtes en Folie",
+  title: "Pâtes en Folie — Gestion",
+  description: "Gestion de Pâtes en Folie",
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "RH Pâtes en Folie",
+    title: "Pâtes en Folie — Gestion",
     statusBarStyle: "default",
   },
 };

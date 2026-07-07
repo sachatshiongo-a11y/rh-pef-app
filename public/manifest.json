@@ -1,7 +1,7 @@
 {
-  "name": "Pâtes en Folie — RH & Paie",
-  "short_name": "RH PEF",
-  "description": "Gestion RH et paie de Pâtes en Folie",
+  "name": "Pâtes en Folie — Gestion",
+  "short_name": "PEF Gestion",
+  "description": "Gestion de Pâtes en Folie",
   "start_url": "/accueil",
   "display": "standalone",
   "background_color": "#fdfbf7",

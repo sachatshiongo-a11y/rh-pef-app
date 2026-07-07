@@ -65,3 +65,36 @@ export function requireRole(user: CurrentUser, allowed: Role[]) {
     throw new Error("Accès refusé : rôle insuffisant.");
   }
 }
+
+// ── Accès par espace (cloisonnement RH / Stock) ───────────────────────────────
+// Deux espaces indépendants. Le rôle porte la dimension d'accès : ADMIN (Direction)
+// voit tout ; MANAGER/VIEWER = RH uniquement ; STOCK = Stock uniquement.
+// La Direction obtient les deux accès automatiquement (règle explicite ci-dessous).
+export type Espace = "rh" | "stock";
+
+export function estRH(role: Role): boolean {
+  return role === "ADMIN" || role === "MANAGER" || role === "VIEWER";
+}
+
+export function estStock(role: Role): boolean {
+  return role === "ADMIN" || role === "STOCK";
+}
+
+/** Espaces auxquels le rôle a accès (ADMIN = les deux). */
+export function espacesAutorises(role: Role): Espace[] {
+  const espaces: Espace[] = [];
+  if (estRH(role)) espaces.push("rh");
+  if (estStock(role)) espaces.push("stock");
+  return espaces;
+}
+
+/** URL d'accueil d'un espace. */
+export function accueilEspace(espace: Espace): string {
+  return espace === "rh" ? "/accueil" : "/stock";
+}
+
+/** À utiliser dans les Server Actions / Server Components pour exiger l'accès à un espace. */
+export function requireModule(user: CurrentUser, espace: Espace) {
+  const ok = espace === "rh" ? estRH(user.role) : estStock(user.role);
+  if (!ok) throw new Error("Accès refusé : module non autorisé.");
+}

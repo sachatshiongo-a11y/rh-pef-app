@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
   const corps = [
     "Bonjour,",
     "",
-    "Voici les rappels RH Pâtes en Folie du jour :",
+    "Voici les rappels du jour :",
     urgents.length ? `\n🔴 URGENT\n\n${lignes(urgents)}` : "",
     warnings.length ? `\n🟠 À VENIR\n\n${lignes(warnings)}` : "",
     "",
@@ -60,11 +60,11 @@ export async function GET(request: NextRequest) {
   await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
-      `RH Pâtes en Folie — ${aEnvoyer.length} rappel(s) du jour`,
+      `Pâtes en Folie — Gestion · ${aEnvoyer.length} rappel(s) du jour`,
       corps,
     ),
     envoyerPush(admins.map((a) => a.id), {
-      title: `RH Pâtes en Folie — ${aEnvoyer.length} rappel(s)`,
+      title: `Pâtes en Folie — Gestion · ${aEnvoyer.length} rappel(s)`,
       body: urgents.length
         ? `${urgents.length} urgent(s) · ${warnings.length} à venir`
         : `${warnings.length} échéance(s) à venir`,

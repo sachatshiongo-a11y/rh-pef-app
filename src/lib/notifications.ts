@@ -29,11 +29,11 @@ export async function creerNotification(params: {
   await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
-      `RH Pâtes en Folie — ${params.message}`,
+      `Pâtes en Folie — Gestion · ${params.message}`,
       `${params.message}\n\nConnectez-vous pour traiter la demande.`
     ),
     envoyerPush(admins.map((a) => a.id), {
-      title: "RH Pâtes en Folie",
+      title: "Pâtes en Folie — Gestion",
       body: params.message,
       url: params.lien ?? "/a-valider",
       tag: params.refId ?? params.type,

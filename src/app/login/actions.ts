@@ -20,7 +20,7 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     return { error: "Identifiants incorrects." };
   }
 
-  redirect("/dashboard");
+  redirect("/entree");
 }
 
 export async function logout() {

@@ -1,5 +1,5 @@
 {
-  "name": "rh-pef-app",
+  "name": "gestion-pef-app",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -15,8 +15,8 @@
   },
   "main": "electron/main.cjs",
   "build": {
-    "appId": "cd.patesenfolie.rh",
-    "productName": "RH Pâtes en Folie",
+    "appId": "cd.patesenfolie.gestion",
+    "productName": "Pâtes en Folie — Gestion",
     "asar": false,
     "files": [
       "electron/**/*",
