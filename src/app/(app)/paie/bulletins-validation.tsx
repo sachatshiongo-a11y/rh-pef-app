@@ -111,9 +111,29 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
           </div>
         </div>
         {sel ? (
-          <iframe key={src} src={src} title={`Bulletin ${sel.nom}`} className="h-[560px] w-full bg-muted" />
+          <>
+            {/* Aperçu inline : ordinateur seulement. Sur mobile l'iframe PDF prend trop de place
+                et se lit mal → on propose le plein écran / le téléchargement à la place. */}
+            <iframe
+              key={src}
+              src={src}
+              title={`Bulletin ${sel.nom}`}
+              className="hidden h-[560px] w-full bg-muted lg:block"
+            />
+            <div className="flex flex-col items-center gap-3 px-4 py-6 text-center lg:hidden">
+              <p className="text-sm text-muted-foreground">
+                Aperçu masqué sur mobile pour plus de lisibilité.
+              </p>
+              <button
+                onClick={() => setAgrandi(true)}
+                className="rounded-md border bg-card px-4 py-2 text-sm font-medium hover:bg-accent"
+              >
+                Voir le bulletin en plein écran
+              </button>
+            </div>
+          </>
         ) : (
-          <div className="flex h-[560px] items-center justify-center text-sm text-muted-foreground">
+          <div className="flex min-h-[120px] items-center justify-center p-6 text-sm text-muted-foreground lg:h-[560px]">
             Sélectionnez un salarié.
           </div>
         )}
