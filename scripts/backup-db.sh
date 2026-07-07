@@ -21,6 +21,12 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
   exit 1
 fi
 
+if ! command -v pg_dump >/dev/null 2>&1; then
+  echo "Erreur : pg_dump introuvable. Installe les outils client PostgreSQL :" >&2
+  echo "  brew install libpq && brew link --force libpq   (macOS)" >&2
+  exit 1
+fi
+
 DEST="${BACKUP_DIR:-$HOME/Sauvegardes-RH-PEF}"
 mkdir -p "$DEST"
 HORODATAGE="$(date +%Y-%m-%d_%Hh%M)"
