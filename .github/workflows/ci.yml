@@ -1,0 +1,39 @@
+name: CI
+
+# Vérifie chaque push et chaque pull request : types + tests unitaires.
+# Le « next build » n'est PAS refait ici : Render le relance déjà à chaque déploiement.
+# La valeur ajoutée de cette CI est donc le typecheck et les tests (que Render ne fait pas),
+# pour bloquer une régression AVANT qu'elle n'atteigne la production.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+# Un seul run à la fois par branche : annule les runs obsolètes (économise les minutes Actions).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verifs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Générer le client Prisma
+        run: npx prisma generate
+
+      - name: Vérifier les types (tsc)
+        run: npm run typecheck
+
+      - name: Lancer les tests (vitest)
+        run: npm test

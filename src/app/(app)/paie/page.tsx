@@ -161,6 +161,12 @@ export default async function PaiePage({
                 <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Bulletins séparés (ZIP)</p>
                 <TelechargerLien href="/paie/bulletins-zip?devise=USD" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP ($)</TelechargerLien>
                 <TelechargerLien href="/paie/bulletins-zip?devise=CDF" className="block rounded px-3 py-2 text-sm hover:bg-accent">Bulletins séparés ZIP (CDF)</TelechargerLien>
+                {estAdmin && (
+                  <>
+                    <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Traçabilité</p>
+                    <TelechargerLien href="/paie/audit-export" className="block rounded px-3 py-2 text-sm hover:bg-accent">Journal d&apos;audit (Excel)</TelechargerLien>
+                  </>
+                )}
               </div>
             </details>
           )}

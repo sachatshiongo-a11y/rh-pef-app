@@ -6,6 +6,7 @@ import {
   calculerPaieBackoffice,
   calculerPaieBrigade,
   calculerCongesAcquis,
+  tauxPrimeAnciennete,
   resumerPresences,
   type ParametresPaie,
 } from "./payroll";
@@ -256,5 +257,45 @@ describe("calculerCongesAcquis", () => {
     expect(calculerCongesAcquis(3, 18)).toBeCloseTo(4.5, 5);
     expect(calculerCongesAcquis(12, 18)).toBe(18);
     expect(calculerCongesAcquis(38, 18)).toBe(18);
+  });
+
+  it("acquisition = 1,5 j/mois (mois révolus) plafonnée à 18", () => {
+    // 18 jours annuels ⇒ 1,5 j par mois d'ancienneté.
+    expect(calculerCongesAcquis(1, 18)).toBeCloseTo(1.5, 5);
+    expect(calculerCongesAcquis(6, 18)).toBeCloseTo(9, 5);
+    expect(calculerCongesAcquis(11, 18)).toBeCloseTo(16.5, 5);
+    // Le mois en cours n'est PAS crédité : l'appelant passe des mois révolus (décision produit).
+    expect(calculerCongesAcquis(0, 18)).toBe(0);
+  });
+});
+
+describe("tauxPrimeAnciennete — barème RDC (0% <3 ans, +1%/an, plafond 25%)", () => {
+  it("aucune prime avant 3 ans d'ancienneté", () => {
+    expect(tauxPrimeAnciennete(0)).toBe(0);
+    expect(tauxPrimeAnciennete(2)).toBe(0);
+    expect(tauxPrimeAnciennete(2.9)).toBe(0);
+  });
+
+  it("3% dès 3 ans, +1% par année accomplie", () => {
+    expect(tauxPrimeAnciennete(3)).toBe(3);
+    expect(tauxPrimeAnciennete(7)).toBe(7);
+    expect(tauxPrimeAnciennete(10)).toBe(10);
+  });
+
+  it("compte en années ENTIÈRES accomplies (troncature)", () => {
+    expect(tauxPrimeAnciennete(4.9)).toBe(4);
+    expect(tauxPrimeAnciennete(3.99)).toBe(3);
+  });
+
+  it("plafonné à 25%", () => {
+    expect(tauxPrimeAnciennete(25)).toBe(25);
+    expect(tauxPrimeAnciennete(30)).toBe(25);
+    expect(tauxPrimeAnciennete(50)).toBe(25);
+  });
+
+  it("montant mensuel = salaire de base × taux (ex. 700 $ à 7 ans = 49 $)", () => {
+    const salaireBase = 700;
+    const montant = salaireBase * (tauxPrimeAnciennete(7) / 100);
+    expect(montant).toBeCloseTo(49, 5);
   });
 });
