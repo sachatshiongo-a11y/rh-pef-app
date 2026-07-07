@@ -46,17 +46,15 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
             <Ligne key={i} label={p.nom} usd={p.montantUSD} />
           ))}
           <Ligne label={L.brut} usd={Number(l.salBrutUSD)} />
-          {(Number(l.allocFamilialeUSD) > 0 || Number(l.fraisMedicauxUSD) > 0) && (
-            <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
-          )}
-          {Number(l.allocFamilialeUSD) > 0 && <Ligne label={L.alloc} usd={Number(l.allocFamilialeUSD)} signe="+" />}
-          {Number(l.fraisMedicauxUSD) > 0 && <Ligne label={L.fraisMedicaux} usd={Number(l.fraisMedicauxUSD)} signe="+" />}
+          <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
+          <Ligne label={L.alloc} usd={Number(l.allocFamilialeUSD)} signe="+" />
+          <Ligne label={L.fraisMedicaux} usd={Number(l.fraisMedicauxUSD)} signe="+" />
         </div>
         <div className="border-l">
           <p className="bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase text-amber-800">Retenues</p>
           <Ligne label={L.cnss} usd={Number(l.cnssSalarieUSD)} signe="-" />
           <Ligne label={L.ipr} usd={Number(l.iprCalculeUSD)} signe="-" />
-          {Number(l.acompteUSD) > 0 && <Ligne label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />}
+          <Ligne label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />
           <Ligne label="Total retenues" usd={totalRetenues} signe="-" />
           <p className="mt-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground">Heures</p>
           <div className="flex items-center justify-between px-3 py-1.5 text-sm">
