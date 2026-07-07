@@ -13,6 +13,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     include: { lignes: true, fournisseur: true },
   });
   if (!bc) return new Response("Bon de commande introuvable", { status: 404 });
+  if (bc.statut === "BROUILLON") {
+    return new Response("Le bon de commande doit être validé avant d'être exporté.", { status: 409 });
+  }
 
   const acheteur = await prisma.parametresAchat.findUnique({ where: { id: "singleton" } });
 

@@ -831,6 +831,7 @@ enum DeviseSaisie {
 
 enum StatutBonCommande {
   BROUILLON
+  VALIDE
   ENVOYE
   RECU_PARTIEL
   RECU

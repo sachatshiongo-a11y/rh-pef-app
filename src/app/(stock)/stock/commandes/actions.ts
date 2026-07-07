@@ -86,6 +86,17 @@ export async function creerBonCommande(formData: FormData) {
   redirect(`/stock/commandes/${bc.id}`);
 }
 
+/** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
+export async function validerBonCommande(id: string, _formData: FormData) {
+  const user = await garde();
+  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } });
+  if (bc.statut !== "BROUILLON") throw new Error("Ce bon de commande est déjà validé.");
+  await prisma.bonDeCommande.update({ where: { id }, data: { statut: "VALIDE" } });
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", nouvelleValeur: "VALIDE", userId: user.id });
+  revalidatePath("/stock/commandes");
+  revalidatePath(`/stock/commandes/${id}`);
+}
+
 /** Change le statut d'un bon de commande. */
 export async function changerStatutBonCommande(id: string, formData: FormData) {
   const user = await garde();

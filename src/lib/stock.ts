@@ -48,6 +48,7 @@ export const STATUT_FACTURE_CLASSE: Record<string, string> = {
 
 export const STATUT_BC_LABEL: Record<string, string> = {
   BROUILLON: "Brouillon",
+  VALIDE: "Validé",
   ENVOYE: "Envoyé",
   RECU_PARTIEL: "Reçu partiel",
   RECU: "Reçu",
@@ -56,6 +57,7 @@ export const STATUT_BC_LABEL: Record<string, string> = {
 
 export const STATUT_BC_CLASSE: Record<string, string> = {
   BROUILLON: "bg-muted text-muted-foreground",
+  VALIDE: "bg-indigo-100 text-indigo-800",
   ENVOYE: "bg-blue-100 text-blue-800",
   RECU_PARTIEL: "bg-amber-100 text-amber-800",
   RECU: "bg-emerald-100 text-emerald-800",
