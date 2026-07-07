@@ -20,7 +20,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const pdfParams = new URLSearchParams();
   if (q) pdfParams.set("q", q);
   if (domaine) pdfParams.set("domaine", domaine);
-  const pdfHref = `/stock/reconciliation/pdf${pdfParams.toString() ? `?${pdfParams}` : ""}`;
+  const pdfHref = `/stock/reconciliation/fiche${pdfParams.toString() ? `?${pdfParams}` : ""}`;
 
   return (
     <div className="space-y-4">
@@ -33,7 +33,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           </p>
         </div>
         <a href={pdfHref} target="_blank" rel="noopener" className="shrink-0 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-          🖨️ Fiche de comptage (PDF)
+          🖨️ Fiche de comptage à imprimer
         </a>
       </div>
 

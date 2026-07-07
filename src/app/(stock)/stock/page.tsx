@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
+import { Avatar } from "@/components/avatar";
 import { niveauAlerte, ALERTE_CLASSE, usd, qte } from "@/lib/stock";
 
 export default async function StockDashboard() {
+  const user = await verifySession();
+  const prenom = user.nom.split(" ")[0];
+  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
+  const maPhoto = moi?.employe?.photoUrl ?? null;
+  const dateDuJour = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
   const [nbArticles, nbFournisseurs, stocks, facturesDues, echues] = await Promise.all([
     prisma.articleStock.count(),
     prisma.fournisseur.count(),
@@ -34,7 +42,15 @@ export default async function StockDashboard() {
 
   return (
     <div className="max-w-5xl space-y-6">
-      <h1 className="text-xl font-semibold sm:text-2xl">Tableau de bord — Stock &amp; Achats</h1>
+      <div className="flex items-center gap-4 rounded-2xl border bg-card p-5 shadow-sm">
+        <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">Bonjour {prenom}</h1>
+          <p className="text-sm capitalize text-muted-foreground">
+            {user.role === "ADMIN" ? "Direction" : "Responsable stock"} · {dateDuJour} · Stock &amp; Achats
+          </p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Kpi label="Articles" valeur={String(nbArticles)} href="/stock/catalogue" />

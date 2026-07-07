@@ -17,6 +17,9 @@ export function niveauAlerte(
   const q = Number(quantite);
   const su = Number(seuilUrgent);
   const min = Number(stockMinimum);
+  // Aucun seuil configuré (ni minimum, ni seuil urgent) = article non suivi pour les alertes.
+  // Évite de noyer le tableau de bord d'« Urgent » pour des articles à 0 sans réappro. défini.
+  if (su <= 0 && min <= 0) return "OK";
   if (q <= su) return "URGENT";
   if (q <= min) return "APPRO";
   return "OK";
