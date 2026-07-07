@@ -23,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="BC_${bc.numero.replace(/\//g, "-")}.pdf"`,
+      "Content-Disposition": `attachment; filename="BC_${bc.numero.replace(/\//g, "-")}.pdf"`,
     },
   });
 }

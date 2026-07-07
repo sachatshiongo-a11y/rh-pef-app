@@ -43,7 +43,7 @@ export default async function CommandesPage() {
                   <div className="flex justify-end gap-2">
                     <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
                     {c.statut !== "BROUILLON" && c.statut !== "ANNULE" && (
-                      <a href={`/stock/commandes/${c.id}/pdf`} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
+                      <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a>
                     )}
                   </div>
                 </td>

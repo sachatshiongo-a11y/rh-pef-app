@@ -54,8 +54,8 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
           ) : (
             <>
               {peutExporter && (
-                <a href={`/stock/commandes/${bc.id}/pdf`} target="_blank" rel="noopener" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-                  Télécharger / Imprimer le PDF
+                <a href={`/stock/commandes/${bc.id}/pdf`} download className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
+                  ⬇ Télécharger le PDF
                 </a>
               )}
               {bc.statut === "VALIDE" && (
