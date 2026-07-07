@@ -1,6 +1,6 @@
 import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
-import { PdfHeader } from "./layout";
+import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
 
 registerPdfFonts();
@@ -8,7 +8,9 @@ registerPdfFonts();
 export type Colonne = { header: string; width: string; align?: "left" | "right" | "center" };
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 26, paddingHorizontal: 30, paddingBottom: 30, fontSize: 8.5, fontFamily: "Optima", color: pdfColors.text },
+  // paddingBottom généreux : laisse la place au pied de page (coordonnées + n° de page).
+  page: { paddingTop: 26, paddingHorizontal: 30, paddingBottom: 96, fontSize: 8.5, fontFamily: "Optima", color: pdfColors.text },
+  meta: { marginBottom: 8, fontSize: 8, color: pdfColors.textMuted },
   th: { flexDirection: "row", backgroundColor: pdfColors.brownDark },
   thCell: { color: "#ffffff", fontSize: 7, fontWeight: 700, paddingVertical: 4, paddingHorizontal: 4, textTransform: "uppercase" },
   tr: { flexDirection: "row", borderTop: `0.5 solid ${pdfColors.border}` },
@@ -35,10 +37,12 @@ export function TableauDocument({
   totalDerniereLigne?: boolean;
   pied?: string;
 }) {
+  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <PdfHeader title={titre} subtitle={sousTitre} />
+        <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
         <View style={styles.wrap}>
           <View style={styles.th} fixed>
             {colonnes.map((c, i) => (
@@ -61,6 +65,7 @@ export function TableauDocument({
           })}
         </View>
         {pied && <Text style={styles.pied}>{pied}</Text>}
+        <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
       </Page>
     </Document>
   );

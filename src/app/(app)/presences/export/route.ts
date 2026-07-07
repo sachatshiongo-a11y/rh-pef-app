@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { resumerPresences, type CodePresence } from "@/lib/payroll";
+import { enteteExcel } from "@/lib/export-excel";
 
 /**
  * Export Excel des présences du mois courant — FIDÈLE à l'onglet Présences : mêmes colonnes
@@ -51,8 +52,9 @@ export async function GET() {
     return [e.matricule, e.nom, e.categorie, ...jours, r.payes100, r.payes2_3, r.nonPayes, r.totalPresence];
   });
 
+  const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([entetes, ...lignes]), "Présences");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...enteteExcel("Présences", periode), entetes, ...lignes]), "Présences");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
   return new Response(new Uint8Array(buf), {

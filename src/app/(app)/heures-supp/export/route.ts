@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp } from "@/lib/payroll";
+import { enteteExcel } from "@/lib/export-excel";
 
 /**
  * Export Excel des heures supplémentaires du mois courant — FIDÈLE à l'onglet :
@@ -96,10 +97,11 @@ export async function GET() {
     }
   }
 
+  const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([enteteHeures, ...lignesHeures]),
+    XLSX.utils.aoa_to_sheet([...enteteExcel("Heures supplémentaires", periode), enteteHeures, ...lignesHeures]),
     "Heures par jour"
   );
   XLSX.utils.book_append_sheet(

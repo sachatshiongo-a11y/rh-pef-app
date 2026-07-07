@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
+import { enteteExcel } from "@/lib/export-excel";
 
 /**
  * Export Excel de la paie du mois courant — FIDÈLE à l'onglet Paie : mêmes lignes (brigade puis
@@ -54,8 +55,9 @@ export async function GET(request: Request) {
     LIBELLE_STATUT[l.statutPaiement],
   ]);
 
+  const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([entete, ...rows]), "Paie");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...enteteExcel("Livre de paie", periode), entete, ...rows]), "Paie");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
   return new Response(new Uint8Array(buf), {

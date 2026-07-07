@@ -26,14 +26,15 @@ export async function GET() {
   if (lignes.length === 0) return new Response("Aucune paie calculée pour ce mois", { status: 404 });
 
   const colonnes: Colonne[] = [
-    { header: "Matricule", width: "12%" },
-    { header: "Nom", width: "20%" },
-    { header: "Cat.", width: "9%" },
+    { header: "Matricule", width: "11%" },
+    { header: "Nom", width: "18%" },
+    { header: "Cat.", width: "8%" },
     { header: "Brut $", width: "11%", align: "right" },
+    { header: "Transport $", width: "11%", align: "right" },
     { header: "CNSS $", width: "10%", align: "right" },
     { header: "IPR $", width: "9%", align: "right" },
     { header: "Net $", width: "11%", align: "right" },
-    { header: "Net CDF", width: "18%", align: "right" },
+    { header: "Net CDF", width: "11%", align: "right" },
   ];
 
   const rows: (string | number)[][] = lignes.map((l) => [
@@ -41,6 +42,7 @@ export async function GET() {
     l.employee.nom,
     l.employee.categorie === "BRIGADE" ? "Brigade" : "Back-off.",
     usd(Number(l.salBrutUSD)),
+    usd(Number(l.transportUSD)),
     usd(Number(l.cnssSalarieUSD)),
     usd(Number(l.iprCalculeUSD)),
     usd(Number(l.salNetUSD)),
@@ -53,6 +55,7 @@ export async function GET() {
     `${lignes.length} salarié(s)`,
     "",
     usd(somme((l) => Number(l.salBrutUSD))),
+    usd(somme((l) => Number(l.transportUSD))),
     usd(somme((l) => Number(l.cnssSalarieUSD))),
     usd(somme((l) => Number(l.iprCalculeUSD))),
     usd(somme((l) => Number(l.salNetUSD))),
