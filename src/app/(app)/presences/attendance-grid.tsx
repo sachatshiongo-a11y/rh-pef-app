@@ -57,8 +57,11 @@ export function AttendanceGrid({
   // Sélection d'employés pour les actions groupées.
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [bulkCode, setBulkCode] = useState<string>("P");
-  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "jour">("mois");
+  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "feries" | "alternes" | "jour">(
+    "mois"
+  );
   const [bulkJour, setBulkJour] = useState<string>("1");
+  const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
 
   function toggleEmp(id: string) {
     setSelection((s) => {
@@ -67,6 +70,10 @@ export function AttendanceGrid({
       return n;
     });
   }
+  const estDimanche = (d: number) =>
+    new Date(isoDates[d - 1] + "T00:00:00Z").getUTCDay() === 0;
+  const estFerie = (d: number) => joursFeries.has(isoDates[d - 1]);
+
   function joursCibles(): number[] {
     if (bulkScope === "jour") {
       // Accepte plusieurs jours précis, ex. « 3, 5, 12 ».
@@ -76,7 +83,14 @@ export function AttendanceGrid({
         .filter((j) => Number.isInteger(j) && j >= 1 && j <= days.length);
     }
     if (bulkScope === "ouvrables")
-      return days.filter((d) => new Date(isoDates[d - 1] + "T00:00:00Z").getUTCDay() !== 0);
+      // Jours ouvrables : ni dimanche, ni jour férié.
+      return days.filter((d) => !estDimanche(d) && !estFerie(d));
+    if (bulkScope === "feries") return days.filter((d) => estFerie(d));
+    if (bulkScope === "alternes") {
+      // Un jour sur deux à partir du jour choisi (N, N+2, N+4…), en sautant les dimanches.
+      const debut = Math.max(1, Number(bulkAlterneDebut) || 1);
+      return days.filter((d) => d >= debut && (d - debut) % 2 === 0 && !estDimanche(d));
+    }
     return [...days];
   }
   function appliquerBulk(code: AttendanceCode | "") {
@@ -202,9 +216,17 @@ export function AttendanceGrid({
             {CODES.map((c) => (<option key={c} value={c}>{c}</option>))}
           </select>
           <span className="text-muted-foreground">sur</span>
-          <select value={bulkScope} onChange={(e) => setBulkScope(e.target.value as "mois" | "ouvrables" | "jour")} className="rounded border border-input bg-background px-2 py-1 text-xs">
+          <select
+            value={bulkScope}
+            onChange={(e) =>
+              setBulkScope(e.target.value as "mois" | "ouvrables" | "feries" | "alternes" | "jour")
+            }
+            className="rounded border border-input bg-background px-2 py-1 text-xs"
+          >
             <option value="mois">tout le mois</option>
-            <option value="ouvrables">jours ouvrables (hors dimanche)</option>
+            <option value="ouvrables">jours ouvrables (hors dimanche et fériés)</option>
+            <option value="feries">jours fériés uniquement</option>
+            <option value="alternes">1 jour sur 2</option>
             <option value="jour">jours précis</option>
           </select>
           {bulkScope === "jour" && (
@@ -215,6 +237,19 @@ export function AttendanceGrid({
               placeholder="ex. 3, 5, 12"
               className="w-24 rounded border border-input bg-background px-2 py-1 text-xs"
             />
+          )}
+          {bulkScope === "alternes" && (
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              à partir du jour
+              <input
+                type="number"
+                min="1"
+                max={days.length}
+                value={bulkAlterneDebut}
+                onChange={(e) => setBulkAlterneDebut(e.target.value)}
+                className="w-14 rounded border border-input bg-background px-2 py-1 text-xs"
+              />
+            </label>
           )}
           <button
             onClick={() => appliquerBulk(bulkCode as AttendanceCode)}

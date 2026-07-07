@@ -2,6 +2,13 @@
 
 const MOIS_COURT = ["JAN", "FÉV", "MAR", "AVR", "MAI", "JUIN", "JUIL", "AOÛ", "SEP", "OCT", "NOV", "DÉC"];
 
+/** Arrondit une durée en heures à 2 décimales et supprime les artefacts de virgule flottante
+ *  (ex. 167.49999999999997 → « 167,5 »). */
+function fmtH(n: number): string {
+  const r = Math.round(n * 100) / 100;
+  return (Object.is(r, -0) ? 0 : r).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+}
+
 function couleurType(type: string): { barre: string; fond: string; texte: string; point: string } {
   const t = type.toLowerCase();
   if (t.includes("annuel") || t.includes("payé"))
@@ -102,10 +109,10 @@ export function HeuresTravailleesCard({
         <span className="text-xs capitalize text-muted-foreground">{periode}</span>
       </div>
       <div className="mb-2 flex items-baseline gap-2">
-        <span className="text-3xl font-bold">{heuresTravaillees}h</span>
-        <span className="text-lg text-muted-foreground">/ {heuresContractuelles}h</span>
+        <span className="text-3xl font-bold">{fmtH(heuresTravaillees)}h</span>
+        <span className="text-lg text-muted-foreground">/ {fmtH(heuresContractuelles)}h</span>
         {heuresSupp > 0 && (
-          <span className="ml-auto text-sm font-medium text-orange-600">+{heuresSupp}h supp.</span>
+          <span className="ml-auto text-sm font-medium text-orange-600">+{fmtH(heuresSupp)}h supp.</span>
         )}
       </div>
       <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
@@ -123,7 +130,7 @@ export function HeuresTravailleesCard({
           Solde{" "}
           <span className={`font-semibold ${solde < 0 ? "text-red-600" : "text-emerald-600"}`}>
             {solde >= 0 ? "+" : ""}
-            {solde}h
+            {fmtH(solde)}h
           </span>
         </span>
       </div>

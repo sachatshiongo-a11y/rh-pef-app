@@ -52,8 +52,11 @@ export function HoursGrid({
 
   // Sélection d'employés pour les actions groupées (appliquer / supprimer sur des jours).
   const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "jour">("jour");
+  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "feries" | "alternes" | "jour">(
+    "jour"
+  );
   const [bulkJour, setBulkJour] = useState<string>("");
+  const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
   const [bulkHeures, setBulkHeures] = useState<string>("");
 
   function toggleEmp(id: string) {
@@ -63,6 +66,10 @@ export function HoursGrid({
       return n;
     });
   }
+  const estDimanche = (d: number) =>
+    new Date(isoDates[d - 1] + "T00:00:00Z").getUTCDay() === 0;
+  const estFerie = (d: number) => joursFeries.has(isoDates[d - 1]);
+
   function joursCibles(): number[] {
     if (bulkScope === "jour")
       return bulkJour
@@ -70,7 +77,12 @@ export function HoursGrid({
         .map(Number)
         .filter((j) => Number.isInteger(j) && j >= 1 && j <= days.length);
     if (bulkScope === "ouvrables")
-      return days.filter((d) => new Date(isoDates[d - 1] + "T00:00:00Z").getUTCDay() !== 0);
+      return days.filter((d) => !estDimanche(d) && !estFerie(d));
+    if (bulkScope === "feries") return days.filter((d) => estFerie(d));
+    if (bulkScope === "alternes") {
+      const debut = Math.max(1, Number(bulkAlterneDebut) || 1);
+      return days.filter((d) => d >= debut && (d - debut) % 2 === 0 && !estDimanche(d));
+    }
     return [...days];
   }
   function appliquerBulk(heures: string) {
@@ -182,13 +194,34 @@ export function HoursGrid({
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 text-sm">
           <span className="font-medium">{selection.size} employé(s) sélectionné(s)</span>
           <span className="text-muted-foreground">→ sur</span>
-          <select value={bulkScope} onChange={(e) => setBulkScope(e.target.value as "mois" | "ouvrables" | "jour")} className="rounded border border-input bg-background px-2 py-1 text-xs">
+          <select
+            value={bulkScope}
+            onChange={(e) =>
+              setBulkScope(e.target.value as "mois" | "ouvrables" | "feries" | "alternes" | "jour")
+            }
+            className="rounded border border-input bg-background px-2 py-1 text-xs"
+          >
             <option value="jour">jours précis</option>
-            <option value="ouvrables">jours ouvrables (hors dimanche)</option>
+            <option value="ouvrables">jours ouvrables (hors dimanche et fériés)</option>
+            <option value="feries">jours fériés uniquement</option>
+            <option value="alternes">1 jour sur 2</option>
             <option value="mois">tout le mois</option>
           </select>
           {bulkScope === "jour" && (
             <input type="text" value={bulkJour} onChange={(e) => setBulkJour(e.target.value)} placeholder="ex. 3, 5, 12" className="w-24 rounded border border-input bg-background px-2 py-1 text-xs" />
+          )}
+          {bulkScope === "alternes" && (
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">
+              à partir du jour
+              <input
+                type="number"
+                min="1"
+                max={days.length}
+                value={bulkAlterneDebut}
+                onChange={(e) => setBulkAlterneDebut(e.target.value)}
+                className="w-14 rounded border border-input bg-background px-2 py-1 text-xs"
+              />
+            </label>
           )}
           <span className="text-muted-foreground">heures</span>
           <input type="number" step="0.5" min="0" max="24" value={bulkHeures} onChange={(e) => setBulkHeures(e.target.value)} placeholder="ex. 8" className="w-16 rounded border border-input bg-background px-2 py-1 text-xs" />

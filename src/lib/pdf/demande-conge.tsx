@@ -111,11 +111,18 @@ export function DemandeCongeDocument({
   dateReprise.setUTCDate(dateReprise.getUTCDate() + 1);
   const docLabel = `PÂTES EN FOLIE — TOLYA SARL  •  Demande de congé - ${employee.matricule}`;
   const estTranchee = demande.statut === "APPROUVE" || demande.statut === "REFUSE";
+  // Mois de la demande (celui du début de congé), affiché en haut à droite comme sur le bulletin.
+  const moisDemande = dateDebut.toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const moisCapitalise = moisDemande.charAt(0).toUpperCase() + moisDemande.slice(1);
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <PdfHeader title="Demande de congé" />
+        <PdfHeader title="Demande de congé" subtitle={moisCapitalise} />
 
         <View style={styles.section}>
           <PdfSectionHeader>Salarié</PdfSectionHeader>

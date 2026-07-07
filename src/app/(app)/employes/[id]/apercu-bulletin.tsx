@@ -6,6 +6,11 @@ function fmtUSD(n: number) {
 function fmtCDF(n: number) {
   return Math.round(n).toLocaleString("fr-FR") + " CDF";
 }
+/** Durée en heures, arrondie à 2 décimales (évite 167.49999999999997 → « 167,5 »). */
+function fmtH(n: number) {
+  const r = Math.round(n * 100) / 100;
+  return (Object.is(r, -0) ? 0 : r).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+}
 
 /** Aperçu intégré (temps réel, pas PDF) du bulletin de la période — montants en USD ET CDF. */
 export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin; periode: string }) {
@@ -49,7 +54,7 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
           <p className="mt-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground">Heures</p>
           <div className="flex items-center justify-between px-3 py-1.5 text-sm">
             <span className="text-muted-foreground">Travaillées · HS 30/60/100</span>
-            <span className="font-medium">{apercu.heuresTravaillees}h · {apercu.hs30}/{apercu.hs60}/{apercu.hs100}</span>
+            <span className="font-medium">{fmtH(apercu.heuresTravaillees)}h · {fmtH(apercu.hs30)}/{fmtH(apercu.hs60)}/{fmtH(apercu.hs100)}</span>
           </div>
         </div>
       </div>

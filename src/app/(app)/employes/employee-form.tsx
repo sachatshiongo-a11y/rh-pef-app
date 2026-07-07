@@ -224,7 +224,7 @@ function SalaireHoraire({
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="heuresHebdomadaires" className="text-sm font-medium">Heures / semaine</label>
-        <input id="heuresHebdomadaires" name="heuresHebdomadaires" type="number" step="0.5" value={hebdo} onChange={(e) => onHebdo(e.target.value)} className={champCls} />
+        <input id="heuresHebdomadaires" name="heuresHebdomadaires" type="number" step="any" min="0" inputMode="decimal" value={hebdo} onChange={(e) => onHebdo(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="heuresMois" className="text-sm font-medium">Heures / mois (modifiable)</label>
@@ -234,7 +234,7 @@ function SalaireHoraire({
         <label htmlFor="tauxHoraire" className="text-sm font-medium">Taux horaire $/h (modifiable)</label>
         <input id="tauxHoraire" type="number" step="0.0001" value={taux} onChange={(e) => onTaux(e.target.value)} className={champCls} />
       </div>
-      <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" type="number" step="0.5" defaultValue={heuresParJourInit} />
+      <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" type="number" step="any" min="0" inputMode="decimal" defaultValue={heuresParJourInit} />
       <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
         Heures/mois = heures/semaine × 52/12 (≈ 4,33 semaines). Taux horaire = salaire mensuel ÷
         heures/mois. « Heures/jour » sert de seuil quotidien d&apos;heures supplémentaires. Enregistrés :
@@ -249,6 +249,8 @@ function Field({
   name,
   type = "text",
   step,
+  min,
+  inputMode,
   defaultValue,
   required,
 }: {
@@ -256,6 +258,8 @@ function Field({
   name: string;
   type?: string;
   step?: string;
+  min?: string;
+  inputMode?: "decimal" | "numeric";
   defaultValue?: string;
   required?: boolean;
 }) {
@@ -269,6 +273,8 @@ function Field({
         name={name}
         type={type}
         step={step}
+        min={min}
+        inputMode={inputMode}
         defaultValue={defaultValue}
         required={required}
         className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
