@@ -137,7 +137,7 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
                   </select>
                 </td>
                 <td className="px-2 py-1"><input type="number" step="0.0001" defaultValue={a.prix ?? ""} disabled={isPending} onBlur={(e) => { if (e.target.value !== (a.prix ?? "")) champ(a.id, "prixUnitaireUSD", e.target.value); }} className={`${cellCls} text-right`} /></td>
-                <td className="px-2 py-1"><input type="number" step="0.001" defaultValue={a.quantite} disabled={isPending} onBlur={(e) => { if (e.target.value !== a.quantite) champ(a.id, "quantite", e.target.value); }} className={`${cellCls} text-right`} /></td>
+                <td className="px-2 py-1 text-right tabular-nums" title="Le stock ne se modifie que par la Liste d'achat ou la réception">{a.quantite}</td>
                 <td className="px-2 py-1"><input type="number" step="0.001" defaultValue={a.stockMinimum} disabled={isPending} onBlur={(e) => { if (e.target.value !== a.stockMinimum) champ(a.id, "stockMinimum", e.target.value); }} className={`${cellCls} text-right`} /></td>
                 <td className="px-2 py-1"><input type="number" step="0.001" defaultValue={a.seuilUrgent} disabled={isPending} onBlur={(e) => { if (e.target.value !== a.seuilUrgent) champ(a.id, "seuilUrgent", e.target.value); }} className={`${cellCls} text-right`} /></td>
                 <td className="px-2 py-1">{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>

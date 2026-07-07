@@ -98,6 +98,18 @@ export async function validerBonCommande(id: string, _formData: FormData) {
   revalidatePath(`/stock/commandes/${id}`);
 }
 
+/** Supprime un bon de commande (réservé à la Direction). Les lignes sont supprimées en cascade ;
+ * réceptions et factures liées sont détachées (les entrées de stock déjà faites restent). */
+export async function supprimerBonCommande(id: string, _formData: FormData) {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } });
+  await prisma.bonDeCommande.delete({ where: { id } });
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "suppression", ancienneValeur: bc.numero, userId: user.id });
+  revalidatePath("/stock/commandes");
+  redirect("/stock/commandes");
+}
+
 /** Change le statut d'un bon de commande. */
 export async function changerStatutBonCommande(id: string, formData: FormData) {
   const user = await garde();

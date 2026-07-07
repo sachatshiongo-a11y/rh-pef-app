@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
-import { changerStatutBonCommande, validerBonCommande } from "../actions";
+import { changerStatutBonCommande, validerBonCommande, supprimerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -189,14 +189,21 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
         )}
       </div>
 
-      {/* Statut avancé (corrections) */}
-      <form action={changerStatutBonCommande.bind(null, bc.id)} className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span>Corriger le statut :</span>
-        <select name="statut" defaultValue={bc.statut} className="rounded border border-input bg-background px-2 py-1 text-xs">
-          {Object.entries(STATUT_BC_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <button className="rounded-md border px-2 py-1 text-xs hover:bg-accent">Appliquer</button>
-      </form>
+      {/* Statut avancé (corrections) + suppression */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <form action={changerStatutBonCommande.bind(null, bc.id)} className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Corriger le statut :</span>
+          <select name="statut" defaultValue={bc.statut} className="rounded border border-input bg-background px-2 py-1 text-xs">
+            {Object.entries(STATUT_BC_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <button className="rounded-md border px-2 py-1 text-xs hover:bg-accent">Appliquer</button>
+        </form>
+        {estDirection && (
+          <form action={supprimerBonCommande.bind(null, bc.id)}>
+            <button className="rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">Supprimer ce bon de commande</button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
