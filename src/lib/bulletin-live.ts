@@ -18,6 +18,7 @@ export type ApercuBulletin = {
   hs100: number;
   joursPresenceP: number;
   primesUSD: number;
+  primes: { nom: string; montantUSD: number }[]; // détail des primes (une entrée chacune)
   acompteUSD: number;
   tauxChangeCDF: number;
 };
@@ -150,6 +151,7 @@ export async function calculerBulletinLive(
     hs100: hs.hs100,
     joursPresenceP,
     primesUSD,
+    primes: primesDuMois.map((p) => ({ nom: p.nom, montantUSD: Number(p.montantUSD) })),
     acompteUSD,
     tauxChangeCDF: parametres.tauxChangeCDF,
   };
