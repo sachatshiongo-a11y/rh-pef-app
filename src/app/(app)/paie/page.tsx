@@ -151,7 +151,7 @@ export default async function PaiePage({
                 Exporter
                 <span aria-hidden className="text-xs transition-transform group-open:rotate-180">▾</span>
               </summary>
-              <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-64 max-w-[calc(100vw_-_1.5rem)] overflow-y-auto rounded-lg border bg-background p-1 shadow-lg">
+              <div className="absolute left-0 z-30 mt-1 max-h-[70vh] w-64 max-w-[90vw] overflow-y-auto rounded-lg border bg-background p-1 shadow-lg lg:left-auto lg:right-0">
                 <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Livre de paie</p>
                 <TelechargerLien href="/paie/export" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (Excel)</TelechargerLien>
                 <TelechargerLien href="/paie/export-pdf" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (PDF)</TelechargerLien>
