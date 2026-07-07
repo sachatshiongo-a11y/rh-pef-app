@@ -1,9 +1,8 @@
-import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp } from "@/lib/payroll";
-import { enteteExcel } from "@/lib/export-excel";
+import { classeurExcel } from "@/lib/export-excel";
 
 /**
  * Export Excel des heures supplémentaires du mois courant — FIDÈLE à l'onglet :
@@ -98,22 +97,19 @@ export async function GET() {
   }
 
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.aoa_to_sheet([...enteteExcel("Heures supplémentaires", periode), enteteHeures, ...lignesHeures]),
-    "Heures par jour"
-  );
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.aoa_to_sheet([
-      ["Matricule", "Nom", "Semaine", "Total", "HS 30%", "HS 60%", "HS 100%", "HS valorisées $"],
-      ...lignesSemaines,
-    ]),
-    "Détail hebdomadaire"
-  );
-
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const buf = await classeurExcel({
+    titre: "Heures supplémentaires",
+    periode,
+    feuilles: [
+      { nom: "Heures par jour", entete: enteteHeures, lignes: lignesHeures },
+      {
+        nom: "Détail hebdomadaire",
+        titre: "Heures supplémentaires — détail hebdomadaire",
+        entete: ["Matricule", "Nom", "Semaine", "Total", "HS 30%", "HS 60%", "HS 100%", "HS valorisées $"],
+        lignes: lignesSemaines,
+      },
+    ],
+  });
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

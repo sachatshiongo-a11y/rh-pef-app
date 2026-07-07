@@ -1,8 +1,7 @@
-import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { calculerDeclarationsMois } from "@/lib/declarations";
-import { enteteExcel } from "@/lib/export-excel";
+import { classeurExcel } from "@/lib/export-excel";
 
 const LIBELLE_STATUT: Record<string, string> = {
   A_DECLARER: "À déclarer",
@@ -34,9 +33,11 @@ export async function GET() {
   rows.push(["TOTAL", "", Number(totalUSD.toFixed(2)), Number(totalCDF.toFixed(0)), "", ""]);
 
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([...enteteExcel("Cotisations sociales & fiscales", periode), entete, ...rows]), "Cotisations");
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const buf = await classeurExcel({
+    titre: "Cotisations sociales & fiscales",
+    periode,
+    feuilles: [{ nom: "Cotisations", entete, lignes: rows }],
+  });
 
   return new Response(new Uint8Array(buf), {
     headers: {
