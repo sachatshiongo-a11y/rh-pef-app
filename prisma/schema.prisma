@@ -12,18 +12,21 @@ enum Role {
   MANAGER
   VIEWER
   STOCK
+
   @@schema("public")
 }
 
 enum EmployeeCategory {
   BRIGADE
   BACKOFFICE
+
   @@schema("public")
 }
 
 enum EmployeeType {
   NATIONAL
   EXPATRIE
+
   @@schema("public")
 }
 
@@ -36,12 +39,14 @@ enum AttendanceCode {
   C // Congé payé — 100%
   F // Jour férié — payé 100%
   S // Congé sans solde — non payé
+
   @@schema("public")
 }
 
 enum PayrollStatus {
   BROUILLON
   VALIDE
+
   @@schema("public")
 }
 
@@ -49,14 +54,16 @@ enum LeaveStatus {
   EN_ATTENTE
   APPROUVE
   REFUSE
+
   @@schema("public")
 }
 
 // Machine à états d'un paiement de salaire (transitions contrôlées).
 enum PaymentStatus {
   PAS_VALIDE // bulletin calculé, pas encore validé (ex-EN_ATTENTE / PREPARE / ANNULE)
-  VALIDE     // validé par un responsable, prêt à payer
-  PAYE       // paiement effectué
+  VALIDE // validé par un responsable, prêt à payer
+  PAYE // paiement effectué
+
   @@schema("public")
 }
 
@@ -66,27 +73,29 @@ enum ModePaiement {
   MOBILE_MONEY
   CHEQUE
   AUTRE
+
   @@schema("public")
 }
 
 // Compte utilisateur applicatif, lié au user Supabase Auth (id = auth.users.id)
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  nom       String
-  role      Role     @default(VIEWER)
-  actif     Boolean  @default(true)
-  employeeId String?  @unique // compte lié à une fiche employé (même personne)
+  id         String    @id @default(uuid())
+  email      String    @unique
+  nom        String
+  role       Role      @default(VIEWER)
+  actif      Boolean   @default(true)
+  employeeId String?   @unique // compte lié à une fiche employé (même personne)
   employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  leavesApproved      LeaveRequest[]   @relation("ApprovedBy")
-  paiementsConfirmes  PayrollLine[]    @relation("PayeParUser")
-  transitionsPaie     TransitionPaie[]
-  versionsBulletin    VersionBulletin[]
-  actionsAudit        JournalAudit[]
-  pushSubscriptions   PushSubscription[]
+  leavesApproved     LeaveRequest[]     @relation("ApprovedBy")
+  paiementsConfirmes PayrollLine[]      @relation("PayeParUser")
+  transitionsPaie    TransitionPaie[]
+  versionsBulletin   VersionBulletin[]
+  actionsAudit       JournalAudit[]
+  pushSubscriptions  PushSubscription[]
+
   @@schema("public")
 }
 
@@ -100,6 +109,7 @@ model PushSubscription {
   p256dh    String
   auth      String
   createdAt DateTime @default(now())
+
   @@schema("public")
 }
 
@@ -111,24 +121,27 @@ model Config {
   anneeCourante Int
   moisCourant   Int
   updatedAt     DateTime @updatedAt
+
   @@schema("public")
 }
 
 enum StatutValidation {
   A_VALIDER
   VALIDE
+
   @@schema("public")
 }
 
 // Exercice fiscal : toutes les valeurs légales sont versionnées par exercice,
 // modifiables uniquement par l'ADMIN (le directeur), jamais codées en dur.
 model ExerciceFiscal {
-  id        Int     @id @default(autoincrement())
-  annee     Int     @unique
-  actif     Boolean @default(false)
+  id    Int     @id @default(autoincrement())
+  annee Int     @unique
+  actif Boolean @default(false)
 
   parametres  ParametreLegal[]
   tranchesIpr TrancheIprCDF[]
+
   @@schema("public")
 }
 
@@ -174,54 +187,55 @@ model JourFerie {
 }
 
 model Employee {
-  id                String           @id @default(uuid())
-  matricule         String           @unique
-  nom               String
-  sexe              String
-  etatCivil         String
-  poste             String
-  secteur           String
-  categorie         EmployeeCategory
-  salaireMensuel    Decimal          @db.Decimal(12, 2)
-  transportJourCDF  Decimal          @db.Decimal(12, 2) @default(0)
-  transportMoisCDF  Decimal          @db.Decimal(12, 2) @default(0)
-  transportMoisUSD  Decimal          @db.Decimal(12, 2) @default(0)
-  cnssMontant       Decimal          @db.Decimal(12, 2) @default(0)
-  enfants           Int              @default(0)
-  type              EmployeeType     @default(NATIONAL)
-  dateNaissance     DateTime?        @db.Date
-  telephone         String?
-  email             String?
-  adresse           String?
-  photoUrl          String?
-  banque            String?
-  compteBancaire    String?
-  mobileMoney       String?
-  idExterneIVMS     String? // identifiant du salarié dans IVMS-4200 (appariement pointage)
-  dateEmbauche      DateTime         @db.Date
-  contrat           String
-  heuresParJour     Decimal          @db.Decimal(5, 2) @default(8)
-  heuresHebdomadaires Decimal        @db.Decimal(5, 2) @default(48)
-  fraisMedicauxMoisCourant Decimal   @db.Decimal(12, 2) @default(0)
-  actif             Boolean          @default(true)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                       String           @id @default(uuid())
+  matricule                String           @unique
+  nom                      String
+  sexe                     String
+  etatCivil                String
+  poste                    String
+  secteur                  String
+  categorie                EmployeeCategory
+  salaireMensuel           Decimal          @db.Decimal(12, 2)
+  transportJourCDF         Decimal          @default(0) @db.Decimal(12, 2)
+  transportMoisCDF         Decimal          @default(0) @db.Decimal(12, 2)
+  transportMoisUSD         Decimal          @default(0) @db.Decimal(12, 2)
+  cnssMontant              Decimal          @default(0) @db.Decimal(12, 2)
+  enfants                  Int              @default(0)
+  type                     EmployeeType     @default(NATIONAL)
+  dateNaissance            DateTime?        @db.Date
+  telephone                String?
+  email                    String?
+  adresse                  String?
+  photoUrl                 String?
+  banque                   String?
+  compteBancaire           String?
+  mobileMoney              String?
+  idExterneIVMS            String? // identifiant du salarié dans IVMS-4200 (appariement pointage)
+  dateEmbauche             DateTime         @db.Date
+  contrat                  String
+  heuresParJour            Decimal          @default(8) @db.Decimal(5, 2)
+  heuresHebdomadaires      Decimal          @default(48) @db.Decimal(5, 2)
+  fraisMedicauxMoisCourant Decimal          @default(0) @db.Decimal(12, 2)
+  actif                    Boolean          @default(true)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
 
-  attendances    Attendance[]
-  overtimeEntries OvertimeEntry[]
-  payrollLines   PayrollLine[]
-  leaveRequests  LeaveRequest[]
-  remplaceDans   LeaveRequest[] @relation("Remplacant")
-  contrats       Contrat[]
-  historiqueSalaire HistoriqueSalaire[]
+  attendances          Attendance[]
+  overtimeEntries      OvertimeEntry[]
+  payrollLines         PayrollLine[]
+  leaveRequests        LeaveRequest[]
+  remplaceDans         LeaveRequest[]         @relation("Remplacant")
+  contrats             Contrat[]
+  historiqueSalaire    HistoriqueSalaire[]
   dossierDisciplinaire DossierDisciplinaire[]
-  evaluations    Evaluation[]
-  documents      DocumentEmploye[]
-  planningCreneaux PlanningCreneau[]
-  primes         Prime[]
-  acomptes       AcompteSalaire[]
-  fraisMed       FraisMedical[]
-  compte         User?          @relation("CompteEmploye")
+  evaluations          Evaluation[]
+  documents            DocumentEmploye[]
+  planningCreneaux     PlanningCreneau[]
+  primes               Prime[]
+  acomptes             AcompteSalaire[]
+  fraisMed             FraisMedical[]
+  compte               User?                  @relation("CompteEmploye")
+
   @@schema("public")
 }
 
@@ -245,6 +259,7 @@ enum StatutAcompte {
   EN_ATTENTE
   APPROUVE
   REFUSE
+
   @@schema("public")
 }
 
@@ -258,6 +273,7 @@ model TypeConge {
   ordre      Int     @default(0)
   systeme    Boolean @default(false)
   actif      Boolean @default(true)
+
   @@schema("public")
 }
 
@@ -283,21 +299,22 @@ model AcompteSalaire {
 // Matin/Après-midi/Soir/Nuit ont des heures ; Repos/Congé/Férié sont « système » (heures nulles,
 // non supprimables). « Nuit » sert au planning — AUCUNE majoration de nuit n'est appliquée en paie.
 model Shift {
-  id         String   @id @default(uuid())
-  nom        String
-  heureDebut String? // "HH:MM" (null pour Repos/Congé/Férié)
-  heureFin   String?
-  couleur    String   @default("indigo") // clé de palette (mappée en classes Tailwind)
+  id             String   @id @default(uuid())
+  nom            String
+  heureDebut     String? // "HH:MM" (null pour Repos/Congé/Férié)
+  heureFin       String?
+  couleur        String   @default("indigo") // clé de palette (mappée en classes Tailwind)
   dureeHeures    Decimal? @db.Decimal(5, 2) // durée en heures (si null, déduite de heureDebut/heureFin)
   tauxHoraireUSD Decimal? @db.Decimal(12, 4) // taux horaire de ce rôle (si null, taux par défaut de l employé)
-  ordre      Int      @default(0)
-  systeme    Boolean  @default(false) // Repos/Congé/Férié : non supprimables
-  actif      Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  ordre          Int      @default(0)
+  systeme        Boolean  @default(false) // Repos/Congé/Férié : non supprimables
+  actif          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   creneaux PlanningCreneau[]
   besoins  BesoinShift[]
+
   @@schema("public")
 }
 
@@ -336,6 +353,7 @@ enum TypeContrat {
   CDI
   STAGE
   JOURNALIER
+
   @@schema("public")
 }
 
@@ -343,25 +361,26 @@ enum StatutContrat {
   ACTIF
   EXPIRE
   RESILIE
+
   @@schema("public")
 }
 
 // Contrat de travail : dates, période d'essai, échéance (pour alertes CDD).
 model Contrat {
-  id                String        @id @default(uuid())
-  employeeId        String
-  employee          Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  type              TypeContrat
-  dateDebut         DateTime      @db.Date
-  dateFin           DateTime?     @db.Date // null pour CDI
-  finPeriodeEssai   DateTime?     @db.Date
-  heuresHebdo       Decimal       @db.Decimal(5, 2) @default(48)
-  salaireMensuel    Decimal       @db.Decimal(12, 2)
-  devise            String        @default("USD")
-  poste             String
-  statut            StatutContrat @default(ACTIF)
-  documentUrl       String?
-  createdAt         DateTime      @default(now())
+  id              String        @id @default(uuid())
+  employeeId      String
+  employee        Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type            TypeContrat
+  dateDebut       DateTime      @db.Date
+  dateFin         DateTime?     @db.Date // null pour CDI
+  finPeriodeEssai DateTime?     @db.Date
+  heuresHebdo     Decimal       @default(48) @db.Decimal(5, 2)
+  salaireMensuel  Decimal       @db.Decimal(12, 2)
+  devise          String        @default("USD")
+  poste           String
+  statut          StatutContrat @default(ACTIF)
+  documentUrl     String?
+  createdAt       DateTime      @default(now())
 
   @@index([employeeId])
   @@schema("public")
@@ -389,6 +408,7 @@ enum TypeDisciplinaire {
   SANCTION
   MISE_A_PIED
   MESURE
+
   @@schema("public")
 }
 
@@ -435,21 +455,22 @@ enum TypeDocument {
   AVERTISSEMENT
   LETTRE
   AUTRE
+
   @@schema("public")
 }
 
 // Gestion documentaire par métadonnées (type, émission, expiration).
 model DocumentEmploye {
-  id            String       @id @default(uuid())
-  employeeId    String
-  employee      Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  type          TypeDocument
-  nom           String
-  fichierUrl    String
-  dateEmission  DateTime?    @db.Date
-  dateExpiration DateTime?   @db.Date // pour alertes (carte d'identité, certificat médical...)
-  importeParId  String?
-  createdAt     DateTime     @default(now())
+  id             String       @id @default(uuid())
+  employeeId     String
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type           TypeDocument
+  nom            String
+  fichierUrl     String
+  dateEmission   DateTime?    @db.Date
+  dateExpiration DateTime?    @db.Date // pour alertes (carte d'identité, certificat médical...)
+  importeParId   String?
+  createdAt      DateTime     @default(now())
 
   @@index([employeeId])
   @@schema("public")
@@ -466,6 +487,7 @@ model FichePoste {
   creeParId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
   @@schema("public")
 }
 
@@ -473,21 +495,22 @@ enum SourcePointage {
   MANUEL
   IVMS_RAPPORT
   IVMS_API
+
   @@schema("public")
 }
 
 // Trace chaque import de pointage (rapport IVMS-4200 ou API) : source, résultat, anomalies.
 model ImportPointage {
-  id            String         @id @default(uuid())
-  source        SourcePointage
-  nomFichier    String?
-  mois          Int
-  annee         Int
-  nbLignes      Int            @default(0)
-  nbAppliques   Int            @default(0)
-  anomalies     Json? // liste des anomalies détectées (non appliquées silencieusement)
-  importeParId  String?
-  date          DateTime       @default(now())
+  id           String         @id @default(uuid())
+  source       SourcePointage
+  nomFichier   String?
+  mois         Int
+  annee        Int
+  nbLignes     Int            @default(0)
+  nbAppliques  Int            @default(0)
+  anomalies    Json? // liste des anomalies détectées (non appliquées silencieusement)
+  importeParId String?
+  date         DateTime       @default(now())
 
   @@index([annee, mois])
   @@schema("public")
@@ -522,12 +545,12 @@ model OvertimeEntry {
 }
 
 model PayrollRun {
-  id          String        @id @default(uuid())
-  mois        Int
-  annee       Int
-  statut      PayrollStatus @default(BROUILLON)
-  dateCalcul  DateTime      @default(now())
-  tauxChangeUtilise Decimal @db.Decimal(10, 2)
+  id                String        @id @default(uuid())
+  mois              Int
+  annee             Int
+  statut            PayrollStatus @default(BROUILLON)
+  dateCalcul        DateTime      @default(now())
+  tauxChangeUtilise Decimal       @db.Decimal(10, 2)
 
   lignes PayrollLine[]
 
@@ -536,49 +559,49 @@ model PayrollRun {
 }
 
 model PayrollLine {
-  id             String     @id @default(uuid())
-  payrollRunId   String
-  payrollRun     PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
-  employeeId     String
-  employee       Employee   @relation(fields: [employeeId], references: [id])
+  id           String     @id @default(uuid())
+  payrollRunId String
+  payrollRun   PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee   @relation(fields: [employeeId], references: [id])
 
   // Brigade — jours & HS (0 pour backoffice)
-  joursPayes100  Int     @default(0)
-  joursPayes2_3  Int     @default(0)
-  joursNonPayes  Int     @default(0)
-  nombreAbsences Int     @default(0) // A + N + S sur la période
-  remuneration100 Decimal @db.Decimal(12, 2) @default(0)
-  remuneration2_3 Decimal @db.Decimal(12, 2) @default(0)
-  hsValorisee    Decimal @db.Decimal(12, 2) @default(0)
+  joursPayes100   Int     @default(0)
+  joursPayes2_3   Int     @default(0)
+  joursNonPayes   Int     @default(0)
+  nombreAbsences  Int     @default(0) // A + N + S sur la période
+  remuneration100 Decimal @default(0) @db.Decimal(12, 2)
+  remuneration2_3 Decimal @default(0) @db.Decimal(12, 2)
+  hsValorisee     Decimal @default(0) @db.Decimal(12, 2)
 
   // Détail heures (snapshot au moment du calcul)
-  heuresTravaillees     Decimal @db.Decimal(6, 2) @default(0)
-  heuresContractuelles  Decimal @db.Decimal(6, 2) @default(0)
-  heuresSupp30          Decimal @db.Decimal(6, 2) @default(0)
-  heuresSupp60          Decimal @db.Decimal(6, 2) @default(0)
-  heuresSupp100         Decimal @db.Decimal(6, 2) @default(0)
+  heuresTravaillees    Decimal @default(0) @db.Decimal(6, 2)
+  heuresContractuelles Decimal @default(0) @db.Decimal(6, 2)
+  heuresSupp30         Decimal @default(0) @db.Decimal(6, 2)
+  heuresSupp60         Decimal @default(0) @db.Decimal(6, 2)
+  heuresSupp100        Decimal @default(0) @db.Decimal(6, 2)
 
   // Congés & frais médicaux
   joursCongePris     Int     @default(0)
-  indemniteCongesUSD Decimal @db.Decimal(12, 2) @default(0)
-  fraisMedicauxUSD   Decimal @db.Decimal(12, 2) @default(0)
+  indemniteCongesUSD Decimal @default(0) @db.Decimal(12, 2)
+  fraisMedicauxUSD   Decimal @default(0) @db.Decimal(12, 2)
 
   // Commun
-  transportUSD       Decimal @db.Decimal(12, 2) @default(0)
-  primesUSD          Decimal @db.Decimal(12, 2) @default(0)
-  acompteUSD         Decimal @db.Decimal(12, 2) @default(0)
-  salBrutUSD         Decimal @db.Decimal(12, 2)
-  cnssSalarieUSD     Decimal @db.Decimal(12, 2)
-  netImposableUSD    Decimal @db.Decimal(12, 2)
-  iprCalculeUSD      Decimal @db.Decimal(12, 2)
-  allocFamilialeUSD  Decimal @db.Decimal(12, 2)
-  salNetUSD          Decimal @db.Decimal(12, 2)
-  salNetCDF          Decimal @db.Decimal(14, 2)
-  cnssPatronalUSD    Decimal @db.Decimal(12, 2)
-  inppUSD            Decimal @db.Decimal(12, 2) @default(0)
-  onemUSD            Decimal @db.Decimal(12, 2) @default(0)
-  coutEmployeurUSD   Decimal @db.Decimal(12, 2)
-  coutEmployeurCDF   Decimal @db.Decimal(14, 2)
+  transportUSD      Decimal @default(0) @db.Decimal(12, 2)
+  primesUSD         Decimal @default(0) @db.Decimal(12, 2)
+  acompteUSD        Decimal @default(0) @db.Decimal(12, 2)
+  salBrutUSD        Decimal @db.Decimal(12, 2)
+  cnssSalarieUSD    Decimal @db.Decimal(12, 2)
+  netImposableUSD   Decimal @db.Decimal(12, 2)
+  iprCalculeUSD     Decimal @db.Decimal(12, 2)
+  allocFamilialeUSD Decimal @db.Decimal(12, 2)
+  salNetUSD         Decimal @db.Decimal(12, 2)
+  salNetCDF         Decimal @db.Decimal(14, 2)
+  cnssPatronalUSD   Decimal @db.Decimal(12, 2)
+  inppUSD           Decimal @default(0) @db.Decimal(12, 2)
+  onemUSD           Decimal @default(0) @db.Decimal(12, 2)
+  coutEmployeurUSD  Decimal @db.Decimal(12, 2)
+  coutEmployeurCDF  Decimal @db.Decimal(14, 2)
 
   // Machine à états du paiement
   statutPaiement PaymentStatus @default(PAS_VALIDE)
@@ -672,6 +695,7 @@ enum TypeTaxe {
   IPR
   INPP
   ONEM
+
   @@schema("public")
 }
 
@@ -679,6 +703,7 @@ enum StatutDeclaration {
   A_DECLARER
   DECLARE
   PAYE
+
   @@schema("public")
 }
 
@@ -686,16 +711,16 @@ enum StatutDeclaration {
 // Les montants sont figés au moment du marquage pour l'historique ; tant que A_DECLARER,
 // la page recalcule depuis la paie du mois.
 model DeclarationTaxe {
-  id            String            @id @default(uuid())
-  type          TypeTaxe
-  mois          Int
-  annee         Int
-  montantUSD    Decimal           @db.Decimal(14, 2)
-  montantCDF    Decimal           @db.Decimal(16, 2)
-  echeance      DateTime          @db.Date
-  statut        StatutDeclaration @default(A_DECLARER)
-  marqueParId   String?
-  dateMarquage  DateTime?
+  id           String            @id @default(uuid())
+  type         TypeTaxe
+  mois         Int
+  annee        Int
+  montantUSD   Decimal           @db.Decimal(14, 2)
+  montantCDF   Decimal           @db.Decimal(16, 2)
+  echeance     DateTime          @db.Date
+  statut       StatutDeclaration @default(A_DECLARER)
+  marqueParId  String?
+  dateMarquage DateTime?
 
   @@unique([type, mois, annee])
   @@schema("public")
@@ -705,8 +730,8 @@ model DeclarationTaxe {
 /// clôture de paie proche… `lu` global (petite structure, 1–2 comptes Direction).
 model Notification {
   id        String   @id @default(uuid())
-  type      String   // CONGE | ACOMPTE | CLOTURE | AUTRE
-  refId     String?  // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
+  type      String // CONGE | ACOMPTE | CLOTURE | AUTRE
+  refId     String? // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
   message   String
   lien      String?
   lu        Boolean  @default(false)
@@ -722,18 +747,18 @@ model Notification {
 model FinContrat {
   id                       String   @id @default(uuid())
   employeeId               String
-  motif                    String   // DEMISSION | LICENCIEMENT | FIN_CDD | AUTRE
+  motif                    String // DEMISSION | LICENCIEMENT | FIN_CDD | AUTRE
   dateFin                  DateTime @db.Date
   salaireJournalierUSD     Decimal  @db.Decimal(12, 2)
   joursTravaillesMois      Int      @default(0)
-  salaireProrataUSD        Decimal  @db.Decimal(12, 2) @default(0)
-  joursCongesNonPris       Decimal  @db.Decimal(6, 2) @default(0)
-  indemniteCongesUSD       Decimal  @db.Decimal(12, 2) @default(0)
+  salaireProrataUSD        Decimal  @default(0) @db.Decimal(12, 2)
+  joursCongesNonPris       Decimal  @default(0) @db.Decimal(6, 2)
+  indemniteCongesUSD       Decimal  @default(0) @db.Decimal(12, 2)
   preavisJours             Int      @default(0)
-  indemnitePreavisUSD      Decimal  @db.Decimal(12, 2) @default(0)
-  indemniteLicenciementUSD Decimal  @db.Decimal(12, 2) @default(0)
-  autresUSD                Decimal  @db.Decimal(12, 2) @default(0)
-  totalUSD                 Decimal  @db.Decimal(12, 2) @default(0)
+  indemnitePreavisUSD      Decimal  @default(0) @db.Decimal(12, 2)
+  indemniteLicenciementUSD Decimal  @default(0) @db.Decimal(12, 2)
+  autresUSD                Decimal  @default(0) @db.Decimal(12, 2)
+  totalUSD                 Decimal  @default(0) @db.Decimal(12, 2)
   commentaire              String?
   createdAt                DateTime @default(now())
   creeParId                String?
@@ -773,4 +798,215 @@ model FraisMedical {
 
   @@index([employeeId, annee, mois])
   @@schema("public")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODULE STOCK & ACHATS — schéma Postgres séparé `stock` (cloisonné de la RH).
+// Aucune FK cross-schéma : les références à un utilisateur sont des `creeParId String?`
+// (même convention que Prime/AcompteSalaire côté RH). Argent en Decimal ; devise de saisie
+// figée façon PayrollRun. Le niveau d'alerte est CALCULÉ en code depuis des seuils modifiables.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+enum DomaineStock {
+  NOURRITURE
+  BOISSON
+
+  @@schema("stock")
+}
+
+enum TypeMouvementStock {
+  ENTREE
+  SORTIE
+  AJUSTEMENT
+
+  @@schema("stock")
+}
+
+enum DeviseSaisie {
+  USD
+  CDF
+
+  @@schema("stock")
+}
+
+enum StatutBonCommande {
+  BROUILLON
+  ENVOYE
+  RECU_PARTIEL
+  RECU
+  ANNULE
+
+  @@schema("stock")
+}
+
+model Fournisseur {
+  id             String   @id @default(uuid())
+  nom            String
+  produits       String? // description libre des produits fournis
+  telephone      String?
+  ville          String?
+  pays           String?  @default("République démocratique du Congo")
+  adresse        String?
+  rccm           String?
+  idNational     String?
+  email          String?
+  contactNom     String?
+  delaiPaiement  String? // texte : données hétérogènes (« Paiement à la livraison », « 30 jours »)
+  delaiLivraison String? // texte : « 1 », « 7 »…
+  modePaiement   String? // « Espèces », « M-pesa »…
+  actif          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  articles     ArticleStock[]
+  bonsCommande BonDeCommande[]
+
+  @@schema("stock")
+}
+
+model CategorieStock {
+  id      String       @id @default(uuid())
+  nom     String
+  domaine DomaineStock
+  ordre   Int          @default(0)
+  actif   Boolean      @default(true)
+
+  articles ArticleStock[]
+
+  @@unique([domaine, nom])
+  @@schema("stock")
+}
+
+model ArticleStock {
+  id              String          @id @default(uuid())
+  code            String? // « Code article » du fichier (non fiable comme clé → optionnel)
+  designation     String
+  domaine         DomaineStock
+  categorieId     String?
+  categorie       CategorieStock? @relation(fields: [categorieId], references: [id])
+  unite           String? // Kg, Pièce, L…
+  uniteParCarton  Decimal?        @db.Decimal(10, 2)
+  fournisseurId   String?
+  fournisseur     Fournisseur?    @relation(fields: [fournisseurId], references: [id])
+  prixUnitaireUSD Decimal?        @db.Decimal(12, 4) // prix de référence en USD
+  prixCartonUSD   Decimal?        @db.Decimal(12, 4)
+  prixOrigineCDF  Decimal?        @db.Decimal(16, 2) // provenance : préserve l'info d'origine
+  tauxImportCDF   Decimal?        @db.Decimal(10, 2)
+  codeBarres      String?
+  poidsPaquet     Decimal?        @db.Decimal(10, 3)
+  actif           Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  stock      Stock?
+  mouvements MouvementStock[]
+  lignesBC   LigneBonDeCommande[]
+
+  @@schema("stock")
+}
+
+model Stock {
+  id                 String       @id @default(uuid())
+  articleId          String       @unique
+  article            ArticleStock @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  quantite           Decimal      @default(0) @db.Decimal(14, 3) // stock final courant
+  stockMinimum       Decimal      @default(0) @db.Decimal(14, 3) // seuil « Approvisionnement nécessaire » (modifiable)
+  seuilUrgent        Decimal      @default(0) @db.Decimal(14, 3) // seuil « Urgent » (modifiable)
+  quantiteEndommagee Decimal      @default(0) @db.Decimal(14, 3) // « Article endommagé »
+  updatedAt          DateTime     @updatedAt
+
+  @@schema("stock")
+}
+
+model MouvementStock {
+  id                String             @id @default(uuid())
+  articleId         String
+  article           ArticleStock       @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  type              TypeMouvementStock
+  quantite          Decimal            @db.Decimal(14, 3) // toujours positif ; le sens vient de `type`
+  date              DateTime           @default(now()) @db.Date
+  origine           String? // « Réception BC 001/PEF/… », « Consommation cuisine », « Inventaire »
+  devise            DeviseSaisie? // devise de saisie (FC ou USD selon le magasin)
+  montantOrigine    Decimal?           @db.Decimal(16, 2) // valeur totale du mouvement, devise saisie
+  tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du mouvement
+  montantUSD        Decimal?           @db.Decimal(14, 4) // équivalent USD figé
+  receptionId       String?
+  reception         Reception?         @relation(fields: [receptionId], references: [id])
+  creeParId         String? // User.id (pas de FK cross-schéma)
+  createdAt         DateTime           @default(now())
+
+  @@index([articleId, date])
+  @@schema("stock")
+}
+
+model BonDeCommande {
+  id                String            @id @default(uuid())
+  numero            String            @unique // « 001/PEF/JUIN/26 »
+  sequence          Int // remis à zéro chaque année
+  annee             Int
+  mois              Int
+  date              DateTime          @default(now()) @db.Date
+  fournisseurId     String?
+  fournisseur       Fournisseur?      @relation(fields: [fournisseurId], references: [id])
+  statut            StatutBonCommande @default(BROUILLON)
+  delaiPaiement     String?
+  modePaiement      String?
+  totalUSD          Decimal           @default(0) @db.Decimal(14, 2)
+  totalCDF          Decimal?          @db.Decimal(16, 2)
+  tauxChangeUtilise Decimal?          @db.Decimal(10, 2)
+  commentaire       String?
+  creeParId         String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  lignes     LigneBonDeCommande[]
+  receptions Reception[]
+
+  @@index([annee, mois])
+  @@schema("stock")
+}
+
+model LigneBonDeCommande {
+  id              String        @id @default(uuid())
+  bonDeCommandeId String
+  bonDeCommande   BonDeCommande @relation(fields: [bonDeCommandeId], references: [id], onDelete: Cascade)
+  articleId       String?
+  article         ArticleStock? @relation(fields: [articleId], references: [id])
+  designation     String // libellé figé (survit à la modif/suppression de l'article)
+  unite           String?
+  uniteParCarton  Decimal?      @db.Decimal(10, 2)
+  nbCartons       Decimal?      @db.Decimal(10, 2)
+  quantite        Decimal       @db.Decimal(14, 3)
+  prixUnitaireUSD Decimal       @db.Decimal(12, 4)
+  totalLigneUSD   Decimal       @db.Decimal(14, 2)
+
+  @@schema("stock")
+}
+
+model Reception {
+  id              String         @id @default(uuid())
+  bonDeCommandeId String?
+  bonDeCommande   BonDeCommande? @relation(fields: [bonDeCommandeId], references: [id])
+  date            DateTime       @default(now()) @db.Date
+  commentaire     String?
+  creeParId       String?
+  createdAt       DateTime       @default(now())
+
+  mouvements MouvementStock[] // entrées de stock générées
+
+  @@schema("stock")
+}
+
+model ParametresAchat {
+  id                 String  @id @default("singleton")
+  acheteurNom        String  @default("TOLYA SARL")
+  acheteurAdresse    String?
+  acheteurVille      String?
+  acheteurPays       String?
+  acheteurIdNational String?
+  acheteurRccm       String?
+  acheteurTelephone  String?
+  acheteurContact    String?
+
+  @@schema("stock")
 }
