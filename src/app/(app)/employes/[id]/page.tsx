@@ -275,6 +275,18 @@ export default async function FicheEmployePage({
             <Chip>{employee.contrat}</Chip>
             <Chip>Ancienneté&nbsp;{anciennete} mois</Chip>
             <Chip>{soldeConges} j de congés</Chip>
+            <Link
+              href={`/employes/${employee.id}?tab=contrats`}
+              className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/70"
+            >
+              📄 {contrats.length} contrat{contrats.length > 1 ? "s" : ""}
+            </Link>
+            <Link
+              href={`/employes/${employee.id}?tab=dossier`}
+              className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/70"
+            >
+              📁 {documents.length} document{documents.length > 1 ? "s" : ""}
+            </Link>
           </div>
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
