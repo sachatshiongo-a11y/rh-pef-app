@@ -201,11 +201,12 @@ type BulletinProps = {
   run: PayrollRun;
   devise: Devise;
   congesPeriode: { dateDebut: Date; dateFin: Date }[];
+  primes?: { nom: string; montantUSD: number }[]; // primes détaillées (une ligne chacune)
   codesParJour?: Record<number, string>; // jour du mois -> code de présence
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [] }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [] }: BulletinProps) {
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
 
@@ -303,7 +304,15 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <Row designation="Heures supplémentaires" base={`${totHS} h`} montant={m(Number(ligne.hsValorisee))} />
           )}
           <Row designation="Frais de transport" montant={m(Number(ligne.transportUSD))} />
-          {Number(ligne.primesUSD) > 0 && <Row designation="Primes" montant={m(Number(ligne.primesUSD))} />}
+          {/* Primes détaillées (une ligne par prime). Repli sur le total si le détail n'est
+              pas fourni (compatibilité). */}
+          {primes.length > 0
+            ? primes.map((p, i) => (
+                <Row key={`prime-${i}`} designation={p.nom} montant={m(Number(p.montantUSD))} />
+              ))
+            : Number(ligne.primesUSD) > 0 && (
+                <Row designation="Primes" montant={m(Number(ligne.primesUSD))} />
+              )}
           <Row designation="Rémunération brute imposable" montant={m(Number(ligne.salBrutUSD))} section />
 
           <Row designation="CNSS" base={m(Number(ligne.salBrutUSD))} partSal={m(Number(ligne.cnssSalarieUSD))} partEmp={m(Number(ligne.cnssPatronalUSD))} />

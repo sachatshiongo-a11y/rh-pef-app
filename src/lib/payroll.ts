@@ -411,6 +411,18 @@ export function calculerCongesAcquis(
   return Math.round(ancienneteMois * (droitsCongesAnnuel / 12) * 10) / 10;
 }
 
+/**
+ * Taux légal de la prime d'ancienneté (RDC), en pourcentage du salaire de base :
+ * 0 % avant 3 ans, puis +1 % par année d'ancienneté accomplie, plafonné à 25 %.
+ * Barème indicatif — À FAIRE VALIDER par un comptable/juriste (les conventions collectives
+ * sectorielles peuvent prévoir des taux plus élevés).
+ */
+export function tauxPrimeAnciennete(anneesAnciennete: number): number {
+  const annees = Math.floor(anneesAnciennete);
+  if (annees < 3) return 0;
+  return Math.min(25, annees);
+}
+
 // Types de congés qui NE sont PAS déduits du solde de congés annuels (congés spéciaux/protégés) :
 // maternité/paternité, arrivée d'un enfant (naissance), maladie, maladie professionnelle, accident.
 const MOTS_CONGES_NON_DEDUCTIBLES = ["matern", "patern", "naiss", "enfant", "maladie", "accident"];

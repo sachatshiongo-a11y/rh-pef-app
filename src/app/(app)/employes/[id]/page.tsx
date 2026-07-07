@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
+import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
@@ -525,24 +526,12 @@ export default async function FicheEmployePage({
       <Section title="Primes & acompte de la période en cours">
         {peutModifier && (
           <div className="mb-4 grid gap-4 md:grid-cols-2">
-            <form action={ajouterPrime.bind(null, employee.id)} className="rounded-lg border p-3">
-              <p className="mb-2 text-sm font-medium">Appliquer une prime</p>
-              <div className="flex flex-wrap items-end gap-2">
-                <select
-                  name="nom"
-                  defaultValue="Prime de rendement"
-                  className="min-w-52 flex-1 rounded border border-input bg-background px-2 py-1 text-sm"
-                >
-                  {TYPES_PRIME.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
-                <button type="submit" className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">Ajouter</button>
-              </div>
-            </form>
+            <PrimeForm
+              action={ajouterPrime.bind(null, employee.id)}
+              types={TYPES_PRIME}
+              salaireBase={Number(employee.salaireMensuel)}
+              tauxAnciennete={tauxPrimeAnciennete(anciennete / 12)}
+            />
             <form action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
               <p className="mb-2 text-sm font-medium">Demander un acompte</p>
               <div className="flex flex-wrap items-end gap-2">

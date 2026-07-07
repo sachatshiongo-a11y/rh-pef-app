@@ -23,11 +23,12 @@ export async function GET(request: Request) {
 
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const [conges, attendances] = await Promise.all([
+  const [conges, attendances, primes] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
     }),
     prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
+    prisma.prime.findMany({ where: { mois, annee }, orderBy: { createdAt: "asc" } }),
   ]);
   const congesParEmp = new Map<string, { dateDebut: Date; dateFin: Date }[]>();
   for (const c of conges)
@@ -40,12 +41,19 @@ export async function GET(request: Request) {
     const map = codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, {}).get(a.employeeId)!;
     map[new Date(a.date).getUTCDate()] = a.code;
   }
+  const primesParEmp = new Map<string, { nom: string; montantUSD: number }[]>();
+  for (const p of primes)
+    (primesParEmp.get(p.employeeId) ?? primesParEmp.set(p.employeeId, []).get(p.employeeId)!).push({
+      nom: p.nom,
+      montantUSD: Number(p.montantUSD),
+    });
 
   const bulletins = run.lignes.map((l) => ({
     employee: l.employee,
     ligne: l,
     run,
     congesPeriode: congesParEmp.get(l.employeeId) ?? [],
+    primes: primesParEmp.get(l.employeeId) ?? [],
     codesParJour: codesParEmp.get(l.employeeId) ?? {},
   }));
 
