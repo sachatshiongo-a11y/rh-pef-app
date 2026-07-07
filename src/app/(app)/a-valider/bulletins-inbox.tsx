@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "../paie/actions";
 import { Avatar } from "@/components/avatar";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
 
 export type BulletinRow = {
@@ -93,8 +94,8 @@ export function BulletinsInbox({
               <p className="text-xs text-muted-foreground">Salaire net : {r.montant}</p>
             </div>
             <div className="flex items-center gap-3 text-xs">
-              <a href={`/paie/bulletin/${r.id}?devise=USD`} target="_blank" className="text-primary underline">Bulletin $</a>
-              <a href={`/paie/bulletin/${r.id}?devise=CDF`} target="_blank" className="text-primary underline">CDF</a>
+              <TelechargerLien href={`/paie/bulletin/${r.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
+              <TelechargerLien href={`/paie/bulletin/${r.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
               <button onClick={() => lancer([r.id])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1.5 font-semibold text-white hover:bg-emerald-600">
                 {actionLabel}
               </button>

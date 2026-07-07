@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import type { Devise } from "@/lib/pdf/theme";
 
 /** Bouton « Aperçu » ouvrant le vrai bulletin PDF en plein écran (sans téléchargement), façon PayFit. */
@@ -32,9 +33,9 @@ export function BulletinViewerButton({ payrollLineId, nom }: { payrollLineId: st
                     </button>
                   ))}
                 </div>
-                <a href={`${src}&dl=1`} target="_blank" rel="noopener noreferrer" className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                   Télécharger
-                </a>
+                </TelechargerLien>
                 <button onClick={() => setOuvert(false)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                   Réduire ✕
                 </button>

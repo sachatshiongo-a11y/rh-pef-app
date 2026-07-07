@@ -14,6 +14,7 @@ import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
 import { HorairesModele } from "./horaires-modele";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -277,13 +278,12 @@ export default async function FicheEmployePage({
           </div>
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
-          <a
+          <TelechargerLien
             href={`/employes/${employee.id}/fiche`}
-            target="_blank"
             className="flex-1 rounded-md border px-3 py-1.5 text-center text-sm font-medium hover:bg-accent sm:flex-none sm:px-4 sm:py-2"
           >
             Exporter (PDF)
-          </a>
+          </TelechargerLien>
           <Link
             href={`/employes/${employee.id}/modifier`}
             className="flex-1 rounded-md bg-primary px-3 py-1.5 text-center text-sm font-medium text-primary-foreground sm:flex-none sm:px-4 sm:py-2"
@@ -487,13 +487,13 @@ export default async function FicheEmployePage({
                     nom={`${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
                   />
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline">
                     $
-                  </a>
+                  </TelechargerLien>
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
                     CDF
-                  </a>
+                  </TelechargerLien>
                 </td>
               </tr>
             ))}

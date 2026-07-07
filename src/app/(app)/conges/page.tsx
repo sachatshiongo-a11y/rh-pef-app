@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { demanderConge, approuverConge, refuserConge, reinitialiserConges } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
 
@@ -263,7 +264,7 @@ export default async function CongesPage({
                       </form>
                     </>
                   )}
-                  <a href={`/conges/demande/${d.id}`} target="_blank" className="text-sm text-primary underline">PDF</a>
+                  <TelechargerLien href={`/conges/demande/${d.id}`} className="text-sm text-primary underline">PDF</TelechargerLien>
                 </div>
               </div>
             );

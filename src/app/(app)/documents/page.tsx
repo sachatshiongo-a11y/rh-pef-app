@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import type { PaymentStatus } from "@prisma/client";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
@@ -169,9 +170,9 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
                     <td className="px-3 py-2"><Badge classe={COULEUR_STATUT[b.statutPaiement]}>{LIBELLE_STATUT[b.statutPaiement]}</Badge></td>
                     <td className="whitespace-nowrap px-3 py-2">
-                      <a href={`/paie/bulletin/${b.id}?devise=USD`} target="_blank" className="text-primary underline">$</a>
+                      <TelechargerLien href={`/paie/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">$</TelechargerLien>
                       {" · "}
-                      <a href={`/paie/bulletin/${b.id}?devise=CDF`} target="_blank" className="text-primary underline">CDF</a>
+                      <TelechargerLien href={`/paie/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
                     </td>
                   </tr>
                 ))}
@@ -228,7 +229,7 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
                     <td className="px-3 py-2"><Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{c.statut.replace("_", " ")}</Badge></td>
-                    <td className="px-3 py-2"><a href={`/conges/demande/${c.id}`} target="_blank" className="text-primary underline">PDF</a></td>
+                    <td className="px-3 py-2"><TelechargerLien href={`/conges/demande/${c.id}`} className="text-primary underline">PDF</TelechargerLien></td>
                   </tr>
                 ))}
                 <Vide n={conges.length} cols={6} />

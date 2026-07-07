@@ -5,6 +5,7 @@ import { changerStatutEnLot } from "./actions";
 import { StatusActions } from "./status-actions";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import type { PaymentStatus, ModePaiement } from "@prisma/client";
 
 export type PaieRow = {
@@ -193,9 +194,9 @@ function Groupe({
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-xs">
-                  <a href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline" title="Télécharger le bulletin en USD">$</a>
+                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline" title="Télécharger le bulletin en USD">$</TelechargerLien>
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} target="_blank" rel="noopener noreferrer" className="text-primary underline" title="Télécharger le bulletin en CDF">CDF</a>
+                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline" title="Télécharger le bulletin en CDF">CDF</TelechargerLien>
                 </td>
                 <td className="px-3 py-2">
                   <StatusActions

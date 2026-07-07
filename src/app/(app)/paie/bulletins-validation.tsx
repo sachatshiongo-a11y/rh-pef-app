@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { StatusActions } from "./status-actions";
 import { Avatar } from "@/components/avatar";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import type { PaieRow } from "./paie-bulk";
 import type { Devise } from "@/lib/pdf/theme";
@@ -100,9 +101,9 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
               Agrandir
             </button>
             {sel && (
-              <a href={`${src}&dl=1`} target="_blank" rel="noopener noreferrer" className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+              <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                 Télécharger
-              </a>
+              </TelechargerLien>
             )}
             {sel && peutValider && (
               <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} peutValider={peutValider} modePaiementDefaut={sel.modePaiementDefaut} />
@@ -136,9 +137,9 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                     </button>
                   ))}
                 </div>
-                <a href={`${src}&dl=1`} target="_blank" rel="noopener noreferrer" className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                   Télécharger
-                </a>
+                </TelechargerLien>
                 <button onClick={() => setAgrandi(false)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                   Réduire ✕
                 </button>

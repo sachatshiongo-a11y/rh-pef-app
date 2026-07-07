@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 
@@ -98,7 +99,7 @@ export default async function HistoriquePage({
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     <Link href={`/historique/${r.id}`} className="text-primary underline">Détails</Link>
                     {" · "}
-                    <a href={`/paie/export?mois=${r.mois}&annee=${r.annee}`} target="_blank" rel="noopener noreferrer" className="text-primary underline">Excel</a>
+                    <TelechargerLien href={`/paie/export?mois=${r.mois}&annee=${r.annee}`} className="text-primary underline">Excel</TelechargerLien>
                   </td>
                 </tr>
               );

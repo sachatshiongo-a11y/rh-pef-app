@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
@@ -64,13 +65,13 @@ export default async function HistoriqueDetailPage({
                 </td>
                 <td className="px-3 py-2">{l.statutPaiement === "PAYE" ? "PAYÉ" : "EN ATTENTE"}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-right">
-                  <a href={`/paie/bulletin/${l.id}?devise=USD`} className="text-primary underline" target="_blank">
+                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline">
                     Bulletin $
-                  </a>
+                  </TelechargerLien>
                   {" · "}
-                  <a href={`/paie/bulletin/${l.id}?devise=CDF`} className="text-primary underline" target="_blank">
+                  <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
                     Bulletin CDF
-                  </a>
+                  </TelechargerLien>
                 </td>
               </tr>
             ))}

@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { TelechargerLien } from "@/components/telecharger-lien";
 import { PaieBulk, type PaieRow } from "./paie-bulk";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
@@ -136,34 +137,34 @@ export default async function PaiePage({
         </div>
         <div className="flex flex-wrap gap-2">
           {run && (
-            <a href="/paie/export" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
+            <TelechargerLien href="/paie/export" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Livre de paie (Excel)
-            </a>
+            </TelechargerLien>
           )}
           {run && (
-            <a href="/paie/export-pdf" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
+            <TelechargerLien href="/paie/export-pdf" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Livre de paie (PDF)
-            </a>
+            </TelechargerLien>
           )}
           {run && (
-            <a href="/paie/bulletins-pdf?devise=USD" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
+            <TelechargerLien href="/paie/bulletins-pdf?devise=USD" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins PDF ($)
-            </a>
+            </TelechargerLien>
           )}
           {run && (
-            <a href="/paie/bulletins-pdf?devise=CDF" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
+            <TelechargerLien href="/paie/bulletins-pdf?devise=CDF" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins PDF (CDF)
-            </a>
+            </TelechargerLien>
           )}
           {run && (
-            <a href="/paie/bulletins-zip?devise=USD" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
+            <TelechargerLien href="/paie/bulletins-zip?devise=USD" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins séparés ZIP ($)
-            </a>
+            </TelechargerLien>
           )}
           {run && (
-            <a href="/paie/bulletins-zip?devise=CDF" target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
+            <TelechargerLien href="/paie/bulletins-zip?devise=CDF" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2">
               Bulletins séparés ZIP (CDF)
-            </a>
+            </TelechargerLien>
           )}
           {peutGerer && (
             <form action={calculerPaieDuMois}>
