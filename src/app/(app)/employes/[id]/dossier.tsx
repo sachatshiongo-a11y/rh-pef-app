@@ -165,29 +165,26 @@ export function DossierEmploye({
           </div>
         )}
         {peutModifier && (
-          <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
-            <p className="col-span-2 text-sm font-medium md:col-span-4">Ajouter / importer un contrat</p>
-            <select name="type" className={inputCls} defaultValue="CDD">
-              <option value="CDD">CDD</option>
-              <option value="CDI">CDI</option>
-              <option value="STAGE">Stage</option>
-              <option value="JOURNALIER">Journalier</option>
-            </select>
-            <input name="poste" placeholder="Poste" defaultValue={poste} className={inputCls} required />
-            <LabeledInput name="dateDebut" label="Début" type="date" required />
-            <LabeledInput name="dateFin" label="Fin (CDD)" type="date" />
-            <LabeledInput name="finPeriodeEssai" label="Fin période d'essai" type="date" />
-            <input name="salaireMensuel" type="number" step="0.01" placeholder="Salaire" defaultValue={salaireMensuel} className={inputCls} />
-            <input name="heuresHebdo" type="number" step="0.5" placeholder="H/sem" defaultValue={48} className={inputCls} />
-            <div className="col-span-2 flex flex-col gap-1 md:col-span-2">
-              <span className="text-xs text-muted-foreground">Fichier du contrat (PDF, Word… max 15 Mo)</span>
-              <input type="file" name="fichier" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" className={inputCls} />
-            </div>
-            <input name="documentUrl" placeholder="…ou URL du contrat (optionnel)" className={inputCls} />
-            <div className="col-span-2 md:col-span-4">
-              <SubmitBtn>Ajouter / importer le contrat</SubmitBtn>
-            </div>
-          </form>
+          <details className="rounded-lg border bg-muted/20">
+            <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">Ajouter / importer un contrat</summary>
+            <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
+              <LabeledInput name="type" label="Type" select defaultValue="CDD" options={["CDD", "CDI", "STAGE", "JOURNALIER"]} />
+              <LabeledInput name="poste" label="Poste" defaultValue={poste} required />
+              <LabeledInput name="dateDebut" label="Début" type="date" required />
+              <LabeledInput name="dateFin" label="Fin (CDD)" type="date" />
+              <LabeledInput name="finPeriodeEssai" label="Fin période d'essai" type="date" />
+              <LabeledInput name="salaireMensuel" label="Salaire mensuel" type="number" step="0.01" defaultValue={salaireMensuel} />
+              <LabeledInput name="heuresHebdo" label="Heures / semaine" type="number" step="0.5" defaultValue="48" />
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <span className="text-xs text-muted-foreground">Fichier du contrat (PDF, Word… max 15 Mo)</span>
+                <input type="file" name="fichier" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" className={inputCls} />
+              </div>
+              <LabeledInput name="documentUrl" label="…ou URL du contrat (optionnel)" />
+              <div className="sm:col-span-2 md:col-span-4">
+                <SubmitBtn>Ajouter / importer le contrat</SubmitBtn>
+              </div>
+            </form>
+          </details>
         )}
       </Section>
       </>
@@ -475,18 +472,34 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function LabeledInput({
   name,
   label,
-  type,
+  type = "text",
   required,
+  defaultValue,
+  step,
+  select,
+  options,
 }: {
   name: string;
   label: string;
-  type: string;
+  type?: string;
   required?: boolean;
+  defaultValue?: string | number;
+  step?: string;
+  select?: boolean;
+  options?: string[];
 }) {
   return (
     <label className="flex flex-col text-xs text-muted-foreground">
       {label}
-      <input name={name} type={type} required={required} className={inputCls} />
+      {select ? (
+        <select name={name} defaultValue={defaultValue as string} className={inputCls}>
+          {(options ?? []).map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      ) : (
+        <input name={name} type={type} step={step} required={required} defaultValue={defaultValue} className={inputCls} />
+      )}
     </label>
   );
 }

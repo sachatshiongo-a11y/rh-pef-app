@@ -54,6 +54,24 @@ export async function supprimerPrime(id: string) {
   revalidatePath("/paie");
 }
 
+/** Supprime un acompte (réservé ADMIN). Tracé au journal d'audit. */
+export async function supprimerAcompte(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const acompte = await prisma.acompteSalaire.findUnique({ where: { id } });
+  if (!acompte) return;
+  await prisma.acompteSalaire.delete({ where: { id } });
+  await journaliser(prisma, {
+    entite: "Acompte",
+    entiteId: acompte.employeeId,
+    champ: "suppression",
+    ancienneValeur: `${acompte.mois}/${acompte.annee} : ${Number(acompte.montantUSD)} $`,
+    userId: user.id,
+  });
+  revalidatePath(`/employes/${acompte.employeeId}`);
+  revalidatePath("/paie");
+}
+
 /** Téléverse un certificat vers Supabase Storage (bucket employes, préfixe certificats/). */
 async function televerserCertificat(employeeId: string, file: File): Promise<string> {
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();

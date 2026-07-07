@@ -9,7 +9,7 @@ import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
 import { BulletinViewerButton } from "./bulletin-viewer";
 import { Avatar } from "@/components/avatar";
-import { ajouterPrime, supprimerPrime, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical } from "../../paie/remuneration-actions";
+import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
@@ -596,6 +596,7 @@ export default async function FicheEmployePage({
               <th className="px-3 py-2 text-right">Montant</th>
               <th className="px-3 py-2">Motif</th>
               <th className="px-3 py-2">Statut</th>
+              {estAdmin && <th className="px-3 py-2"></th>}
             </tr>
           </thead>
           <tbody>
@@ -609,10 +610,17 @@ export default async function FicheEmployePage({
                     {a.statut === "APPROUVE" ? "Approuvé" : a.statut === "REFUSE" ? "Refusé" : "En attente"}
                   </span>
                 </td>
+                {estAdmin && (
+                  <td className="px-3 py-2 text-right">
+                    <form action={supprimerAcompte.bind(null, a.id)} className="inline">
+                      <button className="text-muted-foreground hover:text-destructive" title="Supprimer l'acompte">✕</button>
+                    </form>
+                  </td>
+                )}
               </tr>
             ))}
             {acomptes.length === 0 && (
-              <tr><td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">Aucun acompte.</td></tr>
+              <tr><td colSpan={estAdmin ? 5 : 4} className="px-3 py-4 text-center text-muted-foreground">Aucun acompte.</td></tr>
             )}
           </tbody>
         </table>

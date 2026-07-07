@@ -191,6 +191,12 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {} }
   });
   const faitLe = new Date().toLocaleDateString("fr-FR");
 
+  const modePaiement = employee.banque
+    ? `Virement — ${employee.banque}${employee.compteBancaire ? ` (${employee.compteBancaire})` : ""}`
+    : employee.mobileMoney
+      ? `Mobile Money — ${employee.mobileMoney}`
+      : "Espèces";
+
   const heuresTravaillees = Number(ligne.heuresTravaillees);
   const hs30 = Number(ligne.heuresSupp30);
   const hs60 = Number(ligne.heuresSupp60);
@@ -231,8 +237,9 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {} }
           <InfoLigne label="Matricule" value={employee.matricule} />
           <InfoLigne label="Nom et prénom" value={employee.nom} />
           <InfoLigne label="Poste" value={employee.poste} />
-          <InfoLigne label="Sexe" value={employee.sexe} />
           <InfoLigne label="Date d'embauche" value={new Date(employee.dateEmbauche).toLocaleDateString("fr-FR")} />
+          <InfoLigne label="Adresse" value={employee.adresse ?? "—"} />
+          <InfoLigne label="Mode de paiement" value={modePaiement} />
         </View>
       </View>
 
