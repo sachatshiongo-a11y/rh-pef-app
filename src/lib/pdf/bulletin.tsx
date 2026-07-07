@@ -8,11 +8,23 @@ registerPdfFonts();
 
 const WD = ["D", "L", "M", "M", "J", "V", "S"];
 
+const fmtJour = (d: Date) => new Date(d).toLocaleDateString("fr-FR");
+/** Jours ouvrables (hors dimanche), bornes incluses — même règle que le reste de l'app. */
+function joursOuvrables(debut: Date, fin: Date): number {
+  let n = 0;
+  const cur = new Date(debut);
+  while (cur <= new Date(fin)) {
+    if (cur.getUTCDay() !== 0) n++;
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return n;
+}
+
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 26,
+    paddingTop: 22,
     paddingHorizontal: 30,
-    paddingBottom: 30,
+    paddingBottom: 22,
     fontSize: 8,
     fontFamily: "Optima",
     color: pdfColors.text,
@@ -97,8 +109,8 @@ const styles = StyleSheet.create({
   legende: { marginTop: 4, fontSize: 5.8, color: pdfColors.textMuted, lineHeight: 1.3 },
 
   totalBox: {
-    marginTop: 8,
-    padding: 10,
+    marginTop: 6,
+    padding: 8,
     backgroundColor: pdfColors.goldLight,
     borderRadius: 4,
     flexDirection: "row",
@@ -109,14 +121,26 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 13, fontWeight: 700, color: pdfColors.brownDark },
 
   conservation: {
-    marginTop: 7,
+    marginTop: 4,
     fontSize: 6.5,
     fontStyle: "italic",
     color: pdfColors.textMuted,
     textAlign: "center",
   },
-  fait: { marginTop: 6, fontSize: 7.5, fontStyle: "italic", color: pdfColors.textMuted },
-  signatures: { marginTop: 8, flexDirection: "row", justifyContent: "space-between" },
+  fait: { marginTop: 3, fontSize: 7.5, fontStyle: "italic", color: pdfColors.textMuted },
+  signatures: { marginTop: 5, flexDirection: "row", justifyContent: "space-between" },
+
+  // Mentions bas de bulletin (congés pris, mode de paiement).
+  mentions: {
+    marginTop: 5,
+    border: `0.5 solid ${pdfColors.border}`,
+    borderRadius: 3,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  mentionTitre: { fontSize: 7, fontWeight: 700, color: pdfColors.brownDark, textTransform: "uppercase" },
+  mentionLigne: { fontSize: 7.5, marginTop: 1.5 },
+  mentionLabel: { color: pdfColors.textMuted },
 });
 
 function InfoLigne({ label, value }: { label: string; value: string }) {
@@ -181,7 +205,7 @@ type BulletinProps = {
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {} }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [] }: BulletinProps) {
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
 
@@ -237,9 +261,9 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {} }
           <InfoLigne label="Matricule" value={employee.matricule} />
           <InfoLigne label="Nom et prénom" value={employee.nom} />
           <InfoLigne label="Poste" value={employee.poste} />
+          <InfoLigne label="Sexe" value={employee.sexe} />
           <InfoLigne label="Date d'embauche" value={new Date(employee.dateEmbauche).toLocaleDateString("fr-FR")} />
           <InfoLigne label="Adresse" value={employee.adresse ?? "—"} />
-          <InfoLigne label="Mode de paiement" value={modePaiement} />
         </View>
       </View>
 
@@ -322,6 +346,27 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {} }
       <View style={styles.totalBox}>
         <Text style={styles.totalLabel}>SALAIRE NET À PAYER</Text>
         <Text style={styles.totalValue}>{m(Number(ligne.salNetUSD))}</Text>
+      </View>
+
+      {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + mode de paiement */}
+      <View style={styles.mentions} wrap={false}>
+        {congesPeriode.length > 0 && (
+          <>
+            <Text style={styles.mentionTitre}>Congés pris sur la période</Text>
+            {congesPeriode.map((c, i) => (
+              <Text key={i} style={styles.mentionLigne}>
+                • du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {joursOuvrables(c.dateDebut, c.dateFin)} jour(s) ouvrable(s)
+              </Text>
+            ))}
+            <Text style={[styles.mentionLigne, { fontWeight: 700 }]}>
+              Total congés : {congesPeriode.reduce((s, c) => s + joursOuvrables(c.dateDebut, c.dateFin), 0)} jour(s)
+            </Text>
+          </>
+        )}
+        <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
+          <Text style={styles.mentionLabel}>Mode de paiement : </Text>
+          {modePaiement}
+        </Text>
       </View>
 
       <Text style={styles.conservation}>

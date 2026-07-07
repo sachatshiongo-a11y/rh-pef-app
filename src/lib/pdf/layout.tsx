@@ -45,8 +45,8 @@ const styles = StyleSheet.create({
   // Bloc signature à HAUTEUR FIXE, ligne ancrée en bas (justifyContent flex-end). Ainsi les deux
   // lignes de signature sont toujours alignées horizontalement, que le côté soit signé ou non. La
   // signature de la directrice (agrandie) se place juste au-dessus de la ligne.
-  signatureBox: { width: "45%", height: 74, justifyContent: "flex-end" },
-  signatureImage: { width: 200, height: 60, objectFit: "contain", alignSelf: "flex-start", marginBottom: -6 },
+  signatureBox: { width: "45%", height: 60, justifyContent: "flex-end" },
+  signatureImage: { width: 185, height: 52, objectFit: "contain", alignSelf: "flex-start", marginBottom: -5 },
   signatureLine: {
     borderTop: `0.75 solid ${pdfColors.text}`,
     paddingTop: 4,
