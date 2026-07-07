@@ -53,6 +53,15 @@ export default async function PaiePage({
       : l.employee.mobileMoney
         ? "MOBILE_MONEY"
         : "ESPECES",
+    baseUSD: Number(l.remuneration100) + Number(l.remuneration2_3),
+    hsUSD: Number(l.hsValorisee),
+    transportUSD: Number(l.transportUSD),
+    primesUSD: Number(l.primesUSD),
+    allocUSD: Number(l.allocFamilialeUSD),
+    fraisMedUSD: Number(l.fraisMedicauxUSD),
+    cnssUSD: Number(l.cnssSalarieUSD),
+    iprUSD: Number(l.iprCalculeUSD),
+    acompteUSD: Number(l.acompteUSD),
   }));
   const brigade = rows.filter((r) => r.categorie === "BRIGADE");
   const backoffice = rows.filter((r) => r.categorie === "BACKOFFICE");
@@ -142,7 +151,7 @@ export default async function PaiePage({
                 Exporter
                 <span aria-hidden className="text-xs transition-transform group-open:rotate-180">▾</span>
               </summary>
-              <div className="absolute right-0 z-30 mt-1 w-64 rounded-lg border bg-background p-1 shadow-lg">
+              <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-64 max-w-[calc(100vw_-_1.5rem)] overflow-y-auto rounded-lg border bg-background p-1 shadow-lg">
                 <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Livre de paie</p>
                 <TelechargerLien href="/paie/export" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (Excel)</TelechargerLien>
                 <TelechargerLien href="/paie/export-pdf" className="block rounded px-3 py-2 text-sm hover:bg-accent">Livre de paie (PDF)</TelechargerLien>
@@ -199,7 +208,7 @@ export default async function PaiePage({
       {/* Sous-onglets — COLLANTS (restent visibles au défilement) et COULISSANTS horizontalement
           sur mobile. Sur mobile ils se calent juste sous l'en-tête de l'app ; sur ordinateur en
           haut de la zone de contenu. */}
-      <div className="sticky top-[calc(env(safe-area-inset-top,0px)+52px)] z-10 -mx-4 mb-5 flex gap-2 overflow-x-auto border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:top-0 lg:mx-0 lg:px-0">
+      <div className="sticky top-[calc(env(safe-area-inset-top)_+_52px)] z-10 -mx-4 mb-5 flex gap-2 overflow-x-auto border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:top-0 lg:mx-0 lg:px-0">
         {sousOnglets.map((o) => (
           <Link
             key={o.cle}

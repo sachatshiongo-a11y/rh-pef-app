@@ -39,11 +39,10 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
         <div>
           <p className="bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase text-emerald-800">Gains</p>
           <Ligne label="Rémunération" usd={Number(l.remuneration100) + Number(l.remuneration2_3)} />
-          {apercu.primes.length > 0 ? (
-            apercu.primes.map((p, i) => <Ligne key={i} label={p.nom} usd={p.montantUSD} />)
-          ) : (
-            <Ligne label="Primes" usd={Number(l.primesUSD)} />
-          )}
+          {/* Primes : une ligne par prime ; rien du tout s'il n'y en a aucune (pas de ligne « 0 »). */}
+          {apercu.primes.map((p, i) => (
+            <Ligne key={i} label={p.nom} usd={p.montantUSD} />
+          ))}
           <Ligne label="Salaire brut imposable" usd={Number(l.salBrutUSD)} />
           <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
           <Ligne label="Allocation familiale" usd={Number(l.allocFamilialeUSD)} signe="+" />

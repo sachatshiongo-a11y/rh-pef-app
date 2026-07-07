@@ -20,6 +20,16 @@ export type PaieRow = {
   salNetCDF: number;
   statutPaiement: PaymentStatus;
   modePaiementDefaut: ModePaiement;
+  // Détail pour l'aperçu léger (HTML) des cartes mobile.
+  baseUSD: number;
+  hsUSD: number;
+  transportUSD: number;
+  primesUSD: number;
+  allocUSD: number;
+  fraisMedUSD: number;
+  cnssUSD: number;
+  iprUSD: number;
+  acompteUSD: number;
 };
 
 function money(n: number) {

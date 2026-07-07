@@ -12,6 +12,19 @@ function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
 
+/** Ligne compacte de l'aperçu léger (carte mobile). `usd` négatif = retenue. */
+function MiniLigne({ label, usd, fort }: { label: string; usd: number; fort?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between ${fort ? "font-medium" : "text-muted-foreground"}`}>
+      <span>{label}</span>
+      <span className={usd < 0 ? "text-red-600" : ""}>
+        {usd < 0 ? "− " : ""}
+        {money(Math.abs(usd))}
+      </span>
+    </div>
+  );
+}
+
 /**
  * Vérification / validation des bulletins façon PayFit : liste des salariés à gauche, vrai
  * bulletin PDF rendu en iframe à droite (sans téléchargement), avec agrandissement plein écran.
@@ -60,6 +73,35 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   {LIBELLE_STATUT[r.statutPaiement]}
                 </span>
               </div>
+              {/* Aperçu léger dépliable (HTML instantané, pas de PDF) */}
+              <details className="group mt-2 border-t pt-2">
+                <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary [&::-webkit-details-marker]:hidden">
+                  <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
+                  Aperçu du bulletin
+                </summary>
+                <div className="mt-2 space-y-0.5 text-xs">
+                  <MiniLigne label="Salaire de base" usd={r.baseUSD} />
+                  {r.hsUSD > 0 && <MiniLigne label="Heures supp." usd={r.hsUSD} />}
+                  {r.transportUSD > 0 && <MiniLigne label="Transport" usd={r.transportUSD} />}
+                  {r.primesUSD > 0 && <MiniLigne label="Primes" usd={r.primesUSD} />}
+                  <MiniLigne label="Salaire brut" usd={r.salBrutUSD} fort />
+                  <MiniLigne label="CNSS" usd={-r.cnssUSD} />
+                  <MiniLigne label="IPR" usd={-r.iprUSD} />
+                  {r.acompteUSD > 0 && <MiniLigne label="Acompte" usd={-r.acompteUSD} />}
+                  {r.allocUSD > 0 && <MiniLigne label="Allocation familiale" usd={r.allocUSD} />}
+                  {r.fraisMedUSD > 0 && <MiniLigne label="Frais médicaux" usd={r.fraisMedUSD} />}
+                  <div className="mt-1 flex items-center justify-between border-t pt-1 text-sm font-semibold">
+                    <span>Net à payer</span>
+                    <span>
+                      {money(r.salNetUSD)}
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        {Math.round(r.salNetCDF).toLocaleString("fr-FR")} CDF
+                      </span>
+                    </span>
+                  </div>
+                </div>
+              </details>
+
               <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2">
                 <TelechargerLien
                   href={`/paie/bulletin/${r.id}?devise=USD&dl=1`}
