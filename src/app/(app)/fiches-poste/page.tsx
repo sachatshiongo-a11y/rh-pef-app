@@ -4,7 +4,12 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { enregistrerFichePoste, supprimerFichePoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
-export default async function FichesPostePage() {
+export default async function FichesPostePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ erreur?: string; msg?: string }>;
+}) {
+  const sp = await searchParams;
   const user = await verifySession();
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
@@ -31,6 +36,16 @@ export default async function FichesPostePage() {
 
   return (
     <div>
+      {sp.erreur && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          {sp.erreur}
+        </div>
+      )}
+      {sp.msg && (
+        <div className="mb-4 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          {sp.msg}
+        </div>
+      )}
       <div className="mb-6">
         <h1 className="text-xl font-semibold sm:text-2xl">Fiches de poste</h1>
         <p className="text-sm text-muted-foreground">
