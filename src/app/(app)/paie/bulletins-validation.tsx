@@ -35,9 +35,9 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
   }
 
   return (
-    <div className="mb-6 grid gap-4 lg:grid-cols-[300px_1fr]">
-      {/* Liste des salariés */}
-      <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="mb-6 grid items-start gap-4 lg:grid-cols-[300px_1fr]">
+      {/* Liste des salariés — collante et à la même hauteur que l'aperçu */}
+      <div className="overflow-hidden rounded-xl border bg-card lg:sticky lg:top-4 lg:flex lg:max-h-[82vh] lg:flex-col">
         <div className="border-b p-2">
           <input
             value={recherche}
@@ -46,7 +46,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
             className="w-full rounded-md border px-2.5 py-1.5 text-sm"
           />
         </div>
-        <ul className="max-h-[560px] divide-y overflow-y-auto">
+        <ul className="max-h-[560px] divide-y overflow-y-auto lg:max-h-none lg:flex-1">
           {filtres.map((r) => (
             <li key={r.id}>
               <button
@@ -75,7 +75,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
       </div>
 
       {/* Aperçu du bulletin */}
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded-xl border bg-card lg:sticky lg:top-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{sel?.nom ?? "—"}</span>
@@ -118,7 +118,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
               key={src}
               src={src}
               title={`Bulletin ${sel.nom}`}
-              className="hidden h-[560px] w-full bg-muted lg:block"
+              className="hidden h-[560px] w-full bg-muted lg:block lg:h-[82vh]"
             />
             <div className="flex flex-col items-center gap-3 px-4 py-6 text-center lg:hidden">
               <p className="text-sm text-muted-foreground">
@@ -133,7 +133,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
             </div>
           </>
         ) : (
-          <div className="flex min-h-[120px] items-center justify-center p-6 text-sm text-muted-foreground lg:h-[560px]">
+          <div className="flex min-h-[120px] items-center justify-center p-6 text-sm text-muted-foreground lg:h-[82vh]">
             Sélectionnez un salarié.
           </div>
         )}
