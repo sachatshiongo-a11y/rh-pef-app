@@ -10,6 +10,7 @@ import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
+import { calculerLignesPaie } from "@/lib/paie-batch";
 
 export default async function PaiePage({
   searchParams,
@@ -36,53 +37,94 @@ export default async function PaiePage({
     year: "numeric",
   });
 
-  const rows: PaieRow[] = (run?.lignes ?? []).map((l) => ({
-    id: l.id,
-    employeeId: l.employee.id,
-    matricule: l.employee.matricule,
-    nom: l.employee.nom,
-    photoUrl: l.employee.photoUrl,
-    categorie: l.employee.categorie,
-    salBrutUSD: Number(l.salBrutUSD),
-    salNetUSD: Number(l.salNetUSD),
-    salNetCDF: Number(l.salNetCDF),
-    statutPaiement: l.statutPaiement,
-    // Moyen de paiement pré-rempli : virement si banque renseignée, sinon mobile money, sinon espèces.
-    modePaiementDefaut: l.employee.banque
-      ? "VIREMENT"
-      : l.employee.mobileMoney
-        ? "MOBILE_MONEY"
-        : "ESPECES",
-    baseUSD: Number(l.remuneration100) + Number(l.remuneration2_3),
-    hsUSD: Number(l.hsValorisee),
-    transportUSD: Number(l.transportUSD),
-    primesUSD: Number(l.primesUSD),
-    allocUSD: Number(l.allocFamilialeUSD),
-    fraisMedUSD: Number(l.fraisMedicauxUSD),
-    cnssUSD: Number(l.cnssSalarieUSD),
-    iprUSD: Number(l.iprCalculeUSD),
-    acompteUSD: Number(l.acompteUSD),
-  }));
+  // Paie EN TEMPS RÉEL : si aucune paie n'a encore été figée (pas de PayrollRun), on calcule un
+  // aperçu à la volée depuis les données courantes. Le bouton « Calculer » ne sert plus qu'à figer
+  // les bulletins pour la validation/l'export — les montants sont toujours à jour à l'affichage.
+  const apercu = run ? null : await calculerLignesPaie(mois, annee);
+  const enApercu = !run;
+
+  const modeDefaut = (e: { banque: string | null; mobileMoney: string | null }): PaieRow["modePaiementDefaut"] =>
+    e.banque ? "VIREMENT" : e.mobileMoney ? "MOBILE_MONEY" : "ESPECES";
+
+  const rows: PaieRow[] = run
+    ? run.lignes.map((l) => ({
+        id: l.id,
+        employeeId: l.employee.id,
+        matricule: l.employee.matricule,
+        nom: l.employee.nom,
+        photoUrl: l.employee.photoUrl,
+        categorie: l.employee.categorie,
+        salBrutUSD: Number(l.salBrutUSD),
+        salNetUSD: Number(l.salNetUSD),
+        salNetCDF: Number(l.salNetCDF),
+        statutPaiement: l.statutPaiement,
+        modePaiementDefaut: modeDefaut(l.employee),
+        baseUSD: Number(l.remuneration100) + Number(l.remuneration2_3),
+        hsUSD: Number(l.hsValorisee),
+        transportUSD: Number(l.transportUSD),
+        primesUSD: Number(l.primesUSD),
+        allocUSD: Number(l.allocFamilialeUSD),
+        fraisMedUSD: Number(l.fraisMedicauxUSD),
+        cnssUSD: Number(l.cnssSalarieUSD),
+        iprUSD: Number(l.iprCalculeUSD),
+        acompteUSD: Number(l.acompteUSD),
+      }))
+    : (apercu!.lignes).map((l) => ({
+        id: `apercu-${l.employee.id}`,
+        employeeId: l.employee.id,
+        matricule: l.employee.matricule,
+        nom: l.employee.nom,
+        photoUrl: l.employee.photoUrl,
+        categorie: l.employee.categorie,
+        salBrutUSD: l.data.salBrutUSD,
+        salNetUSD: l.data.salNetUSD,
+        salNetCDF: l.data.salNetCDF,
+        statutPaiement: "PAS_VALIDE",
+        modePaiementDefaut: modeDefaut(l.employee),
+        baseUSD: l.data.remuneration100 + l.data.remuneration2_3,
+        hsUSD: l.data.hsValorisee,
+        transportUSD: l.data.transportUSD,
+        primesUSD: l.data.primesUSD,
+        allocUSD: l.data.allocFamilialeUSD,
+        fraisMedUSD: l.data.fraisMedicauxUSD,
+        cnssUSD: l.data.cnssSalarieUSD,
+        iprUSD: l.data.iprCalculeUSD,
+        acompteUSD: l.data.acompteUSD,
+      }));
   const brigade = rows.filter((r) => r.categorie === "BRIGADE");
   const backoffice = rows.filter((r) => r.categorie === "BACKOFFICE");
 
   const taches = run ? await tachesBloquantesCloture(mois, annee) : [];
   const nbPasValide = rows.filter((r) => r.statutPaiement === "PAS_VALIDE").length;
 
-  // Éléments de rémunération (détail par salarié), par type.
-  const remuLignes: LigneRemu[] = (run?.lignes ?? []).map((l) => ({
-    employeeId: l.employeeId,
-    nom: l.employee.nom,
-    photoUrl: l.employee.photoUrl,
-    base: Number(l.remuneration100) + Number(l.remuneration2_3),
-    hs: Number(l.hsValorisee),
-    transport: Number(l.transportUSD),
-    primes: Number(l.primesUSD),
-    fraisMedicaux: Number(l.fraisMedicauxUSD),
-    alloc: Number(l.allocFamilialeUSD),
-    acompte: Number(l.acompteUSD),
-    net: Number(l.salNetUSD),
-  }));
+  // Éléments de rémunération (détail par salarié), par type — toujours à jour (persisté ou aperçu).
+  const remuLignes: LigneRemu[] = run
+    ? run.lignes.map((l) => ({
+        employeeId: l.employeeId,
+        nom: l.employee.nom,
+        photoUrl: l.employee.photoUrl,
+        base: Number(l.remuneration100) + Number(l.remuneration2_3),
+        hs: Number(l.hsValorisee),
+        transport: Number(l.transportUSD),
+        primes: Number(l.primesUSD),
+        fraisMedicaux: Number(l.fraisMedicauxUSD),
+        alloc: Number(l.allocFamilialeUSD),
+        acompte: Number(l.acompteUSD),
+        net: Number(l.salNetUSD),
+      }))
+    : (apercu!.lignes).map((l) => ({
+        employeeId: l.employee.id,
+        nom: l.employee.nom,
+        photoUrl: l.employee.photoUrl,
+        base: l.data.remuneration100 + l.data.remuneration2_3,
+        hs: l.data.hsValorisee,
+        transport: l.data.transportUSD,
+        primes: l.data.primesUSD,
+        fraisMedicaux: l.data.fraisMedicauxUSD,
+        alloc: l.data.allocFamilialeUSD,
+        acompte: l.data.acompteUSD,
+        net: l.data.salNetUSD,
+      }));
 
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
@@ -230,9 +272,18 @@ export default async function PaiePage({
 
       {vue === "bulletins" && (
       <>
-      {run && (
-        <div className="mb-5">
-          <FrisePaie mois={mois} annee={annee} etape={etapePaie} jourPaie={config?.jourPaie ?? 30} compact />
+      <div className="mb-5">
+        <FrisePaie mois={mois} annee={annee} etape={etapePaie} jourPaie={config?.jourPaie ?? 30} compact />
+      </div>
+
+      {enApercu && (
+        <div className="mb-5 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <p className="text-sm font-semibold">Aperçu en temps réel</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ces montants sont calculés à la volée depuis les présences, heures, primes et acomptes du mois — ils restent
+            toujours à jour. Cliquez sur <span className="font-medium">« Calculer la paie du mois »</span> pour figer les
+            bulletins et pouvoir les valider, payer et exporter.
+          </p>
         </div>
       )}
 
@@ -269,14 +320,20 @@ export default async function PaiePage({
           <h2 className="mb-2 hidden text-sm font-semibold uppercase tracking-wide text-muted-foreground lg:block">
             Tableau détaillé &amp; actions groupées
           </h2>
+          {/* Tableau détaillé large : ordinateur uniquement (dense, défilement horizontal). Sur mobile,
+              la validation se fait via les cartes ci-dessus. */}
+          <div className="hidden lg:block">
+            <PaieBulk brigade={brigade} backoffice={backoffice} peutGerer={peutGerer} estAdmin={estAdmin} />
+          </div>
         </>
       )}
 
-      {/* Tableau détaillé large : ordinateur uniquement (dense, défilement horizontal). Sur mobile,
-          la validation se fait via les cartes ci-dessus. */}
-      <div className="hidden lg:block">
-        <PaieBulk brigade={brigade} backoffice={backoffice} peutGerer={peutGerer} estAdmin={estAdmin} />
-      </div>
+      {enApercu && (
+        <div className="space-y-6">
+          <ApercuGroupe titre="Brigade" rows={brigade} />
+          <ApercuGroupe titre="Back-office" rows={backoffice} />
+        </div>
+      )}
       </>
       )}
 
@@ -285,6 +342,55 @@ export default async function PaiePage({
       {vue === "contrats" && (
         <SuiviContrats contrats={contratRows} peutGerer={peutGerer} estAdmin={estAdmin} />
       )}
+    </div>
+  );
+}
+
+const usd = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
+
+/** Tableau lecture seule de l'aperçu temps réel (avant que la paie ne soit figée). */
+function ApercuGroupe({ titre, rows }: { titre: string; rows: PaieRow[] }) {
+  if (rows.length === 0) return null;
+  const totalNet = rows.reduce((s, r) => s + r.salNetUSD, 0);
+  return (
+    <div className="overflow-hidden rounded-xl border">
+      <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+        <h3 className="text-sm font-semibold">{titre} · {rows.length}</h3>
+        <span className="text-xs text-muted-foreground">Net total {usd(totalNet)}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[44rem] text-sm">
+          <thead className="bg-muted/20 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Employé</th>
+              <th className="px-3 py-2 text-right font-medium">Base</th>
+              <th className="px-3 py-2 text-right font-medium">HS</th>
+              <th className="px-3 py-2 text-right font-medium">Transport</th>
+              <th className="px-3 py-2 text-right font-medium">Primes</th>
+              <th className="px-3 py-2 text-right font-medium">Acompte</th>
+              <th className="px-3 py-2 text-right font-medium">Net USD</th>
+              <th className="px-3 py-2 text-right font-medium">Net CDF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-3 py-2">
+                  <span className="font-medium">{r.nom}</span>
+                  <span className="ml-1 font-mono text-xs text-muted-foreground">{r.matricule}</span>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{usd(r.baseUSD)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{usd(r.hsUSD)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{usd(r.transportUSD)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{usd(r.primesUSD)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.acompteUSD ? "−" + usd(r.acompteUSD) : "—"}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{usd(r.salNetUSD)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.salNetCDF).toLocaleString("fr-FR")} CDF</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -4,35 +4,22 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
-import { chargerParametresPaie } from "@/lib/config";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, roleRequisPour } from "@/lib/paie-etats";
-import {
-  calculerHeuresSupp,
-  calculerJoursOuvrables,
-  calculerPaieBackoffice,
-  calculerPaieBrigade,
-  resumerPresences,
-  type CodePresence,
-} from "@/lib/payroll";
+import { calculerLignesPaie } from "@/lib/paie-batch";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
 
 // États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
 const STATUTS_FIGES: PaymentStatus[] = ["VALIDE", "PAYE"];
-// Conversion PRÉCISE heures/semaine → heures/mois : 52 semaines ÷ 12 mois = 4,3333 (aucune estimation).
-const SEMAINES_PAR_MOIS = 52 / 12;
 
 export async function calculerPaieDuMois() {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  const parametres = await chargerParametresPaie();
   const mois = config.moisCourant;
   const annee = config.anneeCourante;
-  const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
-  const finMois = new Date(Date.UTC(annee, mois, 0));
 
   const run = await prisma.payrollRun.upsert({
     where: { mois_annee: { mois, annee } },
@@ -40,248 +27,20 @@ export async function calculerPaieDuMois() {
     create: { mois, annee, tauxChangeUtilise: config.tauxChangeCDF },
   });
 
-  // Toutes les données du mois chargées en 4 requêtes (au lieu d'une par employé — perf).
-  const [
-    employees,
-    joursFeriesDuMois,
-    attendances,
-    overtimeEntries,
-    lignesFigees,
-    primesDuMois,
-    acomptesDuMois,
-    congesDuMois,
-    fraisMedDuMois,
-  ] = await Promise.all([
-      prisma.employee.findMany({ where: { actif: true } }),
-      prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-      prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-      prisma.overtimeEntry.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-      // Lignes déjà validées/payées : on ne les recalcule pas (bulletin émis non écrasable).
-      prisma.payrollLine.findMany({
-        where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } },
-        select: { employeeId: true },
-      }),
-      prisma.prime.findMany({ where: { mois, annee } }),
-      prisma.acompteSalaire.findMany({ where: { mois, annee, statut: "APPROUVE" } }),
-      // Congés approuvés chevauchant le mois : servent à afficher les jours de congé pris
-      // (les congés saisis en demande ne créent pas de code présence « C »).
-      prisma.leaveRequest.findMany({
-        where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
-      }),
-      prisma.fraisMedical.findMany({ where: { mois, annee } }),
-    ]);
-
-  // Frais médicaux du mois (avec certificat) sommés par employé.
-  const fraisMedParEmp = new Map<string, number>();
-  for (const f of fraisMedDuMois)
-    fraisMedParEmp.set(f.employeeId, (fraisMedParEmp.get(f.employeeId) ?? 0) + Number(f.montantUSD));
-
-  // Jours de congé (ouvrables) réellement posés dans le mois, par employé, depuis les demandes.
-  const joursCongeParEmp = new Map<string, number>();
-  for (const c of congesDuMois) {
-    const debut = new Date(c.dateDebut) < debutMois ? debutMois : new Date(c.dateDebut);
-    const fin = new Date(c.dateFin) > finMois ? finMois : new Date(c.dateFin);
-    joursCongeParEmp.set(
-      c.employeeId,
-      (joursCongeParEmp.get(c.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin)
-    );
-  }
-
-  // Primes (gain) et acomptes approuvés (déduits du net) sommés par employé.
-  const primesParEmp = new Map<string, number>();
-  for (const p of primesDuMois)
-    primesParEmp.set(p.employeeId, (primesParEmp.get(p.employeeId) ?? 0) + Number(p.montantUSD));
-  const acomptesParEmp = new Map<string, number>();
-  for (const a of acomptesDuMois)
-    acomptesParEmp.set(a.employeeId, (acomptesParEmp.get(a.employeeId) ?? 0) + Number(a.montantUSD));
-
-  const joursFeries = new Set(
-    joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10))
-  );
+  // Lignes déjà validées/payées : on ne les recalcule pas (bulletin émis non écrasable).
+  const lignesFigees = await prisma.payrollLine.findMany({
+    where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } },
+    select: { employeeId: true },
+  });
   const employeeIdsFiges = new Set(lignesFigees.map((l) => l.employeeId));
 
-  // Regroupement en mémoire (évite les requêtes par employé).
-  const codesParEmp = new Map<string, CodePresence[]>();
-  const codeParJour = new Map<string, Map<string, string>>(); // empId -> "YYYY-MM-DD" -> code
-  for (const a of attendances) {
-    (codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, []).get(a.employeeId)!).push(
-      a.code as CodePresence
-    );
-    const iso = new Date(a.date).toISOString().slice(0, 10);
-    (codeParJour.get(a.employeeId) ?? codeParJour.set(a.employeeId, new Map()).get(a.employeeId)!).set(
-      iso,
-      a.code
-    );
-  }
-  const heuresParEmp = new Map<string, { date: Date; heuresTravaillees: number }[]>();
-  const heureParJour = new Map<string, Map<string, number>>(); // empId -> "YYYY-MM-DD" -> heures
-  for (const o of overtimeEntries) {
-    (heuresParEmp.get(o.employeeId) ?? heuresParEmp.set(o.employeeId, []).get(o.employeeId)!).push({
-      date: new Date(o.date),
-      heuresTravaillees: Number(o.heuresTravaillees),
-    });
-    const iso = new Date(o.date).toISOString().slice(0, 10);
-    (heureParJour.get(o.employeeId) ?? heureParJour.set(o.employeeId, new Map()).get(o.employeeId)!).set(
-      iso,
-      Number(o.heuresTravaillees)
-    );
-  }
-
-  // Option A — paie multi-rôles : taux horaire du rôle de chaque jour (planning), pour un taux
-  // horaire EFFECTIF pondéré par les heures. Employés mono-rôle sans taux de shift = inchangés.
-  const [creneauxMois, shiftsAvecTaux] = await Promise.all([
-    prisma.planningCreneau.findMany({
-      where: { date: { gte: debutMois, lte: finMois } },
-      select: { employeeId: true, date: true, shiftId: true },
-    }),
-    prisma.shift.findMany({ select: { id: true, tauxHoraireUSD: true } }),
-  ]);
-  const tauxParShift = new Map<string, number>();
-  for (const s of shiftsAvecTaux) if (s.tauxHoraireUSD != null) tauxParShift.set(s.id, Number(s.tauxHoraireUSD));
-  const tauxRoleParJour = new Map<string, Map<string, number>>(); // empId -> iso -> taux du rôle
-  for (const c of creneauxMois) {
-    const t = tauxParShift.get(c.shiftId);
-    if (t == null) continue;
-    const iso = new Date(c.date).toISOString().slice(0, 10);
-    (tauxRoleParJour.get(c.employeeId) ?? tauxRoleParJour.set(c.employeeId, new Map()).get(c.employeeId)!).set(iso, t);
-  }
-
-  const nouvellesLignes = [];
-  const employesFraisMedicaux: string[] = [];
-
-  for (const employee of employees) {
-    if (employeeIdsFiges.has(employee.id)) continue;
-
-    const codes = codesParEmp.get(employee.id) ?? [];
-    const resume = resumerPresences(codes);
-    // Heures contractuelles du mois = heures/SEMAINE × 52/12 (PAS heures/jour × jours ouvrables,
-    // qui supposerait un travail tous les jours). Ex. Aimée 43 → 186,3 ; Rachel 36 → 156 ; plein 48 → 208.
-    const heuresHebdo = Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6;
-    const heuresMoisContrat = heuresHebdo * SEMAINES_PAR_MOIS;
-    const tauxDefaut = Number(employee.salaireMensuel) / heuresMoisContrat;
-    // Taux effectif = Σ(heures du jour × taux du rôle du jour) ÷ Σ heures ; sinon taux par défaut.
-    const rolesEmp = tauxRoleParJour.get(employee.id);
-    const heuresEmp = heureParJour.get(employee.id) ?? new Map<string, number>();
-    let sommeH = 0;
-    let sommeHT = 0;
-    for (const [iso, h] of heuresEmp) {
-      if (h <= 0) continue;
-      sommeH += h;
-      sommeHT += h * (rolesEmp?.get(iso) ?? tauxDefaut);
-    }
-    const salaireHoraire = sommeH > 0 ? sommeHT / sommeH : tauxDefaut;
-    const salaireJournalier = salaireHoraire * Number(employee.heuresParJour);
-    const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant) + (fraisMedParEmp.get(employee.id) ?? 0);
-    if (fraisMedicauxUSD !== 0) employesFraisMedicaux.push(employee.id);
-
-    const hs = calculerHeuresSupp({
-      jours: heuresParEmp.get(employee.id) ?? [],
-      heuresParJourContrat: Number(employee.heuresParJour),
-      heuresHebdoContrat: Number(employee.heuresHebdomadaires),
-      // Majorations HS calculées sur le taux PAR DÉFAUT (inchangées) ; seule la base multi-rôles varie.
-      salaireHoraire: tauxDefaut,
-      joursFeries,
-      params: parametres,
-    });
-
-    // Jours de congé : max entre codes présence « C » et congés approuvés (demandes), qui ne
-    // créent pas de code « C ». Évite le double comptage si les deux sont saisis.
-    const joursCongePris = Math.max(
-      codes.filter((c) => c === "C").length,
-      joursCongeParEmp.get(employee.id) ?? 0
-    );
-    const indemniteCongesUSD = joursCongePris * salaireJournalier;
-    const nombreAbsences = codes.filter((c) => c === "A" || c === "N" || c === "S").length;
-    const heuresContractuelles = Math.round(heuresMoisContrat * 100) / 100;
-
-    // Transport (B3) : brigade = tarif journalier (CDF) × jours de présence réelle (code P),
-    // converti en USD au taux du mois. Backoffice = forfait mensuel fixe (transportMoisUSD).
-    const joursPresenceP = codes.filter((c) => c === "P").length;
-    const transportUSD =
-      employee.categorie === "BRIGADE"
-        ? (Number(employee.transportJourCDF) * joursPresenceP) / parametres.tauxChangeCDF
-        : Number(employee.transportMoisUSD);
-
-    // §8 : un jour avec heures est payé aux heures ; un jour payé SANS heures (repos, absence
-    // justifiée, congé, férié non travaillé) est valorisé à la journée. Maladie (M) = 2/3.
-    const codesJours = codeParJour.get(employee.id) ?? new Map<string, string>();
-    const heuresJours = heureParJour.get(employee.id) ?? new Map<string, number>();
-    let joursPayesNonTravailles = 0;
-    let joursMaladie = 0;
-    for (const [iso, code] of codesJours) {
-      if ((heuresJours.get(iso) ?? 0) > 0) continue; // jour travaillé → payé aux heures
-      if (code === "O" || code === "A" || code === "C" || code === "F") joursPayesNonTravailles++;
-      else if (code === "M") joursMaladie++;
-    }
-
-    const primesUSD = primesParEmp.get(employee.id) ?? 0;
-    const acompteUSD = acomptesParEmp.get(employee.id) ?? 0;
-
-    const ligne =
-      employee.categorie === "BRIGADE"
-        ? calculerPaieBrigade(
-            {
-              salaireJournalier,
-              salaireHoraire,
-              heuresNormales: hs.heuresTotalesMois - hs.hs30 - hs.hs60 - hs.hs100,
-              joursPayesNonTravailles,
-              joursPayes2_3: joursMaladie,
-              hsValorisee: hs.hsValorisee,
-              transportMoisUSD: transportUSD,
-              enfants: employee.enfants,
-              fraisMedicauxUSD,
-              primesUSD,
-              acompteUSD,
-            },
-            parametres
-          )
-        : calculerPaieBackoffice(
-            {
-              salaireBaseUSD: Number(employee.salaireMensuel),
-              transportUSD: transportUSD,
-              enfants: employee.enfants,
-              fraisMedicauxUSD,
-              primesUSD,
-              acompteUSD,
-            },
-            parametres
-          );
-
-    nouvellesLignes.push({
-      payrollRunId: run.id,
-      employeeId: employee.id,
-      joursPayes100: resume.payes100,
-      joursPayes2_3: resume.payes2_3,
-      joursNonPayes: resume.nonPayes,
-      nombreAbsences,
-      remuneration100: ligne.remuneration100,
-      remuneration2_3: ligne.remuneration2_3,
-      hsValorisee: hs.hsValorisee,
-      heuresTravaillees: hs.heuresTotalesMois,
-      heuresContractuelles,
-      heuresSupp30: hs.hs30,
-      heuresSupp60: hs.hs60,
-      heuresSupp100: hs.hs100,
-      joursCongePris,
-      indemniteCongesUSD,
-      fraisMedicauxUSD,
-      transportUSD: transportUSD,
-      primesUSD: ligne.primesUSD,
-      acompteUSD: ligne.acompteUSD,
-      salBrutUSD: ligne.salBrutUSD,
-      cnssSalarieUSD: ligne.cnssSalarieUSD,
-      netImposableUSD: ligne.netImposableUSD,
-      iprCalculeUSD: ligne.iprCalculeUSD,
-      allocFamilialeUSD: ligne.allocFamilialeUSD,
-      salNetUSD: ligne.salNetUSD,
-      salNetCDF: ligne.salNetCDF,
-      cnssPatronalUSD: ligne.cnssPatronalUSD,
-      inppUSD: ligne.inppUSD,
-      onemUSD: ligne.onemUSD,
-      coutEmployeurUSD: ligne.coutEmployeurUSD,
-      coutEmployeurCDF: ligne.coutEmployeurCDF,
-    });
-  }
+  // Calcul en mémoire de tous les actifs (logique partagée avec l'aperçu temps réel de la page).
+  const { lignes, employesFraisMedicaux: fraisTous } = await calculerLignesPaie(mois, annee);
+  const nouvellesLignes = lignes
+    .filter((l) => !employeeIdsFiges.has(l.employee.id))
+    .map((l) => ({ payrollRunId: run.id, employeeId: l.employee.id, ...l.data }));
+  // On ne remet à zéro le solde « frais médicaux » que des lignes réellement (ré)écrites.
+  const employesFraisMedicaux = fraisTous.filter((id) => !employeeIdsFiges.has(id));
 
   // Écriture en masse dans une transaction (remplace ~100 requêtes par ~4).
   await prisma.$transaction([
