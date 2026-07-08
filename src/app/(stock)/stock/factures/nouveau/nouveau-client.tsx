@@ -1,0 +1,165 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { creerFactureAvecLignes } from "../actions";
+
+type Art = { id: string; designation: string; prix: string | null; unite: string | null };
+type Four = { id: string; nom: string; delaiJours: number | null };
+type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
+type Bon = { id: string; numero: string; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
+type Ligne = { articleId: string; designation: string; unite: string; quantite: string; prix: string };
+
+const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
+const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", quantite: "", prix: "" });
+
+export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null }) {
+  const bon0 = bons.find((b) => b.id === bcInitial) ?? null;
+  const lignesDeBon = (b: Bon | null): Ligne[] =>
+    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: l.quantite, prix: l.prix })) : [vide(), vide(), vide()];
+
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [isPending, start] = useTransition();
+  const [bonId, setBonId] = useState(bon0?.id ?? "");
+  const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
+  const [fournisseurNom, setFournisseurNom] = useState(bon0?.fournisseurNom ?? "");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [echeance, setEcheance] = useState("");
+  const [lignes, setLignes] = useState<Ligne[]>(lignesDeBon(bon0));
+
+  const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const choisirArticle = (i: number, articleId: string) => {
+    const a = articles.find((x) => x.id === articleId);
+    maj(i, { articleId, designation: a?.designation ?? "", unite: a?.unite ?? "", prix: a?.prix ?? "" });
+  };
+
+  const calcEcheance = (dateStr: string, delai: number | null) => {
+    if (!dateStr || delai == null) return;
+    const dt = new Date(dateStr);
+    dt.setDate(dt.getDate() + delai);
+    setEcheance(dt.toISOString().slice(0, 10));
+  };
+
+  const choisirBon = (id: string) => {
+    setBonId(id);
+    const b = bons.find((x) => x.id === id) ?? null;
+    if (b) {
+      if (b.fournisseurId) setFournisseurId(b.fournisseurId);
+      setFournisseurNom(b.fournisseurNom);
+      if (b.lignes.length) setLignes(lignesDeBon(b));
+      calcEcheance(date, b.delaiJours);
+    }
+  };
+
+  const choisirFournisseur = (id: string) => {
+    setFournisseurId(id);
+    const f = fournisseurs.find((x) => x.id === id);
+    if (f) { setFournisseurNom(f.nom); calcEcheance(date, f.delaiJours); }
+  };
+
+  const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
+
+  const submit = (fd: FormData) => {
+    setErreur(null);
+    start(async () => {
+      try { await creerFactureAvecLignes(fd); }
+      catch (e) {
+        // redirect() lève une exception attendue : ne pas l'afficher comme erreur.
+        if (e instanceof Error && e.message === "NEXT_REDIRECT") return;
+        const d = e as { digest?: string };
+        if (d?.digest?.startsWith?.("NEXT_REDIRECT")) return;
+        setErreur(e instanceof Error ? e.message : "Erreur.");
+      }
+    });
+  };
+
+  return (
+    <form action={submit} className="space-y-4">
+      {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Bon de commande lié (facultatif)</span>
+          <select value={bonId} onChange={(e) => choisirBon(e.target.value)} className={inp}>
+            <option value="">— aucun —</option>
+            {bons.map((b) => <option key={b.id} value={b.id}>{b.numero} · {b.fournisseurNom}</option>)}
+          </select>
+          <input type="hidden" name="bonDeCommandeId" value={bonId} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Fournisseur *</span>
+          <select value={fournisseurId} onChange={(e) => choisirFournisseur(e.target.value)} className={inp}>
+            <option value="">— catalogue —</option>
+            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
+          </select>
+          <input type="hidden" name="fournisseurId" value={fournisseurId} />
+          <input name="fournisseurNom" value={fournisseurNom} onChange={(e) => setFournisseurNom(e.target.value)} placeholder="Nom fournisseur *" required className={inp} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">N° facture</span>
+          <input name="numero" className={inp} placeholder="N° facture fournisseur" />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Date facture</span>
+          <input name="date" type="date" value={date} onChange={(e) => { setDate(e.target.value); const f = fournisseurs.find((x) => x.id === fournisseurId); calcEcheance(e.target.value, f?.delaiJours ?? null); }} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Échéance (auto selon délai)</span>
+          <input name="dateEcheance" type="date" value={echeance} onChange={(e) => setEcheance(e.target.value)} className={inp} />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-muted-foreground">Déjà réglé (USD)</span>
+          <input name="montantRegleUSD" type="number" step="0.01" min="0" placeholder="0" className={inp} />
+        </label>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[52rem] text-sm">
+          <thead className="bg-muted/50 text-left">
+            <tr>
+              <th className="px-2 py-2">Article (catalogue)</th>
+              <th className="px-2 py-2">Désignation</th>
+              <th className="px-2 py-2">Unité</th>
+              <th className="px-2 py-2 text-right">Quantité</th>
+              <th className="px-2 py-2 text-right">P.U. USD</th>
+              <th className="px-2 py-2 text-right">Total</th>
+              <th className="px-2 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lignes.map((l, i) => (
+              <tr key={i} className="border-t">
+                <td className="px-2 py-1">
+                  <select value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} className={`${inp} min-w-44`}>
+                    <option value="">— libre —</option>
+                    {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
+                  </select>
+                  <input type="hidden" name="ligne_articleId" value={l.articleId} />
+                </td>
+                <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full min-w-40`} placeholder="Désignation" /></td>
+                <td className="px-2 py-1"><input name="ligne_unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} className={`${inp} w-20`} placeholder="Kg…" /></td>
+                <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
+                <td className="px-2 py-1"><input name="ligne_prix" value={l.prix} onChange={(e) => maj(i, { prix: e.target.value })} type="number" step="0.0001" min="0" className={`${inp} w-24 text-right`} /></td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toFixed(2)} $</td>
+                <td className="px-2 py-1 text-right">
+                  <button type="button" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent" title="Retirer">✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button type="button" onClick={() => setLignes((ls) => [...ls, vide()])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
+        <div className="text-right">
+          <span className="text-sm text-muted-foreground">Montant total : </span>
+          <span className="text-lg font-semibold">{total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</span>
+        </div>
+      </div>
+
+      <button disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+        {isPending ? "Enregistrement…" : "Enregistrer la facture"}
+      </button>
+    </form>
+  );
+}

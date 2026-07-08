@@ -900,9 +900,10 @@ model ArticleStock {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  stock      Stock?
-  mouvements MouvementStock[]
-  lignesBC   LigneBonDeCommande[]
+  stock         Stock?
+  mouvements    MouvementStock[]
+  lignesBC      LigneBonDeCommande[]
+  lignesFacture LigneFacture[]
 
   @@schema("stock")
 }
@@ -1045,8 +1046,26 @@ model FactureFournisseur {
   annee           Int
   createdAt       DateTime       @default(now())
 
+  lignes LigneFacture[]
+
   @@index([annee, mois])
   @@index([fournisseurId])
   @@index([bonDeCommandeId])
+  @@schema("stock")
+}
+
+model LigneFacture {
+  id              String             @id @default(uuid())
+  factureId       String
+  facture         FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  articleId       String?
+  article         ArticleStock?      @relation(fields: [articleId], references: [id])
+  designation     String // libellé figé (survit à la modif/suppression de l'article)
+  unite           String?
+  quantite        Decimal            @db.Decimal(14, 3)
+  prixUnitaireUSD Decimal            @db.Decimal(12, 4)
+  totalLigneUSD   Decimal            @db.Decimal(14, 2)
+
+  @@index([factureId])
   @@schema("stock")
 }

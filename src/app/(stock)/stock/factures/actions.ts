@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -54,6 +55,61 @@ export async function creerFacture(formData: FormData) {
   });
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD`, userId: user.id });
   revalidatePath("/stock/factures");
+}
+
+/**
+ * Crée une facture fournisseur détaillée (avec ses lignes d'articles et quantités).
+ * Le montant total est calculé à partir des lignes.
+ */
+export async function creerFactureAvecLignes(formData: FormData) {
+  const user = await garde();
+  const fournisseurNom = String(formData.get("fournisseurNom") ?? "").trim();
+  if (!fournisseurNom) throw new Error("Le fournisseur est requis.");
+
+  const ids = formData.getAll("ligne_articleId").map(String);
+  const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
+  const unites = formData.getAll("ligne_unite").map((v) => String(v).trim());
+  const qtes = formData.getAll("ligne_quantite").map(dec);
+  const prixs = formData.getAll("ligne_prix").map(dec);
+
+  const lignes = desigs
+    .map((designation, i) => ({
+      articleId: ids[i] || null,
+      designation,
+      unite: unites[i] || null,
+      quantite: qtes[i] ?? 0,
+      prixUnitaireUSD: prixs[i] ?? 0,
+      totalLigneUSD: (qtes[i] ?? 0) * (prixs[i] ?? 0),
+    }))
+    .filter((l) => l.designation && l.quantite > 0);
+
+  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
+
+  const montantUSD = lignes.reduce((t, l) => t + l.totalLigneUSD, 0);
+  const dateStr = String(formData.get("date") ?? "").trim() || null;
+  const echeanceStr = String(formData.get("dateEcheance") ?? "").trim() || null;
+  const montantRegleUSD = dec(formData.get("montantRegleUSD"));
+  const reste = Math.max(0, montantUSD - montantRegleUSD);
+  const d = new Date(dateStr ?? echeanceStr ?? AUJ());
+
+  const fac = await prisma.factureFournisseur.create({
+    data: {
+      fournisseurId: String(formData.get("fournisseurId") ?? "").trim() || null,
+      fournisseurNom,
+      bonDeCommandeId: String(formData.get("bonDeCommandeId") ?? "").trim() || null,
+      numero: String(formData.get("numero") ?? "").trim() || null,
+      date: dateStr ? new Date(dateStr) : null,
+      dateEcheance: echeanceStr ? new Date(echeanceStr) : null,
+      montantUSD, montantRegleUSD, resteAPayerUSD: reste,
+      statut: statutDe(reste, echeanceStr),
+      modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
+      mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
+      lignes: { create: lignes },
+    },
+  });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))`, userId: user.id });
+  revalidatePath("/stock/factures");
+  redirect(`/stock/factures/${fac.id}`);
 }
 
 /** Supprime une facture fournisseur. */

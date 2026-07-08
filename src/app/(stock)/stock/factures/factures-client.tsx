@@ -134,6 +134,7 @@ export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[];
                       <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-2">
+                        <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded border px-2 py-1 text-xs hover:bg-accent">Détail</a>
                         {f.statut !== "REGLEE" && (
                           payerId === f.id ? (
                             <form action={(fd) => run(async () => { await marquerPayee(f.id, fd); setPayerId(null); })} className="flex items-center justify-end gap-1">
