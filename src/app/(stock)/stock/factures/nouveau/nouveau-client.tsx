@@ -112,6 +112,14 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </label>
       </div>
 
+      <label className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3 text-sm">
+        <input name="entrerEnStock" type="checkbox" defaultChecked className="mt-0.5" />
+        <span>
+          <span className="font-medium">Entrer les articles en stock</span>
+          <span className="block text-xs text-muted-foreground">Chaque ligne reliée à un article du catalogue augmente le stock. C’est l’enregistrement de la facture qui alimente le stock (pas la réception du bon de commande).</span>
+        </span>
+      </label>
+
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[52rem] text-sm">
           <thead className="bg-muted/50 text-left">

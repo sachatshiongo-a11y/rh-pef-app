@@ -936,10 +936,13 @@ model MouvementStock {
   montantUSD        Decimal?           @db.Decimal(14, 4) // équivalent USD figé
   receptionId       String?
   reception         Reception?         @relation(fields: [receptionId], references: [id])
+  factureId         String?
+  facture           FactureFournisseur? @relation(fields: [factureId], references: [id], onDelete: SetNull)
   creeParId         String? // User.id (pas de FK cross-schéma)
   createdAt         DateTime           @default(now())
 
   @@index([articleId, date])
+  @@index([factureId])
   @@schema("stock")
 }
 
@@ -1047,7 +1050,8 @@ model FactureFournisseur {
   annee           Int
   createdAt       DateTime       @default(now())
 
-  lignes LigneFacture[]
+  lignes     LigneFacture[]
+  mouvements MouvementStock[]
 
   @@index([annee, mois])
   @@index([fournisseurId])

@@ -1,10 +1,25 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { mouvementManuel } from "./actions";
+import { mouvementManuel, supprimerMouvement } from "./actions";
 
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
+
+export function SupprimerMouvementBtn({ id }: { id: string }) {
+  const [isPending, start] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={isPending}
+      title="Supprimer ce mouvement (annule son effet sur le stock)"
+      onClick={() => { if (confirm("Supprimer ce mouvement ? Son effet sur le stock sera annulé.")) start(() => supprimerMouvement(id)); }}
+      className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
+    >
+      ✕
+    </button>
+  );
+}
 
 export function MouvementForm({ articles }: { articles: Art[] }) {
   const [isPending, startTransition] = useTransition();

@@ -46,3 +46,29 @@ export async function mouvementManuel(formData: FormData) {
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
 }
+
+/**
+ * Supprime un mouvement de stock et ANNULE son effet sur l'inventaire :
+ * une ENTRÉE supprimée décrémente le stock, une SORTIE l'incrémente.
+ * Un AJUSTEMENT n'enregistre pas son sens → on retire la ligne sans recalculer le stock.
+ */
+export async function supprimerMouvement(id: string) {
+  const user = await verifySession();
+  requireModule(user, "stock");
+
+  const m = await prisma.mouvementStock.findUniqueOrThrow({ where: { id } });
+  const q = Number(m.quantite);
+  await prisma.$transaction(async (tx) => {
+    if (m.type === "ENTREE") {
+      await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: q } } });
+    } else if (m.type === "SORTIE") {
+      await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { increment: q } } });
+    }
+    await tx.mouvementStock.delete({ where: { id } });
+  });
+
+  await journaliser(prisma, { entite: "MouvementStock", entiteId: id, champ: "suppression", ancienneValeur: `${m.type} ${q} (${m.origine ?? ""})`, userId: user.id });
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock");
+}

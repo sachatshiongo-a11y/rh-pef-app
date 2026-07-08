@@ -122,9 +122,10 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
 }
 
 /**
- * Réceptionne un bon de commande : pour chaque ligne d'article reçue, crée une entrée de stock
- * (MouvementStock ENTRÉE reliée à une Réception) et incrémente l'inventaire. Met le statut à
- * REÇU si tout est reçu, sinon REÇU PARTIEL. Les quantités reçues sont saisies par ligne.
+ * Réceptionne un bon de commande : enregistre la réception (marchandise arrivée) et met le
+ * statut à REÇU / REÇU PARTIEL selon les quantités saisies. NE TOUCHE PAS AU STOCK — l'entrée
+ * en stock se fait uniquement à l'enregistrement de la FACTURE fournisseur (articles + quantités)
+ * ou via la liste d'achat. La réception et l'entrée en stock sont volontairement différenciées.
  */
 export async function receptionnerBonCommande(bcId: string, formData: FormData) {
   const user = await garde();
@@ -139,22 +140,7 @@ export async function receptionnerBonCommande(bcId: string, formData: FormData) 
   if (aRecevoir.length === 0) throw new Error("Renseignez au moins une quantité reçue (sur une ligne liée à un article).");
 
   await prisma.$transaction(async (tx) => {
-    const rec = await tx.reception.create({ data: { bonDeCommandeId: bcId, creeParId: user.id } });
-    for (const l of aRecevoir) {
-      const q = recu.get(l.id)!;
-      await tx.mouvementStock.create({
-        data: {
-          articleId: l.articleId!, type: "ENTREE", quantite: q,
-          origine: `Réception BC ${bc.numero}`, receptionId: rec.id,
-          montantUSD: Number(l.prixUnitaireUSD) * q, creeParId: user.id,
-        },
-      });
-      await tx.stock.upsert({
-        where: { articleId: l.articleId! },
-        update: { quantite: { increment: q } },
-        create: { articleId: l.articleId!, quantite: q },
-      });
-    }
+    await tx.reception.create({ data: { bonDeCommandeId: bcId, creeParId: user.id } });
     const articleLines = bc.lignes.filter((l) => l.articleId);
     const complet = articleLines.every((l) => (recu.get(l.id) ?? 0) >= Number(l.quantite));
     await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: complet ? "RECU" : "RECU_PARTIEL" } });
@@ -163,6 +149,4 @@ export async function receptionnerBonCommande(bcId: string, formData: FormData) 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");
-  revalidatePath("/stock/catalogue");
-  revalidatePath("/stock");
 }

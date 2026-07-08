@@ -84,8 +84,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
         <div className="flex items-center gap-2">
           <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
-          <a href="/stock/factures/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ PDF</a>
-          <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
+          <a href="/stock/factures/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
+          <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
         </div>
       </div>
 
@@ -99,8 +99,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
       {/* Bascule de vue */}
       <div className="flex flex-wrap gap-1.5 text-sm">
-        <a href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>📅 Par mois</a>
-        <a href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>🏭 Soldes par fournisseur</a>
+        <a href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</a>
+        <a href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</a>
       </div>
 
       {vue === "fournisseur" ? (

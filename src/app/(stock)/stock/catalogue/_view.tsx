@@ -46,8 +46,8 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
         <h1 className="text-xl font-semibold sm:text-2xl">{domaine ? TITRE[domaine] : "Catalogue"}</h1>
         <div className="flex items-center gap-2">
           <span className="mr-1 text-sm text-muted-foreground">{rows.length} article(s)</span>
-          <a href={`/stock/catalogue/imprimer${qs}`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ PDF</a>
-          <a href={`/stock/catalogue/export${qs}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">⬇ Excel</a>
+          <a href={`/stock/catalogue/imprimer${qs}`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
+          <a href={`/stock/catalogue/export${qs}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
         </div>
       </div>
 

@@ -91,34 +91,76 @@ export async function creerFactureAvecLignes(formData: FormData) {
   const montantRegleUSD = dec(formData.get("montantRegleUSD"));
   const reste = Math.max(0, montantUSD - montantRegleUSD);
   const d = new Date(dateStr ?? echeanceStr ?? AUJ());
+  const numero = String(formData.get("numero") ?? "").trim() || null;
+  // C'est l'enregistrement de la facture (articles + quantités) qui fait entrer la marchandise
+  // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
+  // pour une facture purement financière sans mouvement de marchandise.
+  const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
+  const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
-  const fac = await prisma.factureFournisseur.create({
-    data: {
-      fournisseurId: String(formData.get("fournisseurId") ?? "").trim() || null,
-      fournisseurNom,
-      bonDeCommandeId: String(formData.get("bonDeCommandeId") ?? "").trim() || null,
-      numero: String(formData.get("numero") ?? "").trim() || null,
-      date: dateStr ? new Date(dateStr) : null,
-      dateEcheance: echeanceStr ? new Date(echeanceStr) : null,
-      montantUSD, montantRegleUSD, resteAPayerUSD: reste,
-      statut: statutDe(reste, echeanceStr),
-      modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
-      mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
-      lignes: { create: lignes },
-    },
+  const fac = await prisma.$transaction(async (tx) => {
+    const f = await tx.factureFournisseur.create({
+      data: {
+        fournisseurId: String(formData.get("fournisseurId") ?? "").trim() || null,
+        fournisseurNom,
+        bonDeCommandeId: String(formData.get("bonDeCommandeId") ?? "").trim() || null,
+        numero,
+        date: dateStr ? new Date(dateStr) : null,
+        dateEcheance: echeanceStr ? new Date(echeanceStr) : null,
+        montantUSD, montantRegleUSD, resteAPayerUSD: reste,
+        statut: statutDe(reste, echeanceStr),
+        modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
+        mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
+        lignes: { create: lignes },
+      },
+    });
+    if (entrerEnStock) {
+      for (const l of lignes) {
+        if (!l.articleId) continue; // seules les lignes reliées à un article du catalogue entrent en stock
+        await tx.mouvementStock.create({
+          data: {
+            articleId: l.articleId, type: "ENTREE", quantite: l.quantite, date: d,
+            origine, montantUSD: l.totalLigneUSD, factureId: f.id, creeParId: user.id,
+          },
+        });
+        await tx.stock.upsert({
+          where: { articleId: l.articleId },
+          update: { quantite: { increment: l.quantite } },
+          create: { articleId: l.articleId, quantite: l.quantite },
+        });
+      }
+    }
+    return f;
   });
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))`, userId: user.id });
+
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });
   revalidatePath("/stock/factures");
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock");
   redirect(`/stock/factures/${fac.id}`);
 }
 
-/** Supprime une facture fournisseur. */
+/** Supprime une facture fournisseur et ANNULE ses entrées de stock (décrémente ce qu'elle avait fait entrer). */
 export async function supprimerFacture(id: string) {
   const user = await garde();
-  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
-  await prisma.factureFournisseur.delete({ where: { id } });
+  const f = await prisma.factureFournisseur.findUniqueOrThrow({
+    where: { id },
+    include: { mouvements: { where: { type: "ENTREE" } } },
+  });
+  await prisma.$transaction(async (tx) => {
+    // Reprise du stock entré par cette facture, avant suppression (les mouvements passeront à factureId=null).
+    for (const m of f.mouvements) {
+      await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: Number(m.quantite) } } });
+      await tx.mouvementStock.delete({ where: { id: m.id } });
+    }
+    await tx.factureFournisseur.delete({ where: { id } });
+  });
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "suppression", ancienneValeur: `${f.fournisseurNom} — ${f.montantUSD}`, userId: user.id });
   revalidatePath("/stock/factures");
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock");
 }
 
 /** Marque une facture comme réglée (solde le reste à payer) et enregistre le mode de paiement. */
