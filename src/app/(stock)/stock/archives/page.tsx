@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { DOMAINE_LABEL } from "@/lib/stock";
 
-type SP = { vue?: string };
+type SP = { vue?: string; entite?: string; userId?: string };
 
 // Entités du domaine Stock à afficher dans le journal d'activité.
 const STOCK_ENTITES = ["ArticleStock", "BonDeCommande", "FactureFournisseur", "MouvementStock", "SessionComptage", "Fournisseur", "LigneFacture", "ArticleResto", "AchatLegume", "Stock", "LigneComptage"];
@@ -37,7 +37,7 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 
       {vue === "comptages" && <Comptages />}
       {vue === "rapports" && <Rapports />}
-      {vue === "journal" && <Journal />}
+      {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} />}
     </div>
   );
 }
@@ -88,15 +88,38 @@ async function Rapports() {
   );
 }
 
-async function Journal() {
-  const entrees = await prisma.journalAudit.findMany({
-    where: { entite: { in: STOCK_ENTITES } },
-    orderBy: { date: "desc" },
-    take: 200,
-    include: { user: { select: { nom: true } } },
-  });
+async function Journal({ entite, userId }: { entite?: string; userId?: string }) {
+  const filtreEntite = entite && STOCK_ENTITES.includes(entite) ? entite : undefined;
+  const filtreUser = userId || undefined;
+
+  const [entrees, users] = await Promise.all([
+    prisma.journalAudit.findMany({
+      where: { entite: filtreEntite ? filtreEntite : { in: STOCK_ENTITES }, ...(filtreUser ? { userId: filtreUser } : {}) },
+      orderBy: { date: "desc" },
+      take: 300,
+      include: { user: { select: { nom: true } } },
+    }),
+    prisma.user.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+  ]);
+
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="space-y-3">
+      <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
+        <input type="hidden" name="vue" value="journal" />
+        <select name="entite" defaultValue={filtreEntite ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les types</option>
+          {STOCK_ENTITES.map((e) => <option key={e} value={e}>{ENTITE_LABEL[e] ?? e}</option>)}
+        </select>
+        <select name="userId" defaultValue={filtreUser ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Toutes les personnes</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.nom}</option>)}
+        </select>
+        <button className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
+        {(filtreEntite || filtreUser) && <Link href="/stock/archives?vue=journal" className="text-muted-foreground underline">Réinitialiser</Link>}
+        <span className="text-xs text-muted-foreground">{entrees.length} entrée(s)</span>
+      </form>
+
+      <div className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[44rem] text-sm">
         <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Quand</th><th>Type</th><th>Action</th><th>Détail</th><th>Par</th></tr></thead>
         <tbody>
@@ -112,6 +135,7 @@ async function Journal() {
           {entrees.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucune activité enregistrée.</td></tr>}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
