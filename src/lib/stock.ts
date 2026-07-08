@@ -37,6 +37,14 @@ export const ALERTE_CLASSE: Record<NiveauAlerte, string> = {
   OK: "bg-emerald-100 text-emerald-800",
 };
 
+/** Affiche un délai de paiement lisible : « 30 » → « 30 jours », « 30 jours »/« livraison » inchangés. */
+export function delaiPaiementLabel(s: string | null | undefined): string {
+  const v = (s ?? "").trim();
+  if (!v) return "—";
+  if (/^\d+$/.test(v)) return `${v} jours`;
+  return v;
+}
+
 export const DOMAINE_LABEL: Record<string, string> = {
   NOURRITURE: "Nourriture",
   BOISSON: "Boissons",

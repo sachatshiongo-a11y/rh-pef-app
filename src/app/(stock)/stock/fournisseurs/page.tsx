@@ -25,6 +25,7 @@ export default async function FournisseursPage() {
     ville: f.ville ?? "",
     rccm: f.rccm ?? "",
     delaiPaiement: f.delaiPaiement ?? "",
+    delaiLivraison: f.delaiLivraison ?? "",
     modePaiement: f.modePaiement ?? "",
     email: f.email ?? "",
     nbArticles: f._count.articles,

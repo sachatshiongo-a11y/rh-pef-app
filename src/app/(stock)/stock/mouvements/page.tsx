@@ -34,23 +34,57 @@ function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouveme
   );
 }
 
-export default async function MouvementsPage() {
+const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+type SP = { mois?: string; articleId?: string };
+
+export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const mois = sp.mois && /^\d{4}-\d{1,2}$/.test(sp.mois) ? sp.mois : undefined; // « 2026-7 »
+  const articleId = sp.articleId || undefined;
+
+  const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}) };
+  if (mois) {
+    const [y, m] = mois.split("-").map(Number);
+    where.date = { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
+  }
+
   const [mouvements, articles] = await Promise.all([
-    prisma.mouvementStock.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 400, include: { article: { select: { designation: true } } } }),
+    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: { article: { select: { designation: true } } } }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
   ]);
   const entrees = mouvements.filter((m) => m.type !== "SORTIE");
   const sorties = mouvements.filter((m) => m.type === "SORTIE");
+
+  // 12 derniers mois pour le filtre.
+  const now = new Date();
+  const moisOptions = Array.from({ length: 12 }).map((_, i) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    return { val: `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`, label: `${MOIS_FR[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
+  });
+  const dlQs = new URLSearchParams({ ...(mois ? { mois } : {}), ...(articleId ? { articleId } : {}) }).toString();
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
         <div className="flex items-center gap-2">
-          <a href="/stock/mouvements/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
-          <a href="/stock/mouvements/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
+          <a href={`/stock/mouvements/imprimer${dlQs ? `?${dlQs}` : ""}`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
+          <a href={`/stock/mouvements/export${dlQs ? `?${dlQs}` : ""}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
         </div>
       </div>
+
+      <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
+        <select name="mois" defaultValue={mois ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les mois</option>
+          {moisOptions.map((o) => <option key={o.val} value={o.val}>{o.label}</option>)}
+        </select>
+        <select name="articleId" defaultValue={articleId ?? ""} className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les produits</option>
+          {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
+        </select>
+        <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
+        {(mois || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+      </form>
 
       <MouvementForm articles={articles} />
 

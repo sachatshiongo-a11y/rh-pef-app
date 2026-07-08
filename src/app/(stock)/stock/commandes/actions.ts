@@ -111,6 +111,56 @@ export async function creerBonCommande(formData: FormData) {
   redirect(`/stock/commandes/${bc.id}`);
 }
 
+/** Modifie un bon de commande encore à l'état BROUILLON (remplace ses lignes et son en-tête). */
+export async function modifierBonCommande(id: string, formData: FormData) {
+  const user = await garde();
+  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true } });
+  if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
+
+  const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
+  const ids = formData.getAll("ligne_articleId").map(String);
+  const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
+  const qtes = formData.getAll("ligne_quantite").map(dec);
+  const prixs = formData.getAll("ligne_prix").map(dec);
+  const cartons = formData.getAll("ligne_uniteParCarton").map(dec);
+
+  const lignes = desigs
+    .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prixUnitaireUSD: prixs[i] ?? 0, uniteParCarton: cartons[i] || null }))
+    .filter((l) => l.designation && l.quantite > 0);
+  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
+
+  const totalUSD = lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0);
+  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const taux = config ? Number(config.tauxChangeCDF) : null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.ligneBonDeCommande.deleteMany({ where: { bonDeCommandeId: id } });
+    await tx.bonDeCommande.update({
+      where: { id },
+      data: {
+        fournisseurId,
+        delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
+        modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
+        commentaire: String(formData.get("commentaire") ?? "").trim() || null,
+        totalUSD, totalCDF: taux ? totalUSD * taux : null, tauxChangeUtilise: taux,
+        lignes: {
+          create: lignes.map((l) => ({
+            articleId: l.articleId, designation: l.designation, quantite: l.quantite,
+            prixUnitaireUSD: l.prixUnitaireUSD, uniteParCarton: l.uniteParCarton,
+            nbCartons: l.uniteParCarton ? l.quantite / l.uniteParCarton : null,
+            totalLigneUSD: l.quantite * l.prixUnitaireUSD,
+          })),
+        },
+      },
+    });
+  });
+
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "modification", nouvelleValeur: `${lignes.length} ligne(s)`, userId: user.id });
+  revalidatePath(`/stock/commandes/${id}`);
+  revalidatePath("/stock/commandes");
+  redirect(`/stock/commandes/${id}`);
+}
+
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
 export async function validerBonCommande(id: string, _formData: FormData) {
   const user = await garde();

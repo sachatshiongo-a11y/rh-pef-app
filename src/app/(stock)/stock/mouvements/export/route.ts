@@ -4,11 +4,21 @@ import { classeurExcel } from "@/lib/export-excel";
 
 const TYPE: Record<string, string> = { ENTREE: "Entrée", SORTIE: "Sortie", AJUSTEMENT: "Ajustement" };
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await verifySession();
   requireModule(user, "stock");
 
+  const sp = new URL(req.url).searchParams;
+  const moisStr = sp.get("mois");
+  const articleId = sp.get("articleId") || undefined;
+  const where: import("@prisma/client").Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}) };
+  if (moisStr && /^\d{4}-\d{1,2}$/.test(moisStr)) {
+    const [y, m] = moisStr.split("-").map(Number);
+    where.date = { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
+  }
+
   const mouvements = await prisma.mouvementStock.findMany({
+    where,
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     take: 5000,
     include: { article: { select: { designation: true } } },

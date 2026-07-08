@@ -7,11 +7,11 @@ import { usd } from "@/lib/stock";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
-  rccm: string; delaiPaiement: string; modePaiement: string; email: string;
+  rccm: string; delaiPaiement: string; delaiLivraison: string; modePaiement: string; email: string;
   nbArticles: number; nbFactures: number; soldeDu: number;
 };
 const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
-const CH = ["nom", "contactNom", "telephone", "ville", "rccm", "delaiPaiement", "modePaiement"] as const;
+const CH = ["nom", "contactNom", "telephone", "ville", "rccm", "delaiPaiement", "delaiLivraison", "modePaiement"] as const;
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 export function FournisseursClient({ fournisseurs, estDirection }: { fournisseurs: FournRow[]; estDirection: boolean }) {
@@ -84,6 +84,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
               <th>Ville</th>
               <th>RCCM</th>
               <th>Délai paiement</th>
+              <th>Délai livraison</th>
               <th>Mode</th>
               <th className="text-right">Solde dû</th>
               <th className="text-right">Articles</th>
@@ -95,7 +96,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
             {visibles.map((f) => (
               <LigneFournisseur key={f.id} f={f} estDirection={estDirection} onSave={save} onDelete={supprimer} />
             ))}
-            {visibles.length === 0 && <tr><td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">Aucun fournisseur.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-muted-foreground">Aucun fournisseur.</td></tr>}
           </tbody>
         </table>
       </div>

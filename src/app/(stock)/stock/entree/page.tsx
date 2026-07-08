@@ -21,7 +21,10 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const [articles, mouvements, config] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
     prisma.mouvementStock.findMany({
-      where: { type: "ENTREE" },
+      // Les entrées issues d'une FACTURE (factureId non nul) ne s'affichent PAS ici : elles
+      // apparaissent dans « Mouvements » et se répercutent dans le catalogue. La liste d'achat
+      // ne montre que les achats saisis directement ici.
+      where: { type: "ENTREE", factureId: null },
       orderBy: { date: "desc" },
       take: 400,
       include: { article: { select: { designation: true } } },

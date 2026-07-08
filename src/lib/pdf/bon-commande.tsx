@@ -3,6 +3,7 @@ import type { BonDeCommande, LigneBonDeCommande, Fournisseur, ParametresAchat } 
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
 import { pdfColors } from "./theme";
+import { delaiPaiementLabel } from "@/lib/stock";
 
 registerPdfFonts();
 
@@ -104,7 +105,8 @@ export function BonCommandeDocument({
         <View style={styles.meta}>
           <View style={styles.partie}>
             <PdfSectionHeader>Conditions</PdfSectionHeader>
-            <PRow label="Délai de paiement" value={bc.delaiPaiement ?? "—"} />
+            <PRow label="Délai de paiement" value={delaiPaiementLabel(bc.delaiPaiement)} />
+            <PRow label="Délai de livraison" value={fournisseur?.delaiLivraison ?? "—"} />
             <PRow label="Mode de paiement" value={bc.modePaiement ?? "—"} />
             {bc.commentaire ? <PRow label="Note" value={bc.commentaire} /> : null}
           </View>

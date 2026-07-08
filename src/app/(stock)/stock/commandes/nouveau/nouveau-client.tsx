@@ -1,17 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { creerBonCommande } from "../actions";
+import { creerBonCommande, modifierBonCommande } from "../actions";
 
 type Art = { id: string; designation: string; prix: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
 type Ligne = { articleId: string; designation: string; quantite: string; prix: string; uniteParCarton: string };
+export type BonInitial = {
+  bcId: string; fournisseurId: string | null; delaiPaiement: string; modePaiement: string; commentaire: string;
+  lignes: Ligne[];
+};
 
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", quantite: "", prix: "", uniteParCarton: "" });
 
-export function NouveauBonForm({ articles, fournisseurs }: { articles: Art[]; fournisseurs: Four[] }) {
-  const [lignes, setLignes] = useState<Ligne[]>([vide(), vide(), vide()]);
+export function NouveauBonForm({ articles, fournisseurs, initial }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial }) {
+  const [lignes, setLignes] = useState<Ligne[]>(initial?.lignes.length ? initial.lignes : [vide(), vide(), vide()]);
+  const action = initial ? modifierBonCommande.bind(null, initial.bcId) : creerBonCommande;
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const choisirArticle = (i: number, articleId: string) => {
@@ -21,22 +26,22 @@ export function NouveauBonForm({ articles, fournisseurs }: { articles: Art[]; fo
   const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
 
   return (
-    <form action={creerBonCommande} className="space-y-4">
+    <form action={action} className="space-y-4">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Fournisseur</span>
-          <select name="fournisseurId" defaultValue="" className={inp}>
+          <select name="fournisseurId" defaultValue={initial?.fournisseurId ?? ""} className={inp}>
             <option value="">— fournisseur —</option>
             {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Délai de paiement</span>
-          <input name="delaiPaiement" className={inp} placeholder="ex. 30 jours" />
+          <input name="delaiPaiement" defaultValue={initial?.delaiPaiement ?? ""} className={inp} placeholder="ex. 30 jours" />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Mode de paiement</span>
-          <input name="modePaiement" className={inp} placeholder="ex. Espèces" />
+          <input name="modePaiement" defaultValue={initial?.modePaiement ?? ""} className={inp} placeholder="ex. Espèces" />
         </label>
       </div>
 
@@ -94,10 +99,10 @@ export function NouveauBonForm({ articles, fournisseurs }: { articles: Art[]; fo
 
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground">Note (optionnel)</span>
-        <textarea name="commentaire" rows={2} className={`${inp} w-full`} />
+        <textarea name="commentaire" defaultValue={initial?.commentaire ?? ""} rows={2} className={`${inp} w-full`} />
       </label>
 
-      <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Créer le bon de commande</button>
+      <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{initial ? "Enregistrer les modifications" : "Créer le bon de commande"}</button>
     </form>
   );
 }
