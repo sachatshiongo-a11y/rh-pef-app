@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
+import { creerNotification } from "@/lib/notifications";
 import { usd } from "@/lib/stock";
 
 const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
@@ -97,14 +98,8 @@ export async function creerBonCommande(formData: FormData) {
 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
 
-  // Notification push à la Direction : un bon de commande vient d'être émis (à valider). Best-effort.
-  const admins = await prisma.user.findMany({ where: { role: "ADMIN", actif: true }, select: { id: true } });
-  await envoyerPush(admins.map((a) => a.id), {
-    title: "Nouveau bon de commande",
-    body: `${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`,
-    url: "/stock/a-valider",
-    tag: `bc-${bc.id}`,
-  });
+  // Un bon de commande vient d'être émis (à valider) : cloche + push/e-mail à la Direction.
+  await creerNotification({ type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
 
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
@@ -169,6 +164,11 @@ export async function validerBonCommande(id: string, _formData: FormData) {
   if (bc.statut !== "BROUILLON") throw new Error("Ce bon de commande est déjà validé.");
   await prisma.bonDeCommande.update({ where: { id }, data: { statut: "VALIDE" } });
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", nouvelleValeur: "VALIDE", userId: user.id });
+
+  // Notifie l'auteur du BC que sa demande est validée (cloche pour tous + push à l'auteur).
+  await prisma.notification.create({ data: { type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
+  if (bc.creeParId) await envoyerPush([bc.creeParId], { title: "Bon de commande validé", body: `${bc.numero} a été validé.`, url: `/stock/commandes/${id}`, tag: `bc-val-${id}` });
+
   revalidatePath("/stock/commandes");
   revalidatePath(`/stock/commandes/${id}`);
 }

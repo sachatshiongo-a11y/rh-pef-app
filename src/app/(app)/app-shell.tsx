@@ -9,12 +9,12 @@ import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 
 // Menu groupé façon PayFit : sections + icônes.
-const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string }[] }[] = [
+const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
     titre: "Les essentiels",
     items: [
       { href: "/accueil", label: "Tableau de bord", icone: "🏠" },
-      { href: "/a-valider", label: "Demandes de validation", icone: "✅" },
+      { href: "/a-valider", label: "Demandes de validation", icone: "✅", adminOnly: true },
       { href: "/employes", label: "Employés", icone: "👥" },
       { href: "/fiches-poste", label: "Fiches de poste", icone: "📄" },
       { href: "/paie", label: "Paie", icone: "💵" },
@@ -122,13 +122,16 @@ export function AppShell({
         </form>
 
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
-          {NAV_GROUPS.map((groupe) => (
+          {NAV_GROUPS.map((groupe) => {
+            const items = groupe.items.filter((it) => !it.adminOnly || userRole === "ADMIN");
+            if (items.length === 0) return null;
+            return (
             <div key={groupe.titre}>
               <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {groupe.titre}
               </p>
               <div className="flex flex-col gap-0.5">
-                {groupe.items.map((item) => {
+                {items.map((item) => {
                   const badge = badges[item.href] ?? 0;
                   return (
                     <Link
@@ -149,7 +152,8 @@ export function AppShell({
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="mt-3 border-t pt-3">

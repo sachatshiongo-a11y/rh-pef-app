@@ -41,9 +41,9 @@ export default async function AccueilPage() {
     effectifBrigade,
     effectifBackoffice,
     run,
-    congesEnAttente,
-    bulletinsPasValide,
-    bulletinsValide,
+    _congesEnAttente,
+    _bulletinsPasValide,
+    _bulletinsValide,
     congesEnCours,
     alertes,
     absencesAVenir,
@@ -125,14 +125,6 @@ export default async function AccueilPage() {
   const varCout = variation("cout");
   const maxSerie = Math.max(1, ...historique.flatMap((h) => [h.net, h.cout]));
 
-  const inbox: { texte: string; sousTexte: string; lien: string }[] = [];
-  if (congesEnAttente > 0)
-    inbox.push({ texte: `${congesEnAttente} demande(s) de congé ${peutValider ? "à valider" : "en attente"}`, sousTexte: "Congés", lien: "/a-valider" });
-  if (peutValider && bulletinsPasValide > 0)
-    inbox.push({ texte: `${bulletinsPasValide} bulletin(s) à valider`, sousTexte: "Paie", lien: "/a-valider" });
-  if (peutValider && bulletinsValide > 0)
-    inbox.push({ texte: `${bulletinsValide} bulletin(s) à payer`, sousTexte: "Paie", lien: "/a-valider" });
-
   const cartes = [
     { label: "Effectif brigade", value: String(effectifBrigade) },
     { label: "Effectif backoffice", value: String(effectifBackoffice) },
@@ -183,25 +175,12 @@ export default async function AccueilPage() {
         <div className="space-y-5 lg:col-span-2">
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="flex items-center justify-between border-b px-5 py-3">
-              <h2 className="font-semibold">À traiter</h2>
-              <Link href="/a-valider" className="text-xs text-primary underline">Ouvrir les demandes de validation →</Link>
+              <h2 className="font-semibold">Alertes</h2>
             </div>
-            {inbox.length === 0 && alertes.length === 0 ? (
-              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Rien à traiter. Tout est à jour ✅</p>
+            {alertes.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-muted-foreground">Aucune alerte. Tout est à jour ✅</p>
             ) : (
               <ul className="divide-y">
-                {inbox.map((it, i) => (
-                  <li key={`i-${i}`}>
-                    <Link href={it.lien} className="flex items-center gap-3 px-5 py-3 hover:bg-accent/50">
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary" aria-hidden />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{it.texte}</p>
-                        <p className="text-xs text-muted-foreground">{it.sousTexte}</p>
-                      </div>
-                      <span className="text-muted-foreground">→</span>
-                    </Link>
-                  </li>
-                ))}
                 {alertes.map((a, i) => {
                   const contenu = (
                     <div className="flex items-center gap-3 px-5 py-3 hover:bg-accent/50">

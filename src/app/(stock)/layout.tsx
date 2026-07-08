@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estStock } from "@/lib/auth";
+import { chargerNotifications } from "@/lib/notifications";
 import { StockShell } from "./stock-shell";
 
 // Espace STOCK — coquille indépendante de l'espace RH. Garde de LECTURE : un compte sans
@@ -9,9 +10,10 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user.role)) redirect("/entree");
 
-  const [moi, nbAValider] = await Promise.all([
+  const [moi, nbAValider, notifs] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
+    chargerNotifications(),
   ]);
 
   return (
@@ -20,7 +22,8 @@ export default async function StockLayout({ children }: { children: React.ReactN
       userRole={user.role}
       maPhoto={moi?.employe?.photoUrl ?? null}
       doubleAcces={user.role === "ADMIN"}
-      badges={{ "/stock/a-valider": nbAValider }}
+      badges={{ "/stock/a-valider": nbAValider, "/stock/commandes": nbAValider }}
+      notif={{ items: notifs.items, nonLues: notifs.nonLues, cloture: null }}
     >
       {children}
     </StockShell>

@@ -15,7 +15,7 @@ export default async function StockDashboard() {
 
   const [
     moi, config, nbArticles, nbFournisseurs, stocks, facturesDues,
-    bcBrouillons, derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
+    derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
@@ -24,7 +24,6 @@ export default async function StockDashboard() {
     prisma.fournisseur.count(),
     prisma.stock.findMany({ include: { article: { select: { designation: true, prixUnitaireUSD: true } } } }),
     prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true }, _count: true }),
-    prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
     prisma.bonDeCommande.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
     prisma.mouvementStock.findMany({ where: { type: { in: ["ENTREE", "SORTIE"] } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 8, include: { article: { select: { designation: true } } } }),
@@ -86,19 +85,6 @@ export default async function StockDashboard() {
                 <li key={i} className="flex items-center justify-between py-1.5">
                   <span className="truncate pr-2">{a.designation}</span>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{qte(a.quantite)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Bloc>
-
-        <Bloc titre={`Demandes de validation de BC (${bcBrouillons.length})`} lien="/stock/a-valider">
-          {bcBrouillons.length === 0 ? <Vide t="Aucun bon de commande à valider." /> : (
-            <ul className="divide-y text-sm">
-              {bcBrouillons.map((b) => (
-                <li key={b.id} className="flex items-center justify-between py-1.5">
-                  <Link href={`/stock/commandes/${b.id}`} className="truncate pr-2 hover:underline">{b.numero} · {b.fournisseur?.nom ?? "—"}</Link>
-                  <span className="shrink-0 font-medium">{usd(b.totalUSD)}</span>
                 </li>
               ))}
             </ul>

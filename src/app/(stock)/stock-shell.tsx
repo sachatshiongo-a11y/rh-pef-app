@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
+import { NotificationBell } from "@/components/notification-bell";
 import { logout } from "@/app/login/actions";
 
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
@@ -12,7 +13,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     titre: "Pilotage",
     items: [
       { href: "/stock", label: "Tableau de bord", icone: "" },
-      { href: "/stock/a-valider", label: "Demandes à valider", icone: "" },
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "", adminOnly: true },
     ],
   },
   {
@@ -49,6 +50,7 @@ export function StockShell({
   maPhoto,
   doubleAcces,
   badges = {},
+  notif,
   children,
 }: {
   userNom: string;
@@ -56,6 +58,7 @@ export function StockShell({
   maPhoto: string | null;
   doubleAcces: boolean;
   badges?: Record<string, number>;
+  notif: React.ComponentProps<typeof NotificationBell> | null;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -144,8 +147,16 @@ export function StockShell({
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
           <span className="truncate font-medium">Stock &amp; Achats</span>
-          <div className="ml-auto"><Avatar nom={userNom} taille={28} photoUrl={maPhoto} /></div>
+          <div className="ml-auto flex items-center gap-2">
+            {notif && <NotificationBell {...notif} />}
+            <Avatar nom={userNom} taille={28} photoUrl={maPhoto} />
+          </div>
         </header>
+        {notif && (
+          <div className="hidden justify-end border-b bg-background px-8 py-2 lg:flex">
+            <NotificationBell {...notif} />
+          </div>
+        )}
         <div className="p-4 lg:p-8">{children}</div>
       </main>
     </div>
