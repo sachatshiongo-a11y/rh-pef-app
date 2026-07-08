@@ -9,10 +9,19 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user.role)) redirect("/entree");
 
-  const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
+  const [moi, nbAValider] = await Promise.all([
+    prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
+    prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
+  ]);
 
   return (
-    <StockShell userNom={user.nom} userRole={user.role} maPhoto={moi?.employe?.photoUrl ?? null} doubleAcces={user.role === "ADMIN"}>
+    <StockShell
+      userNom={user.nom}
+      userRole={user.role}
+      maPhoto={moi?.employe?.photoUrl ?? null}
+      doubleAcces={user.role === "ADMIN"}
+      badges={{ "/stock/a-valider": nbAValider }}
+    >
       {children}
     </StockShell>
   );

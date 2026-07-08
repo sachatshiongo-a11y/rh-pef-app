@@ -25,6 +25,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Achats",
     items: [
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "✅" },
       { href: "/stock/commandes", label: "Bons de commande", icone: "📝" },
       { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
       { href: "/stock/factures", label: "Factures", icone: "🧾" },
@@ -37,12 +38,14 @@ export function StockShell({
   userRole,
   maPhoto,
   doubleAcces,
+  badges = {},
   children,
 }: {
   userNom: string;
   userRole: string;
   maPhoto: string | null;
   doubleAcces: boolean;
+  badges?: Record<string, number>;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -94,6 +97,9 @@ export function StockShell({
                   >
                     <span aria-hidden className="lg:hidden">{item.icone}</span>
                     <span className="flex-1">{item.label}</span>
+                    {(badges[item.href] ?? 0) > 0 && (
+                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badges[item.href]}</span>
+                    )}
                   </Link>
                 ))}
               </div>

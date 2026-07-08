@@ -1,21 +1,44 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
+import type { Prisma } from "@prisma/client";
 
-export default async function CommandesPage() {
-  const commandes = await prisma.bonDeCommande.findMany({
-    orderBy: [{ annee: "desc" }, { sequence: "desc" }],
-    include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
-  });
+type SP = { mois?: string; fournisseurId?: string };
+const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+
+export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const mois = sp.mois && /^\d{1,2}$/.test(sp.mois) ? Number(sp.mois) : undefined;
+  const fournisseurId = sp.fournisseurId || undefined;
+
+  const where: Prisma.BonDeCommandeWhereInput = {
+    ...(mois ? { mois } : {}),
+    ...(fournisseurId ? { fournisseurId } : {}),
+  };
+  const [commandes, fournisseurs] = await Promise.all([
+    prisma.bonDeCommande.findMany({ where, orderBy: [{ annee: "desc" }, { sequence: "desc" }], include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } } }),
+    prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+  ]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Bons de commande</h1>
-        <Link href="/stock/commandes/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-          + Nouveau bon de commande
-        </Link>
+        <Link href="/stock/commandes/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">+ Nouveau bon de commande</Link>
       </div>
+
+      <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
+        <select name="mois" defaultValue={mois ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les mois</option>
+          {MOIS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+        </select>
+        <select name="fournisseurId" defaultValue={fournisseurId ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les fournisseurs</option>
+          {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
+        </select>
+        <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
+        {(mois || fournisseurId) && <Link href="/stock/commandes" className="text-muted-foreground underline">Réinitialiser</Link>}
+      </form>
 
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[44rem] text-sm">
@@ -49,7 +72,7 @@ export default async function CommandesPage() {
                 </td>
               </tr>
             ))}
-            {commandes.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Aucun bon de commande.</td></tr>}
+            {commandes.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Aucun bon de commande pour ce filtre.</td></tr>}
           </tbody>
         </table>
       </div>

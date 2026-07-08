@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, useTransition } from "react";
-import { creerArticle, modifierArticle, categoriserEnMasse } from "./actions";
+import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, type NiveauAlerte } from "@/lib/stock";
 
 export type ArticleRow = {
@@ -64,6 +64,15 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
             Appliquer
           </button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
+          {sel.size >= 2 && (
+            <button
+              disabled={isPending}
+              onClick={() => { if (confirm(`Fusionner ces ${sel.size} articles en un seul ? Les doublons seront supprimés (stock cumulé sur l'article conservé).`)) run(async () => { await fusionnerArticles([...sel]); setSel(new Set()); }); }}
+              className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+            >
+              ⛙ Fusionner en 1
+            </button>
+          )}
         </div>
       )}
 

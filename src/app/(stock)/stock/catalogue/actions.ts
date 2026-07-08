@@ -89,6 +89,30 @@ export async function modifierArticle(id: string, formData: FormData) {
   revalidatePath("/stock/catalogue");
 }
 
+/** Fusionne plusieurs articles en un seul (pour les doublons sémantiques : crème fraîche = cooking
+ * cream…). Garde le premier ; réaffecte mouvements et lignes de BC, cumule le stock, supprime les autres. */
+export async function fusionnerArticles(articleIds: string[]) {
+  const user = await garde();
+  if (articleIds.length < 2) throw new Error("Sélectionnez au moins deux articles à fusionner.");
+  const arts = await prisma.articleStock.findMany({ where: { id: { in: articleIds } }, include: { stock: true } });
+  if (arts.length < 2) return;
+  // Garde celui qui a une catégorie, sinon le plus fourni en stock.
+  arts.sort((a, b) => (b.categorieId ? 1 : 0) - (a.categorieId ? 1 : 0) || Number(b.stock?.quantite ?? 0) - Number(a.stock?.quantite ?? 0));
+  const keep = arts[0];
+  const losers = arts.slice(1);
+
+  await prisma.$transaction(async (tx) => {
+    for (const l of losers) {
+      await tx.mouvementStock.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
+      await tx.ligneBonDeCommande.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
+      if (l.stock) await tx.stock.update({ where: { articleId: keep.id }, data: { quantite: { increment: Number(l.stock.quantite) } } });
+      await tx.articleStock.delete({ where: { id: l.id } });
+    }
+  });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: keep.id, champ: "fusion", nouvelleValeur: `${losers.length} doublon(s) → ${keep.designation}`, userId: user.id });
+  revalidatePath("/stock/catalogue");
+}
+
 /** Catégorise en masse : affecte une catégorie à plusieurs articles. */
 export async function categoriserEnMasse(articleIds: string[], categorieId: string) {
   const user = await garde();
