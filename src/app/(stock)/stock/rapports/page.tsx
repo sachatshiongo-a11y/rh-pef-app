@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import Link from "next/link";
 import { TYPES_RAPPORT } from "@/lib/rapports";
 
 type SP = { debut?: string; fin?: string };
@@ -11,8 +11,6 @@ export default async function RapportsPage({ searchParams }: { searchParams: Pro
   const debutDef = moisISO(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1)));
   const debut = sp.debut && /^\d{4}-\d{2}$/.test(sp.debut) ? sp.debut : debutDef;
   const fin = sp.fin && /^\d{4}-\d{2}$/.test(sp.fin) ? sp.fin : finDef;
-
-  const recents = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 15 });
 
   const lien = (type: string, format: string, mode: string) => `/stock/rapports/export?type=${type}&format=${format}&mode=${mode}&debut=${debut}&fin=${fin}`;
 
@@ -50,27 +48,7 @@ export default async function RapportsPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
 
-      <div>
-        <h2 className="mb-2 text-sm font-semibold">Rapports générés récemment</h2>
-        {recents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun rapport généré pour le moment.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Période</th><th>Généré le</th></tr></thead>
-              <tbody>
-                {recents.map((r) => (
-                  <tr key={r.id} className="border-t even:bg-muted/25">
-                    <td className="px-3 py-2 font-medium">{r.titre}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{new Date(r.createdAt).toLocaleString("fr-FR")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <p className="text-sm text-muted-foreground">L’historique des rapports générés est disponible dans l’onglet <Link href="/stock/archives?vue=rapports" className="text-primary underline">Archives</Link>.</p>
     </div>
   );
 }

@@ -2,43 +2,116 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { DOMAINE_LABEL } from "@/lib/stock";
 
-export default async function ArchivesPage() {
-  const sessions = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+type SP = { vue?: string };
+
+// Entités du domaine Stock à afficher dans le journal d'activité.
+const STOCK_ENTITES = ["ArticleStock", "BonDeCommande", "FactureFournisseur", "MouvementStock", "SessionComptage", "Fournisseur", "LigneFacture", "ArticleResto", "AchatLegume", "Stock", "LigneComptage"];
+const ENTITE_LABEL: Record<string, string> = {
+  ArticleStock: "Article", BonDeCommande: "Bon de commande", FactureFournisseur: "Facture", MouvementStock: "Mouvement",
+  SessionComptage: "Comptage", Fournisseur: "Fournisseur", LigneFacture: "Ligne facture", ArticleResto: "Article resto",
+  AchatLegume: "Achat légumes", Stock: "Stock", LigneComptage: "Ligne comptage",
+};
+const TYPE_RAPPORT_LABEL: Record<string, string> = {
+  FACTURES: "Factures", BONS_COMMANDE: "Bons de commande", PAIEMENTS: "Retards de paiement",
+  ACHATS: "Achats", MOUVEMENTS: "Mouvements", LEGUMES: "Achats légumes",
+};
+
+export default async function ArchivesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : "comptages";
+
+  const onglets: [string, string][] = [["comptages", "Comptages"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
 
   return (
     <div className="max-w-4xl space-y-4">
       <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Archives des comptages</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Chaque comptage appliqué est archivé ici. Cliquez pour revoir la fiche (théorique, physique, écarts, explications).</p>
+        <h1 className="text-xl font-semibold sm:text-2xl">Archives</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Historique de l’application : comptages d’inventaire, rapports générés et journal d’activité.</p>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[40rem] text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-              <th>Date</th>
-              <th>Domaine</th>
-              <th className="text-right">Articles</th>
-              <th className="text-right">Écarts</th>
-              <th className="text-right">Hors tolérance</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((s) => (
-              <tr key={s.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
-                <td className="px-3 py-2 font-medium">{new Date(s.date).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-2 text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"}</td>
-                <td className="px-3 py-2 text-right">{s.nbArticles}</td>
-                <td className="px-3 py-2 text-right">{s.nbEcarts}</td>
-                <td className="px-3 py-2 text-right">{s.nbHorsTol > 0 ? <span className="font-semibold text-red-700">{s.nbHorsTol}</span> : "0"}</td>
-                <td className="px-3 py-2 text-right"><Link href={`/stock/archives/${s.id}`} className="text-primary underline">Ouvrir</Link></td>
-              </tr>
-            ))}
-            {sessions.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun comptage archivé.</td></tr>}
-          </tbody>
-        </table>
+      <div className="flex flex-wrap gap-1.5 text-sm">
+        {onglets.map(([k, label]) => (
+          <a key={k} href={`/stock/archives?vue=${k}`} className={`rounded-full border px-3 py-1 ${vue === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
+        ))}
       </div>
+
+      {vue === "comptages" && <Comptages />}
+      {vue === "rapports" && <Rapports />}
+      {vue === "journal" && <Journal />}
+    </div>
+  );
+}
+
+async function Comptages() {
+  const sessions = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <table className="w-full min-w-[40rem] text-sm">
+        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Date</th><th>Domaine</th><th className="text-right">Articles</th><th className="text-right">Écarts</th><th className="text-right">Hors tolérance</th><th></th></tr></thead>
+        <tbody>
+          {sessions.map((s) => (
+            <tr key={s.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
+              <td className="px-3 py-2 font-medium">{new Date(s.date).toLocaleDateString("fr-FR")}</td>
+              <td className="px-3 py-2 text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"}</td>
+              <td className="px-3 py-2 text-right">{s.nbArticles}</td>
+              <td className="px-3 py-2 text-right">{s.nbEcarts}</td>
+              <td className="px-3 py-2 text-right">{s.nbHorsTol > 0 ? <span className="font-semibold text-red-700">{s.nbHorsTol}</span> : "0"}</td>
+              <td className="px-3 py-2 text-right"><Link href={`/stock/archives/${s.id}`} className="text-primary underline">Ouvrir</Link></td>
+            </tr>
+          ))}
+          {sessions.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun comptage archivé.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+async function Rapports() {
+  const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <table className="w-full min-w-[40rem] text-sm">
+        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Catégorie</th><th>Période</th><th>Généré le</th></tr></thead>
+        <tbody>
+          {rapports.map((r) => (
+            <tr key={r.id} className="border-t even:bg-muted/25">
+              <td className="px-3 py-2 font-medium">{r.titre}</td>
+              <td className="px-3 py-2 text-muted-foreground">{TYPE_RAPPORT_LABEL[r.type] ?? r.type}</td>
+              <td className="px-3 py-2 text-muted-foreground">{r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}</td>
+              <td className="px-3 py-2 text-muted-foreground">{new Date(r.createdAt).toLocaleString("fr-FR")}</td>
+            </tr>
+          ))}
+          {rapports.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">Aucun rapport généré. Générez-en depuis l’onglet Rapports.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+async function Journal() {
+  const entrees = await prisma.journalAudit.findMany({
+    where: { entite: { in: STOCK_ENTITES } },
+    orderBy: { date: "desc" },
+    take: 200,
+    include: { user: { select: { nom: true } } },
+  });
+  return (
+    <div className="overflow-x-auto rounded-lg border">
+      <table className="w-full min-w-[44rem] text-sm">
+        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Quand</th><th>Type</th><th>Action</th><th>Détail</th><th>Par</th></tr></thead>
+        <tbody>
+          {entrees.map((e) => (
+            <tr key={e.id} className="border-t even:bg-muted/25">
+              <td className="px-3 py-2 text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR")}</td>
+              <td className="px-3 py-2">{ENTITE_LABEL[e.entite] ?? e.entite}</td>
+              <td className="px-3 py-2 text-muted-foreground">{e.champ}</td>
+              <td className="px-3 py-2 text-muted-foreground">{e.nouvelleValeur ?? e.ancienneValeur ?? "—"}</td>
+              <td className="px-3 py-2 text-muted-foreground">{e.user?.nom ?? "—"}</td>
+            </tr>
+          ))}
+          {entrees.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucune activité enregistrée.</td></tr>}
+        </tbody>
+      </table>
     </div>
   );
 }
