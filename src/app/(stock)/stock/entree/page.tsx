@@ -3,6 +3,8 @@ import { verifySession } from "@/lib/auth";
 import { qte } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
+import { supprimerToutesEntreesAchat } from "./actions";
 
 type SP = { periode?: string };
 
@@ -74,7 +76,10 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
             l&apos;inventaire. L&apos;historique se consulte par jour, semaine ou mois.
           </p>
         </div>
-        <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
+        <div className="flex items-center gap-2">
+          <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
+          <BoutonSupprimerTout estDirection={estDirection} action={supprimerToutesEntreesAchat} libelle="Supprimer TOUTES les entrées de la liste d'achat ? Le stock sera corrigé (effet annulé)." />
+        </div>
       </div>
 
       <ListeAchatForm articles={articles} taux={taux} estDirection={estDirection} />

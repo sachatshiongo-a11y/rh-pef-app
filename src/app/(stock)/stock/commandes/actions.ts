@@ -156,6 +156,15 @@ export async function modifierBonCommande(id: string, formData: FormData) {
   redirect(`/stock/commandes/${id}`);
 }
 
+/** Supprime TOUS les bons de commande (Direction uniquement). Lignes en cascade, factures détachées. */
+export async function supprimerTousBonsCommande() {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const { count } = await prisma.bonDeCommande.deleteMany({});
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: "tous", champ: "suppression groupée", nouvelleValeur: `${count} BC`, userId: user.id });
+  revalidatePath("/stock/commandes");
+}
+
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
 export async function validerBonCommande(id: string, _formData: FormData) {
   const user = await garde();

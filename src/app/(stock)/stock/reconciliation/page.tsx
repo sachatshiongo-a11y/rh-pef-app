@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { ReconciliationForm } from "./reconciliation-client";
+import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
+import { supprimerTousComptages } from "./actions";
 import type { Prisma } from "@prisma/client";
 
 type SP = { q?: string; domaine?: string };
@@ -41,6 +43,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <a href={ficheHref("NOURRITURE")} download target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</a>
           <a href={ficheHref("BOISSON")} download target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</a>
           <a href={ficheHref("AUTRE")} download target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</a>
+          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousComptages} libelle="Supprimer TOUS les comptages archivés ?" />
         </div>
       </div>
 

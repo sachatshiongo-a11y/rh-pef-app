@@ -3,6 +3,8 @@ import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
+import { supprimerTousAchatsLegumes } from "./actions";
 
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const cdf = (n: number) => n.toLocaleString("fr-FR");
@@ -33,7 +35,10 @@ export default async function LegumesPage() {
           <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
           <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
         </div>
-        <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
+        <div className="flex items-center gap-2">
+          <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
+          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousAchatsLegumes} libelle="Supprimer TOUS les achats de légumes ?" />
+        </div>
       </div>
 
       <AchatLegumesForm taux={taux} estDirection={estDirection} />

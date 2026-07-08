@@ -3,6 +3,8 @@ import { verifySession } from "@/lib/auth";
 import { qte, usd } from "@/lib/stock";
 import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
+import { supprimerTousMouvements } from "./actions";
 import type { Prisma } from "@prisma/client";
 
 type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true } } } }>;
@@ -89,6 +91,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
         {(mois || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousMouvements} libelle="Supprimer TOUS les mouvements ? Le stock sera recalculé (effet annulé)." />
       </form>
 
       <MouvementForm articles={articles} estDirection={estDirection} />

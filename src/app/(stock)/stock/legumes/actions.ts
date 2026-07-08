@@ -2,8 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+
+/** Supprime TOUS les achats de légumes (Direction uniquement). Sans impact stock (journal). */
+export async function supprimerTousAchatsLegumes() {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]);
+  const { count } = await prisma.achatLegume.deleteMany({});
+  await journaliser(prisma, { entite: "AchatLegume", entiteId: "tous", champ: "suppression groupée", nouvelleValeur: `${count} achat(s)`, userId: user.id });
+  revalidatePath("/stock/legumes");
+}
 
 const dec = (v: FormDataEntryValue | null): number => {
   const n = Number(String(v ?? "").replace(",", ".").trim());
