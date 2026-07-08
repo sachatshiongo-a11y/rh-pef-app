@@ -37,7 +37,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
           {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(mois || fournisseurId) && <Link href="/stock/commandes" className="text-muted-foreground underline">Réinitialiser</Link>}
+        <Link href="/stock/commandes" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
       </form>
 
       <div className="overflow-x-auto rounded-lg border">

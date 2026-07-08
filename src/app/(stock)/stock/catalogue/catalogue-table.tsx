@@ -173,7 +173,7 @@ const LigneArticle = memo(function LigneArticle({
   return (
     <tr className={`hover:bg-accent/40 ${selected ? "bg-primary/10" : "even:bg-muted/25"} ${busy ? "opacity-60" : ""}`}>
       <td><input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} /></td>
-      <td className="font-medium">{a.designation}</td>
+      <td><input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 font-medium`} title="Modifier le nom de l'article" /></td>
       <td>
         <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
