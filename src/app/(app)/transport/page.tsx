@@ -35,6 +35,17 @@ export default async function TransportPage() {
 
   const totalMoisComplet = lignes.reduce((s, l) => s + l.moisCompletCDF, 0);
 
+  // Totaux par catégorie. Par jour : brigade = tarif journalier ; back-office = forfait ÷ jours ouvrables.
+  const totauxGroupe = (brig: boolean) => {
+    const g = lignes.filter((l) => l.brigade === brig);
+    const jourCDF = g.reduce((s, l) => s + (brig ? l.jour : l.moisCompletCDF / jours), 0);
+    const moisCDF = g.reduce((s, l) => s + l.moisCompletCDF, 0);
+    return { n: g.length, jourCDF, moisCDF };
+  };
+  const totBrigade = totauxGroupe(true);
+  const totBackoffice = totauxGroupe(false);
+  const totalJour = totBrigade.jourCDF + totBackoffice.jourCDF;
+
   return (
     <div className="max-w-5xl">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -47,6 +58,12 @@ export default async function TransportPage() {
         <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
           Taux : 1&nbsp;$ = {taux.toLocaleString("fr-FR")} CDF · {jours} j ouvrables
         </span>
+      </div>
+
+      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+        <CarteTotal titre="Brigade" n={totBrigade.n} jour={totBrigade.jourCDF} mois={totBrigade.moisCDF} accent="bg-amber-100 text-amber-800" />
+        <CarteTotal titre="Back-office" n={totBackoffice.n} jour={totBackoffice.jourCDF} mois={totBackoffice.moisCDF} accent="bg-sky-100 text-sky-800" />
+        <CarteTotal titre="Ensemble" n={lignes.length} jour={totalJour} mois={totalMoisComplet} accent="bg-primary/10 text-primary" />
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
@@ -93,6 +110,28 @@ export default async function TransportPage() {
             </tfoot>
           )}
         </table>
+      </div>
+    </div>
+  );
+}
+
+/** Carte de synthèse : total transport par jour et par mois pour une catégorie. */
+function CarteTotal({ titre, n, jour, mois, accent }: { titre: string; n: number; jour: number; mois: number; accent: string }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${accent}`}>{titre}</span>
+        <span className="text-xs text-muted-foreground">{n} employé(s)</span>
+      </div>
+      <div className="flex items-end justify-between gap-2">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total / jour</p>
+          <p className="text-sm font-semibold tabular-nums">{cdf(jour)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total / mois</p>
+          <p className="text-base font-semibold tabular-nums">{cdf(mois)}</p>
+        </div>
       </div>
     </div>
   );
