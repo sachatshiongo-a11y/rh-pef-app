@@ -15,7 +15,8 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Stock",
     items: [
-      { href: "/stock/catalogue", label: "Catalogue", icone: "📦" },
+      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "🍽" },
+      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "🥤" },
       { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
       { href: "/stock/mouvements", label: "Mouvements", icone: "🔁" },
       { href: "/stock/journalier", label: "Conso. journalière", icone: "📅" },

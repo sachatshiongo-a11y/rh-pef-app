@@ -22,14 +22,17 @@ type Four = { id: string; nom: string };
 const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-export function CatalogueTable({ articles, categories, fournisseurs }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[] }) {
+const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
+
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: "NOURRITURE" | "BOISSON"; initialQ?: string }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [ajout, setAjout] = useState(false);
-  const [q, setQ] = useState("");
-  const [dom, setDom] = useState<"TOUS" | "NOURRITURE" | "BOISSON">("TOUS");
+  const [q, setQ] = useState(initialQ ?? "");
+  const [dom, setDom] = useState<"TOUS" | "NOURRITURE" | "BOISSON">(lockedDomaine ?? "TOUS");
+  const [alerte, setAlerte] = useState<"" | NiveauAlerte>("");
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
   const fourNom = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f.nom])), [fournisseurs]);
@@ -38,9 +41,10 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
     const nq = norm(q.trim());
     return articles.filter((a) =>
       (dom === "TOUS" || a.domaine === dom) &&
+      (!alerte || a.niveau === alerte) &&
       (!nq || norm(a.designation).includes(nq)),
     );
-  }, [articles, q, dom]);
+  }, [articles, q, dom, alerte]);
 
   const run = (fn: () => Promise<void>) => {
     setErreur(null);
@@ -63,11 +67,18 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
       {/* Recherche + filtre domaine */}
       <div className="flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
+        {!lockedDomaine && (
+          <div className="flex gap-1.5 text-sm">
+            {(["TOUS", "NOURRITURE", "BOISSON"] as const).map((k) => (
+              <button key={k} onClick={() => setDom(k)} className={`rounded-full border px-3 py-1 ${dom === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>
+                {k === "TOUS" ? "Tous" : k === "NOURRITURE" ? "🍽 Nourriture" : "🥤 Boissons"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex gap-1.5 text-sm">
-          {(["TOUS", "NOURRITURE", "BOISSON"] as const).map((k) => (
-            <button key={k} onClick={() => setDom(k)} className={`rounded-full border px-3 py-1 ${dom === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>
-              {k === "TOUS" ? "Tous" : k === "NOURRITURE" ? "🍽 Nourriture" : "🥤 Boissons"}
-            </button>
+          {ALERTES.map(([k, label]) => (
+            <button key={k} onClick={() => setAlerte(k as "" | NiveauAlerte)} className={`rounded-full border px-3 py-1 ${alerte === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</button>
           ))}
         </div>
         <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
@@ -111,7 +122,7 @@ export function CatalogueTable({ articles, categories, fournisseurs }: { article
       {ajout && (
         <form action={(fd) => run(async () => { await creerArticle(fd); setAjout(false); })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
           <input name="designation" placeholder="Désignation *" required className={cellCls} />
-          <select name="domaine" defaultValue="NOURRITURE" className={cellCls}>
+          <select name="domaine" defaultValue={lockedDomaine ?? "NOURRITURE"} className={cellCls}>
             <option value="NOURRITURE">Nourriture</option>
             <option value="BOISSON">Boisson</option>
           </select>

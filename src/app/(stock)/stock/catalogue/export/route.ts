@@ -3,11 +3,14 @@ import { verifySession, requireModule } from "@/lib/auth";
 import { classeurExcel } from "@/lib/export-excel";
 import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await verifySession();
   requireModule(user, "stock");
 
+  const dom = new URL(req.url).searchParams.get("domaine");
+  const domaine = dom === "NOURRITURE" || dom === "BOISSON" ? dom : undefined;
   const articles = await prisma.articleStock.findMany({
+    where: domaine ? { domaine } : {},
     orderBy: [{ domaine: "asc" }, { designation: "asc" }],
     include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
   });
@@ -28,8 +31,10 @@ export async function GET() {
     ];
   });
 
+  const suffixe = domaine === "NOURRITURE" ? " — Nourriture" : domaine === "BOISSON" ? " — Boissons" : "";
+  const suffixeFichier = domaine === "NOURRITURE" ? "_Nourriture" : domaine === "BOISSON" ? "_Boissons" : "";
   const buf = await classeurExcel({
-    titre: "Catalogue — Stock & Achats",
+    titre: `Catalogue${suffixe} — Stock & Achats`,
     periode: new Date().toLocaleDateString("fr-FR"),
     feuilles: [{
       nom: "Catalogue",
@@ -40,7 +45,7 @@ export async function GET() {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Catalogue_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Catalogue${suffixeFichier}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
     },
   });
 }
