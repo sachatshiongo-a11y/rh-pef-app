@@ -42,6 +42,9 @@ function toEmployeeInput(formData: FormData) {
     banque: String(formData.get("banque") ?? "").trim() || null,
     compteBancaire: String(formData.get("compteBancaire") ?? "").trim() || null,
     mobileMoney: String(formData.get("mobileMoney") ?? "").trim() || null,
+    modePaiement: (["ESPECES", "VIREMENT", "MOBILE_MONEY"].includes(String(formData.get("modePaiement")))
+      ? String(formData.get("modePaiement"))
+      : "ESPECES") as "ESPECES" | "VIREMENT" | "MOBILE_MONEY",
   };
 }
 

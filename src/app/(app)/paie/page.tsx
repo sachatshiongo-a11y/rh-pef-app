@@ -43,8 +43,7 @@ export default async function PaiePage({
   const apercu = run ? null : await calculerLignesPaie(mois, annee);
   const enApercu = !run;
 
-  const modeDefaut = (e: { banque: string | null; mobileMoney: string | null }): PaieRow["modePaiementDefaut"] =>
-    e.banque ? "VIREMENT" : e.mobileMoney ? "MOBILE_MONEY" : "ESPECES";
+  const modeDefaut = (e: { modePaiement: PaieRow["modePaiementDefaut"] }): PaieRow["modePaiementDefaut"] => e.modePaiement;
 
   const rows: PaieRow[] = run
     ? run.lignes.map((l) => ({

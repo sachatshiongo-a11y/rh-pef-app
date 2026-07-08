@@ -211,6 +211,7 @@ model Employee {
   banque                   String?
   compteBancaire           String?
   mobileMoney              String?
+  modePaiement             ModePaiement     @default(ESPECES) // moyen de paiement du salaire, pré-rempli au paiement
   idExterneIVMS            String? // identifiant du salarié dans IVMS-4200 (appariement pointage)
   dateEmbauche             DateTime         @db.Date
   contrat                  String

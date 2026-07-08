@@ -103,12 +103,9 @@ async function appliquerTransitionPaie(
   if (!ligne || !transitionAutorisee(ligne.statutPaiement, versStatut)) return false;
 
   const deStatut = ligne.statutPaiement;
-  // Moyen de paiement : celui explicitement choisi, sinon celui configuré sur la fiche employé
-  // (virement si banque renseignée, mobile money si mobile renseigné, sinon espèces) — plus jamais
-  // « espèces » imposé par défaut, y compris pour les actions groupées.
-  const modePaiement =
-    opts.modePaiement ??
-    (ligne.employee.banque ? "VIREMENT" : ligne.employee.mobileMoney ? "MOBILE_MONEY" : "ESPECES");
+  // Moyen de paiement : celui explicitement choisi, sinon le moyen de paiement de la fiche employé
+  // — plus jamais « espèces » imposé par défaut, y compris pour les actions groupées.
+  const modePaiement = opts.modePaiement ?? ligne.employee.modePaiement;
 
   await prisma.$transaction(async (tx) => {
     await tx.payrollLine.update({

@@ -152,6 +152,16 @@ export function EmployeeForm({
       <Field label="Banque" name="banque" defaultValue={employee?.banque ?? ""} />
       <Field label="Compte bancaire / IBAN" name="compteBancaire" defaultValue={employee?.compteBancaire ?? ""} />
       <Field label="Mobile Money" name="mobileMoney" defaultValue={employee?.mobileMoney ?? ""} />
+      <Select
+        label="Moyen de paiement du salaire"
+        name="modePaiement"
+        defaultValue={employee?.modePaiement ?? "ESPECES"}
+        options={[
+          { value: "ESPECES", label: "Espèces" },
+          { value: "VIREMENT", label: "Virement bancaire" },
+          { value: "MOBILE_MONEY", label: "Mobile Money" },
+        ]}
+      />
 
       <div className="col-span-2 mt-2">
         <button
