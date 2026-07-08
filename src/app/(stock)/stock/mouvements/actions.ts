@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 
 /** Supprime TOUS les mouvements et annule leur effet sur le stock (Direction uniquement). */
 export async function supprimerTousMouvements() {
@@ -64,6 +65,10 @@ export async function mouvementManuel(formData: FormData) {
     .filter((l) => l.articleId && l.quantite > 0);
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article + quantité).");
 
+  // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
+  const idsLignes = lignes.map((l) => l.articleId);
+  const niveauxAvant = type === "SORTIE" ? await niveauxActuels(idsLignes) : new Map();
+
   await prisma.$transaction(async (tx) => {
     for (const l of lignes) {
       await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, date, categorieSortie, raisonSortie, creeParId: user.id } });
@@ -74,6 +79,8 @@ export async function mouvementManuel(formData: FormData) {
       });
     }
   });
+
+  if (type === "SORTIE") await notifierNouvellesAlertes(idsLignes, niveauxAvant);
 
   await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} ${type.toLowerCase()}(s)`, champ: type.toLowerCase(), nouvelleValeur: origine, userId: user.id });
   revalidatePath("/stock/restaurant");

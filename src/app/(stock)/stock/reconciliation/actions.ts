@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
-import { SEUIL_TOLERANCE_PCT } from "@/lib/stock";
+import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
+import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
 
 /** Supprime TOUTES les fiches de comptage archivées (Direction uniquement). Sans impact stock. */
 export async function supprimerTousComptages() {
@@ -49,6 +50,8 @@ export async function appliquerComptage(formData: FormData) {
   ]);
   const theo = new Map(stocks.map((s) => [s.articleId, Number(s.quantite)]));
   const nom = new Map(articles.map((a) => [a.id, a.designation]));
+  // Niveaux d'alerte AVANT ajustement, pour notifier les articles qui passent bas après recomptage.
+  const niveauxAvant = new Map<string, NiveauAlerte>(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum)]));
 
   // Calcule les écarts + repère les lignes hors tolérance.
   const lignes = comptes.map((c) => {
@@ -94,6 +97,9 @@ export async function appliquerComptage(formData: FormData) {
     await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Comptage du ${new Date().toLocaleDateString("fr-FR")} : ${nbHorsTol} écart(s) supérieur(s) à ${SEUIL_TOLERANCE_PCT} %.`, lien: `/stock/archives/${session.id}`, refId: session.id } });
     await envoyerPush(cibles.map((c) => c.id), { title: "Écart d'inventaire", body: `${nbHorsTol} écart(s) > ${SEUIL_TOLERANCE_PCT} % lors du comptage.`, url: `/stock/archives/${session.id}`, tag: `comptage-${session.id}` });
   }
+
+  // Notifie les articles fournisseurs qui viennent de passer « à réapprovisionner » / « urgence ».
+  await notifierNouvellesAlertes(comptes.map((c) => c.articleId), niveauxAvant);
 
   await journaliser(prisma, { entite: "SessionComptage", entiteId: session.id, champ: "comptage", nouvelleValeur: `${nbEcarts} écart(s), ${nbHorsTol} hors tolérance`, userId: user.id });
   revalidatePath("/stock/reconciliation");

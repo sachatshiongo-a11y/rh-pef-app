@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { enregistrerFichePoste, supprimerFichePoste } from "./actions";
+import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
 export default async function FichesPostePage({
@@ -46,12 +46,41 @@ export default async function FichesPostePage({
           {sp.msg}
         </div>
       )}
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold sm:text-2xl">Fiches de poste</h1>
-        <p className="text-sm text-muted-foreground">
-          Une fiche par intitulé de poste — description et document (PDF ou Word). {avecFiche}/{postes.length} poste(s) documenté(s).
-        </p>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">Fiches de poste</h1>
+          <p className="text-sm text-muted-foreground">
+            Une fiche par intitulé de poste — description et document (PDF ou Word).
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="rounded-full bg-emerald-100 px-3 py-1 font-medium text-emerald-800">{avecFiche} documenté(s)</span>
+          <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">{postes.length - avecFiche} à faire</span>
+        </div>
       </div>
+
+      {peutGerer && (
+        <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">📥 Importer des fiches en masse</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Sélectionnez plusieurs fichiers d&apos;un coup : le logiciel reconnaît le poste concerné d&apos;après le nom du fichier
+            (ex. « <span className="font-medium">Fiche cuisinier.pdf</span> » → poste « Cuisinier »). Les fichiers non reconnus sont signalés.
+          </p>
+          <form action={importerFichesEnMasse} className="mt-3 flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              name="fichiers"
+              multiple
+              accept=".pdf,.doc,.docx"
+              required
+              className="text-xs"
+            />
+            <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground">
+              Importer
+            </button>
+          </form>
+        </div>
+      )}
 
       {postes.length === 0 && (
         <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
@@ -59,12 +88,13 @@ export default async function FichesPostePage({
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-2">
         {postes.map((poste) => {
           const fiche = ficheParPoste.get(poste);
           const effectif = effectifParPoste.get(poste) ?? 0;
+          const documente = Boolean(fiche?.fichierUrl || fiche?.description);
           return (
-            <div key={poste} className="rounded-xl border bg-card p-4">
+            <div key={poste} className={`rounded-xl border bg-card p-4 ${documente ? "" : "border-dashed"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h2 className="font-semibold">{poste}</h2>
@@ -83,10 +113,10 @@ export default async function FichesPostePage({
                       nomFichier={fiche.fichierNom ?? undefined}
                       className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
                     >
-                      Télécharger la fiche
+                      Télécharger
                     </TelechargerLien>
                   )}
-                  {!fiche && (
+                  {!documente && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
                       À documenter
                     </span>

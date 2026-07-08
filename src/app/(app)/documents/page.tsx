@@ -31,7 +31,7 @@ function Badge({ classe, children }: { classe: string; children: string }) {
 export default async function DocumentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string }>;
+  searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string; q?: string }>;
 }) {
   await verifySession();
   const sp = await searchParams;
@@ -39,8 +39,10 @@ export default async function DocumentsPage({
   const annee = sp.annee ? Number(sp.annee) : null;
   const mois = sp.mois ? Number(sp.mois) : null;
   const statut = sp.statut || null;
+  const q = (sp.q ?? "").trim();
+  const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-  const [bulletinsAll, contratsAll, documentsAll, congesAll] = await Promise.all([
+  const [bulletinsAll, contratsAll, documentsAll, congesAll, fichesAll] = await Promise.all([
     prisma.payrollLine.findMany({
       include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: true },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }, { employee: { nom: "asc" } }],
@@ -49,7 +51,13 @@ export default async function DocumentsPage({
     prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateDebut: "desc" }, take: 1000 }),
     prisma.documentEmploye.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { createdAt: "desc" }, take: 1000 }),
     prisma.leaveRequest.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateEnreg: "desc" }, take: 1000 }),
+    prisma.fichePoste.findMany({ orderBy: { poste: "asc" }, take: 1000 }),
   ]);
+
+  // Fiches de poste documentées (fichier ou description), filtrées par la recherche texte.
+  const fiches = fichesAll.filter(
+    (f) => (f.fichierUrl || f.description) && (!q || norm(f.poste).includes(norm(q)) || norm(f.fichierNom ?? "").includes(norm(q)))
+  );
 
   const annees = [
     ...new Set([
@@ -102,6 +110,7 @@ export default async function DocumentsPage({
     { cle: "contrats", label: "Contrats", n: contrats.length },
     { cle: "documents", label: "Documents RH", n: documents.length },
     { cle: "conges", label: "Demandes de congé", n: conges.length },
+    { cle: "fiches", label: "Fiches de poste", n: fiches.length },
   ];
   const qs = (o: string) => `/documents?onglet=${o}${annee ? `&annee=${annee}` : ""}${mois ? `&mois=${mois}` : ""}`;
 
@@ -127,6 +136,19 @@ export default async function DocumentsPage({
       {/* Filtres : période + statut (les options de statut dépendent de l'onglet) */}
       <form method="GET" className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3">
         <input type="hidden" name="onglet" value={onglet} />
+        {onglet === "fiches" && (
+          <label className="flex flex-col gap-1 text-xs">
+            Rechercher un poste
+            <input
+              name="q"
+              defaultValue={q}
+              placeholder="Ex. cuisinier, serveur…"
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            />
+          </label>
+        )}
+        {onglet !== "fiches" && (
+        <>
         <label className="flex flex-col gap-1 text-xs">
           Année
           <select name="annee" defaultValue={sp.annee ?? ""} className="rounded-md border border-input bg-background px-3 py-1.5 text-sm">
@@ -150,8 +172,10 @@ export default async function DocumentsPage({
             {optionsStatut.map((o) => (<option key={o.v} value={o.v}>{o.label}</option>))}
           </select>
         </label>
+        </>
+        )}
         <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">Filtrer</button>
-        {(annee || mois || statut) && (
+        {(annee || mois || statut || q) && (
           <Link href={`/documents?onglet=${onglet}`} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
         )}
       </form>
@@ -233,6 +257,29 @@ export default async function DocumentsPage({
                   </tr>
                 ))}
                 <Vide n={conges.length} cols={6} />
+              </tbody>
+            </>
+          )}
+
+          {onglet === "fiches" && (
+            <>
+              <Thead cols={["Poste", "Document", "Description", "Pièce"]} />
+              <tbody>
+                {fiches.map((f) => (
+                  <tr key={f.id} className="border-t">
+                    <td className="px-3 py-2 font-medium">{f.poste}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{f.fichierNom ?? "—"}</td>
+                    <td className="max-w-md truncate px-3 py-2 text-muted-foreground">{f.description ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      {f.fichierUrl ? (
+                        <TelechargerLien href={f.fichierUrl} nomFichier={f.fichierNom ?? undefined} className="text-primary underline">Télécharger</TelechargerLien>
+                      ) : (
+                        <Link href="/fiches-poste" className="text-primary underline">Voir</Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                <Vide n={fiches.length} cols={4} />
               </tbody>
             </>
           )}

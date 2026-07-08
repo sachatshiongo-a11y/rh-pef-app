@@ -18,6 +18,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
       { href: "/employes", label: "Employés", icone: "👥" },
       { href: "/fiches-poste", label: "Fiches de poste", icone: "📄" },
       { href: "/paie", label: "Paie", icone: "💵" },
+      { href: "/transport", label: "Grille de transport", icone: "🚐" },
     ],
   },
   {

@@ -86,6 +86,93 @@ export async function enregistrerFichePoste(formData: FormData) {
   redirect(`/fiches-poste?msg=${encodeURIComponent(`Fiche du poste « ${poste} » enregistrée.`)}`);
 }
 
+const STOPWORDS = new Set(["de", "du", "des", "la", "le", "les", "et", "aux", "au", "un", "une", "pour", "fiche", "poste"]);
+
+/** Normalise une chaîne (sans accents, minuscules) en une liste de mots significatifs (≥ 3 lettres, hors mots vides). */
+function motsSignificatifs(s: string): string[] {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((m) => m.length >= 3 && !STOPWORDS.has(m));
+}
+
+/**
+ * Reconnaît le poste d'un fichier d'après son nom : on retient le poste dont TOUS les mots
+ * significatifs apparaissent dans le nom du fichier, en privilégiant le plus spécifique
+ * (le plus de mots reconnus). Renvoie null si aucune correspondance fiable.
+ */
+function reconnaitrePoste(nomFichier: string, postes: string[]): string | null {
+  const motsFichier = new Set(motsSignificatifs(nomFichier));
+  let meilleur: { poste: string; score: number } | null = null;
+  for (const poste of postes) {
+    const motsPoste = motsSignificatifs(poste);
+    if (motsPoste.length === 0) continue;
+    if (motsPoste.every((m) => motsFichier.has(m))) {
+      if (!meilleur || motsPoste.length > meilleur.score) meilleur = { poste, score: motsPoste.length };
+    }
+  }
+  return meilleur?.poste ?? null;
+}
+
+/**
+ * Importe plusieurs fiches d'un coup : chaque fichier est rattaché automatiquement au poste
+ * reconnu d'après son nom. Les fichiers non reconnus sont signalés à l'utilisateur. Admin/Manager.
+ */
+export async function importerFichesEnMasse(formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+
+  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
+  if (fichiers.length === 0) redirect(`/fiches-poste?erreur=${encodeURIComponent("Aucun fichier sélectionné.")}`);
+
+  // Liste des postes connus (employés actifs + fiches existantes).
+  const [employes, fiches] = await Promise.all([
+    prisma.employee.findMany({ where: { actif: true }, select: { poste: true } }),
+    prisma.fichePoste.findMany({ select: { poste: true } }),
+  ]);
+  const postes = [...new Set([...employes.map((e) => e.poste.trim()), ...fiches.map((f) => f.poste)])].filter(Boolean);
+
+  const importes: string[] = [];
+  const nonReconnus: string[] = [];
+  const echecs: string[] = [];
+
+  for (const file of fichiers) {
+    const poste = reconnaitrePoste(file.name, postes);
+    if (!poste) {
+      nonReconnus.push(file.name);
+      continue;
+    }
+    try {
+      const url = await televerserFiche(poste, file);
+      const existante = await prisma.fichePoste.findUnique({ where: { poste } });
+      await prisma.fichePoste.upsert({
+        where: { poste },
+        create: { poste, description: null, fichierUrl: url, fichierNom: file.name, creeParId: user.id },
+        update: { fichierUrl: url, fichierNom: file.name },
+      });
+      await journaliser(prisma, {
+        entite: "FichePoste", entiteId: poste, champ: existante ? "import (maj)" : "import (creation)",
+        nouvelleValeur: file.name, userId: user.id,
+      });
+      importes.push(`${poste} ← ${file.name}`);
+    } catch (e) {
+      echecs.push(`${file.name} (${e instanceof Error ? e.message : "échec"})`);
+    }
+  }
+
+  revalidatePath("/fiches-poste");
+  revalidatePath("/documents");
+
+  const parts: string[] = [];
+  if (importes.length) parts.push(`${importes.length} fiche(s) importée(s) : ${importes.join(" ; ")}.`);
+  if (nonReconnus.length) parts.push(`${nonReconnus.length} fichier(s) non reconnu(s) — à renseigner manuellement : ${nonReconnus.join(", ")}.`);
+  if (echecs.length) parts.push(`${echecs.length} échec(s) : ${echecs.join(", ")}.`);
+  const cle = nonReconnus.length || echecs.length ? "erreur" : "msg";
+  redirect(`/fiches-poste?${cle}=${encodeURIComponent(parts.join(" ") || "Aucune fiche importée.")}`);
+}
+
 /** Supprime la fiche d'un poste (la description et le lien ; le fichier reste dans Storage). Admin. */
 export async function supprimerFichePoste(poste: string) {
   const user = await verifySession();
