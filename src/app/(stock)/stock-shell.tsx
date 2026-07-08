@@ -10,7 +10,10 @@ import { logout } from "@/app/login/actions";
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
     titre: "Pilotage",
-    items: [{ href: "/stock", label: "Tableau de bord", icone: "🏠" }],
+    items: [
+      { href: "/stock", label: "Tableau de bord", icone: "" },
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "" },
+    ],
   },
   {
     titre: "Stock",
@@ -29,10 +32,9 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Achats",
     items: [
-      { href: "/stock/a-valider", label: "Demandes à valider", icone: "✅" },
-      { href: "/stock/commandes", label: "Bons de commande", icone: "📝" },
-      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
-      { href: "/stock/factures", label: "Factures", icone: "🧾" },
+      { href: "/stock/commandes", label: "Bons de commande", icone: "" },
+      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "" },
+      { href: "/stock/factures", label: "Factures", icone: "" },
     ],
   },
   {

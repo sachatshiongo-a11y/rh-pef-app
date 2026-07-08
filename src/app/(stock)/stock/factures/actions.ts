@@ -163,15 +163,14 @@ export async function supprimerFacture(id: string) {
   revalidatePath("/stock");
 }
 
-/** Marque une facture comme réglée (solde le reste à payer) et enregistre le mode de paiement. */
-export async function marquerPayee(id: string, formData: FormData) {
+/** Marque une facture comme réglée : solde le reste à payer et enregistre la date de paiement (aujourd'hui). */
+export async function marquerPayee(id: string) {
   const user = await garde();
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
-  const modePaiement = String(formData.get("modePaiement") ?? "").trim() || f.modePaiement || null;
   await prisma.factureFournisseur.update({
     where: { id },
-    data: { montantRegleUSD: f.montantUSD, resteAPayerUSD: 0, statut: "REGLEE", datePaiement: new Date(), modePaiement },
+    data: { montantRegleUSD: f.montantUSD, resteAPayerUSD: 0, statut: "REGLEE", datePaiement: new Date() },
   });
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "statut", nouvelleValeur: `RÉGLÉE${modePaiement ? ` (${modePaiement})` : ""}`, userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "statut", nouvelleValeur: "RÉGLÉE", userId: user.id });
   revalidatePath("/stock/factures");
 }

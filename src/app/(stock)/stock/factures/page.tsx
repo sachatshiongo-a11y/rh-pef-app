@@ -7,12 +7,14 @@ import type { Prisma } from "@prisma/client";
 type SP = { statut?: string; tri?: string; vue?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
 const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
-function delaiEnJours(s: string | null): number | null {
-  if (!s) return null;
-  const m = s.match(/(\d+)/);
-  if (m) return Number(m[1]);
-  if (s.toLowerCase().includes("livraison")) return 0;
-  return null;
+const JOUR_MS = 86400000;
+/** Jours restants avant l'échéance (négatif si dépassée) ; null si réglée ou sans échéance. */
+function joursAvant(echeance: Date | null, statut: string): number | null {
+  if (statut === "REGLEE" || !echeance) return null;
+  const e = new Date(echeance), auj = new Date();
+  const e0 = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
+  const a0 = Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth(), auj.getUTCDate());
+  return Math.round((e0 - a0) / JOUR_MS);
 }
 
 export default async function FacturesPage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -26,11 +28,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const orderBy: Prisma.FactureFournisseurOrderByWithRelationInput[] =
     tri === "fournisseur" ? [{ fournisseurNom: "asc" }, { annee: "desc" }, { mois: "desc" }] : [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }];
 
-  const [factures, toutes, fournisseurs, bons, config] = await Promise.all([
+  const [factures, toutes, config] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.findMany({ select: { fournisseurNom: true, montantUSD: true, resteAPayerUSD: true, statut: true, annee: true, mois: true, fournisseur: { select: { nom: true } } } }),
-    prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
-    prisma.bonDeCommande.findMany({ orderBy: [{ annee: "desc" }, { sequence: "desc" }], take: 100, select: { id: true, numero: true } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
 
@@ -58,8 +58,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
   const toRow = (x: (typeof factures)[number]): FactureRow => ({
     id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, numero: x.numero,
-    date: d(x.date), echeance: d(x.dateEcheance), montant: x.montantUSD.toString(),
-    reste: Number(x.resteAPayerUSD), statut: x.statut, modePaiement: x.modePaiement ?? "",
+    date: d(x.date), echeance: d(x.dateEcheance),
+    joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
+    montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
   });
   const groupes: Groupe[] = [];
   const idx = new Map<string, number>();
@@ -145,7 +146,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
               <a href={lien({ tri: "fournisseur" })} className={`rounded-full border px-3 py-1 ${tri === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fournisseur</a>
             </div>
           </div>
-          <FacturesUI groupes={groupes} fournisseurs={fournisseurs.map((x) => ({ id: x.id, nom: x.nom, delaiJours: delaiEnJours(x.delaiPaiement) }))} bons={bons} />
+          <FacturesUI groupes={groupes} />
         </>
       )}
     </div>

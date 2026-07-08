@@ -40,6 +40,10 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   const totBC = bc ? Number(bc.totalUSD) : 0;
   const totFac = Number(facture.montantUSD);
   const ecartTotal = totFac - totBC;
+  // L'écart à SIGNALER porte sur les QUANTITÉS (commandé vs livré/facturé), pas sur le montant :
+  // une différence de prix ne change pas ce qu'il y a à payer (= le montant de la facture).
+  const lignesEcartQte = lignesRecon.filter((l) => Math.abs(l.qteFac - l.qteBC) > 0.0001);
+  const ecartQteTotal = lignesRecon.reduce((t, l) => t + Math.abs(l.qteFac - l.qteBC), 0);
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
@@ -123,7 +127,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
                         <td className={`px-3 py-2 text-right ${eQte ? "font-medium text-amber-700" : "text-muted-foreground"}`}>{eQte ? `${eQte > 0 ? "+" : ""}${qte(eQte)}` : "0"}</td>
                         <td className="px-3 py-2 text-right text-muted-foreground">{l.totBC ? usd(l.totBC) : "—"}</td>
                         <td className="px-3 py-2 text-right">{l.totFac ? usd(l.totFac) : "—"}</td>
-                        <td className={`px-3 py-2 text-right ${Math.abs(eTot) > 0.009 ? "font-medium text-amber-700" : "text-muted-foreground"}`}>{Math.abs(eTot) > 0.009 ? `${eTot > 0 ? "+" : ""}${usd(eTot)}` : "0"}</td>
+                        <td className="px-3 py-2 text-right text-muted-foreground">{Math.abs(eTot) > 0.009 ? `${eTot > 0 ? "+" : ""}${usd(eTot)}` : "0"}</td>
                       </tr>
                     );
                   })}
@@ -133,14 +137,25 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
                     <td colSpan={4}>Totaux</td>
                     <td className="text-right">{usd(totBC)}</td>
                     <td className="text-right">{usd(totFac)}</td>
-                    <td className={`text-right ${Math.abs(ecartTotal) > 0.009 ? "text-amber-700" : ""}`}>{ecartTotal >= 0 ? "+" : ""}{usd(ecartTotal)}</td>
+                    <td className="text-right text-muted-foreground">{ecartTotal >= 0 ? "+" : ""}{usd(ecartTotal)}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-            {Math.abs(ecartTotal) <= 0.009
-              ? <p className="text-xs text-emerald-700">✓ Facture conforme au bon de commande.</p>
-              : <p className="text-xs text-amber-700">⚠ Écart de {usd(Math.abs(ecartTotal))} entre le commandé et le facturé.</p>}
+            {lignesEcartQte.length === 0
+              ? <p className="text-xs text-emerald-700">✓ Quantités conformes au bon de commande.</p>
+              : (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <p className="font-medium">⚠ Écart de quantités sur {lignesEcartQte.length} article(s) (total {qte(ecartQteTotal)}) :</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    {lignesEcartQte.map((l, i) => {
+                      const e = l.qteFac - l.qteBC;
+                      return <li key={i}>{l.designation} : commandé {qte(l.qteBC)}, facturé {qte(l.qteFac)} ({e > 0 ? "+" : ""}{qte(e)})</li>;
+                    })}
+                  </ul>
+                  <p className="mt-1 text-[11px]">Une différence de montant n’affecte pas la somme à payer : c’est le montant de la facture qui fait foi.</p>
+                </div>
+              )}
           </>
         )}
       </section>
