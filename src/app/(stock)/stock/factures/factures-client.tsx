@@ -20,12 +20,14 @@ export type FactureRow = {
 export type Groupe = { titre: string; factures: FactureRow[] };
 
 // Colonne « échéance » : jours restants tant que non réglée, date de paiement une fois réglée.
+// Code couleur : vert > 10 j, jaune de 10 j jusqu'à l'échéance, rouge une fois dépassée.
 function InfoEcheance({ f }: { f: FactureRow }) {
   if (f.statut === "REGLEE") return <span className="text-emerald-700">Payée le {f.datePaiement ?? "—"}</span>;
   if (f.joursRestants === null) return <span className="text-muted-foreground">—</span>;
   if (f.joursRestants < 0) return <span className="font-medium text-red-700">En retard de {-f.joursRestants} j</span>;
   if (f.joursRestants === 0) return <span className="font-medium text-amber-700">Échéance aujourd’hui</span>;
-  return <span className={f.joursRestants <= 7 ? "font-medium text-amber-700" : "text-muted-foreground"}>{f.joursRestants} j restants</span>;
+  const couleur = f.joursRestants > 10 ? "text-emerald-700" : "text-amber-700";
+  return <span className={`font-medium ${couleur}`}>{f.joursRestants} j restants</span>;
 }
 
 export function FacturesUI({ groupes }: { groupes: Groupe[] }) {
