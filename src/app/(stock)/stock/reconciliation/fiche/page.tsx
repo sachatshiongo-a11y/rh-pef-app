@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL } from "@/lib/stock";
 import { ImprimerBtn, AutoPrint } from "./imprimer-btn";
@@ -47,9 +48,12 @@ export default async function FicheComptagePage({ searchParams }: { searchParams
       `}</style>
 
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Fiche de comptage — Inventaire</h1>
-          <p className="text-sm text-muted-foreground">Imprimez cette page ou enregistrez-la en PDF pour compter à la main.</p>
+        <div className="flex items-center gap-3">
+          <Link href="/stock/reconciliation" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">← Retour</Link>
+          <div>
+            <h1 className="text-xl font-semibold">Fiche de comptage — Inventaire</h1>
+            <p className="text-sm text-muted-foreground">Imprimez cette page ou enregistrez-la en PDF pour compter à la main.</p>
+          </div>
         </div>
         <ImprimerBtn />
       </div>

@@ -40,7 +40,10 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   },
   {
     titre: "Configuration",
-    items: [{ href: "/stock/utilisateurs", label: "Utilisateurs", icone: "👤", adminOnly: true }],
+    items: [
+      { href: "/stock/parametres", label: "Paramètres", icone: "" },
+      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "", adminOnly: true },
+    ],
   },
 ];
 
