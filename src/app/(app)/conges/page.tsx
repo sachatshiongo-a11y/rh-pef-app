@@ -60,7 +60,7 @@ export default async function CongesPage({
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold sm:text-2xl">Congés</h1>
         {peutApprouver && demandes.length > 0 && (
           <form action={reinitialiserConges}>

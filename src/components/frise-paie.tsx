@@ -69,7 +69,7 @@ export function FrisePaie({
 
   return (
     <div className={`rounded-xl border bg-card ${compact ? "p-4" : "p-5"} shadow-sm`}>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">
           Frise de la paie —{" "}
           <span className="capitalize text-muted-foreground">
@@ -77,7 +77,7 @@ export function FrisePaie({
           </span>
         </p>
         {badge && (
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium text-white ${couleur}`}>
+          <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium text-white ${couleur}`}>
             {badge}
           </span>
         )}

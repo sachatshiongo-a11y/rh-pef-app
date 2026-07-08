@@ -55,12 +55,12 @@ export default async function DeclarationsPage({
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Déclarations</h1>
           <p className="text-sm capitalize text-muted-foreground">{periode}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {runs.length > 0 && (
             <form method="GET" className="flex items-center gap-2">
               <select
