@@ -7,7 +7,7 @@ type SP = { q?: string; domaine?: string };
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
-  const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
+  const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 
   const where: Prisma.ArticleStockWhereInput = {
     actif: true,
@@ -21,6 +21,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
     const p = new URLSearchParams();
     if (q) p.set("q", q);
     p.set("domaine", dom);
+    p.set("auto", "1"); // ouvre directement la boîte « Enregistrer en PDF »
     return `/stock/reconciliation/fiche?${p}`;
   };
 
@@ -35,8 +36,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <a href={ficheHref("NOURRITURE")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">🖨️ Fiche Nourriture</a>
-          <a href={ficheHref("BOISSON")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">🖨️ Fiche Boissons</a>
+          <a href={ficheHref("NOURRITURE")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</a>
+          <a href={ficheHref("BOISSON")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</a>
+          <a href={ficheHref("AUTRE")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</a>
         </div>
       </div>
 
@@ -46,6 +48,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <option value="">Tous domaines</option>
           <option value="NOURRITURE">Nourriture</option>
           <option value="BOISSON">Boisson</option>
+          <option value="AUTRE">Autre</option>
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
       </form>

@@ -4,10 +4,18 @@ import { FournisseursClient, type FournRow } from "./fournisseurs-client";
 
 export default async function FournisseursPage() {
   const user = await verifySession();
-  const fournisseurs = await prisma.fournisseur.findMany({
-    orderBy: { nom: "asc" },
-    include: { _count: { select: { articles: true, factures: true } } },
-  });
+  const [fournisseurs, soldes] = await Promise.all([
+    prisma.fournisseur.findMany({
+      orderBy: { nom: "asc" },
+      include: { _count: { select: { articles: true, factures: true } } },
+    }),
+    prisma.factureFournisseur.groupBy({
+      by: ["fournisseurId"],
+      where: { statut: { not: "REGLEE" } },
+      _sum: { resteAPayerUSD: true },
+    }),
+  ]);
+  const soldeParFourn = new Map(soldes.map((s) => [s.fournisseurId, Number(s._sum.resteAPayerUSD ?? 0)]));
 
   const rows: FournRow[] = fournisseurs.map((f) => ({
     id: f.id,
@@ -21,6 +29,7 @@ export default async function FournisseursPage() {
     email: f.email ?? "",
     nbArticles: f._count.articles,
     nbFactures: f._count.factures,
+    soldeDu: soldeParFourn.get(f.id) ?? 0,
   }));
 
   return (

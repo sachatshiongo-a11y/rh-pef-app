@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { envoyerPush } from "@/lib/push";
+import { usd } from "@/lib/stock";
 
 const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
 const dec = (v: FormDataEntryValue | undefined): number => {
@@ -13,6 +15,14 @@ const dec = (v: FormDataEntryValue | undefined): number => {
 };
 const STATUTS = ["BROUILLON", "ENVOYE", "RECU_PARTIEL", "RECU", "ANNULE"] as const;
 type Statut = (typeof STATUTS)[number];
+
+// Étiquette courte du fournisseur pour le numéro de BC (mot significatif, sans forme juridique).
+const MOTS_VIDES = new Set(["ETS", "STE", "STÉ", "SARL", "SA", "SPRL", "SAS", "EARL", "LA", "LE", "LES", "DE", "DU", "MAISON"]);
+function tagFournisseur(nom: string): string {
+  const mots = nom.toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^A-Z0-9]+/).filter(Boolean);
+  const signifiant = mots.find((m) => !MOTS_VIDES.has(m)) ?? mots[0] ?? "FRN";
+  return signifiant.slice(0, 6);
+}
 
 async function garde() {
   const user = await verifySession();
@@ -51,10 +61,14 @@ export async function creerBonCommande(formData: FormData) {
   const annee = now.getFullYear();
   const mois = now.getMonth() + 1;
 
+  // Étiquette fournisseur intégrée au numéro pour compiler/identifier plus vite (ex. « 001/PEF/SENEVE/JUIN/26 »).
+  const four = fournisseurId ? await prisma.fournisseur.findUnique({ where: { id: fournisseurId }, select: { nom: true } }) : null;
+  const tag = four ? tagFournisseur(four.nom) : "";
+
   const bc = await prisma.$transaction(async (tx) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
     const sequence = (dernier._max.sequence ?? 0) + 1;
-    const numero = `${String(sequence).padStart(3, "0")}/PEF/${MOIS_FR[mois - 1]}/${String(annee).slice(-2)}`;
+    const numero = `${String(sequence).padStart(3, "0")}/PEF/${tag ? `${tag}/` : ""}${MOIS_FR[mois - 1]}/${String(annee).slice(-2)}`;
     return tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,
@@ -82,7 +96,18 @@ export async function creerBonCommande(formData: FormData) {
   });
 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
+
+  // Notification push à la Direction : un bon de commande vient d'être émis (à valider). Best-effort.
+  const admins = await prisma.user.findMany({ where: { role: "ADMIN", actif: true }, select: { id: true } });
+  await envoyerPush(admins.map((a) => a.id), {
+    title: "Nouveau bon de commande",
+    body: `${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`,
+    url: "/stock/a-valider",
+    tag: `bc-${bc.id}`,
+  });
+
   revalidatePath("/stock/commandes");
+  revalidatePath("/stock/a-valider");
   redirect(`/stock/commandes/${bc.id}`);
 }
 
