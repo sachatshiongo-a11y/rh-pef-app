@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { qte, usd } from "@/lib/stock";
 import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
+import { BoutonRapport } from "../_rapport/bouton-rapport";
 import type { Prisma } from "@prisma/client";
 
 type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true } } } }>;
@@ -68,6 +69,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
         <div className="flex items-center gap-2">
+          <BoutonRapport types={[{ value: "MOUVEMENTS", label: "Mouvements" }]} />
           <a href={`/stock/mouvements/imprimer${dlQs ? `?${dlQs}` : ""}`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
           <a href={`/stock/mouvements/export${dlQs ? `?${dlQs}` : ""}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
         </div>

@@ -30,8 +30,8 @@ export async function GET(req: Request) {
   const data = mode === "detail" ? await genererDonneesRapportDetail(type, debut, fin) : await genererDonneesRapport(type, debut, fin);
   const periode = `${moisLabel(debut)} → ${moisLabel(fin)}`;
 
-  // Journalise la génération.
-  await prisma.rapport.create({ data: { titre: data.titre, type, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });
+  // Journalise la génération (avec mode/format pour re-télécharger depuis les archives).
+  await prisma.rapport.create({ data: { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });
 
   if (format === "excel") {
     const buf = await classeurExcel({

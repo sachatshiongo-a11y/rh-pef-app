@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { prisma } from "@/lib/prisma";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import type { Prisma } from "@prisma/client";
@@ -24,7 +25,10 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Bons de commande</h1>
-        <Link href="/stock/commandes/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">+ Nouveau bon de commande</Link>
+        <div className="flex items-center gap-2">
+          <BoutonRapport types={[{ value: "BONS_COMMANDE", label: "Bons de commande" }]} />
+          <Link href="/stock/commandes/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">+ Nouveau bon de commande</Link>
+        </div>
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">

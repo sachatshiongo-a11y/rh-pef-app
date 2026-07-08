@@ -38,24 +38,23 @@ export async function classeurExcel(opts: {
   const logoBuffer = fs.existsSync(logoPath) ? fs.readFileSync(logoPath) : null;
   const editeLe = new Date().toLocaleDateString("fr-FR");
 
-  for (const f of feuilles) {
-    const ws = wb.addWorksheet(f.nom, { views: [{ state: "frozen", ySplit: 5 }] });
-    const nbCols = Math.max(1, f.entete.length);
+  const HAUT_LOGO = 3; // lignes vides réservées à la hauteur du logo, au-dessus des titres
 
-    // Logo en haut à droite (ancré vers les dernières colonnes de la zone d'en-tête).
+  for (const f of feuilles) {
+    // Gèle l'en-tête (logo + bloc titre + ligne de colonnes) = HAUT_LOGO + 5 lignes.
+    const ws = wb.addWorksheet(f.nom, { views: [{ state: "frozen", ySplit: HAUT_LOGO + 5 }] });
+
+    // Logo EN HAUT À GAUCHE, au-dessus des titres.
     if (logoBuffer) {
       const id = wb.addImage({ base64: logoBuffer.toString("base64"), extension: "png" });
-      ws.addImage(id, {
-        tl: { col: Math.max(0, nbCols - 3), row: 0 },
-        ext: { width: 160, height: 50 },
-        editAs: "oneCell",
-      });
+      ws.addImage(id, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
     }
 
-    // Bloc d'en-tête.
-    ws.addRow([`Pâtes en Folie (TOLYA SARL) — ${f.titre ?? titre}`]);
-    ws.addRow([`Période : ${periode}`]);
-    ws.addRow([`Édité le : ${editeLe}`]);
+    // Lignes vides sous le logo, puis le bloc d'en-tête (titres SOUS le logo).
+    for (let i = 0; i < HAUT_LOGO; i++) ws.addRow([]);
+    const rTitre = ws.addRow([`Pâtes en Folie (TOLYA SARL) — ${f.titre ?? titre}`]);
+    const rPeriode = ws.addRow([`Période : ${periode}`]);
+    const rEdit = ws.addRow([`Édité le : ${editeLe}`]);
     ws.addRow([]);
     const rowEntete = ws.addRow(f.entete);
     for (const l of f.lignes) ws.addRow(l);
@@ -68,9 +67,9 @@ export async function classeurExcel(opts: {
     });
 
     // Mises en forme spécifiques du bloc d'en-tête et de la ligne de colonnes.
-    ws.getRow(1).font = { name: OPTIMA, size: 13, bold: true, color: { argb: BRUN } };
-    ws.getRow(2).font = { name: OPTIMA, size: 10, italic: true };
-    ws.getRow(3).font = { name: OPTIMA, size: 9, italic: true, color: { argb: GRIS } };
+    rTitre.font = { name: OPTIMA, size: 13, bold: true, color: { argb: BRUN } };
+    rPeriode.font = { name: OPTIMA, size: 10, italic: true };
+    rEdit.font = { name: OPTIMA, size: 9, italic: true, color: { argb: GRIS } };
     rowEntete.font = { name: OPTIMA, size: 10, bold: true };
     rowEntete.eachCell((cell) => {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };

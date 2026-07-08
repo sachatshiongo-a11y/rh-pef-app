@@ -14,21 +14,26 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     items: [
       { href: "/stock", label: "Tableau de bord", icone: "" },
       { href: "/stock/a-valider", label: "Demandes à valider", icone: "", adminOnly: true },
+      { href: "/stock/archives", label: "Archives", icone: "" },
     ],
   },
   {
-    titre: "Stock",
+    titre: "Dépôt",
     items: [
       { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "" },
       { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "" },
       { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "" },
       { href: "/stock/entree", label: "Liste d'achat", icone: "" },
-      { href: "/stock/legumes", label: "Achats légumes", icone: "" },
-      { href: "/stock/restaurant", label: "Stock restaurant", icone: "" },
       { href: "/stock/mouvements", label: "Mouvements", icone: "" },
-      { href: "/stock/journalier", label: "Conso. journalière", icone: "" },
       { href: "/stock/reconciliation", label: "Réconciliation", icone: "" },
-      { href: "/stock/archives", label: "Archives", icone: "" },
+    ],
+  },
+  {
+    titre: "Restaurant",
+    items: [
+      { href: "/stock/restaurant", label: "Stock restaurant", icone: "" },
+      { href: "/stock/legumes", label: "Achats légumes frais", icone: "" },
+      { href: "/stock/journalier", label: "Conso. journalière", icone: "" },
     ],
   },
   {
@@ -37,7 +42,6 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
       { href: "/stock/commandes", label: "Bons de commande", icone: "" },
       { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "" },
       { href: "/stock/factures", label: "Factures", icone: "" },
-      { href: "/stock/rapports", label: "Rapports", icone: "" },
     ],
   },
   {

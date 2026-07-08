@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { qte } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
+import { BoutonRapport } from "../_rapport/bouton-rapport";
 
 type SP = { periode?: string };
 
@@ -62,12 +63,15 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="max-w-3xl space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Liste d&apos;achat</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Saisissez les articles achetés et leurs quantités : chaque ligne alimente directement
-          l&apos;inventaire. L&apos;historique se consulte par jour, semaine ou mois.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">Liste d&apos;achat</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Saisissez les articles achetés et leurs quantités : chaque ligne alimente directement
+            l&apos;inventaire. L&apos;historique se consulte par jour, semaine ou mois.
+          </p>
+        </div>
+        <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
       </div>
 
       <ListeAchatForm articles={articles} taux={taux} />

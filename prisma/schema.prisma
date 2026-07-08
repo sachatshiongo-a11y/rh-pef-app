@@ -1168,6 +1168,8 @@ model Rapport {
   id           String    @id @default(uuid())
   titre        String
   type         String // FACTURES | BONS_COMMANDE | PAIEMENTS | ACHATS | MOUVEMENTS | LEGUMES
+  mode         String    @default("chiffre") // chiffre | detail
+  format       String    @default("pdf") // pdf | excel
   periodeDebut DateTime? @db.Date
   periodeFin   DateTime? @db.Date
   creeParId    String?

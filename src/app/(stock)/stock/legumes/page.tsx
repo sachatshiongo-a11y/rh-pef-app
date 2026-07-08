@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
+import { BoutonRapport } from "../_rapport/bouton-rapport";
 
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const cdf = (n: number) => n.toLocaleString("fr-FR");
@@ -24,9 +25,12 @@ export default async function LegumesPage() {
 
   return (
     <div className="max-w-4xl space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
+        </div>
+        <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
       </div>
 
       <AchatLegumesForm taux={taux} />

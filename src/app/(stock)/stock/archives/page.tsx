@@ -66,22 +66,29 @@ async function Comptages() {
   );
 }
 
+const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${String(new Date(d).getUTCMonth() + 1).padStart(2, "0")}` : "");
+
 async function Rapports() {
   const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   return (
     <div className="overflow-x-auto rounded-lg border">
-      <table className="w-full min-w-[40rem] text-sm">
-        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Catégorie</th><th>Période</th><th>Généré le</th></tr></thead>
+      <table className="w-full min-w-[44rem] text-sm">
+        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Type</th><th>Format</th><th>Période</th><th>Généré le</th><th></th></tr></thead>
         <tbody>
-          {rapports.map((r) => (
-            <tr key={r.id} className="border-t even:bg-muted/25">
-              <td className="px-3 py-2 font-medium">{r.titre}</td>
-              <td className="px-3 py-2 text-muted-foreground">{TYPE_RAPPORT_LABEL[r.type] ?? r.type}</td>
-              <td className="px-3 py-2 text-muted-foreground">{r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}</td>
-              <td className="px-3 py-2 text-muted-foreground">{new Date(r.createdAt).toLocaleString("fr-FR")}</td>
-            </tr>
-          ))}
-          {rapports.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-muted-foreground">Aucun rapport généré. Générez-en depuis l’onglet Rapports.</td></tr>}
+          {rapports.map((r) => {
+            const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
+            return (
+              <tr key={r.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
+                <td className="px-3 py-2 font-medium">{TYPE_RAPPORT_LABEL[r.type] ?? r.type}</td>
+                <td className="px-3 py-2 text-muted-foreground">{r.mode === "detail" ? "Détaillé" : "Chiffré"}</td>
+                <td className="px-3 py-2 uppercase text-muted-foreground">{r.format}</td>
+                <td className="px-3 py-2 text-muted-foreground">{r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}</td>
+                <td className="px-3 py-2 text-muted-foreground">{new Date(r.createdAt).toLocaleString("fr-FR")}</td>
+                <td className="px-3 py-2 text-right"><a href={url} download target="_blank" rel="noopener" className="rounded border px-2 py-1 text-xs font-medium hover:bg-accent">Télécharger</a></td>
+              </tr>
+            );
+          })}
+          {rapports.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</td></tr>}
         </tbody>
       </table>
     </div>
