@@ -64,7 +64,19 @@ export function NouveauBonForm({ articles, fournisseurs }: { articles: Art[]; fo
                 </td>
                 <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full`} placeholder="Désignation" /></td>
                 <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
-                <td className="px-2 py-1"><input name="ligne_prix" value={l.prix} onChange={(e) => maj(i, { prix: e.target.value })} type="number" step="0.0001" min="0" className={`${inp} w-24 text-right`} /></td>
+                <td className="px-2 py-1">
+                  <input
+                    name="ligne_prix"
+                    value={l.prix}
+                    onChange={(e) => maj(i, { prix: e.target.value })}
+                    readOnly={!!l.articleId}
+                    title={l.articleId ? "Prix fixé au catalogue (modifiable dans l'onglet Catalogue)" : "Prix libre"}
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    className={`${inp} w-24 text-right ${l.articleId ? "bg-muted/50 text-muted-foreground" : ""}`}
+                  />
+                </td>
                 <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toFixed(2)} $</td>
               </tr>
             ))}

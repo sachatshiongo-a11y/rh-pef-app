@@ -7,7 +7,7 @@ import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { logout } from "@/app/login/actions";
 
-const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string }[] }[] = [
+const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
     titre: "Pilotage",
     items: [{ href: "/stock", label: "Tableau de bord", icone: "🏠" }],
@@ -30,6 +30,10 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
       { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🏭" },
       { href: "/stock/factures", label: "Factures", icone: "🧾" },
     ],
+  },
+  {
+    titre: "Configuration",
+    items: [{ href: "/stock/utilisateurs", label: "Utilisateurs", icone: "👤", adminOnly: true }],
   },
 ];
 
@@ -82,11 +86,14 @@ export function StockShell({
         </form>
 
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
-          {NAV_GROUPS.map((groupe) => (
+          {NAV_GROUPS.map((groupe) => {
+            const items = groupe.items.filter((it) => !it.adminOnly || userRole === "ADMIN");
+            if (items.length === 0) return null;
+            return (
             <div key={groupe.titre}>
               <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{groupe.titre}</p>
               <div className="flex flex-col gap-0.5">
-                {groupe.items.map((item) => (
+                {items.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -104,7 +111,8 @@ export function StockShell({
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         <div className="mt-3 border-t pt-3">
