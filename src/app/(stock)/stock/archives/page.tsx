@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { DOMAINE_LABEL } from "@/lib/stock";
+import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
+import { supprimerTousRapports } from "./actions";
 
 type SP = { vue?: string; entite?: string; userId?: string };
 
@@ -18,6 +21,8 @@ const TYPE_RAPPORT_LABEL: Record<string, string> = {
 
 export default async function ArchivesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : "comptages";
 
   const onglets: [string, string][] = [["comptages", "Comptages"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
@@ -36,7 +41,7 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
       </div>
 
       {vue === "comptages" && <Comptages />}
-      {vue === "rapports" && <Rapports />}
+      {vue === "rapports" && <Rapports estDirection={estDirection} />}
       {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} />}
     </div>
   );
@@ -68,10 +73,16 @@ async function Comptages() {
 
 const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${String(new Date(d).getUTCMonth() + 1).padStart(2, "0")}` : "");
 
-async function Rapports() {
+async function Rapports({ estDirection }: { estDirection: boolean }) {
   const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="space-y-3">
+      {estDirection && rapports.length > 0 && (
+        <div className="flex justify-end">
+          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousRapports} libelle="Supprimer TOUS les rapports générés ?" />
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[44rem] text-sm">
         <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Type</th><th>Format</th><th>Période</th><th>Généré le</th><th></th></tr></thead>
         <tbody>
@@ -91,6 +102,7 @@ async function Rapports() {
           {rapports.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</td></tr>}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
