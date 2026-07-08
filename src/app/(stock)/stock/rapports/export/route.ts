@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { classeurExcel } from "@/lib/export-excel";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
-import { genererDonneesRapport, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
+import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
 
 function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
   const now = new Date();
@@ -24,9 +24,10 @@ export async function GET(req: Request) {
   const type = sp.get("type") as TypeRapport;
   if (!type || !(type in TYPES_RAPPORT)) return new Response("Type de rapport inconnu", { status: 400 });
   const format = sp.get("format") === "excel" ? "excel" : "pdf";
+  const mode = sp.get("mode") === "detail" ? "detail" : "chiffre";
   const { debut, fin } = bornes(sp);
 
-  const data = await genererDonneesRapport(type, debut, fin);
+  const data = mode === "detail" ? await genererDonneesRapportDetail(type, debut, fin) : await genererDonneesRapport(type, debut, fin);
   const periode = `${moisLabel(debut)} → ${moisLabel(fin)}`;
 
   // Journalise la génération.
@@ -41,7 +42,7 @@ export async function GET(req: Request) {
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="Rapport_${type}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+        "Content-Disposition": `attachment; filename="Rapport_${type}_${mode}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
       },
     });
   }
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="Rapport_${type}_${new Date().toISOString().slice(0, 10)}.pdf"`,
+      "Content-Disposition": `attachment; filename="Rapport_${type}_${mode}_${new Date().toISOString().slice(0, 10)}.pdf"`,
     },
   });
 }

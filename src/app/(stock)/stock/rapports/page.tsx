@@ -14,7 +14,7 @@ export default async function RapportsPage({ searchParams }: { searchParams: Pro
 
   const recents = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 15 });
 
-  const lien = (type: string, format: string) => `/stock/rapports/export?type=${type}&format=${format}&debut=${debut}&fin=${fin}`;
+  const lien = (type: string, format: string, mode: string) => `/stock/rapports/export?type=${type}&format=${format}&mode=${mode}&debut=${debut}&fin=${fin}`;
 
   return (
     <div className="max-w-4xl space-y-5">
@@ -29,13 +29,22 @@ export default async function RapportsPage({ searchParams }: { searchParams: Pro
         <button className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Appliquer la période</button>
       </form>
 
+      <p className="text-sm text-muted-foreground"><b>Chiffré</b> = totaux mensuels + tendances. <b>Détaillé</b> = liste ligne par ligne (fournisseurs, articles, montants).</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {(Object.entries(TYPES_RAPPORT) as [string, string][]).map(([type, label]) => (
-          <div key={type} className="flex items-center justify-between gap-2 rounded-lg border p-4">
-            <span className="font-medium">{label}</span>
-            <div className="flex shrink-0 gap-2">
-              <a href={lien(type, "pdf")} download target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
-              <a href={lien(type, "excel")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
+          <div key={type} className="space-y-2 rounded-lg border p-4">
+            <p className="font-medium">{label}</p>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Chiffré :</span>
+                <a href={lien(type, "pdf", "chiffre")} download target="_blank" rel="noopener" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
+                <a href={lien(type, "excel", "chiffre")} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Détaillé :</span>
+                <a href={lien(type, "pdf", "detail")} download target="_blank" rel="noopener" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
+                <a href={lien(type, "excel", "detail")} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
+              </div>
             </div>
           </div>
         ))}
