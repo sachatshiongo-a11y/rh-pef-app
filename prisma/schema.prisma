@@ -1074,3 +1074,55 @@ model LigneFacture {
   @@index([factureId])
   @@schema("stock")
 }
+
+// ─── Achats de légumes frais (journal, hors catalogue permanent) ───
+model AchatLegume {
+  id                String   @id @default(uuid())
+  date              DateTime @db.Date
+  legume            String // libellé du légume (liste figée)
+  unite             String?
+  quantite          Decimal  @db.Decimal(14, 3)
+  montantCDF        Decimal? @db.Decimal(16, 2)
+  montantUSD        Decimal? @db.Decimal(14, 2)
+  tauxChangeUtilise Decimal? @db.Decimal(10, 2)
+  creeParId         String?
+  createdAt         DateTime @default(now())
+
+  @@index([date])
+  @@schema("stock")
+}
+
+// ─── Stock restaurant : grille journalière Cuisine / Bar ───
+enum EspaceResto {
+  CUISINE
+  BAR
+
+  @@schema("stock")
+}
+
+model ArticleResto {
+  id                  String          @id @default(uuid())
+  espace              EspaceResto
+  categorie           String? // en-tête de section (« Viande -Volaille »…)
+  designation         String
+  unite               String?
+  stockBaseJournalier Decimal?        @db.Decimal(14, 3) // niveau cible par jour
+  ordre               Int             @default(0)
+  actif               Boolean         @default(true)
+  comptages           ComptageResto[]
+
+  @@index([espace, ordre])
+  @@schema("stock")
+}
+
+model ComptageResto {
+  id             String       @id @default(uuid())
+  articleRestoId String
+  article        ArticleResto @relation(fields: [articleRestoId], references: [id], onDelete: Cascade)
+  date           DateTime     @db.Date
+  quantite       Decimal      @db.Decimal(14, 3)
+
+  @@unique([articleRestoId, date])
+  @@index([date])
+  @@schema("stock")
+}
