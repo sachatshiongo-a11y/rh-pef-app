@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { marquerNotificationsLues } from "@/app/(app)/notifications-actions";
+import { marquerNotificationsLues, supprimerNotification } from "@/app/(app)/notifications-actions";
 import type { NotificationItem } from "@/lib/notifications";
 
 function ilYA(date: Date): string {
@@ -88,11 +88,13 @@ export function NotificationBell({
                 return (
                   <li key={n.id}>
                     {n.lien ? (
-                      <Link href={n.lien} onClick={() => setOuvert(false)} className="block hover:bg-accent/50">
+                      <Link href={n.lien} onClick={() => { void supprimerNotification(n.id); setOuvert(false); }} className="block hover:bg-accent/50">
                         {contenu}
                       </Link>
                     ) : (
-                      contenu
+                      <button type="button" onClick={() => void supprimerNotification(n.id)} className="block w-full text-left hover:bg-accent/50">
+                        {contenu}
+                      </button>
                     )}
                   </li>
                 );

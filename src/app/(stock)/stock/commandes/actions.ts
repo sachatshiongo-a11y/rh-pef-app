@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
-import { creerNotification } from "@/lib/notifications";
+import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { usd } from "@/lib/stock";
 
 const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
@@ -174,6 +174,8 @@ export async function validerBonCommande(id: string, _formData: FormData) {
   await prisma.bonDeCommande.update({ where: { id }, data: { statut: "VALIDE" } });
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", nouvelleValeur: "VALIDE", userId: user.id });
 
+  // La demande « à valider » est traitée → sa notification disparaît.
+  await supprimerNotificationsPour(id);
   // Notifie l'auteur du BC que sa demande est validée (cloche pour tous + push à l'auteur).
   await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
   if (bc.creeParId) await envoyerPush([bc.creeParId], { title: "Bon de commande validé", body: `${bc.numero} a été validé.`, url: `/stock/commandes/${id}`, tag: `bc-val-${id}` });
@@ -189,6 +191,7 @@ export async function supprimerBonCommande(id: string, _formData: FormData) {
   requireRole(user, ["ADMIN"]);
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } });
   await prisma.bonDeCommande.delete({ where: { id } });
+  await supprimerNotificationsPour(id);
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "suppression", ancienneValeur: bc.numero, userId: user.id });
   revalidatePath("/stock/commandes");
   redirect("/stock/commandes");

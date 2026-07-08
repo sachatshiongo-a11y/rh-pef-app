@@ -232,7 +232,7 @@ export default async function PaiePage({
       <>
       {run && (
         <div className="mb-5">
-          <FrisePaie mois={mois} annee={annee} etape={etapePaie} compact />
+          <FrisePaie mois={mois} annee={annee} etape={etapePaie} jourPaie={config?.jourPaie ?? 30} compact />
         </div>
       )}
 

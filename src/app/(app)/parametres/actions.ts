@@ -15,6 +15,7 @@ export async function mettreAJourConfig(formData: FormData) {
       tauxChangeCDF: Number(formData.get("tauxChangeCDF")),
       anneeCourante: Number(formData.get("anneeCourante")),
       moisCourant: Number(formData.get("moisCourant")),
+      jourPaie: Math.min(31, Math.max(1, Math.trunc(Number(formData.get("jourPaie"))) || 30)),
     },
   });
 

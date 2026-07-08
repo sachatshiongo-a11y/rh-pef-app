@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Config" ADD COLUMN     "jourPaie" INTEGER NOT NULL DEFAULT 30;
+

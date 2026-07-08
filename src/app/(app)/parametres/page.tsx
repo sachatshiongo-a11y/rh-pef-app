@@ -87,6 +87,12 @@ export default async function ParametresPage() {
             type="number"
             defaultValue={String(config.anneeCourante)}
           />
+          <Field
+            label="Jour de paie (1-31)"
+            name="jourPaie"
+            type="number"
+            defaultValue={String(config.jourPaie)}
+          />
           <div className="col-span-2 md:col-span-3">
             <button
               type="submit"

@@ -47,8 +47,6 @@ export async function supprimerNotificationsPour(refId: string) {
   await prisma.notification.deleteMany({ where: { refId } });
 }
 
-const JOUR_PAIE = 30;
-
 /** Données de la cloche pour un espace (`domaine`) : notifications récentes, non lues, + alerte clôture (RH). */
 export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH"): Promise<{
   items: NotificationItem[];
@@ -67,7 +65,7 @@ export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH"): Prom
     const auj = new Date();
     const estMoisCourant = auj.getMonth() + 1 === config.moisCourant && auj.getFullYear() === config.anneeCourante;
     if (estMoisCourant) {
-      const jours = JOUR_PAIE - auj.getDate();
+      const jours = config.jourPaie - auj.getDate();
       if (jours >= 0 && jours <= 5) {
         const run = await prisma.payrollRun.findUnique({
           where: { mois_annee: { mois: config.moisCourant, annee: config.anneeCourante } },

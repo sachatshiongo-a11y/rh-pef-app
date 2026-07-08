@@ -11,3 +11,10 @@ export async function marquerNotificationsLues(domaine: "RH" | "STOCK" = "RH") {
   await prisma.notification.updateMany({ where: { domaine: dom, lu: false }, data: { lu: true } });
   revalidatePath("/", "layout");
 }
+
+/** Supprime une notification (quand on clique dessus, elle disparaît). */
+export async function supprimerNotification(id: string) {
+  await verifySession();
+  await prisma.notification.deleteMany({ where: { id } });
+  revalidatePath("/", "layout");
+}

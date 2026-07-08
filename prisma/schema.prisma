@@ -120,6 +120,7 @@ model Config {
   tauxChangeCDF Decimal  @db.Decimal(10, 2)
   anneeCourante Int
   moisCourant   Int
+  jourPaie      Int      @default(30) // jour du mois de la paie convenue (frise + alerte clôture)
   updatedAt     DateTime @updatedAt
 
   @@schema("public")

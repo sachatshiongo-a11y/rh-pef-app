@@ -162,7 +162,7 @@ export default async function AccueilPage() {
       {/* Frise chronologique de la paie du mois */}
       {run && (
         <div className="mb-6">
-          <FrisePaie mois={mois} annee={annee} etape={etapePaie} />
+          <FrisePaie mois={mois} annee={annee} etape={etapePaie} jourPaie={config?.jourPaie ?? 30} />
         </div>
       )}
 
