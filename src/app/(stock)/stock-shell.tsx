@@ -15,8 +15,9 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Stock",
     items: [
-      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "🍽" },
-      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "🥤" },
+      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "" },
+      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "" },
+      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "" },
       { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
       { href: "/stock/mouvements", label: "Mouvements", icone: "🔁" },
       { href: "/stock/journalier", label: "Conso. journalière", icone: "📅" },
@@ -60,7 +61,7 @@ export function StockShell({
   const roleLabel = userRole === "ADMIN" ? "Direction" : "Responsable stock";
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-dvh overflow-hidden">
       {open && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={fermer} aria-hidden />}
 
       <aside
@@ -81,7 +82,6 @@ export function StockShell({
         {/* Recherche article (raccourci vers le catalogue) */}
         <form method="GET" action="/stock/catalogue" className="mb-4" onSubmit={fermer}>
           <div className="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5">
-            <span className="text-sm text-muted-foreground" aria-hidden>🔍</span>
             <input name="q" placeholder="Rechercher un article…" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
           </div>
         </form>
@@ -103,7 +103,6 @@ export function StockShell({
                       actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
-                    <span aria-hidden className="lg:hidden">{item.icone}</span>
                     <span className="flex-1">{item.label}</span>
                     {(badges[item.href] ?? 0) > 0 && (
                       <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badges[item.href]}</span>
@@ -126,7 +125,7 @@ export function StockShell({
           </div>
           {doubleAcces && (
             <Link href="/choix-espace" onClick={fermer} className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
-              🔄 Changer d&apos;espace
+              Changer d&apos;espace
             </Link>
           )}
           <form action={logout}>
@@ -135,7 +134,7 @@ export function StockShell({
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-auto">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
           <button type="button" onClick={() => setOpen(true)} aria-label="Ouvrir le menu" className="rounded-md p-1.5 hover:bg-accent">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>

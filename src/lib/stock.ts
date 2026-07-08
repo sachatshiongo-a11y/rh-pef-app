@@ -37,6 +37,12 @@ export const ALERTE_CLASSE: Record<NiveauAlerte, string> = {
   OK: "bg-emerald-100 text-emerald-800",
 };
 
+export const DOMAINE_LABEL: Record<string, string> = {
+  NOURRITURE: "Nourriture",
+  BOISSON: "Boissons",
+  AUTRE: "Autre",
+};
+
 export const STATUT_FACTURE_LABEL: Record<string, string> = {
   A_REGLER: "À régler",
   REGLEE: "Réglée",

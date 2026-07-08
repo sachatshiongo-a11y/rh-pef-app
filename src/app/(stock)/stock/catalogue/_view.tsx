@@ -3,16 +3,16 @@ import { niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { CatalogueTable, type ArticleRow } from "./catalogue-table";
 import type { Prisma } from "@prisma/client";
 
-type Domaine = "NOURRITURE" | "BOISSON";
+type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string };
 
-const TITRE: Record<Domaine, string> = { NOURRITURE: "Catalogue — Nourriture 🍽", BOISSON: "Catalogue — Boissons 🥤" };
+const TITRE: Record<Domaine, string> = { NOURRITURE: "Catalogue — Nourriture", BOISSON: "Catalogue — Boissons", AUTRE: "Catalogue — Autre" };
 
 /** Vue catalogue partagée. `domaine` fixe le domaine (onglet dédié) ; sinon vue « tous domaines ». */
 export async function CatalogueView({ domaine, searchParams }: { domaine?: Domaine; searchParams: Promise<CatalogueSP> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
-  const domFiltre: Domaine | undefined = domaine ?? (sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined);
+  const domFiltre: Domaine | undefined = domaine ?? (sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined);
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const [articles, categories, fournisseurs] = await Promise.all([

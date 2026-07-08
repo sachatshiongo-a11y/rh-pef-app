@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { classeurExcel } from "@/lib/export-excel";
-import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
+import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
 
 export async function GET(req: Request) {
   const user = await verifySession();
   requireModule(user, "stock");
 
   const dom = new URL(req.url).searchParams.get("domaine");
-  const domaine = dom === "NOURRITURE" || dom === "BOISSON" ? dom : undefined;
+  const domaine = dom === "NOURRITURE" || dom === "BOISSON" || dom === "AUTRE" ? dom : undefined;
   const articles = await prisma.articleStock.findMany({
     where: domaine ? { domaine } : {},
     orderBy: [{ domaine: "asc" }, { designation: "asc" }],
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.seuilUrgent, a.stock.stockMinimum) : null;
     return [
       a.designation,
-      a.domaine === "NOURRITURE" ? "Nourriture" : "Boisson",
+      DOMAINE_LABEL[a.domaine] ?? a.domaine,
       a.categorie?.nom ?? "",
       a.fournisseur?.nom ?? "",
       a.unite ?? "",
@@ -31,8 +31,8 @@ export async function GET(req: Request) {
     ];
   });
 
-  const suffixe = domaine === "NOURRITURE" ? " — Nourriture" : domaine === "BOISSON" ? " — Boissons" : "";
-  const suffixeFichier = domaine === "NOURRITURE" ? "_Nourriture" : domaine === "BOISSON" ? "_Boissons" : "";
+  const suffixe = domaine ? ` — ${DOMAINE_LABEL[domaine]}` : "";
+  const suffixeFichier = domaine ? `_${DOMAINE_LABEL[domaine]}` : "";
   const buf = await classeurExcel({
     titre: `Catalogue${suffixe} — Stock & Achats`,
     periode: new Date().toLocaleDateString("fr-FR"),

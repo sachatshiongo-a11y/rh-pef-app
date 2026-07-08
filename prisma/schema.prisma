@@ -810,6 +810,7 @@ model FraisMedical {
 enum DomaineStock {
   NOURRITURE
   BOISSON
+  AUTRE
 
   @@schema("stock")
 }

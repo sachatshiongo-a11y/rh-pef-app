@@ -25,7 +25,7 @@ export async function creerArticle(formData: FormData) {
   const designation = String(formData.get("designation") ?? "").trim();
   const domaineRaw = String(formData.get("domaine") ?? "");
   if (!designation) throw new Error("La désignation est requise.");
-  const domaine = domaineRaw === "NOURRITURE" || domaineRaw === "BOISSON" ? domaineRaw : "NOURRITURE";
+  const domaine = domaineRaw === "NOURRITURE" || domaineRaw === "BOISSON" || domaineRaw === "AUTRE" ? domaineRaw : "NOURRITURE";
   const categorieId = String(formData.get("categorieId") ?? "").trim() || null;
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
 

@@ -2,12 +2,13 @@
 
 import { Fragment, memo, useMemo, useState, useTransition } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles } from "./actions";
-import { ALERTE_CLASSE, ALERTE_LABEL, type NiveauAlerte } from "@/lib/stock";
+import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
 
+export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
   id: string;
   designation: string;
-  domaine: "NOURRITURE" | "BOISSON";
+  domaine: Domaine;
   categorieId: string | null;
   fournisseurId: string | null;
   prix: string | null;
@@ -24,14 +25,14 @@ const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCa
 
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: "NOURRITURE" | "BOISSON"; initialQ?: string }) {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [ajout, setAjout] = useState(false);
   const [q, setQ] = useState(initialQ ?? "");
-  const [dom, setDom] = useState<"TOUS" | "NOURRITURE" | "BOISSON">(lockedDomaine ?? "TOUS");
+  const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>("");
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
@@ -69,9 +70,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
         {!lockedDomaine && (
           <div className="flex gap-1.5 text-sm">
-            {(["TOUS", "NOURRITURE", "BOISSON"] as const).map((k) => (
+            {(["TOUS", "NOURRITURE", "BOISSON", "AUTRE"] as const).map((k) => (
               <button key={k} onClick={() => setDom(k)} className={`rounded-full border px-3 py-1 ${dom === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>
-                {k === "TOUS" ? "Tous" : k === "NOURRITURE" ? "🍽 Nourriture" : "🥤 Boissons"}
+                {k === "TOUS" ? "Tous" : DOMAINE_LABEL[k]}
               </button>
             ))}
           </div>
@@ -91,7 +92,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <span className="text-muted-foreground">→ catégoriser :</span>
           <select value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
             <option value="">Choisir une catégorie…</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({c.domaine === "NOURRITURE" ? "N" : "B"})</option>)}
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
           <button
             disabled={isPending || !bulkCat}
@@ -125,10 +126,11 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <select name="domaine" defaultValue={lockedDomaine ?? "NOURRITURE"} className={cellCls}>
             <option value="NOURRITURE">Nourriture</option>
             <option value="BOISSON">Boisson</option>
+            <option value="AUTRE">Autre</option>
           </select>
           <select name="categorieId" defaultValue="" className={cellCls}>
             <option value="">— catégorie —</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({c.domaine === "NOURRITURE" ? "N" : "B"})</option>)}
+            {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
           <select name="fournisseurId" defaultValue="" className={cellCls}>
             <option value="">— fournisseur —</option>
@@ -142,7 +144,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </form>
       )}
 
-      <div className="max-h-[72vh] overflow-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[64rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold">
@@ -164,7 +166,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                 {(i === 0 || visibles[i - 1].domaine !== a.domaine) && (
                   <tr>
                     <td colSpan={10} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
-                      {a.domaine === "NOURRITURE" ? "🍽 Nourriture" : "🥤 Boissons"} ({visibles.filter((x) => x.domaine === a.domaine).length})
+                      {DOMAINE_LABEL[a.domaine]} ({visibles.filter((x) => x.domaine === a.domaine).length})
                     </td>
                   </tr>
                 )}

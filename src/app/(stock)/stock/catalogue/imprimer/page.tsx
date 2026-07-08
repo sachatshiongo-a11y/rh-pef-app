@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
+import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
 import { PrintDoc } from "../../_print/print-doc";
 import type { Prisma } from "@prisma/client";
 
@@ -8,7 +8,7 @@ type SP = { q?: string; domaine?: string };
 export default async function CatalogueImprimerPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
-  const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
+  const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
   const where: Prisma.ArticleStockWhereInput = {
     ...(domaine ? { domaine } : {}),
     ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
@@ -22,7 +22,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.seuilUrgent, a.stock.stockMinimum) : null;
     return [
       a.designation,
-      a.domaine === "NOURRITURE" ? "Nourriture" : "Boisson",
+      DOMAINE_LABEL[a.domaine] ?? a.domaine,
       a.categorie?.nom ?? "",
       a.fournisseur?.nom ?? "",
       a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD).toFixed(2) : "",
