@@ -54,8 +54,17 @@ export function PaieBulk({
   const toutes = [...brigadeAff, ...backofficeAff];
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
+  // "" = automatique (suit la fiche de chaque employé) ; sinon on force ce mode pour tout le lot.
+  const [modeBulk, setModeBulk] = useState<"" | ModePaiement>("");
 
   const STATUTS: PaymentStatus[] = ["PAS_VALIDE", "VALIDE", "PAYE"];
+  const MODES_PAIEMENT: { valeur: ModePaiement; label: string }[] = [
+    { valeur: "ESPECES", label: "Espèces" },
+    { valeur: "VIREMENT", label: "Virement bancaire" },
+    { valeur: "MOBILE_MONEY", label: "Mobile Money" },
+    { valeur: "CHEQUE", label: "Chèque" },
+    { valeur: "AUTRE", label: "Autre" },
+  ];
 
   function toggle(id: string) {
     setSelection((s) => {
@@ -75,8 +84,10 @@ export function PaieBulk({
   function lancer(versStatut: PaymentStatus) {
     const ids = [...selection];
     if (ids.length === 0) return;
+    // Au paiement : mode forcé si choisi, sinon null → le serveur suit la fiche de chaque employé.
+    const mode = versStatut === "PAYE" ? (modeBulk || null) : null;
     startTransition(async () => {
-      await changerStatutEnLot(ids, versStatut, null);
+      await changerStatutEnLot(ids, versStatut, mode);
       setSelection(new Set());
     });
   }
@@ -94,9 +105,22 @@ export function PaieBulk({
               <button onClick={() => lancer("VALIDE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
                 ✓ Valider
               </button>
-              <button onClick={() => lancer("PAYE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
-                ✓ Marquer payé
-              </button>
+              <span className="inline-flex items-center gap-1">
+                <select
+                  value={modeBulk}
+                  onChange={(e) => setModeBulk(e.target.value as "" | ModePaiement)}
+                  title="Moyen de paiement pour le lot"
+                  className="rounded border border-input bg-background px-1.5 py-1 text-xs"
+                >
+                  <option value="">Auto (selon la fiche)</option>
+                  {MODES_PAIEMENT.map((m) => (
+                    <option key={m.valeur} value={m.valeur}>{m.label}</option>
+                  ))}
+                </select>
+                <button onClick={() => lancer("PAYE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
+                  ✓ Marquer payé
+                </button>
+              </span>
               <button onClick={() => lancer("PAS_VALIDE")} disabled={isPending} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">
                 ↩ Rouvrir
               </button>
