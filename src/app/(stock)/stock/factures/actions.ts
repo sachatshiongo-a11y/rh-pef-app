@@ -56,6 +56,15 @@ export async function creerFacture(formData: FormData) {
   revalidatePath("/stock/factures");
 }
 
+/** Supprime une facture fournisseur. */
+export async function supprimerFacture(id: string) {
+  const user = await garde();
+  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
+  await prisma.factureFournisseur.delete({ where: { id } });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "suppression", ancienneValeur: `${f.fournisseurNom} — ${f.montantUSD}`, userId: user.id });
+  revalidatePath("/stock/factures");
+}
+
 /** Marque une facture comme réglée (solde le reste à payer) et enregistre le mode de paiement. */
 export async function marquerPayee(id: string, formData: FormData) {
   const user = await garde();

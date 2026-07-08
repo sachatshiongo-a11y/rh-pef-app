@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, useTransition } from "react";
-import { creerFacture, marquerPayee } from "./actions";
+import { creerFacture, marquerPayee, supprimerFacture } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 
 export type FactureRow = {
@@ -133,6 +133,7 @@ export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[];
                       <td className="px-3 py-2 text-right">{f.reste > 0 ? <span className="font-medium text-red-700">{usd(f.reste)}</span> : "—"}</td>
                       <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></td>
                       <td className="px-3 py-2 text-right">
+                        <div className="flex items-center justify-end gap-2">
                         {f.statut !== "REGLEE" && (
                           payerId === f.id ? (
                             <form action={(fd) => run(async () => { await marquerPayee(f.id, fd); setPayerId(null); })} className="flex items-center justify-end gap-1">
@@ -146,6 +147,8 @@ export function FacturesUI({ groupes, fournisseurs, bons }: { groupes: Groupe[];
                             <button onClick={() => setPayerId(f.id)} className="rounded border px-2 py-1 text-xs hover:bg-accent">Marquer payée</button>
                           )
                         )}
+                        <button onClick={() => { if (confirm("Supprimer cette facture ?")) run(() => supprimerFacture(f.id)); }} disabled={isPending} title="Supprimer" className="rounded border px-2 py-1 text-xs text-destructive hover:bg-destructive/10">✕</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
