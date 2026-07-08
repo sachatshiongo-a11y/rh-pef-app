@@ -41,6 +41,31 @@ async function televerserFiche(poste: string, file: File): Promise<string> {
   return `${base}/storage/v1/object/public/${BUCKET}/${path}`;
 }
 
+/** Crée un nouvel intitulé de poste (fiche vide, à documenter ensuite). Admin/Manager. */
+export async function creerPoste(formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+
+  const poste = String(formData.get("poste") ?? "").trim();
+  if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Indiquez un intitulé de poste.")}`);
+
+  // Existe déjà comme fiche ou comme poste d'un employé ? On ne crée pas de doublon.
+  const [existeFiche, existeEmploye] = await Promise.all([
+    prisma.fichePoste.findUnique({ where: { poste } }),
+    prisma.employee.findFirst({ where: { poste }, select: { id: true } }),
+  ]);
+  if (existeFiche || existeEmploye) {
+    redirect(`/fiches-poste?erreur=${encodeURIComponent(`Le poste « ${poste} » existe déjà.`)}`);
+  }
+
+  await prisma.fichePoste.create({ data: { poste, creeParId: user.id } });
+  await journaliser(prisma, { entite: "FichePoste", entiteId: poste, champ: "creation", nouvelleValeur: "poste créé", userId: user.id });
+
+  revalidatePath("/fiches-poste");
+  revalidatePath("/employes");
+  redirect(`/fiches-poste?msg=${encodeURIComponent(`Poste « ${poste} » créé. Vous pouvez le documenter et l'affecter à un employé.`)}`);
+}
+
 /** Crée ou met à jour la fiche d'un poste (description + fichier optionnel). Admin/Manager. */
 export async function enregistrerFichePoste(formData: FormData) {
   const user = await verifySession();

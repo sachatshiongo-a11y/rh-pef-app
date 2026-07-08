@@ -13,13 +13,20 @@ export function EmployeeForm({
   employee,
   action,
   joursOuvrablesMois,
+  postes = [],
 }: {
   employee?: Employee;
   action: (formData: FormData) => void;
   joursOuvrablesMois: number;
+  postes?: string[];
 }) {
   return (
     <form action={action} className="grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+      <datalist id="postes-existants">
+        {postes.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
       <Field label="Matricule (auto si vide)" name="matricule" defaultValue={employee?.matricule} />
       <Field label="Nom et prénom" name="nom" defaultValue={employee?.nom} required />
 
@@ -44,7 +51,7 @@ export function EmployeeForm({
         ]}
       />
 
-      <Field label="Poste" name="poste" defaultValue={employee?.poste} required />
+      <Field label="Poste" name="poste" defaultValue={employee?.poste} required list="postes-existants" />
       <Field label="Secteur" name="secteur" defaultValue={employee?.secteur} required />
 
       <Select
@@ -253,6 +260,7 @@ function Field({
   inputMode,
   defaultValue,
   required,
+  list,
 }: {
   label: string;
   name: string;
@@ -262,6 +270,7 @@ function Field({
   inputMode?: "decimal" | "numeric";
   defaultValue?: string;
   required?: boolean;
+  list?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -277,6 +286,7 @@ function Field({
         inputMode={inputMode}
         defaultValue={defaultValue}
         required={required}
+        list={list}
         className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
       />
     </div>

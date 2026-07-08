@@ -6,6 +6,7 @@ import { EmployeeForm } from "../../employee-form";
 import { modifierEmploye } from "../../actions";
 import { uploadPhotoEmploye } from "../../photo-actions";
 import { chargerParametresPaie } from "@/lib/config";
+import { chargerPostes } from "@/lib/postes";
 import { Avatar } from "@/components/avatar";
 
 export default async function ModifierEmployePage({
@@ -17,9 +18,10 @@ export default async function ModifierEmployePage({
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const { id } = await params;
-  const [employee, parametres] = await Promise.all([
+  const [employee, parametres, postes] = await Promise.all([
     prisma.employee.findUnique({ where: { id } }),
     chargerParametresPaie(),
+    chargerPostes(),
   ]);
   if (!employee) notFound();
 
@@ -51,7 +53,7 @@ export default async function ModifierEmployePage({
         </form>
       </div>
 
-      <EmployeeForm employee={employee} action={action} joursOuvrablesMois={parametres.joursOuvrablesMois} />
+      <EmployeeForm employee={employee} action={action} joursOuvrablesMois={parametres.joursOuvrablesMois} postes={postes} />
     </div>
   );
 }

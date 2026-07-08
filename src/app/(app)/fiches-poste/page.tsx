@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse } from "./actions";
+import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
 export default async function FichesPostePage({
@@ -58,6 +58,28 @@ export default async function FichesPostePage({
           <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">{postes.length - avecFiche} à faire</span>
         </div>
       </div>
+
+      {peutGerer && (
+        <div className="mb-4 rounded-xl border bg-card p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">➕ Créer un poste</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ajoutez un nouvel intitulé de poste, même sans employé encore affecté. Il apparaîtra ci-dessous (à documenter)
+            et sera proposé lors de la création d&apos;un employé.
+          </p>
+          <form action={creerPoste} className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              name="poste"
+              required
+              placeholder="Ex. Commis de cuisine"
+              className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+            />
+            <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground">
+              Créer le poste
+            </button>
+          </form>
+        </div>
+      )}
 
       {peutGerer && (
         <div className="mb-6 rounded-xl border border-primary/30 bg-primary/5 p-4">
