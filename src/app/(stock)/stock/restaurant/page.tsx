@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
 
@@ -47,9 +48,12 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Stock restaurant</h1>
-        <div className="flex gap-1.5 text-sm">
-          <a href={`/stock/restaurant?espace=CUISINE&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "CUISINE" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Cuisine</a>
-          <a href={`/stock/restaurant?espace=BAR&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "BAR" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Bar</a>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5 text-sm">
+            <a href={`/stock/restaurant?espace=CUISINE&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "CUISINE" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Cuisine</a>
+            <a href={`/stock/restaurant?espace=BAR&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "BAR" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Bar</a>
+          </div>
+          <Link href={`/stock/restaurant/parametres?espace=${espace}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Paramètres</Link>
         </div>
       </div>
 

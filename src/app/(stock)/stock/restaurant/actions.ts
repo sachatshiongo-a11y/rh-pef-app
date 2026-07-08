@@ -60,6 +60,23 @@ export async function creerArticleResto(formData: FormData) {
   revalidatePath("/stock/restaurant");
 }
 
+/** Modifie un champ d'un article resto (désignation, catégorie, unité, base, ordre). */
+export async function modifierArticleResto(id: string, formData: FormData) {
+  await garde();
+  const data: Record<string, unknown> = {};
+  if (formData.has("designation")) {
+    const v = String(formData.get("designation") ?? "").trim();
+    if (!v) throw new Error("La désignation ne peut pas être vide.");
+    data.designation = v;
+  }
+  if (formData.has("categorie")) data.categorie = String(formData.get("categorie") ?? "").trim() || null;
+  if (formData.has("unite")) data.unite = String(formData.get("unite") ?? "").trim() || null;
+  if (formData.has("stockBaseJournalier")) data.stockBaseJournalier = dec(formData.get("stockBaseJournalier"));
+  if (formData.has("ordre")) { const n = Number(formData.get("ordre")); if (Number.isFinite(n)) data.ordre = Math.trunc(n); }
+  await prisma.articleResto.update({ where: { id }, data });
+  revalidatePath("/stock/restaurant");
+}
+
 /** Supprime un article du stock restaurant (et ses comptages). */
 export async function supprimerArticleResto(id: string) {
   await garde();
