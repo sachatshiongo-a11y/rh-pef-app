@@ -8,6 +8,7 @@ const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "
 
 export default async function StockDashboard() {
   const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const prenom = user.nom.split(" ")[0];
   const now = new Date();
   const annee = now.getFullYear(), mois = now.getMonth() + 1;
@@ -17,7 +18,7 @@ export default async function StockDashboard() {
     moi, config, nbArticles, nbFournisseurs, stocks, facturesDues,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
-    derniersComptages, pertesRecentes,
+    derniersComptages, pertesRecentes, bcAValider,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -35,6 +36,7 @@ export default async function StockDashboard() {
     prisma.fournisseur.findMany({ select: { id: true, nom: true } }),
     prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE" }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: { designation: true } } } }),
+    prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
   ]);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
@@ -79,6 +81,24 @@ export default async function StockDashboard() {
         <Kpi label="Factures à payer" valeur={usd(facturesDues._sum.resteAPayerUSD)} sous={`${facturesDues._count} facture(s)`} accent={Number(facturesDues._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
         <Kpi label="Commandes du mois" valeur={String(commandesMois)} href="/stock/commandes" />
       </div>
+
+      {/* Bons de commande à valider — Direction uniquement */}
+      {estDirection && bcAValider.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-semibold text-amber-900">Bons de commande à valider ({bcAValider.length})</h2>
+            <Link href="/stock/a-valider" className="text-xs font-medium text-amber-800 underline">Tout traiter</Link>
+          </div>
+          <ul className="divide-y divide-amber-200 text-sm">
+            {bcAValider.map((b) => (
+              <li key={b.id} className="flex items-center justify-between gap-2 py-1.5">
+                <Link href={`/stock/commandes/${b.id}`} className="truncate pr-2 font-medium text-amber-900 hover:underline">{b.numero} · {b.fournisseur?.nom ?? "—"}</Link>
+                <span className="shrink-0 font-medium text-amber-900">{usd(b.totalUSD)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Bloc titre={`Articles au seuil minimum (${nbUrgent + nbAppro})`} lien="/stock/catalogue/nourriture">
