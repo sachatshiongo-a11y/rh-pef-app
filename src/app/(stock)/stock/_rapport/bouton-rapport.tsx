@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type T = { value: string; label: string };
 
@@ -8,6 +8,15 @@ type T = { value: string; label: string };
 // chiffré ou détaillé (PDF/Excel) sur la période choisie pour le(s) type(s) donné(s).
 export function BoutonRapport({ types }: { types: T[] }) {
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // Le panneau (288px) s'ouvre vers la droite si la place le permet, sinon vers la gauche.
+  // Évite qu'il passe sous la barre latérale quand le bouton se retrouve à gauche (retour à la ligne).
+  const [alignRight, setAlignRight] = useState(false);
+  const basculer = () => {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) setAlignRight(rect.left + 288 > window.innerWidth);
+    setOpen((o) => !o);
+  };
   const now = new Date();
   const finDef = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
@@ -20,11 +29,11 @@ export function BoutonRapport({ types }: { types: T[] }) {
 
   return (
     <div className="relative inline-block">
-      <button onClick={() => setOpen((o) => !o)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Rapport ▾</button>
+      <button ref={btnRef} onClick={basculer} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Rapport ▾</button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-1.5 w-72 overflow-hidden rounded-xl border bg-card shadow-xl">
+          <div className={`absolute ${alignRight ? "right-0" : "left-0"} z-50 mt-1.5 w-72 overflow-hidden rounded-xl border bg-card shadow-xl`}>
             <div className="border-b bg-muted/40 px-4 py-2.5">
               <p className="text-sm font-semibold">Générer un rapport</p>
             </div>
