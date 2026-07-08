@@ -13,15 +13,16 @@ export type NotificationItem = {
   createdAt: Date;
 };
 
-/** Crée une notification (cloche Direction). À appeler depuis les actions métier. */
+/** Crée une notification (cloche). `domaine` cloisonne l'affichage (RH ou STOCK). */
 export async function creerNotification(params: {
   type: "CONGE" | "ACOMPTE" | "CLOTURE" | "AUTRE";
   message: string;
   lien?: string;
   refId?: string;
+  domaine?: "RH" | "STOCK";
 }) {
   await prisma.notification.create({
-    data: { type: params.type, message: params.message, lien: params.lien ?? null, refId: params.refId ?? null },
+    data: { domaine: params.domaine ?? "RH", type: params.type, message: params.message, lien: params.lien ?? null, refId: params.refId ?? null },
   });
 
   // Notification e-mail + push aux comptes Direction (best-effort ; no-op si non configuré).
@@ -48,21 +49,21 @@ export async function supprimerNotificationsPour(refId: string) {
 
 const JOUR_PAIE = 30;
 
-/** Données de la cloche : notifications stockées récentes, nombre non lues, + alerte clôture proche. */
-export async function chargerNotifications(): Promise<{
+/** Données de la cloche pour un espace (`domaine`) : notifications récentes, non lues, + alerte clôture (RH). */
+export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH"): Promise<{
   items: NotificationItem[];
   nonLues: number;
   cloture: { message: string; jours: number } | null;
 }> {
   const [items, nonLues, config] = await Promise.all([
-    prisma.notification.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
-    prisma.notification.count({ where: { lu: false } }),
+    prisma.notification.findMany({ where: { domaine }, orderBy: { createdAt: "desc" }, take: 20 }),
+    prisma.notification.count({ where: { domaine, lu: false } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
 
-  // Clôture proche : jours restants avant le 30 du mois courant, s'il reste des bulletins non validés.
+  // Clôture proche : jours restants avant le 30 du mois courant, s'il reste des bulletins non validés (RH uniquement).
   let cloture: { message: string; jours: number } | null = null;
-  if (config) {
+  if (config && domaine === "RH") {
     const auj = new Date();
     const estMoisCourant = auj.getMonth() + 1 === config.moisCourant && auj.getFullYear() === config.anneeCourante;
     if (estMoisCourant) {

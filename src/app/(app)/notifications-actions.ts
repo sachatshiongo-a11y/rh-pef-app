@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 
-/** Marque toutes les notifications comme lues (réservé à la Direction). */
-export async function marquerNotificationsLues() {
-  const user = await verifySession();
-  if (user.role !== "ADMIN") return;
-  await prisma.notification.updateMany({ where: { lu: false }, data: { lu: true } });
+/** Marque comme lues les notifications d'un espace (RH ou STOCK). */
+export async function marquerNotificationsLues(domaine: "RH" | "STOCK" = "RH") {
+  await verifySession();
+  const dom = domaine === "STOCK" ? "STOCK" : "RH";
+  await prisma.notification.updateMany({ where: { domaine: dom, lu: false }, data: { lu: true } });
   revalidatePath("/", "layout");
 }

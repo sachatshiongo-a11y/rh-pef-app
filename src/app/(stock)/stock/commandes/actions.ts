@@ -99,7 +99,7 @@ export async function creerBonCommande(formData: FormData) {
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
 
   // Un bon de commande vient d'être émis (à valider) : cloche + push/e-mail à la Direction.
-  await creerNotification({ type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
+  await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
 
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
@@ -166,7 +166,7 @@ export async function validerBonCommande(id: string, _formData: FormData) {
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", nouvelleValeur: "VALIDE", userId: user.id });
 
   // Notifie l'auteur du BC que sa demande est validée (cloche pour tous + push à l'auteur).
-  await prisma.notification.create({ data: { type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
+  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
   if (bc.creeParId) await envoyerPush([bc.creeParId], { title: "Bon de commande validé", body: `${bc.numero} a été validé.`, url: `/stock/commandes/${id}`, tag: `bc-val-${id}` });
 
   revalidatePath("/stock/commandes");

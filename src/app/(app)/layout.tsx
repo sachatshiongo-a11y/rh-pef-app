@@ -35,10 +35,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // vers le résolveur d'entrée, qui l'oriente vers son propre espace. Le cloisonnement ne
   // repose donc pas sur le seul masquage des liens.
   if (!estRH(user.role)) redirect("/entree");
-  const estAdmin = user.role === "ADMIN";
   const [badges, notif, moi] = await Promise.all([
     chargerBadges(),
-    estAdmin ? chargerNotifications() : Promise.resolve(null),
+    chargerNotifications("RH"), // cloche pour tous les utilisateurs RH
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
   ]);
   const maPhoto = moi?.employe?.photoUrl ?? null;

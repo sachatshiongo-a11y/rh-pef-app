@@ -17,10 +17,12 @@ export function NotificationBell({
   items,
   nonLues,
   cloture,
+  domaine = "RH",
 }: {
   items: NotificationItem[];
   nonLues: number;
   cloture: { message: string; jours: number } | null;
+  domaine?: "RH" | "STOCK";
 }) {
   const [ouvert, setOuvert] = useState(false);
   const total = nonLues + (cloture ? 1 : 0);
@@ -54,7 +56,7 @@ export function NotificationBell({
               {nonLues > 0 && (
                 <button
                   onClick={() => {
-                    marquerNotificationsLues();
+                    marquerNotificationsLues(domaine);
                     setOuvert(false);
                   }}
                   className="text-xs text-primary hover:underline"

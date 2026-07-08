@@ -68,7 +68,7 @@ export function AppShell({
     userRole === "ADMIN" ? "Direction" : userRole === "MANAGER" ? "Responsable RH" : "Consultation";
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-dvh overflow-hidden">
       {/* Voile sombre derrière le tiroir (mobile) */}
       {open && (
         <div
@@ -187,7 +187,7 @@ export function AppShell({
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-auto">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         {/* En-tête mobile : hamburger + titre + cloche — collant, sous l'encoche (safe-area) */}
         <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
           <button

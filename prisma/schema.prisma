@@ -730,6 +730,7 @@ model DeclarationTaxe {
 /// clôture de paie proche… `lu` global (petite structure, 1–2 comptes Direction).
 model Notification {
   id        String   @id @default(uuid())
+  domaine   String   @default("RH") // RH | STOCK — cloisonne la cloche par espace
   type      String // CONGE | ACOMPTE | CLOTURE | AUTRE
   refId     String? // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
   message   String
@@ -737,7 +738,7 @@ model Notification {
   lu        Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@index([lu, createdAt])
+  @@index([domaine, lu, createdAt])
   @@schema("public")
 }
 

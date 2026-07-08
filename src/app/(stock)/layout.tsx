@@ -13,7 +13,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const [moi, nbAValider, notifs] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
-    chargerNotifications(),
+    chargerNotifications("STOCK"),
   ]);
 
   return (

@@ -148,13 +148,13 @@ export function StockShell({
           </button>
           <span className="truncate font-medium">Stock &amp; Achats</span>
           <div className="ml-auto flex items-center gap-2">
-            {notif && <NotificationBell {...notif} />}
+            {notif && <NotificationBell {...notif} domaine="STOCK" />}
             <Avatar nom={userNom} taille={28} photoUrl={maPhoto} />
           </div>
         </header>
         {notif && (
           <div className="hidden justify-end border-b bg-background px-8 py-2 lg:flex">
-            <NotificationBell {...notif} />
+            <NotificationBell {...notif} domaine="STOCK" />
           </div>
         )}
         <div className="p-4 lg:p-8">{children}</div>
