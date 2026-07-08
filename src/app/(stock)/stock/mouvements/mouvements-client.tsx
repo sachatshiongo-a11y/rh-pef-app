@@ -48,8 +48,8 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex overflow-hidden rounded-md border text-sm">
-          <button type="button" onClick={() => setType("ENTREE")} className={`px-3 py-1.5 ${type === "ENTREE" ? "bg-emerald-600 text-white" : "hover:bg-accent"}`}>Entrée</button>
-          <button type="button" onClick={() => setType("SORTIE")} className={`px-3 py-1.5 ${type === "SORTIE" ? "bg-red-600 text-white" : "hover:bg-accent"}`}>Sortie</button>
+          <button type="button" onClick={() => setType("ENTREE")} className={`px-3 py-1.5 ${type === "ENTREE" ? "bg-success text-white" : "hover:bg-accent"}`}>Entrée</button>
+          <button type="button" onClick={() => setType("SORTIE")} className={`px-3 py-1.5 ${type === "SORTIE" ? "bg-destructive text-white" : "hover:bg-accent"}`}>Sortie</button>
         </div>
         <input type="hidden" name="type" value={type} />
         <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} /></label>
@@ -78,7 +78,7 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
       ))}
       <div className="flex items-center gap-3 pt-1">
         <button type="button" onClick={() => setNb((n) => n + 1)} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
-        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-emerald-600" : "bg-red-600"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
+        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Fermer</button>
       </div>

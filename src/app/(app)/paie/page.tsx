@@ -184,7 +184,7 @@ export default async function PaiePage({
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
                 message={`Clôturer la paie de ${periode} ? Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».`}
-                className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+                className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90"
               >
                 Clôturer la paie ({nbPasValide})
               </ConfirmSubmitButton>

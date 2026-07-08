@@ -73,7 +73,7 @@ export function BulletinsInbox({
         {selection.size > 0 && (
           <>
             <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-            <button onClick={() => lancer([...selection])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-600">
+            <button onClick={() => lancer([...selection])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-success">
               {actionLabel}
             </button>
             {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
@@ -96,7 +96,7 @@ export function BulletinsInbox({
             <div className="flex items-center gap-3 text-xs">
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
-              <button onClick={() => lancer([r.id])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1.5 font-semibold text-white hover:bg-emerald-600">
+              <button onClick={() => lancer([r.id])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1.5 font-semibold text-white hover:bg-success">
                 {actionLabel}
               </button>
             </div>

@@ -47,7 +47,7 @@ const arr = (n: number) => Math.round(n * 100) / 100;
 
 export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin: Date): Promise<DonneesRapport> {
   const mois = moisEntre(debut, fin);
-  const finExcl = new Date(Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth() + 1, 1));
+  const finExcl = new Date(Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth(), fin.getUTCDate() + 1));
   const titre = TYPES_RAPPORT[type];
 
   if (type === "FACTURES") {
@@ -108,22 +108,24 @@ const q3 = (v: unknown) => Math.round(Number(v) * 1000) / 1000;
 
 /** Rapport DÉTAILLÉ : liste ligne par ligne (fournisseurs, articles, montants) au lieu des totaux mensuels. */
 export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date, fin: Date): Promise<DonneesRapport> {
-  const finExcl = new Date(Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth() + 1, 1));
+  const finExcl = new Date(Date.UTC(fin.getUTCFullYear(), fin.getUTCMonth(), fin.getUTCDate() + 1));
   const bornInf = debut.getUTCFullYear() * 12 + debut.getUTCMonth();
   const bornSup = fin.getUTCFullYear() * 12 + (fin.getUTCMonth());
   const dans = (a: number, m: number) => { const i = a * 12 + (m - 1); return i >= bornInf && i <= bornSup; };
+  // Filtre au jour près quand la ligne porte une date exacte ; sinon repli sur le mois (factures sans date).
+  const dansJour = (d: Date | null, a: number, m: number) => (d ? d >= debut && d < finExcl : dans(a, m));
   const titre = `${TYPES_RAPPORT[type]} — détail`;
 
   if (type === "FACTURES") {
     const rows = (await prisma.factureFournisseur.findMany({ orderBy: [{ annee: "asc" }, { mois: "asc" }, { date: "asc" }], include: { fournisseur: { select: { nom: true } } } }))
-      .filter((r) => dans(r.annee, r.mois));
+      .filter((r) => dansJour(r.date, r.annee, r.mois));
     const lignes = rows.map((r) => [jj(r.date), r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), arr(Number(r.montantUSD)), arr(Number(r.resteAPayerUSD)), STATUT_FACTURE_LABEL[r.statut] ?? r.statut]);
     return { titre, entete: ["Date", "Fournisseur", "N°", "Échéance", "Montant USD", "Reste USD", "Statut"], lignes, largeurs: ["11%", "24%", "12%", "12%", "13%", "13%", "15%"], droite: [4, 5], sommables: [4, 5] };
   }
 
   if (type === "BONS_COMMANDE") {
     const bcs = (await prisma.bonDeCommande.findMany({ orderBy: [{ annee: "asc" }, { sequence: "asc" }], include: { fournisseur: { select: { nom: true } }, lignes: { orderBy: { designation: "asc" } } } }))
-      .filter((b) => dans(b.annee, b.mois));
+      .filter((b) => dansJour(b.date, b.annee, b.mois));
     const lignes: (string | number)[][] = [];
     for (const b of bcs) {
       if (b.lignes.length === 0) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", "—", "", "", arr(Number(b.totalUSD))]);

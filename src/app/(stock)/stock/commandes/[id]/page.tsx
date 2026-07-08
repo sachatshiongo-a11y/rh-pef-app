@@ -48,7 +48,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
               <Link href={`/stock/commandes/${bc.id}/modifier`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Modifier le brouillon</Link>
               {estDirection ? (
                 <form action={validerBonCommande.bind(null, bc.id)}>
-                  <button className="rounded-md bg-green-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-700">Valider le bon de commande</button>
+                  <button className="rounded-md bg-success px-4 py-1.5 text-sm font-medium text-white hover:bg-success/90">Valider le bon de commande</button>
                 </form>
               ) : (
                 <span className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">En attente de validation par la Direction</span>

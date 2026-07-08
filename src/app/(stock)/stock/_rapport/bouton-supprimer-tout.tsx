@@ -18,7 +18,7 @@ export function BoutonSupprimerTout({ estDirection, action, libelle }: { estDire
 
   return (
     <span className="inline-flex items-center gap-2">
-      <button type="button" onClick={cliquer} disabled={isPending} className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+      <button type="button" onClick={cliquer} disabled={isPending} className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-50">
         {isPending ? "Suppression…" : "Supprimer tout"}
       </button>
       {erreur && <span className="text-xs text-destructive">{erreur}</span>}

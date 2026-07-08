@@ -91,10 +91,10 @@ export function PaieBulk({
           <span className="text-sm font-medium">{n} sélectionné(s) :</span>
           {estAdmin && (
             <>
-              <button onClick={() => lancer("VALIDE")} disabled={isPending} className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700">
+              <button onClick={() => lancer("VALIDE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
                 ✓ Valider
               </button>
-              <button onClick={() => lancer("PAYE")} disabled={isPending} className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700">
+              <button onClick={() => lancer("PAYE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
                 ✓ Marquer payé
               </button>
               <button onClick={() => lancer("PAS_VALIDE")} disabled={isPending} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">

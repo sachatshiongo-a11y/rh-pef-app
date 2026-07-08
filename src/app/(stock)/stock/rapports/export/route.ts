@@ -7,14 +7,14 @@ import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type
 
 function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
   const now = new Date();
-  const defFin = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const defDebut = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
+  const defFin = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const defDebut = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate()));
   const pd = sp.get("debut"), pf = sp.get("fin");
-  const debut = pd && /^\d{4}-\d{2}$/.test(pd) ? new Date(`${pd}-01T00:00:00Z`) : defDebut;
-  const fin = pf && /^\d{4}-\d{2}$/.test(pf) ? new Date(`${pf}-01T00:00:00Z`) : defFin;
+  const debut = pd && /^\d{4}-\d{2}-\d{2}$/.test(pd) ? new Date(`${pd}T00:00:00Z`) : defDebut;
+  const fin = pf && /^\d{4}-\d{2}-\d{2}$/.test(pf) ? new Date(`${pf}T00:00:00Z`) : defFin;
   return { debut, fin };
 }
-const moisLabel = (d: Date) => d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+const jourLabel = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
 
 export async function GET(req: Request) {
   const user = await verifySession();
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
   const { debut, fin } = bornes(sp);
 
   const data = mode === "detail" ? await genererDonneesRapportDetail(type, debut, fin) : await genererDonneesRapport(type, debut, fin);
-  const periode = `${moisLabel(debut)} → ${moisLabel(fin)}`;
+  const periode = `${jourLabel(debut)} → ${jourLabel(fin)}`;
 
   // Journalise la génération (avec mode/format pour re-télécharger depuis les archives).
   await prisma.rapport.create({ data: { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });

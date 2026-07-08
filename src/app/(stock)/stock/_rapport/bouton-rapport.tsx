@@ -18,9 +18,9 @@ export function BoutonRapport({ types }: { types: T[] }) {
     setOpen((o) => !o);
   };
   const now = new Date();
-  const finDef = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
-  const debutDef = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const iso = (x: Date) => x.toISOString().slice(0, 10);
+  const finDef = iso(now);
+  const debutDef = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate())));
   const [debut, setDebut] = useState(debutDef);
   const [fin, setFin] = useState(finDef);
   const lien = (type: string, mode: string, format: string) => `/stock/rapports/export?type=${type}&mode=${mode}&format=${format}&debut=${debut}&fin=${fin}`;
@@ -39,8 +39,8 @@ export function BoutonRapport({ types }: { types: T[] }) {
             </div>
             <div className="space-y-3 p-4">
               <div className="grid grid-cols-2 gap-2">
-                <label className="flex flex-col gap-1 text-xs text-muted-foreground">Du<input type="month" value={debut} onChange={(e) => setDebut(e.target.value)} className={inp} /></label>
-                <label className="flex flex-col gap-1 text-xs text-muted-foreground">Au<input type="month" value={fin} onChange={(e) => setFin(e.target.value)} className={inp} /></label>
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">Du<input type="date" value={debut} onChange={(e) => setDebut(e.target.value)} className={inp} /></label>
+                <label className="flex flex-col gap-1 text-xs text-muted-foreground">Au<input type="date" value={fin} onChange={(e) => setFin(e.target.value)} className={inp} /></label>
               </div>
 
               {types.map((t) => (

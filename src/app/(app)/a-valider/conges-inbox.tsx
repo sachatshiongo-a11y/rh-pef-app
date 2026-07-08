@@ -73,10 +73,10 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
           {selection.size > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-              <button onClick={() => bulk(approuverCongesEnLot)} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-600">
+              <button onClick={() => bulk(approuverCongesEnLot)} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-success">
                 Approuver
               </button>
-              <button onClick={() => bulk(refuserCongesEnLot)} disabled={isPending} className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-red-600">
+              <button onClick={() => bulk(refuserCongesEnLot)} disabled={isPending} className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-destructive/90">
                 Refuser
               </button>
               {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
@@ -112,10 +112,10 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
 
                 {peutValider && (
                   <div className="flex items-center gap-2">
-                    <button onClick={() => individuel(approuverConge, d.id)} disabled={isPending} className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600">
+                    <button onClick={() => individuel(approuverConge, d.id)} disabled={isPending} className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-success">
                       Approuver
                     </button>
-                    <button onClick={() => individuel(refuserConge, d.id)} disabled={isPending} className="rounded-full bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
+                    <button onClick={() => individuel(refuserConge, d.id)} disabled={isPending} className="rounded-full bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90">
                       Refuser
                     </button>
                     <button

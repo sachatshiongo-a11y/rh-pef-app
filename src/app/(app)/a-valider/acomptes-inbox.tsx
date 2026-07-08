@@ -70,10 +70,10 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
           {selection.size > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-              <button onClick={() => bulk(approuverAcomptesEnLot)} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-600">
+              <button onClick={() => bulk(approuverAcomptesEnLot)} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-success">
                 Approuver
               </button>
-              <button onClick={() => bulk(refuserAcomptesEnLot)} disabled={isPending} className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-red-600">
+              <button onClick={() => bulk(refuserAcomptesEnLot)} disabled={isPending} className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-destructive/90">
                 Refuser
               </button>
               {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
@@ -109,10 +109,10 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
 
                 {peutValider && (
                   <div className="flex items-center gap-2">
-                    <button onClick={() => individuel(approuverAcompte, d.id)} disabled={isPending} className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600">
+                    <button onClick={() => individuel(approuverAcompte, d.id)} disabled={isPending} className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-success">
                       Approuver
                     </button>
-                    <button onClick={() => individuel(refuserAcompte, d.id)} disabled={isPending} className="rounded-full bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-red-600">
+                    <button onClick={() => individuel(refuserAcompte, d.id)} disabled={isPending} className="rounded-full bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90">
                       Refuser
                     </button>
                   </div>

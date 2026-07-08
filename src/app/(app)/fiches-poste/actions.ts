@@ -86,7 +86,7 @@ export async function enregistrerFichePoste(formData: FormData) {
   redirect(`/fiches-poste?msg=${encodeURIComponent(`Fiche du poste « ${poste} » enregistrée.`)}`);
 }
 
-const STOPWORDS = new Set(["de", "du", "des", "la", "le", "les", "et", "aux", "au", "un", "une", "pour", "fiche", "poste"]);
+const STOPWORDS = new Set(["de", "du", "des", "la", "le", "les", "et", "aux", "au", "un", "une", "pour", "fiche", "poste", "pef"]);
 
 /** Normalise une chaîne (sans accents, minuscules) en une liste de mots significatifs (≥ 3 lettres, hors mots vides). */
 function motsSignificatifs(s: string): string[] {
