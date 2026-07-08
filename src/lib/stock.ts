@@ -45,6 +45,9 @@ export function delaiPaiementLabel(s: string | null | undefined): string {
   return v;
 }
 
+/** Écart d'inventaire (%) au-delà duquel une explication est exigée. */
+export const SEUIL_TOLERANCE_PCT = 10;
+
 export const DOMAINE_LABEL: Record<string, string> = {
   NOURRITURE: "Nourriture",
   BOISSON: "Boissons",

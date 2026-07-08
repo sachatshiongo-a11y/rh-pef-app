@@ -17,6 +17,7 @@ export default async function StockDashboard() {
     moi, config, nbArticles, nbFournisseurs, stocks, facturesDues,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
+    derniersComptages, pertesRecentes,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -32,6 +33,8 @@ export default async function StockDashboard() {
     prisma.ligneBonDeCommande.groupBy({ by: ["designation"], _count: { designation: true }, _sum: { quantite: true }, orderBy: { _count: { designation: "desc" } }, take: 8 }),
     prisma.bonDeCommande.groupBy({ by: ["fournisseurId"], _count: { fournisseurId: true }, orderBy: { _count: { fournisseurId: "desc" } }, take: 5 }),
     prisma.fournisseur.findMany({ select: { id: true, nom: true } }),
+    prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE" }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: { designation: true } } } }),
   ]);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
@@ -137,6 +140,35 @@ export default async function StockDashboard() {
                 <li key={m.id} className="flex items-center justify-between gap-2 py-1.5">
                   <span className="truncate pr-2">{m.article.designation}<span className="text-xs text-muted-foreground"> · {jfr(m.date)}</span></span>
                   <span className="shrink-0 text-muted-foreground">{qte(m.quantite)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Bloc>
+
+        <Bloc titre="Derniers comptages" lien="/stock/archives">
+          {derniersComptages.length === 0 ? <Vide t="Aucun comptage archivé." /> : (
+            <ul className="divide-y text-sm">
+              {derniersComptages.map((s) => (
+                <li key={s.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <Link href={`/stock/archives/${s.id}`} className="truncate pr-2 hover:underline">{new Date(s.date).toLocaleDateString("fr-FR")} · {s.nbArticles} article(s)</Link>
+                  <span className={`shrink-0 text-xs ${s.nbHorsTol > 0 ? "font-medium text-red-700" : "text-muted-foreground"}`}>{s.nbEcarts} écart(s){s.nbHorsTol > 0 ? ` · ${s.nbHorsTol} hors tol.` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Bloc>
+
+        <Bloc titre="Pertes récentes" lien="/stock/mouvements">
+          {pertesRecentes.length === 0 ? <Vide t="Aucune perte enregistrée." /> : (
+            <ul className="divide-y text-sm">
+              {pertesRecentes.map((m) => (
+                <li key={m.id} className="py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate pr-2 font-medium">{m.article.designation}<span className="text-xs font-normal text-muted-foreground"> · {jfr(m.date)}</span></span>
+                    <span className="shrink-0 font-medium text-red-700">−{qte(m.quantite)}</span>
+                  </div>
+                  {m.raisonSortie && <p className="text-xs text-muted-foreground">{m.raisonSortie}</p>}
                 </li>
               ))}
             </ul>

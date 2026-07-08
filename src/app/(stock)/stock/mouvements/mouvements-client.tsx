@@ -26,6 +26,7 @@ export function MouvementForm({ articles }: { articles: Art[] }) {
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [nb, setNb] = useState(3);
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
+  const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [ouvert, setOuvert] = useState(false);
 
   const submit = (fd: FormData) => {
@@ -49,7 +50,18 @@ export function MouvementForm({ articles }: { articles: Art[] }) {
         </div>
         <input type="hidden" name="type" value={type} />
         <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} /></label>
-        <input name="origine" placeholder={type === "ENTREE" ? "Motif (achat direct, don…)" : "Motif (consommation, casse…)"} className={`${inp} min-w-56 flex-1`} />
+        {type === "SORTIE" ? (
+          <select name="categorieSortie" value={motif} onChange={(e) => setMotif(e.target.value as typeof motif)} className={inp}>
+            <option value="">Motif de sortie…</option>
+            <option value="PERTE">Perte</option>
+            <option value="LIVRAISON_RESTAURANT">Livraison restaurant</option>
+          </select>
+        ) : (
+          <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
+        )}
+        {type === "SORTIE" && motif === "PERTE" && (
+          <input name="raisonSortie" placeholder="Raison de la perte (obligatoire)" required className={`${inp} min-w-56 flex-1`} />
+        )}
       </div>
 
       {Array.from({ length: nb }).map((_, i) => (

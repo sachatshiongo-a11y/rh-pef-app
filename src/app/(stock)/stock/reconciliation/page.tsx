@@ -52,7 +52,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
       </form>
 
-      <ReconciliationForm articles={rows} />
+      <ReconciliationForm articles={rows} domaine={domaine} />
     </div>
   );
 }

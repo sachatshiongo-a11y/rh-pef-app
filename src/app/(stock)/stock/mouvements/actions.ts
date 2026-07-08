@@ -21,9 +21,22 @@ export async function mouvementManuel(formData: FormData) {
   const type = String(formData.get("type") ?? "SORTIE") === "ENTREE" ? "ENTREE" : "SORTIE";
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);
-  const origine = String(formData.get("origine") ?? "").trim() || (type === "ENTREE" ? "Entrée manuelle" : "Sortie / consommation");
   const dateStr = String(formData.get("date") ?? "").trim();
   const date = dateStr ? new Date(dateStr) : new Date();
+
+  // Pour une SORTIE : motif (PERTE | LIVRAISON_RESTAURANT). La perte exige une explication.
+  let categorieSortie: string | null = null;
+  let raisonSortie: string | null = null;
+  let origine = String(formData.get("origine") ?? "").trim();
+  if (type === "SORTIE") {
+    const cat = String(formData.get("categorieSortie") ?? "").trim();
+    categorieSortie = cat === "PERTE" || cat === "LIVRAISON_RESTAURANT" ? cat : null;
+    raisonSortie = String(formData.get("raisonSortie") ?? "").trim() || null;
+    if (categorieSortie === "PERTE" && !raisonSortie) throw new Error("Indiquez la raison de la perte.");
+    origine = origine || (categorieSortie === "PERTE" ? `Perte${raisonSortie ? ` — ${raisonSortie}` : ""}` : categorieSortie === "LIVRAISON_RESTAURANT" ? "Livraison restaurant" : "Sortie / consommation");
+  } else {
+    origine = origine || "Entrée manuelle";
+  }
 
   const lignes = ids
     .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
@@ -32,7 +45,7 @@ export async function mouvementManuel(formData: FormData) {
 
   await prisma.$transaction(async (tx) => {
     for (const l of lignes) {
-      await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, date, creeParId: user.id } });
+      await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, date, categorieSortie, raisonSortie, creeParId: user.id } });
       await tx.stock.upsert({
         where: { articleId: l.articleId },
         update: { quantite: type === "ENTREE" ? { increment: l.quantite } : { decrement: l.quantite } },
@@ -42,6 +55,7 @@ export async function mouvementManuel(formData: FormData) {
   });
 
   await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} ${type.toLowerCase()}(s)`, champ: type.toLowerCase(), nouvelleValeur: origine, userId: user.id });
+  revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");

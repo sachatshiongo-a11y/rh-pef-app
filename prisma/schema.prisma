@@ -939,11 +939,14 @@ model MouvementStock {
   reception         Reception?         @relation(fields: [receptionId], references: [id])
   factureId         String?
   facture           FactureFournisseur? @relation(fields: [factureId], references: [id], onDelete: SetNull)
+  categorieSortie   String? // pour une SORTIE : PERTE | LIVRAISON_RESTAURANT
+  raisonSortie      String? // explication (obligatoire pour une perte)
   creeParId         String? // User.id (pas de FK cross-schéma)
   createdAt         DateTime           @default(now())
 
   @@index([articleId, date])
   @@index([factureId])
+  @@index([categorieSortie, date])
   @@schema("stock")
 }
 
@@ -1125,5 +1128,51 @@ model ComptageResto {
 
   @@unique([articleRestoId, date])
   @@index([date])
+  @@schema("stock")
+}
+
+// ─── Archives des fiches de comptage (inventaire physique) ───
+model SessionComptage {
+  id         String          @id @default(uuid())
+  date       DateTime        @default(now()) @db.Date
+  domaine    String? // NOURRITURE | BOISSON | AUTRE | null (tous)
+  nbArticles Int             @default(0)
+  nbEcarts   Int             @default(0) // lignes avec écart non nul
+  nbHorsTol  Int             @default(0) // lignes hors tolérance (> seuil)
+  creeParId  String?
+  createdAt  DateTime        @default(now())
+  lignes     LigneComptage[]
+
+  @@index([date])
+  @@schema("stock")
+}
+
+model LigneComptage {
+  id          String          @id @default(uuid())
+  sessionId   String
+  session     SessionComptage @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  articleId   String?
+  designation String
+  theorique   Decimal         @db.Decimal(14, 3)
+  physique    Decimal         @db.Decimal(14, 3)
+  ecart       Decimal         @db.Decimal(14, 3)
+  ecartPct    Decimal?        @db.Decimal(8, 2)
+  explication String?
+
+  @@index([sessionId])
+  @@schema("stock")
+}
+
+// ─── Journal des rapports générés ───
+model Rapport {
+  id           String    @id @default(uuid())
+  titre        String
+  type         String // FACTURES | BONS_COMMANDE | PAIEMENTS | ACHATS | MOUVEMENTS | LEGUMES
+  periodeDebut DateTime? @db.Date
+  periodeFin   DateTime? @db.Date
+  creeParId    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([type, createdAt])
   @@schema("stock")
 }
