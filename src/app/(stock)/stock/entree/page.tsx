@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { qte } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
@@ -17,6 +18,8 @@ function lundiDe(d: Date): Date {
 
 export default async function EntreePage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 
   const [articles, mouvements, config] = await Promise.all([
@@ -74,7 +77,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
       </div>
 
-      <ListeAchatForm articles={articles} taux={taux} />
+      <ListeAchatForm articles={articles} taux={taux} estDirection={estDirection} />
 
       <div>
         <div className="mb-2 flex items-center gap-2 text-sm">

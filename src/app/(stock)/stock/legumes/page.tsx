@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
@@ -7,6 +8,8 @@ const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", 
 const cdf = (n: number) => n.toLocaleString("fr-FR");
 
 export default async function LegumesPage() {
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const [achats, config] = await Promise.all([
     prisma.achatLegume.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 500 }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -33,7 +36,7 @@ export default async function LegumesPage() {
         <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
       </div>
 
-      <AchatLegumesForm taux={taux} />
+      <AchatLegumesForm taux={taux} estDirection={estDirection} />
 
       <div>
         <h2 className="mb-2 text-sm font-semibold">Historique des achats</h2>

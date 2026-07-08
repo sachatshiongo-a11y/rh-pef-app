@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { ReconciliationForm } from "./reconciliation-client";
 import type { Prisma } from "@prisma/client";
 
@@ -6,6 +7,8 @@ type SP = { q?: string; domaine?: string };
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const q = (sp.q ?? "").trim();
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 
@@ -52,7 +55,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
       </form>
 
-      <ReconciliationForm articles={rows} domaine={domaine} />
+      <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} />
     </div>
   );
 }

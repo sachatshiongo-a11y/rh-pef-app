@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import type { Prisma } from "@prisma/client";
 
@@ -9,6 +10,8 @@ const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", 
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const mois = sp.mois && /^\d{1,2}$/.test(sp.mois) ? Number(sp.mois) : undefined;
   const fournisseurId = sp.fournisseurId || undefined;
 
@@ -41,7 +44,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
           {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        <Link href="/stock/commandes" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
+        {estDirection && <Link href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</Link>}
       </form>
 
       <div className="overflow-x-auto rounded-lg border">

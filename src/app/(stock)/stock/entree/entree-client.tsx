@@ -2,15 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { entreeListeAchat } from "./actions";
+import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
-export function ListeAchatForm({ articles, taux }: { articles: Art[]; taux: number }) {
+export function ListeAchatForm({ articles, taux, estDirection = false }: { articles: Art[]; taux: number; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [nbLignes, setNbLignes] = useState(4);
   const [devise, setDevise] = useState<"USD" | "CDF">("USD");
+  const [cle, setCle] = useState(0);
+  const reinitialiser = () => { setMsg(null); setNbLignes(4); setDevise("USD"); setCle((c) => c + 1); };
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -19,6 +22,7 @@ export function ListeAchatForm({ articles, taux }: { articles: Art[]; taux: numb
         await entreeListeAchat(fd);
         setMsg({ ok: true, texte: "Entrées enregistrées : le stock a été mis à jour." });
         setNbLignes(4);
+        setCle((c) => c + 1);
       } catch (e) {
         setMsg({ ok: false, texte: e instanceof Error ? e.message : "Erreur." });
       }
@@ -26,7 +30,7 @@ export function ListeAchatForm({ articles, taux }: { articles: Art[]; taux: numb
   };
 
   return (
-    <form action={submit} className="space-y-3">
+    <form key={cle} action={submit} className="space-y-3">
       {msg && (
         <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
           {msg.texte}
@@ -72,6 +76,7 @@ export function ListeAchatForm({ articles, taux }: { articles: Art[]; taux: numb
         <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {isPending ? "Enregistrement…" : "Valider l'entrée en stock"}
         </button>
+        <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
       </div>
       <p className="text-xs text-muted-foreground">Le montant est facultatif. En CDF, il est converti en USD au taux courant et enregistré sur le mouvement (utile pour l&apos;achat de légumes frais payés en francs).</p>
     </form>

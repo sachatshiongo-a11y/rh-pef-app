@@ -3,15 +3,18 @@
 import { useState, useTransition } from "react";
 import { creerAchatsLegumes, supprimerAchatLegume } from "./actions";
 import { LEGUMES } from "./legumes-data";
+import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 
 type Ligne = { legume: string; unite: string; quantite: string; montantCDF: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ legume: "", unite: "", quantite: "", montantCDF: "" });
 
-export function AchatLegumesForm({ taux }: { taux: number }) {
+export function AchatLegumesForm({ taux, estDirection = false }: { taux: number; estDirection?: boolean }) {
   const [isPending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [lignes, setLignes] = useState<Ligne[]>([vide(), vide(), vide()]);
+  const [cle, setCle] = useState(0);
+  const reinitialiser = () => { setMsg(null); setLignes([vide(), vide(), vide()]); setCle((c) => c + 1); };
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const choisir = (i: number, nom: string) => {
@@ -24,13 +27,13 @@ export function AchatLegumesForm({ taux }: { taux: number }) {
   const submit = (fd: FormData) => {
     setMsg(null);
     start(async () => {
-      try { await creerAchatsLegumes(fd); setMsg({ ok: true, t: "Achats enregistrés." }); setLignes([vide(), vide(), vide()]); }
+      try { await creerAchatsLegumes(fd); setMsg({ ok: true, t: "Achats enregistrés." }); setLignes([vide(), vide(), vide()]); setCle((c) => c + 1); }
       catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : "Erreur." }); }
     });
   };
 
   return (
-    <form action={submit} className="space-y-3 rounded-lg border p-4">
+    <form key={cle} action={submit} className="space-y-3 rounded-lg border p-4">
       {msg && <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.t}</p>}
       <label className="flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">Date</span>
@@ -72,7 +75,10 @@ export function AchatLegumesForm({ taux }: { taux: number }) {
           <span className="font-semibold">{totalCDF.toLocaleString("fr-FR")} CDF</span>
           <span className="text-muted-foreground"> ≈ {totalUSD.toFixed(2)} $</span>
         </div>
-        <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : "Enregistrer les achats"}</button>
+        <div className="flex items-center gap-2">
+          <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
+          <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : "Enregistrer les achats"}</button>
+        </div>
       </div>
     </form>
   );

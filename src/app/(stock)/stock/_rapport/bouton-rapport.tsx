@@ -9,11 +9,14 @@ type T = { value: string; label: string };
 export function BoutonRapport({ types }: { types: T[] }) {
   const [open, setOpen] = useState(false);
   const now = new Date();
-  const fin = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const finDef = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
-  const debut = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const debutDef = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const [debut, setDebut] = useState(debutDef);
+  const [fin, setFin] = useState(finDef);
   const lien = (type: string, mode: string, format: string) => `/stock/rapports/export?type=${type}&mode=${mode}&format=${format}&debut=${debut}&fin=${fin}`;
   const lienCls = "rounded border px-2 py-0.5 text-xs font-medium hover:bg-accent";
+  const inp = "rounded border border-input bg-background px-1.5 py-1 text-xs";
 
   return (
     <div className="relative inline-block">
@@ -21,8 +24,11 @@ export function BoutonRapport({ types }: { types: T[] }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-1 w-60 rounded-lg border bg-card p-3 text-sm shadow-lg">
-            <p className="mb-2 text-xs text-muted-foreground">Sur les 12 derniers mois</p>
+          <div className="absolute right-0 z-50 mt-1 w-64 rounded-lg border bg-card p-3 text-sm shadow-lg">
+            <div className="mb-2 flex items-center gap-1.5">
+              <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">Du<input type="month" value={debut} onChange={(e) => setDebut(e.target.value)} className={inp} /></label>
+              <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">Au<input type="month" value={fin} onChange={(e) => setFin(e.target.value)} className={inp} /></label>
+            </div>
             {types.map((t) => (
               <div key={t.value} className="mb-2 last:mb-0">
                 {types.length > 1 && <p className="mb-1 font-medium">{t.label}</p>}

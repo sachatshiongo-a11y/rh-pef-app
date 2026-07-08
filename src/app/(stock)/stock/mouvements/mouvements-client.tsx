@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { mouvementManuel, supprimerMouvement } from "./actions";
+import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -21,13 +22,15 @@ export function SupprimerMouvementBtn({ id }: { id: string }) {
   );
 }
 
-export function MouvementForm({ articles }: { articles: Art[] }) {
+export function MouvementForm({ articles, estDirection = false }: { articles: Art[]; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [nb, setNb] = useState(3);
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [ouvert, setOuvert] = useState(false);
+  const [cle, setCle] = useState(0);
+  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMsg(null); setCle((c) => c + 1); };
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -40,7 +43,7 @@ export function MouvementForm({ articles }: { articles: Art[] }) {
   if (!ouvert) return <button onClick={() => setOuvert(true)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">± Mouvement manuel (entrée / sortie)</button>;
 
   return (
-    <form action={submit} className="space-y-2 rounded-lg border p-4">
+    <form key={cle} action={submit} className="space-y-2 rounded-lg border p-4">
       {msg && <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.texte}</p>}
 
       <div className="flex flex-wrap items-center gap-3">
@@ -76,6 +79,7 @@ export function MouvementForm({ articles }: { articles: Art[] }) {
       <div className="flex items-center gap-3 pt-1">
         <button type="button" onClick={() => setNb((n) => n + 1)} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
         <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-emerald-600" : "bg-red-600"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
+        <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Fermer</button>
       </div>
     </form>

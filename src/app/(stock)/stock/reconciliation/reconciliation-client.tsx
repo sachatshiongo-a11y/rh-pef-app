@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
+import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 
 type Art = { id: string; designation: string; theorique: number };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -43,26 +44,29 @@ function LigneComptage({ a }: { a: Art }) {
   );
 }
 
-export function ReconciliationForm({ articles, domaine }: { articles: Art[]; domaine?: string }) {
+export function ReconciliationForm({ articles, domaine, estDirection = false }: { articles: Art[]; domaine?: string; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
+  const [cle, setCle] = useState(0);
+  const reinitialiser = () => { setMsg(null); setCle((c) => c + 1); };
 
   const submit = (fd: FormData) => {
     setMsg(null);
     startTransition(async () => {
-      try { await appliquerComptage(fd); setMsg({ ok: true, texte: "Comptage appliqué : le stock a été ajusté au réel." }); }
+      try { await appliquerComptage(fd); setMsg({ ok: true, texte: "Comptage appliqué : le stock a été ajusté au réel." }); setCle((c) => c + 1); }
       catch (e) { setMsg({ ok: false, texte: e instanceof Error ? e.message : "Erreur." }); }
     });
   };
 
   return (
-    <form action={submit} className="space-y-3">
+    <form key={cle} action={submit} className="space-y-3">
       {msg && <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.texte}</p>}
       {domaine && <input type="hidden" name="domaine" value={domaine} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} min-w-64 flex-1`} />
         <span className="text-xs text-muted-foreground">{articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise · fiche archivée</span>
+        <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {isPending ? "Application…" : "Appliquer le comptage"}
         </button>

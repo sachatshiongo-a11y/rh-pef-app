@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { qte, usd } from "@/lib/stock";
 import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
@@ -40,6 +41,8 @@ type SP = { mois?: string; articleId?: string };
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const mois = sp.mois && /^\d{4}-\d{1,2}$/.test(sp.mois) ? sp.mois : undefined; // « 2026-7 »
   const articleId = sp.articleId || undefined;
 
@@ -88,7 +91,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         {(mois || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
       </form>
 
-      <MouvementForm articles={articles} />
+      <MouvementForm articles={articles} estDirection={estDirection} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Colonne titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" />
