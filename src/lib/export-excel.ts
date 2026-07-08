@@ -15,6 +15,8 @@ export type FeuilleExcel = {
   titre?: string; // titre affiché en en-tête (par défaut : titre global)
   entete: string[]; // libellés de colonnes
   lignes: (string | number)[][]; // données
+  totauxCols?: number[]; // indices de colonnes à totaliser (ligne « Total » en bas)
+  variationCol?: number; // colonne d'écart/variation à colorer (vert ↑ / rouge ↓)
 };
 
 /**
@@ -57,7 +59,21 @@ export async function classeurExcel(opts: {
     const rEdit = ws.addRow([`Édité le : ${editeLe}`]);
     ws.addRow([]);
     const rowEntete = ws.addRow(f.entete);
+    const debutData = rowEntete.number + 1;
     for (const l of f.lignes) ws.addRow(l);
+
+    // Ligne « Total » (somme des colonnes indiquées).
+    let rTot: ExcelJS.Row | null = null;
+    if (f.totauxCols && f.totauxCols.length > 0) {
+      const totLigne: (string | number)[] = new Array(f.entete.length).fill("");
+      totLigne[0] = "Total";
+      for (const ci of f.totauxCols) {
+        let s = 0;
+        for (const l of f.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; }
+        totLigne[ci] = Math.round(s * 100) / 100;
+      }
+      rTot = ws.addRow(totLigne);
+    }
 
     // Police Optima sur toutes les cellules.
     ws.eachRow((row) => {
@@ -75,6 +91,22 @@ export async function classeurExcel(opts: {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };
       cell.border = { bottom: { style: "thin", color: { argb: OR_BORDURE } } };
     });
+
+    // Écarts / variations plus visibles : vert (↑) / rouge (↓), en gras.
+    if (f.variationCol != null) {
+      for (let r = debutData; r < debutData + f.lignes.length; r++) {
+        const cell = ws.getRow(r).getCell(f.variationCol + 1);
+        const txt = String(cell.value ?? "");
+        if (txt.includes("↑")) cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: "FF1B7F3B" } };
+        else if (txt.includes("↓")) cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: "FFB42318" } };
+      }
+    }
+
+    // Ligne Total en gras, fond or clair.
+    if (rTot) {
+      rTot.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
+      rTot.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } }; cell.border = { top: { style: "thin", color: { argb: OR_BORDURE } } }; });
+    }
 
     // Largeurs de colonnes approximatives d'après le contenu.
     f.entete.forEach((h, i) => {

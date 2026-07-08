@@ -16,7 +16,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const [articles, categories, fournisseurs] = await Promise.all([
-    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { designation: "asc" }], include: { stock: true } }),
+    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
   ]);

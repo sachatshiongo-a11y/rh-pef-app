@@ -21,6 +21,8 @@ export type DonneesRapport = {
   // largeurs (pour le PDF), alignements à droite pour les colonnes numériques (par index)
   largeurs: string[];
   droite: number[];
+  sommables?: number[]; // colonnes à totaliser (ligne « Total » en Excel/PDF)
+  variationCol?: number; // colonne d'écart/variation à mettre en évidence (couleur)
 };
 
 /** Liste des clés mois (année, mois) entre deux bornes incluses. */
@@ -54,7 +56,7 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
     for (const r of rows) { const k = cle(r.annee, r.mois); const e = parMois.get(k) ?? { fac: 0, du: 0 }; e.fac += Number(r.montantUSD); e.du += Number(r.resteAPayerUSD); parMois.set(k, e); }
     let prev: number | null = null;
     const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { fac: 0, du: 0 }; const l = [labelMois(annee, m), arr(e.fac), arr(e.du), variation(e.fac, prev)]; prev = e.fac; return l; });
-    return { titre, entete: ["Mois", "Total facturé USD", "Reste dû USD", "Variation facturé"], lignes, largeurs: ["34%", "24%", "22%", "20%"], droite: [1, 2] };
+    return { titre, entete: ["Mois", "Total facturé USD", "Reste dû USD", "Variation facturé"], lignes, largeurs: ["34%", "24%", "22%", "20%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
   }
 
   if (type === "BONS_COMMANDE") {
@@ -63,7 +65,7 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
     for (const r of rows) { const k = cle(r.annee, r.mois); const e = parMois.get(k) ?? { nb: 0, tot: 0 }; e.nb += 1; e.tot += Number(r.totalUSD); parMois.set(k, e); }
     let prev: number | null = null;
     const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { nb: 0, tot: 0 }; const l = [labelMois(annee, m), e.nb, arr(e.tot), variation(e.tot, prev)]; prev = e.tot; return l; });
-    return { titre, entete: ["Mois", "Nb BC", "Total USD", "Variation total"], lignes, largeurs: ["34%", "16%", "26%", "24%"], droite: [1, 2] };
+    return { titre, entete: ["Mois", "Nb BC", "Total USD", "Variation total"], lignes, largeurs: ["34%", "16%", "26%", "24%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
   }
 
   if (type === "PAIEMENTS") {
@@ -72,7 +74,7 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
     for (const r of rows) { const k = cle(r.annee, r.mois); parMois.set(k, (parMois.get(k) ?? 0) + Number(r.resteAPayerUSD)); }
     let prev: number | null = null;
     const lignes = mois.map(({ annee, mois: m }) => { const v = parMois.get(cle(annee, m)) ?? 0; const l = [labelMois(annee, m), arr(v), variation(v, prev)]; prev = v; return l; });
-    return { titre, entete: ["Mois", "Échu non réglé USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1] };
+    return { titre, entete: ["Mois", "Échu non réglé USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1], sommables: [1], variationCol: 2 };
   }
 
   if (type === "ACHATS") {
@@ -81,7 +83,7 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
     for (const r of rows) { const d = new Date(r.date); const k = cle(d.getUTCFullYear(), d.getUTCMonth() + 1); parMois.set(k, (parMois.get(k) ?? 0) + Number(r.montantUSD ?? 0)); }
     let prev: number | null = null;
     const lignes = mois.map(({ annee, mois: m }) => { const v = parMois.get(cle(annee, m)) ?? 0; const l = [labelMois(annee, m), arr(v), variation(v, prev)]; prev = v; return l; });
-    return { titre, entete: ["Mois", "Achats USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1] };
+    return { titre, entete: ["Mois", "Achats USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1], sommables: [1], variationCol: 2 };
   }
 
   if (type === "MOUVEMENTS") {
@@ -89,7 +91,7 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
     const parMois = new Map<string, { e: number; s: number }>();
     for (const r of rows) { const d = new Date(r.date); const k = cle(d.getUTCFullYear(), d.getUTCMonth() + 1); const x = parMois.get(k) ?? { e: 0, s: 0 }; if (r.type === "SORTIE") x.s += 1; else if (r.type === "ENTREE") x.e += 1; parMois.set(k, x); }
     const lignes = mois.map(({ annee, mois: m }) => { const x = parMois.get(cle(annee, m)) ?? { e: 0, s: 0 }; return [labelMois(annee, m), x.e, x.s]; });
-    return { titre, entete: ["Mois", "Entrées", "Sorties"], lignes, largeurs: ["50%", "25%", "25%"], droite: [1, 2] };
+    return { titre, entete: ["Mois", "Entrées", "Sorties"], lignes, largeurs: ["50%", "25%", "25%"], droite: [1, 2], sommables: [1, 2] };
   }
 
   // LEGUMES
@@ -98,7 +100,7 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
   for (const r of rows) { const d = new Date(r.date); const k = cle(d.getUTCFullYear(), d.getUTCMonth() + 1); const e = parMois.get(k) ?? { cdf: 0, usd: 0 }; e.cdf += Number(r.montantCDF ?? 0); e.usd += Number(r.montantUSD ?? 0); parMois.set(k, e); }
   let prev: number | null = null;
   const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { cdf: 0, usd: 0 }; const l = [labelMois(annee, m), arr(e.cdf), arr(e.usd), variation(e.usd, prev)]; prev = e.usd; return l; });
-  return { titre, entete: ["Mois", "Montant CDF", "Montant USD", "Variation USD"], lignes, largeurs: ["30%", "26%", "22%", "22%"], droite: [1, 2] };
+  return { titre, entete: ["Mois", "Montant CDF", "Montant USD", "Variation USD"], lignes, largeurs: ["30%", "26%", "22%", "22%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
 }
 
 const jj = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
@@ -116,7 +118,7 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
     const rows = (await prisma.factureFournisseur.findMany({ orderBy: [{ annee: "asc" }, { mois: "asc" }, { date: "asc" }], include: { fournisseur: { select: { nom: true } } } }))
       .filter((r) => dans(r.annee, r.mois));
     const lignes = rows.map((r) => [jj(r.date), r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), arr(Number(r.montantUSD)), arr(Number(r.resteAPayerUSD)), STATUT_FACTURE_LABEL[r.statut] ?? r.statut]);
-    return { titre, entete: ["Date", "Fournisseur", "N°", "Échéance", "Montant USD", "Reste USD", "Statut"], lignes, largeurs: ["11%", "24%", "12%", "12%", "13%", "13%", "15%"], droite: [4, 5] };
+    return { titre, entete: ["Date", "Fournisseur", "N°", "Échéance", "Montant USD", "Reste USD", "Statut"], lignes, largeurs: ["11%", "24%", "12%", "12%", "13%", "13%", "15%"], droite: [4, 5], sommables: [4, 5] };
   }
 
   if (type === "BONS_COMMANDE") {
@@ -127,7 +129,7 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
       if (b.lignes.length === 0) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", "—", "", "", arr(Number(b.totalUSD))]);
       for (const l of b.lignes) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", l.designation, q3(l.quantite), arr(Number(l.prixUnitaireUSD)), arr(Number(l.totalLigneUSD))]);
     }
-    return { titre, entete: ["N° BC", "Date", "Fournisseur", "Article", "Qté", "P.U. USD", "Total USD"], lignes, largeurs: ["13%", "10%", "20%", "27%", "9%", "10%", "11%"], droite: [4, 5, 6] };
+    return { titre, entete: ["N° BC", "Date", "Fournisseur", "Article", "Qté", "P.U. USD", "Total USD"], lignes, largeurs: ["13%", "10%", "20%", "27%", "9%", "10%", "11%"], droite: [4, 5, 6], sommables: [6] };
   }
 
   if (type === "PAIEMENTS") {
@@ -137,13 +139,13 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
       const jrs = r.dateEcheance ? Math.round((auj - new Date(r.dateEcheance).getTime()) / 86400000) : null;
       return [r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), jrs !== null ? `${jrs} j` : "—", arr(Number(r.resteAPayerUSD))];
     });
-    return { titre, entete: ["Fournisseur", "N°", "Échéance", "Retard", "Reste USD"], lignes, largeurs: ["34%", "16%", "16%", "14%", "20%"], droite: [4] };
+    return { titre, entete: ["Fournisseur", "N°", "Échéance", "Retard", "Reste USD"], lignes, largeurs: ["34%", "16%", "16%", "14%", "20%"], droite: [4], sommables: [4] };
   }
 
   if (type === "ACHATS") {
     const rows = await prisma.mouvementStock.findMany({ where: { type: "ENTREE", factureId: null, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true } } } });
     const lignes = rows.map((m) => [jj(m.date), m.article.designation, q3(m.quantite), m.montantUSD !== null ? arr(Number(m.montantUSD)) : "", m.origine ?? ""]);
-    return { titre, entete: ["Date", "Article", "Quantité", "Montant USD", "Origine"], lignes, largeurs: ["12%", "34%", "14%", "16%", "24%"], droite: [2, 3] };
+    return { titre, entete: ["Date", "Article", "Quantité", "Montant USD", "Origine"], lignes, largeurs: ["12%", "34%", "14%", "16%", "24%"], droite: [2, 3], sommables: [3] };
   }
 
   if (type === "MOUVEMENTS") {
@@ -156,5 +158,5 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   // LEGUMES
   const rows = await prisma.achatLegume.findMany({ where: { date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" } });
   const lignes = rows.map((l) => [jj(l.date), l.legume, l.unite ?? "", q3(l.quantite), l.montantCDF !== null ? arr(Number(l.montantCDF)) : "", l.montantUSD !== null ? arr(Number(l.montantUSD)) : ""]);
-  return { titre, entete: ["Date", "Légume", "Unité", "Quantité", "Montant CDF", "Montant USD"], lignes, largeurs: ["12%", "28%", "12%", "14%", "17%", "17%"], droite: [3, 4, 5] };
+  return { titre, entete: ["Date", "Légume", "Unité", "Quantité", "Montant CDF", "Montant USD"], lignes, largeurs: ["12%", "28%", "12%", "14%", "17%", "17%"], droite: [3, 4, 5], sommables: [4, 5] };
 }

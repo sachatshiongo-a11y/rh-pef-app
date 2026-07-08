@@ -37,7 +37,7 @@ export async function GET(req: Request) {
     const buf = await classeurExcel({
       titre: `Rapport — ${data.titre}`,
       periode,
-      feuilles: [{ nom: data.titre.slice(0, 28), entete: data.entete, lignes: data.lignes }],
+      feuilles: [{ nom: data.titre.slice(0, 28), entete: data.entete, lignes: data.lignes, totauxCols: data.sommables, variationCol: data.variationCol }],
     });
     return new Response(new Uint8Array(buf), {
       headers: {
@@ -48,7 +48,19 @@ export async function GET(req: Request) {
   }
 
   const colonnes: Colonne[] = data.entete.map((header, i) => ({ header, width: data.largeurs[i] ?? "auto", align: data.droite.includes(i) ? "right" : "left" }));
-  const buffer = await renderToBuffer(TableauDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, colonnes, lignes: data.lignes }));
+  // Ligne « Total » en bas (somme des colonnes sommables) pour le PDF.
+  let lignesPdf = data.lignes;
+  if (data.sommables && data.sommables.length > 0) {
+    const tot: (string | number)[] = new Array(data.entete.length).fill("");
+    tot[0] = "Total";
+    for (const ci of data.sommables) {
+      let s = 0;
+      for (const l of data.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; }
+      tot[ci] = Math.round(s * 100) / 100;
+    }
+    lignesPdf = [...data.lignes, tot];
+  }
+  const buffer = await renderToBuffer(TableauDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, colonnes, lignes: lignesPdf, totalDerniereLigne: !!(data.sommables && data.sommables.length) }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

@@ -34,6 +34,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>("");
 
+  const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
+
   const visibles = useMemo(() => {
     const nq = norm(q.trim());
     return articles.filter((a) =>
@@ -138,10 +140,10 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
             {visibles.map((a, i) => (
               <Fragment key={a.id}>
-                {(i === 0 || visibles[i - 1].domaine !== a.domaine) && (
+                {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
                   <tr>
                     <td colSpan={9} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
-                      {DOMAINE_LABEL[a.domaine]} ({visibles.filter((x) => x.domaine === a.domaine).length})
+                      {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
                     </td>
                   </tr>
                 )}
