@@ -23,11 +23,26 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   });
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 
-  const articles = await prisma.articleResto.findMany({
-    where: { espace, actif: true },
-    orderBy: [{ ordre: "asc" }, { designation: "asc" }],
-    include: { comptages: { where: { date: { gte: debut, lte: fin } } } },
-  });
+  const [articles, livraisons] = await Promise.all([
+    prisma.articleResto.findMany({
+      where: { espace, actif: true },
+      orderBy: [{ ordre: "asc" }, { designation: "asc" }],
+      include: { comptages: { where: { date: { gte: debut, lte: fin } } } },
+    }),
+    // Livraisons au restaurant (sorties de stock « Livraison restaurant ») de la semaine affichée.
+    prisma.mouvementStock.findMany({
+      where: { categorieSortie: "LIVRAISON_RESTAURANT", date: { gte: debut, lte: fin } },
+      orderBy: { date: "desc" },
+      include: { article: { select: { designation: true } } },
+    }),
+  ]);
+
+  // Regroupe les livraisons par jour.
+  const livParJour = new Map<string, { designation: string; quantite: number }[]>();
+  for (const m of livraisons) {
+    const k = new Date(m.date).toISOString().slice(0, 10);
+    (livParJour.get(k) ?? livParJour.set(k, []).get(k)!).push({ designation: m.article.designation, quantite: Number(m.quantite) });
+  }
 
   const lignes: LigneResto[] = articles.map((a) => {
     const comptages: Record<string, string> = {};
@@ -62,6 +77,19 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
         <span className="font-medium">Semaine du {jours[0].num} au {jours[6].num}</span>
         <a href={semLien(1)} className="rounded-md border px-3 py-1 hover:bg-accent">Semaine suiv. →</a>
       </div>
+
+      {livParJour.size > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-sm">
+          <p className="mb-1 font-semibold text-emerald-800">Livraisons reçues cette semaine</p>
+          <ul className="space-y-1">
+            {[...livParJour.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([iso, arts]) => (
+              <li key={iso} className="text-emerald-900">
+                <span className="font-medium">{new Date(iso).toLocaleDateString("fr-FR")}</span> — {arts.map((a) => `${a.designation} (${a.quantite})`).join(", ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <p className="text-sm text-muted-foreground">Comptage journalier par produit (Cuisine / Bar). « Stock de base » = niveau cible par jour ; saisissez la quantité comptée pour chaque jour de la semaine.</p>
 

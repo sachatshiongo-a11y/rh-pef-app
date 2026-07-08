@@ -37,6 +37,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
       { href: "/stock/commandes", label: "Bons de commande", icone: "" },
       { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "" },
       { href: "/stock/factures", label: "Factures", icone: "" },
+      { href: "/stock/rapports", label: "Rapports", icone: "" },
     ],
   },
   {
@@ -90,10 +91,10 @@ export function StockShell({
           </button>
         </div>
 
-        {/* Recherche article (raccourci vers le catalogue) */}
-        <form method="GET" action="/stock/catalogue" className="mb-4" onSubmit={fermer}>
+        {/* Recherche globale : article, bon de commande, facture, fournisseur */}
+        <form method="GET" action="/stock/recherche" className="mb-4" onSubmit={fermer}>
           <div className="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5">
-            <input name="q" placeholder="Rechercher un article…" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+            <input name="q" placeholder="Article, N° BC, N° facture, fournisseur…" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
           </div>
         </form>
 
