@@ -14,6 +14,9 @@ services:
     runtime: node
     region: frankfurt
     plan: free
+    # Branche déployée : on travaille sur feat/stock-achats, Render la déploie automatiquement
+    # (plus besoin de faire avancer main à la main à chaque lot).
+    branch: feat/stock-achats
     # --include=dev : NODE_ENV=production ci-dessous ferait sinon sauter les devDependencies
     # (tailwindcss, @tailwindcss/postcss, typescript…) qui sont nécessaires au build Next.
     buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
