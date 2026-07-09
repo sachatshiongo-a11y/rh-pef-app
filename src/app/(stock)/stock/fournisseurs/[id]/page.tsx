@@ -83,16 +83,17 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
         ) : (
           <div className="space-y-2">
             {bons.map((b) => (
-              <Link key={b.id} href={`/stock/commandes/${b.id}`} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 hover:bg-accent/40">
+              <div key={b.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
                 <div className="min-w-0">
-                  <div className="font-medium">{b.numero}</div>
+                  <Link href={`/stock/commandes/${b.id}`} className="font-medium text-primary hover:underline">{b.numero}</Link>
                   <div className="text-xs text-muted-foreground">{d(b.date)} · {b._count.lignes} ligne(s)</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {b.documentUrl && <a href={b.documentUrl} target="_blank" rel="noopener" className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent">PDF</a>}
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
                   <span className="font-semibold tabular-nums">{usd(b.totalUSD)}</span>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}

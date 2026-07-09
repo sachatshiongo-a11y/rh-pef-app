@@ -67,9 +67,11 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
             </div>
             <div className="mt-2 flex gap-3 text-sm">
               <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
-              {c.statut !== "BROUILLON" && c.statut !== "ANNULE" && (
+              {c.documentUrl ? (
+                <a href={c.documentUrl} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
+              ) : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? (
                 <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a>
-              )}
+              ) : null}
             </div>
           </div>
         ))}
@@ -102,9 +104,11 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
                 <td className="px-3 py-2 text-right">
                   <div className="flex justify-end gap-2">
                     <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
-                    {c.statut !== "BROUILLON" && c.statut !== "ANNULE" && (
+                    {c.documentUrl ? (
+                      <a href={c.documentUrl} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
+                    ) : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? (
                       <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a>
-                    )}
+                    ) : null}
                   </div>
                 </td>
               </tr>

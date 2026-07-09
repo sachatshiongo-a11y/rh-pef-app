@@ -81,9 +81,12 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
 
       {/* Aperçu du bon de commande */}
       <div className="overflow-hidden rounded-lg border">
-        <div className="flex items-baseline justify-between border-b bg-muted/30 px-5 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b bg-muted/30 px-5 py-3">
           <h2 className="text-lg font-semibold">Bon de commande N° {bc.numero}</h2>
-          <span className="text-sm text-muted-foreground">Date : {new Date(bc.date).toLocaleDateString("fr-FR")}</span>
+          <div className="flex items-center gap-3 text-sm">
+            {bc.documentUrl && <a href={bc.documentUrl} target="_blank" rel="noopener" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF d&apos;origine</a>}
+            <span className="text-muted-foreground">Date : {new Date(bc.date).toLocaleDateString("fr-FR")}</span>
+          </div>
         </div>
 
         <div className="grid gap-4 p-5 sm:grid-cols-2">
