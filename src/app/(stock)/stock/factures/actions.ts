@@ -5,6 +5,74 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { parserClasseurFactures } from "@/lib/import-factures-excel";
+
+const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * Importe un ou plusieurs classeurs Excel « Suivi des factures fournisseurs ». Direction uniquement.
+ * Rattache chaque facture au fournisseur existant (par nom) ou le crée ; ignore les doublons
+ * (même fournisseur/mois/année/montant/n°) pour permettre des imports répétés.
+ */
+export async function importerFacturesExcel(formData: FormData): Promise<{ importees: number; ignorees: number; fournisseursCrees: string[]; erreurs: string[] }> {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]);
+
+  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
+  if (fichiers.length === 0) return { importees: 0, ignorees: 0, fournisseursCrees: [], erreurs: ["Aucun fichier."] };
+
+  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
+  const anneeCourante = config?.anneeCourante ?? new Date().getFullYear();
+
+  const erreurs: string[] = [];
+  const lignes = [] as Awaited<ReturnType<typeof parserClasseurFactures>>;
+  for (const f of fichiers) {
+    const anneeFichier = Number((f.name.match(/(20\d{2})/) ?? [])[1]) || anneeCourante;
+    try {
+      lignes.push(...(await parserClasseurFactures(await f.arrayBuffer(), anneeFichier, taux)));
+    } catch (e) {
+      erreurs.push(`${f.name} : ${e instanceof Error ? e.message : "illisible"}`);
+    }
+  }
+  if (lignes.length === 0) return { importees: 0, ignorees: 0, fournisseursCrees: [], erreurs: erreurs.length ? erreurs : ["Aucune facture trouvée dans le(s) fichier(s)."] };
+
+  // Fournisseurs : rattachement ou création.
+  const fours = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
+  const parNom = new Map(fours.map((x) => [normNom(x.nom), x.id]));
+  const fournisseursCrees: string[] = [];
+  for (const nom of [...new Set(lignes.map((l) => l.fournisseurNom))]) {
+    if (parNom.has(normNom(nom))) continue;
+    const cree = await prisma.fournisseur.create({ data: { nom, pays: "République démocratique du Congo" } });
+    parNom.set(normNom(nom), cree.id);
+    fournisseursCrees.push(nom);
+  }
+
+  // Dé-duplication (signature) contre l'existant + à l'intérieur du lot.
+  const sig = (r: { annee: number; mois: number; fournisseurNom: string; montantUSD: number; numero: string | null }) =>
+    `${r.annee}|${r.mois}|${normNom(r.fournisseurNom)}|${r.montantUSD.toFixed(2)}|${r.numero ?? ""}`;
+  const existantes = await prisma.factureFournisseur.findMany({ select: { annee: true, mois: true, fournisseurNom: true, montantUSD: true, numero: true } });
+  const vues = new Set(existantes.map((e) => sig({ annee: e.annee, mois: e.mois, fournisseurNom: e.fournisseurNom, montantUSD: Number(e.montantUSD), numero: e.numero })));
+
+  const aInserer = lignes.filter((r) => { const s = sig(r); if (vues.has(s)) return false; vues.add(s); return true; });
+
+  if (aInserer.length > 0) {
+    await prisma.factureFournisseur.createMany({
+      data: aInserer.map((r) => ({
+        fournisseurId: parNom.get(normNom(r.fournisseurNom)) ?? null,
+        fournisseurNom: r.fournisseurNom, numero: r.numero,
+        date: r.date, dateEcheance: r.dateEcheance, datePaiement: r.datePaiement,
+        montantUSD: r.montantUSD, montantRegleUSD: r.montantRegleUSD, resteAPayerUSD: r.resteAPayerUSD,
+        statut: r.statut, modePaiement: r.modePaiement, mois: r.mois, annee: r.annee,
+      })),
+    });
+    await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "import", champ: "import Excel", nouvelleValeur: `${aInserer.length} facture(s)`, userId: user.id });
+  }
+
+  revalidatePath("/stock/factures");
+  return { importees: aInserer.length, ignorees: lignes.length - aInserer.length, fournisseursCrees, erreurs };
+}
 
 const dec = (v: FormDataEntryValue | null): number => {
   const n = Number(String(v ?? "").replace(",", ".").trim());

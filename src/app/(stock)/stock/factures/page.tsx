@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
+import { ImportFacturesBtn } from "./import-factures-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import type { Prisma } from "@prisma/client";
 
@@ -105,6 +106,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
         <div className="flex items-center gap-2">
           <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
+          {estDirection && <ImportFacturesBtn />}
           <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} />
           <a href="/stock/factures/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
           <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
