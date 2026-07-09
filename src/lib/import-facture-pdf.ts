@@ -1,7 +1,8 @@
 import "server-only";
+import { extraireLignesBonCommande, type LigneBonCommande } from "./import-bc-pdf";
 
-// Extraction BEST-EFFORT d'une facture fournisseur PDF (formats variés) : total et date.
-// Toujours à faire confirmer par l'utilisateur — le PDF joint reste la source de vérité.
+// Extraction BEST-EFFORT d'une facture fournisseur PDF (formats variés) : total, date, fournisseur,
+// et LIGNES (article, quantité, prix). Toujours à faire confirmer — le PDF joint fait foi.
 
 const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -9,7 +10,10 @@ export type FournisseurExtrait = {
   nom: string | null; rccm: string | null; idNational: string | null;
   telephone: string | null; email: string | null; adresse: string | null; ville: string | null;
 };
-export type FactureExtrait = { montant: number | null; date: string | null; numero: string | null; fournisseur: FournisseurExtrait };
+export type FactureExtrait = {
+  montant: number | null; date: string | null; numero: string | null;
+  fournisseur: FournisseurExtrait; lignes: LigneBonCommande[];
+};
 
 // Le document appartient à l'acheteur (Pâtes en Folie / TOLYA) : on écarte ces lignes.
 const EST_ACHETEUR = (l: string) => /pate\s*en\s*folie|pates\s*en\s*folie|tolya/i.test(strip(l));
@@ -89,5 +93,5 @@ export async function extraireFacturePDF(buffer: ArrayBuffer, tauxCDF: number): 
     montant = Math.round(montant * 100) / 100;
   }
 
-  return { montant, date, numero, fournisseur: extraireFournisseur(t) };
+  return { montant, date, numero, fournisseur: extraireFournisseur(t), lignes: extraireLignesBonCommande(t) };
 }

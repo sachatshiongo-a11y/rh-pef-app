@@ -44,7 +44,13 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         setAnalyse(r);
         if (r.date) setDate(r.date);
         if (r.numero) setNumero(r.numero);
-        if (r.montant != null) setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+        // Lignes détaillées lues sur la facture (article rapproché du catalogue + quantité + prix) ;
+        // à défaut, une ligne unique avec le montant total.
+        if (r.lignes.length > 0) {
+          setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: String(l.quantite), prix: String(l.prixUnitaireUSD) })));
+        } else if (r.montant != null) {
+          setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+        }
         // Fournisseur : proche existant → on l'associe ; sinon on prépare la création automatique.
         if (r.match) { setFournisseurId(r.match.id); setFournisseurNom(r.match.nom); setCoord(null); }
         else if (r.fournisseur.nom) { setFournisseurId(""); setFournisseurNom(r.fournisseur.nom); setCoord(r.fournisseur); }
@@ -125,6 +131,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
               </p>
             ) : (
               <p>Fournisseur non détecté — renseignez-le à la main.</p>
+            )}
+            {analyse.lignes.length > 0 && (
+              <p>{analyse.lignes.length} ligne(s) lue(s), dont <span className="font-medium">{analyse.lignes.filter((l) => l.articleId).length}</span> rapprochée(s) d’un article du catalogue — vérifiez le tableau ci-dessous.</p>
             )}
           </div>
         )}

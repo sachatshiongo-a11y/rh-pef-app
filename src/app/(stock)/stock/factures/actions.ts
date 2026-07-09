@@ -8,6 +8,7 @@ import { journaliser } from "@/lib/audit";
 import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
+import { meilleurArticle } from "@/lib/article-match";
 
 const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -58,13 +59,18 @@ export async function attacherDocumentFacture(id: string, formData: FormData) {
   revalidatePath(`/stock/factures/${id}`);
 }
 
-/** Lit un PDF de facture et renvoie un pré-remplissage (montant, date, n°) — Direction. À CONFIRMER. */
+/** Lit un PDF de facture et renvoie un pré-remplissage complet (fournisseur, date, n°, LIGNES) — Direction. À CONFIRMER. */
+export type LigneAnalyse = {
+  designation: string; quantite: number; prixUnitaireUSD: number; total: number;
+  articleId: string | null; articleNom: string | null; unite: string | null; // article du catalogue rapproché
+};
 export type AnalyseFacture = {
   montant: number | null; date: string | null; numero: string | null;
   fournisseur: { nom: string | null; rccm: string | null; idNational: string | null; telephone: string | null; email: string | null; adresse: string | null; ville: string | null };
   match: { id: string; nom: string; score: number } | null; // fournisseur existant proche
+  lignes: LigneAnalyse[];
 };
-const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null };
+const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, lignes: [] };
 
 export async function analyserFacturePDF(formData: FormData): Promise<AnalyseFacture> {
   const user = await verifySession();
@@ -83,7 +89,24 @@ export async function analyserFacturePDF(formData: FormData): Promise<AnalyseFac
       const m = meilleurFournisseur(ex.fournisseur.nom, liste);
       if (m) match = { id: m.id, nom: m.nom, score: Math.round(m.score * 100) / 100 };
     }
-    return { ...ex, match };
+    // Rapprochement de chaque ligne avec un article du catalogue, par mots-clés
+    // (« Saumon frais 1KG » → « Filet de saumon norvégien »).
+    const articlesCat = await prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true } });
+    const pourMatch = articlesCat.map((a) => ({ id: a.id, designation: a.designation }));
+    const lignes: LigneAnalyse[] = ex.lignes.map((l) => {
+      const m = meilleurArticle(l.designation, pourMatch);
+      const art = m ? articlesCat.find((x) => x.id === m.id) : null;
+      return {
+        designation: art ? art.designation : l.designation,
+        quantite: l.quantite,
+        prixUnitaireUSD: l.prixUnitaireUSD,
+        total: l.totalLigneUSD,
+        articleId: art?.id ?? null,
+        articleNom: art?.designation ?? null,
+        unite: art?.unite ?? l.unite ?? null,
+      };
+    });
+    return { montant: ex.montant, date: ex.date, numero: ex.numero, fournisseur: ex.fournisseur, match, lignes };
   } catch {
     return VIDE;
   }
