@@ -129,9 +129,10 @@ const LigneFournisseur = memo(function LigneFournisseur({
             : <span className={c === "nom" ? "font-medium" : "text-muted-foreground"}>{f[c] || "—"}</span>}
         </td>
       ))}
-      <td className="text-right"><Link href={`/stock/fournisseurs/${f.id}`} className="text-primary underline">{f.nbArticles}</Link></td>
-      <td className="text-right">
-        {estDirection && <button onClick={() => onDelete(f.id, f.nom)} className="text-xs text-destructive underline">Suppr.</button>}
+      <td className="text-right">{f.nbArticles}</td>
+      <td className="whitespace-nowrap text-right">
+        <Link href={`/stock/fournisseurs/${f.id}`} className="text-xs font-medium text-primary underline">Fiche →</Link>
+        {estDirection && <button onClick={() => onDelete(f.id, f.nom)} className="ml-3 text-xs text-destructive underline">Suppr.</button>}
       </td>
     </tr>
   );
@@ -164,7 +165,7 @@ const CarteFournisseur = memo(function CarteFournisseur({
         {estDirection
           ? <input defaultValue={f.nom} onBlur={(e) => write("nom", e.target.value, f.nom)} placeholder="Nom" className={`${inp} !py-1.5 !text-sm font-semibold`} />
           : <span className="font-semibold">{f.nom || "—"}</span>}
-        <Link href={`/stock/fournisseurs/${f.id}`} className="shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs text-primary hover:bg-accent">{f.nbArticles} art.</Link>
+        <Link href={`/stock/fournisseurs/${f.id}`} className="shrink-0 whitespace-nowrap rounded-full border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent">Fiche →</Link>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
         {(["contactNom", "telephone", "ville", "rccm", "delaiPaiement", "delaiLivraison"] as const).map((c) => (
