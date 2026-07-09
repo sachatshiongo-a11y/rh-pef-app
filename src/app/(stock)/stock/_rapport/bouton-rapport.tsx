@@ -9,13 +9,19 @@ type T = { value: string; label: string };
 export function BoutonRapport({ types }: { types: T[] }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
-  // Le panneau (288px) s'ouvre vers la droite si la place le permet, sinon vers la gauche.
-  // Évite qu'il passe sous la barre latérale quand le bouton se retrouve à gauche (retour à la ligne).
-  const [alignRight, setAlignRight] = useState(false);
+  // Position calculée à l'ouverture et CLAMPÉE au viewport : le panneau reste toujours
+  // entièrement à l'écran, même sur téléphone où il ne tiendrait ni à gauche ni à droite.
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const basculer = () => {
+    if (open) { setOpen(false); return; }
     const rect = btnRef.current?.getBoundingClientRect();
-    if (rect) setAlignRight(rect.left + 288 > window.innerWidth);
-    setOpen((o) => !o);
+    if (rect) {
+      const marge = 8;
+      const width = Math.min(288, window.innerWidth - 2 * marge);
+      const left = Math.min(Math.max(marge, rect.right - width), window.innerWidth - width - marge);
+      setPos({ top: rect.bottom + 6, left, width });
+    }
+    setOpen(true);
   };
   const now = new Date();
   const iso = (x: Date) => x.toISOString().slice(0, 10);
@@ -28,12 +34,15 @@ export function BoutonRapport({ types }: { types: T[] }) {
   const dl = "flex-1 rounded-md border px-2 py-1 text-center text-xs font-medium hover:border-primary hover:bg-accent";
 
   return (
-    <div className="relative inline-block">
+    <div className="inline-block">
       <button ref={btnRef} onClick={basculer} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Rapport ▾</button>
-      {open && (
+      {open && pos && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className={`absolute ${alignRight ? "right-0" : "left-0"} z-50 mt-1.5 w-72 overflow-hidden rounded-xl border bg-card shadow-xl`}>
+          <div
+            className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-xl border bg-card shadow-xl"
+            style={{ top: pos.top, left: pos.left, width: pos.width }}
+          >
             <div className="border-b bg-muted/40 px-4 py-2.5">
               <p className="text-sm font-semibold">Générer un rapport</p>
             </div>
