@@ -12,43 +12,43 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Pilotage",
     items: [
-      { href: "/stock", label: "Tableau de bord", icone: "" },
-      { href: "/stock/a-valider", label: "Demandes à valider", icone: "", adminOnly: true },
-      { href: "/stock/archives", label: "Archives", icone: "" },
+      { href: "/stock", label: "Tableau de bord", icone: "🏠" },
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "✅", adminOnly: true },
+      { href: "/stock/archives", label: "Archives", icone: "🗄️" },
     ],
   },
   {
     titre: "Dépôt",
     items: [
-      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "" },
-      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "" },
-      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "" },
-      { href: "/stock/entree", label: "Liste d'achat", icone: "" },
-      { href: "/stock/mouvements", label: "Mouvements", icone: "" },
-      { href: "/stock/reconciliation", label: "Réconciliation", icone: "" },
+      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "🥘" },
+      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "🥤" },
+      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "📦" },
+      { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
+      { href: "/stock/mouvements", label: "Mouvements", icone: "🔄" },
+      { href: "/stock/reconciliation", label: "Réconciliation", icone: "⚖️" },
     ],
   },
   {
     titre: "Restaurant",
     items: [
-      { href: "/stock/restaurant", label: "Stock restaurant", icone: "" },
-      { href: "/stock/legumes", label: "Achats légumes frais", icone: "" },
-      { href: "/stock/journalier", label: "Conso. journalière", icone: "" },
+      { href: "/stock/restaurant", label: "Stock restaurant", icone: "🍽️" },
+      { href: "/stock/legumes", label: "Achats légumes frais", icone: "🥬" },
+      { href: "/stock/journalier", label: "Conso. journalière", icone: "📆" },
     ],
   },
   {
     titre: "Achats",
     items: [
-      { href: "/stock/commandes", label: "Bons de commande", icone: "" },
-      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "" },
-      { href: "/stock/factures", label: "Factures", icone: "" },
+      { href: "/stock/commandes", label: "Bons de commande", icone: "📋" },
+      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🚚" },
+      { href: "/stock/factures", label: "Factures", icone: "🧾" },
     ],
   },
   {
     titre: "Configuration",
     items: [
-      { href: "/stock/parametres", label: "Paramètres", icone: "" },
-      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "", adminOnly: true },
+      { href: "/stock/parametres", label: "Paramètres", icone: "⚙️" },
+      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "👥", adminOnly: true },
     ],
   },
 ];
@@ -119,6 +119,7 @@ export function StockShell({
                       actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
+                    <span aria-hidden className="w-5 shrink-0 text-center text-base leading-none">{item.icone}</span>
                     <span className="flex-1">{item.label}</span>
                     {(badges[item.href] ?? 0) > 0 && (
                       <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badges[item.href]}</span>

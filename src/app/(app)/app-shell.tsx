@@ -52,6 +52,7 @@ export function AppShell({
   userNom,
   userRole,
   maPhoto,
+  employeeId,
   notif,
   children,
 }: {
@@ -59,6 +60,7 @@ export function AppShell({
   userNom: string;
   userRole: string;
   maPhoto: string | null;
+  employeeId: string | null;
   notif: NotifData;
   children: React.ReactNode;
 }) {
@@ -202,11 +204,16 @@ export function AppShell({
             </svg>
           </button>
           <span className="truncate font-medium">Pâtes en Folie — Gestion</span>
-          {notif && (
-            <div className="ml-auto">
-              <NotificationBell {...notif} />
-            </div>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {notif && <NotificationBell {...notif} />}
+            {employeeId ? (
+              <Link href={`/employes/${employeeId}`} aria-label="Ma fiche salarié" className="rounded-full">
+                <Avatar nom={userNom} taille={28} photoUrl={maPhoto} />
+              </Link>
+            ) : (
+              <Avatar nom={userNom} taille={28} photoUrl={maPhoto} />
+            )}
+          </div>
         </header>
 
         {/* Barre cloche (desktop uniquement, comportement d'origine) */}

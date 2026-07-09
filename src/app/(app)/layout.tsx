@@ -38,9 +38,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const [badges, notif, moi] = await Promise.all([
     chargerBadges(),
     chargerNotifications("RH"), // cloche pour tous les utilisateurs RH
-    prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
+    prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { id: true, photoUrl: true } } } }),
   ]);
   const maPhoto = moi?.employe?.photoUrl ?? null;
+  const monEmployeId = moi?.employe?.id ?? null;
 
   return (
     <AppShell
@@ -48,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userNom={user.nom}
       userRole={user.role}
       maPhoto={maPhoto}
+      employeeId={monEmployeId}
       notif={notif ? { items: notif.items, nonLues: notif.nonLues, cloture: notif.cloture } : null}
     >
       {children}
