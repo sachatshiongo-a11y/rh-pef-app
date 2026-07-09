@@ -18,6 +18,7 @@
     "appId": "cd.patesenfolie.gestion",
     "productName": "Pâtes en Folie — Gestion",
     "asar": false,
+    "afterPack": "electron/after-pack.cjs",
     "files": [
       "electron/**/*",
       "package.json",
