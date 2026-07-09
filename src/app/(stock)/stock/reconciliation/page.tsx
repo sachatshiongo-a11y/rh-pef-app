@@ -30,10 +30,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
     const p = new URLSearchParams();
     if (q) p.set("q", q);
     p.set("domaine", dom);
-    p.set("auto", "1"); // ouvre la fiche HTML et lance l'impression (→ « Enregistrer en PDF »)
-    // Fiche HTML légère + impression navigateur — instantané, contrairement au PDF serveur (react-pdf)
-    // qui saturait Render sur des centaines d'articles.
-    return `/stock/reconciliation/fiche?${p}`;
+    // Fiche de comptage Excel téléchargeable : génération instantanée (pas de PDF serveur react-pdf,
+    // qui saturait Render sur des centaines d'articles).
+    return `/stock/reconciliation/fiche/excel?${p}`;
   };
 
   return (
@@ -47,9 +46,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <a href={ficheHref("NOURRITURE")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</a>
-          <a href={ficheHref("BOISSON")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</a>
-          <a href={ficheHref("AUTRE")} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</a>
+          <a href={ficheHref("NOURRITURE")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</a>
+          <a href={ficheHref("BOISSON")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</a>
+          <a href={ficheHref("AUTRE")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</a>
           <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousComptages} libelle="Supprimer TOUS les comptages archivés ?" />
         </div>
       </div>
