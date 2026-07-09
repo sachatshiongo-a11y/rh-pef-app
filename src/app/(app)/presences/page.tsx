@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { resumerPresences, type CodePresence } from "@/lib/payroll";
 import { AttendanceGrid, type EmployeeRow, type ResumeParEmploye } from "./attendance-grid";
+import { JourMobileProvider } from "@/components/jour-mobile";
 import { COULEUR_CODE } from "./attendance-colors";
 import { ImportPointage } from "./import-pointage";
 
@@ -109,6 +110,7 @@ export default async function PresencesPage() {
         </span>
       </div>
 
+      <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(new Date().toISOString().slice(0, 10)))}>
       <div className="mb-8">
         <h2 className="mb-3 text-base font-semibold">Brigade</h2>
         <AttendanceGrid
@@ -134,6 +136,7 @@ export default async function PresencesPage() {
           joursFeries={joursFeries}
         />
       </div>
+      </JourMobileProvider>
     </div>
   );
 }

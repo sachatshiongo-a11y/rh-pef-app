@@ -15,7 +15,39 @@ export function WeeklyBreakdownTable({
   const semaines = Array.from({ length: nbSemaines }, (_, i) => i + 1);
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <>
+    {/* Mobile : une carte par employé, une ligne par semaine. */}
+    <div className="space-y-2 lg:hidden">
+      {employees.map((e) => {
+        const parNumero = new Map((semainesParEmploye[e.id] ?? []).map((s) => [s.semaine, s]));
+        return (
+          <div key={e.id} className="rounded-xl border bg-card p-3">
+            <Link href={`/employes/${e.id}`} className="font-medium text-primary hover:underline">{e.nom}</Link>
+            <div className="mt-2 space-y-1">
+              {semaines.map((s) => {
+                const d = parNumero.get(s);
+                return (
+                  <div key={s} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-muted-foreground">Semaine {s}</span>
+                    <span className="tabular-nums">
+                      {d ? `${d.heuresTotales} h` : "—"}
+                      {d && (d.hs30 || d.hs60 || d.hs100) ? (
+                        <span className="ml-2 text-muted-foreground">HS 30/60/100 : {d.hs30 || 0}·{d.hs60 || 0}·{d.hs100 || 0}</span>
+                      ) : null}
+                    </span>
+                  </div>
+                );
+              })}
+              {(semainesParEmploye[e.id] ?? []).length === 0 && <p className="text-xs text-muted-foreground">Aucune heure.</p>}
+            </div>
+          </div>
+        );
+      })}
+      {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+    </div>
+
+    {/* Ordinateur : tableau. */}
+    <div className="hidden overflow-x-auto rounded-lg border lg:block">
       <table className="text-sm">
         <thead className="bg-muted/50 text-left">
           <tr>
@@ -69,5 +101,6 @@ export function WeeklyBreakdownTable({
         </tbody>
       </table>
     </div>
+    </>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { saisirCreneau, saisirCreneauxEnLot } from "./actions";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
+import { useJourMobile } from "@/components/jour-mobile";
 import { Avatar } from "@/components/avatar";
 
 export type EmployeeRow = { id: string; nom: string; photoUrl?: string | null };
@@ -40,9 +41,9 @@ export function PlanningGrid({
   const [bulkShift, setBulkShift] = useState<string>(shifts[0]?.id ?? "");
   const [bulkJours, setBulkJours] = useState<Set<number>>(new Set(isoDates.map((_, i) => i)));
 
-  // Vue mobile « jour par jour » : index du jour (défaut = aujourd'hui) + miroir des affectations.
+  // Vue mobile « jour par jour » : index du jour PARTAGÉ entre les grilles (un seul sélecteur).
   const idxAuj = isoDates.indexOf(isoAujourdhui);
-  const [idxMobile, setIdxMobile] = useState<number>(idxAuj >= 0 ? idxAuj : 0);
+  const [idxMobile, setIdxMobile] = useJourMobile(idxAuj >= 0 ? idxAuj : 0);
   const [editsMobile, setEditsMobile] = useState<Record<string, string>>({});
   const creneauDe = (empId: string, iso: string) => editsMobile[`${empId}_${iso}`] ?? creneauMap[`${empId}_${iso}`] ?? "";
   const onMobileChange = (empId: string, iso: string, value: string) => {
@@ -118,13 +119,13 @@ export function PlanningGrid({
       {/* Mobile : affectation « jour par jour » (même enregistrement que la grille). */}
       <div className="lg:hidden">
         <div className="mb-3 flex items-center gap-2">
-          <button type="button" onClick={() => setIdxMobile((i) => Math.max(0, i - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <button type="button" onClick={() => setIdxMobile(Math.max(0, idxMobile - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
           <select value={idxMobile} onChange={(e) => setIdxMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
             {isoDates.map((iso, i) => (
               <option key={iso} value={i}>{labelsJours[i]}{joursMajores[i] ? " · majoré" : ""}</option>
             ))}
           </select>
-          <button type="button" onClick={() => setIdxMobile((i) => Math.min(isoDates.length - 1, i + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+          <button type="button" onClick={() => setIdxMobile(Math.min(isoDates.length - 1, idxMobile + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
         </div>
         <div className="space-y-2">
           {employees.map((emp) => {

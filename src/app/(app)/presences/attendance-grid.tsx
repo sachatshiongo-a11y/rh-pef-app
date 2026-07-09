@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
 import { saisirPresence, saisirPresencesEnLot } from "./actions";
 import { COULEUR_CODE_HEX } from "./attendance-colors";
+import { useJourMobile } from "@/components/jour-mobile";
 import type { AttendanceCode } from "@prisma/client";
 import type { CodePresence } from "@/lib/payroll";
 
@@ -63,11 +64,12 @@ export function AttendanceGrid({
   const [bulkJour, setBulkJour] = useState<string>("1");
   const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
 
-  // Vue mobile « jour par jour » : jour sélectionné (défaut = aujourd'hui s'il est dans le mois)
-  // et miroir local des saisies pour afficher la valeur à jour quand on change de jour.
+  // Vue mobile « jour par jour » : index du jour PARTAGÉ entre les grilles de la page (un seul
+  // sélecteur), + miroir local des saisies pour afficher la valeur à jour quand on change de jour.
   const isoAuj = new Date().toISOString().slice(0, 10);
   const idxAuj = isoDates.indexOf(isoAuj);
-  const [jourMobile, setJourMobile] = useState<number>(idxAuj >= 0 ? days[idxAuj] : days[0] ?? 1);
+  const [idxMobile, setIdxMobile] = useJourMobile(idxAuj >= 0 ? idxAuj : 0);
+  const jourMobile = days[idxMobile] ?? days[0] ?? 1;
   const [editsMobile, setEditsMobile] = useState<Record<string, string>>({});
   const codeDe = (empId: string, day: number) =>
     editsMobile[`${empId}_${day}`] ?? attendanceMap[`${empId}_${day}`] ?? "";
@@ -224,16 +226,16 @@ export function AttendanceGrid({
       {/* Mobile : saisie « jour par jour » (même enregistrement que la grille). */}
       <div className="lg:hidden">
         <div className="mb-3 flex items-center gap-2">
-          <button type="button" onClick={() => setJourMobile((j) => Math.max(days[0], j - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
-          <select value={jourMobile} onChange={(e) => setJourMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
-            {days.map((d) => (
-              <option key={d} value={d}>
+          <button type="button" onClick={() => setIdxMobile(Math.max(0, idxMobile - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <select value={idxMobile} onChange={(e) => setIdxMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+            {days.map((d, i) => (
+              <option key={d} value={i}>
                 {new Date(isoDates[d - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
                 {estFerie(d) ? " · férié" : estDimanche(d) ? " · dimanche" : ""}
               </option>
             ))}
           </select>
-          <button type="button" onClick={() => setJourMobile((j) => Math.min(days[days.length - 1], j + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+          <button type="button" onClick={() => setIdxMobile(Math.min(days.length - 1, idxMobile + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
         </div>
         <div className="space-y-2">
           {employees.map((emp) => (

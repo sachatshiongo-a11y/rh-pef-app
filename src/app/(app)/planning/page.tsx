@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { PlanningGrid, type EmployeeRow } from "./planning-grid";
+import { JourMobileProvider } from "@/components/jour-mobile";
 import { PlanningMensuel, type CreneauJour } from "./planning-mensuel";
 import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
 import { ShiftsManager } from "./shifts-manager";
@@ -230,6 +231,7 @@ export default async function PlanningPage({
           <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
         ) : (
           <div className="space-y-6">
+            <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
             <div>
               <h2 className="mb-2 text-base font-semibold">Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span></h2>
               <PlanningGrid employees={brigade} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
@@ -238,6 +240,7 @@ export default async function PlanningPage({
               <h2 className="mb-2 text-base font-semibold">Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span></h2>
               <PlanningGrid employees={backoffice} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
             </div>
+            </JourMobileProvider>
           </div>
         )}
 
@@ -315,6 +318,7 @@ export default async function PlanningPage({
         <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
       ) : (
         <div className="space-y-6">
+          <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
           <div>
             <h2 className="mb-2 text-base font-semibold">Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span></h2>
             <PlanningGrid employees={brigade} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
@@ -323,6 +327,7 @@ export default async function PlanningPage({
             <h2 className="mb-2 text-base font-semibold">Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span></h2>
             <PlanningGrid employees={backoffice} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
           </div>
+          </JourMobileProvider>
         </div>
       )}
 
