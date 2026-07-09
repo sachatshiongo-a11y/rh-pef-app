@@ -45,6 +45,17 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     );
   }, [articles, q, dom, alerte]);
 
+  // Compteurs d'alerte (sur le domaine courant) pour le bandeau de réapprovisionnement.
+  const compte = useMemo(() => {
+    let urgent = 0, appro = 0;
+    for (const a of articles) {
+      if (dom !== "TOUS" && a.domaine !== dom) continue;
+      if (a.niveau === "URGENT") urgent++;
+      else if (a.niveau === "APPRO") appro++;
+    }
+    return { urgent, appro };
+  }, [articles, dom]);
+
   const run = (fn: () => Promise<void>) => {
     setErreur(null);
     startTransition(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
@@ -59,6 +70,30 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   return (
     <div className="space-y-3">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+
+      {/* Bandeau réapprovisionnement : visible en permanence dès qu'un article est bas ; clic = filtre. */}
+      {(compte.urgent > 0 || compte.appro > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm">
+          <span className="font-semibold text-amber-900">⚠ À réapprovisionner</span>
+          {compte.urgent > 0 && (
+            <button
+              onClick={() => setAlerte(alerte === "URGENT" ? "" : "URGENT")}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ALERTE_CLASSE.URGENT} ${alerte === "URGENT" ? "ring-2 ring-red-400" : ""}`}
+            >
+              {compte.urgent} urgent{compte.urgent > 1 ? "s" : ""}
+            </button>
+          )}
+          {compte.appro > 0 && (
+            <button
+              onClick={() => setAlerte(alerte === "APPRO" ? "" : "APPRO")}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ALERTE_CLASSE.APPRO} ${alerte === "APPRO" ? "ring-2 ring-amber-400" : ""}`}
+            >
+              {compte.appro} à réappro.
+            </button>
+          )}
+          {alerte && <button onClick={() => setAlerte("")} className="ml-auto text-xs text-muted-foreground underline">Voir tout</button>}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
@@ -121,8 +156,23 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </form>
       )}
 
-      {/* Tableur : cellules éditables, en-tête figé, défilement interne */}
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      {/* Mobile : cartes éditables (une par article), groupées par catégorie. */}
+      <div className="space-y-2 lg:hidden">
+        {visibles.map((a, i) => (
+          <Fragment key={a.id}>
+            {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
+              <div className="px-1 pt-1 text-xs font-bold uppercase tracking-wide text-amber-900">
+                {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
+              </div>
+            )}
+            <CarteArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
+          </Fragment>
+        ))}
+        {visibles.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun article.</p>}
+      </div>
+
+      {/* Ordinateur — tableur : cellules éditables, en-tête figé, défilement interne */}
+      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
         <table className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
@@ -194,5 +244,59 @@ const LigneArticle = memo(function LigneArticle({
       <td><input type="number" step="0.001" defaultValue={a.seuilUrgent} onBlur={(e) => write("seuilUrgent", e.target.value, a.seuilUrgent)} className={`${cellCls} text-right`} /></td>
       <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
     </tr>
+  );
+});
+
+const champLabel = "flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground";
+
+/** Carte éditable d'un article — équivalent mobile de LigneArticle (même logique d'enregistrement au blur). */
+const CarteArticle = memo(function CarteArticle({
+  a, categories, fournisseurs, selected, onToggle, onSave,
+}: {
+  a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
+  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const catsPour = categories.filter((c) => c.domaine === a.domaine);
+  const write = (name: string, value: string, prev: string) => {
+    if (value === prev) return;
+    setBusy(true);
+    onSave(a.id, name, value).finally(() => setBusy(false));
+  };
+
+  return (
+    <div className={`rounded-xl border p-3 ${selected ? "bg-primary/10" : "bg-card"} ${busy ? "opacity-60" : ""}`}>
+      <div className="flex items-start gap-2">
+        <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="mt-2 shrink-0" aria-label="Sélectionner" />
+        <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} flex-1 min-w-0 !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
+        {a.niveau && <span className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <label className={`${champLabel} col-span-2`}>Catégorie
+          <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
+            <option value="">— à classer —</option>
+            {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+          </select>
+        </label>
+        <label className={`${champLabel} col-span-2`}>Fournisseur
+          <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} !py-1.5`}>
+            <option value="">—</option>
+            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
+          </select>
+        </label>
+        <label className={champLabel}>Prix USD
+          <input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} !py-1.5 text-right`} />
+        </label>
+        <label className={champLabel}>Stock (auto)
+          <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{a.quantite}</span>
+        </label>
+        <label className={champLabel}>Stock min.
+          <input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} !py-1.5 text-right`} />
+        </label>
+        <label className={champLabel}>Seuil urgent
+          <input type="number" step="0.001" defaultValue={a.seuilUrgent} onBlur={(e) => write("seuilUrgent", e.target.value, a.seuilUrgent)} className={`${cellCls} !py-1.5 text-right`} />
+        </label>
+      </div>
+    </div>
   );
 });
