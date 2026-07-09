@@ -18,29 +18,31 @@ function LigneComptage({ a }: { a: Art }) {
   const ecart = valide ? num - a.theorique : null;
   const pct = ecart === null ? null : a.theorique !== 0 ? (ecart / Math.abs(a.theorique)) * 100 : ecart !== 0 ? 100 : 0;
   const horsTol = ecart !== null && Math.abs(ecart) > 0.0001 && (a.theorique === 0 ? num !== 0 : Math.abs(pct!) > SEUIL_TOLERANCE_PCT);
+  const couleurEcart = ecart === null ? "text-muted-foreground" : ecart === 0 ? "text-emerald-700" : horsTol ? "text-red-700" : ecart > 0 ? "text-blue-700" : "text-amber-700";
   return (
-    <>
-      <tr className="border-t even:bg-muted/25 hover:bg-accent/40">
-        <td className="px-3 py-1.5 font-medium">{a.designation}</td>
-        <td className="px-3 py-1.5 text-right text-muted-foreground">{qte(a.theorique)}</td>
-        <td className="px-3 py-1.5 text-right">
-          <input type="hidden" name="recon_articleId" value={a.id} />
-          <input name="recon_physique" type="number" step="0.001" value={v} onChange={(e) => setV(e.target.value)} className={`${inp} w-24 text-right`} />
-        </td>
-        <td className={`px-3 py-1.5 text-right font-medium ${ecart === null ? "text-muted-foreground" : ecart === 0 ? "text-emerald-700" : horsTol ? "text-red-700" : ecart > 0 ? "text-blue-700" : "text-amber-700"}`}>
-          {ecart === null ? "—" : <>{ecart > 0 ? "+" : ""}{qte(ecart)}{pct !== null && a.theorique !== 0 ? <span className="ml-1 text-xs">({pct > 0 ? "+" : ""}{pct.toFixed(0)}%)</span> : null}</>}
-          {!horsTol && <input type="hidden" name="recon_explication" value="" />}
-        </td>
-      </tr>
+    <div className={`border-t px-3 py-2 even:bg-muted/25 hover:bg-accent/40 sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_7rem_7rem] sm:items-center sm:gap-2 sm:py-1.5 ${horsTol ? "bg-red-50/50" : ""}`}>
+      <div className="font-medium">{a.designation}</div>
+      <div className="mt-1 flex items-center justify-between sm:mt-0 sm:block sm:text-right">
+        <span className="text-xs text-muted-foreground sm:hidden">Théorique</span>
+        <span className="tabular-nums text-muted-foreground">{qte(a.theorique)}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 sm:mt-0 sm:justify-end">
+        <span className="text-xs text-muted-foreground sm:hidden">Physique compté</span>
+        <input type="hidden" name="recon_articleId" value={a.id} />
+        <input name="recon_physique" type="number" step="0.001" value={v} onChange={(e) => setV(e.target.value)} placeholder="0" className={`${inp} w-28 text-right`} />
+      </div>
+      <div className={`mt-1 flex items-center justify-between font-medium tabular-nums sm:mt-0 sm:justify-end ${couleurEcart}`}>
+        <span className="text-xs font-normal text-muted-foreground sm:hidden">Écart</span>
+        <span>{ecart === null ? "—" : <>{ecart > 0 ? "+" : ""}{qte(ecart)}{pct !== null && a.theorique !== 0 ? <span className="ml-1 text-xs">({pct > 0 ? "+" : ""}{pct.toFixed(0)}%)</span> : null}</>}</span>
+        {!horsTol && <input type="hidden" name="recon_explication" value="" />}
+      </div>
       {/* Explication requise si écart > seuil de tolérance. */}
       {horsTol && (
-        <tr className="border-t bg-red-50/60">
-          <td colSpan={4} className="px-3 py-1.5">
-            <input name="recon_explication" value={expl} onChange={(e) => setExpl(e.target.value)} required placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
-          </td>
-        </tr>
+        <div className="mt-2 sm:col-span-4">
+          <input name="recon_explication" value={expl} onChange={(e) => setExpl(e.target.value)} required placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -72,20 +74,15 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
         </button>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
-        <table className="w-full min-w-[40rem] text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
-            <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-              <th>Article</th>
-              <th className="!text-right">Théorique</th>
-              <th className="!text-right">Physique</th>
-              <th className="!text-right">Écart</th>
-            </tr>
-          </thead>
-          <tbody>
-            {articles.map((a) => <LigneComptage key={a.id} a={a} />)}
-          </tbody>
-        </table>
+      <div className="max-h-[70vh] overflow-auto rounded-lg border text-sm">
+        <div className="sticky top-0 z-10 hidden gap-2 border-b bg-muted px-3 py-2 font-semibold shadow-sm sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_7rem_7rem]">
+          <span>Article</span>
+          <span className="text-right">Théorique</span>
+          <span className="text-right">Physique</span>
+          <span className="text-right">Écart</span>
+        </div>
+        {articles.map((a) => <LigneComptage key={a.id} a={a} />)}
+        {articles.length === 0 && <p className="px-3 py-6 text-center text-muted-foreground">Aucun article.</p>}
       </div>
     </form>
   );

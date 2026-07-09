@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { ReconciliationForm } from "./reconciliation-client";
@@ -21,6 +22,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   };
   const articles = await prisma.articleStock.findMany({ where, orderBy: { designation: "asc" }, include: { stock: true } });
   const rows = articles.map((a) => ({ id: a.id, designation: a.designation, theorique: a.stock ? Number(a.stock.quantite) : 0 }));
+
+  // Comptages déjà appliqués (aussi archivés dans Archives) — consultables ici.
+  const comptages = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 12 });
 
   const ficheHref = (dom: string) => {
     const p = new URLSearchParams();
@@ -59,6 +63,27 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
       </form>
 
       <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} />
+
+      {comptages.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Comptages récents</h2>
+          <div className="space-y-2">
+            {comptages.map((s) => (
+              <Link key={s.id} href={`/stock/archives/${s.id}`} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 hover:bg-accent/40">
+                <div>
+                  <div className="font-medium">{new Date(s.date).toLocaleDateString("fr-FR")}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {s.nbArticles} articles · {s.nbEcarts} écart(s)
+                    {s.nbHorsTol > 0 && <> · <span className="font-semibold text-red-700">{s.nbHorsTol} hors tolérance</span></>}
+                  </div>
+                </div>
+                <span className="shrink-0 text-sm text-primary underline">Ouvrir</span>
+              </Link>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">Tous les comptages sont aussi conservés dans <Link href="/stock/archives?vue=comptages" className="underline">Archives</Link>.</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -70,7 +70,16 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
         </form>
       )}
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Mobile : cartes éditables (enregistrement au blur, comme le tableur). */}
+      <div className="space-y-2 lg:hidden">
+        {visibles.map((f) => (
+          <CarteFournisseur key={f.id} f={f} estDirection={estDirection} onSave={save} onDelete={supprimer} />
+        ))}
+        {visibles.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun fournisseur.</p>}
+      </div>
+
+      {/* Ordinateur : tableur. */}
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
         <table className="w-full min-w-[64rem] text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
@@ -125,5 +134,52 @@ const LigneFournisseur = memo(function LigneFournisseur({
         {estDirection && <button onClick={() => onDelete(f.id, f.nom)} className="text-xs text-destructive underline">Suppr.</button>}
       </td>
     </tr>
+  );
+});
+
+const LABELS: Record<(typeof CH)[number], string> = {
+  nom: "Nom", contactNom: "Contact", telephone: "Téléphone", ville: "Ville",
+  rccm: "RCCM", delaiPaiement: "Délai paiement", delaiLivraison: "Délai livraison",
+};
+
+/** Carte éditable d'un fournisseur — équivalent mobile de LigneFournisseur (blur = enregistrement). */
+const CarteFournisseur = memo(function CarteFournisseur({
+  f, estDirection, onSave, onDelete,
+}: {
+  f: FournRow; estDirection: boolean;
+  onSave: (id: string, name: string, value: string) => Promise<void>;
+  onDelete: (id: string, nom: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const write = (name: string, value: string, prev: string) => {
+    if (value === prev) return;
+    setBusy(true);
+    onSave(f.id, name, value).finally(() => setBusy(false));
+  };
+  const champ = "flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground";
+
+  return (
+    <div className={`rounded-xl border bg-card p-3 ${busy ? "opacity-60" : ""}`}>
+      <div className="flex items-start justify-between gap-2">
+        {estDirection
+          ? <input defaultValue={f.nom} onBlur={(e) => write("nom", e.target.value, f.nom)} placeholder="Nom" className={`${inp} !py-1.5 !text-sm font-semibold`} />
+          : <span className="font-semibold">{f.nom || "—"}</span>}
+        <Link href={`/stock/fournisseurs/${f.id}`} className="shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs text-primary hover:bg-accent">{f.nbArticles} art.</Link>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {(["contactNom", "telephone", "ville", "rccm", "delaiPaiement", "delaiLivraison"] as const).map((c) => (
+          <label key={c} className={champ}>{LABELS[c]}
+            {estDirection
+              ? <input defaultValue={f[c]} onBlur={(e) => write(c, e.target.value, f[c])} className={`${inp} !py-1.5`} />
+              : <span className="rounded border border-transparent px-1.5 py-1 text-xs text-foreground">{f[c] || "—"}</span>}
+          </label>
+        ))}
+      </div>
+      {estDirection && (
+        <div className="mt-2 text-right">
+          <button onClick={() => onDelete(f.id, f.nom)} className="text-xs text-destructive underline">Supprimer</button>
+        </div>
+      )}
+    </div>
   );
 });

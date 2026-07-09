@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { DOMAINE_LABEL } from "@/lib/stock";
+import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/stock";
 import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
 import { supprimerTousRapports } from "./actions";
 
@@ -23,9 +23,9 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const user = await verifySession();
   const estDirection = user.role === "ADMIN";
-  const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : "comptages";
+  const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : sp.vue === "bons" ? "bons" : "comptages";
 
-  const onglets: [string, string][] = [["comptages", "Comptages"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
+  const onglets: [string, string][] = [["comptages", "Comptages"], ["bons", "Bons de commande validés"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
 
   return (
     <div className="max-w-4xl space-y-4">
@@ -41,6 +41,7 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
       </div>
 
       {vue === "comptages" && <Comptages />}
+      {vue === "bons" && <BonsValides />}
       {vue === "rapports" && <Rapports estDirection={estDirection} />}
       {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} />}
     </div>
@@ -82,6 +83,54 @@ async function Comptages() {
             </tr>
           ))}
           {sessions.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun comptage archivé.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    </>
+  );
+}
+
+async function BonsValides() {
+  const bcs = await prisma.bonDeCommande.findMany({
+    where: { statut: { notIn: ["BROUILLON", "ANNULE"] } },
+    orderBy: [{ annee: "desc" }, { date: "desc" }],
+    take: 200,
+    include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
+  });
+  return (
+    <>
+    {/* Mobile : cartes. */}
+    <div className="space-y-2 lg:hidden">
+      {bcs.map((b) => (
+        <div key={b.id} className="rounded-xl border bg-card p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <Link href={`/stock/commandes/${b.id}`} className="font-medium text-primary hover:underline">{b.numero}</Link>
+              <div className="truncate text-xs text-muted-foreground">{b.fournisseur?.nom ?? "—"} · {new Date(b.date).toLocaleDateString("fr-FR")}</div>
+            </div>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-sm"><span className="text-muted-foreground">{b._count.lignes} ligne(s)</span><span className="font-semibold tabular-nums">{usd(b.totalUSD)}</span></div>
+        </div>
+      ))}
+      {bcs.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande validé.</p>}
+    </div>
+    {/* Ordinateur : tableau. */}
+    <div className="hidden overflow-x-auto rounded-lg border lg:block">
+      <table className="w-full min-w-[40rem] text-sm">
+        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Numéro</th><th>Fournisseur</th><th>Date</th><th className="text-right">Total</th><th>Statut</th><th></th></tr></thead>
+        <tbody>
+          {bcs.map((b) => (
+            <tr key={b.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
+              <td className="px-3 py-2 font-medium">{b.numero}</td>
+              <td className="px-3 py-2">{b.fournisseur?.nom ?? "—"}</td>
+              <td className="px-3 py-2 text-muted-foreground">{new Date(b.date).toLocaleDateString("fr-FR")}</td>
+              <td className="px-3 py-2 text-right">{usd(b.totalUSD)}</td>
+              <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span></td>
+              <td className="px-3 py-2 text-right"><Link href={`/stock/commandes/${b.id}`} className="text-primary underline">Ouvrir</Link></td>
+            </tr>
+          ))}
+          {bcs.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun bon de commande validé.</td></tr>}
         </tbody>
       </table>
     </div>
