@@ -11,6 +11,8 @@ const STOP = new Set([
   "kg", "kgs", "g", "gr", "grs", "gramme", "grammes", "mg", "l", "lt", "ltr", "litre", "litres", "ml", "cl", "dl",
   "piece", "pieces", "pcs", "pc", "unite", "unites", "u", "x", "carton", "cartons", "ct", "boite", "boites",
   "paquet", "paquets", "sachet", "sachets", "sac", "bouteille", "bouteilles", "btl", "pack", "lot", "casier", "caisse",
+  // marques / mots de remplissage fréquents sur les factures (bruit, pas discriminants)
+  "everyday", "boni", "selection", "exp", "marque", "produit", "produits", "articles", "hotel", "cons",
 ]);
 
 // Jetons significatifs : ≥ 3 lettres, hors mots génériques, et hors tokens commençant par un

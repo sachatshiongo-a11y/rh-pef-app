@@ -50,6 +50,37 @@ function extraireFournisseur(t: string): FournisseurExtrait {
   return { nom, rccm, idNational, telephone, email, adresse, ville };
 }
 
+/**
+ * Lignes des factures type IMEXCO : table « Sl | Description | Amount | per | Rate | Quantity »,
+ * montants SANS « $ » (le $ n'est que sur le total). Une ligne peut se poursuivre sur plusieurs
+ * lignes de texte avant sa partie chiffrée.
+ */
+function extraireLignesImexco(text: string): LigneBonCommande[] {
+  const lignes = text.split(/\r?\n/);
+  const iHead = lignes.findIndex((l) => /description of goods/i.test(l));
+  if (iHead < 0) return [];
+  const out: LigneBonCommande[] = [];
+  let buf = "";
+  const flush = () => {
+    const s = buf.replace(/\t/g, " ").replace(/\s{2,}/g, " ").trim();
+    buf = "";
+    if (!s) return;
+    const m = s.match(/([0-9]+\.[0-9]{2})\s+(?:[0-9.]+%?\s+)?([A-Za-z]+)\s+([0-9]+\.[0-9]{2})\s+([0-9]+)\s*-/);
+    if (!m) return;
+    const amount = Number(m[1]), rate = Number(m[3]), qty = Number(m[4]);
+    const desig = s.slice(0, s.indexOf(m[0])).replace(/^\s*\d+\s*/, "").replace(/\|/g, " ").replace(/\s{2,}/g, " ").trim();
+    if (desig) out.push({ designation: desig.slice(0, 120), unite: null, quantite: qty || 1, prixUnitaireUSD: rate, totalLigneUSD: amount });
+  };
+  for (let i = iHead + 1; i < lignes.length; i++) {
+    const l = lignes[i];
+    if (/^\s*total\b/i.test(l)) { flush(); break; }
+    if (/^\s*\d+\s+[A-Za-zÉ|]/.test(l) && buf) flush(); // nouvelle ligne (Sl + description)
+    buf += " " + l;
+  }
+  flush();
+  return out;
+}
+
 export async function extraireFacturePDF(buffer: ArrayBuffer, tauxCDF: number): Promise<FactureExtrait> {
   const mod = (await import("pdf-parse")) as unknown as { PDFParse: new (o: { data: Uint8Array }) => { getText: () => Promise<{ text: string }> } };
   const { text } = await new mod.PDFParse({ data: new Uint8Array(buffer) }).getText();
@@ -63,11 +94,22 @@ export async function extraireFacturePDF(buffer: ArrayBuffer, tauxCDF: number): 
     if (dm[1].length === 4) date = `${dm[1]}-${dm[2].padStart(2, "0")}-${dm[3].padStart(2, "0")}`;
     else { const yy = dm[3].length === 4 ? dm[3] : "20" + dm[3]; date = `${yy}-${dm[2].padStart(2, "0")}-${dm[1].padStart(2, "0")}`; }
   }
+  // Date « 9-May-2024 » (mois en anglais — factures type IMEXCO).
+  if (!date) {
+    const MOIS_EN: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+    const md = t.match(/\b(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s](\d{4})\b/);
+    const mo = md ? MOIS_EN[md[2].toLowerCase()] : undefined;
+    if (md && mo) date = `${md[3]}-${String(mo).padStart(2, "0")}-${md[1].padStart(2, "0")}`;
+  }
 
-  // Numéro : « facture n° X » / « invoice X ».
+  // Numéro : « facture n° X » / « invoice X », ou « Invoice No. » suivi d'un « 2763/2024 ».
   let numero: string | null = null;
   const nm = t.match(/(?:facture|invoice)\s*(?:n[°o]?|#|no\.?)?\s*[:.]?\s*([A-Za-z0-9/\-]{2,20})/i);
-  if (nm && !/^\d{1,2}$/.test(nm[1])) numero = nm[1];
+  if (nm && !/^\d{1,2}$/.test(nm[1]) && !/^no$/i.test(nm[1])) numero = nm[1];
+  if (!numero) {
+    const inv = t.match(/Invoice\s*No\.?\s*[:\n\r]*\s*([0-9]{2,6}\/[0-9]{4})/i);
+    if (inv) numero = inv[1];
+  }
 
   // Montant : on cherche un montant après un mot-clé de total ; sinon le plus grand montant.
   const nombres = [...t.matchAll(/([0-9][0-9.,\s]{1,15})/g)]
@@ -93,5 +135,9 @@ export async function extraireFacturePDF(buffer: ArrayBuffer, tauxCDF: number): 
     montant = Math.round(montant * 100) / 100;
   }
 
-  return { montant, date, numero, fournisseur: extraireFournisseur(t), lignes: extraireLignesBonCommande(t) };
+  // Lignes : format tabulaire standard (montants en $) ; sinon repli sur le format IMEXCO.
+  let lignes = extraireLignesBonCommande(t);
+  if (lignes.length === 0) lignes = extraireLignesImexco(t);
+
+  return { montant, date, numero, fournisseur: extraireFournisseur(t), lignes };
 }
