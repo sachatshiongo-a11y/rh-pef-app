@@ -94,9 +94,9 @@ export default async function HistoriquePage({
       </div>
 
       {/* Ordinateur : tableau. */}
-      <div className="hidden overflow-x-auto rounded-lg border lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Période</th>
               <th className="px-3 py-2">Statut</th>

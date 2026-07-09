@@ -38,9 +38,9 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
     <div className="space-y-3">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full text-sm [&_td]:px-3 [&_th]:px-3">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="py-2">Type</th>
               <th className="py-2 text-center">Jours payés</th>

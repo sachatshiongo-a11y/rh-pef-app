@@ -28,9 +28,9 @@ export default async function ArchiveDetailPage({ params }: { params: Promise<{ 
         <span className={`rounded-full border px-3 py-1 ${session.nbHorsTol > 0 ? "border-red-300 bg-red-50 text-red-800" : ""}`}>Hors tolérance ({SEUIL_TOLERANCE_PCT}%) : <b>{session.nbHorsTol}</b></span>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full min-w-[44rem] text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
               <th>Article</th>
               <th className="text-right">Théorique</th>

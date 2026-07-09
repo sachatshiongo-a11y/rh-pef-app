@@ -250,7 +250,7 @@ export default async function ParametresPage() {
           </button>
         </form>
 
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
         <table className="w-full min-w-[24rem] text-sm">
           <tbody>
             {joursFeries.map((j) => (

@@ -47,9 +47,9 @@ export function WeeklyBreakdownTable({
     </div>
 
     {/* Ordinateur : tableau. */}
-    <div className="hidden overflow-x-auto rounded-lg border lg:block">
+    <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
       <table className="text-sm">
-        <thead className="bg-muted/50 text-left">
+        <thead className="sticky top-0 z-10 bg-muted text-left">
           <tr>
             <th rowSpan={2} className="sticky left-0 z-10 bg-muted/50 px-3 py-2 align-bottom">
               Employé

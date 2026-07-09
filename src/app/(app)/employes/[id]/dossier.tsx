@@ -408,7 +408,7 @@ export function DossierEmploye({
       {vue === "fin" && (
       <Section title="Fin de contrat & solde de tout compte">
         {finContrats.length > 0 && (
-          <div className="mb-4 overflow-x-auto rounded-lg border">
+          <div className="mb-4 max-h-[70vh] overflow-auto rounded-lg border">
             <table className="w-full text-sm [&_td]:px-3 [&_th]:px-3">
               <thead className="text-left text-xs text-muted-foreground">
                 <tr>

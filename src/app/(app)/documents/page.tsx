@@ -250,7 +250,7 @@ export default async function DocumentsPage({
       </div>
 
       {/* Ordinateur : tableau. */}
-      <div className="hidden overflow-x-auto rounded-xl border lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto rounded-xl border lg:block">
         <table className="w-full text-sm">
           {onglet === "bulletins" && (
             <>
@@ -361,7 +361,7 @@ export default async function DocumentsPage({
 
 function Thead({ cols }: { cols: string[] }) {
   return (
-    <thead className="bg-muted/50 text-left">
+    <thead className="sticky top-0 z-10 bg-muted text-left">
       <tr>{cols.map((c) => <th key={c} className="px-3 py-2">{c}</th>)}</tr>
     </thead>
   );

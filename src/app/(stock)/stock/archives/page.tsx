@@ -68,9 +68,9 @@ async function Comptages() {
       ))}
       {sessions.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun comptage archivé.</p>}
     </div>
-    <div className="hidden overflow-x-auto rounded-lg border lg:block">
+    <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
       <table className="w-full min-w-[40rem] text-sm">
-        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Date</th><th>Domaine</th><th className="text-right">Articles</th><th className="text-right">Écarts</th><th className="text-right">Hors tolérance</th><th></th></tr></thead>
+        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Date</th><th>Domaine</th><th className="text-right">Articles</th><th className="text-right">Écarts</th><th className="text-right">Hors tolérance</th><th></th></tr></thead>
         <tbody>
           {sessions.map((s) => (
             <tr key={s.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
@@ -116,9 +116,9 @@ async function BonsValides() {
       {bcs.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande validé.</p>}
     </div>
     {/* Ordinateur : tableau. */}
-    <div className="hidden overflow-x-auto rounded-lg border lg:block">
+    <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
       <table className="w-full min-w-[40rem] text-sm">
-        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Numéro</th><th>Fournisseur</th><th>Date</th><th className="text-right">Total</th><th>Statut</th><th></th></tr></thead>
+        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Numéro</th><th>Fournisseur</th><th>Date</th><th className="text-right">Total</th><th>Statut</th><th></th></tr></thead>
         <tbody>
           {bcs.map((b) => (
             <tr key={b.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
@@ -170,9 +170,9 @@ async function Rapports({ estDirection }: { estDirection: boolean }) {
         {rapports.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</p>}
       </div>
 
-      <div className="hidden overflow-x-auto rounded-lg border lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
       <table className="w-full min-w-[44rem] text-sm">
-        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Type</th><th>Format</th><th>Période</th><th>Généré le</th><th></th></tr></thead>
+        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Type</th><th>Format</th><th>Période</th><th>Généré le</th><th></th></tr></thead>
         <tbody>
           {rapports.map((r) => {
             const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
@@ -240,9 +240,9 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
         {entrees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucune activité enregistrée.</p>}
       </div>
 
-      <div className="hidden overflow-x-auto rounded-lg border lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
       <table className="w-full min-w-[44rem] text-sm">
-        <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Quand</th><th>Type</th><th>Action</th><th>Détail</th><th>Par</th></tr></thead>
+        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Quand</th><th>Type</th><th>Action</th><th>Détail</th><th>Par</th></tr></thead>
         <tbody>
           {entrees.map((e) => (
             <tr key={e.id} className="border-t even:bg-muted/25">

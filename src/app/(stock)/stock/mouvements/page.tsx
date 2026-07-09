@@ -35,7 +35,7 @@ function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouveme
       </div>
 
       {/* Ordinateur : tableau. */}
-      <div className="hidden overflow-x-auto lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto lg:block">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-muted/60 text-left text-xs">
             <tr className="[&>th]:px-3 [&>th]:py-1.5">

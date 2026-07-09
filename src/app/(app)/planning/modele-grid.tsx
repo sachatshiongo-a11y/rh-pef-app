@@ -92,9 +92,9 @@ export function ModeleGrid({
         </span>
       )}
     </div>
-    <div className="overflow-x-auto rounded-xl border">
+    <div className="max-h-[70vh] overflow-auto rounded-xl border">
       <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-left">
+        <thead className="sticky top-0 z-10 bg-muted text-left">
           <tr>
             <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">Employé</th>
             {JOURS.map((j) => (

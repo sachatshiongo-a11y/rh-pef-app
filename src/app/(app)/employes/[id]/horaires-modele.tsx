@@ -39,7 +39,7 @@ export function HorairesModele({ entries, shifts }: { entries: ModeleEntry[]; sh
             {semaines.length > 1 && (
               <p className="mb-1 text-xs font-semibold text-muted-foreground">{nomSemaine(sem)}</p>
             )}
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="max-h-[70vh] overflow-auto rounded-lg border">
               <table className="w-full min-w-[26rem] text-sm">
                 <tbody>
                   {jours.map((x) => (

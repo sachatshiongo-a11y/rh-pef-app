@@ -34,9 +34,9 @@ export default async function HistoriqueDetailPage({
       </Link>
       <h1 className="mt-2 mb-6 text-xl font-semibold sm:text-2xl capitalize">Paie — {periode}</h1>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Matricule</th>
               <th className="px-3 py-2">Nom et prénom</th>

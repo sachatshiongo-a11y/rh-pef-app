@@ -79,7 +79,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
       </div>
 
       {/* Ordinateur : tableur. */}
-      <div className="hidden overflow-x-auto rounded-lg border lg:block">
+      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
         <table className="w-full min-w-[64rem] text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">

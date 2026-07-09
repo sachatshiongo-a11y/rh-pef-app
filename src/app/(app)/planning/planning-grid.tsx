@@ -175,9 +175,9 @@ export function PlanningGrid({
           <button onClick={() => setSelection(new Set())} className="text-xs text-muted-foreground underline">Désélectionner</button>
         </div>
       )}
-    <div className="overflow-x-auto rounded-xl border">
+    <div className="max-h-[70vh] overflow-auto rounded-xl border">
       <table ref={tableRef} className="w-full text-sm">
-        <thead className="bg-muted/50 text-left">
+        <thead className="sticky top-0 z-10 bg-muted text-left">
           <tr>
             <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">
               <span className="flex items-center gap-2">

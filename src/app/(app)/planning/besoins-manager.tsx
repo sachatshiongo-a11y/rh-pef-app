@@ -54,7 +54,7 @@ export function BesoinsManager({
         {shifts.map((s) => (
           <div key={s.id}>
             <div className="mb-1 text-sm font-semibold">{s.nom}</div>
-            <div className="overflow-x-auto">
+            <div className="max-h-[70vh] overflow-auto">
               <table className="text-sm">
                 <thead>
                   <tr className="text-muted-foreground">

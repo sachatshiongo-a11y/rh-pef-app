@@ -128,9 +128,9 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       {/* Articles */}
       <section>
         <h2 className="mb-2 text-base font-semibold">Articles fournis ({f.articles.length})</h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="max-h-[70vh] overflow-auto rounded-lg border">
           <table className="w-full min-w-[36rem] text-sm">
-            <thead className="bg-muted/50 text-left">
+            <thead className="sticky top-0 z-10 bg-muted text-left">
               <tr>
                 <th className="px-3 py-2">Désignation</th>
                 <th className="px-3 py-2">Catégorie</th>

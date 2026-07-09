@@ -67,9 +67,9 @@ export function UsersAdmin({
       )}
 
       {/* Liste */}
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Nom</th>
               <th className="px-3 py-2">Email</th>

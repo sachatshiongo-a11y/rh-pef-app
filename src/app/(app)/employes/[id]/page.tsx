@@ -470,9 +470,9 @@ export default async function FicheEmployePage({
       {tab === "paie" && (
       <>
       <Section title="Historique de paie">
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
         <table className="w-full min-w-[36rem] text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Période</th>
               <th className="px-3 py-2 text-right">Salaire net $</th>
@@ -593,9 +593,9 @@ export default async function FicheEmployePage({
         )}
 
         <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Historique des acomptes</p>
-        <div className="overflow-x-auto">
+        <div className="max-h-[70vh] overflow-auto">
         <table className="w-full min-w-[32rem] text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Période</th>
               <th className="px-3 py-2 text-right">Montant</th>

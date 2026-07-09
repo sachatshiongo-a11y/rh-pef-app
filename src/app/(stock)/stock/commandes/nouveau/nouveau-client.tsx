@@ -45,9 +45,9 @@ export function NouveauBonForm({ articles, fournisseurs, initial }: { articles: 
         </label>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full min-w-[48rem] text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-2 py-2">Article (catalogue)</th>
               <th className="px-2 py-2">Désignation</th>

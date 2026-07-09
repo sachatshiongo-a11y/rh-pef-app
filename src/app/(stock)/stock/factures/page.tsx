@@ -128,9 +128,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
       </div>
 
       {vue === "fournisseur" ? (
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="max-h-[70vh] overflow-auto rounded-lg border">
           <table className="w-full min-w-[40rem] text-sm">
-            <thead className="bg-muted/50 text-left">
+            <thead className="sticky top-0 z-10 bg-muted text-left">
               <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
                 <th>Fournisseur</th>
                 <th className="text-right">Solde dû</th>

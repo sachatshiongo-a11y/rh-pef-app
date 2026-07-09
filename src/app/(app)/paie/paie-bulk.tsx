@@ -180,9 +180,9 @@ function Groupe({
       <h2 className="mb-2 text-base font-semibold">
         {titre} <span className="font-normal text-muted-foreground">({rows.length})</span>
       </h2>
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
+          <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="w-8 px-3 py-2">
                 <input

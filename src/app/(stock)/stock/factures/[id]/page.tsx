@@ -69,9 +69,9 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
       {/* Lignes de la facture */}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Articles facturés</h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="max-h-[70vh] overflow-auto rounded-lg border">
           <table className="w-full min-w-[40rem] text-sm">
-            <thead className="bg-muted/50 text-left">
+            <thead className="sticky top-0 z-10 bg-muted text-left">
               <tr className="[&>th]:px-3 [&>th]:py-2">
                 <th>Article</th><th>Unité</th><th className="text-right">Quantité</th><th className="text-right">P.U.</th><th className="text-right">Total</th>
               </tr>
@@ -102,9 +102,9 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucun bon de commande lié à cette facture. Liez-en un depuis le formulaire de facture pour comparer commandé et facturé.</p>
         ) : (
           <>
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="max-h-[70vh] overflow-auto rounded-lg border">
               <table className="w-full min-w-[46rem] text-sm">
-                <thead className="bg-muted/50 text-left">
+                <thead className="sticky top-0 z-10 bg-muted text-left">
                   <tr className="[&>th]:px-3 [&>th]:py-2">
                     <th>Article</th>
                     <th className="text-right">Qté cmd</th>
