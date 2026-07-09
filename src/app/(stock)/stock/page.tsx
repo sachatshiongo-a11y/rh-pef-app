@@ -14,11 +14,20 @@ export default async function StockDashboard() {
   const annee = now.getFullYear(), mois = now.getMonth() + 1;
   const dateDuJour = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
+  // Bornes de dates en UTC (cohérent avec le stockage @db.Date).
+  const jjUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dow = jjUTC.getUTCDay(); // 0 = dimanche
+  const lundi = new Date(jjUTC); lundi.setUTCDate(jjUTC.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  const dimanche = new Date(lundi); dimanche.setUTCDate(lundi.getUTCDate() + 6);
+  const debutMois = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const debutMoisSuivant = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
   const [
     moi, config, nbArticles, nbFournisseurs, stocks, facturesDues,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
     derniersComptages, pertesRecentes, bcAValider,
+    facturesSemaine, facturesEchues, legumesMois,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -37,6 +46,12 @@ export default async function StockDashboard() {
     prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE" }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: { designation: true } } } }),
     prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
+    // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
+    prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true }, _count: true }),
+    // Factures échues non réglées.
+    prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
+    // Achats de légumes frais du mois en cours.
+    prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
   ]);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
@@ -80,6 +95,9 @@ export default async function StockDashboard() {
         <Kpi label="Valeur du stock" valeur={usd(valeurStock)} />
         <Kpi label="Factures à payer" valeur={usd(facturesDues._sum.resteAPayerUSD)} sous={`${facturesDues._count} facture(s)`} accent={Number(facturesDues._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
         <Kpi label="Commandes du mois" valeur={String(commandesMois)} href="/stock/commandes" />
+        <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine._sum.resteAPayerUSD)} sous={`${facturesSemaine._count} facture(s)`} accent={Number(facturesSemaine._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+        <Kpi label="Factures échues" valeur={usd(facturesEchues._sum.resteAPayerUSD)} sous={`${facturesEchues._count} facture(s)`} accent={facturesEchues._count > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
+        <Kpi label="Légumes frais du mois" valeur={usd(legumesMois._sum.montantUSD)} sous={`${legumesMois._count} achat(s)`} href="/stock/legumes" />
       </div>
 
       {/* Bons de commande à valider — Direction uniquement */}
