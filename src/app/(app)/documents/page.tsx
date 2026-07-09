@@ -180,7 +180,77 @@ export default async function DocumentsPage({
         )}
       </form>
 
-      <div className="overflow-x-auto rounded-xl border">
+      {/* Mobile : cartes par onglet. */}
+      <div className="space-y-2 lg:hidden">
+        {onglet === "bulletins" && bulletins.map((b) => (
+          <div key={b.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <EmpLink id={b.employee.id} nom={b.employee.nom} photoUrl={b.employee.photoUrl} />
+              <Badge classe={COULEUR_STATUT[b.statutPaiement]}>{LIBELLE_STATUT[b.statutPaiement]}</Badge>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="capitalize">{new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} · {b.employee.matricule}</span>
+              <span className="font-semibold text-foreground">{Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</span>
+            </div>
+            <div className="mt-2 flex gap-3 text-sm">
+              <TelechargerLien href={`/paie/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
+              <TelechargerLien href={`/paie/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">Bulletin CDF</TelechargerLien>
+            </div>
+          </div>
+        ))}
+        {onglet === "contrats" && contrats.map((c) => (
+          <div key={c.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
+              <Badge classe={COULEUR_CONTRAT[c.statut] ?? ""}>{c.statut}</Badge>
+            </div>
+            <div className="mt-1.5 text-xs text-muted-foreground">{c.type} · {fr(c.dateDebut)} → {fr(c.dateFin)}</div>
+            {c.documentUrl && <div className="mt-2 text-sm"><a href={c.documentUrl} target="_blank" className="text-primary underline">Ouvrir la pièce</a></div>}
+          </div>
+        ))}
+        {onglet === "documents" && documents.map((d) => (
+          <div key={d.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} />
+              <span className="shrink-0 text-xs text-muted-foreground">{d.type}</span>
+            </div>
+            <div className="mt-1 text-sm font-medium">{d.nom}</div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>{d.dateExpiration ? `Expire le ${fr(d.dateExpiration)}` : "—"}</span>
+              {d.fichierUrl && <a href={d.fichierUrl} target="_blank" className="text-primary underline">Ouvrir</a>}
+            </div>
+          </div>
+        ))}
+        {onglet === "conges" && conges.map((c) => (
+          <div key={c.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
+              <Badge classe={COULEUR_CONGE[c.statut] ?? ""}>{c.statut.replace("_", " ")}</Badge>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>{c.type} · {fr(c.dateDebut)} → {fr(c.dateFin)}</span>
+              <TelechargerLien href={`/conges/demande/${c.id}`} className="text-primary underline">PDF</TelechargerLien>
+            </div>
+          </div>
+        ))}
+        {onglet === "fiches" && fiches.map((f) => (
+          <div key={f.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{f.poste}</span>
+              {f.fichierUrl
+                ? <TelechargerLien href={f.fichierUrl} nomFichier={f.fichierNom ?? undefined} className="text-sm text-primary underline">Télécharger</TelechargerLien>
+                : <Link href="/fiches-poste" className="text-sm text-primary underline">Voir</Link>}
+            </div>
+            {(f.fichierNom || f.description) && <div className="mt-1 truncate text-xs text-muted-foreground">{f.fichierNom ?? f.description}</div>}
+          </div>
+        ))}
+        {((onglet === "bulletins" && bulletins.length === 0) || (onglet === "contrats" && contrats.length === 0) || (onglet === "documents" && documents.length === 0) || (onglet === "conges" && conges.length === 0) || (onglet === "fiches" && fiches.length === 0)) && (
+          <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Rien à afficher.</p>
+        )}
+      </div>
+
+      {/* Ordinateur : tableau. */}
+      <div className="hidden overflow-x-auto rounded-xl border lg:block">
         <table className="w-full text-sm">
           {onglet === "bulletins" && (
             <>

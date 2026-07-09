@@ -67,7 +67,34 @@ export default async function HistoriquePage({
         )}
       </form>
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Mobile : cartes. */}
+      <div className="space-y-2 lg:hidden">
+        {runs.map((r) => {
+          const masseNette = r.lignes.reduce((a, l) => a + Number(l.salNetUSD), 0);
+          const coutTotal = r.lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0);
+          return (
+            <div key={r.id} className="rounded-xl border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="font-medium capitalize">{new Date(r.annee, r.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_RUN[r.statut] ?? ""}`}>{r.statut === "VALIDE" ? "Validé" : "Brouillon"}</span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                <div><span className="text-muted-foreground">Employés :</span> <span className="font-medium">{r.lignes.length}</span></div>
+                <div className="text-right"><span className="text-muted-foreground">Masse nette :</span> <span className="font-medium tabular-nums">{money(masseNette)} $</span></div>
+                <div className="col-span-2"><span className="text-muted-foreground">Coût employeur :</span> <span className="font-medium tabular-nums">{money(coutTotal)} $</span></div>
+              </div>
+              <div className="mt-2 flex gap-3 text-sm">
+                <Link href={`/historique/${r.id}`} className="text-primary underline">Détails</Link>
+                <TelechargerLien href={`/paie/export?mois=${r.mois}&annee=${r.annee}`} className="text-primary underline">Excel</TelechargerLien>
+              </div>
+            </div>
+          );
+        })}
+        {runs.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucune paie {annee || mois ? "pour cette période" : "archivée pour le moment"}.</p>}
+      </div>
+
+      {/* Ordinateur : tableau. */}
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>

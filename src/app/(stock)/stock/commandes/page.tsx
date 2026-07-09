@@ -50,7 +50,34 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousBonsCommande} libelle="Supprimer TOUS les bons de commande ?" />
       </form>
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Mobile : cartes. */}
+      <div className="space-y-2 lg:hidden">
+        {commandes.map((c) => (
+          <div key={c.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <Link href={`/stock/commandes/${c.id}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
+                <div className="truncate text-xs text-muted-foreground">{c.fournisseur?.nom ?? "—"} · {new Date(c.date).toLocaleDateString("fr-FR")}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{c._count.lignes} ligne(s)</span>
+              <span className="font-semibold tabular-nums">{usd(c.totalUSD)}</span>
+            </div>
+            <div className="mt-2 flex gap-3 text-sm">
+              <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
+              {c.statut !== "BROUILLON" && c.statut !== "ANNULE" && (
+                <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a>
+              )}
+            </div>
+          </div>
+        ))}
+        {commandes.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande pour ce filtre.</p>}
+      </div>
+
+      {/* Ordinateur : tableau. */}
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
         <table className="w-full min-w-[44rem] text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>

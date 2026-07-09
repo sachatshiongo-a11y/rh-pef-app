@@ -50,7 +50,24 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 async function Comptages() {
   const sessions = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <>
+    <div className="space-y-2 lg:hidden">
+      {sessions.map((s) => (
+        <Link key={s.id} href={`/stock/archives/${s.id}`} className="block rounded-xl border bg-card p-3 active:bg-accent">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">{new Date(s.date).toLocaleDateString("fr-FR")}</span>
+            <span className="text-xs text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"}</span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>{s.nbArticles} articles</span>
+            <span>{s.nbEcarts} écart(s)</span>
+            {s.nbHorsTol > 0 ? <span className="font-semibold text-red-700">{s.nbHorsTol} hors tolérance</span> : <span>0 hors tolérance</span>}
+          </div>
+        </Link>
+      ))}
+      {sessions.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun comptage archivé.</p>}
+    </div>
+    <div className="hidden overflow-x-auto rounded-lg border lg:block">
       <table className="w-full min-w-[40rem] text-sm">
         <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Date</th><th>Domaine</th><th className="text-right">Articles</th><th className="text-right">Écarts</th><th className="text-right">Hors tolérance</th><th></th></tr></thead>
         <tbody>
@@ -68,6 +85,7 @@ async function Comptages() {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -82,7 +100,28 @@ async function Rapports({ estDirection }: { estDirection: boolean }) {
           <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousRapports} libelle="Supprimer TOUS les rapports générés ?" />
         </div>
       )}
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Mobile : cartes. */}
+      <div className="space-y-2 lg:hidden">
+        {rapports.map((r) => {
+          const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
+          return (
+            <div key={r.id} className="rounded-xl border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-medium">{TYPE_RAPPORT_LABEL[r.type] ?? r.type} <span className="text-xs font-normal text-muted-foreground">· {r.mode === "detail" ? "Détaillé" : "Chiffré"} · {r.format.toUpperCase()}</span></div>
+                  <div className="text-xs text-muted-foreground">
+                    {r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} · généré le {new Date(r.createdAt).toLocaleDateString("fr-FR")}
+                  </div>
+                </div>
+                <a href={url} download target="_blank" rel="noopener" className="shrink-0 rounded border px-2 py-1 text-xs font-medium hover:bg-accent">Télécharger</a>
+              </div>
+            </div>
+          );
+        })}
+        {rapports.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</p>}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
       <table className="w-full min-w-[44rem] text-sm">
         <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Type</th><th>Format</th><th>Période</th><th>Généré le</th><th></th></tr></thead>
         <tbody>
@@ -138,7 +177,21 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
         <span className="text-xs text-muted-foreground">{entrees.length} entrée(s)</span>
       </form>
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Mobile : cartes. */}
+      <div className="space-y-2 lg:hidden">
+        {entrees.map((e) => (
+          <div key={e.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">{ENTITE_LABEL[e.entite] ?? e.entite} <span className="text-xs font-normal text-muted-foreground">· {e.champ}</span></span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR")}</span>
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">{e.nouvelleValeur ?? e.ancienneValeur ?? "—"}{e.user?.nom ? ` · ${e.user.nom}` : ""}</div>
+          </div>
+        ))}
+        {entrees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucune activité enregistrée.</p>}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
       <table className="w-full min-w-[44rem] text-sm">
         <thead className="bg-muted/50 text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Quand</th><th>Type</th><th>Action</th><th>Détail</th><th>Par</th></tr></thead>
         <tbody>
