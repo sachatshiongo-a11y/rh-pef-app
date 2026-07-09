@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estStock } from "@/lib/auth";
 import { chargerNotifications } from "@/lib/notifications";
-import { niveauAlerte } from "@/lib/stock";
 import { StockShell } from "./stock-shell";
 
 // Espace STOCK — coquille indépendante de l'espace RH. Garde de LECTURE : un compte sans
@@ -11,20 +10,25 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user.role)) redirect("/entree");
 
-  const [moi, nbAValider, notifs, stocks] = await Promise.all([
+  const [moi, nbAValider, notifs, urgents] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
     chargerNotifications("STOCK"),
-    prisma.stock.findMany({ select: { quantite: true, seuilUrgent: true, stockMinimum: true, article: { select: { domaine: true, actif: true } } } }),
+    // Comptage des articles urgents (quantité ≤ seuil urgent) par domaine, agrégé en SQL —
+    // un seul aller-retour qui renvoie 3 nombres, au lieu de charger toutes les lignes de stock.
+    prisma.$queryRaw<{ domaine: string; n: number }[]>`
+      SELECT a."domaine" AS domaine, COUNT(*)::int AS n
+      FROM "stock"."Stock" s
+      JOIN "stock"."ArticleStock" a ON a."id" = s."articleId"
+      WHERE a."actif" = true
+        AND (s."seuilUrgent" > 0 OR s."stockMinimum" > 0)
+        AND s."quantite" <= s."seuilUrgent"
+      GROUP BY a."domaine"`,
   ]);
 
-  // Articles urgents (quantité ≤ seuil urgent) par catalogue — badge persistant dans le menu,
-  // à la manière des « Demandes à valider ».
+  // Badge persistant par catalogue, à la manière des « Demandes à valider ».
   const urgent: Record<"NOURRITURE" | "BOISSON" | "AUTRE", number> = { NOURRITURE: 0, BOISSON: 0, AUTRE: 0 };
-  for (const s of stocks) {
-    if (!s.article?.actif) continue;
-    if (niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum) === "URGENT") urgent[s.article.domaine]++;
-  }
+  for (const r of urgents) if (r.domaine in urgent) urgent[r.domaine as keyof typeof urgent] = Number(r.n);
 
   return (
     <StockShell
