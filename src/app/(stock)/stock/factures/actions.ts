@@ -23,6 +23,40 @@ async function televerserFacturePdf(file: File, fournisseurNom: string): Promise
   return `${base}/storage/v1/object/public/employes/${dest}`;
 }
 
+const EXT_MIME: Record<string, string> = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic" };
+
+/** Téléverse un document de facture (PDF ou image scannée) et renvoie son URL publique. */
+async function televerserDocument(file: File, fournisseurNom: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const ext = ((file.name.split(".").pop() || "").toLowerCase().replace(/[^a-z0-9]/g, "")) || "pdf";
+  const mime = EXT_MIME[ext] || file.type || "application/octet-stream";
+  const dest = `factures/${(normNom(fournisseurNom) || "facture").slice(0, 30)}-${Date.now().toString(36)}.${ext}`;
+  const res = await fetch(`${base}/storage/v1/object/employes/${dest}`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": mime, "x-upsert": "true" },
+    body: Buffer.from(await file.arrayBuffer()),
+  });
+  if (!res.ok) throw new Error(`Téléversement du document échoué (${res.status}).`);
+  return `${base}/storage/v1/object/public/employes/${dest}`;
+}
+
+/** Joint (ou remplace) le document d'origine d'une facture existante — PDF ou scan image. Direction uniquement. */
+export async function attacherDocumentFacture(id: string, formData: FormData) {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]);
+  const file = formData.get("document");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Aucun fichier sélectionné.");
+  if (file.size > 25 * 1024 * 1024) throw new Error("Fichier trop volumineux (max 25 Mo).");
+  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id }, select: { fournisseurNom: true } });
+  const url = await televerserDocument(file, f.fournisseurNom);
+  await prisma.factureFournisseur.update({ where: { id }, data: { documentUrl: url } });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "documentUrl", nouvelleValeur: "joint", userId: user.id });
+  revalidatePath("/stock/factures");
+  revalidatePath(`/stock/factures/${id}`);
+}
+
 /** Lit un PDF de facture et renvoie un pré-remplissage (montant, date, n°) — Direction. À CONFIRMER. */
 export async function analyserFacturePDF(formData: FormData): Promise<{ montant: number | null; date: string | null; numero: string | null }> {
   const user = await verifySession();

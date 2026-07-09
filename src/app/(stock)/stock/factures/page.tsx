@@ -35,7 +35,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
   const [factures, toutes, config] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
-    prisma.factureFournisseur.findMany({ select: { fournisseurNom: true, montantUSD: true, resteAPayerUSD: true, statut: true, annee: true, mois: true, fournisseur: { select: { nom: true } } } }),
+    prisma.factureFournisseur.findMany({ select: { fournisseurId: true, fournisseurNom: true, montantUSD: true, resteAPayerUSD: true, statut: true, annee: true, mois: true, fournisseur: { select: { nom: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
 
@@ -50,10 +50,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   // Solde par fournisseur
   const anneeC = config?.anneeCourante ?? new Date().getFullYear();
   const moisC = config?.moisCourant ?? new Date().getMonth() + 1;
-  const map = new Map<string, { nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }>();
+  const map = new Map<string, { id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }>();
   for (const x of toutes) {
     const nom = x.fournisseur?.nom ?? x.fournisseurNom;
-    const e = map.get(nom) ?? { nom, solde: 0, total: 0, nb: 0, nbAnnee: 0, nbMois: 0 };
+    const e = map.get(nom) ?? { id: null, nom, solde: 0, total: 0, nb: 0, nbAnnee: 0, nbMois: 0 };
+    if (!e.id && x.fournisseurId) e.id = x.fournisseurId;
     e.solde += x.statut !== "REGLEE" ? Number(x.resteAPayerUSD) : 0;
     e.total += Number(x.montantUSD); e.nb++;
     if (x.annee === anneeC) { e.nbAnnee++; if (x.mois === moisC) e.nbMois++; }
@@ -144,7 +145,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
             <tbody>
               {parFournisseur.map((s) => (
                 <tr key={s.nom} className="border-t even:bg-muted/25 hover:bg-accent/40">
-                  <td className="px-3 py-2 font-medium">{s.nom}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {s.id ? <Link href={`/stock/fournisseurs/${s.id}`} className="text-primary hover:underline">{s.nom}</Link> : s.nom}
+                  </td>
                   <td className="px-3 py-2 text-right">{s.solde > 0 ? <span className="font-semibold text-red-700">{usd(s.solde)}</span> : "—"}</td>
                   <td className="px-3 py-2 text-right">{usd(s.total)}</td>
                   <td className="px-3 py-2 text-right">{s.nb}</td>

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
+import { Avatar } from "@/components/avatar";
 
 const cdf = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} CDF`;
 const usd = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -13,7 +14,7 @@ export default async function TransportPage() {
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
       select: {
-        id: true, matricule: true, nom: true, poste: true, categorie: true,
+        id: true, matricule: true, nom: true, poste: true, categorie: true, photoUrl: true,
         transportJourCDF: true, transportMoisCDF: true, transportMoisUSD: true,
       },
     }),
@@ -83,7 +84,12 @@ export default async function TransportPage() {
             {lignes.map((l) => (
               <tr key={l.id} className="border-t">
                 <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{l.matricule}</td>
-                <td className="px-3 py-2 font-medium">{l.nom}</td>
+                <td className="px-3 py-2 font-medium">
+                  <span className="flex items-center gap-2">
+                    <Avatar nom={l.nom} taille={26} photoUrl={l.photoUrl} />
+                    <span className="truncate">{l.nom}</span>
+                  </span>
+                </td>
                 <td className="px-3 py-2 text-muted-foreground">{l.poste}</td>
                 <td className="px-3 py-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${l.brigade ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}>

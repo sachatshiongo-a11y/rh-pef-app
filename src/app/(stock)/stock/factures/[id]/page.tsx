@@ -2,13 +2,17 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usd, qte, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
+import { verifySession } from "@/lib/auth";
 import { MarquerPayeeBtn } from "./marquer-payee-btn";
+import { JoindreDocument } from "./joindre-document";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
 
 export default async function FactureDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const facture = await prisma.factureFournisseur.findUnique({
     where: { id },
     include: {
@@ -52,9 +56,6 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
         <h1 className="text-xl font-semibold sm:text-2xl">Facture · {nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {facture.statut !== "REGLEE" && <MarquerPayeeBtn id={facture.id} />}
-          {facture.documentUrl && (
-            <a href={facture.documentUrl} target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">📄 PDF d’origine</a>
-          )}
           <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
@@ -72,6 +73,15 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
         <Info label="Reste à payer" val={usd(Number(facture.resteAPayerUSD))} accent={Number(facture.resteAPayerUSD) > 0} />
         <Info label="Mode de paiement" val={facture.modePaiement ?? "—"} />
       </div>
+
+      {/* Document d'origine (PDF ou scan joint) */}
+      <section className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 p-3">
+        <span className="text-sm font-medium">Document d’origine</span>
+        {facture.documentUrl
+          ? <a href={facture.documentUrl} target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">📄 Voir le document</a>
+          : <span className="text-sm text-muted-foreground">Aucun document joint.</span>}
+        {estDirection && <JoindreDocument id={facture.id} aDeja={!!facture.documentUrl} />}
+      </section>
 
       {/* Lignes de la facture */}
       <section className="space-y-2">
