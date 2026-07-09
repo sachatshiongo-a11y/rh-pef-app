@@ -59,6 +59,20 @@ export function HoursGrid({
   const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
   const [bulkHeures, setBulkHeures] = useState<string>("");
 
+  // Vue mobile « jour par jour » : jour choisi (défaut = aujourd'hui) + miroir des saisies.
+  const isoAuj = new Date().toISOString().slice(0, 10);
+  const idxAuj = isoDates.indexOf(isoAuj);
+  const [jourMobile, setJourMobile] = useState<number>(idxAuj >= 0 ? days[idxAuj] : days[0] ?? 1);
+  const [editsMobile, setEditsMobile] = useState<Record<string, string>>({});
+  const heureDe = (empId: string, day: number) => {
+    const k = `${empId}_${day}`;
+    return editsMobile[k] ?? (hoursMap[k] ? String(hoursMap[k]) : "");
+  };
+  const onMobileChange = (empId: string, value: string) => {
+    setEditsMobile((x) => ({ ...x, [`${empId}_${jourMobile}`]: value }));
+    handleChange(empId, jourMobile, value);
+  };
+
   function toggleEmp(id: string) {
     setSelection((s) => {
       const n = new Set(s);
@@ -190,6 +204,49 @@ export function HoursGrid({
 
   return (
     <div>
+      {/* Mobile : saisie « jour par jour » (mêmes heures enregistrées que la grille). */}
+      <div className="lg:hidden">
+        <div className="mb-3 flex items-center gap-2">
+          <button type="button" onClick={() => setJourMobile((j) => Math.max(days[0], j - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <select value={jourMobile} onChange={(e) => setJourMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+            {days.map((d) => (
+              <option key={d} value={d}>
+                {new Date(isoDates[d - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+                {estFerie(d) ? " · férié" : estDimanche(d) ? " · dimanche" : ""}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => setJourMobile((j) => Math.min(days[days.length - 1], j + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+        </div>
+        <div className="space-y-2">
+          {employees.map((emp) => (
+            <div key={emp.id} className="flex items-center gap-3 rounded-xl border bg-card p-2.5">
+              <Avatar nom={emp.nom} taille={36} photoUrl={emp.photoUrl} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{emp.nom}</div>
+                <div className="text-xs text-muted-foreground">{emp.heuresParJour} h/jour (contrat)</div>
+              </div>
+              {peutModifier ? (
+                <input
+                  type="number" step="0.5" min="0" inputMode="decimal"
+                  value={heureDe(emp.id, jourMobile)}
+                  onChange={(e) => onMobileChange(emp.id, e.target.value)}
+                  placeholder="0"
+                  className="w-20 rounded-md border border-input bg-background px-2 py-2 text-right text-sm font-semibold"
+                />
+              ) : (
+                <span className="w-14 text-right font-semibold tabular-nums">{heureDe(emp.id, jourMobile) || "—"}</span>
+              )}
+              <span className="text-xs text-muted-foreground">h</span>
+            </div>
+          ))}
+          {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+        </div>
+        {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
+      </div>
+
+      {/* Ordinateur : grille complète + actions groupées. */}
+      <div className="hidden lg:block">
       {peutModifier && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 text-sm">
           <span className="font-medium">{selection.size} employé(s) sélectionné(s)</span>
@@ -351,6 +408,7 @@ export function HoursGrid({
         <span className="rounded bg-orange-100 px-2 py-0.5">Colonne = dimanche ou jour férié</span>
       </div>
       {isPending && <p className="p-2 text-xs text-muted-foreground">Enregistrement...</p>}
+      </div>
       </div>
     </div>
   );

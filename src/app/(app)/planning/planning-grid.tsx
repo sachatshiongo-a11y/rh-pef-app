@@ -39,6 +39,16 @@ export function PlanningGrid({
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [bulkShift, setBulkShift] = useState<string>(shifts[0]?.id ?? "");
   const [bulkJours, setBulkJours] = useState<Set<number>>(new Set(isoDates.map((_, i) => i)));
+
+  // Vue mobile « jour par jour » : index du jour (défaut = aujourd'hui) + miroir des affectations.
+  const idxAuj = isoDates.indexOf(isoAujourdhui);
+  const [idxMobile, setIdxMobile] = useState<number>(idxAuj >= 0 ? idxAuj : 0);
+  const [editsMobile, setEditsMobile] = useState<Record<string, string>>({});
+  const creneauDe = (empId: string, iso: string) => editsMobile[`${empId}_${iso}`] ?? creneauMap[`${empId}_${iso}`] ?? "";
+  const onMobileChange = (empId: string, iso: string, value: string) => {
+    setEditsMobile((x) => ({ ...x, [`${empId}_${iso}`]: value }));
+    startTransition(() => saisirCreneau(empId, iso, value));
+  };
   function toggleEmp(id: string) {
     setSelection((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
@@ -105,6 +115,44 @@ export function PlanningGrid({
 
   return (
     <div>
+      {/* Mobile : affectation « jour par jour » (même enregistrement que la grille). */}
+      <div className="lg:hidden">
+        <div className="mb-3 flex items-center gap-2">
+          <button type="button" onClick={() => setIdxMobile((i) => Math.max(0, i - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <select value={idxMobile} onChange={(e) => setIdxMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+            {isoDates.map((iso, i) => (
+              <option key={iso} value={i}>{labelsJours[i]}{joursMajores[i] ? " · majoré" : ""}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => setIdxMobile((i) => Math.min(isoDates.length - 1, i + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+        </div>
+        <div className="space-y-2">
+          {employees.map((emp) => {
+            const iso = isoDates[idxMobile];
+            const sid = creneauDe(emp.id, iso);
+            const s = parId.get(sid);
+            return (
+              <div key={emp.id} className="flex items-center gap-3 rounded-xl border bg-card p-2.5">
+                <Avatar nom={emp.nom} taille={36} photoUrl={emp.photoUrl} />
+                <div className="min-w-0 flex-1"><div className="truncate font-medium">{emp.nom}</div></div>
+                {peutModifier ? (
+                  <select value={sid} onChange={(e) => onMobileChange(emp.id, iso, e.target.value)} className="max-w-[55%] rounded-md border border-input bg-background px-2 py-2 text-sm">
+                    <option value="">— repos —</option>
+                    {shifts.map((sh) => (<option key={sh.id} value={sh.id}>{libelleShift(sh.nom, sh.heureDebut, sh.heureFin)}</option>))}
+                  </select>
+                ) : (
+                  <span className="text-sm text-muted-foreground">{s ? libelleShift(s.nom, s.heureDebut, s.heureFin) : "— repos —"}</span>
+                )}
+              </div>
+            );
+          })}
+          {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+        </div>
+        {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
+      </div>
+
+      {/* Ordinateur : grille complète + actions groupées. */}
+      <div className="hidden lg:block">
       {peutModifier && (
         <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 text-sm">
           <span className="font-medium">{selection.size} employé(s)</span>
@@ -215,6 +263,7 @@ export function PlanningGrid({
         </tfoot>
       </table>
       {isPending && <p className="p-2 text-xs text-muted-foreground">Enregistrement...</p>}
+    </div>
     </div>
     </div>
   );
