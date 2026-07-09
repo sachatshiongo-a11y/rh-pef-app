@@ -13,7 +13,29 @@ function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouveme
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className={`border-b px-3 py-2 text-sm font-semibold ${couleur}`}>{titre} <span className="font-normal opacity-70">· {mouvements.length}</span></div>
-      <div className="overflow-x-auto">
+
+      {/* Mobile : lignes en cartes plutôt qu'un tableau à défilement. */}
+      <div className="divide-y lg:hidden">
+        {mouvements.map((m) => (
+          <div key={m.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="truncate font-medium">{m.article.designation}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {new Date(m.date).toLocaleDateString("fr-FR")}{m.origine ? ` · ${m.origine}` : ""}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
+              <div className="text-[11px] tabular-nums text-muted-foreground">{m.montantUSD !== null ? usd(m.montantUSD) : "—"}</div>
+              <div className="mt-1"><SupprimerMouvementBtn id={m.id} /></div>
+            </div>
+          </div>
+        ))}
+        {mouvements.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun mouvement.</p>}
+      </div>
+
+      {/* Ordinateur : tableau. */}
+      <div className="hidden overflow-x-auto lg:block">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-muted/60 text-left text-xs">
             <tr className="[&>th]:px-3 [&>th]:py-1.5">
