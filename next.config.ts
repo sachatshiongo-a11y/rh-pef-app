@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // pdf-parse (pdfjs) doit rester un module Node externe (pas bundlé par Next) pour l'import de BC.
+  serverExternalPackages: ["pdf-parse"],
   experimental: {
     // Les Server Actions plafonnent le corps de requête à 1 Mo par défaut, ce qui fait échouer
     // les téléversements de fiches (surtout l'import en masse). On relève la limite ; le contrôle
