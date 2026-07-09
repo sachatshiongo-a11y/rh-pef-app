@@ -18,7 +18,10 @@
 /out/
 
 # production
-/build
+/build/*
+# …sauf les icônes de l'app desktop (nécessaires au build CI Windows/Mac)
+!/build/icon.png
+!/build/icon.icns
 
 # misc
 .DS_Store

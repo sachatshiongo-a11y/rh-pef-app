@@ -1,0 +1,35 @@
+name: Build desktop (Windows)
+
+# Compile l'installateur Windows (.exe) de la coque desktop sur les serveurs GitHub
+# (aucun outil local requis). Windows n'impose pas de notarisation : l'app se lance
+# après un simple « Informations complémentaires → Exécuter quand même » (SmartScreen).
+#
+# Déclenchement : bouton « Run workflow » (Actions) OU push d'un tag « v* ».
+# Récupération : l'installateur est publié en artefact du run (onglet Actions → run → Artifacts).
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Installer les dépendances
+        run: npm ci
+      - name: Construire l'installateur Windows
+        run: npx electron-builder --win --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Publier l'installateur en artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pates-en-Folie-Windows
+          path: dist-electron/*.exe
+          if-no-files-found: error
