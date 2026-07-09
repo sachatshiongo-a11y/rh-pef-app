@@ -61,9 +61,9 @@ export default async function TransportPage() {
       </div>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <CarteTotal titre="Brigade" n={totBrigade.n} jour={totBrigade.jourCDF} mois={totBrigade.moisCDF} accent="bg-amber-100 text-amber-800" />
-        <CarteTotal titre="Back-office" n={totBackoffice.n} jour={totBackoffice.jourCDF} mois={totBackoffice.moisCDF} accent="bg-sky-100 text-sky-800" />
-        <CarteTotal titre="Ensemble" n={lignes.length} jour={totalJour} mois={totalMoisComplet} accent="bg-primary/10 text-primary" />
+        <CarteTotal titre="Brigade" n={totBrigade.n} jour={totBrigade.jourCDF} mois={totBrigade.moisCDF} taux={taux} accent="bg-amber-100 text-amber-800" />
+        <CarteTotal titre="Back-office" n={totBackoffice.n} jour={totBackoffice.jourCDF} mois={totBackoffice.moisCDF} taux={taux} accent="bg-sky-100 text-sky-800" />
+        <CarteTotal titre="Ensemble" n={lignes.length} jour={totalJour} mois={totalMoisComplet} taux={taux} accent="bg-primary/10 text-primary" />
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
@@ -115,8 +115,8 @@ export default async function TransportPage() {
   );
 }
 
-/** Carte de synthèse : total transport par jour et par mois pour une catégorie. */
-function CarteTotal({ titre, n, jour, mois, accent }: { titre: string; n: number; jour: number; mois: number; accent: string }) {
+/** Carte de synthèse : total transport par jour et par mois pour une catégorie (CDF + USD). */
+function CarteTotal({ titre, n, jour, mois, taux, accent }: { titre: string; n: number; jour: number; mois: number; taux: number; accent: string }) {
   return (
     <div className="rounded-xl border bg-card p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -127,10 +127,12 @@ function CarteTotal({ titre, n, jour, mois, accent }: { titre: string; n: number
         <div>
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total / jour</p>
           <p className="text-sm font-semibold tabular-nums">{cdf(jour)}</p>
+          <p className="text-xs text-muted-foreground tabular-nums">{usd(jour / taux)}</p>
         </div>
         <div className="text-right">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total / mois</p>
           <p className="text-base font-semibold tabular-nums">{cdf(mois)}</p>
+          <p className="text-xs text-muted-foreground tabular-nums">{usd(mois / taux)}</p>
         </div>
       </div>
     </div>
