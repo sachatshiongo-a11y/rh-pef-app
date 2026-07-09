@@ -41,31 +41,26 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
         <span className="ml-auto text-xs text-muted-foreground">Taux : 1 USD = {taux ? taux.toLocaleString("fr-FR") : "—"} CDF</span>
       </label>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[40rem] text-sm">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr className="[&>th]:px-2 [&>th]:py-1">
-              <th>Légume</th><th>Unité</th><th className="text-right">Quantité</th><th className="text-right">Montant CDF</th><th className="text-right">≈ USD</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lignes.map((l, i) => (
-              <tr key={i} className="border-t">
-                <td className="px-2 py-1">
-                  <select value={l.legume} onChange={(e) => choisir(i, e.target.value)} className={`${inp} min-w-40`}>
-                    <option value="">— légume —</option>
-                    {LEGUMES.map((x) => <option key={x.nom} value={x.nom}>{x.nom}</option>)}
-                  </select>
-                  <input type="hidden" name="legume" value={l.legume} />
-                </td>
-                <td className="px-2 py-1"><input name="unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} className={`${inp} w-20`} /></td>
-                <td className="px-2 py-1"><input name="quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
-                <td className="px-2 py-1"><input name="montantCDF" value={l.montantCDF} onChange={(e) => maj(i, { montantCDF: e.target.value })} type="number" step="1" min="0" className={`${inp} w-28 text-right`} /></td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{taux && Number(l.montantCDF) ? (Number(l.montantCDF) / taux).toFixed(2) : "—"} $</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Une seule mise en page responsive : empilée sur mobile, en ligne sur ordinateur. */}
+      <div className="space-y-2">
+        <div className="hidden gap-2 px-1 text-xs text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_6rem_7rem_4rem]">
+          <span>Légume</span><span>Unité</span><span className="text-right">Quantité</span><span className="text-right">Montant CDF</span><span className="text-right">≈ USD</span>
+        </div>
+        {lignes.map((l, i) => (
+          <div key={i} className="grid grid-cols-2 gap-2 rounded-lg border p-2 sm:grid-cols-[minmax(0,1fr)_5rem_6rem_7rem_4rem] sm:items-center sm:rounded-none sm:border-0 sm:p-0">
+            <div className="col-span-2 sm:col-span-1">
+              <select value={l.legume} onChange={(e) => choisir(i, e.target.value)} className={`${inp} w-full min-w-0`}>
+                <option value="">— légume —</option>
+                {LEGUMES.map((x) => <option key={x.nom} value={x.nom}>{x.nom}</option>)}
+              </select>
+              <input type="hidden" name="legume" value={l.legume} />
+            </div>
+            <input name="unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} placeholder="Unité" className={`${inp} min-w-0`} />
+            <input name="quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" placeholder="Quantité" className={`${inp} min-w-0 text-right`} />
+            <input name="montantCDF" value={l.montantCDF} onChange={(e) => maj(i, { montantCDF: e.target.value })} type="number" step="1" min="0" placeholder="Montant CDF" className={`${inp} min-w-0 text-right`} />
+            <span className="self-center text-right text-xs text-muted-foreground">≈ {taux && Number(l.montantCDF) ? (Number(l.montantCDF) / taux).toFixed(2) : "0.00"} $</span>
+          </div>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

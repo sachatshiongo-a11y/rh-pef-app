@@ -54,19 +54,20 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="min-w-64 flex-1">Article</span>
+        {/* En-têtes de colonnes : ordinateur uniquement (sur mobile chaque champ est étiqueté par son placeholder). */}
+        <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
+          <span className="flex-1">Article</span>
           <span className="w-28">Quantité</span>
           <span className="w-32">Montant payé ({devise})</span>
         </div>
         {Array.from({ length: nbLignes }).map((_, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <select name="articleId" defaultValue="" className={`${inp} min-w-64 flex-1`}>
+          <div key={i} className="grid grid-cols-2 gap-2 rounded-lg border p-2 sm:flex sm:items-center sm:rounded-none sm:border-0 sm:p-0">
+            <select name="articleId" defaultValue="" className={`${inp} col-span-2 min-w-0 sm:flex-1`}>
               <option value="">— article —</option>
               {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
             </select>
-            <input name="quantite" type="number" step="0.001" min="0" placeholder="Qté" className={`${inp} w-28`} />
-            <input name="montant" type="number" step="0.01" min="0" placeholder={`Montant ${devise}`} className={`${inp} w-32`} />
+            <input name="quantite" type="number" step="0.001" min="0" placeholder="Quantité" className={`${inp} sm:w-28`} />
+            <input name="montant" type="number" step="0.01" min="0" placeholder={`Montant ${devise}`} className={`${inp} sm:w-32`} />
           </div>
         ))}
       </div>

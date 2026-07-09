@@ -61,34 +61,38 @@ export function FacturesUI({ groupes }: { groupes: Groupe[] }) {
               {g.factures.map((f) => {
                 const be = badgeEcheance(f);
                 return (
-                  <li key={f.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 hover:bg-accent/30">
-                    {/* Fournisseur + N° + date d'émission */}
-                    <div className="min-w-0 flex-1 basis-52">
-                      <p className="truncate font-semibold">{f.nom}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {f.numero ? `N° ${f.numero}` : "Sans N°"}{f.date ? ` · émise le ${f.date}` : ""}
-                      </p>
+                  <li key={f.id} className="px-3 py-3 hover:bg-accent/30 sm:px-4">
+                    <div className="flex items-start justify-between gap-3">
+                      {/* Fournisseur + N° (bien visible) + date */}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{f.nom}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          {f.numero ? (
+                            <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 font-mono text-sm font-semibold tracking-wide text-foreground">N° {f.numero}</span>
+                          ) : (
+                            <span className="text-xs italic text-muted-foreground">Sans numéro</span>
+                          )}
+                          <span className="text-xs text-muted-foreground">{f.date ? `émise le ${f.date}` : ""}</span>
+                        </div>
+                      </div>
+                      {/* Montant */}
+                      <div className="shrink-0 text-right">
+                        <p className="text-lg font-semibold tabular-nums">{usd(f.montant)}</p>
+                        <p className="text-[11px] text-muted-foreground">échéance {f.echeance ?? "—"}</p>
+                      </div>
                     </div>
 
-                    {/* Statut + échéance */}
-                    <div className="flex shrink-0 flex-col items-start gap-1">
+                    {/* Badges + actions (s'enroulent proprement sur mobile) */}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
                       {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
-                    </div>
-
-                    {/* Montant + échéance */}
-                    <div className="w-28 shrink-0 text-right">
-                      <p className="text-lg font-semibold tabular-nums">{usd(f.montant)}</p>
-                      <p className="text-[11px] text-muted-foreground">échéance {f.echeance ?? "—"}</p>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex shrink-0 items-center gap-2">
-                      <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
-                      {f.statut !== "REGLEE" && (
-                        <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Marquer payée</button>
-                      )}
-                      <button onClick={() => { if (confirm("Supprimer cette facture ?")) run(() => supprimerFacture(f.id)); }} disabled={isPending} title="Supprimer" className="rounded-md border px-2 py-1 text-xs text-destructive hover:bg-destructive/10">✕</button>
+                      <div className="ml-auto flex items-center gap-2">
+                        <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
+                        {f.statut !== "REGLEE" && (
+                          <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Marquer payée</button>
+                        )}
+                        <button onClick={() => { if (confirm("Supprimer cette facture ?")) run(() => supprimerFacture(f.id)); }} disabled={isPending} title="Supprimer" className="rounded-md border px-2 py-1 text-xs text-destructive hover:bg-destructive/10">✕</button>
+                      </div>
                     </div>
                   </li>
                 );
