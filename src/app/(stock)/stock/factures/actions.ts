@@ -7,6 +7,7 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
+import { meilleurFournisseur } from "@/lib/fournisseur-match";
 
 const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -58,18 +59,33 @@ export async function attacherDocumentFacture(id: string, formData: FormData) {
 }
 
 /** Lit un PDF de facture et renvoie un pré-remplissage (montant, date, n°) — Direction. À CONFIRMER. */
-export async function analyserFacturePDF(formData: FormData): Promise<{ montant: number | null; date: string | null; numero: string | null }> {
+export type AnalyseFacture = {
+  montant: number | null; date: string | null; numero: string | null;
+  fournisseur: { nom: string | null; rccm: string | null; idNational: string | null; telephone: string | null; email: string | null; adresse: string | null; ville: string | null };
+  match: { id: string; nom: string; score: number } | null; // fournisseur existant proche
+};
+const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null };
+
+export async function analyserFacturePDF(formData: FormData): Promise<AnalyseFacture> {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
   const file = formData.get("facturePdf");
-  if (!(file instanceof File) || file.size === 0) return { montant: null, date: null, numero: null };
+  if (!(file instanceof File) || file.size === 0) return VIDE;
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
   try {
-    return await extraireFacturePDF(await file.arrayBuffer(), taux);
+    const ex = await extraireFacturePDF(await file.arrayBuffer(), taux);
+    // Rapprochement flou avec les fournisseurs existants (« Kathy » ↔ « Maison Kathy »).
+    let match: AnalyseFacture["match"] = null;
+    if (ex.fournisseur.nom) {
+      const liste = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
+      const m = meilleurFournisseur(ex.fournisseur.nom, liste);
+      if (m) match = { id: m.id, nom: m.nom, score: Math.round(m.score * 100) / 100 };
+    }
+    return { ...ex, match };
   } catch {
-    return { montant: null, date: null, numero: null };
+    return VIDE;
   }
 }
 
@@ -230,6 +246,27 @@ export async function creerFactureAvecLignes(formData: FormData) {
   const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
+  // Rattachement fournisseur : id explicite ; sinon rapprochement flou (« Kathy » ↔ « Maison Kathy »),
+  // sinon création automatique du fournisseur avec les coordonnées lues sur la facture.
+  let fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
+  if (!fournisseurId) {
+    const liste = await prisma.fournisseur.findMany({ select: { id: true, nom: true } });
+    const m = meilleurFournisseur(fournisseurNom, liste, 0.82);
+    if (m) fournisseurId = m.id;
+    else {
+      const coord = (k: string) => String(formData.get(k) ?? "").trim() || null;
+      const nf = await prisma.fournisseur.create({
+        data: {
+          nom: fournisseurNom,
+          rccm: coord("nf_rccm"), idNational: coord("nf_idNational"), adresse: coord("nf_adresse"),
+          telephone: coord("nf_telephone"), email: coord("nf_email"), ville: coord("nf_ville"),
+        },
+      });
+      fournisseurId = nf.id;
+      await journaliser(prisma, { entite: "Fournisseur", entiteId: nf.id, champ: "creation", nouvelleValeur: `${fournisseurNom} (auto — facture)`, userId: user.id });
+    }
+  }
+
   // PDF joint (facultatif) — téléversé hors transaction.
   let documentUrl: string | null = null;
   const pdf = formData.get("facturePdf");
@@ -238,7 +275,7 @@ export async function creerFactureAvecLignes(formData: FormData) {
   const fac = await prisma.$transaction(async (tx) => {
     const f = await tx.factureFournisseur.create({
       data: {
-        fournisseurId: String(formData.get("fournisseurId") ?? "").trim() || null,
+        fournisseurId,
         fournisseurNom,
         bonDeCommandeId: String(formData.get("bonDeCommandeId") ?? "").trim() || null,
         numero,

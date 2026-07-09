@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { creerFactureAvecLignes, analyserFacturePDF } from "../actions";
+import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from "../actions";
 
 type Art = { id: string; designation: string; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
@@ -28,7 +28,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   const [lignes, setLignes] = useState<Ligne[]>(lignesDeBon(bon0));
   const pdfRef = useRef<HTMLInputElement>(null);
   const [analysing, setAnalysing] = useState(false);
-  const [analyse, setAnalyse] = useState<{ montant: number | null; date: string | null; numero: string | null } | null>(null);
+  const [analyse, setAnalyse] = useState<AnalyseFacture | null>(null);
+  // Coordonnées d'un nouveau fournisseur à créer (renseignées uniquement si aucun proche n'est trouvé).
+  const [coord, setCoord] = useState<AnalyseFacture["fournisseur"] | null>(null);
 
   const lirePdf = () => {
     const file = pdfRef.current?.files?.[0];
@@ -43,6 +45,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         if (r.date) setDate(r.date);
         if (r.numero) setNumero(r.numero);
         if (r.montant != null) setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+        // Fournisseur : proche existant → on l'associe ; sinon on prépare la création automatique.
+        if (r.match) { setFournisseurId(r.match.id); setFournisseurNom(r.match.nom); setCoord(null); }
+        else if (r.fournisseur.nom) { setFournisseurId(""); setFournisseurNom(r.fournisseur.nom); setCoord(r.fournisseur); }
       })
       .catch((e) => setErreur(e instanceof Error ? e.message : "Lecture du PDF échouée."))
       .finally(() => setAnalysing(false));
@@ -101,17 +106,41 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
       <div className="rounded-lg border bg-muted/20 p-3">
         <div className="text-sm font-medium">Joindre le PDF de la facture <span className="font-normal text-muted-foreground">(facultatif)</span></div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input ref={pdfRef} type="file" name="facturePdf" accept="application/pdf,.pdf" onChange={() => setAnalyse(null)} className="text-xs" />
+          <input ref={pdfRef} type="file" name="facturePdf" accept="application/pdf,.pdf" onChange={() => { setAnalyse(null); setCoord(null); }} className="text-xs" />
           <button type="button" onClick={lirePdf} disabled={analysing} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">
             {analysing ? "Lecture…" : "📄 Lire le PDF (pré-remplir)"}
           </button>
         </div>
         {analyse && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Extrait : {analyse.montant != null ? `${analyse.montant} $` : "montant ?"} · {analyse.date ?? "date ?"}{analyse.numero ? ` · n° ${analyse.numero}` : ""} — <span className="font-medium">à vérifier</span> (le PDF joint reste la source de vérité).
-          </p>
+          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+            <p>Extrait : {analyse.montant != null ? `${analyse.montant} $` : "montant ?"} · {analyse.date ?? "date ?"}{analyse.numero ? ` · n° ${analyse.numero}` : ""} — <span className="font-medium">à vérifier</span> (le PDF joint reste la source de vérité).</p>
+            {analyse.match ? (
+              <p className="text-emerald-700">Fournisseur : associé à <span className="font-medium">« {analyse.match.nom} »</span> (proche de « {analyse.fournisseur.nom} » lu).</p>
+            ) : analyse.fournisseur.nom ? (
+              <p className="text-sky-700">
+                Nouveau fournisseur <span className="font-medium">« {analyse.fournisseur.nom} »</span> — sera créé à l’enregistrement
+                {[analyse.fournisseur.rccm && `RCCM ${analyse.fournisseur.rccm}`, analyse.fournisseur.telephone && `tél. ${analyse.fournisseur.telephone}`, analyse.fournisseur.ville].filter(Boolean).length
+                  ? ` (${[analyse.fournisseur.rccm && `RCCM ${analyse.fournisseur.rccm}`, analyse.fournisseur.telephone && `tél. ${analyse.fournisseur.telephone}`, analyse.fournisseur.ville].filter(Boolean).join(" · ")})`
+                  : ""}.
+              </p>
+            ) : (
+              <p>Fournisseur non détecté — renseignez-le à la main.</p>
+            )}
+          </div>
         )}
       </div>
+
+      {/* Coordonnées d'un nouveau fournisseur détecté (créé à l'enregistrement si aucun n'est sélectionné). */}
+      {!fournisseurId && coord && (
+        <>
+          <input type="hidden" name="nf_rccm" value={coord.rccm ?? ""} />
+          <input type="hidden" name="nf_idNational" value={coord.idNational ?? ""} />
+          <input type="hidden" name="nf_adresse" value={coord.adresse ?? ""} />
+          <input type="hidden" name="nf_telephone" value={coord.telephone ?? ""} />
+          <input type="hidden" name="nf_email" value={coord.email ?? ""} />
+          <input type="hidden" name="nf_ville" value={coord.ville ?? ""} />
+        </>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
