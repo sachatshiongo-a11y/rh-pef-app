@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 
@@ -167,6 +168,7 @@ export function AppShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
+          <div className="mt-2 px-2"><ThemeToggle /></div>
           <div className="mt-1">
             <PushToggle />
           </div>

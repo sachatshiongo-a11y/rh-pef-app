@@ -6,6 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { logout } from "@/app/login/actions";
 
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
@@ -140,6 +141,7 @@ export function StockShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
+          <div className="mt-2 px-2"><ThemeToggle /></div>
           {doubleAcces && (
             <Link href="/choix-espace" onClick={fermer} className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
               Changer d&apos;espace
