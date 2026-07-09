@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { marquerPayee, supprimerFacture } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
@@ -7,6 +8,7 @@ import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 export type FactureRow = {
   id: string;
   nom: string;
+  fournisseurId: string | null;
   numero: string | null;
   date: string | null;
   echeance: string | null;
@@ -51,7 +53,9 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
           <li key={f.id} className="px-3 py-3 hover:bg-accent/30 sm:px-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{f.nom}</p>
+                {f.fournisseurId
+                  ? <Link href={`/stock/fournisseurs/${f.fournisseurId}`} className="truncate font-semibold text-primary hover:underline">{f.nom}</Link>
+                  : <p className="truncate font-semibold">{f.nom}</p>}
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                   {f.numero ? (
                     <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 font-mono text-sm font-semibold tracking-wide text-foreground">N° {f.numero}</span>

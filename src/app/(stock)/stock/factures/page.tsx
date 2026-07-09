@@ -61,7 +61,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const parFournisseur = [...map.values()].sort((a, b) => b.solde - a.solde || b.total - a.total);
 
   const toRow = (x: (typeof factures)[number]): FactureRow => ({
-    id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, numero: x.numero,
+    id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
     date: d(x.date), echeance: d(x.dateEcheance),
     joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
     montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
