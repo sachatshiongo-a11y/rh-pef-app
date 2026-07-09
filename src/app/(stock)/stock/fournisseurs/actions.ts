@@ -49,6 +49,46 @@ export async function modifierFournisseur(id: string, formData: FormData) {
   revalidatePath("/stock/fournisseurs");
 }
 
+/**
+ * Fusionne deux fournisseurs : réaffecte articles, bons de commande et factures du
+ * fournisseur `sourceId` vers `cibleId`, complète les coordonnées manquantes de la cible
+ * avec celles de la source, puis supprime la source. Direction uniquement.
+ */
+export async function fusionnerFournisseurs(sourceId: string, cibleId: string) {
+  const user = await garde();
+  if (!sourceId || !cibleId || sourceId === cibleId) throw new Error("Choisissez deux fournisseurs différents.");
+  const [source, cible] = await Promise.all([
+    prisma.fournisseur.findUnique({ where: { id: sourceId } }),
+    prisma.fournisseur.findUnique({ where: { id: cibleId } }),
+  ]);
+  if (!source) throw new Error("Fournisseur à fusionner introuvable.");
+  if (!cible) throw new Error("Fournisseur cible introuvable.");
+
+  // Coordonnées : on garde celles de la cible et on complète les champs vides avec la source.
+  const COORD = ["produits", "telephone", "ville", "pays", "adresse", "rccm", "idNational", "email", "contactNom", "delaiPaiement", "delaiLivraison", "modePaiement"] as const;
+  const majCible: Prisma.FournisseurUpdateInput = {};
+  for (const c of COORD) {
+    const actuel = (cible as Record<string, unknown>)[c];
+    const remplacant = (source as Record<string, unknown>)[c];
+    if ((actuel == null || actuel === "") && remplacant) (majCible as Record<string, unknown>)[c] = remplacant;
+  }
+
+  await prisma.$transaction([
+    prisma.articleStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
+    prisma.bonDeCommande.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
+    // Factures reliées par identifiant OU par libellé figé (import) portant le nom de la source.
+    prisma.factureFournisseur.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } }),
+    prisma.factureFournisseur.updateMany({ where: { fournisseurId: null, fournisseurNom: source.nom }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } }),
+    ...(Object.keys(majCible).length ? [prisma.fournisseur.update({ where: { id: cibleId }, data: majCible })] : []),
+    prisma.fournisseur.delete({ where: { id: sourceId } }),
+  ]);
+
+  await journaliser(prisma, { entite: "Fournisseur", entiteId: cibleId, champ: "fusion", ancienneValeur: source.nom, nouvelleValeur: cible.nom, userId: user.id });
+  revalidatePath("/stock/fournisseurs");
+  revalidatePath("/stock/factures");
+  revalidatePath("/stock/commandes");
+}
+
 /** Supprime un fournisseur (les articles/factures/BC liés sont simplement détachés — FK SET NULL). */
 export async function supprimerFournisseur(id: string) {
   const user = await garde();

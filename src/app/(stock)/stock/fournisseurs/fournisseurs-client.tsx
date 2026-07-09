@@ -2,7 +2,7 @@
 
 import { memo, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { creerFournisseur, modifierFournisseur, supprimerFournisseur } from "./actions";
+import { creerFournisseur, modifierFournisseur, supprimerFournisseur, fusionnerFournisseurs } from "./actions";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
@@ -16,7 +16,19 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [ajout, setAjout] = useState(false);
+  const [fusion, setFusion] = useState(false);
+  const [source, setSource] = useState("");
+  const [cible, setCible] = useState("");
   const [q, setQ] = useState("");
+
+  const tries = useMemo(() => [...fournisseurs].sort((a, b) => a.nom.localeCompare(b.nom, "fr")), [fournisseurs]);
+  const fusionner = () => {
+    const s = fournisseurs.find((f) => f.id === source);
+    const c = fournisseurs.find((f) => f.id === cible);
+    if (!s || !c || s.id === c.id) { setErreur("Choisissez deux fournisseurs différents."); return; }
+    if (!confirm(`Fusionner « ${s.nom} » dans « ${c.nom} » ?\n\nTous les articles, bons de commande et factures de « ${s.nom} » seront rattachés à « ${c.nom} », les coordonnées manquantes complétées, puis « ${s.nom} » sera supprimé. Action irréversible.`)) return;
+    run(async () => { await fusionnerFournisseurs(s.id, c.id); setFusion(false); setSource(""); setCible(""); });
+  };
 
   const run = (fn: () => Promise<void>) => {
     setErreur(null);
@@ -46,11 +58,39 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher (nom, contact, ville)…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
         <span className="text-xs text-muted-foreground">{visibles.length} / {fournisseurs.length} fournisseur(s)</span>
         {estDirection && (
-          <button onClick={() => setAjout((v) => !v)} className="ml-auto rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-            {ajout ? "Fermer" : "+ Ajouter un fournisseur"}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => { setFusion((v) => !v); setAjout(false); }} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+              {fusion ? "Fermer" : "⤵ Fusionner"}
+            </button>
+            <button onClick={() => { setAjout((v) => !v); setFusion(false); }} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+              {ajout ? "Fermer" : "+ Ajouter un fournisseur"}
+            </button>
+          </div>
         )}
       </div>
+
+      {fusion && estDirection && (
+        <div className="rounded-lg border bg-muted/20 p-3">
+          <div className="text-sm font-medium">Fusionner deux fournisseurs</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">Le fournisseur à fusionner est supprimé ; ses articles, bons de commande et factures passent sur celui à conserver, dont les coordonnées manquantes sont complétées.</p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">À fusionner (supprimé)
+              <select value={source} onChange={(e) => setSource(e.target.value)} className="w-56 rounded border border-input bg-background px-2 py-1.5 text-sm text-foreground">
+                <option value="">— choisir —</option>
+                {tries.map((f) => <option key={f.id} value={f.id} disabled={f.id === cible}>{f.nom}</option>)}
+              </select>
+            </label>
+            <span className="pb-2 text-muted-foreground">→</span>
+            <label className="flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">À conserver
+              <select value={cible} onChange={(e) => setCible(e.target.value)} className="w-56 rounded border border-input bg-background px-2 py-1.5 text-sm text-foreground">
+                <option value="">— choisir —</option>
+                {tries.map((f) => <option key={f.id} value={f.id} disabled={f.id === source}>{f.nom}</option>)}
+              </select>
+            </label>
+            <button onClick={fusionner} disabled={isPending || !source || !cible} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Fusionner</button>
+          </div>
+        </div>
+      )}
 
       {ajout && estDirection && (
         <form action={(fd) => run(async () => { await creerFournisseur(fd); setAjout(false); })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 md:grid-cols-4">

@@ -278,4 +278,5 @@ export async function marquerPayee(id: string) {
   });
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "statut", nouvelleValeur: "RÉGLÉE", userId: user.id });
   revalidatePath("/stock/factures");
+  revalidatePath(`/stock/factures/${id}`);
 }

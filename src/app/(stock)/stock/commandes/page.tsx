@@ -8,24 +8,28 @@ import { verifySession } from "@/lib/auth";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import type { Prisma } from "@prisma/client";
 
-type SP = { mois?: string; fournisseurId?: string };
+type SP = { annee?: string; mois?: string; fournisseurId?: string };
 const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const user = await verifySession();
   const estDirection = user.role === "ADMIN";
+  const annee = sp.annee && /^\d{4}$/.test(sp.annee) ? Number(sp.annee) : undefined;
   const mois = sp.mois && /^\d{1,2}$/.test(sp.mois) ? Number(sp.mois) : undefined;
   const fournisseurId = sp.fournisseurId || undefined;
 
   const where: Prisma.BonDeCommandeWhereInput = {
+    ...(annee ? { annee } : {}),
     ...(mois ? { mois } : {}),
     ...(fournisseurId ? { fournisseurId } : {}),
   };
-  const [commandes, fournisseurs] = await Promise.all([
+  const [commandes, fournisseurs, anneesRaw] = await Promise.all([
     prisma.bonDeCommande.findMany({ where, orderBy: [{ annee: "desc" }, { sequence: "desc" }], include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    prisma.bonDeCommande.findMany({ distinct: ["annee"], select: { annee: true }, orderBy: { annee: "desc" } }),
   ]);
+  const annees = anneesRaw.map((a) => a.annee);
 
   return (
     <div className="space-y-4">
@@ -39,6 +43,10 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
+        <select name="annee" defaultValue={annee ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Toutes les années</option>
+          {annees.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
         <select name="mois" defaultValue={mois ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="">Tous les mois</option>
           {MOIS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
