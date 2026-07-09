@@ -97,6 +97,7 @@ export async function mouvementManuel(formData: FormData) {
 export async function supprimerMouvement(id: string) {
   const user = await verifySession();
   requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
 
   const m = await prisma.mouvementStock.findUniqueOrThrow({ where: { id } });
   const q = Number(m.quantite);

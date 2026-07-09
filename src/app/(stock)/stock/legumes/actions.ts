@@ -60,6 +60,7 @@ export async function creerAchatsLegumes(formData: FormData) {
 export async function supprimerAchatLegume(id: string) {
   const user = await verifySession();
   requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   const a = await prisma.achatLegume.findUniqueOrThrow({ where: { id } });
   await prisma.achatLegume.delete({ where: { id } });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: id, champ: "suppression", ancienneValeur: `${a.legume} ${a.quantite}`, userId: user.id });

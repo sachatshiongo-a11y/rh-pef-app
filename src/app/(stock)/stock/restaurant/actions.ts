@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { verifySession, requireModule, requireRole } from "@/lib/auth";
 
 const dec = (v: FormDataEntryValue | null): number | null => {
   const s = String(v ?? "").replace(",", ".").trim();
@@ -79,7 +79,8 @@ export async function modifierArticleResto(id: string, formData: FormData) {
 
 /** Supprime un article du stock restaurant (et ses comptages). */
 export async function supprimerArticleResto(id: string) {
-  await garde();
+  const user = await garde();
+  requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   await prisma.articleResto.delete({ where: { id } });
   revalidatePath("/stock/restaurant");
 }

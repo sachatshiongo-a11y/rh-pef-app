@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 
 const dec = (v: FormDataEntryValue | null): number => {
@@ -144,6 +144,7 @@ export async function creerFactureAvecLignes(formData: FormData) {
 /** Supprime une facture fournisseur et ANNULE ses entrées de stock (décrémente ce qu'elle avait fait entrer). */
 export async function supprimerFacture(id: string) {
   const user = await garde();
+  requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   const f = await prisma.factureFournisseur.findUniqueOrThrow({
     where: { id },
     include: { mouvements: { where: { type: "ENTREE" } } },
