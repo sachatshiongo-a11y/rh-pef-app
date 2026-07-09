@@ -49,7 +49,12 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
     <div className="mx-auto max-w-4xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Facture · {nom}</h1>
-        <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
+        <div className="flex items-center gap-2">
+          {facture.documentUrl && (
+            <a href={facture.documentUrl} target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">📄 PDF d’origine</a>
+          )}
+          <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 rounded-lg border p-4 text-sm sm:grid-cols-4">

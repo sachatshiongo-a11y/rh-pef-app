@@ -6,8 +6,38 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { parserClasseurFactures } from "@/lib/import-factures-excel";
+import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 
 const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+async function televerserFacturePdf(file: File, fournisseurNom: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const dest = `factures/${(normNom(fournisseurNom) || "facture").slice(0, 30)}-${Date.now().toString(36)}.pdf`;
+  const res = await fetch(`${base}/storage/v1/object/employes/${dest}`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/pdf", "x-upsert": "true" },
+    body: Buffer.from(await file.arrayBuffer()),
+  });
+  if (!res.ok) throw new Error(`Téléversement du PDF échoué (${res.status}).`);
+  return `${base}/storage/v1/object/public/employes/${dest}`;
+}
+
+/** Lit un PDF de facture et renvoie un pré-remplissage (montant, date, n°) — Direction. À CONFIRMER. */
+export async function analyserFacturePDF(formData: FormData): Promise<{ montant: number | null; date: string | null; numero: string | null }> {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]);
+  const file = formData.get("facturePdf");
+  if (!(file instanceof File) || file.size === 0) return { montant: null, date: null, numero: null };
+  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
+  try {
+    return await extraireFacturePDF(await file.arrayBuffer(), taux);
+  } catch {
+    return { montant: null, date: null, numero: null };
+  }
+}
 
 /**
  * Importe un ou plusieurs classeurs Excel « Suivi des factures fournisseurs ». Direction uniquement.
@@ -166,6 +196,11 @@ export async function creerFactureAvecLignes(formData: FormData) {
   const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
+  // PDF joint (facultatif) — téléversé hors transaction.
+  let documentUrl: string | null = null;
+  const pdf = formData.get("facturePdf");
+  if (pdf instanceof File && pdf.size > 0) documentUrl = await televerserFacturePdf(pdf, fournisseurNom);
+
   const fac = await prisma.$transaction(async (tx) => {
     const f = await tx.factureFournisseur.create({
       data: {
@@ -178,6 +213,7 @@ export async function creerFactureAvecLignes(formData: FormData) {
         montantUSD, montantRegleUSD, resteAPayerUSD: reste,
         statut: statutDe(reste, echeanceStr),
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
+        documentUrl,
         mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
         lignes: { create: lignes },
       },

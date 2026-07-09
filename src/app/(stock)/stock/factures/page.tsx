@@ -66,6 +66,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     date: d(x.date), echeance: d(x.dateEcheance),
     joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
     montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
+    documentUrl: x.documentUrl ?? null,
   });
   // Groupement « fournisseur » : liste plate. Groupement « mois » : accordéon Année → Mois.
   const groupes: Groupe[] = [];

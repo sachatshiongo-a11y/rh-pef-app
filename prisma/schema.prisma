@@ -1053,6 +1053,7 @@ model FactureFournisseur {
   resteAPayerUSD  Decimal        @default(0) @db.Decimal(14, 2)
   statut          StatutFacture  @default(A_REGLER)
   modePaiement    String?
+  documentUrl     String? // PDF de la facture joint
   mois            Int
   annee           Int
   createdAt       DateTime       @default(now())

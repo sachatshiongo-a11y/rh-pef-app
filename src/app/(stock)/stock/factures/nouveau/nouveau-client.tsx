@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { creerFactureAvecLignes } from "../actions";
+import { useRef, useState, useTransition } from "react";
+import { creerFactureAvecLignes, analyserFacturePDF } from "../actions";
 
 type Art = { id: string; designation: string; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
@@ -22,9 +22,31 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   const [bonId, setBonId] = useState(bon0?.id ?? "");
   const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
   const [fournisseurNom, setFournisseurNom] = useState(bon0?.fournisseurNom ?? "");
+  const [numero, setNumero] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [echeance, setEcheance] = useState("");
   const [lignes, setLignes] = useState<Ligne[]>(lignesDeBon(bon0));
+  const pdfRef = useRef<HTMLInputElement>(null);
+  const [analysing, setAnalysing] = useState(false);
+  const [analyse, setAnalyse] = useState<{ montant: number | null; date: string | null; numero: string | null } | null>(null);
+
+  const lirePdf = () => {
+    const file = pdfRef.current?.files?.[0];
+    if (!file) { setErreur("Sélectionnez d’abord un fichier PDF."); return; }
+    setErreur(null);
+    setAnalysing(true);
+    const fd = new FormData();
+    fd.set("facturePdf", file);
+    analyserFacturePDF(fd)
+      .then((r) => {
+        setAnalyse(r);
+        if (r.date) setDate(r.date);
+        if (r.numero) setNumero(r.numero);
+        if (r.montant != null) setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+      })
+      .catch((e) => setErreur(e instanceof Error ? e.message : "Lecture du PDF échouée."))
+      .finally(() => setAnalysing(false));
+  };
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const choisirArticle = (i: number, articleId: string) => {
@@ -76,6 +98,21 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
     <form action={submit} className="space-y-4">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
+      <div className="rounded-lg border bg-muted/20 p-3">
+        <div className="text-sm font-medium">Joindre le PDF de la facture <span className="font-normal text-muted-foreground">(facultatif)</span></div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input ref={pdfRef} type="file" name="facturePdf" accept="application/pdf,.pdf" onChange={() => setAnalyse(null)} className="text-xs" />
+          <button type="button" onClick={lirePdf} disabled={analysing} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">
+            {analysing ? "Lecture…" : "📄 Lire le PDF (pré-remplir)"}
+          </button>
+        </div>
+        {analyse && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Extrait : {analyse.montant != null ? `${analyse.montant} $` : "montant ?"} · {analyse.date ?? "date ?"}{analyse.numero ? ` · n° ${analyse.numero}` : ""} — <span className="font-medium">à vérifier</span> (le PDF joint reste la source de vérité).
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Bon de commande lié (facultatif)</span>
@@ -96,7 +133,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">N° facture</span>
-          <input name="numero" className={inp} placeholder="N° facture fournisseur" />
+          <input name="numero" value={numero} onChange={(e) => setNumero(e.target.value)} className={inp} placeholder="N° facture fournisseur" />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Date facture</span>

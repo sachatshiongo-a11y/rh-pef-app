@@ -17,6 +17,7 @@ export type FactureRow = {
   montant: string;
   reste: number;
   statut: string;
+  documentUrl: string | null;
 };
 
 export type Groupe = { titre: string; factures: FactureRow[] };
@@ -74,6 +75,9 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
               {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
               <div className="ml-auto flex items-center gap-2">
+                {f.documentUrl && (
+                  <a href={f.documentUrl} target="_blank" rel="noopener noreferrer" title="PDF de la facture" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF</a>
+                )}
                 <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
                 {f.statut !== "REGLEE" && (
                   <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Marquer payée</button>
