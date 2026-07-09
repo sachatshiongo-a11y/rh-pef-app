@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
-import { pariteSemaine } from "./creneaux";
+import { pariteSemaine, dureeShift } from "./creneaux";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -151,10 +151,15 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
     return iso(l);
   };
   const posteOf = new Map(employees.map((e) => [e.id, e.poste]));
-  const maxJoursSem = (e: { heuresParJour: unknown; heuresHebdomadaires: unknown }) =>
-    nbParSemaine > 0
-      ? Math.min(joursActifs.size, nbParSemaine)
-      : Math.min(joursActifs.size, Math.max(1, Math.round((Number(e.heuresHebdomadaires) || 48) / (Number(e.heuresParJour) || 8))));
+  // Durée réelle de chaque shift (heures) → planification À L'HEURE EXACTE : on vise les heures
+  // hebdomadaires de chaque employé en additionnant la durée des shifts, au lieu de compter des jours.
+  const dureeParShift = new Map(
+    shifts.map((s) => [s.id, dureeShift({ heureDebut: s.heureDebut, heureFin: s.heureFin, dureeHeures: s.dureeHeures == null ? null : Number(s.dureeHeures) })]),
+  );
+  const EPS = 0.01;
+  const cibleHeures = (e: { heuresHebdomadaires: unknown }) => Number(e.heuresHebdomadaires) || 48;
+  // Plafond en JOURS — utilisé uniquement quand l'utilisateur force « nombre par semaine ».
+  const capJours = nbParSemaine > 0 ? Math.min(joursActifs.size, nbParSemaine) : joursActifs.size;
   const joursPlats = [...joursParSemaine.values()].flat().sort((a, b) => a.getTime() - b.getTime());
 
   const aCreer: { employeeId: string; date: Date; shiftId: string }[] = [];
@@ -166,29 +171,44 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
       (empsParPoste.get(e.poste) ?? empsParPoste.set(e.poste, []).get(e.poste)!).push(e);
     }
     const occupeJour = new Set<string>(); // `${empId}_${isoD}` — 1 seul shift/jour
-    const compteSem = new Map<string, number>(); // `${empId}_${lundiIso}` — quota hebdo
+    const joursSem = new Map<string, number>(); // `${empId}_${lundiIso}` — nb de jours (mode « nombre par semaine »)
+    const heuresSem = new Map<string, number>(); // `${empId}_${lundiIso}` — heures déjà planifiées cette semaine
+    const heuresTotales = new Map<string, number>(); // empId -> total heures sur la période (équité/rotation)
     const couverture = new Map<string, number>(); // `${isoD}_${shiftId}_${poste}` — déjà couvert
-    const totalAffecte = new Map<string, number>(); // empId -> nb total (équité/rotation)
-    const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+    const add = (m: Map<string, number>, k: string, n = 1) => m.set(k, (m.get(k) ?? 0) + n);
+
+    // Place restante cette semaine pour un shift de durée `ds` :
+    //   mode « nombre par semaine » → plafond en jours ;
+    //   sinon → on vise les heures hebdo, en autorisant le dernier shift s'il rapproche de la cible
+    //   (dépassement toléré jusqu'à un demi-shift → équivalent « à l'heure exacte »).
+    const aDeLaPlace = (e: (typeof employees)[number], lundi: string, ds: number) =>
+      nbParSemaine > 0
+        ? (joursSem.get(`${e.id}_${lundi}`) ?? 0) < capJours
+        : (heuresSem.get(`${e.id}_${lundi}`) ?? 0) <= cibleHeures(e) - ds / 2 + EPS;
 
     // Créneaux existants conservés (si on n'écrase pas) : comptent dans la couverture et les quotas.
     if (!ecraser) {
       for (const ex of existants) {
         const isoD = iso(new Date(ex.date));
+        const ds = dureeParShift.get(ex.shiftId) ?? 0;
+        const lundi = lundiIso(new Date(ex.date));
         occupeJour.add(`${ex.employeeId}_${isoD}`);
-        bump(compteSem, `${ex.employeeId}_${lundiIso(new Date(ex.date))}`);
-        bump(totalAffecte, ex.employeeId);
+        add(joursSem, `${ex.employeeId}_${lundi}`);
+        add(heuresSem, `${ex.employeeId}_${lundi}`, ds);
+        add(heuresTotales, ex.employeeId, ds);
         const p = posteOf.get(ex.employeeId);
-        if (p) bump(couverture, `${isoD}_${ex.shiftId}_${p}`);
+        if (p) add(couverture, `${isoD}_${ex.shiftId}_${p}`);
       }
     }
     const affecter = (empId: string, d: Date, shiftId: string, poste: string) => {
       const isoD = iso(d);
+      const ds = dureeParShift.get(shiftId) ?? 0;
       aCreer.push({ employeeId: empId, date: d, shiftId });
       occupeJour.add(`${empId}_${isoD}`);
-      bump(compteSem, `${empId}_${lundiIso(d)}`);
-      bump(totalAffecte, empId);
-      bump(couverture, `${isoD}_${shiftId}_${poste}`);
+      add(joursSem, `${empId}_${lundiIso(d)}`);
+      add(heuresSem, `${empId}_${lundiIso(d)}`, ds);
+      add(heuresTotales, empId, ds);
+      add(couverture, `${isoD}_${shiftId}_${poste}`);
     };
 
     // 1) Modèles hebdo (affectations fixes prioritaires) s'ils sont activés : comptent dans la couverture.
@@ -214,19 +234,20 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
       const lundi = lundiIso(d);
       for (const b of besoinsParDow.get(d.getUTCDay()) ?? []) {
         if (!shiftsActifsIds.has(b.shiftId)) continue;
+        const ds = dureeParShift.get(b.shiftId) ?? 0;
         let have = couverture.get(`${isoD}_${b.shiftId}_${b.poste}`) ?? 0;
         if (have >= b.nombreRequis) continue;
         const pool = (empsParPoste.get(b.poste) ?? []).filter(
           (e) =>
             !occupeJour.has(`${e.id}_${isoD}`) &&
             !estEnConge(e.id, d) &&
-            (compteSem.get(`${e.id}_${lundi}`) ?? 0) < maxJoursSem(e),
+            aDeLaPlace(e, lundi, ds),
         );
-        // Équité : d'abord ceux qui ont le moins travaillé, puis le moins cette semaine.
+        // Équité : d'abord ceux qui ont le moins d'heures au total, puis le moins cette semaine.
         pool.sort(
           (a, b2) =>
-            (totalAffecte.get(a.id) ?? 0) - (totalAffecte.get(b2.id) ?? 0) ||
-            (compteSem.get(`${a.id}_${lundi}`) ?? 0) - (compteSem.get(`${b2.id}_${lundi}`) ?? 0),
+            (heuresTotales.get(a.id) ?? 0) - (heuresTotales.get(b2.id) ?? 0) ||
+            (heuresSem.get(`${a.id}_${lundi}`) ?? 0) - (heuresSem.get(`${b2.id}_${lundi}`) ?? 0),
         );
         for (const e of pool) {
           if (have >= b.nombreRequis) break;
@@ -252,13 +273,17 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
       }
       const shiftEmp = shiftPourEmploye(emp);
       if (!shiftEmp) continue;
-      const hj = Number(emp.heuresParJour) || 8;
-      const hh = Number(emp.heuresHebdomadaires) || 48;
-      const nbSem = nbParSemaine > 0
-        ? Math.min(joursActifs.size, nbParSemaine)
-        : Math.min(joursActifs.size, Math.max(1, Math.round(hh / hj)));
+      const ds = dureeParShift.get(shiftEmp.id) || (Number(emp.heuresParJour) || 8);
+      const cible = cibleHeures(emp);
+      // On remplit la semaine jusqu'à approcher au plus près les heures hebdo (à l'heure exacte),
+      // ou jusqu'au nombre de jours forcé. Les créneaux existants comptent dans le total.
       for (const jours of joursParSemaine.values()) {
-        for (const d of jours.slice(0, nbSem)) {
+        let h = 0, j = 0;
+        for (const d of jours) {
+          const stop = nbParSemaine > 0 ? j >= capJours : h > cible - ds / 2 + EPS;
+          if (stop) break;
+          j++;
+          h += ds;
           if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
           aCreer.push({ employeeId: emp.id, date: d, shiftId: shiftEmp.id });
         }
