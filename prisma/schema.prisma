@@ -347,6 +347,7 @@ model PlanningCreneau {
   updatedAt  DateTime @updatedAt
 
   @@unique([employeeId, date])
+  @@index([date]) // planning : requêtes par plage de dates (génération auto, affichage mensuel)
   @@schema("public")
 }
 
@@ -909,6 +910,8 @@ model ArticleStock {
   lignesBC      LigneBonDeCommande[]
   lignesFacture LigneFacture[]
 
+  @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
+  @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
   @@schema("stock")
 }
 
@@ -978,6 +981,7 @@ model BonDeCommande {
   factures   FactureFournisseur[]
 
   @@index([annee, mois])
+  @@index([fournisseurId]) // fiche fournisseur + filtre des bons de commande par fournisseur
   @@schema("stock")
 }
 
