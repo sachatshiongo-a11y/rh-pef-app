@@ -177,9 +177,9 @@ export function PlanningGrid({
       )}
     <div className="max-h-[70vh] overflow-auto rounded-xl border">
       <table ref={tableRef} className="w-full text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left">
+        <thead className="sticky top-0 z-20 bg-muted text-left">
           <tr>
-            <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">
+            <th className="sticky left-0 z-30 bg-muted px-3 py-2">
               <span className="flex items-center gap-2">
                 {peutModifier && (
                   <input type="checkbox" checked={employees.length > 0 && employees.every((e) => selection.has(e.id))} onChange={(e) => setSelection(e.target.checked ? new Set(employees.map((x) => x.id)) : new Set())} aria-label="Tout sélectionner" />
@@ -247,7 +247,7 @@ export function PlanningGrid({
         </tbody>
         <tfoot>
           <tr className="border-t bg-muted/30">
-            <td className="sticky left-0 z-10 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+            <td className="sticky left-0 z-10 bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
               Planifiés / jour
             </td>
             {totauxJour.map((n, i) => (

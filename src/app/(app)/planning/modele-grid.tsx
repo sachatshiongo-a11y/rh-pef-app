@@ -94,9 +94,9 @@ export function ModeleGrid({
     </div>
     <div className="max-h-[70vh] overflow-auto rounded-xl border">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left">
+        <thead className="sticky top-0 z-20 bg-muted text-left">
           <tr>
-            <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">Employé</th>
+            <th className="sticky left-0 z-30 bg-muted px-3 py-2">Employé</th>
             {JOURS.map((j) => (
               <th key={j.v} className={`px-2 py-2 text-center font-normal ${j.v === 0 ? "bg-orange-100" : ""}`}>
                 {j.l}

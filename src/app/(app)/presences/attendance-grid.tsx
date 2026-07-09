@@ -333,9 +333,9 @@ export function AttendanceGrid({
       )}
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
       <table ref={tableRef} className="text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left">
+        <thead className="sticky top-0 z-20 bg-muted text-left">
           <tr>
-            <th className="sticky left-0 z-10 bg-muted/50 px-3 py-2">
+            <th className="sticky left-0 z-30 bg-muted px-3 py-2">
               <span className="flex items-center gap-2">
                 {peutModifier && (
                   <input
