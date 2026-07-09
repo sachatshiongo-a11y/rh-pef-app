@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
-import { FacturesUI, type FactureRow, type Groupe } from "./factures-client";
+import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import type { Prisma } from "@prisma/client";
 
@@ -20,6 +21,8 @@ function joursAvant(echeance: Date | null, statut: string): number | null {
 
 export default async function FacturesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const f = sp.statut;
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";
   const vue = sp.vue === "fournisseur" ? "fournisseur" : "detail";
@@ -63,12 +66,28 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
     montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
   });
+  // Groupement « fournisseur » : liste plate. Groupement « mois » : accordéon Année → Mois.
   const groupes: Groupe[] = [];
-  const idx = new Map<string, number>();
-  for (const x of factures) {
-    const t = tri === "fournisseur" ? (x.fournisseur?.nom ?? x.fournisseurNom) : `${MOIS_FR[x.mois - 1]} ${x.annee}`;
-    if (!idx.has(t)) { idx.set(t, groupes.length); groupes.push({ titre: t, factures: [] }); }
-    groupes[idx.get(t)!].factures.push(toRow(x));
+  const annees: AnneeGroupe[] = [];
+  if (tri === "fournisseur") {
+    const idx = new Map<string, number>();
+    for (const x of factures) {
+      const t = x.fournisseur?.nom ?? x.fournisseurNom;
+      if (!idx.has(t)) { idx.set(t, groupes.length); groupes.push({ titre: t, factures: [] }); }
+      groupes[idx.get(t)!].factures.push(toRow(x));
+    }
+  } else {
+    const ai = new Map<number, number>();
+    for (const x of factures) {
+      if (!ai.has(x.annee)) { ai.set(x.annee, annees.length); annees.push({ annee: x.annee, mois: [] }); }
+      const ag = annees[ai.get(x.annee)!];
+      const cle = `${x.annee}-${String(x.mois).padStart(2, "0")}`;
+      let mg = ag.mois.find((m) => m.cle === cle);
+      if (!mg) { mg = { cle, label: `${MOIS_FR[x.mois - 1]} ${x.annee}`, factures: [] }; ag.mois.push(mg); }
+      mg.factures.push(toRow(x));
+    }
+    annees.sort((a, b) => b.annee - a.annee);
+    for (const a of annees) a.mois.sort((x, y) => y.cle.localeCompare(x.cle));
   }
 
   const lien = (params: Partial<SP>) => {
@@ -148,7 +167,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
               <a href={lien({ tri: "fournisseur" })} className={`rounded-full border px-3 py-1 ${tri === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fournisseur</a>
             </div>
           </div>
-          <FacturesUI groupes={groupes} />
+          {tri === "mois"
+            ? <FacturesUI annees={annees} estDirection={estDirection} />
+            : <FacturesUI groupes={groupes} estDirection={estDirection} />}
         </>
       )}
     </div>
