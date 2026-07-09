@@ -109,7 +109,31 @@ export default async function EmployesPage({
 
 function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutModifier: boolean }) {
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <>
+      {/* Mobile : cartes tapables (toute la carte mène à la fiche). */}
+      <div className="space-y-2 lg:hidden">
+        {employes.map((e) => (
+          <Link key={e.id} href={`/employes/${e.id}`} className="flex items-center gap-3 rounded-xl border bg-card p-3 active:bg-accent">
+            <Avatar nom={e.nom} taille={40} photoUrl={e.photoUrl} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium">{e.nom}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                <span className="font-mono">{e.matricule}</span> · {e.poste}
+              </div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-sm font-semibold tabular-nums">{formatMoney(Number(e.salaireMensuel))} $</div>
+              <div className="text-[11px] text-muted-foreground">{Number(e.heuresHebdomadaires)} h/sem · {e.contrat}</div>
+            </div>
+          </Link>
+        ))}
+        {employes.length === 0 && (
+          <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé ne correspond.</p>
+        )}
+      </div>
+
+      {/* Ordinateur : tableau détaillé. */}
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-left">
           <tr>
@@ -154,6 +178,7 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
           )}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }
