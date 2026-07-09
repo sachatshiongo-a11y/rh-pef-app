@@ -968,6 +968,7 @@ model BonDeCommande {
   totalCDF          Decimal?          @db.Decimal(16, 2)
   tauxChangeUtilise Decimal?          @db.Decimal(10, 2)
   commentaire       String?
+  documentUrl       String? // PDF d'origine joint (bons importés)
   creeParId         String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
