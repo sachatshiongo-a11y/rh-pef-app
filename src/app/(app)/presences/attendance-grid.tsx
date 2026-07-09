@@ -63,6 +63,19 @@ export function AttendanceGrid({
   const [bulkJour, setBulkJour] = useState<string>("1");
   const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
 
+  // Vue mobile « jour par jour » : jour sélectionné (défaut = aujourd'hui s'il est dans le mois)
+  // et miroir local des saisies pour afficher la valeur à jour quand on change de jour.
+  const isoAuj = new Date().toISOString().slice(0, 10);
+  const idxAuj = isoDates.indexOf(isoAuj);
+  const [jourMobile, setJourMobile] = useState<number>(idxAuj >= 0 ? days[idxAuj] : days[0] ?? 1);
+  const [editsMobile, setEditsMobile] = useState<Record<string, string>>({});
+  const codeDe = (empId: string, day: number) =>
+    editsMobile[`${empId}_${day}`] ?? attendanceMap[`${empId}_${day}`] ?? "";
+  const onMobileChange = (empId: string, value: string) => {
+    setEditsMobile((x) => ({ ...x, [`${empId}_${jourMobile}`]: value }));
+    handleChange(empId, jourMobile, value);
+  };
+
   function toggleEmp(id: string) {
     setSelection((s) => {
       const n = new Set(s);
@@ -208,6 +221,50 @@ export function AttendanceGrid({
 
   return (
     <div>
+      {/* Mobile : saisie « jour par jour » (même enregistrement que la grille). */}
+      <div className="lg:hidden">
+        <div className="mb-3 flex items-center gap-2">
+          <button type="button" onClick={() => setJourMobile((j) => Math.max(days[0], j - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <select value={jourMobile} onChange={(e) => setJourMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+            {days.map((d) => (
+              <option key={d} value={d}>
+                {new Date(isoDates[d - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+                {estFerie(d) ? " · férié" : estDimanche(d) ? " · dimanche" : ""}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => setJourMobile((j) => Math.min(days[days.length - 1], j + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+        </div>
+        <div className="space-y-2">
+          {employees.map((emp) => (
+            <div key={emp.id} className="flex items-center gap-3 rounded-xl border bg-card p-2.5">
+              <Avatar nom={emp.nom} taille={36} photoUrl={emp.photoUrl} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium">{emp.nom}</div>
+                <div className="font-mono text-xs text-muted-foreground">{emp.matricule}</div>
+              </div>
+              {peutModifier ? (
+                <select
+                  value={codeDe(emp.id, jourMobile)}
+                  onChange={(e) => onMobileChange(emp.id, e.target.value)}
+                  className="w-20 rounded-md border border-input bg-background px-2 py-2 text-center text-sm font-semibold"
+                  style={COULEUR_CODE_HEX[codeDe(emp.id, jourMobile) as CodePresence] ? { backgroundColor: COULEUR_CODE_HEX[codeDe(emp.id, jourMobile) as CodePresence].bg, color: COULEUR_CODE_HEX[codeDe(emp.id, jourMobile) as CodePresence].text } : undefined}
+                >
+                  <option value="">—</option>
+                  {CODES.map((c) => (<option key={c} value={c}>{c}</option>))}
+                </select>
+              ) : (
+                <span className="w-10 text-center font-semibold">{codeDe(emp.id, jourMobile) || "—"}</span>
+              )}
+            </div>
+          ))}
+          {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+        </div>
+        {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
+      </div>
+
+      {/* Ordinateur : grille complète + actions groupées. */}
+      <div className="hidden lg:block">
       {peutModifier && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 text-sm">
           <span className="font-medium">{selection.size} employé(s) sélectionné(s)</span>
@@ -364,6 +421,7 @@ export function AttendanceGrid({
         </tbody>
       </table>
         {isPending && <p className="p-2 text-xs text-muted-foreground">Enregistrement...</p>}
+      </div>
       </div>
     </div>
   );
