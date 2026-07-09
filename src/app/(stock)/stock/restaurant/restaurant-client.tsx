@@ -38,7 +38,8 @@ export function RestaurantGrille({ espace, jours, lignes }: { espace: "CUISINE" 
         </form>
       )}
 
-      <div className="overflow-x-auto rounded-lg border">
+      {/* Défilement interne (vertical + horizontal) avec en-tête figé, comme les catalogues. */}
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
         <table className="w-full min-w-[52rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
