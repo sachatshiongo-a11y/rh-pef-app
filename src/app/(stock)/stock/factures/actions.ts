@@ -9,6 +9,7 @@ import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
+import { Prisma } from "@prisma/client";
 
 const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -373,4 +374,42 @@ export async function marquerPayee(id: string) {
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "statut", nouvelleValeur: "RÉGLÉE", userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath(`/stock/factures/${id}`);
+}
+
+/** Marque plusieurs factures comme réglées d'un coup (réglé = montant, reste = 0, payée aujourd'hui). */
+export async function marquerPayeesEnLot(ids: string[]) {
+  const user = await garde();
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  // Une seule requête : réglé = montant par ligne (impossible via updateMany), n'agit que sur les non réglées.
+  const n = await prisma.$executeRaw`
+    UPDATE "stock"."FactureFournisseur"
+    SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = now()
+    WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE'`;
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${n} facture(s) réglée(s)`, userId: user.id });
+  revalidatePath("/stock/factures");
+  revalidatePath("/stock");
+}
+
+/** Supprime plusieurs factures d'un coup (Direction) — reprend le stock entré par chacune. */
+export async function supprimerFacturesEnLot(ids: string[]) {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  const facs = await prisma.factureFournisseur.findMany({ where: { id: { in: uniq } }, include: { mouvements: { where: { type: "ENTREE" } } } });
+  await prisma.$transaction(async (tx) => {
+    for (const f of facs) {
+      for (const m of f.mouvements) {
+        await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: Number(m.quantite) } } });
+        await tx.mouvementStock.delete({ where: { id: m.id } });
+      }
+    }
+    await tx.factureFournisseur.deleteMany({ where: { id: { in: uniq } } });
+  });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "suppression", nouvelleValeur: `${facs.length} facture(s) supprimée(s)`, userId: user.id });
+  revalidatePath("/stock/factures");
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock");
 }

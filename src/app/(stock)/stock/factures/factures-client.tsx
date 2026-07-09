@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import { marquerPayee, supprimerFacture } from "./actions";
+import { useMemo, useState, useTransition } from "react";
+import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEnLot } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 
 export type FactureRow = {
@@ -40,18 +40,33 @@ const sommaireCls = "flex cursor-pointer list-none items-center justify-between 
 export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
 
   const run = (fn: () => Promise<void>) => {
     setErreur(null);
     startTransition(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
   };
 
+  // Toutes les factures affichées (à plat), pour « tout sélectionner » et les actions groupées.
+  const toutes = useMemo(() => {
+    const acc: FactureRow[] = [];
+    if (annees) for (const a of annees) for (const m of a.mois) acc.push(...m.factures);
+    else for (const g of groupes ?? []) acc.push(...g.factures);
+    return acc;
+  }, [annees, groupes]);
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const clear = () => setSel(new Set());
+  const selIds = [...sel];
+  const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE"));
+
   const liste = (factures: FactureRow[]) => (
     <ul className="divide-y border-t">
       {factures.map((f) => {
         const be = badgeEcheance(f);
         return (
-          <li key={f.id} className="px-3 py-3 hover:bg-accent/30 sm:px-4">
+          <li key={f.id} className={`flex gap-3 px-3 py-3 hover:bg-accent/30 sm:px-4 ${sel.has(f.id) ? "bg-primary/5" : ""}`}>
+            <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="mt-1 shrink-0" aria-label={`Sélectionner ${f.nom}`} />
+            <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 {f.fournisseurId
@@ -87,6 +102,7 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
                 )}
               </div>
             </div>
+            </div>
           </li>
         );
       })}
@@ -96,6 +112,41 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
   return (
     <div className="space-y-2">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+
+      {/* Barre d'actions groupées — sélection multiple par cases à cocher. */}
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={toutes.length > 0 && sel.size === toutes.length}
+            ref={(el) => { if (el) el.indeterminate = sel.size > 0 && sel.size < toutes.length; }}
+            onChange={(e) => setSel(e.target.checked ? new Set(toutes.map((f) => f.id)) : new Set())}
+          />
+          Tout sélectionner
+        </label>
+        <span className="text-sm text-muted-foreground">{sel.size} sélectionnée(s)</span>
+        {sel.size > 0 && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => run(async () => { await marquerPayeesEnLot(selNonReglees); clear(); })}
+              disabled={isPending || selNonReglees.length === 0}
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              ✓ Marquer payées ({selNonReglees.length})
+            </button>
+            {estDirection && (
+              <button
+                onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { await supprimerFacturesEnLot(selIds); clear(); }); }}
+                disabled={isPending}
+                className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                ✕ Supprimer ({sel.size})
+              </button>
+            )}
+            <button onClick={clear} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Désélectionner</button>
+          </div>
+        )}
+      </div>
 
       {annees ? (
         <>
