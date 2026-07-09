@@ -14,10 +14,45 @@ function moisDe(nom: string): number | null {
   return null;
 }
 
+export type LigneBonCommande = { designation: string; unite: string | null; quantite: number; prixUnitaireUSD: number; totalLigneUSD: number };
+
 export type BonCommandeExtrait = {
   numero: string | null; sequence: number; mois: number | null; annee: number | null;
-  fournisseur: string | null; date: string | null; total: number;
+  fournisseur: string | null; date: string | null; total: number; lignes: LigneBonCommande[];
 };
+
+const nombreFR = (s: string): number => { const v = Number(String(s).replace(/\s/g, "").replace(/,/g, "")); return Number.isFinite(v) ? v : NaN; };
+
+/**
+ * Extrait les lignes d'articles d'un bon de commande PDF (formats variés).
+ * Quantité déduite du nombre N situé avant le prix tel que N × PU ≈ Total (robuste aux colonnes
+ * changeantes : Réf/Désignation/Qté/PU/Montant, avec ou sans colonnes cartons).
+ */
+export function extraireLignesBonCommande(text: string): LigneBonCommande[] {
+  const out: LigneBonCommande[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const l = raw.replace(/\t/g, " ").replace(/\s{2,}/g, " ").trim();
+    if (!l) continue;
+    const s = strip(l).toLowerCase();
+    if (/^montant total|^total\b|^sous[- ]total/.test(s)) { if (out.length) break; continue; }
+    const moneys = [...l.matchAll(/([0-9][0-9.,]*)\s*\$/g)].map((m) => nombreFR(m[1])).filter((n) => Number.isFinite(n) && n > 0);
+    if (moneys.length === 0) continue;
+    const desig = l.replace(/[0-9][0-9.,]*\s*\$/g, " ").replace(/\b\d[\d.,]*\b/g, " ").replace(/\s{2,}/g, " ").trim();
+    if (!/[a-zà-ÿ]{2,}/i.test(desig)) continue; // pas de vraie désignation ⇒ ligne de tableau/total
+    const total = moneys[moneys.length - 1];
+    const pu = moneys.length >= 2 ? moneys[moneys.length - 2] : total;
+    // Nombres situés avant le 1er montant $ : candidats quantité.
+    const idx = l.search(/[0-9][0-9.,]*\s*\$/);
+    const avant = idx > 0 ? l.slice(0, idx) : "";
+    const nums = [...avant.matchAll(/\b(\d[\d.,]*)\b/g)].map((m) => nombreFR(m[1])).filter((n) => Number.isFinite(n) && n > 0);
+    let quantite = 0;
+    for (const n of nums) if (pu > 0 && Math.abs(n * pu - total) <= Math.max(0.5, total * 0.03)) { quantite = n; break; }
+    if (quantite <= 0) quantite = pu > 0 ? Math.round((total / pu) * 1000) / 1000 : (nums[nums.length - 1] ?? 1);
+    if (!Number.isFinite(quantite) || quantite <= 0) quantite = 1;
+    out.push({ designation: desig.slice(0, 120), unite: null, quantite, prixUnitaireUSD: pu, totalLigneUSD: total });
+  }
+  return out;
+}
 
 export async function extraireBonCommandePDF(buffer: ArrayBuffer, tauxCDF: number): Promise<BonCommandeExtrait> {
   // Import dynamique (module externe Node) pour éviter le bundling par Next.
@@ -56,5 +91,6 @@ export async function extraireBonCommandePDF(buffer: ArrayBuffer, tauxCDF: numbe
       else if (t2 >= 10) total = Math.round(t2 * 100) / 100;
     }
   }
-  return { numero, sequence, mois, annee, fournisseur, date, total };
+  const lignes = extraireLignesBonCommande(text);
+  return { numero, sequence, mois, annee, fournisseur, date, total, lignes };
 }

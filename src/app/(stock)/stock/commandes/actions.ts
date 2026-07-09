@@ -8,7 +8,7 @@ import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { usd } from "@/lib/stock";
-import { extraireBonCommandePDF } from "@/lib/import-bc-pdf";
+import { extraireBonCommandePDF, type LigneBonCommande } from "@/lib/import-bc-pdf";
 
 const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
 
@@ -43,12 +43,12 @@ export async function importerBonsCommandePDF(formData: FormData): Promise<{ imp
   const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
 
   const erreurs: string[] = [];
-  const extraits: { file: File; numero: string; sequence: number; mois: number; annee: number; fournisseur: string; date: string | null; total: number }[] = [];
+  const extraits: { file: File; numero: string; sequence: number; mois: number; annee: number; fournisseur: string; date: string | null; total: number; lignes: LigneBonCommande[] }[] = [];
   for (const f of fichiers) {
     try {
       const e = await extraireBonCommandePDF(await f.arrayBuffer(), taux);
       if (!e.numero || !e.fournisseur) { erreurs.push(`${f.name} : numéro/fournisseur introuvable`); continue; }
-      extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? new Date().getFullYear(), fournisseur: e.fournisseur, date: e.date, total: e.total });
+      extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? new Date().getFullYear(), fournisseur: e.fournisseur, date: e.date, total: e.total, lignes: e.lignes });
     } catch (err) {
       erreurs.push(`${f.name} : ${err instanceof Error ? err.message : "illisible"}`);
     }
@@ -81,9 +81,13 @@ export async function importerBonsCommandePDF(formData: FormData): Promise<{ imp
     if (numExist.has(numero)) { ignores++; continue; }
     try {
       const url = await televerserBC(e.file, `bons-commande/${slugBC(e.fournisseur)}-${slugBC(numero)}-${Date.now().toString(36)}.pdf`);
+      // Total : préférer la somme des lignes si l'en-tête n'a rien donné.
+      const totalLignes = e.lignes.reduce((t, l) => t + l.totalLigneUSD, 0);
+      const total = e.total > 0 ? e.total : Math.round(totalLignes * 100) / 100;
       await prisma.bonDeCommande.create({
         data: { numero, sequence: e.sequence, annee: e.annee, mois: e.mois, date: e.date ? new Date(e.date) : new Date(),
-          fournisseurId: parNom.get(normNom(e.fournisseur)) ?? null, statut: "VALIDE", totalUSD: e.total, documentUrl: url, creeParId: user.id },
+          fournisseurId: parNom.get(normNom(e.fournisseur)) ?? null, statut: "VALIDE", totalUSD: total, documentUrl: url, creeParId: user.id,
+          lignes: { create: e.lignes.map((l) => ({ designation: l.designation, unite: l.unite, quantite: l.quantite, prixUnitaireUSD: l.prixUnitaireUSD, totalLigneUSD: l.totalLigneUSD })) } },
       });
       numExist.add(numero);
       sigExist.add(sigDe(e.numero, e.fournisseur, e.date));
