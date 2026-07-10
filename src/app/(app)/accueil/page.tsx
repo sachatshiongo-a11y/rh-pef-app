@@ -31,7 +31,7 @@ export default async function AccueilPage() {
   const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const maintenant = new Date();
-  const dans30j = new Date(Date.now() + 30 * 86_400_000);
+  const dans30j = new Date(maintenant.getTime() + 30 * 86_400_000);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? maintenant.getMonth() + 1;
   const annee = config?.anneeCourante ?? maintenant.getFullYear();
