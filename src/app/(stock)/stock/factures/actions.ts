@@ -300,7 +300,9 @@ export async function creerFactureAvecLignes(formData: FormData) {
       const debut = new Date(ref); debut.setUTCDate(debut.getUTCDate() - 14);
       const fin = new Date(ref); fin.setUTCDate(fin.getUTCDate() + 14);
       const recents = await prisma.mouvementStock.findMany({
-        where: { type: "ENTREE", factureId: null, articleId: { in: artIds }, date: { gte: debut, lte: fin }, origine: { not: { contains: "Inventaire" } } },
+        // OR origine null : les lignes sans origine (historiques) doivent aussi être détectées —
+        // « NOT contains » seul les exclurait (sémantique SQL des NULL).
+        where: { type: "ENTREE", factureId: null, articleId: { in: artIds }, date: { gte: debut, lte: fin }, OR: [{ origine: null }, { origine: { not: { contains: "Inventaire" } } }] },
         include: { article: { select: { designation: true } } },
         orderBy: { date: "desc" },
         take: 6,
