@@ -15,8 +15,10 @@ const styles = StyleSheet.create({
   thCell: { color: "#ffffff", fontSize: 7, fontWeight: 700, paddingVertical: 4, paddingHorizontal: 4, textTransform: "uppercase" },
   tr: { flexDirection: "row", borderTop: `0.5 solid ${pdfColors.border}` },
   trTotal: { backgroundColor: pdfColors.goldLight },
+  trSection: { backgroundColor: pdfColors.goldLight },
   td: { fontSize: 8, paddingVertical: 3, paddingHorizontal: 4 },
   tdTotal: { fontWeight: 700, color: pdfColors.brownDark },
+  tdSection: { fontSize: 8.5, fontWeight: 700, color: pdfColors.brownDark, paddingVertical: 3, paddingHorizontal: 4 },
   wrap: { border: `0.75 solid ${pdfColors.border}` },
   pied: { marginTop: 10, fontSize: 7, fontStyle: "italic", color: pdfColors.textMuted },
 });
@@ -28,6 +30,7 @@ export function TableauDocument({
   colonnes,
   lignes,
   totalDerniereLigne = false,
+  sectionRows,
   pied,
 }: {
   titre: string;
@@ -35,8 +38,10 @@ export function TableauDocument({
   colonnes: Colonne[];
   lignes: (string | number)[][];
   totalDerniereLigne?: boolean;
+  sectionRows?: number[]; // indices de lignes-titres de section (catégorie) : pleine largeur, en gras
   pied?: string;
 }) {
+  const sections = new Set(sectionRows ?? []);
   const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
   return (
     <Document>
@@ -52,6 +57,13 @@ export function TableauDocument({
             ))}
           </View>
           {lignes.map((ligne, r) => {
+            if (sections.has(r)) {
+              return (
+                <View key={r} style={[styles.tr, styles.trSection]} wrap={false}>
+                  <Text style={[styles.tdSection, { width: "100%" }]}>{String(ligne[0] ?? "")}</Text>
+                </View>
+              );
+            }
             const total = totalDerniereLigne && r === lignes.length - 1;
             return (
               <View key={r} style={[styles.tr, total ? styles.trTotal : {}]} wrap={false}>

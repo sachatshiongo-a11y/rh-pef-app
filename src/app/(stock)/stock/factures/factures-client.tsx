@@ -150,20 +150,20 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
 
       {annees ? (
         <>
-          {annees.map((a, ai) => {
+          {annees.map((a) => {
             const nbA = a.mois.reduce((n, m) => n + m.factures.length, 0);
             const duA = a.mois.reduce((n, m) => n + sumReste(m.factures), 0);
             return (
-              <details key={a.annee} open={ai === 0} className="group overflow-hidden rounded-xl border">
+              <details key={a.annee} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-2.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{a.annee} <span className="font-normal text-muted-foreground">· {nbA} facture(s)</span></span>
                   {duA > 0 ? <span className="text-red-700">dû {usd(duA)}</span> : <span className="text-emerald-700">soldé</span>}
                 </summary>
                 <div className="space-y-1.5 p-2">
-                  {a.mois.map((m, mi) => {
+                  {a.mois.map((m) => {
                     const duM = sumReste(m.factures);
                     return (
-                      <details key={m.cle} open={ai === 0 && mi === 0} className="group/m overflow-hidden rounded-lg border">
+                      <details key={m.cle} className="group/m overflow-hidden rounded-lg border">
                         <summary className={`${sommaireCls} bg-muted/30 px-3 py-1.5 text-sm font-medium`}>
                           <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open/m:rotate-90">▸</span>{m.label} <span className="font-normal text-muted-foreground">· {m.factures.length}</span></span>
                           {duM > 0 ? <span className="text-xs text-red-700">dû {usd(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}
@@ -184,7 +184,7 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
             const total = g.factures.reduce((t, f) => t + Number(f.montant), 0);
             const regle = total - sumReste(g.factures);
             return (
-              <details key={g.titre} open className="group overflow-hidden rounded-xl border">
+              <details key={g.titre} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-2.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.factures.length} facture(s)</span></span>
                   <span className="text-xs font-normal">Réglé <b className="text-emerald-700">{usd(regle)}</b> / {usd(total)}</span>

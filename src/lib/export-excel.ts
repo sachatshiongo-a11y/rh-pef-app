@@ -8,6 +8,7 @@ const OPTIMA = "Optima";
 const BRUN = "FF6B4E2E";
 const OR_CLAIR = "FFF3E9D8";
 const OR_BORDURE = "FFD9C7A8";
+const OR_SECTION = "FFEFE4CD"; // fond des lignes-titres de section (catégorie)
 const GRIS = "FF888888";
 
 export type FeuilleExcel = {
@@ -17,6 +18,7 @@ export type FeuilleExcel = {
   lignes: (string | number)[][]; // données
   totauxCols?: number[]; // indices de colonnes à totaliser (ligne « Total » en bas)
   variationCol?: number; // colonne d'écart/variation à colorer (vert ↑ / rouge ↓)
+  sectionRows?: number[]; // indices (dans lignes) des lignes-titres de section (catégorie) : fusionnées, en gras
 };
 
 /**
@@ -99,6 +101,17 @@ export async function classeurExcel(opts: {
         const txt = String(cell.value ?? "");
         if (txt.includes("↑")) cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: "FF1B7F3B" } };
         else if (txt.includes("↓")) cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: "FFB42318" } };
+      }
+    }
+
+    // Lignes-titres de section (catégorie) : fusionnées sur toute la largeur, en gras, fond or.
+    if (f.sectionRows && f.sectionRows.length > 0) {
+      for (const idx of f.sectionRows) {
+        const rn = debutData + idx;
+        ws.mergeCells(rn, 1, rn, f.entete.length);
+        const cell = ws.getRow(rn).getCell(1);
+        cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_SECTION } };
       }
     }
 
