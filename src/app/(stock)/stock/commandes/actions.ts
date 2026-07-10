@@ -157,6 +157,10 @@ export async function creerBonCommande(formData: FormData) {
   const four = fournisseurId ? await prisma.fournisseur.findUnique({ where: { id: fournisseurId }, select: { nom: true } }) : null;
   const tag = four ? tagFournisseur(four.nom) : "";
 
+  // La Direction n'a pas à valider ses propres bons : créé directement VALIDÉ (prêt à exporter/envoyer).
+  // Le circuit brouillon → validation ne s'applique qu'aux autres rôles (ex. responsable stock).
+  const autoValide = user.role === "ADMIN";
+
   const bc = await prisma.$transaction(async (tx) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
     const sequence = (dernier._max.sequence ?? 0) + 1;
@@ -164,6 +168,7 @@ export async function creerBonCommande(formData: FormData) {
     return tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,
+        ...(autoValide ? { statut: "VALIDE" as const } : {}),
         fournisseurId,
         delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
@@ -189,8 +194,11 @@ export async function creerBonCommande(formData: FormData) {
 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
 
-  // Un bon de commande vient d'être émis (à valider) : cloche + push/e-mail à la Direction.
-  await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
+  // Un bon émis par un autre rôle attend la validation Direction : cloche + push/e-mail.
+  // Un bon créé par la Direction naît validé : aucune demande à envoyer.
+  if (!autoValide) {
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
+  }
 
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
