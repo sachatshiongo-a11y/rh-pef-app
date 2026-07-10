@@ -12,6 +12,7 @@ export type ArticleRow = {
   categorieId: string | null;
   fournisseurId: string | null;
   prix: string | null;
+  uniteParCarton: string | null; // conditionnement : nb d'unités par carton
   quantite: string;
   stockMinimum: string;
   seuilUrgent: string;
@@ -152,6 +153,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           </select>
           <input name="unite" placeholder="Unité (Kg, Pièce…)" className={cellCls} />
           <input name="prixUnitaireUSD" type="number" step="0.0001" placeholder="Prix USD" className={cellCls} />
+          <input name="uniteParCarton" type="number" step="1" min="0" placeholder="Unités / carton (ex. 24)" className={cellCls} />
           <input name="quantite" type="number" step="0.001" placeholder="Stock initial" className={cellCls} />
           <input name="stockMinimum" type="number" step="0.001" placeholder="Stock minimum" className={cellCls} />
           <button disabled={isPending} className="col-span-2 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50 md:col-span-4">Créer l&apos;article</button>
@@ -183,6 +185,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <th>Catégorie</th>
               <th>Fournisseur</th>
               <th className="w-24 text-right">Prix&nbsp;USD</th>
+              <th className="w-20 text-right" title="Nombre d'unités par carton">Par carton</th>
               <th className="w-16 text-right">Stock</th>
               <th className="w-20 text-right">Min</th>
               <th className="w-20 text-right">Seuil</th>
@@ -194,7 +197,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <Fragment key={a.id}>
                 {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
                   <tr>
-                    <td colSpan={9} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+                    <td colSpan={10} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
                     </td>
                   </tr>
@@ -202,7 +205,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                 <LigneArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
               </Fragment>
             ))}
-            {visibles.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -241,6 +244,7 @@ const LigneArticle = memo(function LigneArticle({
         </select>
       </td>
       <td><input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} text-right`} /></td>
+      <td><input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" /></td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td><input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} text-right`} /></td>
       <td><input type="number" step="0.001" defaultValue={a.seuilUrgent} onBlur={(e) => write("seuilUrgent", e.target.value, a.seuilUrgent)} className={`${cellCls} text-right`} /></td>
@@ -288,6 +292,9 @@ const CarteArticle = memo(function CarteArticle({
         </label>
         <label className={champLabel}>Prix USD
           <input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} !py-1.5 text-right`} />
+        </label>
+        <label className={champLabel}>Unités / carton
+          <input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
         </label>
         <label className={champLabel}>Stock (auto)
           <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{a.quantite}</span>

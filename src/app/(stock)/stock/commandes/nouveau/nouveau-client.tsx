@@ -52,6 +52,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial }: { articles: 
               <th className="px-2 py-2">Article (catalogue)</th>
               <th className="px-2 py-2">Désignation</th>
               <th className="px-2 py-2 text-right">Quantité</th>
+              <th className="px-2 py-2 text-right" title="Calculé : quantité ÷ unités par carton (défini au catalogue)">Cartons</th>
               <th className="px-2 py-2 text-right">P.U. USD</th>
               <th className="px-2 py-2 text-right">Total</th>
             </tr>
@@ -69,6 +70,14 @@ export function NouveauBonForm({ articles, fournisseurs, initial }: { articles: 
                 </td>
                 <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full`} placeholder="Désignation" /></td>
                 <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
+                <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+                  {(() => {
+                    const upc = Number(l.uniteParCarton) || 0, q = Number(l.quantite) || 0;
+                    if (upc <= 0 || q <= 0) return "—";
+                    const c = q / upc;
+                    return Number.isInteger(c) ? `${c}` : c.toFixed(2).replace(".", ",");
+                  })()}
+                </td>
                 <td className="px-2 py-1">
                   <input
                     name="ligne_prix"

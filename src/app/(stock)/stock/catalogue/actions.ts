@@ -57,6 +57,7 @@ export async function modifierArticle(id: string, formData: FormData) {
   const data: Prisma.ArticleStockUpdateInput = {};
   if (formData.has("designation")) data.designation = String(formData.get("designation")).trim();
   if (formData.has("prixUnitaireUSD")) data.prixUnitaireUSD = dec(formData.get("prixUnitaireUSD"));
+  if (formData.has("uniteParCarton")) data.uniteParCarton = dec(formData.get("uniteParCarton"));
   if (formData.has("unite")) data.unite = String(formData.get("unite")).trim() || null;
   if (formData.has("categorieId")) {
     const c = String(formData.get("categorieId")).trim();
