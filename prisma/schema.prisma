@@ -1104,6 +1104,36 @@ model AchatLegume {
   @@schema("stock")
 }
 
+// ─── Journal d'import réversible (inventaire, factures) ───
+model ImportBatch {
+  id         String            @id @default(uuid())
+  type       String // INVENTAIRE | FACTURES
+  libelle    String // ex. « Inventaire Juillet 2026 » ou nom du fichier
+  statut     String            @default("APPLIQUE") // APPLIQUE | ANNULE
+  resume     Json? // compteurs affichés (mises à jour, créés, mouvements…)
+  creeParId  String? // User.id (pas de FK cross-schéma)
+  createdAt  DateTime          @default(now())
+  annuleeAt  DateTime?
+  operations ImportOperation[]
+
+  @@index([type, createdAt])
+  @@schema("stock")
+}
+
+// Une opération élémentaire d'un import, pour pouvoir l'annuler.
+model ImportOperation {
+  id       String      @id @default(uuid())
+  batchId  String
+  batch    ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  entite   String // ArticleStock | Stock | MouvementStock | AchatLegume | FactureFournisseur | LigneFacture
+  entiteId String
+  action   String // CREATE | UPDATE
+  avant    Json? // valeurs précédentes (pour restaurer un UPDATE) ; null pour un CREATE
+
+  @@index([batchId])
+  @@schema("stock")
+}
+
 // ─── Stock restaurant : grille journalière Cuisine / Bar ───
 enum EspaceResto {
   CUISINE
