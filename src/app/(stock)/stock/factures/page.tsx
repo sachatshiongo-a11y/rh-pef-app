@@ -36,15 +36,19 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   // KPIs et soldes calculés en SQL (agrégats) : on ne recharge plus TOUTE la table à chaque affichage.
   const [factures, kpiRows, config] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
-    prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number }[]>`
+    prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number; nbTotal: number; nbReglees: number; nbDues: number; nbEchues: number }[]>`
       SELECT COALESCE(SUM("montantUSD"), 0)::float                                              AS total,
+             COUNT(*)::int                                                                      AS "nbTotal",
              COALESCE(SUM("montantUSD" - "resteAPayerUSD"), 0)::float                           AS regle,
+             COUNT(*) FILTER (WHERE statut = 'REGLEE')::int                                     AS "nbReglees",
              COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut <> 'REGLEE'), 0)::float        AS du,
-             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS echu
+             COUNT(*) FILTER (WHERE statut <> 'REGLEE')::int                                    AS "nbDues",
+             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS echu,
+             COUNT(*) FILTER (WHERE statut = 'ECHUE_NON_REGLEE')::int                           AS "nbEchues"
       FROM "stock"."FactureFournisseur"`,
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
-  const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0 };
+  const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0, nbTotal: 0, nbReglees: 0, nbDues: 0, nbEchues: 0 };
 
   // Solde par fournisseur : agrégé en SQL, et seulement quand la vue « fournisseur » est affichée.
   const anneeC = config?.anneeCourante ?? new Date().getFullYear();
@@ -115,12 +119,12 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         </div>
       </div>
 
-      {/* KPIs épurés */}
+      {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={usd(kpi.total)} />
-        <Kpi label="Réglé" valeur={usd(kpi.regle)} accent="green" />
-        <Kpi label="À payer" valeur={usd(kpi.du)} accent={kpi.du > 0 ? "amber" : undefined} />
-        <Kpi label="Échu" valeur={usd(kpi.echu)} accent={kpi.echu > 0 ? "red" : undefined} />
+        <Kpi label="Total facturé" valeur={usd(kpi.total)} sous={`${kpi.nbTotal} facture(s)`} href={lien({ statut: "" })} />
+        <Kpi label="Réglé" valeur={usd(kpi.regle)} sous={`${kpi.nbReglees} réglée(s)`} accent="green" href={lien({ statut: "REGLEE" })} />
+        <Kpi label="À payer" valeur={usd(kpi.du)} sous={`${kpi.nbDues} à régler`} accent={kpi.du > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
+        <Kpi label="Échu" valeur={usd(kpi.echu)} sous={`${kpi.nbEchues} échue(s)`} accent={kpi.echu > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
       </div>
 
       {/* Bascule de vue */}
@@ -182,12 +186,16 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   );
 }
 
-function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?: "green" | "amber" | "red" }) {
+function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: string; sous?: string; accent?: "green" | "amber" | "red"; href?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
-  return (
-    <div className={`rounded-lg border p-3 ${cls}`}>
+  const contenu = (
+    <>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-lg font-semibold">{valeur}</p>
-    </div>
+      {sous && <p className="mt-0.5 text-[11px] text-muted-foreground">{sous}</p>}
+    </>
   );
+  return href
+    ? <Link href={href} className={`block rounded-lg border p-3 transition-colors hover:border-primary ${cls}`} title="Filtrer la liste">{contenu}</Link>
+    : <div className={`rounded-lg border p-3 ${cls}`}>{contenu}</div>;
 }
