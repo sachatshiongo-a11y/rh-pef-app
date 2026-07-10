@@ -64,7 +64,7 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
       {factures.map((f) => {
         const be = badgeEcheance(f);
         return (
-          <li key={f.id} className={`flex gap-3 px-3 py-2 hover:bg-accent/30 sm:px-4 ${sel.has(f.id) ? "bg-primary/5" : ""}`}>
+          <li key={f.id} className={`flex gap-3 px-3 py-1.5 hover:bg-accent/30 sm:px-4 ${sel.has(f.id) ? "bg-primary/5" : ""}`}>
             <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="mt-1 shrink-0" aria-label={`Sélectionner ${f.nom}`} />
             <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
@@ -86,7 +86,7 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
                 <p className="text-[11px] text-muted-foreground">échéance {f.echeance ?? "—"}</p>
               </div>
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
               {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
               <div className="ml-auto flex items-center gap-2">
