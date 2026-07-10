@@ -8,7 +8,7 @@ export async function niveauxActuels(articleIds: string[]): Promise<Map<string, 
   const m = new Map<string, NiveauAlerte>();
   if (articleIds.length === 0) return m;
   const stocks = await prisma.stock.findMany({ where: { articleId: { in: articleIds } } });
-  for (const s of stocks) m.set(s.articleId, niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum));
+  for (const s of stocks) m.set(s.articleId, niveauAlerte(s.quantite, s.stockMinimum));
   return m;
 }
 
@@ -24,7 +24,7 @@ export async function notifierNouvellesAlertes(articleIds: string[], avant: Map<
   });
   const nouvelles: { designation: string; niveau: NiveauAlerte }[] = [];
   for (const s of stocks) {
-    const apres = niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum);
+    const apres = niveauAlerte(s.quantite, s.stockMinimum);
     const av = avant.get(s.articleId) ?? "OK";
     // Nouvelle alerte = on tombe en URGENT/APPRO alors qu'on n'y était pas (ou on s'aggrave vers URGENT).
     if ((apres === "URGENT" && av !== "URGENT") || (apres === "APPRO" && av === "OK")) {

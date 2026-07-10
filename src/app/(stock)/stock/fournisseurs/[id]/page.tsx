@@ -141,7 +141,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
             </thead>
             <tbody>
               {f.articles.map((a) => {
-                const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.seuilUrgent, a.stock.stockMinimum) : null;
+                const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
                 return (
                   <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                     <td className="px-3 py-2 font-medium">{a.designation}</td>

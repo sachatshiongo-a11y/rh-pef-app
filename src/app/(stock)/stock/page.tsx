@@ -60,7 +60,7 @@ export default async function StockDashboard() {
   const avecAlerte = stocks.map((s) => ({
     designation: s.article.designation,
     quantite: s.quantite,
-    niveau: niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum),
+    niveau: niveauAlerte(s.quantite, s.stockMinimum),
     valeur: s.article.prixUnitaireUSD ? Number(s.quantite) * Number(s.article.prixUnitaireUSD) : 0,
   }));
   const nbUrgent = avecAlerte.filter((a) => a.niveau === "URGENT").length;

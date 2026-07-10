@@ -22,7 +22,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
   ]);
 
   const rows: ArticleRow[] = articles.map((a) => {
-    const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.seuilUrgent, a.stock.stockMinimum) : null;
+    const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
     return {
       id: a.id,
       designation: a.designation,
@@ -33,7 +33,6 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
       uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
       quantite: a.stock ? a.stock.quantite.toString() : "0",
       stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
-      seuilUrgent: a.stock ? a.stock.seuilUrgent.toString() : "0",
       niveau,
     };
   });

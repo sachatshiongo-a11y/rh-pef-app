@@ -51,7 +51,7 @@ export async function appliquerComptage(formData: FormData) {
   const theo = new Map(stocks.map((s) => [s.articleId, Number(s.quantite)]));
   const nom = new Map(articles.map((a) => [a.id, a.designation]));
   // Niveaux d'alerte AVANT ajustement, pour notifier les articles qui passent bas après recomptage.
-  const niveauxAvant = new Map<string, NiveauAlerte>(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum)]));
+  const niveauxAvant = new Map<string, NiveauAlerte>(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.stockMinimum)]));
 
   // Calcule les écarts + repère les lignes hors tolérance.
   const lignes = comptes.map((c) => {

@@ -19,7 +19,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
   });
 
   const lignes = articles.map((a) => {
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.seuilUrgent, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
     return [
       a.designation,
       DOMAINE_LABEL[a.domaine] ?? a.domaine,
