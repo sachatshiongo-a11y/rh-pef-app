@@ -18,6 +18,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
     b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: l.quantite, prix: l.prix })) : [vide(), vide(), vide()];
 
   const [erreur, setErreur] = useState<string | null>(null);
+  const [doublon, setDoublon] = useState<string | null>(null);
   const [isPending, start] = useTransition();
   const [bonId, setBonId] = useState(bon0?.id ?? "");
   const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
@@ -92,7 +93,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
 
   const submit = (fd: FormData) => {
-    setErreur(null);
+    setErreur(null); setDoublon(null);
     start(async () => {
       try { await creerFactureAvecLignes(fd); }
       catch (e) {
@@ -100,7 +101,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         if (e instanceof Error && e.message === "NEXT_REDIRECT") return;
         const d = e as { digest?: string };
         if (d?.digest?.startsWith?.("NEXT_REDIRECT")) return;
-        setErreur(e instanceof Error ? e.message : "Erreur.");
+        const msg = e instanceof Error ? e.message : "Erreur.";
+        if (msg.startsWith("DOUBLON_POSSIBLE|")) setDoublon(msg.slice("DOUBLON_POSSIBLE|".length));
+        else setErreur(msg);
       }
     });
   };
@@ -108,6 +111,15 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   return (
     <form action={submit} className="space-y-4">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {doublon && (
+        <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="font-semibold">⚠ Achat peut-être déjà saisi</p>
+          <p className="mt-1">{doublon}</p>
+          <button type="submit" name="forcerDoublons" value="1" disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
+            Enregistrer quand même (le stock sera compté en plus)
+          </button>
+        </div>
+      )}
 
       <div className="rounded-lg border bg-muted/20 p-3">
         <div className="text-sm font-medium">Joindre le PDF de la facture <span className="font-normal text-muted-foreground">(facultatif)</span></div>

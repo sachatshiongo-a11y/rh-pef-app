@@ -290,6 +290,28 @@ export async function creerFactureAvecLignes(formData: FormData) {
   const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
+  // Garde-fou anti-double comptage : le même achat saisi dans la Liste d'achat (ou en entrée
+  // manuelle) PUIS enregistré ici avec ses lignes ferait entrer le stock DEUX FOIS. On détecte
+  // les entrées récentes hors facture sur les mêmes articles et on demande confirmation.
+  if (entrerEnStock && formData.get("forcerDoublons") == null) {
+    const artIds = lignes.map((l) => l.articleId).filter((x): x is string => !!x);
+    if (artIds.length > 0) {
+      const ref = dateStr ? new Date(dateStr) : new Date();
+      const debut = new Date(ref); debut.setUTCDate(debut.getUTCDate() - 14);
+      const fin = new Date(ref); fin.setUTCDate(fin.getUTCDate() + 14);
+      const recents = await prisma.mouvementStock.findMany({
+        where: { type: "ENTREE", factureId: null, articleId: { in: artIds }, date: { gte: debut, lte: fin }, origine: { not: { contains: "Inventaire" } } },
+        include: { article: { select: { designation: true } } },
+        orderBy: { date: "desc" },
+        take: 6,
+      });
+      if (recents.length > 0) {
+        const liste = recents.slice(0, 5).map((m) => `${m.article.designation} (+${Number(m.quantite)} le ${new Date(m.date).toLocaleDateString("fr-FR")}${m.origine ? ` — ${m.origine}` : ""})`).join(" · ");
+        throw new Error(`DOUBLON_POSSIBLE|Des entrées récentes hors facture existent déjà pour ces articles : ${liste}. Si cette facture correspond à ces achats déjà saisis, le stock serait compté deux fois — décochez « entrer en stock », ou supprimez d'abord ces entrées dans la Liste d'achat / Mouvements. Sinon, confirmez avec le bouton « Enregistrer quand même ».`);
+      }
+    }
+  }
+
   // Rattachement fournisseur : id explicite ; sinon rapprochement flou (« Kathy » ↔ « Maison Kathy »),
   // sinon création automatique du fournisseur avec les coordonnées lues sur la facture.
   let fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;

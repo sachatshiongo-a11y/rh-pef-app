@@ -72,8 +72,9 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Liste d&apos;achat</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Saisissez les articles achetés et leurs quantités : chaque ligne alimente directement
-            l&apos;inventaire. L&apos;historique se consulte par jour, semaine ou mois.
+            Réservez cette liste aux achats <strong>sans facture</strong> : chaque ligne alimente directement
+            l&apos;inventaire. Un achat avec facture s&apos;enregistre dans <strong>Factures</strong> (c&apos;est la facture
+            qui alimente le stock) ; les légumes frais dans <strong>leur onglet dédié</strong>.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

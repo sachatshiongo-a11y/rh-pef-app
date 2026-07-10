@@ -40,7 +40,7 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
       <div className="flex flex-wrap items-end gap-4">
         <label className="flex flex-1 flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Origine / libellé (optionnel)</span>
-          <input name="origine" placeholder="Liste d'achat semaine… / Achat légumes frais" className={inp} />
+          <input name="origine" placeholder="Liste d'achat semaine…" className={inp} />
         </label>
         <div className="text-sm">
           <span className="text-muted-foreground">Devise du montant</span>
@@ -79,7 +79,7 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
         </button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
       </div>
-      <p className="text-xs text-muted-foreground">Le montant est facultatif. En CDF, il est converti en USD au taux courant et enregistré sur le mouvement (utile pour l&apos;achat de légumes frais payés en francs).</p>
+      <p className="text-xs text-muted-foreground">Le montant est facultatif. En CDF, il est converti en USD au taux courant et enregistré sur le mouvement.</p>
     </form>
   );
 }
