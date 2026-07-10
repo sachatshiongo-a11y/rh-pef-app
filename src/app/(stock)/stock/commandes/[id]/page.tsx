@@ -5,6 +5,7 @@ import { verifySession } from "@/lib/auth";
 import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, delaiPaiementLabel } from "@/lib/stock";
 import { changerStatutBonCommande, validerBonCommande, supprimerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
+import { LierFacture } from "./lier-facture";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -16,13 +17,27 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
       include: {
         lignes: true,
         fournisseur: true,
-        receptions: { orderBy: { date: "desc" }, include: { _count: { select: { mouvements: true } } } },
+        receptions: { orderBy: { date: "desc" } },
         factures: { orderBy: { date: "desc" } },
       },
     }),
     prisma.parametresAchat.findUnique({ where: { id: "singleton" } }),
   ]);
   if (!bc) notFound();
+
+  // Factures non liées du même fournisseur, à rattacher à ce bon à tout moment.
+  const facturesLiablesRaw = bc.fournisseurId
+    ? await prisma.factureFournisseur.findMany({
+        where: { fournisseurId: bc.fournisseurId, bonDeCommandeId: null },
+        orderBy: { date: "desc" }, take: 100,
+        select: { id: true, numero: true, date: true, montantUSD: true },
+      })
+    : [];
+  const facturesLiables = facturesLiablesRaw.map((f) => ({
+    id: f.id,
+    libelle: (f.numero ? `Facture ${f.numero}` : "Facture") + (f.date ? ` · ${new Date(f.date).toLocaleDateString("fr-FR")}` : ""),
+    montant: Number(f.montantUSD),
+  }));
 
   const lignesArticle = bc.lignes.filter((l) => l.articleId).map((l) => ({ id: l.id, designation: l.designation, quantite: l.quantite.toString() }));
   const estBrouillon = bc.statut === "BROUILLON";
@@ -154,13 +169,13 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
             {receptionnable && <ReceptionForm bcId={bc.id} lignes={lignesArticle} />}
           </div>
           {bc.receptions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucune réception enregistrée. À la réception des articles (avec leur facture), enregistrez les quantités reçues : l&apos;entrée en stock se fait ici.</p>
+            <p className="text-sm text-muted-foreground">Aucune réception enregistrée. À l&apos;arrivée de la marchandise, enregistrez les quantités reçues : cela met à jour le statut du bon. L&apos;entrée en stock, elle, se fait à l&apos;enregistrement de la facture fournisseur (pas à la réception).</p>
           ) : (
             <ul className="divide-y text-sm">
               {bc.receptions.map((r) => (
                 <li key={r.id} className="flex items-center justify-between py-1.5">
                   <span>Réception du {new Date(r.date).toLocaleDateString("fr-FR")}</span>
-                  <span className="text-muted-foreground">{r._count.mouvements} entrée(s) en stock</span>
+                  <span className="text-muted-foreground">marchandise reçue</span>
                 </li>
               ))}
             </ul>
@@ -171,10 +186,14 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
       {/* Comparaison avec la/les facture(s) */}
       <div className="rounded-lg border p-4">
         <h2 className="mb-3 text-base font-semibold">Comparaison commande / facture</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-3">
+          <span className="text-sm font-medium">Rattacher une facture :</span>
+          <LierFacture bcId={bc.id} factures={facturesLiables} />
+        </div>
         {bc.factures.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Aucune facture liée. À la réception, enregistrez la facture depuis l&apos;onglet
-            <span className="font-medium"> Factures</span> en la reliant à ce bon de commande.
+            Aucune facture liée pour l&apos;instant. Enregistrez la facture depuis l&apos;onglet
+            <span className="font-medium"> Factures</span>, puis rattachez-la ci-dessus (ou depuis la facture).
           </p>
         ) : (
           <>

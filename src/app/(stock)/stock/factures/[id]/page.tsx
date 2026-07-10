@@ -5,6 +5,7 @@ import { usd, qte, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/sto
 import { verifySession } from "@/lib/auth";
 import { MarquerPayeeBtn } from "./marquer-payee-btn";
 import { JoindreDocument } from "./joindre-document";
+import { LierBon } from "./lier-bon";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -25,6 +26,15 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
 
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
   const bc = facture.bonDeCommande;
+
+  // Bons de commande liables (même fournisseur), pour lier / changer à tout moment.
+  const bonsLiablesRaw = await prisma.bonDeCommande.findMany({
+    where: { statut: { not: "ANNULE" }, ...(facture.fournisseurId ? { fournisseurId: facture.fournisseurId } : {}) },
+    orderBy: [{ annee: "desc" }, { sequence: "desc" }],
+    take: 100,
+    select: { id: true, numero: true, totalUSD: true },
+  });
+  const bonsLiables = bonsLiablesRaw.map((b) => ({ id: b.id, numero: b.numero, total: Number(b.totalUSD) }));
 
   // Réconciliation : croise les lignes du BC (commandé) et de la facture (facturé).
   type L = { designation: string; qteBC: number; puBC: number; totBC: number; qteFac: number; puFac: number; totFac: number };
@@ -53,7 +63,9 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold sm:text-2xl">Facture · {nom}</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">Facture · {facture.fournisseurId
+          ? <Link href={`/stock/fournisseurs/${facture.fournisseurId}`} className="text-primary hover:underline">{nom}</Link>
+          : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {facture.statut !== "REGLEE" && <MarquerPayeeBtn id={facture.id} />}
           <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
@@ -115,8 +127,12 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Réconciliation bon de commande ↔ facture</h2>
           {bc && <Link href={`/stock/commandes/${bc.id}`} className="text-xs text-primary hover:underline">Voir le BC {bc.numero}</Link>}
         </div>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-3">
+          <span className="text-sm font-medium">Bon de commande lié :</span>
+          <LierBon factureId={facture.id} bonActuelId={facture.bonDeCommandeId} bons={bonsLiables} />
+        </div>
         {!bc ? (
-          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucun bon de commande lié à cette facture. Liez-en un depuis le formulaire de facture pour comparer commandé et facturé.</p>
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucun bon de commande lié pour l’instant. Choisissez-en un ci-dessus pour comparer commandé et facturé.</p>
         ) : (
           <>
             <div className="max-h-[70vh] overflow-auto rounded-lg border">

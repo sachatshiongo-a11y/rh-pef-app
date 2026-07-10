@@ -196,6 +196,26 @@ async function garde() {
   return user;
 }
 
+/** Lie (ou détache si bonDeCommandeId = null) une facture à un bon de commande — à tout moment. */
+export async function lierFactureABon(factureId: string, bonDeCommandeId: string | null) {
+  const user = await garde();
+  const bcId = bonDeCommandeId || null;
+  if (bcId) {
+    // Cohérence : le BC doit exister (et, si la facture a un fournisseur, être du même fournisseur).
+    const facture = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id: factureId }, select: { fournisseurId: true } });
+    const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, select: { fournisseurId: true } });
+    if (facture.fournisseurId && bc.fournisseurId && facture.fournisseurId !== bc.fournisseurId) {
+      throw new Error("Ce bon de commande appartient à un autre fournisseur.");
+    }
+  }
+  await prisma.factureFournisseur.update({ where: { id: factureId }, data: { bonDeCommandeId: bcId } });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: factureId, champ: "bonDeCommande", nouvelleValeur: bcId ?? "(détaché)", userId: user.id });
+  revalidatePath(`/stock/factures/${factureId}`);
+  if (bcId) revalidatePath(`/stock/commandes/${bcId}`);
+  revalidatePath("/stock/factures");
+  revalidatePath("/stock/commandes");
+}
+
 /** Ajoute une facture fournisseur individuellement (via le formulaire). */
 export async function creerFacture(formData: FormData) {
   const user = await garde();

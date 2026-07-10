@@ -57,7 +57,6 @@ export function RestaurantGrille({
         <table className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
-              <th className="w-40">Catégorie</th>
               <th>Désignation</th>
               <th className="w-24">Unité</th>
               <th className="text-right">Stock base</th>
@@ -69,9 +68,9 @@ export function RestaurantGrille({
             {lignes.map((l, i) => (
               <Fragment key={l.id}>
                 {(i === 0 || lignes[i - 1].categorie !== l.categorie) && l.categorie && (
-                  <tr><td colSpan={jours.length + (estDirection ? 5 : 4)} className="bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.categorie}</td></tr>
+                  <tr><td colSpan={jours.length + (estDirection ? 4 : 3)} className="bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.categorie}</td></tr>
                 )}
-                <LigneR ligne={l} jours={jours} listeId={listeId} estDirection={estDirection}
+                <LigneR ligne={l} jours={jours} estDirection={estDirection}
                   onSave={save} onSaveComptage={saveComptage} onDelete={(id) => run(() => supprimerArticleResto(id))} />
               </Fragment>
             ))}
@@ -83,8 +82,8 @@ export function RestaurantGrille({
   );
 }
 
-const LigneR = memo(function LigneR({ ligne, jours, listeId, estDirection, onSave, onSaveComptage, onDelete }: {
-  ligne: LigneResto; jours: Jour[]; listeId: string; estDirection: boolean;
+const LigneR = memo(function LigneR({ ligne, jours, estDirection, onSave, onSaveComptage, onDelete }: {
+  ligne: LigneResto; jours: Jour[]; estDirection: boolean;
   onSave: (id: string, name: string, value: string) => Promise<void>;
   onSaveComptage: (id: string, iso: string, value: string) => Promise<void>;
   onDelete: (id: string) => void;
@@ -95,7 +94,6 @@ const LigneR = memo(function LigneR({ ligne, jours, listeId, estDirection, onSav
 
   return (
     <tr className={`hover:bg-accent/40 even:bg-muted/25 ${busy ? "opacity-60" : ""}`}>
-      <td><input defaultValue={ligne.categorie ?? ""} list={listeId} onBlur={(e) => write("categorie", e.target.value, ligne.categorie ?? "")} className={inp} /></td>
       <td><input defaultValue={ligne.designation} onBlur={(e) => write("designation", e.target.value, ligne.designation)} className={`${inp} min-w-40 font-medium`} /></td>
       <td><input defaultValue={ligne.unite ?? ""} onBlur={(e) => write("unite", e.target.value, ligne.unite ?? "")} className={inp} /></td>
       <td className="text-right"><input type="number" step="0.001" defaultValue={ligne.base} onBlur={(e) => write("stockBaseJournalier", e.target.value, ligne.base)} className={cell} /></td>
