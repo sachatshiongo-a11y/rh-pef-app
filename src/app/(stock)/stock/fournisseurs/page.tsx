@@ -16,6 +16,7 @@ export default async function FournisseursPage() {
     telephone: f.telephone ?? "",
     ville: f.ville ?? "",
     rccm: f.rccm ?? "",
+    idNational: f.idNational ?? "",
     delaiPaiement: f.delaiPaiement ?? "",
     delaiLivraison: f.delaiLivraison ?? "",
     nbArticles: f._count.articles,

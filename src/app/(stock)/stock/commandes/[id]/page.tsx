@@ -91,7 +91,9 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
 
         <div className="grid gap-4 p-5 sm:grid-cols-2">
           <Partie titre="Fournisseur" lignes={[
-            ["Nom", bc.fournisseur?.nom ?? "—"],
+            ["Nom", bc.fournisseurId && bc.fournisseur
+              ? <Link href={`/stock/fournisseurs/${bc.fournisseurId}`} className="font-medium text-primary hover:underline">{bc.fournisseur.nom}</Link>
+              : (bc.fournisseur?.nom ?? "—")],
             ["Ville", bc.fournisseur?.ville ?? "—"],
             ["Téléphone", bc.fournisseur?.telephone ?? "—"],
             ["RCCM", bc.fournisseur?.rccm ?? "—"],
@@ -215,7 +217,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
   );
 }
 
-function Partie({ titre, lignes }: { titre: string; lignes: [string, string][] }) {
+function Partie({ titre, lignes }: { titre: string; lignes: [string, React.ReactNode][] }) {
   return (
     <div className="rounded-md border">
       <div className="border-b bg-muted/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titre}</div>

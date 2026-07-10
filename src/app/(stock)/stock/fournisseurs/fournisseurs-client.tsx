@@ -6,10 +6,10 @@ import { creerFournisseur, modifierFournisseur, supprimerFournisseur, fusionnerF
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
-  rccm: string; delaiPaiement: string; delaiLivraison: string; nbArticles: number;
+  rccm: string; idNational: string; delaiPaiement: string; delaiLivraison: string; nbArticles: number;
 };
 const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
-const CH = ["nom", "contactNom", "telephone", "ville", "rccm", "delaiPaiement", "delaiLivraison"] as const;
+const CH = ["nom", "contactNom", "telephone", "ville", "rccm", "idNational", "delaiPaiement", "delaiLivraison"] as const;
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 export function FournisseursClient({ fournisseurs, estDirection }: { fournisseurs: FournRow[]; estDirection: boolean }) {
@@ -128,6 +128,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
               <th>Téléphone</th>
               <th>Ville</th>
               <th>RCCM</th>
+              <th>N° Id national</th>
               <th>Délai paiement</th>
               <th>Délai livraison</th>
               <th className="text-right">Articles</th>
@@ -138,7 +139,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
             {visibles.map((f) => (
               <LigneFournisseur key={f.id} f={f} estDirection={estDirection} onSave={save} onDelete={supprimer} />
             ))}
-            {visibles.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucun fournisseur.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">Aucun fournisseur.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -180,7 +181,7 @@ const LigneFournisseur = memo(function LigneFournisseur({
 
 const LABELS: Record<(typeof CH)[number], string> = {
   nom: "Nom", contactNom: "Contact", telephone: "Téléphone", ville: "Ville",
-  rccm: "RCCM", delaiPaiement: "Délai paiement", delaiLivraison: "Délai livraison",
+  rccm: "RCCM", idNational: "N° Id national", delaiPaiement: "Délai paiement", delaiLivraison: "Délai livraison",
 };
 
 /** Carte éditable d'un fournisseur — équivalent mobile de LigneFournisseur (blur = enregistrement). */
@@ -208,7 +209,7 @@ const CarteFournisseur = memo(function CarteFournisseur({
         <Link href={`/stock/fournisseurs/${f.id}`} className="shrink-0 whitespace-nowrap rounded-full border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-accent">Fiche →</Link>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        {(["contactNom", "telephone", "ville", "rccm", "delaiPaiement", "delaiLivraison"] as const).map((c) => (
+        {(["contactNom", "telephone", "ville", "rccm", "idNational", "delaiPaiement", "delaiLivraison"] as const).map((c) => (
           <label key={c} className={champ}>{LABELS[c]}
             {estDirection
               ? <input defaultValue={f[c]} onBlur={(e) => write(c, e.target.value, f[c])} className={`${inp} !py-1.5`} />

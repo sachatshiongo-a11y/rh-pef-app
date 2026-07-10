@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL } from "@/lib/stock";
@@ -25,11 +26,19 @@ export default async function FicheComptagePage({ searchParams }: { searchParams
     include: { stock: true, categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } } },
   });
 
-  const parDomaine = new Map<string, typeof articles>();
+  // Regroupe par domaine puis par catégorie (comme les catalogues), pour compter catégorie par catégorie.
+  const SANS_CAT = "Sans catégorie";
+  const parDomaine = new Map<string, Map<string, typeof articles>>();
   for (const a of articles) {
-    if (!parDomaine.has(a.domaine)) parDomaine.set(a.domaine, []);
-    parDomaine.get(a.domaine)!.push(a);
+    const cat = a.categorie?.nom ?? SANS_CAT;
+    if (!parDomaine.has(a.domaine)) parDomaine.set(a.domaine, new Map());
+    const cats = parDomaine.get(a.domaine)!;
+    if (!cats.has(cat)) cats.set(cat, []);
+    cats.get(cat)!.push(a);
   }
+  const trierCats = (cats: Map<string, typeof articles>) =>
+    [...cats.entries()].sort(([a], [b]) =>
+      a === SANS_CAT ? 1 : b === SANS_CAT ? -1 : a.localeCompare(b, "fr"));
   const dateJour = new Date().toLocaleDateString("fr-FR");
 
   return (
@@ -44,6 +53,7 @@ export default async function FicheComptagePage({ searchParams }: { searchParams
         .fiche table { width: 100%; border-collapse: collapse; }
         .fiche th, .fiche td { border: 0.5pt solid #cbb89a; padding: 3px 6px; font-size: 11px; text-align: left; }
         .fiche th { background: #f5ecd9; }
+        .fiche td.cat { background: #efe4cd; font-weight: 600; }
         .fiche .vide { width: 80px; color: #bbb; }
       `}</style>
 
@@ -70,15 +80,14 @@ export default async function FicheComptagePage({ searchParams }: { searchParams
           </div>
         </div>
 
-        {[...parDomaine.entries()].map(([dom, arts]) => (
+        {[...parDomaine.entries()].map(([dom, cats]) => (
           <div key={dom}>
             <h3 className="mb-1 text-base font-semibold">{DOMAINE_LABEL[dom] ?? dom}</h3>
             <table>
               <thead>
                 <tr>
                   <th>Désignation</th>
-                  <th style={{ width: 130 }}>Catégorie</th>
-                  <th style={{ width: 130 }}>Fournisseur</th>
+                  <th style={{ width: 150 }}>Fournisseur</th>
                   <th style={{ width: 55 }}>Unité</th>
                   <th style={{ width: 65 }}>Théorique</th>
                   <th className="vide">Physique</th>
@@ -86,16 +95,20 @@ export default async function FicheComptagePage({ searchParams }: { searchParams
                 </tr>
               </thead>
               <tbody>
-                {arts.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.designation}</td>
-                    <td>{a.categorie?.nom ?? ""}</td>
-                    <td>{a.fournisseur?.nom ?? ""}</td>
-                    <td>{a.unite ?? ""}</td>
-                    <td>{a.stock ? qte(a.stock.quantite) : "0"}</td>
-                    <td className="vide"></td>
-                    <td className="vide"></td>
-                  </tr>
+                {trierCats(cats).map(([cat, arts]) => (
+                  <Fragment key={cat}>
+                    <tr><td className="cat" colSpan={6}>{cat}</td></tr>
+                    {arts.map((a) => (
+                      <tr key={a.id}>
+                        <td>{a.designation}</td>
+                        <td>{a.fournisseur?.nom ?? ""}</td>
+                        <td>{a.unite ?? ""}</td>
+                        <td>{a.stock ? qte(a.stock.quantite) : "0"}</td>
+                        <td className="vide"></td>
+                        <td className="vide"></td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

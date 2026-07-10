@@ -8,7 +8,7 @@ export default async function FournisseursImprimerPage() {
   });
 
   const lignes = fournisseurs.map((f) => [
-    f.nom, f.contactNom ?? "", f.telephone ?? "", f.ville ?? "", f.rccm ?? "",
+    f.nom, f.contactNom ?? "", f.telephone ?? "", f.ville ?? "", f.rccm ?? "", f.idNational ?? "",
     f.delaiPaiement ?? "", f.modePaiement ?? "", f._count.articles, f._count.factures,
   ] as (string | number)[]);
 
@@ -16,8 +16,8 @@ export default async function FournisseursImprimerPage() {
     <PrintDoc
       titre="Fournisseurs"
       sousTitre={new Date().toLocaleDateString("fr-FR")}
-      entete={["Nom", "Contact", "Téléphone", "Ville", "RCCM", "Délai paiement", "Mode", "Articles", "Factures"]}
-      aligneDroite={[7, 8]}
+      entete={["Nom", "Contact", "Téléphone", "Ville", "RCCM", "N° Id national", "Délai paiement", "Mode", "Articles", "Factures"]}
+      aligneDroite={[8, 9]}
       lignes={lignes}
     />
   );
