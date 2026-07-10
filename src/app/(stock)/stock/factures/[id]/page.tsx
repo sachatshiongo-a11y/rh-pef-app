@@ -26,6 +26,8 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   });
   if (!facture) notFound();
 
+  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
   const bc = facture.bonDeCommande;
 
@@ -70,7 +72,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {facture.statut !== "REGLEE" && <MarquerPayeeBtn id={facture.id} />}
-          <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} />
+          <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} />
           <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
@@ -105,7 +107,11 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           <ul className="divide-y rounded-lg border text-sm">
             {facture.paiements.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
-                <span className="text-muted-foreground">{new Date(p.date).toLocaleDateString("fr-FR")}{p.modePaiement ? ` · ${p.modePaiement}` : ""}{p.note ? ` · ${p.note}` : ""}</span>
+                <span className="text-muted-foreground">
+                  {p.type === "AVOIR" && <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Avoir</span>}
+                  {new Date(p.date).toLocaleDateString("fr-FR")}{p.modePaiement ? ` · ${p.modePaiement}` : ""}{p.note ? ` · ${p.note}` : ""}
+                  {p.montantCDF ? <span className="ml-1 text-xs">({Number(p.montantCDF).toLocaleString("fr-FR")} FC @ {Number(p.tauxChangeUtilise ?? 0).toLocaleString("fr-FR")})</span> : null}
+                </span>
                 <span className="font-semibold tabular-nums text-emerald-700">{usd(Number(p.montantUSD))}</span>
               </li>
             ))}

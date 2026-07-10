@@ -1074,13 +1074,16 @@ model FactureFournisseur {
 
 // Paiement (total ou partiel) enregistré sur une facture fournisseur — historique daté.
 model Paiement {
-  id           String             @id @default(uuid())
-  factureId    String
-  facture      FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
-  date         DateTime           @db.Date
-  montantUSD   Decimal            @db.Decimal(14, 2)
-  modePaiement String?
-  note         String?
+  id                String             @id @default(uuid())
+  factureId         String
+  facture           FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  type              String             @default("PAIEMENT") // PAIEMENT | AVOIR (note de crédit / retour marchandise)
+  date              DateTime           @db.Date
+  montantUSD        Decimal            @db.Decimal(14, 2)
+  montantCDF        Decimal?           @db.Decimal(16, 2) // montant réellement versé en francs (si payé en CDF)
+  tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du paiement
+  modePaiement      String?
+  note              String?
   creeParId    String? // User.id (pas de FK cross-schéma)
   createdAt    DateTime           @default(now())
 

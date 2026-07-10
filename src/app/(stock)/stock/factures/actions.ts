@@ -425,18 +425,32 @@ export async function marquerPayee(id: string) {
   revalidatePath(`/stock/factures/${id}`);
 }
 
-/** Enregistre un paiement (total ou PARTIEL) sur une facture : historique daté + statut recalculé. */
+/** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit)
+ * sur une facture : historique daté + statut recalculé. */
 export async function enregistrerPaiement(id: string, formData: FormData) {
   const user = await garde();
-  const montant = dec(formData.get("montant"));
-  if (montant <= 0) throw new Error("Le montant du paiement doit être supérieur à 0.");
+  const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
+  const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
+  const saisi = dec(formData.get("montant"));
+  if (saisi <= 0) throw new Error("Le montant doit être supérieur à 0.");
   const dateStr = String(formData.get("date") ?? "").trim() || AUJ();
   const mode = String(formData.get("modePaiement") ?? "").trim() || null;
   const note = String(formData.get("note") ?? "").trim() || null;
+  if (type === "AVOIR" && !note) throw new Error("Indiquez le motif de l'avoir (ex. retour marchandise).");
+
+  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement.
+  let montant = saisi, montantCDF: number | null = null, taux: number | null = null;
+  if (devise === "CDF") {
+    const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+    taux = Number(config?.tauxChangeCDF ?? 0);
+    if (!taux) throw new Error("Taux de change non configuré (Paramètres RH).");
+    montantCDF = saisi;
+    montant = Math.round((saisi / taux) * 100) / 100;
+  }
 
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
   const reste = Number(f.resteAPayerUSD);
-  if (montant > reste + 0.009) throw new Error(`Le paiement (${montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
+  if (montant > reste + 0.009) throw new Error(`Le ${type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
 
   const nouveauRegle = Number(f.montantRegleUSD) + montant;
   const nouveauReste = Math.max(0, Number(f.montantUSD) - nouveauRegle);
@@ -444,7 +458,7 @@ export async function enregistrerPaiement(id: string, formData: FormData) {
   const echeanceISO = f.dateEcheance ? new Date(f.dateEcheance).toISOString().slice(0, 10) : null;
 
   await prisma.$transaction([
-    prisma.paiement.create({ data: { factureId: id, date: new Date(dateStr), montantUSD: montant, modePaiement: mode, note, creeParId: user.id } }),
+    prisma.paiement.create({ data: { factureId: id, type, date: new Date(dateStr), montantUSD: montant, montantCDF, tauxChangeUtilise: taux, modePaiement: mode, note, creeParId: user.id } }),
     prisma.factureFournisseur.update({
       where: { id },
       data: {
@@ -455,7 +469,7 @@ export async function enregistrerPaiement(id: string, formData: FormData) {
       },
     }),
   ]);
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "paiement", nouvelleValeur: `${montant.toFixed(2)} $ (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: type === "AVOIR" ? "avoir" : "paiement", nouvelleValeur: `${montant.toFixed(2)} $${montantCDF ? ` (${montantCDF.toLocaleString("fr-FR")} FC)` : ""} (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath(`/stock/factures/${id}`);
 }

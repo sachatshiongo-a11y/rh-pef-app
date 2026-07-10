@@ -58,7 +58,7 @@ export default async function AccueilPage() {
     prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: maintenant }, dateFin: { gte: maintenant } } }),
-    calculerAlertes(),
+    calculerAlertes().then((l) => l.filter((a) => a.espace === "RH")), // les alertes STOCK restent dans leur espace
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateFin: { gte: maintenant }, dateDebut: { lte: dans30j } },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },

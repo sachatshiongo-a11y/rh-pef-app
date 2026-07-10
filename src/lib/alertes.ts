@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 
 export type Alerte = {
   type: "CONGE_NON_VALIDE" | "JOUR_PAIE" | "CONTRAT" | "PERIODE_ESSAI" | "DOCUMENT" | "DECLARATION" | "FACTURES";
+  // Espace concerné : les alertes STOCK (factures fournisseurs…) ne s'affichent pas sur l'accueil RH.
+  espace: "RH" | "STOCK";
   niveau: "info" | "warning" | "urgent";
   message: string;
   lien?: string;
@@ -69,6 +71,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     const j = joursAvant(new Date(c.dateDebut));
     alertes.push({
       type: "CONGE_NON_VALIDE",
+      espace: "RH",
       niveau: j <= 3 ? "urgent" : j <= 7 ? "warning" : "info",
       message: `Congé de ${c.employee.nom} débute ${
         j <= 0 ? "aujourd'hui" : `dans ${j} jour(s)`
@@ -87,6 +90,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     const restant = jourPaieEffectif - auj;
     alertes.push({
       type: "JOUR_PAIE",
+      espace: "RH",
       niveau: restant <= 1 ? "urgent" : "warning",
       message:
         restant <= 0
@@ -101,6 +105,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     if (c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= maintenant) {
       alertes.push({
         type: "CONTRAT",
+        espace: "RH",
         niveau: "warning",
         message: `Contrat ${c.type} de ${c.employee.nom} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`,
         lien: `/employes/${c.employee.id}`,
@@ -113,6 +118,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     ) {
       alertes.push({
         type: "PERIODE_ESSAI",
+        espace: "RH",
         niveau: "warning",
         message: `Période d'essai de ${c.employee.nom} se termine le ${new Date(c.finPeriodeEssai).toLocaleDateString("fr-FR")}.`,
         lien: `/employes/${c.employee.id}`,
@@ -124,6 +130,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   for (const doc of documents) {
     alertes.push({
       type: "DOCUMENT",
+      espace: "RH",
       niveau: "info",
       message: `Document « ${doc.nom} » de ${doc.employee.nom} expire le ${new Date(doc.dateExpiration!).toLocaleDateString("fr-FR")}.`,
       lien: `/employes/${doc.employee.id}`,
@@ -146,6 +153,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     });
     alertes.push({
       type: "DECLARATION",
+      espace: "RH",
       niveau: j < 0 ? "urgent" : j <= 5 ? "urgent" : j <= 10 ? "warning" : "info",
       message:
         j < 0
@@ -162,6 +170,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     const total = facturesDues.reduce((t, f) => t + Number(f.resteAPayerUSD), 0);
     alertes.push({
       type: "FACTURES",
+      espace: "STOCK",
       niveau: echues > 0 ? "urgent" : "warning",
       message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
       lien: "/stock/factures?statut=du",
