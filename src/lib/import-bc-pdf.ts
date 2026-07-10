@@ -49,7 +49,6 @@ export function parseMontant(s: string): number {
 // Montants d'une ligne précédés de « $ » (USD) ou « FC/CDF » (francs). PAS d'espace interne : sur une
 // ligne d'articles, les colonnes sont séparées par des espaces — les fusionner créerait des nombres géants.
 const montantsUSD = (l: string) => [...l.matchAll(/([\d.,]+)\s*\$/g)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
-const montantsFC = (l: string) => [...l.matchAll(/([\d.,]+)\s*(?:fc|cdf|frs?)\b/gi)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
 
 /**
  * Extrait les lignes d'articles d'un bon de commande PDF (formats variés).
