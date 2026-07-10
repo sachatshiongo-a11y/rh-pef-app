@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
 import { ImportBonsCommandeBtn } from "./import-bc-btn";
 import { CommandesListe } from "./commandes-liste";
-import { supprimerTousBonsCommande } from "./actions";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
@@ -57,7 +55,6 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
         {estDirection && <Link href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</Link>}
-        <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousBonsCommande} libelle="Supprimer TOUS les bons de commande ?" />
       </form>
 
       <CommandesListe

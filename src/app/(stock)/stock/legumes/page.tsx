@@ -3,8 +3,6 @@ import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
-import { supprimerTousAchatsLegumes } from "./actions";
 
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const cdf = (n: number) => n.toLocaleString("fr-FR");
@@ -44,7 +42,6 @@ export default async function LegumesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
-          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousAchatsLegumes} libelle="Supprimer TOUS les achats de légumes ?" />
         </div>
       </div>
 

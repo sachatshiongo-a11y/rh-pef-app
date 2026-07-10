@@ -2,8 +2,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/stock";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
-import { supprimerTousRapports } from "./actions";
 
 type SP = { vue?: string; entite?: string; userId?: string };
 
@@ -146,7 +144,6 @@ async function Rapports({ estDirection }: { estDirection: boolean }) {
     <div className="space-y-3">
       {estDirection && rapports.length > 0 && (
         <div className="flex justify-end">
-          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousRapports} libelle="Supprimer TOUS les rapports générés ?" />
         </div>
       )}
       {/* Mobile : cartes. */}
