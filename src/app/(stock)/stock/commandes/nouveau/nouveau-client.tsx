@@ -14,7 +14,7 @@ export type BonInitial = {
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", quantite: "", prix: "", uniteParCarton: "" });
 
-export function NouveauBonForm({ articles, fournisseurs, initial }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial }) {
+export function NouveauBonForm({ articles, fournisseurs, initial, estDirection = false }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial; estDirection?: boolean }) {
   const [lignes, setLignes] = useState<Ligne[]>(initial?.lignes.length ? initial.lignes : [vide(), vide(), vide()]);
   const action = initial ? modifierBonCommande.bind(null, initial.bcId) : creerBonCommande;
 
@@ -110,6 +110,14 @@ export function NouveauBonForm({ articles, fournisseurs, initial }: { articles: 
         <span className="text-muted-foreground">Note (optionnel)</span>
         <textarea name="commentaire" defaultValue={initial?.commentaire ?? ""} rows={2} className={`${inp} w-full`} />
       </label>
+
+      {/* Direction : le bon naît validé — sauf si l'on choisit de le garder en brouillon. */}
+      {!initial && estDirection && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="enregistrerBrouillon" />
+          <span>Enregistrer comme <strong>brouillon</strong> (ne pas valider tout de suite)</span>
+        </label>
+      )}
 
       <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{initial ? "Enregistrer les modifications" : "Créer le bon de commande"}</button>
     </form>

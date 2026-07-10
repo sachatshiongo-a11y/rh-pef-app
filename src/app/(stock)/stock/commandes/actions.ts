@@ -157,9 +157,10 @@ export async function creerBonCommande(formData: FormData) {
   const four = fournisseurId ? await prisma.fournisseur.findUnique({ where: { id: fournisseurId }, select: { nom: true } }) : null;
   const tag = four ? tagFournisseur(four.nom) : "";
 
-  // La Direction n'a pas à valider ses propres bons : créé directement VALIDÉ (prêt à exporter/envoyer).
-  // Le circuit brouillon → validation ne s'applique qu'aux autres rôles (ex. responsable stock).
-  const autoValide = user.role === "ADMIN";
+  // La Direction n'a pas à valider ses propres bons : créé directement VALIDÉ (prêt à exporter/envoyer),
+  // sauf si elle coche « Enregistrer comme brouillon ». Le circuit brouillon → validation ne
+  // s'applique qu'aux autres rôles (ex. responsable stock).
+  const autoValide = user.role === "ADMIN" && formData.get("enregistrerBrouillon") == null;
 
   const bc = await prisma.$transaction(async (tx) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
@@ -195,8 +196,8 @@ export async function creerBonCommande(formData: FormData) {
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
 
   // Un bon émis par un autre rôle attend la validation Direction : cloche + push/e-mail.
-  // Un bon créé par la Direction naît validé : aucune demande à envoyer.
-  if (!autoValide) {
+  // Un bon créé par la Direction (validé d'office ou gardé en brouillon volontaire) : rien à envoyer.
+  if (user.role !== "ADMIN") {
     await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
   }
 
