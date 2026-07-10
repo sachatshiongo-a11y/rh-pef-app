@@ -109,9 +109,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
           {estDirection && <ImportFacturesBtn />}
-          <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} />
-          <a href="/stock/factures/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
-          <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
+          <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} pdfHref="/stock/factures/imprimer" excelHref="/stock/factures/export" />
         </div>
       </div>
 

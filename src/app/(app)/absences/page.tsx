@@ -169,10 +169,14 @@ export default async function AbsencesPage({
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Calendrier des absences</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences — Calendrier</h1>
           <p className="text-sm capitalize text-muted-foreground">{titre}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="flex overflow-hidden rounded-md border">
+            <Link href="/conges" className="px-3 py-1.5 hover:bg-accent">Liste</Link>
+            <span className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">Calendrier</span>
+          </div>
           <div className="flex overflow-hidden rounded-md border">
             <Link href={`/absences?vue=semaine${filtresQS}`} className={`px-3 py-1.5 ${vue === "semaine" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>Semaine</Link>
             <Link href={`/absences?vue=mois${filtresQS}`} className={`px-3 py-1.5 ${vue === "mois" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>Mois</Link>

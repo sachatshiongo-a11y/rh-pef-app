@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { ReconciliationForm } from "./reconciliation-client";
+import { ImportInventaireClient } from "../imports/import-client";
 import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
 import { supprimerTousComptages } from "./actions";
 import type { Prisma } from "@prisma/client";
@@ -23,8 +24,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const articles = await prisma.articleStock.findMany({ where, orderBy: { designation: "asc" }, include: { stock: true } });
   const rows = articles.map((a) => ({ id: a.id, designation: a.designation, theorique: a.stock ? Number(a.stock.quantite) : 0 }));
 
-  // Comptages déjà appliqués (aussi archivés dans Archives) — consultables ici.
-  const comptages = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 12 });
+  // Trois derniers comptages appliqués — l'historique complet vit dans Archives.
+  const comptages = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 3 });
 
   const ficheHref = (dom: string) => {
     const p = new URLSearchParams();
@@ -63,6 +64,18 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
       </form>
+
+      {/* Deux façons de mettre le stock au réel : saisie manuelle ci-dessous, ou import du classeur Excel. */}
+      {estDirection && (
+        <details className="group rounded-lg border">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+            <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
+            📥 Importer un comptage depuis le classeur Excel d&apos;inventaire
+            <span className="font-normal text-muted-foreground">— aperçu avant écriture, annulable depuis Imports</span>
+          </summary>
+          <div className="border-t p-3"><ImportInventaireClient /></div>
+        </details>
+      )}
 
       <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} />
 

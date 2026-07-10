@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
 import { joursSemaine, lundiDe } from "./semaine";
+import { BoutonRapport } from "../_rapport/bouton-rapport";
 
 type SP = { espace?: string; semaine?: string };
 
@@ -63,8 +64,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
             <a href={`/stock/restaurant?espace=CUISINE&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "CUISINE" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Cuisine</a>
             <a href={`/stock/restaurant?espace=BAR&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "BAR" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Bar</a>
           </div>
-          <a href={`/stock/restaurant/pdf?${exportQs}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
-          <a href={`/stock/restaurant/excel?${exportQs}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
+          <BoutonRapport pdfHref={`/stock/restaurant/pdf?${exportQs}`} excelHref={`/stock/restaurant/excel?${exportQs}`} />
         </div>
       </div>
 

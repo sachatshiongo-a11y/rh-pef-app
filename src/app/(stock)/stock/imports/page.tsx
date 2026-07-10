@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { ImportInventaireClient } from "./import-client";
+import Link from "next/link";
 import { ImportFacturesClient } from "./import-factures-client";
 import { BoutonAnnulerImport } from "./annuler-btn";
 
@@ -19,13 +19,11 @@ export default async function ImportsPage() {
     <div className="max-w-4xl space-y-6">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Imports</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Déposez un classeur Excel. Vous verrez un aperçu détaillé avant toute écriture ; chaque import est réversible depuis l&apos;historique.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Import des factures fournisseurs et journal de tous les imports (chacun est réversible).
+          L&apos;import d&apos;un comptage d&apos;inventaire se fait depuis la <Link href="/stock/reconciliation" className="underline">Réconciliation</Link>.
+        </p>
       </div>
-
-      <section className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Inventaire (stock)</h2>
-        <ImportInventaireClient />
-      </section>
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Factures fournisseurs</h2>

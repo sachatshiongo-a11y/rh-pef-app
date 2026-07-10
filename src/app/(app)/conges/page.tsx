@@ -54,14 +54,20 @@ export default async function CongesPage({
   const now = new Date();
   const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
   const enCours = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) <= now && new Date(d.dateFin) >= now).length;
-  const dans30 = new Date(Date.now() + 30 * 86_400_000);
+  const dans30 = new Date(now.getTime() + 30 * 86_400_000);
   const aVenir = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) > now && new Date(d.dateDebut) <= dans30).length;
   const nbApprouve = demandesAll.filter((d) => d.statut === "APPROUVE").length;
 
   return (
     <div>
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold sm:text-2xl">Congés</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences</h1>
+          <div className="flex overflow-hidden rounded-md border text-sm">
+            <span className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">Liste</span>
+            <Link href="/absences" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
+          </div>
+        </div>
         {peutApprouver && demandes.length > 0 && (
           <form action={reinitialiserConges}>
             <ConfirmSubmitButton
