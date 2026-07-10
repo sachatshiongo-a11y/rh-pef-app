@@ -5,6 +5,7 @@ import { usd } from "@/lib/stock";
 import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
 import { ImportFacturesBtn } from "./import-factures-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { lundiDe, MOIS_FR_COURT } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
 type SP = { statut?: string; tri?: string; vue?: string };
@@ -26,7 +27,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const estDirection = user.role === "ADMIN";
   const f = sp.statut;
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";
-  const vue = sp.vue === "fournisseur" ? "fournisseur" : "detail";
+  const vue = sp.vue === "fournisseur" ? "fournisseur" : sp.vue === "echeancier" ? "echeancier" : "detail";
   const where: Prisma.FactureFournisseurWhereInput =
     f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
       : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {};
@@ -53,6 +54,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   // Solde par fournisseur : agrégé en SQL, et seulement quand la vue « fournisseur » est affichée.
   const anneeC = config?.anneeCourante ?? new Date().getFullYear();
   const moisC = config?.moisCourant ?? new Date().getMonth() + 1;
+  const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
+  const cdfEq = (v: number) => (tauxCDF > 0 && v > 0 ? ` · ≈ ${Math.round(v * tauxCDF).toLocaleString("fr-FR")} CDF` : "");
   const parFournisseur = vue === "fournisseur"
     ? await prisma.$queryRaw<{ id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }[]>`
         SELECT COALESCE(f."nom", x."fournisseurNom")                                            AS nom,
@@ -67,6 +70,37 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         GROUP BY 1
         ORDER BY solde DESC, total DESC`
     : [];
+
+  // Échéancier de trésorerie : les factures dues, groupées par semaine d'échéance, avec cumul.
+  type EchLigne = { id: string; nom: string; fournisseurId: string | null; numero: string | null; echeance: string | null; reste: number };
+  type EchGroupe = { cle: string; titre: string; retard?: boolean; lignes: EchLigne[]; sousTotal: number };
+  const echeancier: EchGroupe[] = [];
+  if (vue === "echeancier") {
+    const dues = await prisma.factureFournisseur.findMany({
+      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, resteAPayerUSD: { gt: 0 } },
+      orderBy: [{ dateEcheance: { sort: "asc", nulls: "last" } }],
+      include: { fournisseur: { select: { nom: true } } },
+    });
+    const auj = new Date();
+    const auj0 = Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth(), auj.getUTCDate());
+    const idx = new Map<string, number>();
+    for (const x of dues) {
+      let cle: string, titre: string, retard = false;
+      if (!x.dateEcheance) { cle = "zz-sans"; titre = "Sans échéance"; }
+      else if (new Date(x.dateEcheance).getTime() < auj0) { cle = "aa-retard"; titre = "En retard"; retard = true; }
+      else {
+        const lundi = lundiDe(new Date(x.dateEcheance));
+        const dim = new Date(lundi); dim.setUTCDate(dim.getUTCDate() + 6);
+        cle = lundi.toISOString().slice(0, 10);
+        titre = `Semaine du ${lundi.getUTCDate()} ${MOIS_FR_COURT[lundi.getUTCMonth()]} au ${dim.getUTCDate()} ${MOIS_FR_COURT[dim.getUTCMonth()]}`;
+      }
+      if (!idx.has(cle)) { idx.set(cle, echeancier.length); echeancier.push({ cle, titre, retard, lignes: [], sousTotal: 0 }); }
+      const g = echeancier[idx.get(cle)!];
+      g.lignes.push({ id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero, echeance: d(x.dateEcheance), reste: Number(x.resteAPayerUSD) });
+      g.sousTotal += Number(x.resteAPayerUSD);
+    }
+    echeancier.sort((a, b) => a.cle.localeCompare(b.cle));
+  }
 
   const toRow = (x: (typeof factures)[number]): FactureRow => ({
     id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
@@ -121,16 +155,17 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
       {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={usd(kpi.total)} sous={`${kpi.nbTotal} facture(s)`} href={lien({ statut: "" })} />
-        <Kpi label="Réglé" valeur={usd(kpi.regle)} sous={`${kpi.nbReglees} réglée(s)`} accent="green" href={lien({ statut: "REGLEE" })} />
-        <Kpi label="À payer" valeur={usd(kpi.du)} sous={`${kpi.nbDues} à régler`} accent={kpi.du > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
-        <Kpi label="Échu" valeur={usd(kpi.echu)} sous={`${kpi.nbEchues} échue(s)`} accent={kpi.echu > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
+        <Kpi label="Total facturé" valeur={usd(kpi.total)} sous={`${kpi.nbTotal} facture(s)${cdfEq(kpi.total)}`} href={lien({ statut: "" })} />
+        <Kpi label="Réglé" valeur={usd(kpi.regle)} sous={`${kpi.nbReglees} réglée(s)${cdfEq(kpi.regle)}`} accent="green" href={lien({ statut: "REGLEE" })} />
+        <Kpi label="À payer (dont échu)" valeur={usd(kpi.du)} sous={`${kpi.nbDues} à régler${cdfEq(kpi.du)}`} accent={kpi.du > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
+        <Kpi label="Échu" valeur={usd(kpi.echu)} sous={`${kpi.nbEchues} échue(s)${cdfEq(kpi.echu)}`} accent={kpi.echu > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
       </div>
 
       {/* Bascule de vue */}
       <div className="flex flex-wrap gap-1.5 text-sm">
         <a href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</a>
         <a href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</a>
+        <a href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</a>
       </div>
 
       {vue === "fournisseur" ? (
@@ -161,6 +196,33 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
               ))}
             </tbody>
           </table>
+        </div>
+      ) : vue === "echeancier" ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">Ce qu&apos;il y a à sortir, semaine par semaine (reste à payer des factures non réglées). Le cumul aide à planifier la trésorerie.</p>
+          {echeancier.length === 0 && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucune facture à payer — tout est réglé. 🎉</p>}
+          {(() => { let cumul = 0; return echeancier.map((g) => { cumul += g.sousTotal; const cum = cumul; return (
+            <div key={g.cle} className={`overflow-hidden rounded-lg border ${g.retard ? "border-red-300" : ""}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-sm font-semibold ${g.retard ? "bg-red-50 text-red-800" : "bg-muted/50"}`}>
+                <span>{g.retard ? "⚠ " : ""}{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} facture(s)</span></span>
+                <span className="tabular-nums">{usd(g.sousTotal)} <span className="text-xs font-normal text-muted-foreground">· cumul {usd(cum)}</span></span>
+              </div>
+              <ul className="divide-y text-sm">
+                {g.lignes.map((l) => (
+                  <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1">
+                    <span className="min-w-0 truncate">
+                      {l.fournisseurId ? <Link href={`/stock/fournisseurs/${l.fournisseurId}`} className="font-medium text-primary hover:underline">{l.nom}</Link> : <span className="font-medium">{l.nom}</span>}
+                      <span className="text-xs text-muted-foreground"> {l.numero ? `· N° ${l.numero}` : ""}{l.echeance ? ` · éch. ${l.echeance}` : ""}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <span className="font-semibold tabular-nums">{usd(l.reste)}</span>
+                      <Link href={`/stock/factures/${l.id}`} className="text-xs text-primary underline">Détail</Link>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ); }); })()}
         </div>
       ) : (
         <>

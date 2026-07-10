@@ -90,8 +90,8 @@ export default async function StockDashboard() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Kpi label="Articles" valeur={String(nbArticles)} href="/stock/catalogue/nourriture" />
-        <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} accent={nbUrgent > 0 ? "red" : undefined} />
-        <Kpi label="À réapprovisionner" valeur={String(nbAppro)} accent={nbAppro > 0 ? "amber" : undefined} />
+        <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
+        <Kpi label="À réapprovisionner" valeur={String(nbAppro)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
         <Kpi label="Valeur du stock" valeur={usd(valeurStock)} />
         <Kpi label="Factures à payer" valeur={usd(facturesDues._sum.resteAPayerUSD)} sous={`${facturesDues._count} facture(s)`} accent={Number(facturesDues._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
         <Kpi label="Commandes du mois" valeur={String(commandesMois)} href="/stock/commandes" />

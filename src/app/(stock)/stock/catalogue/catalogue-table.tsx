@@ -28,7 +28,7 @@ const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 te
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string }) {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -36,7 +36,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [ajout, setAjout] = useState(false);
   const [q, setQ] = useState(initialQ ?? "");
   const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
-  const [alerte, setAlerte] = useState<"" | NiveauAlerte>("");
+  const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
 

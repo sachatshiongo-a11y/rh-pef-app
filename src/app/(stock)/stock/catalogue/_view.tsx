@@ -13,6 +13,7 @@ const TITRE: Record<Domaine, string> = { NOURRITURE: "Catalogue — Nourriture",
 export async function CatalogueView({ domaine, searchParams }: { domaine?: Domaine; searchParams: Promise<CatalogueSP> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
+  const alerteInit = sp.alerte === "URGENT" || sp.alerte === "APPRO" || sp.alerte === "OK" ? sp.alerte : undefined;
   const domFiltre: Domaine | undefined = domaine ?? (sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined);
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
@@ -54,7 +55,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
         </div>
       </div>
 
-      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} />
+      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerteInit} />
     </div>
   );
 }

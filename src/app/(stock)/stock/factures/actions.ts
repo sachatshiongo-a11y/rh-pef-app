@@ -409,11 +409,51 @@ export async function supprimerFacture(id: string) {
 export async function marquerPayee(id: string) {
   const user = await garde();
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
-  await prisma.factureFournisseur.update({
-    where: { id },
-    data: { montantRegleUSD: f.montantUSD, resteAPayerUSD: 0, statut: "REGLEE", datePaiement: new Date() },
-  });
+  const reste = Number(f.resteAPayerUSD);
+  await prisma.$transaction([
+    prisma.factureFournisseur.update({
+      where: { id },
+      data: { montantRegleUSD: f.montantUSD, resteAPayerUSD: 0, statut: "REGLEE", datePaiement: new Date() },
+    }),
+    // Trace datée dans l'historique des paiements (le solde restant).
+    ...(reste > 0 ? [prisma.paiement.create({ data: { factureId: id, date: new Date(), montantUSD: reste, modePaiement: f.modePaiement, note: "Marquée payée", creeParId: user.id } })] : []),
+  ]);
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "statut", nouvelleValeur: "RÉGLÉE", userId: user.id });
+  revalidatePath("/stock/factures");
+  revalidatePath(`/stock/factures/${id}`);
+}
+
+/** Enregistre un paiement (total ou PARTIEL) sur une facture : historique daté + statut recalculé. */
+export async function enregistrerPaiement(id: string, formData: FormData) {
+  const user = await garde();
+  const montant = dec(formData.get("montant"));
+  if (montant <= 0) throw new Error("Le montant du paiement doit être supérieur à 0.");
+  const dateStr = String(formData.get("date") ?? "").trim() || AUJ();
+  const mode = String(formData.get("modePaiement") ?? "").trim() || null;
+  const note = String(formData.get("note") ?? "").trim() || null;
+
+  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
+  const reste = Number(f.resteAPayerUSD);
+  if (montant > reste + 0.009) throw new Error(`Le paiement (${montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
+
+  const nouveauRegle = Number(f.montantRegleUSD) + montant;
+  const nouveauReste = Math.max(0, Number(f.montantUSD) - nouveauRegle);
+  const solde = nouveauReste <= 0.001;
+  const echeanceISO = f.dateEcheance ? new Date(f.dateEcheance).toISOString().slice(0, 10) : null;
+
+  await prisma.$transaction([
+    prisma.paiement.create({ data: { factureId: id, date: new Date(dateStr), montantUSD: montant, modePaiement: mode, note, creeParId: user.id } }),
+    prisma.factureFournisseur.update({
+      where: { id },
+      data: {
+        montantRegleUSD: nouveauRegle,
+        resteAPayerUSD: nouveauReste,
+        statut: statutDe(nouveauReste, echeanceISO),
+        ...(solde ? { datePaiement: new Date(dateStr) } : {}),
+      },
+    }),
+  ]);
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "paiement", nouvelleValeur: `${montant.toFixed(2)} $ (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath(`/stock/factures/${id}`);
 }
@@ -423,11 +463,18 @@ export async function marquerPayeesEnLot(ids: string[]) {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
-  // Une seule requête : réglé = montant par ligne (impossible via updateMany), n'agit que sur les non réglées.
-  const n = await prisma.$executeRaw`
-    UPDATE "stock"."FactureFournisseur"
-    SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = now()
-    WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE'`;
+  // Deux requêtes en transaction : trace des paiements (le reste de chaque facture), puis règlement.
+  const [, n] = await prisma.$transaction([
+    prisma.$executeRaw`
+      INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "modePaiement", "note", "creeParId")
+      SELECT gen_random_uuid(), "id", now(), "resteAPayerUSD", "modePaiement", 'Marquée payée (lot)', ${user.id}
+      FROM "stock"."FactureFournisseur"
+      WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE' AND "resteAPayerUSD" > 0`,
+    prisma.$executeRaw`
+      UPDATE "stock"."FactureFournisseur"
+      SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = now()
+      WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE'`,
+  ]);
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${n} facture(s) réglée(s)`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock");

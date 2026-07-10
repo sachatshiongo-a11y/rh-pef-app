@@ -5,6 +5,7 @@ import { usd, qte, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/sto
 import { verifySession } from "@/lib/auth";
 import { MarquerPayeeBtn } from "./marquer-payee-btn";
 import { JoindreDocument } from "./joindre-document";
+import { EnregistrerPaiement } from "./enregistrer-paiement";
 import { LierBon } from "./lier-bon";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
@@ -20,6 +21,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
       fournisseur: { select: { nom: true } },
       lignes: { orderBy: { designation: "asc" } },
       bonDeCommande: { select: { id: true, numero: true, totalUSD: true, lignes: { orderBy: { designation: "asc" } } } },
+      paiements: { orderBy: [{ date: "desc" }, { createdAt: "desc" }] },
     },
   });
   if (!facture) notFound();
@@ -68,6 +70,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {facture.statut !== "REGLEE" && <MarquerPayeeBtn id={facture.id} />}
+          <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} />
           <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
@@ -94,6 +97,21 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           : <span className="text-sm text-muted-foreground">Aucun document joint.</span>}
         {estDirection && <JoindreDocument id={facture.id} aDeja={!!facture.documentUrl} />}
       </section>
+
+      {/* Historique des paiements (totaux ou partiels) */}
+      {facture.paiements.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Paiements</h2>
+          <ul className="divide-y rounded-lg border text-sm">
+            {facture.paiements.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
+                <span className="text-muted-foreground">{new Date(p.date).toLocaleDateString("fr-FR")}{p.modePaiement ? ` · ${p.modePaiement}` : ""}{p.note ? ` · ${p.note}` : ""}</span>
+                <span className="font-semibold tabular-nums text-emerald-700">{usd(Number(p.montantUSD))}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Lignes de la facture */}
       <section className="space-y-2">

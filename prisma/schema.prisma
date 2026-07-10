@@ -1064,10 +1064,27 @@ model FactureFournisseur {
 
   lignes     LigneFacture[]
   mouvements MouvementStock[]
+  paiements  Paiement[]
 
   @@index([annee, mois])
   @@index([fournisseurId])
   @@index([bonDeCommandeId])
+  @@schema("stock")
+}
+
+// Paiement (total ou partiel) enregistré sur une facture fournisseur — historique daté.
+model Paiement {
+  id           String             @id @default(uuid())
+  factureId    String
+  facture      FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  date         DateTime           @db.Date
+  montantUSD   Decimal            @db.Decimal(14, 2)
+  modePaiement String?
+  note         String?
+  creeParId    String? // User.id (pas de FK cross-schéma)
+  createdAt    DateTime           @default(now())
+
+  @@index([factureId])
   @@schema("stock")
 }
 
