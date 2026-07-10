@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { analyserInventaire, appliquerInventaire, annulerImport, type PreviewInventaire } from "@/lib/import-inventaire";
+import { analyserFactures, appliquerFactures, type PreviewFactures } from "@/lib/import-factures";
 
 async function gardeDirection() {
   const user = await verifySession();
@@ -28,6 +29,26 @@ export async function appliquerInventaireAction(formData: FormData): Promise<{ b
   const res = await appliquerInventaire(await file.arrayBuffer(), libelle, user.id);
   revalidatePath("/stock/imports");
   revalidatePath("/stock/catalogue", "layout");
+  return res;
+}
+
+/** Analyse le(s) classeur(s) de factures et renvoie l'aperçu (aucune écriture). */
+export async function analyserFacturesAction(formData: FormData): Promise<PreviewFactures> {
+  await gardeDirection();
+  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
+  if (fichiers.length === 0) throw new Error("Ajoutez au moins un classeur de factures (.xlsx).");
+  return analyserFactures(fichiers);
+}
+
+/** Applique l'import de factures et crée un import réversible. */
+export async function appliquerFacturesAction(formData: FormData): Promise<{ batchId: string; resume: PreviewFactures["resume"] }> {
+  const user = await gardeDirection();
+  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
+  if (fichiers.length === 0) throw new Error("Fichier(s) manquant(s).");
+  const libelle = String(formData.get("libelle") ?? "").trim() || `Factures ${new Date().toLocaleDateString("fr-FR")}`;
+  const res = await appliquerFactures(fichiers, libelle, user.id);
+  revalidatePath("/stock/imports");
+  revalidatePath("/stock/factures");
   return res;
 }
 

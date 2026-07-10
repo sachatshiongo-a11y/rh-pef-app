@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { ImportInventaireClient } from "./import-client";
+import { ImportFacturesClient } from "./import-factures-client";
 import { BoutonAnnulerImport } from "./annuler-btn";
 
 export default async function ImportsPage() {
@@ -17,11 +18,19 @@ export default async function ImportsPage() {
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Importer un inventaire</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Déposez le classeur Excel de l&apos;inventaire. Vous verrez un aperçu détaillé avant toute écriture ; chaque import est réversible.</p>
+        <h1 className="text-xl font-semibold sm:text-2xl">Imports</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Déposez un classeur Excel. Vous verrez un aperçu détaillé avant toute écriture ; chaque import est réversible depuis l&apos;historique.</p>
       </div>
 
-      <ImportInventaireClient />
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Inventaire (stock)</h2>
+        <ImportInventaireClient />
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Factures fournisseurs</h2>
+        <ImportFacturesClient />
+      </section>
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des imports</h2>

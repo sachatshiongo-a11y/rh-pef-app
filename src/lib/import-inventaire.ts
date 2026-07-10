@@ -207,11 +207,23 @@ export async function annulerImport(batchId: string): Promise<void> {
     // Ordre : d'abord supprimer les créations (mouvements, achats, articles), puis restaurer les updates.
     const creations = batch.operations.filter((o) => o.action === "CREATE");
     const updates = batch.operations.filter((o) => o.action === "UPDATE");
+    // 1) Supprime d'abord les entités dépendantes créées par l'import.
     for (const o of creations) {
       if (o.entite === "MouvementStock") await tx.mouvementStock.deleteMany({ where: { id: o.entiteId } });
       else if (o.entite === "AchatLegume") await tx.achatLegume.deleteMany({ where: { id: o.entiteId } });
+      else if (o.entite === "FactureFournisseur") await tx.factureFournisseur.deleteMany({ where: { id: o.entiteId } });
     }
+    // 2) Puis les entités « parentes » créées par l'import.
     for (const o of creations) if (o.entite === "ArticleStock") await tx.articleStock.deleteMany({ where: { id: o.entiteId } });
+    for (const o of creations) if (o.entite === "Fournisseur") {
+      // Ne supprime un fournisseur créé que s'il n'est plus référencé (sécurité).
+      const [nbArt, nbBC, nbFac] = await Promise.all([
+        tx.articleStock.count({ where: { fournisseurId: o.entiteId } }),
+        tx.bonDeCommande.count({ where: { fournisseurId: o.entiteId } }),
+        tx.factureFournisseur.count({ where: { fournisseurId: o.entiteId } }),
+      ]);
+      if (nbArt === 0 && nbBC === 0 && nbFac === 0) await tx.fournisseur.deleteMany({ where: { id: o.entiteId } });
+    }
     for (const o of updates) {
       const av = o.avant as Record<string, string | null> | null;
       if (!av) continue;
