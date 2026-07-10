@@ -48,6 +48,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Configuration",
     items: [
+      { href: "/stock/imports", label: "Importer un inventaire", icone: "📥", adminOnly: true },
       { href: "/stock/parametres", label: "Paramètres", icone: "⚙️" },
       { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "👥", adminOnly: true },
     ],
