@@ -76,7 +76,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
             l&apos;inventaire. L&apos;historique se consulte par jour, semaine ou mois.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
           <BoutonSupprimerTout estDirection={estDirection} action={supprimerToutesEntreesAchat} libelle="Supprimer TOUTES les entrées de la liste d'achat ? Le stock sera corrigé (effet annulé)." />
         </div>
@@ -85,7 +85,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       <ListeAchatForm articles={articles} taux={taux} estDirection={estDirection} />
 
       <div>
-        <div className="mb-2 flex items-center gap-2 text-sm">
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">Historique des achats</span>
           <span className="text-muted-foreground">·</span>
           {onglets.map((o) => (
@@ -96,19 +96,21 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         {groupes.length === 0 ? (
           <p className="text-sm text-muted-foreground">Aucune entrée enregistrée pour le moment.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {groupes.map((g) => (
-              <div key={g.cle} className="rounded-lg border">
-                <div className="border-b bg-muted/40 px-3 py-1.5 text-sm font-semibold">{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} ligne(s)</span></div>
-                <ul className="divide-y text-sm">
+              <details key={g.cle} className="group overflow-hidden rounded-lg border">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/50 px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} ligne(s)</span></span>
+                </summary>
+                <ul className="divide-y border-t text-sm">
                   {g.lignes.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between px-3 py-1.5">
+                    <li key={m.id} className="flex items-center justify-between px-3 py-1">
                       <span className="truncate pr-2">{m.article.designation}{m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}</span>
                       <span className="shrink-0 font-medium text-emerald-700">+{qte(m.quantite)}</span>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </details>
             ))}
           </div>
         )}

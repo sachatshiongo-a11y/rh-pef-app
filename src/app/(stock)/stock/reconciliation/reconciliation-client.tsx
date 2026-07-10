@@ -65,8 +65,8 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
       {msg && <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.texte}</p>}
       {domaine && <input type="hidden" name="domaine" value={domaine} />}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} min-w-64 flex-1`} />
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} w-full sm:w-auto sm:min-w-64 sm:flex-1`} />
         <span className="text-xs text-muted-foreground">{articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise · fiche archivée</span>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">

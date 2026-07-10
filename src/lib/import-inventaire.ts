@@ -18,7 +18,7 @@ export type ArtPreview = {
   stockFinal: number; entreeTot: number; sortieTot: number;
   match: "code" | "nom" | "aucun"; articleId: string | null; articleNom: string | null; articleDomaine: Domaine | null;
 };
-export type LegPreview = { date: string; legume: string; quantite: number; montantCDF: number };
+export type LegPreview = { date: string; legume: string; unite: string | null; quantite: number; montantCDF: number };
 export type PreviewInventaire = {
   articles: ArtPreview[]; mouvements: MvtPreview[]; legumes: LegPreview[];
   resume: { maj: number; crees: number; mvEntree: number; mvSortie: number; legumes: number; sansMatch: number };
@@ -125,13 +125,22 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
     }
   }
 
-  // Légumes : journal d'achats (colonnes de droite).
+  // Légumes : journal d'achats (colonnes de droite) + unités depuis le catalogue de gauche
+  // (code col 1, désignation col 2, unité col 3 — le journal, lui, n'a pas de colonne unité).
   const legumes: LegPreview[] = [];
   const wl = wb.worksheets.find((w) => /l.gume/i.test(w.name));
-  if (wl) for (let r = 12; r <= wl.rowCount; r++) {
-    const row = wl.getRow(r);
-    const iso = dateAt(row, 11); const nom = txtAt(row, 13); const qte = numAt(row, 14); const prix = numAt(row, 15);
-    if (iso && nom && qte != null && prix != null) legumes.push({ date: iso, legume: nom, quantite: round3(qte), montantCDF: prix });
+  if (wl) {
+    const uniteLegume = new Map<string, string>();
+    for (let r = 12; r <= wl.rowCount; r++) {
+      const row = wl.getRow(r);
+      const nom = txtAt(row, 2); const unite = txtAt(row, 3);
+      if (nom && unite) uniteLegume.set(normEx(nom), unite);
+    }
+    for (let r = 12; r <= wl.rowCount; r++) {
+      const row = wl.getRow(r);
+      const iso = dateAt(row, 11); const nom = txtAt(row, 13); const qte = numAt(row, 14); const prix = numAt(row, 15);
+      if (iso && nom && qte != null && prix != null) legumes.push({ date: iso, legume: nom, unite: uniteLegume.get(normEx(nom)) ?? null, quantite: round3(qte), montantCDF: prix });
+    }
   }
 
   const resume = {
@@ -188,7 +197,7 @@ export async function appliquerInventaire(buffer: ArrayBuffer, libelle: string, 
 
     // Légumes
     for (const l of preview.legumes) {
-      const ach = await tx.achatLegume.create({ data: { date: new Date(l.date), legume: l.legume, quantite: l.quantite, montantCDF: l.montantCDF, montantUSD: Math.round((l.montantCDF / DATE_LEG_TAUX) * 100) / 100, tauxChangeUtilise: DATE_LEG_TAUX, creeParId: userId } });
+      const ach = await tx.achatLegume.create({ data: { date: new Date(l.date), legume: l.legume, unite: l.unite, quantite: l.quantite, montantCDF: l.montantCDF, montantUSD: Math.round((l.montantCDF / DATE_LEG_TAUX) * 100) / 100, tauxChangeUtilise: DATE_LEG_TAUX, creeParId: userId } });
       ops.push({ batchId: batch.id, entite: "AchatLegume", entiteId: ach.id, action: "CREATE", avant: Prisma.DbNull });
     }
 

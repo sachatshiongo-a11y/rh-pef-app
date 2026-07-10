@@ -25,6 +25,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
     const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
     return {
       id: a.id,
+      code: a.code,
       designation: a.designation,
       domaine: a.domaine,
       categorieId: a.categorieId,
@@ -45,7 +46,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">{domaine ? TITRE[domaine] : "Catalogue"}</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md border bg-muted/40 px-2.5 py-1 text-sm"><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{usd(rows.reduce((t, r) => t + (Number(r.prix) || 0) * (Number(r.quantite) || 0), 0))}</span></span>
           <span className="mr-1 text-sm text-muted-foreground">{rows.length} article(s)</span>
           <a href={`/stock/catalogue/imprimer${qs}`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>

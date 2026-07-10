@@ -9,6 +9,7 @@ const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
   id: string;
+  code: string | null; // code article (repris du fichier d'inventaire)
   designation: string;
   domaine: Domaine;
   categorieId: string | null;
@@ -44,7 +45,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     return articles.filter((a) =>
       (dom === "TOUS" || a.domaine === dom) &&
       (!alerte || a.niveau === alerte) &&
-      (!nq || norm(a.designation).includes(nq)),
+      (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)),
     );
   }, [articles, q, dom, alerte]);
 
@@ -153,6 +154,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <option value="">— fournisseur —</option>
             {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
           </select>
+          <input name="code" placeholder="Code article (ex. 137)" className={cellCls} />
           <input name="unite" placeholder="Unité (Kg, Pièce…)" className={cellCls} />
           <input name="prixUnitaireUSD" type="number" step="0.0001" placeholder="Prix USD" className={cellCls} />
           <input name="uniteParCarton" type="number" step="1" min="0" placeholder="Unités / carton (ex. 24)" className={cellCls} />
@@ -183,6 +185,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
+              <th className="w-14">Code</th>
               <th>Désignation</th>
               <th>Catégorie</th>
               <th>Fournisseur</th>
@@ -200,7 +203,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <Fragment key={a.id}>
                 {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
                   <tr>
-                    <td colSpan={11} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+                    <td colSpan={12} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
                     </td>
                   </tr>
@@ -208,12 +211,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                 <LigneArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
               </Fragment>
             ))}
-            {visibles.length === 0 && <tr><td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={12} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
           {visibles.length > 0 && (
             <tfoot className="sticky bottom-0 bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
-                <td colSpan={6} className="text-right">Valeur totale du stock affiché</td>
+                <td colSpan={7} className="text-right">Valeur totale du stock affiché</td>
                 <td className="text-right tabular-nums">{usd(visibles.reduce((t, a) => t + valeurStock(a), 0))}</td>
                 <td colSpan={4}></td>
               </tr>
@@ -242,6 +245,7 @@ const LigneArticle = memo(function LigneArticle({
   return (
     <tr className={`hover:bg-accent/40 ${selected ? "bg-primary/10" : "even:bg-muted/25"} ${busy ? "opacity-60" : ""}`}>
       <td><input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} /></td>
+      <td><input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} w-14 text-center tabular-nums`} placeholder="—" title="Code article" /></td>
       <td><input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 font-medium`} title="Modifier le nom de l'article" /></td>
       <td>
         <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
@@ -302,6 +306,9 @@ const CarteArticle = memo(function CarteArticle({
             <option value="">—</option>
             {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
           </select>
+        </label>
+        <label className={champLabel}>Code article
+          <input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
         </label>
         <label className={champLabel}>Stock (auto)
           <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{a.quantite}</span>

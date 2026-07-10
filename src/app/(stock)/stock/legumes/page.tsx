@@ -42,7 +42,7 @@ export default async function LegumesPage() {
           <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
           <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
           <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousAchatsLegumes} libelle="Supprimer TOUS les achats de légumes ?" />
         </div>
@@ -56,10 +56,10 @@ export default async function LegumesPage() {
           <p className="text-sm text-muted-foreground">Aucun achat enregistré.</p>
         ) : (
           <div className="space-y-2">
-            {mois.map((m, mi) => {
+            {mois.map((m) => {
               const nb = m.jours.reduce((n, j) => n + j.lignes.length, 0);
               return (
-                <details key={m.cle} open={mi === 0} className="group overflow-hidden rounded-lg border">
+                <details key={m.cle} className="group overflow-hidden rounded-lg border">
                   <summary className="flex cursor-pointer list-none items-center justify-between bg-muted/50 px-3 py-1.5 text-sm font-semibold">
                     <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{m.titre} <span className="font-normal text-muted-foreground">· {nb} achat(s)</span></span>
                     <span className="font-normal text-muted-foreground">{cdf(m.jours.reduce((t, j) => t + totCDF(j.lignes), 0))} CDF · {usd(m.jours.reduce((t, j) => t + totUSD(j.lignes), 0))}</span>

@@ -33,6 +33,7 @@ export async function creerArticle(formData: FormData) {
     data: {
       designation,
       domaine,
+      code: String(formData.get("code") ?? "").trim() || null,
       unite: String(formData.get("unite") ?? "").trim() || null,
       categorieId,
       fournisseurId,
@@ -55,6 +56,7 @@ export async function creerArticle(formData: FormData) {
 export async function modifierArticle(id: string, formData: FormData) {
   const user = await garde();
   const data: Prisma.ArticleStockUpdateInput = {};
+  if (formData.has("code")) data.code = String(formData.get("code") ?? "").trim() || null;
   if (formData.has("designation")) data.designation = String(formData.get("designation")).trim();
   if (formData.has("prixUnitaireUSD")) data.prixUnitaireUSD = dec(formData.get("prixUnitaireUSD"));
   if (formData.has("uniteParCarton")) data.uniteParCarton = dec(formData.get("uniteParCarton"));
