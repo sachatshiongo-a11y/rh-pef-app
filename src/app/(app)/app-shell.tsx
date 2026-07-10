@@ -168,7 +168,6 @@ export function AppShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
-          <div className="mt-2 px-2"><ThemeToggle /></div>
           <div className="mt-1">
             <PushToggle />
           </div>
@@ -189,6 +188,7 @@ export function AppShell({
               Déconnexion
             </button>
           </form>
+          <div className="mt-2 px-2"><ThemeToggle /></div>
         </div>
       </aside>
 

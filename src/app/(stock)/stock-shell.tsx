@@ -120,7 +120,7 @@ export function StockShell({
                       actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
-                    <span aria-hidden className="w-5 shrink-0 text-center text-base leading-none">{item.icone}</span>
+                    <span aria-hidden className="w-5 shrink-0 text-center text-base leading-none lg:hidden">{item.icone}</span>
                     <span className="flex-1">{item.label}</span>
                     {(badges[item.href] ?? 0) > 0 && (
                       <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badges[item.href]}</span>
@@ -141,15 +141,15 @@ export function StockShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
-          <div className="mt-2 px-2"><ThemeToggle /></div>
           {doubleAcces && (
             <Link href="/choix-espace" onClick={fermer} className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
-              Changer d&apos;espace
+              🔄 Changer d&apos;espace
             </Link>
           )}
           <form action={logout}>
             <button type="submit" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">Déconnexion</button>
           </form>
+          <div className="mt-2 px-2"><ThemeToggle /></div>
         </div>
       </aside>
 
