@@ -31,6 +31,7 @@ export function TableauDocument({
   lignes,
   totalDerniereLigne = false,
   sectionRows,
+  paysage = false,
   pied,
 }: {
   titre: string;
@@ -39,13 +40,14 @@ export function TableauDocument({
   lignes: (string | number)[][];
   totalDerniereLigne?: boolean;
   sectionRows?: number[]; // indices de lignes-titres de section (catégorie) : pleine largeur, en gras
+  paysage?: boolean; // orientation paysage (tableaux larges, ex. grille hebdo)
   pied?: string;
 }) {
   const sections = new Set(sectionRows ?? []);
   const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
         <PdfHeader title={titre} subtitle={sousTitre} />
         <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
         <View style={styles.wrap}>

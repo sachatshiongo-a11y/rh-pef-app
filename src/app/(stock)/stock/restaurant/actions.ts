@@ -34,13 +34,6 @@ export async function majComptage(articleRestoId: string, dateISO: string, valeu
   revalidatePath("/stock/restaurant");
 }
 
-/** Met à jour le stock de base journalier (niveau cible) d'un article resto. */
-export async function majBaseResto(articleRestoId: string, valeur: string) {
-  await garde();
-  await prisma.articleResto.update({ where: { id: articleRestoId }, data: { stockBaseJournalier: dec(valeur) } });
-  revalidatePath("/stock/restaurant");
-}
-
 /** Ajoute un article au stock restaurant. */
 export async function creerArticleResto(formData: FormData) {
   await garde();

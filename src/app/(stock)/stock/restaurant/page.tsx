@@ -1,32 +1,24 @@
-import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
+import { joursSemaine, lundiDe } from "./semaine";
 
 type SP = { espace?: string; semaine?: string };
-const JLABEL = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
-const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
-
-function lundiDe(d: Date): Date {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7));
-  return x;
-}
 
 export default async function RestaurantPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const espace = sp.espace === "BAR" ? "BAR" : "CUISINE";
   const base = sp.semaine ? new Date(sp.semaine) : new Date();
   const lundi = lundiDe(base);
-  const jours: Jour[] = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + i);
-    return { iso: d.toISOString().slice(0, 10), label: JLABEL[i], num: `${d.getUTCDate()} ${MOIS[d.getUTCMonth()]}` };
-  });
+  const jours: Jour[] = joursSemaine(base);
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 
   const [articles, livraisons] = await Promise.all([
     prisma.articleResto.findMany({
       where: { espace, actif: true },
-      orderBy: [{ ordre: "asc" }, { designation: "asc" }],
+      orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
       include: { comptages: { where: { date: { gte: debut, lte: fin } } } },
     }),
     // Livraisons au restaurant (sorties de stock « Livraison restaurant ») de la semaine affichée.
@@ -54,10 +46,13 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     };
   });
 
+  const categories = [...new Set(articles.map((a) => a.categorie).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b, "fr"));
+
   const semLien = (offset: number) => {
     const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + offset * 7);
     return `/stock/restaurant?espace=${espace}&semaine=${d.toISOString().slice(0, 10)}`;
   };
+  const exportQs = `espace=${espace}&semaine=${jours[0].iso}`;
 
   return (
     <div className="space-y-4">
@@ -68,7 +63,8 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
             <a href={`/stock/restaurant?espace=CUISINE&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "CUISINE" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Cuisine</a>
             <a href={`/stock/restaurant?espace=BAR&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "BAR" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Bar</a>
           </div>
-          <Link href={`/stock/restaurant/parametres?espace=${espace}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Paramètres</Link>
+          <a href={`/stock/restaurant/pdf?${exportQs}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
+          <a href={`/stock/restaurant/excel?${exportQs}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
         </div>
       </div>
 
@@ -91,9 +87,9 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
         </div>
       )}
 
-      <p className="text-sm text-muted-foreground">Comptage journalier par produit (Cuisine / Bar). « Stock de base » = niveau cible par jour ; saisissez la quantité comptée pour chaque jour de la semaine.</p>
+      <p className="text-sm text-muted-foreground">Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? "" : " Seule la Direction peut supprimer un article."}</p>
 
-      <RestaurantGrille espace={espace} jours={jours} lignes={lignes} />
+      <RestaurantGrille espace={espace} jours={jours} lignes={lignes} categories={categories} estDirection={estDirection} />
     </div>
   );
 }
