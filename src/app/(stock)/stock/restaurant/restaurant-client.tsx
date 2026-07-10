@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useTransition } from "react";
+import { Fragment, memo, useState, useTransition } from "react";
 import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto } from "./actions";
 import type { JourResto } from "./semaine";
 
@@ -66,9 +66,14 @@ export function RestaurantGrille({
             </tr>
           </thead>
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
-            {lignes.map((l) => (
-              <LigneR key={l.id} ligne={l} jours={jours} listeId={listeId} estDirection={estDirection}
-                onSave={save} onSaveComptage={saveComptage} onDelete={(id) => run(() => supprimerArticleResto(id))} />
+            {lignes.map((l, i) => (
+              <Fragment key={l.id}>
+                {(i === 0 || lignes[i - 1].categorie !== l.categorie) && l.categorie && (
+                  <tr><td colSpan={jours.length + (estDirection ? 5 : 4)} className="bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.categorie}</td></tr>
+                )}
+                <LigneR ligne={l} jours={jours} listeId={listeId} estDirection={estDirection}
+                  onSave={save} onSaveComptage={saveComptage} onDelete={(id) => run(() => supprimerArticleResto(id))} />
+              </Fragment>
             ))}
             {lignes.length === 0 && <tr><td colSpan={jours.length + (estDirection ? 5 : 4)} className="px-3 py-6 text-center text-muted-foreground">Aucun article. Ajoutez-en avec « + Ajouter un article ».</td></tr>}
           </tbody>
