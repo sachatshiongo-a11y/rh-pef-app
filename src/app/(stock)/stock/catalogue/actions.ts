@@ -121,3 +121,14 @@ export async function categoriserEnMasse(articleIds: string[], categorieId: stri
   await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: categorieId, userId: user.id });
   revalidatePath("/stock/catalogue");
 }
+
+/** Active ou désactive plusieurs articles d'un coup. */
+export async function basculerActifArticles(articleIds: string[], actif: boolean) {
+  const user = await garde();
+  const uniq = [...new Set(articleIds.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  const n = await prisma.articleStock.updateMany({ where: { id: { in: uniq } }, data: { actif } });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "actif", nouvelleValeur: `${n.count} article(s) ${actif ? "activé(s)" : "désactivé(s)"}`, userId: user.id });
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock");
+}

@@ -328,3 +328,36 @@ export async function receptionnerBonCommande(bcId: string, formData: FormData) 
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");
 }
+
+/** Valide plusieurs bons de commande à l'état BROUILLON d'un coup (Direction). */
+export async function validerBonsEnLot(ids: string[]) {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  const bcs = await prisma.bonDeCommande.findMany({ where: { id: { in: uniq }, statut: "BROUILLON" }, select: { id: true, numero: true } });
+  if (bcs.length === 0) return;
+  await prisma.bonDeCommande.updateMany({ where: { id: { in: bcs.map((b) => b.id) } }, data: { statut: "VALIDE" } });
+  for (const b of bcs) {
+    await supprimerNotificationsPour(b.id);
+    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${b.numero} validé`, lien: `/stock/commandes/${b.id}`, refId: b.id } });
+  }
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: "lot", champ: "statut", nouvelleValeur: `${bcs.length} validé(s)`, userId: user.id });
+  revalidatePath("/stock/commandes");
+  revalidatePath("/stock/a-valider");
+  revalidatePath("/stock");
+}
+
+/** Supprime plusieurs bons de commande d'un coup (Direction). */
+export async function supprimerBonsEnLot(ids: string[]) {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  for (const id of uniq) await supprimerNotificationsPour(id);
+  const n = await prisma.bonDeCommande.deleteMany({ where: { id: { in: uniq } } });
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: "lot", champ: "suppression", nouvelleValeur: `${n.count} BC`, userId: user.id });
+  revalidatePath("/stock/commandes");
+  revalidatePath("/stock/a-valider");
+  revalidatePath("/stock");
+}

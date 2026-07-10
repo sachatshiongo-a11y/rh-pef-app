@@ -115,3 +115,25 @@ export async function supprimerMouvement(id: string) {
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
 }
+
+/** Supprime plusieurs mouvements d'un coup (Direction) — annule leur effet sur le stock. */
+export async function supprimerMouvementsEnLot(ids: string[]) {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  const mvs = await prisma.mouvementStock.findMany({ where: { id: { in: uniq } } });
+  await prisma.$transaction(async (tx) => {
+    for (const m of mvs) {
+      const q = Number(m.quantite);
+      if (m.type === "ENTREE") await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: q } } });
+      else if (m.type === "SORTIE") await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { increment: q } } });
+    }
+    await tx.mouvementStock.deleteMany({ where: { id: { in: uniq } } });
+  });
+  await journaliser(prisma, { entite: "MouvementStock", entiteId: "lot", champ: "suppression", nouvelleValeur: `${mvs.length} mouvement(s)`, userId: user.id });
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock");
+}

@@ -66,3 +66,15 @@ export async function supprimerAchatLegume(id: string) {
   await journaliser(prisma, { entite: "AchatLegume", entiteId: id, champ: "suppression", ancienneValeur: `${a.legume} ${a.quantite}`, userId: user.id });
   revalidatePath("/stock/legumes");
 }
+
+/** Supprime plusieurs achats de légumes d'un coup (Direction). */
+export async function supprimerAchatsLegumesEnLot(ids: string[]) {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  const n = await prisma.achatLegume.deleteMany({ where: { id: { in: uniq } } });
+  await journaliser(prisma, { entite: "AchatLegume", entiteId: "lot", champ: "suppression", nouvelleValeur: `${n.count} achat(s)`, userId: user.id });
+  revalidatePath("/stock/legumes");
+}

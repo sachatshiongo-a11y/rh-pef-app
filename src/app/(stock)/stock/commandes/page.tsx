@@ -2,10 +2,10 @@ import Link from "next/link";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
 import { ImportBonsCommandeBtn } from "./import-bc-btn";
+import { CommandesListe } from "./commandes-liste";
 import { supprimerTousBonsCommande } from "./actions";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import type { Prisma } from "@prisma/client";
 
 type SP = { annee?: string; mois?: string; fournisseurId?: string };
@@ -60,75 +60,13 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousBonsCommande} libelle="Supprimer TOUS les bons de commande ?" />
       </form>
 
-      {/* Mobile : cartes. */}
-      <div className="space-y-2 lg:hidden">
-        {commandes.map((c) => (
-          <div key={c.id} className="rounded-xl border bg-card p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <Link href={`/stock/commandes/${c.id}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
-                <div className="truncate text-xs text-muted-foreground">
-                  {c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseur?.nom}</Link> : (c.fournisseur?.nom ?? "—")} · {new Date(c.date).toLocaleDateString("fr-FR")}
-                </div>
-              </div>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{c._count.lignes} ligne(s)</span>
-              <span className="font-semibold tabular-nums">{usd(c.totalUSD)}</span>
-            </div>
-            <div className="mt-2 flex gap-3 text-sm">
-              <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
-              {c.documentUrl ? (
-                <a href={c.documentUrl} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
-              ) : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? (
-                <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a>
-              ) : null}
-            </div>
-          </div>
-        ))}
-        {commandes.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande pour ce filtre.</p>}
-      </div>
-
-      {/* Ordinateur : tableau. */}
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-        <table className="w-full min-w-[44rem] text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
-            <tr>
-              <th className="px-3 py-2">Numéro</th>
-              <th className="px-3 py-2">Fournisseur</th>
-              <th className="px-3 py-2">Date</th>
-              <th className="px-3 py-2 text-right">Lignes</th>
-              <th className="px-3 py-2 text-right">Total</th>
-              <th className="px-3 py-2">Statut</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {commandes.map((c) => (
-              <tr key={c.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
-                <td className="px-3 py-2 font-medium">{c.numero}</td>
-                <td className="px-3 py-2">{c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseur?.nom}</Link> : (c.fournisseur?.nom ?? "—")}</td>
-                <td className="px-3 py-2 text-muted-foreground">{new Date(c.date).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-2 text-right">{c._count.lignes}</td>
-                <td className="px-3 py-2 text-right">{usd(c.totalUSD)}</td>
-                <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span></td>
-                <td className="px-3 py-2 text-right">
-                  <div className="flex justify-end gap-2">
-                    <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
-                    {c.documentUrl ? (
-                      <a href={c.documentUrl} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
-                    ) : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? (
-                      <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a>
-                    ) : null}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {commandes.length === 0 && <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Aucun bon de commande pour ce filtre.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <CommandesListe
+        estDirection={estDirection}
+        commandes={commandes.map((c) => ({
+          id: c.id, numero: c.numero, fournisseurId: c.fournisseurId ?? null, fournisseurNom: c.fournisseur?.nom ?? null,
+          date: new Date(c.date).toISOString(), nbLignes: c._count.lignes, total: Number(c.totalUSD), statut: c.statut, documentUrl: c.documentUrl ?? null,
+        }))}
+      />
     </div>
   );
 }

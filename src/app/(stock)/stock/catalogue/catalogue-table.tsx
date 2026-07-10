@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, memo, useMemo, useState, useTransition } from "react";
-import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles } from "./actions";
+import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
 
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
@@ -121,6 +121,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
           <button disabled={isPending || !bulkCat} onClick={() => run(async () => { await categoriserEnMasse([...sel], bulkCat); setSel(new Set()); setBulkCat(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
+          <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], true); setSel(new Set()); })} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Activer</button>
+          <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Désactiver</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
           {sel.size >= 2 && (
             <button disabled={isPending} onClick={() => { if (confirm(`Fusionner ces ${sel.size} articles en un seul ? Les doublons seront supprimés (stock cumulé sur l'article conservé).`)) run(async () => { await fusionnerArticles([...sel]); setSel(new Set()); }); }} className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50">Fusionner en 1</button>
