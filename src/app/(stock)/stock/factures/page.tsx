@@ -33,34 +33,36 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const orderBy: Prisma.FactureFournisseurOrderByWithRelationInput[] =
     tri === "fournisseur" ? [{ fournisseurNom: "asc" }, { annee: "desc" }, { mois: "desc" }] : [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }];
 
-  const [factures, toutes, config] = await Promise.all([
+  // KPIs et soldes calculés en SQL (agrégats) : on ne recharge plus TOUTE la table à chaque affichage.
+  const [factures, kpiRows, config] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
-    prisma.factureFournisseur.findMany({ select: { fournisseurId: true, fournisseurNom: true, montantUSD: true, resteAPayerUSD: true, statut: true, annee: true, mois: true, fournisseur: { select: { nom: true } } } }),
+    prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number }[]>`
+      SELECT COALESCE(SUM("montantUSD"), 0)::float                                              AS total,
+             COALESCE(SUM("montantUSD" - "resteAPayerUSD"), 0)::float                           AS regle,
+             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut <> 'REGLEE'), 0)::float        AS du,
+             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS echu
+      FROM "stock"."FactureFournisseur"`,
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
+  const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0 };
 
-  // KPIs globaux
-  const kpi = { total: 0, regle: 0, du: 0, echu: 0 };
-  for (const x of toutes) {
-    const m = Number(x.montantUSD), r = Number(x.resteAPayerUSD);
-    kpi.total += m; kpi.regle += m - r;
-    if (x.statut !== "REGLEE") kpi.du += r;
-    if (x.statut === "ECHUE_NON_REGLEE") kpi.echu += r;
-  }
-  // Solde par fournisseur
+  // Solde par fournisseur : agrégé en SQL, et seulement quand la vue « fournisseur » est affichée.
   const anneeC = config?.anneeCourante ?? new Date().getFullYear();
   const moisC = config?.moisCourant ?? new Date().getMonth() + 1;
-  const map = new Map<string, { id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }>();
-  for (const x of toutes) {
-    const nom = x.fournisseur?.nom ?? x.fournisseurNom;
-    const e = map.get(nom) ?? { id: null, nom, solde: 0, total: 0, nb: 0, nbAnnee: 0, nbMois: 0 };
-    if (!e.id && x.fournisseurId) e.id = x.fournisseurId;
-    e.solde += x.statut !== "REGLEE" ? Number(x.resteAPayerUSD) : 0;
-    e.total += Number(x.montantUSD); e.nb++;
-    if (x.annee === anneeC) { e.nbAnnee++; if (x.mois === moisC) e.nbMois++; }
-    map.set(nom, e);
-  }
-  const parFournisseur = [...map.values()].sort((a, b) => b.solde - a.solde || b.total - a.total);
+  const parFournisseur = vue === "fournisseur"
+    ? await prisma.$queryRaw<{ id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }[]>`
+        SELECT COALESCE(f."nom", x."fournisseurNom")                                            AS nom,
+               (ARRAY_AGG(x."fournisseurId") FILTER (WHERE x."fournisseurId" IS NOT NULL))[1]   AS id,
+               COALESCE(SUM(x."resteAPayerUSD") FILTER (WHERE x.statut <> 'REGLEE'), 0)::float  AS solde,
+               COALESCE(SUM(x."montantUSD"), 0)::float                                          AS total,
+               COUNT(*)::int                                                                    AS nb,
+               COUNT(*) FILTER (WHERE x.annee = ${anneeC})::int                                 AS "nbAnnee",
+               COUNT(*) FILTER (WHERE x.annee = ${anneeC} AND x.mois = ${moisC})::int           AS "nbMois"
+        FROM "stock"."FactureFournisseur" x
+        LEFT JOIN "stock"."Fournisseur" f ON f."id" = x."fournisseurId"
+        GROUP BY 1
+        ORDER BY solde DESC, total DESC`
+    : [];
 
   const toRow = (x: (typeof factures)[number]): FactureRow => ({
     id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
