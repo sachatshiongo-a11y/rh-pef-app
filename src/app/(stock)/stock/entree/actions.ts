@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 
 /** Supprime TOUTES les entrées de la liste d'achat (ENTREE hors facture) et annule leur effet sur le stock. */
 export async function supprimerToutesEntreesAchat() {
@@ -34,6 +35,7 @@ const dec = (v: FormDataEntryValue): number => {
 export async function entreeListeAchat(formData: FormData) {
   const user = await verifySession();
   requireModule(user, "stock");
+  await exigerPeriodeOuverte(new Date()); // les entrées sont datées du jour
 
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);

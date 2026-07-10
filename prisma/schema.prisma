@@ -1124,6 +1124,18 @@ model AchatLegume {
   @@schema("stock")
 }
 
+// Clôture mensuelle du stock : un mois clôturé n'accepte plus de mouvements datés dedans.
+model ClotureStock {
+  id        String   @id @default(uuid())
+  annee     Int
+  mois      Int
+  creeParId String? // User.id (pas de FK cross-schéma)
+  createdAt DateTime @default(now())
+
+  @@unique([annee, mois])
+  @@schema("stock")
+}
+
 // ─── Journal d'import réversible (inventaire, factures) ───
 model ImportBatch {
   id         String            @id @default(uuid())

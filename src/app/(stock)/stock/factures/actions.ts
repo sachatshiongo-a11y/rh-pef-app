@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
@@ -288,6 +289,7 @@ export async function creerFactureAvecLignes(formData: FormData) {
   // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
   // pour une facture purement financière sans mouvement de marchandise.
   const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
+  if (entrerEnStock) await exigerPeriodeOuverte(new Date()); // les entrées en stock sont datées du jour
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
   // Garde-fou anti-double comptage : le même achat saisi dans la Liste d'achat (ou en entrée

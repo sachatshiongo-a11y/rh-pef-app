@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 
 /** Supprime TOUS les achats de légumes (Direction uniquement). Sans impact stock (journal). */
 export async function supprimerTousAchatsLegumes() {
@@ -30,6 +31,7 @@ export async function creerAchatsLegumes(formData: FormData) {
 
   const dateStr = String(formData.get("date") ?? "").trim();
   const date = dateStr ? new Date(dateStr) : new Date();
+  await exigerPeriodeOuverte(date);
   const noms = formData.getAll("legume").map((v) => String(v).trim());
   const unites = formData.getAll("unite").map((v) => String(v).trim());
   const qtes = formData.getAll("quantite").map(dec);
@@ -62,6 +64,7 @@ export async function supprimerAchatLegume(id: string) {
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   const a = await prisma.achatLegume.findUniqueOrThrow({ where: { id } });
+  await exigerPeriodeOuverte(new Date(a.date));
   await prisma.achatLegume.delete({ where: { id } });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: id, champ: "suppression", ancienneValeur: `${a.legume} ${a.quantite}`, userId: user.id });
   revalidatePath("/stock/legumes");
@@ -74,6 +77,8 @@ export async function supprimerAchatsLegumesEnLot(ids: string[]) {
   requireRole(user, ["ADMIN"]);
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
+  const dates = await prisma.achatLegume.findMany({ where: { id: { in: uniq } }, select: { date: true } });
+  await exigerPeriodesOuvertes(dates.map((d) => new Date(d.date)));
   const n = await prisma.achatLegume.deleteMany({ where: { id: { in: uniq } } });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: "lot", champ: "suppression", nouvelleValeur: `${n.count} achat(s)`, userId: user.id });
   revalidatePath("/stock/legumes");

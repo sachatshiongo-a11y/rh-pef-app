@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 
 /** Supprime TOUS les mouvements et annule leur effet sur le stock (Direction uniquement). */
@@ -45,6 +46,7 @@ export async function mouvementManuel(formData: FormData) {
   const qtes = formData.getAll("quantite").map(dec);
   const dateStr = String(formData.get("date") ?? "").trim();
   const date = dateStr ? new Date(dateStr) : new Date();
+  await exigerPeriodeOuverte(date);
 
   // Pour une SORTIE : motif (PERTE | LIVRAISON_RESTAURANT). La perte exige une explication.
   let categorieSortie: string | null = null;
@@ -100,6 +102,7 @@ export async function supprimerMouvement(id: string) {
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
 
   const m = await prisma.mouvementStock.findUniqueOrThrow({ where: { id } });
+  await exigerPeriodeOuverte(new Date(m.date));
   const q = Number(m.quantite);
   await prisma.$transaction(async (tx) => {
     if (m.type === "ENTREE") {
@@ -124,6 +127,7 @@ export async function supprimerMouvementsEnLot(ids: string[]) {
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
   const mvs = await prisma.mouvementStock.findMany({ where: { id: { in: uniq } } });
+  await exigerPeriodesOuvertes(mvs.map((m) => new Date(m.date)));
   await prisma.$transaction(async (tx) => {
     for (const m of mvs) {
       const q = Number(m.quantite);
