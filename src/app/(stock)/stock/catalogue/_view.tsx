@@ -29,6 +29,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
       domaine: a.domaine,
       categorieId: a.categorieId,
       fournisseurId: a.fournisseurId,
+      unite: a.unite,
       prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
       uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
       quantite: a.stock ? a.stock.quantite.toString() : "0",

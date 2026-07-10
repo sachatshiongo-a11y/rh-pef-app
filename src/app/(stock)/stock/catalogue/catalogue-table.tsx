@@ -13,6 +13,7 @@ export type ArticleRow = {
   domaine: Domaine;
   categorieId: string | null;
   fournisseurId: string | null;
+  unite: string | null;
   prix: string | null;
   uniteParCarton: string | null; // conditionnement : nb d'unités par carton
   quantite: string;
@@ -186,6 +187,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <th>Catégorie</th>
               <th>Fournisseur</th>
               <th className="w-16 text-right">Stock</th>
+              <th className="w-20">Unité</th>
               <th className="w-24 text-right" title="Prix × stock">Valeur</th>
               <th className="w-24 text-right">Prix&nbsp;USD</th>
               <th className="w-20 text-right" title="Nombre d'unités par carton">Par carton</th>
@@ -198,7 +200,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <Fragment key={a.id}>
                 {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
                   <tr>
-                    <td colSpan={10} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
+                    <td colSpan={11} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
                     </td>
                   </tr>
@@ -206,12 +208,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                 <LigneArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
               </Fragment>
             ))}
-            {visibles.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={11} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
           {visibles.length > 0 && (
             <tfoot className="sticky bottom-0 bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
-                <td colSpan={5} className="text-right">Valeur totale du stock affiché</td>
+                <td colSpan={6} className="text-right">Valeur totale du stock affiché</td>
                 <td className="text-right tabular-nums">{usd(visibles.reduce((t, a) => t + valeurStock(a), 0))}</td>
                 <td colSpan={4}></td>
               </tr>
@@ -254,6 +256,7 @@ const LigneArticle = memo(function LigneArticle({
         </select>
       </td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
+      <td><input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
       <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
       <td><input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} text-right`} /></td>
       <td><input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" /></td>
@@ -302,6 +305,9 @@ const CarteArticle = memo(function CarteArticle({
         </label>
         <label className={champLabel}>Stock (auto)
           <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{a.quantite}</span>
+        </label>
+        <label className={champLabel}>Unité
+          <input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
         </label>
         <label className={champLabel}>Valeur
           <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
