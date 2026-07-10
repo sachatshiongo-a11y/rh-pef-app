@@ -37,7 +37,7 @@ export function BoutonRapport({ types, pdfHref, excelHref }: { types?: T[]; pdfH
 
   return (
     <div className="inline-block">
-      <button ref={btnRef} onClick={basculer} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Exporter ▾</button>
+      <button ref={btnRef} onClick={basculer} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{types?.length ? "Exporter / Rapports ▾" : "Exporter ▾"}</button>
       {open && pos && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
