@@ -21,11 +21,28 @@ export function ReceptionForm({ bcId, lignes }: { bcId: string; lignes: L[] }) {
     });
   };
 
+  // Réception en un clic : toutes les lignes aux quantités commandées (cas le plus courant).
+  const toutRecu = () => {
+    setErreur(null);
+    const fd = new FormData();
+    for (const l of lignes) { fd.append("recu_ligneId", l.id); fd.append("recu_quantite", l.quantite); }
+    startTransition(async () => {
+      try { await receptionnerBonCommande(bcId, fd); }
+      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+    });
+  };
+
   if (!ouvert) {
     return (
-      <button onClick={() => setOuvert(true)} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-        Enregistrer la réception
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {erreur && <span className="text-xs text-destructive">{erreur}</span>}
+        <button onClick={toutRecu} disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+          {isPending ? "Enregistrement…" : "✓ Tout reçu"}
+        </button>
+        <button onClick={() => setOuvert(true)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+          Réception partielle…
+        </button>
+      </div>
     );
   }
 

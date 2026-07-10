@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 
 export type Alerte = {
-  type: "CONGE_NON_VALIDE" | "JOUR_PAIE" | "CONTRAT" | "PERIODE_ESSAI" | "DOCUMENT" | "DECLARATION";
+  type: "CONGE_NON_VALIDE" | "JOUR_PAIE" | "CONTRAT" | "PERIODE_ESSAI" | "DOCUMENT" | "DECLARATION" | "FACTURES";
   niveau: "info" | "warning" | "urgent";
   message: string;
   lien?: string;
@@ -28,7 +28,8 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   // Toutes ces requêtes sont indépendantes : on les lance EN PARALLÈLE (Promise.all) au lieu de
   // les enchaîner. Sur un lien à forte latence, cela transforme ~5 allers-retours séquentiels en
   // un seul temps d'attente.
-  const [congesEnAttente, contrats, documents, runsRecents, declarationsCnss] = await Promise.all([
+  const dans7j = new Date(Date.now() + 7 * 86_400_000);
+  const [congesEnAttente, contrats, documents, runsRecents, declarationsCnss, facturesDues] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE", dateDebut: { gte: maintenant, lte: dans30j } },
       include: { employee: { select: { nom: true } } },
@@ -56,6 +57,10 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     prisma.declarationTaxe.findMany({
       where: { type: "CNSS" },
       select: { mois: true, annee: true, statut: true },
+    }),
+    prisma.factureFournisseur.findMany({
+      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, resteAPayerUSD: { gt: 0 }, dateEcheance: { not: null, lte: dans7j } },
+      select: { resteAPayerUSD: true, statut: true },
     }),
   ]);
 
@@ -151,6 +156,18 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   }
 
   const ordre = { urgent: 0, warning: 1, info: 2 };
+  // Factures fournisseurs à payer sous 7 jours (ou déjà échues) — une alerte agrégée, pas une par facture.
+  if (facturesDues.length > 0) {
+    const echues = facturesDues.filter((f) => f.statut === "ECHUE_NON_REGLEE").length;
+    const total = facturesDues.reduce((t, f) => t + Number(f.resteAPayerUSD), 0);
+    alertes.push({
+      type: "FACTURES",
+      niveau: echues > 0 ? "urgent" : "warning",
+      message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
+      lien: "/stock/factures?statut=du",
+    });
+  }
+
   alertes.sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
   return alertes;
 }
