@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { parserClasseurFactures, type FactureImportee } from "@/lib/import-factures-excel";
 
 // Import de factures fournisseurs depuis un classeur Excel, avec aperçu et journal réversible.
-const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+import { cleAlnum as normNom } from "./texte";
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
 export type FacturePreview = { fournisseurNom: string; numero: string | null; periode: string; montantUSD: number; statut: string; nouvelle: boolean };

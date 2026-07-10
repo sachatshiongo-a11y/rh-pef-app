@@ -1,7 +1,7 @@
 // Rapprochement d'une désignation lue sur une facture avec un article du catalogue, PAR MOTS-CLÉS.
 // Ex. « Saumon frais 1KG » → « Filet de saumon norvégien » (jeton distinctif partagé : « saumon »).
 
-const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+import { sansAccents as strip } from "./texte";
 
 // Mots trop génériques / unités / conditionnements : ignorés pour la comparaison.
 const STOP = new Set([

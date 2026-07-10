@@ -8,7 +8,7 @@ const MOIS: Record<string, number> = {
   janv: 1, jan: 1, fevr: 2, fev: 2, mars: 3, mar: 3, avr: 4, mai: 5, juin: 6,
   juil: 7, aout: 8, sept: 9, oct: 10, nov: 11, dec: 12,
 };
-const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+import { sansAccents as strip } from "./texte";
 const round2 = (n: number) => Math.round(n * 100) / 100;
 function moisDe(nom: string): number | null {
   const n = strip(nom).toLowerCase();

@@ -52,6 +52,7 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
           <button type="button" onClick={() => setType("SORTIE")} className={`px-3 py-1.5 ${type === "SORTIE" ? "bg-destructive text-white" : "hover:bg-accent"}`}>Sortie</button>
         </div>
         <input type="hidden" name="type" value={type} />
+        {type === "ENTREE" && <span className="text-xs text-muted-foreground">Entrées hors achat (ex. retour restaurant → dépôt). Les achats passent par la Liste d&apos;achat ou une facture.</span>}
         <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} /></label>
         {type === "SORTIE" ? (
           <select name="categorieSortie" value={motif} onChange={(e) => setMotif(e.target.value as typeof motif)} className={inp}>

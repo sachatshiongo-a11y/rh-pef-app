@@ -12,6 +12,8 @@ import { AutoPlanningForm } from "./auto-planning-form";
 import { CouvertureBar, calculerCouverture } from "./couverture-bar";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 
+import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
+
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const WD = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
 const MOIS_LONG = [
@@ -19,12 +21,6 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-function lundiDeLaSemaine(d: Date): Date {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const jour = date.getUTCDay();
-  date.setUTCDate(date.getUTCDate() + (jour === 0 ? -6 : 1 - jour));
-  return date;
-}
 function isoJour(d: Date): string {
   return d.toISOString().slice(0, 10);
 }

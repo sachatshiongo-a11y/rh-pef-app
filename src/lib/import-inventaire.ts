@@ -24,12 +24,13 @@ export type PreviewInventaire = {
   resume: { maj: number; crees: number; mvEntree: number; mvSortie: number; legumes: number; sansMatch: number };
 };
 
-const strip = (s: string) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-const normEx = (s: string) => strip(s).replace(/[^a-z0-9]/g, "");
+import { normTexte, cleAlnum } from "./texte";
+const strip = (s: string) => normTexte(String(s || ""));
+const normEx = (s: string) => cleAlnum(String(s || ""));
 const STOP = new Set(["de", "du", "des", "d", "la", "le", "les", "l", "en", "au", "aux", "a", "et", "the"]);
 const UNITRE = /^\d+([.,]\d+)?(kg|kgs|g|gr|l|ltr|lt|cl|ml|cm|mm|p|pcs|pce)?$/;
 const toks = (s: string) => strip(s).replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter((w) => w && !STOP.has(w) && !UNITRE.test(w));
-const jac = (a: string[], b: string[]) => { const A = new Set(a), B = new Set(b); let i = 0; for (const x of A) if (B.has(x)) i++; const u = new Set([...A, ...B]).size; return u ? i / u : 0; };
+import { jaccard as jac } from "./texte";
 const OVERRIDE: Record<string, string> = { parmesan: "grana padano 1kg", vodkaabsolute: "absolut vodka-75cl", malibucocunut70cl: "malibu-70cl" };
 
 // Valeur numérique d'une cellule exceljs (nombre littéral ou résultat de formule mis en cache).

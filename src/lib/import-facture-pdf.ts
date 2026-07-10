@@ -4,7 +4,7 @@ import { extraireLignesBonCommande, type LigneBonCommande } from "./import-bc-pd
 // Extraction BEST-EFFORT d'une facture fournisseur PDF (formats variés) : total, date, fournisseur,
 // et LIGNES (article, quantité, prix). Toujours à faire confirmer — le PDF joint fait foi.
 
-const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+import { normTexte as strip } from "./texte";
 
 export type FournisseurExtrait = {
   nom: string | null; rccm: string | null; idNational: string | null;

@@ -3,18 +3,10 @@ import { verifySession } from "@/lib/auth";
 import { qte } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 
 type SP = { periode?: string };
 
-const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-
-function lundiDe(d: Date): Date {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const j = x.getUTCDay(); // 0=dim
-  x.setUTCDate(x.getUTCDate() - ((j + 6) % 7));
-  return x;
-}
 
 export default async function EntreePage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;

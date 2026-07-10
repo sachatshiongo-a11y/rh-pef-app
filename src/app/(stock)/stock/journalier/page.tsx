@@ -1,16 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { qte } from "@/lib/stock";
+import { lundiDe } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
 type SP = { semaine?: string; domaine?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
-function lundiDe(d: Date): Date {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7));
-  return x;
-}
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
 
