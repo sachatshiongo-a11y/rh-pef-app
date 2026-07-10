@@ -46,9 +46,10 @@ export function parseMontant(s: string): number {
   return Number(t.replace(/[.,]/g, ""));
 }
 
-// Montants d'une ligne précédés de « $ » (USD) ou « FC/CDF » (francs). Espaces internes tolérés.
-const montantsUSD = (l: string) => [...l.matchAll(/(\d[\d.,\s]*\d|\d)\s*\$/g)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
-const montantsFC = (l: string) => [...l.matchAll(/(\d[\d.,\s]*\d|\d)\s*(?:fc|cdf|frs?)\b/gi)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
+// Montants d'une ligne précédés de « $ » (USD) ou « FC/CDF » (francs). PAS d'espace interne : sur une
+// ligne d'articles, les colonnes sont séparées par des espaces — les fusionner créerait des nombres géants.
+const montantsUSD = (l: string) => [...l.matchAll(/([\d.,]+)\s*\$/g)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
+const montantsFC = (l: string) => [...l.matchAll(/([\d.,]+)\s*(?:fc|cdf|frs?)\b/gi)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
 
 /**
  * Extrait les lignes d'articles d'un bon de commande PDF (formats variés).
@@ -64,12 +65,12 @@ export function extraireLignesBonCommande(text: string): LigneBonCommande[] {
     if (/^montant total|^total\b|^sous[- ]total|^net a payer/.test(s)) { if (out.length) break; continue; }
     const moneys = montantsUSD(l);
     if (moneys.length === 0) continue;
-    const desig = l.replace(/(\d[\d.,\s]*\d|\d)\s*\$/g, " ").replace(/\b\d[\d.,]*\b/g, " ").replace(/\s{2,}/g, " ").trim();
+    const desig = l.replace(/[\d.,]+\s*\$/g, " ").replace(/\b\d[\d.,]*\b/g, " ").replace(/\s{2,}/g, " ").trim();
     if (!/[a-zà-ÿ]{2,}/i.test(desig)) continue; // pas de vraie désignation ⇒ ligne de tableau/total
     const total = moneys[moneys.length - 1];
     const pu = moneys.length >= 2 ? moneys[moneys.length - 2] : total;
     // Nombres situés avant le 1er montant $ : candidats quantité.
-    const idx = l.search(/(\d[\d.,\s]*\d|\d)\s*\$/);
+    const idx = l.search(/[\d.,]+\s*\$/);
     const avant = idx > 0 ? l.slice(0, idx) : "";
     const nums = [...avant.matchAll(/\b(\d[\d.,]*)\b/g)].map((m) => parseMontant(m[1])).filter((n) => Number.isFinite(n) && n > 0);
     let quantite = 0;
@@ -82,30 +83,30 @@ export function extraireLignesBonCommande(text: string): LigneBonCommande[] {
 }
 
 /**
- * Total du bon de commande. Priorité : la ligne « Montant total / Total / Net à payer » (en $, sinon
- * en FC converti). À défaut, le plus grand montant en $ du document (le total général est le plus
- * élevé). En dernier recours, un montant franc converti.
+ * Total du bon de commande. Le total général figure sur sa PROPRE ligne, réduite à un montant
+ * (parfois précédé de « TOTAL » / « Montant total »), ex. « 1 112,02 $ », « 130,00 $ »,
+ * « TOTAL 447.00 $ ». On parcourt ces lignes « montant pur » (le nombre entier, espaces = milliers,
+ * y est fiable) : on prend celle libellée « total », sinon la dernière. FC converti en USD au besoin.
  */
 export function extraireTotalBonCommande(text: string, tauxCDF: number): number {
-  const tousUSD: number[] = [];
-  const tousFC: number[] = [];
-  let totalUSD = NaN, totalFC = NaN;
+  // Ligne = label facultatif (TOTAL/MONTANT…) + un nombre + devise, et RIEN d'autre.
+  const reUSD = /^(?:montant\s+total|total(?:\s+(?:ttc|net|general|generale|a\s+payer|à\s+payer))?|net\s+à?\s*payer)?\s*(\d[\d\s.,]*\d|\d)\s*\$$/;
+  const reFC = /^(?:montant\s+total|total(?:\s+(?:ttc|net|general|generale|a\s+payer|à\s+payer))?|net\s+à?\s*payer)?\s*(\d[\d\s.,]*\d|\d)\s*(?:fc|cdf|frs?)$/;
+  let dernierUSD = NaN, dernierFC = NaN, labelUSD = NaN, labelFC = NaN;
   for (const raw of text.split(/\r?\n/)) {
-    const s = strip(raw).toLowerCase();
-    const estTotal = /(montant\s*total|total\s*(ttc|general|generale|net|a\s*payer)|net\s*a\s*payer|^total\b)/.test(s);
-    const usd = montantsUSD(raw);
-    const fc = montantsFC(raw);
-    tousUSD.push(...usd);
-    tousFC.push(...fc);
-    if (estTotal) {
-      if (usd.length) totalUSD = Math.max(Number.isFinite(totalUSD) ? totalUSD : 0, ...usd);
-      if (fc.length) totalFC = Math.max(Number.isFinite(totalFC) ? totalFC : 0, ...fc);
-    }
+    const l = raw.replace(/\s{2,}/g, " ").trim();
+    if (!l) continue;
+    const s = strip(l).toLowerCase();
+    const estLabel = /total|montant|net/.test(s);
+    const mu = s.match(reUSD);
+    if (mu) { const v = parseMontant(mu[1]); if (v > 0) { dernierUSD = v; if (estLabel) labelUSD = v; } continue; }
+    const mf = s.match(reFC);
+    if (mf) { const v = parseMontant(mf[1]); if (v > 0) { dernierFC = v; if (estLabel) labelFC = v; } }
   }
-  if (Number.isFinite(totalUSD) && totalUSD > 0) return round2(totalUSD);
-  if (Number.isFinite(totalFC) && totalFC > 0 && tauxCDF > 0) return round2(totalFC / tauxCDF);
-  if (tousUSD.length) return round2(Math.max(...tousUSD));
-  if (tousFC.length && tauxCDF > 0) return round2(Math.max(...tousFC) / tauxCDF);
+  if (Number.isFinite(labelUSD)) return round2(labelUSD);
+  if (Number.isFinite(labelFC) && tauxCDF > 0) return round2(labelFC / tauxCDF);
+  if (Number.isFinite(dernierUSD)) return round2(dernierUSD);
+  if (Number.isFinite(dernierFC) && tauxCDF > 0) return round2(dernierFC / tauxCDF);
   return 0;
 }
 
