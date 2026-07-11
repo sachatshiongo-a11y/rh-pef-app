@@ -87,7 +87,7 @@ export default async function StockDashboard() {
             <p className="text-sm capitalize text-muted-foreground">{user.role === "ADMIN" ? "Direction" : "Responsable stock"} · {dateDuJour} · Stock &amp; Achats</p>
           </div>
         </div>
-        <div className="rounded-xl border bg-muted/30 px-4 py-2 text-right">
+        <div className="w-full rounded-xl border bg-muted/30 px-4 py-2 sm:w-auto sm:text-right">
           <p className="text-xs text-muted-foreground">Taux du jour</p>
           <p className="text-lg font-semibold">1 USD = {taux ? taux.toLocaleString("fr-FR") : "—"} CDF</p>
         </div>
@@ -253,14 +253,15 @@ export default async function StockDashboard() {
 
 function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: string; sous?: string; accent?: "red" | "amber"; href?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : "";
+  // h-full + flex : toutes les cartes d'une même rangée occupent la même hauteur (fin de l'effet décalé sur mobile).
   const inner = (
-    <div className={`rounded-lg border p-4 ${cls} ${href ? "transition-colors hover:border-primary" : ""}`}>
+    <div className={`flex h-full flex-col rounded-lg border p-4 ${cls} ${href ? "transition-colors hover:border-primary" : ""}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold">{valeur}</p>
-      {sous && <p className="text-xs text-muted-foreground">{sous}</p>}
+      <p className="mt-1 text-lg font-semibold sm:text-xl">{valeur}</p>
+      {sous && <p className="mt-auto pt-0.5 text-xs text-muted-foreground">{sous}</p>}
     </div>
   );
-  return href ? <Link href={href}>{inner}</Link> : inner;
+  return href ? <Link href={href} className="block h-full">{inner}</Link> : inner;
 }
 
 function Bloc({ titre, lien, children }: { titre: string; lien: string; children: React.ReactNode }) {

@@ -17,7 +17,7 @@ export function BoutonRapport({ types, pdfHref, excelHref, pdfDownload }: { type
     const rect = btnRef.current?.getBoundingClientRect();
     if (rect) {
       const marge = 8;
-      const width = Math.min(288, window.innerWidth - 2 * marge);
+      const width = Math.min(340, window.innerWidth - 2 * marge);
       const left = Math.min(Math.max(marge, rect.right - width), window.innerWidth - width - marge);
       setPos({ top: rect.bottom + 6, left, width });
     }
@@ -31,7 +31,7 @@ export function BoutonRapport({ types, pdfHref, excelHref, pdfDownload }: { type
   const [fin, setFin] = useState(finDef);
   const lien = (type: string, mode: string, format: string) => `/stock/rapports/export?type=${type}&mode=${mode}&format=${format}&debut=${debut}&fin=${fin}`;
   const inp = "w-full rounded-md border border-input bg-background px-2 py-1 text-sm";
-  const dl = "flex-1 rounded-md border px-2 py-1 text-center text-xs font-medium hover:border-primary hover:bg-accent";
+  const dl = "flex-1 rounded-md border px-2 py-2 text-center text-sm font-medium hover:border-primary hover:bg-accent active:bg-accent";
 
   if (!types?.length && !pdfHref && !excelHref) return null;
 
