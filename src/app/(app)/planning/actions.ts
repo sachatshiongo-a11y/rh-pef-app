@@ -51,13 +51,16 @@ export async function saisirModele(employeeId: string, jour: number, shiftId: st
  *   - modeles : utiliser les modèles hebdomadaires (rôle/shift fixe par jour) quand ils existent ;
  *   - ecraser : régénérer toute la période (sinon on ne remplit que les créneaux vides).
  */
-export async function genererPlanningAuto(debutIso: string, finIso: string, formData: FormData) {
+export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; detailNonCouverts: string[]; sousHeures: number };
+
+ export async function genererPlanningAuto(debutIso: string, finIso: string, formData: FormData): Promise<ResumeGeneration> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const debut = new Date(debutIso + "T00:00:00Z");
   const fin = new Date(finIso + "T00:00:00Z");
-  if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return;
+  const resumeVide: ResumeGeneration = { crees: 0, besoinsNonCouverts: 0, detailNonCouverts: [], sousHeures: 0 };
+  if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return resumeVide;
 
   const shiftIdParam = String(formData.get("shiftId") ?? "").trim();
   const joursParam = formData.getAll("jours").map(Number).filter((n) => n >= 0 && n <= 6);
@@ -163,6 +166,10 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
   const joursPlats = [...joursParSemaine.values()].flat().sort((a, b) => a.getTime() - b.getTime());
 
   const aCreer: { employeeId: string; date: Date; shiftId: string }[] = [];
+  // Résumé : besoins restés découverts (détail lisible) et salariés sous leurs heures.
+  let besoinsNonCouverts = 0;
+  const detailNonCouverts: string[] = [];
+  let sousHeures = 0;
 
   if (besoins.length > 0) {
     // ===== Génération « couverture d'abord » : remplir chaque besoin (shift × poste × jour) =====
@@ -254,6 +261,14 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
           affecter(e.id, d, b.shiftId, b.poste);
           have++;
         }
+        if (have < b.nombreRequis) {
+          const manque = b.nombreRequis - have;
+          besoinsNonCouverts += manque;
+          if (detailNonCouverts.length < 6) {
+            const nomShift = shifts.find((s) => s.id === b.shiftId)?.nom ?? "shift";
+            detailNonCouverts.push(`${d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })} · ${nomShift} × ${b.poste} : manque ${manque}`);
+          }
+        }
       }
     }
   } else {
@@ -265,6 +280,7 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
           for (const d of jours) {
             const shiftId = shiftDuModele(modele, d);
             if (!shiftId) continue;
+            if (estEnConge(emp.id, d)) continue; // un salarié en congé approuvé n'est pas planifiable
             if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
             aCreer.push({ employeeId: emp.id, date: d, shiftId });
           }
@@ -280,6 +296,7 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
       for (const jours of joursParSemaine.values()) {
         let h = 0, j = 0;
         for (const d of jours) {
+          if (estEnConge(emp.id, d)) continue; // un salarié en congé approuvé n'est pas planifiable
           const stop = nbParSemaine > 0 ? j >= capJours : h > cible - ds / 2 + EPS;
           if (stop) break;
           j++;
@@ -291,6 +308,15 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
     }
   }
 
+  // Salariés sous leurs heures hebdo sur la période (mode couverture : heures suivies précisément).
+  if (besoins.length > 0) {
+    const nbSemaines = Math.max(1, joursParSemaine.size);
+    const totaux = new Map<string, number>();
+    for (const c of aCreer) totaux.set(c.employeeId, (totaux.get(c.employeeId) ?? 0) + (dureeParShift.get(c.shiftId) ?? 0));
+    if (!ecraser) for (const ex of existants) totaux.set(ex.employeeId, (totaux.get(ex.employeeId) ?? 0) + (dureeParShift.get(ex.shiftId) ?? 0));
+    sousHeures = employees.filter((e) => (totaux.get(e.id) ?? 0) < cibleHeures(e) * nbSemaines - EPS).length;
+  }
+
   // « Écraser » = régénérer toute la période (2 requêtes). Sinon on remplit seulement les vides.
   if (ecraser) {
     await prisma.planningCreneau.deleteMany({ where: { date: { gte: debut, lte: fin } } });
@@ -299,6 +325,7 @@ export async function genererPlanningAuto(debutIso: string, finIso: string, form
     await prisma.planningCreneau.createMany({ data: aCreer, skipDuplicates: true });
   }
   revalidatePath("/planning");
+  return { crees: aCreer.length, besoinsNonCouverts, detailNonCouverts, sousHeures };
 }
 
 /** Affecte (ou efface) un shift en LOT : plusieurs employés × plusieurs jours en un aller-retour. */

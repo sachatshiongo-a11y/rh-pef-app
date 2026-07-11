@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { genererPlanningAuto } from "./actions";
+import { useState, useTransition } from "react";
+import { genererPlanningAuto, type ResumeGeneration } from "./actions";
 
 const JOURS = [
   { v: 1, l: "Lun" },
@@ -23,6 +23,8 @@ export function AutoPlanningForm({
   shifts: { id: string; nom: string }[];
 }) {
   const [ouvert, setOuvert] = useState(false);
+  const [resume, setResume] = useState<ResumeGeneration | null>(null);
+  const [isPending, start] = useTransition();
 
   return (
     <div className="relative">
@@ -36,8 +38,7 @@ export function AutoPlanningForm({
           <div className="absolute right-0 z-50 mt-2 w-80 rounded-xl border bg-card p-4 shadow-lg">
             <p className="mb-3 text-sm font-semibold">Paramètres de génération</p>
             <form
-              action={genererPlanningAuto.bind(null, debut, fin)}
-              onSubmit={() => setOuvert(false)}
+              action={(fd) => { setResume(null); start(async () => setResume(await genererPlanningAuto(debut, fin, fd))); }}
               className="space-y-3 text-sm"
             >
               {/* Le cœur : chaque employé reçoit TOUS les shifts de son modèle hebdo (rôle par jour,
@@ -90,9 +91,22 @@ export function AutoPlanningForm({
                 <input type="checkbox" name="ecraser" /> Écraser et régénérer toute la période
               </label>
 
-              <button className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
-                Générer le planning
+              <button disabled={isPending} className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+                {isPending ? "Génération…" : "Générer le planning"}
               </button>
+              {resume && (
+                <div className={`space-y-1 rounded-md border p-2 text-xs ${resume.besoinsNonCouverts > 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+                  <p className="font-semibold">{resume.crees} créneau(x) créé(s)</p>
+                  {resume.besoinsNonCouverts > 0 && (
+                    <>
+                      <p>{resume.besoinsNonCouverts} besoin(s) NON couvert(s) :</p>
+                      <ul className="list-inside list-disc">{resume.detailNonCouverts.map((l, i) => <li key={i}>{l}</li>)}</ul>
+                    </>
+                  )}
+                  {resume.sousHeures > 0 && <p>{resume.sousHeures} salarié(s) sous leurs heures hebdo (congés compris).</p>}
+                  {resume.besoinsNonCouverts === 0 && resume.crees > 0 && <p>Tous les besoins sont couverts ✅</p>}
+                </div>
+              )}
               <p className="text-[11px] text-muted-foreground">
                 Sans « écraser », seuls les créneaux vides sont remplis (vos saisies sont conservées).
               </p>
