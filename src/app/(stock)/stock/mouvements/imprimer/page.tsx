@@ -21,19 +21,17 @@ export default async function MouvementsImprimerPage({ searchParams }: { searchP
     include: { article: { select: { designation: true } } },
   });
 
-  let valEntrees = 0, valSorties = 0;
-  const lignes = mouvements.map((m) => {
-    const val = m.montantUSD !== null ? Number(m.montantUSD) : null;
-    if (val !== null) { if (m.type === "SORTIE") valSorties += val; else valEntrees += val; }
-    return [
-      new Date(m.date).toLocaleDateString("fr-FR"),
-      m.article.designation,
-      TYPE[m.type] ?? m.type,
-      `${m.type === "SORTIE" ? "−" : "+"}${Number(m.quantite)}`,
-      val !== null ? usd(val) : "—",
-      m.origine ?? "",
-    ] as (string | number)[];
-  });
+  const val = (m: (typeof mouvements)[number]) => (m.montantUSD !== null ? Number(m.montantUSD) : 0);
+  const valEntrees = mouvements.filter((m) => m.type !== "SORTIE").reduce((t, m) => t + val(m), 0);
+  const valSorties = mouvements.filter((m) => m.type === "SORTIE").reduce((t, m) => t + val(m), 0);
+  const lignes = mouvements.map((m) => [
+    new Date(m.date).toLocaleDateString("fr-FR"),
+    m.article.designation,
+    TYPE[m.type] ?? m.type,
+    `${m.type === "SORTIE" ? "−" : "+"}${Number(m.quantite)}`,
+    m.montantUSD !== null ? usd(Number(m.montantUSD)) : "—",
+    m.origine ?? "",
+  ] as (string | number)[]);
 
   return (
     <PrintDoc
