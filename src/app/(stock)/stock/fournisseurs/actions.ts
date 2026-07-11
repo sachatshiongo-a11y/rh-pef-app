@@ -47,6 +47,7 @@ export async function modifierFournisseur(id: string, formData: FormData) {
   await prisma.fournisseur.update({ where: { id }, data });
   await journaliser(prisma, { entite: "Fournisseur", entiteId: id, champ: "modification", userId: user.id });
   revalidatePath("/stock/fournisseurs");
+  revalidatePath(`/stock/fournisseurs/${id}`);
 }
 
 /**

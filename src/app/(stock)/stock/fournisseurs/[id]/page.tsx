@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { verifySession } from "@/lib/auth";
 import { niveauAlerte, ALERTE_CLASSE, ALERTE_LABEL, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd, qte, type NiveauAlerte } from "@/lib/stock";
+import { EditerFournisseur } from "./editer-fournisseur";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
+const s = (v: string | null) => v ?? "";
 
 export default async function FournisseurDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
   const [f, factures, bons] = await Promise.all([
     prisma.fournisseur.findUnique({
       where: { id },
@@ -46,11 +51,18 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
         <span className="text-foreground">{f.nom}</span>
       </div>
 
-      <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">{f.nom}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {f._count.articles} article(s) · {bonsValides.length} bon(s) de commande validé(s) · {factures.length} facture(s)
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold sm:text-2xl">{f.nom}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {f._count.articles} article(s) · {bonsValides.length} bon(s) de commande validé(s) · {factures.length} facture(s)
+          </p>
+        </div>
+        {estDirection && <EditerFournisseur f={{
+          id: f.id, nom: f.nom, contactNom: s(f.contactNom), telephone: s(f.telephone), email: s(f.email),
+          ville: s(f.ville), pays: s(f.pays), rccm: s(f.rccm), idNational: s(f.idNational),
+          delaiPaiement: s(f.delaiPaiement), delaiLivraison: s(f.delaiLivraison), modePaiement: s(f.modePaiement), produits: s(f.produits),
+        }} />}
       </div>
 
       {/* KPIs factures */}
