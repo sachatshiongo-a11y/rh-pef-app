@@ -60,11 +60,11 @@ export async function GET(request: NextRequest) {
   await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
-      `Pâtes en Folie — Gestion · ${aEnvoyer.length} rappel(s) du jour`,
+      `Pâtes en Folie · ${aEnvoyer.length} rappel(s) du jour`,
       corps,
     ),
     envoyerPush(admins.map((a) => a.id), {
-      title: `Pâtes en Folie — Gestion · ${aEnvoyer.length} rappel(s)`,
+      title: `Pâtes en Folie · ${aEnvoyer.length} rappel(s)`,
       body: urgents.length
         ? `${urgents.length} urgent(s) · ${warnings.length} à venir`
         : `${warnings.length} échéance(s) à venir`,

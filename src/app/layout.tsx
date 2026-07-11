@@ -3,7 +3,7 @@ import { MajBanner } from "@/components/maj-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pâtes en Folie — Gestion",
+  title: "Pâtes en Folie",
   description: "Gestion de Pâtes en Folie",
   manifest: "/manifest.json",
   icons: {
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "Pâtes en Folie — Gestion",
+    title: "Pâtes en Folie",
     statusBarStyle: "default",
   },
 };

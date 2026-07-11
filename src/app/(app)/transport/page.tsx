@@ -68,7 +68,49 @@ export default async function TransportPage() {
         <CarteTotal titre="Ensemble" n={lignes.length} jour={totalJour} mois={totalMoisComplet} taux={taux} accent="bg-primary/10 text-primary" />
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      {/* Mobile : une carte par employé (le tableau défilerait horizontalement). */}
+      <div className="space-y-2 lg:hidden">
+        {lignes.map((l) => (
+          <div key={l.id} className="rounded-xl border bg-card p-3">
+            <div className="flex items-center justify-between gap-2">
+              <Link href={`/employes/${l.id}`} className="flex min-w-0 items-center gap-2 font-medium hover:underline">
+                <Avatar nom={l.nom} taille={30} photoUrl={l.photoUrl} />
+                <span className="min-w-0">
+                  <span className="block truncate">{l.nom}</span>
+                  <span className="block truncate text-xs font-normal text-muted-foreground">{l.poste}</span>
+                </span>
+              </Link>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${l.brigade ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}>
+                {l.brigade ? "Brigade" : "Back-office"}
+              </span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 border-t pt-2 text-sm">
+              <div>
+                <p className="text-[11px] text-muted-foreground">{l.brigade ? "Transport / jour" : "Forfait mensuel"}</p>
+                <p className="tabular-nums">{l.brigade ? cdf(l.jour) : `${usd(l.forfaitUSD)}`}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground">Matricule</p>
+                <p className="font-mono text-xs text-muted-foreground">{l.matricule}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[11px] text-muted-foreground">Mois complet</p>
+                <p className="font-semibold tabular-nums">{cdf(l.moisCompletCDF)}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+        {lignes.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé actif.</p>}
+        {lignes.length > 0 && (
+          <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-3 py-2 text-sm font-semibold">
+            <span>Total ({lignes.length})</span>
+            <span className="tabular-nums">{cdf(totalMoisComplet)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Ordinateur : tableau complet. */}
+      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
         <table className="w-full min-w-[52rem] text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>

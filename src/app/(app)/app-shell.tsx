@@ -97,7 +97,7 @@ export function AppShell({
               priority
               className="h-auto w-full max-w-36"
             />
-            <p className="mt-1 text-xs text-muted-foreground">Gestion</p>
+            <p className="mt-1 text-xs text-muted-foreground">Ressources humaines</p>
           </div>
           {/* Fermer le tiroir (mobile) */}
           <button
@@ -204,7 +204,7 @@ export function AppShell({
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="truncate font-medium">Pâtes en Folie — Gestion</span>
+          <span className="truncate font-medium">Pâtes en Folie — Ressources humaines</span>
           <div className="ml-auto flex items-center gap-2">
             {notif && <NotificationBell {...notif} />}
             {employeeId ? (
