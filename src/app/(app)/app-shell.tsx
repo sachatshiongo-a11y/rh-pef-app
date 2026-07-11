@@ -3,45 +3,47 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
+import { Icone } from "@/components/icones";
 
 // Menu groupé façon PayFit : sections + icônes.
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
     titre: "Les essentiels",
     items: [
-      { href: "/accueil", label: "Tableau de bord", icone: "🏠" },
-      { href: "/a-valider", label: "Demandes de validation", icone: "✅", adminOnly: true },
-      { href: "/employes", label: "Employés", icone: "👥" },
-      { href: "/fiches-poste", label: "Fiches de poste", icone: "📄" },
-      { href: "/paie", label: "Paie", icone: "💵" },
-      { href: "/transport", label: "Grille de transport", icone: "🚐" },
+      { href: "/accueil", label: "Tableau de bord", icone: "accueil" },
+      { href: "/a-valider", label: "Demandes de validation", icone: "valider", adminOnly: true },
+      { href: "/employes", label: "Employés", icone: "employes" },
+      { href: "/fiches-poste", label: "Fiches de poste", icone: "document" },
+      { href: "/paie", label: "Paie", icone: "billet" },
+      { href: "/transport", label: "Grille de transport", icone: "bus" },
     ],
   },
   {
     titre: "Temps de travail",
     items: [
-      { href: "/planning", label: "Planning", icone: "🗓" },
-      { href: "/presences", label: "Présences", icone: "📋" },
-      { href: "/heures-supp", label: "Heures supp.", icone: "⏱" },
-      { href: "/conges", label: "Congés & absences", icone: "🏖" },
+      { href: "/planning", label: "Planning", icone: "calendrier" },
+      { href: "/presences", label: "Présences", icone: "presence" },
+      { href: "/heures-supp", label: "Heures supp.", icone: "horloge" },
+      { href: "/conges", label: "Congés & absences", icone: "parasol" },
     ],
   },
   {
     titre: "Finances & archives",
     items: [
-      { href: "/declarations", label: "Déclarations", icone: "🧾" },
-      { href: "/historique", label: "Historique de paie", icone: "📊" },
-      { href: "/documents", label: "Documents", icone: "📁" },
+      { href: "/declarations", label: "Déclarations", icone: "recu" },
+      { href: "/historique", label: "Historique de paie", icone: "graphique" },
+      { href: "/documents", label: "Documents", icone: "dossier" },
     ],
   },
   {
     titre: "Configuration",
-    items: [{ href: "/parametres", label: "Paramètres", icone: "⚙️" }],
+    items: [{ href: "/parametres", label: "Paramètres", icone: "parametres" }],
   },
 ];
 
@@ -66,6 +68,9 @@ export function AppShell({
 }) {
   const [open, setOpen] = useState(false);
   const fermer = () => setOpen(false);
+  const pathname = usePathname();
+  // État actif du menu (même règle que l'espace Stock) : accueil = exact, sinon préfixe.
+  const actif = (href: string) => (href === "/accueil" ? pathname === href : pathname.startsWith(href));
 
   const roleLabel =
     userRole === "ADMIN" ? "Direction" : userRole === "MANAGER" ? "Responsable RH" : "Consultation";
@@ -141,9 +146,9 @@ export function AppShell({
                       key={item.href}
                       href={item.href}
                       onClick={fermer}
-                      className="flex items-center gap-2.5 rounded-md px-2 py-2 text-sm hover:bg-accent hover:text-accent-foreground lg:py-1.5"
+                      className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:py-1.5 ${actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"}`}
                     >
-                      <span aria-hidden className="lg:hidden">{item.icone}</span>
+                      <Icone nom={item.icone} className="w-4 shrink-0 lg:hidden" />
                       <span className="flex-1">{item.label}</span>
                       {badge > 0 && (
                         <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">
@@ -174,17 +179,17 @@ export function AppShell({
             <Link
               href="/choix-espace"
               onClick={fermer}
-              className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              🔄 Changer d&apos;espace
+              <Icone nom="permuter" /> Changer d&apos;espace
             </Link>
           )}
           <form action={logout}>
             <button
               type="submit"
-              className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              Déconnexion
+              <Icone nom="deconnexion" /> Déconnexion
             </button>
           </form>
           <div className="mt-2 px-2"><ThemeToggle /></div>

@@ -91,7 +91,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                     className={`${inp} w-24 text-right ${l.articleId ? "bg-muted/50 text-muted-foreground" : ""}`}
                   />
                 </td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toFixed(2)} $</td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
               </tr>
             ))}
           </tbody>

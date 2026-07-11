@@ -68,7 +68,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
         <div className="text-right text-sm">
           <span className="text-muted-foreground">Total : </span>
           <span className="font-semibold">{totalCDF.toLocaleString("fr-FR")} CDF</span>
-          <span className="text-muted-foreground"> ≈ {totalUSD.toFixed(2)} $</span>
+          <span className="text-muted-foreground"> ≈ {totalUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</span>
         </div>
         <div className="flex items-center gap-2">
           <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />

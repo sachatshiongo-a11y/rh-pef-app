@@ -17,6 +17,9 @@ export default function LoginPage() {
           Connectez-vous à votre compte
         </p>
         <LoginForm />
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          Besoin d&apos;aide ? <a href="mailto:info@patesenfolie.cd" className="underline hover:text-foreground">Contactez la direction</a>
+        </p>
       </div>
     </div>
   );

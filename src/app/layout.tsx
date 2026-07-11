@@ -4,6 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Pâtes en Folie",
+  robots: { index: false, follow: false }, // outil interne : jamais indexé par les moteurs
   description: "Gestion de Pâtes en Folie",
   manifest: "/manifest.json",
   icons: {

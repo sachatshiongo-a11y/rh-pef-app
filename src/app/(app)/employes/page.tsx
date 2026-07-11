@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
@@ -128,7 +129,7 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
           </Link>
         ))}
         {employes.length === 0 && (
-          <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé ne correspond.</p>
+          <EtatVide message="Aucun employé ne correspond." />
         )}
       </div>
 

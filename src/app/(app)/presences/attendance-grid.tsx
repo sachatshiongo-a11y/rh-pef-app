@@ -1,5 +1,6 @@
 "use client";
 
+import { EtatVide } from "@/components/etat-vide";
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/avatar";
@@ -260,7 +261,7 @@ export function AttendanceGrid({
               )}
             </div>
           ))}
-          {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+          {employees.length === 0 && <EtatVide message="Aucun employé." />}
         </div>
         {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
       </div>

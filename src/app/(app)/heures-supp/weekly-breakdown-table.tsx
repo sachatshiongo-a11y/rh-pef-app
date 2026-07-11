@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { EtatVide } from "@/components/etat-vide";
 import Link from "next/link";
 import type { DetailSemaineHS } from "@/lib/payroll";
 import type { EmployeeRow } from "./hours-grid";
@@ -43,7 +44,7 @@ export function WeeklyBreakdownTable({
           </div>
         );
       })}
-      {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+      {employees.length === 0 && <EtatVide message="Aucun employé." />}
     </div>
 
     {/* Ordinateur : tableau. */}

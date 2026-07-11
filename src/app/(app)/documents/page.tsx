@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
@@ -245,7 +246,7 @@ export default async function DocumentsPage({
           </div>
         ))}
         {((onglet === "bulletins" && bulletins.length === 0) || (onglet === "contrats" && contrats.length === 0) || (onglet === "documents" && documents.length === 0) || (onglet === "conges" && conges.length === 0) || (onglet === "fiches" && fiches.length === 0)) && (
-          <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Rien à afficher.</p>
+          <EtatVide message="Rien à afficher." />
         )}
       </div>
 

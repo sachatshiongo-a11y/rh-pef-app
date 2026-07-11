@@ -8,49 +8,50 @@ import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { logout } from "@/app/login/actions";
+import { Icone } from "@/components/icones";
 
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
     titre: "Pilotage",
     items: [
-      { href: "/stock", label: "Tableau de bord", icone: "🏠" },
-      { href: "/stock/a-valider", label: "Demandes à valider", icone: "✅", adminOnly: true },
-      { href: "/stock/archives", label: "Archives", icone: "🗄️" },
+      { href: "/stock", label: "Tableau de bord", icone: "accueil" },
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "valider", adminOnly: true },
+      { href: "/stock/archives", label: "Archives", icone: "archives" },
     ],
   },
   {
     titre: "Dépôt",
     items: [
-      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "🥘" },
-      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "🥤" },
-      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "📦" },
-      { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
-      { href: "/stock/mouvements", label: "Mouvements", icone: "🔄" },
-      { href: "/stock/reconciliation", label: "Réconciliation", icone: "⚖️" },
+      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "marmite" },
+      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "gobelet" },
+      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "colis" },
+      { href: "/stock/entree", label: "Liste d'achat", icone: "panier" },
+      { href: "/stock/mouvements", label: "Mouvements", icone: "echanges" },
+      { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },
     ],
   },
   {
     titre: "Restaurant",
     items: [
-      { href: "/stock/restaurant", label: "Stock restaurant", icone: "🍽️" },
-      { href: "/stock/legumes", label: "Achats légumes frais", icone: "🥬" },
-      { href: "/stock/journalier", label: "Conso. journalière", icone: "📆" },
+      { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts" },
+      { href: "/stock/legumes", label: "Achats légumes frais", icone: "feuille" },
+      { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours" },
     ],
   },
   {
     titre: "Achats",
     items: [
-      { href: "/stock/commandes", label: "Bons de commande", icone: "📋" },
-      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🚚" },
-      { href: "/stock/factures", label: "Factures", icone: "🧾" },
+      { href: "/stock/commandes", label: "Bons de commande", icone: "presence" },
+      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "camion" },
+      { href: "/stock/factures", label: "Factures", icone: "recu" },
     ],
   },
   {
     titre: "Configuration",
     items: [
-      { href: "/stock/imports", label: "Imports", icone: "📥", adminOnly: true },
-      { href: "/stock/parametres", label: "Paramètres", icone: "⚙️" },
-      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "👥", adminOnly: true },
+      { href: "/stock/imports", label: "Imports", icone: "importer", adminOnly: true },
+      { href: "/stock/parametres", label: "Paramètres", icone: "parametres" },
+      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "employes", adminOnly: true },
     ],
   },
 ];
@@ -117,11 +118,11 @@ export function StockShell({
                     key={item.href}
                     href={item.href}
                     onClick={fermer}
-                    className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm lg:py-1.5 ${
+                    className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:py-1.5 ${
                       actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
-                    <span aria-hidden className="w-5 shrink-0 text-center text-base leading-none lg:hidden">{item.icone}</span>
+                    <Icone nom={item.icone} className="w-4 shrink-0 lg:hidden" />
                     <span className="flex-1">{item.label}</span>
                     {(badges[item.href] ?? 0) > 0 && (
                       <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badges[item.href]}</span>
@@ -143,12 +144,12 @@ export function StockShell({
             </div>
           </div>
           {doubleAcces && (
-            <Link href="/choix-espace" onClick={fermer} className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
-              🔄 Changer d&apos;espace
+            <Link href="/choix-espace" onClick={fermer} className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              <Icone nom="permuter" /> Changer d&apos;espace
             </Link>
           )}
           <form action={logout}>
-            <button type="submit" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">Déconnexion</button>
+            <button type="submit" className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"><Icone nom="deconnexion" /> Déconnexion</button>
           </form>
           <div className="mt-2 px-2"><ThemeToggle /></div>
         </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
@@ -100,7 +101,7 @@ export default async function TransportPage() {
             </div>
           </div>
         ))}
-        {lignes.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé actif.</p>}
+        {lignes.length === 0 && <EtatVide message="Aucun employé actif." />}
         {lignes.length > 0 && (
           <div className="flex items-center justify-between rounded-xl border bg-muted/40 px-3 py-2 text-sm font-semibold">
             <span>Total ({lignes.length})</span>

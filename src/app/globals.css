@@ -63,7 +63,7 @@
   --secondary: #f3e9dc;
   --secondary-foreground: #5a3b24;
   --muted: #f6efe4;
-  --muted-foreground: #8a7460;
+  --muted-foreground: #75614e; /* WCAG AA : 5,7:1 sur fond crème (l'ancien #8a7460 était à 4,3) */
   --accent: #e9c68c;
   --accent-foreground: #5a3b24;
   --destructive: oklch(0.55 0.16 27.325);

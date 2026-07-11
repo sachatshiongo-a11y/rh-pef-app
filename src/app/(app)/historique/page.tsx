@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
@@ -90,7 +91,7 @@ export default async function HistoriquePage({
             </div>
           );
         })}
-        {runs.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucune paie {annee || mois ? "pour cette période" : "archivée pour le moment"}.</p>}
+        {runs.length === 0 && <EtatVide message={`Aucune paie ${annee || mois ? "pour cette période" : "archivée pour le moment"}.`} />}
       </div>
 
       {/* Ordinateur : tableau. */}

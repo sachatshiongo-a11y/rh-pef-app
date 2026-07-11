@@ -72,9 +72,7 @@ export function PrimeForm({
       {estAnciennete && (
         <p className="mt-1 text-xs text-muted-foreground">
           {tauxAnciennete > 0
-            ? `Suggestion légale : ${tauxAnciennete} % du salaire de base (${round2(
-                salaireBase
-              ).toFixed(2)} $) = ${suggestion.toFixed(2)} $ — ajustable.`
+            ? `Suggestion légale : ${tauxAnciennete} % du salaire de base (${round2(salaireBase).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $) = ${suggestion.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $ — ajustable.`
             : "Ancienneté inférieure à 3 ans : aucune prime d'ancienneté légale due (barème à valider)."}
         </p>
       )}

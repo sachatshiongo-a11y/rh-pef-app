@@ -1,5 +1,6 @@
 "use client";
 
+import { EtatVide } from "@/components/etat-vide";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { saisirCreneau, saisirCreneauxEnLot } from "./actions";
@@ -147,7 +148,7 @@ export function PlanningGrid({
               </div>
             );
           })}
-          {employees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé.</p>}
+          {employees.length === 0 && <EtatVide message="Aucun employé." />}
         </div>
         {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
       </div>

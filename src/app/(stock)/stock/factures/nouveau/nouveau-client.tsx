@@ -234,7 +234,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
                 <td className="px-2 py-1"><input name="ligne_unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} className={`${inp} w-20`} placeholder="Kg…" /></td>
                 <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
                 <td className="px-2 py-1"><input name="ligne_prix" value={l.prix} onChange={(e) => maj(i, { prix: e.target.value })} type="number" step="0.0001" min="0" className={`${inp} w-24 text-right`} /></td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toFixed(2)} $</td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
                 <td className="px-2 py-1 text-right">
                   <button type="button" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent" title="Retirer">✕</button>
                 </td>

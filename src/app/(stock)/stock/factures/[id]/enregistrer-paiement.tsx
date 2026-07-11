@@ -32,7 +32,7 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
     );
   }
 
-  const equivalent = devise === "CDF" && taux > 0 && Number(montant) > 0 ? (Number(montant) / taux).toFixed(2) : null;
+  const equivalent = devise === "CDF" && taux > 0 && Number(montant) > 0 ? (Number(montant) / taux).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
 
   return (
     <form action={submit} className="flex w-full flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">

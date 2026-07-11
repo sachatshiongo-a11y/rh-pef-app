@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/stock";
@@ -51,7 +52,7 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 
 async function Comptages() {
   const sessions = await prisma.sessionComptage.findMany({ orderBy: { date: "desc" }, take: 300 });
-  if (sessions.length === 0) return <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun comptage archivé.</p>;
+  if (sessions.length === 0) return <EtatVide message="Aucun comptage archivé." />;
   const groupes = grouperParMois(sessions, (s) => s.date);
   return (
     <div className="space-y-2">
@@ -83,7 +84,7 @@ async function BonsValides() {
     take: 300,
     include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
   });
-  if (bcs.length === 0) return <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande validé.</p>;
+  if (bcs.length === 0) return <EtatVide message="Aucun bon de commande validé." />;
   const groupes = grouperParMois(bcs, (b) => b.date);
   return (
     <div className="space-y-2">
@@ -113,7 +114,7 @@ const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${Stri
 
 async function Rapports() {
   const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 300 });
-  if (rapports.length === 0) return <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</p>;
+  if (rapports.length === 0) return <EtatVide message="Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés." />;
   const groupes = grouperParMois(rapports, (r) => r.createdAt);
   const periode = (r: (typeof rapports)[number]) =>
     `${r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → ${r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}`;
@@ -173,7 +174,7 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
       </form>
 
       {entrees.length === 0 ? (
-        <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucune activité enregistrée.</p>
+        <EtatVide message="Aucune activité enregistrée." />
       ) : (
         <div className="space-y-2">
           {grouperParMois(entrees, (e) => e.date).map((g, i) => (

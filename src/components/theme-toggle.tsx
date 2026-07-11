@@ -1,12 +1,13 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { Icone } from "@/components/icones";
 
 type Theme = "light" | "tamise" | "dark";
 const OPTIONS: { v: Theme; label: string; icon: string }[] = [
-  { v: "light", label: "Clair", icon: "☀️" },
-  { v: "tamise", label: "Tamisé", icon: "🌗" },
-  { v: "dark", label: "Sombre", icon: "🌙" },
+  { v: "light", label: "Clair", icon: "soleil" },
+  { v: "tamise", label: "Tamisé", icon: "soleilLune" },
+  { v: "dark", label: "Sombre", icon: "lune" },
 ];
 
 // État lu directement depuis la classe de <html> (posée par le script anti-clignotement) —
@@ -43,7 +44,7 @@ export function ThemeToggle() {
           aria-pressed={theme === o.v}
           className={`flex items-center gap-1 rounded-md px-2 py-1 transition-colors ${theme === o.v ? "bg-card font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
         >
-          <span aria-hidden>{o.icon}</span>
+          <Icone nom={o.icon} taille={13} />
           <span className="hidden sm:inline">{o.label}</span>
         </button>
       ))}

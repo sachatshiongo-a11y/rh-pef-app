@@ -1,5 +1,6 @@
 "use client";
 
+import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useMemo, useState, useTransition } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
@@ -176,7 +177,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <CarteArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
           </Fragment>
         ))}
-        {visibles.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun article.</p>}
+        {visibles.length === 0 && <EtatVide message="Aucun article." />}
       </div>
 
       {/* Ordinateur — tableur : cellules éditables, en-tête figé, défilement interne */}

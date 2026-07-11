@@ -1,5 +1,6 @@
 "use client";
 
+import { EtatVide } from "@/components/etat-vide";
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
@@ -36,7 +37,7 @@ export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]
       )}
 
       {commandes.length === 0 ? (
-        <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande pour ce filtre.</p>
+        <EtatVide message="Aucun bon de commande pour ce filtre." />
       ) : (
         grouperParMois(commandes, (c) => c.date).map((g, i) => (
           <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} bon(s)`} resume={usd(g.items.reduce((t, c) => t + c.total, 0))} defaultOpen={i === 0}>

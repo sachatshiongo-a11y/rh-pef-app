@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { login } from "./actions";
 
 export function LoginForm() {
   const [state, action, pending] = useActionState(login, undefined);
+  const [visible, setVisible] = useState(false);
 
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -26,14 +27,24 @@ export function LoginForm() {
         <label htmlFor="password" className="text-sm font-medium">
           Mot de passe
         </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          autoComplete="current-password"
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-        />
+        <div className="relative">
+          <input
+            id="password"
+            name="password"
+            type={visible ? "text" : "password"}
+            required
+            autoComplete="current-password"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 pr-16 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+            className="absolute inset-y-0 right-0 rounded-r-md px-3 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {visible ? "Masquer" : "Afficher"}
+          </button>
+        </div>
       </div>
 
       {state?.error && <p className="text-sm text-destructive">{state.error}</p>}

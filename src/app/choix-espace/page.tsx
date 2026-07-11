@@ -3,6 +3,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { verifySession, espacesAutorises } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
+import { Icone } from "@/components/icones";
 
 // Sélecteur d'espace — réservé aux comptes à double accès (la Direction).
 // Un compte à accès unique n'a rien à choisir : on le renvoie au résolveur d'entrée.
@@ -19,8 +20,8 @@ export default async function ChoixEspacePage() {
       </div>
 
       <div className="grid w-full max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
-        <EspaceCard href="/accueil" icone="👥" titre="Ressources humaines" sous="Employés, paie, congés, présences" />
-        <EspaceCard href="/stock" icone="📦" titre="Stock & Achats" sous="Catalogue, fournisseurs, bons de commande" />
+        <EspaceCard href="/accueil" icone="employes" titre="Ressources humaines" sous="Employés, paie, congés, présences" />
+        <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Catalogue, fournisseurs, bons de commande" />
       </div>
 
       <form action={logout}>
@@ -36,9 +37,9 @@ function EspaceCard({ href, icone, titre, sous }: { href: string; icone: string;
   return (
     <Link
       href={href}
-      className="flex flex-col items-center gap-2 rounded-xl border p-8 text-center transition-colors hover:border-primary hover:bg-accent"
+      className="flex flex-col items-center gap-2 rounded-xl border p-8 text-center outline-none transition-colors hover:border-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span className="text-4xl" aria-hidden>{icone}</span>
+      <span aria-hidden className="rounded-full bg-primary/10 p-3 text-primary"><Icone nom={icone} taille={30} /></span>
       <span className="text-lg font-semibold">{titre}</span>
       <span className="text-xs text-muted-foreground">{sous}</span>
     </Link>
