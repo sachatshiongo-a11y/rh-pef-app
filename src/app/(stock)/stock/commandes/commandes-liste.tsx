@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
+import { MoisAccordeon } from "@/components/mois-accordeon";
+import { grouperParMois } from "@/lib/dates-fr";
 import { validerBonsEnLot, supprimerBonsEnLot } from "./actions";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 
@@ -33,67 +35,32 @@ export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]
         </BulkBar>
       )}
 
-      {/* Mobile : cartes. */}
-      <div className="space-y-2 lg:hidden">
-        {commandes.map((c) => (
-          <div key={c.id} className={`flex gap-2 rounded-xl border bg-card p-3 ${sel.has(c.id) ? "ring-1 ring-primary" : ""}`}>
-            {estDirection && <input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} className="mt-1 shrink-0" aria-label={`Sélectionner ${c.numero}`} />}
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <Link href={`/stock/commandes/${c.id}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseurNom}</Link> : (c.fournisseurNom ?? "—")} · {new Date(c.date).toLocaleDateString("fr-FR")}
+      {commandes.length === 0 ? (
+        <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande pour ce filtre.</p>
+      ) : (
+        grouperParMois(commandes, (c) => c.date).map((g, i) => (
+          <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} bon(s)`} resume={usd(g.items.reduce((t, c) => t + c.total, 0))} defaultOpen={i === 0}>
+            <ul className="divide-y border-t text-sm">
+              {g.items.map((c) => (
+                <li key={c.id} className={`flex items-center gap-2 px-3 py-1.5 ${sel.has(c.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
+                  {estDirection && <input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} className="shrink-0" aria-label={`Sélectionner ${c.numero}`} />}
+                  <div className="min-w-0 flex-1">
+                    <Link href={`/stock/commandes/${c.id}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseurNom}</Link> : (c.fournisseurNom ?? "—")} · {new Date(c.date).toLocaleDateString("fr-FR")} · {c.nbLignes} ligne(s)
+                    </span>
                   </div>
-                </div>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{c.nbLignes} ligne(s)</span>
-                <span className="font-semibold tabular-nums">{usd(c.total)}</span>
-              </div>
-              <div className="mt-2 flex gap-3 text-sm">
-                <Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>
-                {pdfLien(c)}
-              </div>
-            </div>
-          </div>
-        ))}
-        {commandes.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande pour ce filtre.</p>}
-      </div>
-
-      {/* Ordinateur : tableau. */}
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-        <table className="w-full min-w-[44rem] text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
-            <tr>
-              {estDirection && <th className="w-8 px-3 py-2"></th>}
-              <th className="px-3 py-2">Numéro</th>
-              <th className="px-3 py-2">Fournisseur</th>
-              <th className="px-3 py-2">Date</th>
-              <th className="px-3 py-2 text-right">Lignes</th>
-              <th className="px-3 py-2 text-right">Total</th>
-              <th className="px-3 py-2">Statut</th>
-              <th className="px-3 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {commandes.map((c) => (
-              <tr key={c.id} className={`border-t hover:bg-accent/40 ${sel.has(c.id) ? "bg-primary/10" : "even:bg-muted/25"}`}>
-                {estDirection && <td className="px-3 py-2"><input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} aria-label={`Sélectionner ${c.numero}`} /></td>}
-                <td className="px-3 py-2 font-medium">{c.numero}</td>
-                <td className="px-3 py-2">{c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseurNom}</Link> : (c.fournisseurNom ?? "—")}</td>
-                <td className="px-3 py-2 text-muted-foreground">{new Date(c.date).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-2 text-right">{c.nbLignes}</td>
-                <td className="px-3 py-2 text-right">{usd(c.total)}</td>
-                <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span></td>
-                <td className="px-3 py-2 text-right"><div className="flex justify-end gap-2"><Link href={`/stock/commandes/${c.id}`} className="text-primary underline">Ouvrir</Link>{pdfLien(c)}</div></td>
-              </tr>
-            ))}
-            {commandes.length === 0 && <tr><td colSpan={estDirection ? 8 : 7} className="px-3 py-6 text-center text-muted-foreground">Aucun bon de commande pour ce filtre.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[c.statut]}`}>{STATUT_BC_LABEL[c.statut]}</span>
+                    <span className="font-semibold tabular-nums">{usd(c.total)}</span>
+                    {pdfLien(c)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </MoisAccordeon>
+        ))
+      )}
     </div>
   );
 }

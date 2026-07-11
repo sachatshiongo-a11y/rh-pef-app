@@ -12,3 +12,21 @@ export function lundiDe(d: Date): Date {
   x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7));
   return x;
 }
+
+/**
+ * Groupe une liste (déjà triée) par mois → accordéons « Mois Année ». Conserve l'ordre d'entrée
+ * (donc trier la liste par date décroissante avant d'appeler pour des mois du plus récent au plus ancien).
+ */
+export function grouperParMois<T>(items: T[], getDate: (t: T) => Date | string | null | undefined): { cle: string; titre: string; items: T[] }[] {
+  const groupes: { cle: string; titre: string; items: T[] }[] = [];
+  const idx = new Map<string, number>();
+  for (const it of items) {
+    const raw = getDate(it);
+    const d = raw ? new Date(raw) : null;
+    const cle = d ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}` : "sans-date";
+    const titre = d ? `${MOIS_FR_MAJ[d.getUTCMonth()]} ${d.getUTCFullYear()}` : "Sans date";
+    if (!idx.has(cle)) { idx.set(cle, groupes.length); groupes.push({ cle, titre, items: [] }); }
+    groupes[idx.get(cle)!].items.push(it);
+  }
+  return groupes;
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parserMouvementsCsv, parseNombre, parseDateFr } from "./import-mouvements-csv";
+import { grouperParMois } from "./dates-fr";
 
 describe("parseNombre / parseDateFr", () => {
   it("nombres FR", () => {
@@ -34,5 +35,21 @@ describe("parserMouvementsCsv — fichier à deux tableaux (inventaire + mouveme
     expect(lignes[0]).toMatchObject({ code: "3", designation: "Carré d'agneau", date: "2026-07-06", entree: 0, sortie: 2 });
     expect(lignes[1]).toMatchObject({ code: "62", entree: 1, sortie: 1 });
     expect(lignes[2]).toMatchObject({ code: "94", designation: "Tomates pêlées", entree: 48, sortie: 0 });
+  });
+});
+
+describe("grouperParMois — accordéons par mois (ordre conservé)", () => {
+  it("groupe et titre par mois, en gardant l'ordre d'entrée (récent → ancien)", () => {
+    const items = [
+      { id: "a", d: "2026-07-10" },
+      { id: "b", d: "2026-07-02" },
+      { id: "c", d: "2026-06-28" },
+      { id: "d", d: null },
+    ];
+    const g = grouperParMois(items, (x) => x.d);
+    expect(g.map((x) => x.titre)).toEqual(["Juillet 2026", "Juin 2026", "Sans date"]);
+    expect(g[0].items.map((x) => x.id)).toEqual(["a", "b"]);
+    expect(g[1].items.map((x) => x.id)).toEqual(["c"]);
+    expect(g[2].items.map((x) => x.id)).toEqual(["d"]);
   });
 });
