@@ -3,10 +3,14 @@ import { niveauAlerte } from "./stock";
 import { cleAlnum, jaccard, normTexte, sansAccents } from "./texte";
 
 describe("niveauAlerte — règle validée sur le fichier d'inventaire", () => {
-  it("stock ≤ 0 → URGENT (même sans minimum défini)", () => {
-    expect(niveauAlerte(0, 0)).toBe("URGENT");
+  it("sans seuil minimum (min ≤ 0) → jamais d'alerte, même à 0 (OK)", () => {
+    expect(niveauAlerte(0, 0)).toBe("OK");
+    expect(niveauAlerte(-1, 0)).toBe("OK");
+    expect(niveauAlerte(50, 0)).toBe("OK");
+  });
+  it("seuil défini + stock ≤ 0 → URGENT", () => {
     expect(niveauAlerte(0, 24)).toBe("URGENT");
-    expect(niveauAlerte(-1, 0)).toBe("URGENT");
+    expect(niveauAlerte(-1, 5)).toBe("URGENT");
   });
   it("0 < stock ≤ minimum → APPRO", () => {
     expect(niveauAlerte(2, 4)).toBe("APPRO");

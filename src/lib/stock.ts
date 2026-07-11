@@ -5,8 +5,10 @@ export type NiveauAlerte = "URGENT" | "APPRO" | "OK";
 
 /**
  * Niveau d'alerte d'un article, basé sur le seul stock minimum (modifiable par article) :
- *   URGENT              si quantité ≤ 0 (rupture)
- *   APPRO (à réappro.)  si 0 < quantité ≤ stockMinimum
+ *   OK (aucune alerte)  si AUCUN seuil minimum n'est défini (stockMinimum ≤ 0) — on ne peut pas
+ *                       juger de l'urgence sans seuil, donc l'article n'est jamais « urgent »
+ *   URGENT              si un seuil est défini ET quantité ≤ 0 (rupture)
+ *   APPRO (à réappro.)  si un seuil est défini ET 0 < quantité ≤ stockMinimum
  *   OK (satisfaisant)   si quantité > stockMinimum
  */
 export function niveauAlerte(
@@ -15,6 +17,7 @@ export function niveauAlerte(
 ): NiveauAlerte {
   const q = Number(quantite);
   const min = Number(stockMinimum);
+  if (min <= 0) return "OK"; // pas de seuil minimum défini → pas d'alerte
   if (q <= 0) return "URGENT";
   if (q <= min) return "APPRO";
   return "OK";
