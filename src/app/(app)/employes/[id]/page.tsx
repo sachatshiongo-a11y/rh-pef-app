@@ -1,3 +1,4 @@
+import { FilAriane } from "@/components/fil-ariane";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -256,9 +257,7 @@ export default async function FicheEmployePage({
         </div>
       )}
 
-      <Link href="/employes" className="mb-3 inline-block text-sm text-primary underline">
-        ← Retour à la liste
-      </Link>
+      <div className="mb-3"><FilAriane segments={[{ label: "Employés", href: "/employes" }, { label: employee.nom }]} /></div>
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:mb-6 sm:gap-4 sm:p-5">
         <div className="flex flex-col items-center gap-1">
           {employee.photoUrl ? (

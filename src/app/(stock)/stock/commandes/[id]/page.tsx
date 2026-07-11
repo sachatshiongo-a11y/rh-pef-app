@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
@@ -48,11 +49,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="max-w-4xl space-y-5">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/stock/commandes" className="underline">Bons de commande</Link>
-        <span>/</span>
-        <span>{bc.numero}</span>
-      </div>
+      <FilAriane segments={[{ label: "Bons de commande", href: "/stock/commandes" }, { label: bc.numero }]} />
 
       {/* Barre d'actions selon l'état */}
       <div className="flex flex-wrap items-center justify-between gap-3">

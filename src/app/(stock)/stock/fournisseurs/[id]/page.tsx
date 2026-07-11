@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
@@ -45,11 +46,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
 
   return (
     <div className="max-w-4xl space-y-5">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Link href="/stock/fournisseurs" className="underline">Fournisseurs</Link>
-        <span>/</span>
-        <span className="text-foreground">{f.nom}</span>
-      </div>
+      <FilAriane segments={[{ label: "Fournisseurs", href: "/stock/fournisseurs" }, { label: f.nom }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

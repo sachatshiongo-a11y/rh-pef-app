@@ -50,5 +50,15 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Mémorise le dernier espace visité (les accueils d'espace sont les seuls points d'entrée
+  // depuis /choix-espace) — le sélecteur d'espace met ensuite ce choix en avant.
+  if (estAuthentifie) {
+    const p = request.nextUrl.pathname;
+    const espace = p === "/stock" || p.startsWith("/stock/") ? "stock" : p === "/accueil" ? "rh" : null;
+    if (espace && request.cookies.get("dernier-espace")?.value !== espace) {
+      response.cookies.set("dernier-espace", espace, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
+    }
+  }
+
   return response;
 }

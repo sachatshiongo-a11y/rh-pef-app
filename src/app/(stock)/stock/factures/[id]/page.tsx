@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usd, qte, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
@@ -66,6 +67,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
+      <FilAriane segments={[{ label: "Factures", href: "/stock/factures" }, { label: facture.numero ? `N° ${facture.numero}` : nom }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Facture · {facture.fournisseurId
           ? <Link href={`/stock/fournisseurs/${facture.fournisseurId}`} className="text-primary hover:underline">{nom}</Link>
