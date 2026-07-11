@@ -87,3 +87,41 @@ export function TableauDocument({
     </Document>
   );
 }
+
+export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: (string | number)[][]; totalDerniereLigne?: boolean };
+
+/** Document PDF à PLUSIEURS tableaux sur une même page (ex. synthèse + détail jour par jour). */
+export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }) {
+  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  return (
+    <Document>
+      <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
+        <PdfHeader title={titre} subtitle={sousTitre} />
+        <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
+        {tables.map((t, ti) => (
+          <View key={ti} style={{ marginBottom: 14 }} wrap={false}>
+            {t.sousTitre && <Text style={{ fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" }}>{t.sousTitre}</Text>}
+            <View style={styles.wrap}>
+              <View style={styles.th}>
+                {t.colonnes.map((c, i) => (
+                  <Text key={i} style={[styles.thCell, { width: c.width, textAlign: c.align ?? "left" }]}>{c.header}</Text>
+                ))}
+              </View>
+              {t.lignes.map((ligne, r) => {
+                const total = t.totalDerniereLigne && r === t.lignes.length - 1;
+                return (
+                  <View key={r} style={[styles.tr, total ? styles.trTotal : {}]} wrap={false}>
+                    {t.colonnes.map((c, i) => (
+                      <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }]}>{String(ligne[i] ?? "")}</Text>
+                    ))}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+        <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
+      </Page>
+    </Document>
+  );
+}

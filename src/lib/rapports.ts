@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { STATUT_FACTURE_LABEL, STATUT_BC_LABEL } from "@/lib/stock";
+import { STATUT_FACTURE_LABEL } from "@/lib/stock";
 
 export const TYPES_RAPPORT = {
   FACTURES: "Factures fournisseurs",
@@ -14,6 +14,10 @@ export type TypeRapport = keyof typeof TYPES_RAPPORT;
 
 const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
+export type TableSecondaire = {
+  titre: string; entete: string[]; lignes: (string | number)[][];
+  largeurs: string[]; droite: number[]; sommables?: number[];
+};
 export type DonneesRapport = {
   titre: string;
   entete: string[];
@@ -23,6 +27,8 @@ export type DonneesRapport = {
   droite: number[];
   sommables?: number[]; // colonnes à totaliser (ligne « Total » en Excel/PDF)
   variationCol?: number; // colonne d'écart/variation à mettre en évidence (couleur)
+  soustitre?: string; // sous-titre du 1er tableau (ex. « Synthèse par article »)
+  table2?: TableSecondaire; // tableau secondaire (ex. achats jour par jour) — 2e feuille Excel / 2e tableau PDF
 };
 
 /** Liste des clés mois (année, mois) entre deux bornes incluses. */
@@ -157,8 +163,38 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
     return { titre, entete: ["Date", "Article", "Type", "Quantité", "Motif / origine"], lignes, largeurs: ["11%", "30%", "12%", "13%", "34%"], droite: [3] };
   }
 
-  // LEGUMES
-  const rows = await prisma.achatLegume.findMany({ where: { date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" } });
-  const lignes = rows.map((l) => [jj(l.date), l.legume, l.unite ?? "", q3(l.quantite), l.montantCDF !== null ? arr(Number(l.montantCDF)) : "", l.montantUSD !== null ? arr(Number(l.montantUSD)) : ""]);
-  return { titre, entete: ["Date", "Légume", "Unité", "Quantité", "Montant CDF", "Montant USD"], lignes, largeurs: ["12%", "28%", "12%", "14%", "17%", "17%"], droite: [3, 4, 5], sommables: [4, 5] };
+  // LEGUMES — synthèse par article (quantité, prix unitaire moyen, prix total) + achats jour par jour.
+  const rows = await prisma.achatLegume.findMany({ where: { date: { gte: debut, lt: finExcl } }, orderBy: { date: "asc" } });
+
+  // Synthèse : un légume par ligne, cumul sur la période.
+  const parLegume = new Map<string, { unite: string; qte: number; cdf: number; usd: number }>();
+  for (const l of rows) {
+    const nom = l.legume.trim();
+    const e = parLegume.get(nom) ?? { unite: l.unite ?? "", qte: 0, cdf: 0, usd: 0 };
+    if (!e.unite && l.unite) e.unite = l.unite;
+    e.qte += Number(l.quantite); e.cdf += Number(l.montantCDF ?? 0); e.usd += Number(l.montantUSD ?? 0);
+    parLegume.set(nom, e);
+  }
+  const synthese = [...parLegume.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], "fr"))
+    .map(([nom, e]) => [nom, e.unite, arr(e.qte), e.qte ? arr(e.usd / e.qte) : 0, arr(e.usd), arr(e.cdf)]);
+
+  // Détail jour par jour.
+  const detail = rows.slice().reverse().map((l) => {
+    const q = Number(l.quantite), u = Number(l.montantUSD ?? 0);
+    return [jj(l.date), l.legume, l.unite ?? "", q3(l.quantite), q ? arr(u / q) : 0, arr(u), l.montantCDF !== null ? arr(Number(l.montantCDF)) : ""];
+  });
+
+  return {
+    titre, soustitre: "Synthèse par article",
+    entete: ["Légume", "Unité", "Quantité", "Prix U. USD", "Prix total USD", "Total CDF"],
+    lignes: synthese,
+    largeurs: ["30%", "12%", "14%", "15%", "15%", "14%"], droite: [2, 3, 4, 5], sommables: [4, 5],
+    table2: {
+      titre: "Achats jour par jour",
+      entete: ["Date", "Légume", "Unité", "Quantité", "Prix U. USD", "Total USD", "Total CDF"],
+      lignes: detail,
+      largeurs: ["12%", "26%", "11%", "13%", "13%", "13%", "12%"], droite: [3, 4, 5, 6], sommables: [5, 6],
+    },
+  };
 }
