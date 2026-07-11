@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import Link from "next/link";
 import { ImportFacturesClient } from "./import-factures-client";
+import { ImportMouvementsClient } from "./import-mouvements-client";
 import { BoutonAnnulerImport } from "./annuler-btn";
 
 export default async function ImportsPage() {
@@ -31,6 +32,11 @@ export default async function ImportsPage() {
       </section>
 
       <section className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Entrées / sorties de stock (CSV)</h2>
+        <ImportMouvementsClient />
+      </section>
+
+      <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des imports</h2>
         {batches.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucun import pour l&apos;instant.</p>
@@ -44,7 +50,7 @@ export default async function ImportsPage() {
                   <div className="min-w-0">
                     <p className="font-medium">{b.libelle} {annule && <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">annulé</span>}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(b.createdAt).toLocaleString("fr-FR")} · {b.type === "INVENTAIRE" ? "Inventaire" : "Factures"}
+                      {new Date(b.createdAt).toLocaleString("fr-FR")} · {b.type === "INVENTAIRE" ? "Inventaire" : b.type === "MOUVEMENTS" ? "Mouvements" : "Factures"}
                       {r.maj != null && ` · ${r.maj} MAJ · ${r.crees ?? 0} créés · ${(r.mvEntree ?? 0) + (r.mvSortie ?? 0)} mouvements · ${r.legumes ?? 0} légumes`}
                     </p>
                   </div>

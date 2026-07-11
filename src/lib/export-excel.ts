@@ -139,6 +139,7 @@ export type FeuilleInventaire = {
   invEntete: string[];
   invLignes: (string | number)[][];
   invTotauxCols?: number[]; // colonnes à totaliser dans le tableau d'inventaire
+  alerteCol?: number; // index de la colonne « Alerte stock » à colorer selon le statut
   mvtTitre: string;
   mvtEntete: string[];
   mvtLignes: (string | number)[][];
@@ -209,7 +210,16 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
     // Tableau d'inventaire.
     bandeau(ws, `INVENTAIRE — ${f.titre}`, largeur);
     enteteTable(ws, f.invEntete);
-    for (const l of f.invLignes) ws.addRow(l);
+    for (const l of f.invLignes) {
+      const r = ws.addRow(l);
+      // Code couleur du statut de réapprovisionnement (cellule « Alerte stock »).
+      if (f.alerteCol != null) {
+        const c = r.getCell(f.alerteCol + 1);
+        const txt = String(c.value ?? "").toLowerCase();
+        const bg = txt.includes("urgent") ? "FFF8D2D5" : txt.includes("réappro") ? "FFFBE7C6" : txt.includes("satisfaisant") ? "FFD6EFDB" : null;
+        if (bg) { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bg } }; c.font = { name: OPTIMA, size: 10, bold: true }; }
+      }
+    }
     if (f.invTotauxCols?.length) {
       const tot: (string | number)[] = new Array(f.invEntete.length).fill("");
       tot[0] = "Total";

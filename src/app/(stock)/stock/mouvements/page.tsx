@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { qte, usd } from "@/lib/stock";
 import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
-import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
@@ -100,15 +99,12 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     return { val: `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`, label: `${MOIS_FR[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
   });
-  const dlQs = new URLSearchParams({ ...(mois ? { mois } : {}), ...(articleId ? { articleId } : {}) }).toString();
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <BoutonRapport types={[{ value: "MOUVEMENTS", label: "Mouvements" }]} pdfHref={`/stock/mouvements/pdf${dlQs ? `?${dlQs}` : ""}`} pdfDownload excelHref={`/stock/mouvements/export${dlQs ? `?${dlQs}` : ""}`} />
-        </div>
+        <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">

@@ -17,6 +17,7 @@ describe("classeurInventaire — KPIs + inventaire + mouvements dans une même f
           invEntete: ["Code", "Désignation", "Unité", "Catégorie", "Fournisseur", "Stock min", "Stock final", "Alerte stock", "Prix U. USD", "Valeur USD"],
           invLignes: [["3", "Carré d'agneau", "Kg", "Viande", "ZURAFA", 5, 4.17, "À réapprovisionner", 48.06, 200.41]],
           invTotauxCols: [9],
+          alerteCol: 7,
           mvtTitre: "MOUVEMENTS DU MOIS — Nourriture",
           mvtEntete: ["Date", "Code", "Désignation", "Entrées", "Sorties", "Valeur USD"],
           mvtLignes: [["06/07/2026", "3", "Carré d'agneau", "", "2", 96.12]],
@@ -39,6 +40,12 @@ describe("classeurInventaire — KPIs + inventaire + mouvements dans une même f
     expect(joint).toContain("Alerte stock");
     expect(joint).toContain("MOUVEMENTS DU MOIS — Nourriture");
     expect(joint).toContain("Carré d'agneau");
+    // Code couleur du statut : la cellule « Alerte stock » (À réapprovisionner → ambre) est remplie.
+    let cellAlerteRemplie = false;
+    ws.eachRow((row) => row.eachCell((c) => {
+      if (String(c.value ?? "") === "À réapprovisionner" && c.fill?.type === "pattern") cellAlerteRemplie = true;
+    }));
+    expect(cellAlerteRemplie).toBe(true);
     // Le domaine vide affiche l'absence de mouvement plutôt qu'un tableau fantôme.
     const wsB = wb.getWorksheet("Boissons")!;
     const txtB: string[] = [];

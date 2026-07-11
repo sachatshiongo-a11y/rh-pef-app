@@ -64,14 +64,9 @@ export default async function StockParametresPage() {
                 <span className="capitalize">{m.label} {m.cloture && <span className="ml-1.5 rounded-full bg-muted px-2 py-0.5 text-xs">🔒 clôturé</span>}</span>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <span className="flex items-center gap-1.5">
-                    <span className="text-xs text-muted-foreground">Inventaire</span>
+                    <span className="text-xs text-muted-foreground">Inventaire + mouvements</span>
                     <a href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=pdf`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
                     <a href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=excel`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-xs text-muted-foreground">Mouvements</span>
-                    <a href={`/stock/mouvements/pdf?mois=${m.annee}-${m.mois}`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
-                    <a href={`/stock/mouvements/export?mois=${m.annee}-${m.mois}`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
                   </span>
                   {m.cloture ? (
                     <form action={rouvrirMoisStock.bind(null, m.annee, m.mois)}>

@@ -72,10 +72,20 @@ export async function inventaireDuMois(annee: number, mois: number): Promise<Inv
   return inventaireActuel();
 }
 
-/** Regroupe et trie les lignes par domaine, avec sous-total de valeur par domaine. */
+/** Tri par le chiffre du code article (croissant) ; les codes non numériques passent après, par ordre alpha. */
+const parCode = (a: LigneInventaire, b: LigneInventaire) => {
+  const na = Number(String(a.code).replace(/[^\d.]/g, "")), nb = Number(String(b.code).replace(/[^\d.]/g, "")); // « 12 » → 12
+  const va = Number.isFinite(na) && a.code.trim() !== "", vb = Number.isFinite(nb) && b.code.trim() !== "";
+  if (va && vb) return na - nb;
+  if (va) return -1;
+  if (vb) return 1;
+  return a.designation.localeCompare(b.designation, "fr");
+};
+
+/** Regroupe et trie les lignes par domaine (par code article croissant), avec sous-total de valeur. */
 export function parDomaine(inv: Inventaire) {
   return DOMAINES.map((dom) => {
-    const lignes = inv.lignes.filter((l) => l.domaine === dom).sort((a, b) => a.designation.localeCompare(b.designation, "fr"));
+    const lignes = inv.lignes.filter((l) => l.domaine === dom).sort(parCode);
     const valeur = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));
     return { domaine: dom, label: DOMAINE_LABEL[dom], lignes, valeur };
   });

@@ -69,6 +69,7 @@ export async function GET(req: Request) {
           r2(l.prixUnitaireUSD), r2(l.quantite * l.prixUnitaireUSD),
         ]),
         invTotauxCols: [9],
+        alerteCol: 7,
         mvtTitre: `MOUVEMENTS DU MOIS — ${g.label}`,
         mvtEntete: ["Date", "Code", "Désignation", "Entrées", "Sorties", "Valeur USD"],
         mvtLignes: mvts.map((x) => [
@@ -92,17 +93,20 @@ export async function GET(req: Request) {
   }
 
   // PDF : sections par domaine (ligne-titre) + total général en dernière ligne, colonnes enrichies.
+  // Chaque ligne article est colorée selon son statut de réapprovisionnement.
+  const COULEUR: Record<string, string> = { URGENT: "#F8D2D5", APPRO: "#FBE7C6", OK: "#D6EFDB" };
   const lignes: (string | number)[][] = [];
+  const couleurs: (string | undefined)[] = [];
   const sectionRows: number[] = [];
   for (const g of groupes) {
     sectionRows.push(lignes.length);
-    lignes.push([`${g.label} — ${usd(g.valeur)}`, "", "", "", "", ""]);
-    for (const l of g.lignes) lignes.push([
-      l.designation, l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum),
-      num(l.quantite), usd(l.quantite * l.prixUnitaireUSD),
-    ]);
+    lignes.push([`${g.label} — ${usd(g.valeur)}`, "", "", "", "", ""]); couleurs.push(undefined);
+    for (const l of g.lignes) {
+      lignes.push([l.designation, l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum), num(l.quantite), usd(l.quantite * l.prixUnitaireUSD)]);
+      couleurs.push(COULEUR[niveauAlerte(l.quantite, l.stockMinimum)]);
+    }
   }
-  lignes.push(["STOCK TOTAL", "", "", "", "", usd(inv.valeurTotaleUSD)]);
+  lignes.push(["STOCK TOTAL", "", "", "", "", usd(inv.valeurTotaleUSD)]); couleurs.push(undefined);
 
   const buf = await renderToBuffer(
     TableauDocument({
@@ -118,6 +122,7 @@ export async function GET(req: Request) {
       ],
       lignes,
       sectionRows,
+      couleurLigne: (r) => couleurs[r],
       totalDerniereLigne: true,
     }),
   );

@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { analyserInventaire, appliquerInventaire, annulerImport, type PreviewInventaire } from "@/lib/import-inventaire";
 import { analyserFactures, appliquerFactures, type PreviewFactures } from "@/lib/import-factures";
+import { analyserMouvements, appliquerMouvements, type PreviewMouvements } from "@/lib/import-mouvements";
+
+const AUJ = () => new Date().toISOString().slice(0, 10);
 
 async function gardeDirection() {
   const user = await verifySession();
@@ -49,6 +52,28 @@ export async function appliquerFacturesAction(formData: FormData): Promise<{ bat
   const res = await appliquerFactures(fichiers, libelle, user.id);
   revalidatePath("/stock/imports");
   revalidatePath("/stock/factures");
+  return res;
+}
+
+/** Analyse un CSV d'entrées/sorties et renvoie l'aperçu (aucune écriture). */
+export async function analyserMouvementsAction(formData: FormData): Promise<PreviewMouvements> {
+  await gardeDirection();
+  const file = formData.get("fichier");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Ajoutez un fichier CSV d'entrées/sorties.");
+  return analyserMouvements(await file.text());
+}
+
+/** Applique l'import de mouvements (crée les mouvements, ajuste le stock) — réversible. */
+export async function appliquerMouvementsAction(formData: FormData): Promise<{ batchId: string; resume: PreviewMouvements["resume"] }> {
+  const user = await gardeDirection();
+  const file = formData.get("fichier");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Fichier manquant.");
+  const libelle = String(formData.get("libelle") ?? "").trim() || `Mouvements ${new Date().toLocaleDateString("fr-FR")}`;
+  const dateDefaut = String(formData.get("dateDefaut") ?? "").trim() || AUJ();
+  const res = await appliquerMouvements(await file.text(), libelle, dateDefaut, user.id);
+  revalidatePath("/stock/imports");
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock/catalogue", "layout");
   return res;
 }
 
