@@ -276,9 +276,12 @@ export async function validerBonCommande(id: string, _formData: FormData) {
 
   // La demande « à valider » est traitée → sa notification disparaît.
   await supprimerNotificationsPour(id);
-  // Notifie l'auteur du BC que sa demande est validée (cloche pour tous + push à l'auteur).
-  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
-  if (bc.creeParId) await envoyerPush([bc.creeParId], { title: "Bon de commande validé", body: `${bc.numero} a été validé.`, url: `/stock/commandes/${id}`, tag: `bc-val-${id}` });
+  // Notifie l'auteur du BC que sa demande est validée (cloche + push) — SAUF si le validateur
+  // est l'auteur lui-même : la Direction validant son propre bon n'a pas à se notifier.
+  if (bc.creeParId && bc.creeParId !== user.id) {
+    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
+    await envoyerPush([bc.creeParId], { title: "Bon de commande validé", body: `${bc.numero} a été validé.`, url: `/stock/commandes/${id}`, tag: `bc-val-${id}` });
+  }
 
   revalidatePath("/stock/commandes");
   revalidatePath(`/stock/commandes/${id}`);
@@ -344,12 +347,16 @@ export async function validerBonsEnLot(ids: string[]) {
   requireRole(user, ["ADMIN"]);
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
-  const bcs = await prisma.bonDeCommande.findMany({ where: { id: { in: uniq }, statut: "BROUILLON" }, select: { id: true, numero: true } });
+  const bcs = await prisma.bonDeCommande.findMany({ where: { id: { in: uniq }, statut: "BROUILLON" }, select: { id: true, numero: true, creeParId: true } });
   if (bcs.length === 0) return;
   await prisma.bonDeCommande.updateMany({ where: { id: { in: bcs.map((b) => b.id) } }, data: { statut: "VALIDE" } });
   for (const b of bcs) {
     await supprimerNotificationsPour(b.id);
-    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${b.numero} validé`, lien: `/stock/commandes/${b.id}`, refId: b.id } });
+    // Cloche « validé » réservée aux bons créés par quelqu'un d'autre : la Direction qui valide
+    // ses propres brouillons n'a pas à se notifier elle-même.
+    if (b.creeParId && b.creeParId !== user.id) {
+      await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${b.numero} validé`, lien: `/stock/commandes/${b.id}`, refId: b.id } });
+    }
   }
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: "lot", champ: "statut", nouvelleValeur: `${bcs.length} validé(s)`, userId: user.id });
   revalidatePath("/stock/commandes");

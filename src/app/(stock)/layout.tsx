@@ -14,13 +14,15 @@ export default async function StockLayout({ children }: { children: React.ReactN
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
     chargerNotifications("STOCK"),
-    // Comptage des articles urgents (en rupture : quantité ≤ 0) par domaine, agrégé en SQL —
-    // un seul aller-retour qui renvoie 3 nombres, au lieu de charger toutes les lignes de stock.
+    // Comptage des articles urgents par domaine, agrégé en SQL — MÊME RÈGLE que niveauAlerte :
+    // URGENT = rupture (quantité ≤ 0) uniquement si un seuil minimum est défini (sans seuil,
+    // pas d'alerte). Un seul aller-retour qui renvoie 3 nombres.
     prisma.$queryRaw<{ domaine: string; n: number }[]>`
       SELECT a."domaine" AS domaine, COUNT(*)::int AS n
       FROM "stock"."Stock" s
       JOIN "stock"."ArticleStock" a ON a."id" = s."articleId"
       WHERE a."actif" = true
+        AND s."stockMinimum" > 0
         AND s."quantite" <= 0
       GROUP BY a."domaine"`,
   ]);
