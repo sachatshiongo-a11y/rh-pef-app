@@ -41,6 +41,7 @@ export default async function LegumesPage() {
           <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <a href="/stock/legumes/pivot" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">📊 Récap mensuel (Excel)</a>
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
         </div>
       </div>
