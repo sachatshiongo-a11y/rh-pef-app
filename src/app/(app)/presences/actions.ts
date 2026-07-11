@@ -4,6 +4,17 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
 import { joursEnConge } from "@/lib/conges-couverture";
+
+// Un congé (C ou S) ne se pose JAMAIS sur un dimanche ou un jour férié : ces jours ne sont pas
+// décomptés des congés (même règle que calculerJoursOuvrables). Garde partagée unitaire/lot.
+const estDimancheIso = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay() === 0;
+async function feriesDans(dates: string[]): Promise<Set<string>> {
+  if (dates.length === 0) return new Set();
+  const tri = [...dates].sort();
+  const rows = await prisma.jourFerie.findMany({ where: { date: { gte: new Date(`${tri[0]}T00:00:00Z`), lte: new Date(`${tri[tri.length - 1]}T00:00:00Z`) } }, select: { date: true } });
+  return new Set(rows.map((r) => new Date(r.date).toISOString().slice(0, 10)));
+}
+const estConge = (code: string) => code === "C" || code === "S";
 import { dureeShift, pariteSemaine } from "../planning/creneaux";
 import type { AttendanceCode } from "@prisma/client";
 
@@ -59,29 +70,38 @@ async function appliquerPresence(
   }
 }
 
-export async function saisirPresence(employeeId: string, date: string, code: AttendanceCode | "") {
+export async function saisirPresence(employeeId: string, date: string, code: AttendanceCode | ""): Promise<{ ignore?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  if (code !== "" && estConge(code)) {
+    const feries = await feriesDans([date]);
+    if (estDimancheIso(date) || feries.has(date)) {
+      return { ignore: "Un congé (C/S) ne se pose pas sur un dimanche ou un jour férié — ces jours ne sont pas décomptés des congés." };
+    }
+  }
   await appliquerPresence(employeeId, date, code);
 
   revalidatePath("/presences");
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  return {};
 }
 
-/** Saisie en lot (collage / actions groupées). Les jours couverts par un congé APPROUVÉ ne sont
- * pas marqués présents (code P ignoré) : renvoyés à l'appelant pour remettre la case à vide. */
+/** Saisie en lot (collage / actions groupées). Sont ignorés et renvoyés à l'appelant :
+ *  - « P » sur un jour couvert par un congé APPROUVÉ ;
+ *  - « C »/« S » sur un dimanche ou un jour férié (jamais décomptés des congés). */
 export async function saisirPresencesEnLot(
   entrees: { employeeId: string; date: string; code: AttendanceCode | "" }[]
 ): Promise<{ ignores: { employeeId: string; date: string }[] }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const enConge = await joursEnConge(entrees);
+  const [enConge, feries] = await Promise.all([joursEnConge(entrees), feriesDans(entrees.map((e) => e.date))]);
   const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, code } of entrees) {
     if (code === "P" && enConge.has(`${employeeId}|${date}`)) { ignores.push({ employeeId, date }); continue; }
+    if (code !== "" && estConge(code) && (estDimancheIso(date) || feries.has(date))) { ignores.push({ employeeId, date }); continue; }
     await appliquerPresence(employeeId, date, code);
   }
 

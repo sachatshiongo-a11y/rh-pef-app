@@ -150,7 +150,7 @@ export function AttendanceGrid({
           const select = tableRef.current?.querySelector<HTMLSelectElement>(`select[data-emp="${ig.employeeId}"][data-day="${jour}"]`);
           if (select) { select.value = ""; appliquerCouleur(select, ""); }
         }
-        setNoteConges(`${ignores.length} jour(s) non marqué(s) « P » : congé approuvé sur la période.`);
+        setNoteConges(`${ignores.length} case(s) ignorée(s) : congé approuvé ce jour-là, ou congé (C/S) posé sur un dimanche/férié — non décompté des congés.`);
       }
     });
   }
@@ -170,8 +170,14 @@ export function AttendanceGrid({
 
   function handleChange(employeeId: string, day: number, value: string) {
     const date = isoDates[day - 1];
-    startTransition(() => {
-      saisirPresence(employeeId, date, value as AttendanceCode | "");
+    startTransition(async () => {
+      const res = await saisirPresence(employeeId, date, value as AttendanceCode | "");
+      // Saisie refusée par le serveur (ex. congé sur dimanche/férié) : case remise à vide + explication.
+      if (res?.ignore) {
+        const select = tableRef.current?.querySelector<HTMLSelectElement>(`select[data-emp="${employeeId}"][data-day="${day}"]`);
+        if (select) { select.value = ""; appliquerCouleur(select, ""); }
+        setNoteConges(res.ignore);
+      }
     });
   }
 
