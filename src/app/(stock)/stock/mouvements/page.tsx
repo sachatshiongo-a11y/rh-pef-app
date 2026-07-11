@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { qte, usd } from "@/lib/stock";
 import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
 type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } } } }>;
@@ -71,7 +72,6 @@ function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouveme
   );
 }
 
-const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 type SP = { mois?: string; articleId?: string };
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {

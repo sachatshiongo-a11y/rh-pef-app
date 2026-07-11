@@ -409,26 +409,54 @@ export async function supprimerFacture(id: string) {
   revalidatePath("/stock");
 }
 
-/** Marque une facture comme réglée : solde le reste à payer et enregistre la date de paiement (aujourd'hui). */
-export async function marquerPayee(id: string) {
-  const user = await garde();
+/**
+ * CŒUR UNIQUE des règlements : applique un paiement/avoir sur une facture (trace datée,
+ * cumul réglé/reste, statut recalculé). Utilisé par « + Paiement / Avoir » ET « Marquer payée »
+ * — un seul chemin de code, plus de logique dupliquée qui divergerait.
+ */
+async function appliquerReglement(userId: string, id: string, p: {
+  montant: number; montantCDF?: number | null; taux?: number | null;
+  dateStr?: string; mode?: string | null; note?: string | null; type?: "PAIEMENT" | "AVOIR";
+}) {
+  const type = p.type ?? "PAIEMENT";
+  const dateStr = p.dateStr ?? AUJ();
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
   const reste = Number(f.resteAPayerUSD);
+  if (p.montant <= 0) throw new Error("Le montant doit être supérieur à 0.");
+  if (p.montant > reste + 0.009) throw new Error(`Le ${type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${p.montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
+
+  const nouveauRegle = Number(f.montantRegleUSD) + p.montant;
+  const nouveauReste = Math.max(0, Number(f.montantUSD) - nouveauRegle);
+  const solde = nouveauReste <= 0.001;
+  const echeanceISO = f.dateEcheance ? new Date(f.dateEcheance).toISOString().slice(0, 10) : null;
+
   await prisma.$transaction([
+    prisma.paiement.create({ data: { factureId: id, type, date: new Date(dateStr), montantUSD: p.montant, montantCDF: p.montantCDF ?? null, tauxChangeUtilise: p.taux ?? null, modePaiement: p.mode ?? f.modePaiement, note: p.note ?? null, creeParId: userId } }),
     prisma.factureFournisseur.update({
       where: { id },
-      data: { montantRegleUSD: f.montantUSD, resteAPayerUSD: 0, statut: "REGLEE", datePaiement: new Date() },
+      data: {
+        montantRegleUSD: nouveauRegle,
+        resteAPayerUSD: nouveauReste,
+        statut: statutDe(nouveauReste, echeanceISO),
+        ...(solde ? { datePaiement: new Date(dateStr) } : {}),
+      },
     }),
-    // Trace datée dans l'historique des paiements (le solde restant).
-    ...(reste > 0 ? [prisma.paiement.create({ data: { factureId: id, date: new Date(), montantUSD: reste, modePaiement: f.modePaiement, note: "Marquée payée", creeParId: user.id } })] : []),
   ]);
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "statut", nouvelleValeur: "RÉGLÉE", userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: type === "AVOIR" ? "avoir" : "paiement", nouvelleValeur: `${p.montant.toFixed(2)} $${p.montantCDF ? ` (${p.montantCDF.toLocaleString("fr-FR")} FC)` : ""} (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId });
   revalidatePath("/stock/factures");
   revalidatePath(`/stock/factures/${id}`);
 }
 
-/** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit)
- * sur une facture : historique daté + statut recalculé. */
+/** Marque une facture comme réglée : un paiement du reste à payer, daté d'aujourd'hui. */
+export async function marquerPayee(id: string) {
+  const user = await garde();
+  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id }, select: { resteAPayerUSD: true } });
+  const reste = Number(f.resteAPayerUSD);
+  if (reste <= 0.001) return; // déjà soldée
+  await appliquerReglement(user.id, id, { montant: reste, note: "Marquée payée" });
+}
+
+/** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit). */
 export async function enregistrerPaiement(id: string, formData: FormData) {
   const user = await garde();
   const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
@@ -450,30 +478,7 @@ export async function enregistrerPaiement(id: string, formData: FormData) {
     montant = Math.round((saisi / taux) * 100) / 100;
   }
 
-  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
-  const reste = Number(f.resteAPayerUSD);
-  if (montant > reste + 0.009) throw new Error(`Le ${type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
-
-  const nouveauRegle = Number(f.montantRegleUSD) + montant;
-  const nouveauReste = Math.max(0, Number(f.montantUSD) - nouveauRegle);
-  const solde = nouveauReste <= 0.001;
-  const echeanceISO = f.dateEcheance ? new Date(f.dateEcheance).toISOString().slice(0, 10) : null;
-
-  await prisma.$transaction([
-    prisma.paiement.create({ data: { factureId: id, type, date: new Date(dateStr), montantUSD: montant, montantCDF, tauxChangeUtilise: taux, modePaiement: mode, note, creeParId: user.id } }),
-    prisma.factureFournisseur.update({
-      where: { id },
-      data: {
-        montantRegleUSD: nouveauRegle,
-        resteAPayerUSD: nouveauReste,
-        statut: statutDe(nouveauReste, echeanceISO),
-        ...(solde ? { datePaiement: new Date(dateStr) } : {}),
-      },
-    }),
-  ]);
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: type === "AVOIR" ? "avoir" : "paiement", nouvelleValeur: `${montant.toFixed(2)} $${montantCDF ? ` (${montantCDF.toLocaleString("fr-FR")} FC)` : ""} (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId: user.id });
-  revalidatePath("/stock/factures");
-  revalidatePath(`/stock/factures/${id}`);
+  await appliquerReglement(user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
 }
 
 /** Marque plusieurs factures comme réglées d'un coup (réglé = montant, reste = 0, payée aujourd'hui). */

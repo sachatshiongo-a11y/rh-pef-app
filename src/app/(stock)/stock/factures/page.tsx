@@ -5,12 +5,11 @@ import { usd } from "@/lib/stock";
 import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
 import { ImportFacturesBtn } from "./import-factures-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
-import { lundiDe, MOIS_FR_COURT } from "@/lib/dates-fr";
+import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
 type SP = { statut?: string; tri?: string; vue?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
-const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 const JOUR_MS = 86400000;
 /** Jours restants avant l'échéance (négatif si dépassée) ; null si réglée ou sans échéance. */
 function joursAvant(echeance: Date | null, statut: string): number | null {

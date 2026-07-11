@@ -5,9 +5,9 @@ import { CommandesListe } from "./commandes-liste";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
+import { MOIS_FR_MAJ as MOIS } from "@/lib/dates-fr";
 
 type SP = { annee?: string; mois?: string; fournisseurId?: string };
-const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
