@@ -108,8 +108,8 @@ export function DossierEmploye({
   peutModifier: boolean;
   estAdmin: boolean;
 }) {
-  const dans30j = new Date(Date.now() + 30 * 86400000);
   const aujourdhui = new Date();
+  const dans30j = new Date(aujourdhui.getTime() + 30 * 86400000);
 
   return (
     <>

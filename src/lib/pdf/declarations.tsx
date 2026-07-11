@@ -125,9 +125,9 @@ export function BordereauDeclarationsDocument({
 
         <Text style={styles.note}>
           Les échéances marquées « à valider » restent à confirmer par le comptable de
-          l'entreprise. L'échéance CNSS est fixée au 15 du mois suivant la période de paie. Les taux
+          l’entreprise. L’échéance CNSS est fixée au 15 du mois suivant la période de paie. Les taux
           appliqués (CNSS, IPR, INPP, ONEM) sont ceux enregistrés dans les paramètres légaux de
-          l'exercice et doivent être validés par un comptable congolais avant tout usage officiel.
+          l’exercice et doivent être validés par un comptable congolais avant tout usage officiel.
         </Text>
 
         <Text style={styles.fait}>Fait à Kinshasa, le {new Date().toLocaleDateString("fr-FR")}</Text>

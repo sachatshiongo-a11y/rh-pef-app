@@ -58,13 +58,6 @@ export function FinContratForm({
   const indemPreavis = salaireJournalier * (Number(preavis) || 0);
   const total = salaireProrata + indemConges + indemPreavis + (Number(licenciement) || 0) + (Number(autres) || 0);
 
-  const Champ = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      {children}
-    </label>
-  );
-
   return (
     <form
       action={terminerContrat.bind(null, employeeId)}
@@ -143,5 +136,16 @@ export function FinContratForm({
         </aside>
       </div>
     </form>
+  );
+}
+
+// Défini au niveau module (pas dans le rendu) : sinon React le voit comme un composant
+// différent à chaque rendu et démonte/remonte les champs (perte de focus à la saisie).
+function Champ({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
   );
 }

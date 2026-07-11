@@ -169,8 +169,8 @@ export default async function FicheEmployePage({
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
-  const dans30j = new Date(Date.now() + 30 * 86400000);
   const maintenant = new Date();
+  const dans30j = new Date(maintenant.getTime() + 30 * 86400000);
   for (const c of contrats) {
     if (c.dateFin && new Date(c.dateFin) >= maintenant && new Date(c.dateFin) <= dans30j) {
       notifications.push(`Contrat ${c.type} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}`);

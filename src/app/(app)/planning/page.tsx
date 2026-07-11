@@ -82,10 +82,8 @@ export default async function PlanningPage({
     </div>
   );
 
-  function BoutonAuto({ debut, fin }: { debut: string; fin: string }) {
-    if (!peutModifier) return null;
-    return <AutoPlanningForm debut={debut} fin={fin} shifts={shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }))} />;
-  }
+  // Bouton de génération auto : rendu inline (un composant défini dans le rendu serait remonté à chaque rendu).
+  const shiftsPourAuto = shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }));
 
   const legende = (
     <details className="mb-4">
@@ -200,7 +198,7 @@ export default async function PlanningPage({
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {onglets}
-            <BoutonAuto debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} />
+            {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} shifts={shiftsPourAuto} />}
             <Link href={`/planning?vue=mois&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
             <Link href="/planning?vue=mois" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
             <Link href={`/planning?vue=mois&mois=${moisSuiv.m}&annee=${moisSuiv.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
@@ -296,7 +294,7 @@ export default async function PlanningPage({
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {onglets}
-          <BoutonAuto debut={isoDates[0]} fin={isoDates[6]} />
+          {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}
           <Link href={`/planning?debut=${semainePrec}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
           <Link href="/planning" className="rounded-md border px-3 py-1.5 hover:bg-accent">Cette semaine</Link>
           <Link href={`/planning?debut=${semaineSuiv}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
