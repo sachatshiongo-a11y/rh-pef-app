@@ -131,3 +131,116 @@ export async function classeurExcel(opts: {
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+export type FeuilleInventaire = {
+  nom: string;
+  titre: string;
+  kpis: { label: string; valeur: string }[]; // bloc KPI en haut, bien visible
+  invEntete: string[];
+  invLignes: (string | number)[][];
+  invTotauxCols?: number[]; // colonnes à totaliser dans le tableau d'inventaire
+  mvtTitre: string;
+  mvtEntete: string[];
+  mvtLignes: (string | number)[][];
+};
+
+/**
+ * Classeur d'inventaire : une feuille par domaine, avec en haut un bloc KPI bien visible, puis
+ * le tableau d'inventaire (catégorie, fournisseur, alerte…) et, dans la MÊME feuille, le tableau
+ * des mouvements du domaine. Reprend la charte de `classeurExcel` (logo, police, couleurs).
+ */
+export async function classeurInventaire(opts: { periode: string; feuilles: FeuilleInventaire[] }): Promise<Buffer> {
+  const { periode, feuilles } = opts;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Pâtes en Folie (TOLYA SARL)";
+  wb.created = new Date();
+  const logoBuffer = fs.existsSync(logoPath) ? fs.readFileSync(logoPath) : null;
+  const editeLe = new Date().toLocaleDateString("fr-FR");
+  const HAUT_LOGO = 3;
+
+  const enteteTable = (ws: ExcelJS.Worksheet, cols: string[]) => {
+    const r = ws.addRow(cols);
+    r.font = { name: OPTIMA, size: 10, bold: true };
+    r.eachCell((cell) => {
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };
+      cell.border = { bottom: { style: "thin", color: { argb: OR_BORDURE } } };
+    });
+    return r;
+  };
+  const bandeau = (ws: ExcelJS.Worksheet, texte: string, largeur: number) => {
+    const r = ws.addRow([texte]);
+    ws.mergeCells(r.number, 1, r.number, Math.max(1, largeur));
+    const cell = r.getCell(1);
+    cell.font = { name: OPTIMA, size: 11, bold: true, color: { argb: BRUN } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_SECTION } };
+    return r;
+  };
+
+  for (const f of feuilles) {
+    const largeur = Math.max(f.invEntete.length, f.mvtEntete.length, 4);
+    const ws = wb.addWorksheet(f.nom, { views: [{ state: "frozen", ySplit: HAUT_LOGO + 3 }] });
+    if (logoBuffer) {
+      const id = wb.addImage({ base64: logoBuffer.toString("base64"), extension: "png" });
+      ws.addImage(id, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
+    }
+    for (let i = 0; i < HAUT_LOGO; i++) ws.addRow([]);
+    const rTitre = ws.addRow([`Pâtes en Folie (TOLYA SARL) — ${f.titre}`]);
+    rTitre.font = { name: OPTIMA, size: 13, bold: true, color: { argb: BRUN } };
+    const rPer = ws.addRow([`Période : ${periode} · Édité le : ${editeLe}`]);
+    rPer.font = { name: OPTIMA, size: 9, italic: true, color: { argb: GRIS } };
+    ws.addRow([]);
+
+    // Bloc KPI : 2 KPI par ligne (label + valeur en gras, fond or), bien visibles en haut.
+    bandeau(ws, "INDICATEURS", largeur);
+    for (let i = 0; i < f.kpis.length; i += 2) {
+      const a = f.kpis[i], b = f.kpis[i + 1];
+      const r = ws.addRow([a.label, a.valeur, "", b?.label ?? "", b?.valeur ?? ""]);
+      r.height = 18;
+      const style = (col: number, val: boolean) => {
+        const c = r.getCell(col);
+        c.font = { name: OPTIMA, size: val ? 12 : 10, bold: true, color: { argb: val ? BRUN : "FF000000" } };
+        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };
+      };
+      style(1, false); style(2, true);
+      if (b) { style(4, false); style(5, true); }
+    }
+    ws.addRow([]);
+
+    // Tableau d'inventaire.
+    bandeau(ws, `INVENTAIRE — ${f.titre}`, largeur);
+    enteteTable(ws, f.invEntete);
+    for (const l of f.invLignes) ws.addRow(l);
+    if (f.invTotauxCols?.length) {
+      const tot: (string | number)[] = new Array(f.invEntete.length).fill("");
+      tot[0] = "Total";
+      for (const ci of f.invTotauxCols) {
+        let s = 0; for (const l of f.invLignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; }
+        tot[ci] = Math.round(s * 100) / 100;
+      }
+      const rt = ws.addRow(tot);
+      rt.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
+      rt.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } }; cell.border = { top: { style: "thin", color: { argb: OR_BORDURE } } }; });
+    }
+    ws.addRow([]); ws.addRow([]);
+
+    // Tableau des mouvements du MÊME domaine, dans la même feuille.
+    bandeau(ws, f.mvtTitre, largeur);
+    enteteTable(ws, f.mvtEntete);
+    if (f.mvtLignes.length === 0) ws.addRow(["Aucun mouvement sur la période."]);
+    for (const l of f.mvtLignes) ws.addRow(l);
+
+    // Police par défaut sur les cellules non encore stylées (corps des tableaux).
+    ws.eachRow((row) => row.eachCell((cell) => { if (!cell.font?.name) cell.font = { name: OPTIMA, size: 10 }; }));
+
+    // Largeurs : basées sur l'entête d'inventaire (le plus large), min pour la 1re colonne.
+    const echantillon = [f.invEntete, ...f.invLignes, f.mvtEntete, ...f.mvtLignes];
+    for (let i = 0; i < largeur; i++) {
+      const longueurs = echantillon.map((l) => String(l[i] ?? "").length);
+      ws.getColumn(i + 1).width = Math.min(44, Math.max(9, Math.max(0, ...longueurs) + 2));
+    }
+    ws.getColumn(1).width = Math.max(ws.getColumn(1).width ?? 10, 22);
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}

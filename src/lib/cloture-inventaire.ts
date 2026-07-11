@@ -1,10 +1,15 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
 
-// Inventaire valorisé : quantité et valeur (quantité × prix de référence) de chaque article,
-// regroupé par domaine (Nourriture / Boissons / Autre). Utilisé pour l'export d'une clôture.
+// Inventaire valorisé : chaque article avec sa catégorie, son fournisseur, son statut de
+// réapprovisionnement, sa quantité et sa valeur (quantité × prix de référence), regroupé par
+// domaine (Nourriture / Boissons / Autre). Utilisé pour l'export d'une clôture.
 
-export type LigneInventaire = { designation: string; domaine: string; quantite: number; prixUnitaireUSD: number };
+export type LigneInventaire = {
+  articleId: string; code: string; designation: string; domaine: string; unite: string;
+  categorie: string; fournisseur: string; quantite: number; stockMinimum: number; prixUnitaireUSD: number;
+};
 export type Inventaire = {
   fige: boolean; // true = instantané figé à la clôture ; false = état actuel du stock
   valeurTotaleUSD: number;
@@ -16,16 +21,31 @@ export const DOMAINE_LABEL: Record<string, string> = { NOURRITURE: "Nourriture",
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+/** Statut de réapprovisionnement lisible (Urgent / À réapprovisionner / Satisfaisant). */
+export const alerteLabel = (quantite: number, stockMinimum: number) => ALERTE_LABEL[niveauAlerte(quantite, stockMinimum)];
+
 /** Construit l'inventaire à partir de l'état ACTUEL du stock (articles actifs). */
 export async function inventaireActuel(): Promise<Inventaire> {
   const articles = await prisma.articleStock.findMany({
     where: { actif: true },
-    select: { designation: true, domaine: true, prixUnitaireUSD: true, stock: { select: { quantite: true } } },
+    select: {
+      id: true, code: true, designation: true, domaine: true, unite: true,
+      prixUnitaireUSD: true,
+      categorie: { select: { nom: true } },
+      fournisseur: { select: { nom: true } },
+      stock: { select: { quantite: true, stockMinimum: true } },
+    },
   });
   const lignes: LigneInventaire[] = articles.map((a) => ({
+    articleId: a.id,
+    code: a.code ?? "",
     designation: a.designation,
     domaine: String(a.domaine),
+    unite: a.unite ?? "",
+    categorie: a.categorie?.nom ?? "",
+    fournisseur: a.fournisseur?.nom ?? "",
     quantite: a.stock ? Number(a.stock.quantite) : 0,
+    stockMinimum: a.stock ? Number(a.stock.stockMinimum) : 0,
     prixUnitaireUSD: a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,
   }));
   const valeurTotaleUSD = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));
@@ -39,13 +59,14 @@ export async function snapshotActuel() {
 }
 
 /**
- * Inventaire d'un mois : l'instantané figé à la clôture s'il existe, sinon l'état actuel
- * (marqué non figé, pour un mois pas encore clôturé ou clôturé avant cette fonctionnalité).
+ * Inventaire d'un mois : l'instantané figé à la clôture s'il existe (et contient le format enrichi),
+ * sinon l'état actuel (mois non clôturé, ou clôturé avant l'enrichissement de l'instantané).
  */
 export async function inventaireDuMois(annee: number, mois: number): Promise<Inventaire> {
   const cloture = await prisma.clotureStock.findUnique({ where: { annee_mois: { annee, mois } } });
   const snap = cloture?.snapshot as { valeurTotaleUSD?: number; lignes?: LigneInventaire[] } | null | undefined;
-  if (snap?.lignes) {
+  // On n'utilise l'instantané que s'il porte le format enrichi (présence d'articleId).
+  if (snap?.lignes && snap.lignes.length > 0 && "articleId" in snap.lignes[0]) {
     return { fige: true, valeurTotaleUSD: r2(snap.valeurTotaleUSD ?? snap.lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0)), lignes: snap.lignes };
   }
   return inventaireActuel();
