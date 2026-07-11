@@ -148,7 +148,7 @@ export function AppShell({
                       onClick={fermer}
                       className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:py-1.5 ${actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"}`}
                     >
-                      <Icone nom={item.icone} className="w-4 shrink-0 lg:hidden" />
+                      <Icone nom={item.icone} className="w-4 shrink-0 text-muted-foreground" />
                       <span className="flex-1">{item.label}</span>
                       {badge > 0 && (
                         <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">
