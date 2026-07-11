@@ -105,7 +105,7 @@ export default async function AbsencesPage({
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   const finAnnee = new Date(Date.UTC(annee, 11, 31));
 
-  const [employees, demandesRange, demandesAnnee, feries, params] = await Promise.all([
+  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee, params] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -119,6 +119,7 @@ export default async function AbsencesPage({
       where: { statut: "APPROUVE", dateDebut: { lte: finAnnee }, dateFin: { gte: debutAnnee } },
     }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutRange, lte: finRange } } }),
+    prisma.jourFerie.findMany({ where: { date: { gte: debutAnnee, lte: finAnnee } }, select: { date: true } }),
     chargerParametresPaie(),
   ]);
 
@@ -155,7 +156,7 @@ export default async function AbsencesPage({
     if (debut > fin) continue;
     congesAnnuelsParEmp.set(
       d.employeeId,
-      (congesAnnuelsParEmp.get(d.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin)
+      (congesAnnuelsParEmp.get(d.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin, feriesAnnee.map((f) => f.date))
     );
   }
 

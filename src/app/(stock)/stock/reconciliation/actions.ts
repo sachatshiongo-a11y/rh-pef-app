@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -70,26 +71,41 @@ export async function appliquerComptage(formData: FormData) {
   const nbEcarts = lignes.filter((l) => Math.abs(l.ecart) > 0.0001).length;
   const nbHorsTol = lignes.filter((l) => l.horsTol).length;
 
+  // Écritures GROUPÉES (createMany + un seul UPDATE…FROM VALUES) : l'ancienne boucle faisait
+  // 3 requêtes par ligne — sur des centaines d'articles et une liaison à forte latence, la
+  // transaction dépassait le délai Prisma (5 s) et explosait en production (P2028).
   const session = await prisma.$transaction(async (tx) => {
     const s = await tx.sessionComptage.create({
       data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: user.id },
     });
-    for (const l of lignes) {
-      await tx.ligneComptage.create({
-        data: {
-          sessionId: s.id, articleId: l.articleId, designation: l.designation,
-          theorique: l.theorique, physique: l.physique, ecart: l.ecart,
-          ecartPct: Number.isFinite(l.pct) ? Math.round(l.pct * 100) / 100 : null,
-          explication: l.explication || null,
-        },
+    await tx.ligneComptage.createMany({
+      data: lignes.map((l) => ({
+        sessionId: s.id, articleId: l.articleId, designation: l.designation,
+        theorique: l.theorique, physique: l.physique, ecart: l.ecart,
+        ecartPct: Number.isFinite(l.pct) ? Math.round(l.pct * 100) / 100 : null,
+        explication: l.explication || null,
+      })),
+    });
+    const avecEcart = lignes.filter((l) => Math.abs(l.ecart) > 0.0001);
+    if (avecEcart.length > 0) {
+      await tx.mouvementStock.createMany({
+        data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, creeParId: user.id })),
       });
-      if (Math.abs(l.ecart) > 0.0001) {
-        await tx.mouvementStock.create({ data: { articleId: l.articleId, type: "AJUSTEMENT", quantite: Math.abs(l.ecart), origine, creeParId: user.id } });
-      }
-      await tx.stock.upsert({ where: { articleId: l.articleId }, update: { quantite: l.physique }, create: { articleId: l.articleId, quantite: l.physique } });
+    }
+    const existants = new Set(stocks.map((x) => x.articleId));
+    const maj = lignes.filter((l) => existants.has(l.articleId));
+    if (maj.length > 0) {
+      await tx.$executeRaw`
+        UPDATE "stock"."Stock" AS s SET "quantite" = v.q, "updatedAt" = now()
+        FROM (VALUES ${Prisma.join(maj.map((l) => Prisma.sql`(${l.articleId}, ${l.physique}::decimal)`))}) AS v("articleId", q)
+        WHERE s."articleId" = v."articleId"`;
+    }
+    const manquants = lignes.filter((l) => !existants.has(l.articleId));
+    if (manquants.length > 0) {
+      await tx.stock.createMany({ data: manquants.map((l) => ({ articleId: l.articleId, quantite: l.physique })) });
     }
     return s;
-  });
+  }, { timeout: 60000 });
 
   // Notifie Direction + responsable stock si des écarts dépassent la tolérance.
   if (nbHorsTol > 0) {

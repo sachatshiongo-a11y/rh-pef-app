@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { qte, usd } from "@/lib/stock";
@@ -5,54 +6,58 @@ import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import type { Prisma } from "@prisma/client";
 
-type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true } } } }>;
+type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true, domaine: true } } } }>;
+
+// Lien vers le catalogue de l'article (pré-filtré sur sa désignation), comme la recherche globale.
+const lienCatalogue = (m: Mvt) => {
+  const seg = m.article.domaine === "NOURRITURE" ? "nourriture" : m.article.domaine === "BOISSON" ? "boissons" : "autre";
+  return `/stock/catalogue/${seg}?q=${encodeURIComponent(m.article.designation)}`;
+};
 
 function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouvements: Mvt[]; signe: string; couleur: string }) {
+  // Classement par jour : les mouvements arrivent triés par date décroissante.
+  const jours: { cle: string; titre: string; lignes: Mvt[] }[] = [];
+  const idx = new Map<string, number>();
+  for (const m of mouvements) {
+    const cle = new Date(m.date).toISOString().slice(0, 10);
+    if (!idx.has(cle)) { idx.set(cle, jours.length); jours.push({ cle, titre: new Date(m.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }), lignes: [] }); }
+    jours[idx.get(cle)!].lignes.push(m);
+  }
+
+  const nomArticle = (m: Mvt) => (
+    <Link href={lienCatalogue(m)} className="truncate font-medium text-primary hover:underline">{m.article.designation}</Link>
+  );
+
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className={`border-b px-3 py-2 text-sm font-semibold ${couleur}`}>{titre} <span className="font-normal opacity-70">· {mouvements.length}</span></div>
-
-      {/* Mobile : lignes en cartes plutôt qu'un tableau à défilement. */}
-      <div className="divide-y lg:hidden">
-        {mouvements.map((m) => (
-          <div key={m.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
-            <div className="min-w-0">
-              <div className="truncate font-medium">{m.article.designation}</div>
-              <div className="text-[11px] text-muted-foreground">
-                {new Date(m.date).toLocaleDateString("fr-FR")}{m.origine ? ` · ${m.origine}` : ""}
-              </div>
+      <div className="max-h-[70vh] divide-y overflow-auto">
+        {jours.map((j, ji) => (
+          <details key={j.cle} open={ji === 0} className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold capitalize [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{j.titre}</span>
+              <span className="font-normal text-muted-foreground">{j.lignes.length} mouvement(s) · {signe}{qte(j.lignes.reduce((t, m) => t + Number(m.quantite), 0))}</span>
+            </summary>
+            <div className="divide-y border-t">
+              {j.lignes.map((m) => (
+                <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                  <div className="min-w-0">
+                    {nomArticle(m)}
+                    {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3 text-right">
+                    <div>
+                      <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
+                      <div className="text-[11px] tabular-nums text-muted-foreground">{m.montantUSD !== null ? usd(m.montantUSD) : "—"}</div>
+                    </div>
+                    <SupprimerMouvementBtn id={m.id} />
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="shrink-0 text-right">
-              <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
-              <div className="text-[11px] tabular-nums text-muted-foreground">{m.montantUSD !== null ? usd(m.montantUSD) : "—"}</div>
-              <div className="mt-1"><SupprimerMouvementBtn id={m.id} /></div>
-            </div>
-          </div>
+          </details>
         ))}
         {mouvements.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun mouvement.</p>}
-      </div>
-
-      {/* Ordinateur : tableau. */}
-      <div className="hidden max-h-[70vh] overflow-auto lg:block">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/60 text-left text-xs">
-            <tr className="[&>th]:px-3 [&>th]:py-1.5">
-              <th>Date</th><th>Article</th><th className="text-right">Qté</th><th className="text-right">Valeur</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {mouvements.map((m) => (
-              <tr key={m.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
-                <td className="px-3 py-1.5 text-muted-foreground">{new Date(m.date).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-1.5"><div className="font-medium">{m.article.designation}</div>{m.origine && <div className="text-[11px] text-muted-foreground">{m.origine}</div>}</td>
-                <td className="px-3 py-1.5 text-right font-medium">{signe}{qte(m.quantite)}</td>
-                <td className="px-3 py-1.5 text-right text-muted-foreground">{m.montantUSD !== null ? usd(m.montantUSD) : "—"}</td>
-                <td className="px-3 py-1.5 text-right"><SupprimerMouvementBtn id={m.id} /></td>
-              </tr>
-            ))}
-            {mouvements.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucun mouvement.</td></tr>}
-          </tbody>
-        </table>
       </div>
     </div>
   );
@@ -75,7 +80,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   }
 
   const [mouvements, articles] = await Promise.all([
-    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: { article: { select: { designation: true } } } }),
+    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: { article: { select: { designation: true, domaine: true } } } }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
   ]);
   const entrees = mouvements.filter((m) => m.type !== "SORTIE");

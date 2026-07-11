@@ -92,7 +92,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   for (const c of congesDuMois) {
     const debut = new Date(c.dateDebut) < debutMois ? debutMois : new Date(c.dateDebut);
     const fin = new Date(c.dateFin) > finMois ? finMois : new Date(c.dateFin);
-    joursCongeParEmp.set(c.employeeId, (joursCongeParEmp.get(c.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin));
+    joursCongeParEmp.set(c.employeeId, (joursCongeParEmp.get(c.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin, joursFeriesDuMois.map((f) => f.date)));
   }
 
   const primesParEmp = new Map<string, number>();

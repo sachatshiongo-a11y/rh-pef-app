@@ -23,21 +23,29 @@ export async function demanderConge(formData: FormData) {
   const type = String(formData.get("type"));
   const dateDebut = new Date(String(formData.get("dateDebut")));
   const dateFin = new Date(String(formData.get("dateFin")));
-  const nbJours = calculerJoursOuvrables(dateDebut, dateFin);
+  // Jours ouvrables : dimanches ET jours fériés exclus du décompte.
+  const feries = await prisma.jourFerie.findMany({ where: { date: { gte: dateDebut, lte: dateFin } }, select: { date: true } });
+  const nbJours = calculerJoursOuvrables(dateDebut, dateFin, feries.map((f) => f.date));
   const motif = String(formData.get("motif") ?? "").trim() || null;
   const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
 
+  // La Direction n'a pas à valider ses propres demandes : approuvée d'office (comme les BC).
+  const autoValide = user.role === "ADMIN";
   const demande = await prisma.leaveRequest.create({
-    data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: "EN_ATTENTE" },
+    data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: autoValide ? "APPROUVE" : "EN_ATTENTE", ...(autoValide ? { approuveParId: user.id } : {}) },
   });
 
   const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
-  await creerNotification({
-    type: "CONGE",
-    message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
-    lien: "/a-valider",
-    refId: demande.id,
-  });
+  if (!autoValide) {
+    await creerNotification({
+      type: "CONGE",
+      message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+      lien: "/a-valider",
+      refId: demande.id,
+    });
+  } else {
+    await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "statut", nouvelleValeur: "APPROUVE (auto — Direction)", userId: user.id });
+  }
 
   revalidatePath("/conges");
   revalidatePath("/employes");

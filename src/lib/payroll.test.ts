@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculerJoursOuvrables,
   calculerHeuresSupp,
   numeroSemaineDuMois,
   calculerIprDGI,
@@ -297,5 +298,18 @@ describe("tauxPrimeAnciennete — barème RDC (0% <3 ans, +1%/an, plafond 25%)",
     const salaireBase = 700;
     const montant = salaireBase * (tauxPrimeAnciennete(7) / 100);
     expect(montant).toBeCloseTo(49, 5);
+  });
+});
+
+describe("calculerJoursOuvrables — dimanches et jours fériés exclus", () => {
+  // Lundi 29 juin → dimanche 5 juillet 2026 : 7 jours calendaires, 1 dimanche.
+  it("exclut les dimanches", () => {
+    expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"))).toBe(6);
+  });
+  it("exclut aussi les jours fériés fournis (ex. 30 juin, indépendance RDC)", () => {
+    expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"), [new Date("2026-06-30")])).toBe(5);
+  });
+  it("un férié tombant un dimanche n'est pas déduit deux fois", () => {
+    expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"), [new Date("2026-07-05")])).toBe(6);
   });
 });
