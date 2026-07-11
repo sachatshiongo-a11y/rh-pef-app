@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { MajBanner } from "@/components/maj-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -39,6 +40,8 @@ export default function RootLayout({
         {/* Applique le thème (sombre/tamisé) avant le rendu pour éviter tout clignotement. */}
         <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('theme');if(t==='dark'||t==='tamise')document.documentElement.classList.add(t);}catch(e){}` }} />
         {children}
+        {/* Propose un rechargement quand un nouveau déploiement est en ligne (PWA). */}
+        <MajBanner version={(process.env.RENDER_GIT_COMMIT ?? "dev").slice(0, 12)} />
       </body>
     </html>
   );

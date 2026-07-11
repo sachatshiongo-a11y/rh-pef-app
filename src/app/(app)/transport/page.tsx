@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
@@ -85,10 +86,10 @@ export default async function TransportPage() {
               <tr key={l.id} className="border-t">
                 <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{l.matricule}</td>
                 <td className="px-3 py-2 font-medium">
-                  <span className="flex items-center gap-2">
+                  <Link href={`/employes/${l.id}`} className="flex items-center gap-2 hover:underline">
                     <Avatar nom={l.nom} taille={26} photoUrl={l.photoUrl} />
                     <span className="truncate">{l.nom}</span>
-                  </span>
+                  </Link>
                 </td>
                 <td className="px-3 py-2 text-muted-foreground">{l.poste}</td>
                 <td className="px-3 py-2">

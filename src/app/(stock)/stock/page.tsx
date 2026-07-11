@@ -27,7 +27,7 @@ export default async function StockDashboard() {
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
     derniersComptages, pertesRecentes, bcAValider,
-    facturesSemaine, facturesEchues, legumesMois,
+    facturesSemaine, facturesEchues, legumesMois, consoMois,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -52,6 +52,11 @@ export default async function StockDashboard() {
     prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
     // Achats de légumes frais du mois en cours.
     prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
+    // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue).
+    prisma.$queryRaw<{ total: number; n: number }[]>`
+      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD")), 0)::float AS total, COUNT(*)::int AS n
+      FROM "stock"."MouvementStock" m JOIN "stock"."ArticleStock" a ON a."id" = m."articleId"
+      WHERE m."type" = 'SORTIE' AND m."date" >= ${debutMois} AND m."date" < ${debutMoisSuivant}`,
   ]);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
@@ -98,6 +103,7 @@ export default async function StockDashboard() {
         <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine._sum.resteAPayerUSD)} sous={`${facturesSemaine._count} facture(s)`} accent={Number(facturesSemaine._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
         <Kpi label="Factures échues" valeur={usd(facturesEchues._sum.resteAPayerUSD)} sous={`${facturesEchues._count} facture(s)`} accent={facturesEchues._count > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
         <Kpi label="Légumes frais du mois" valeur={usd(legumesMois._sum.montantUSD)} sous={`${legumesMois._count} achat(s)`} href="/stock/legumes" />
+        <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois[0]?.total ?? 0)}`} sous={`${consoMois[0]?.n ?? 0} sortie(s) valorisées`} href={`/stock/mouvements?mois=${annee}-${mois}`} />
       </div>
 
       {/* Bons de commande à valider — Direction uniquement */}
