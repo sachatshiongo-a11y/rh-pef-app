@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { snapshotActuel } from "@/lib/cloture-inventaire";
 
 async function gardeDirection() {
   const user = await verifySession();
@@ -12,12 +13,18 @@ async function gardeDirection() {
   return user;
 }
 
-/** Clôture un mois de stock : plus aucun mouvement daté dedans ne pourra être créé/supprimé. */
+/** Clôture un mois de stock : fige l'inventaire du moment et verrouille les mouvements datés dedans. */
 export async function cloturerMoisStock(annee: number, mois: number) {
   const user = await gardeDirection();
   if (!Number.isInteger(annee) || !Number.isInteger(mois) || mois < 1 || mois > 12) throw new Error("Période invalide.");
-  await prisma.clotureStock.upsert({ where: { annee_mois: { annee, mois } }, update: {}, create: { annee, mois, creeParId: user.id } });
-  await journaliser(prisma, { entite: "ClotureStock", entiteId: `${annee}-${mois}`, champ: "cloture", nouvelleValeur: "clôturé", userId: user.id });
+  // Instantané figé : quantité + valeur de chaque article à la date de clôture.
+  const snapshot = await snapshotActuel();
+  await prisma.clotureStock.upsert({
+    where: { annee_mois: { annee, mois } },
+    update: { snapshot },
+    create: { annee, mois, creeParId: user.id, snapshot },
+  });
+  await journaliser(prisma, { entite: "ClotureStock", entiteId: `${annee}-${mois}`, champ: "cloture", nouvelleValeur: `clôturé — stock ${snapshot.valeurTotaleUSD.toFixed(2)} $`, userId: user.id });
   revalidatePath("/stock/parametres");
 }
 

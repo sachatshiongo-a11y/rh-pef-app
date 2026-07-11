@@ -107,7 +107,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <BoutonRapport types={[{ value: "MOUVEMENTS", label: "Mouvements" }]} pdfHref={`/stock/mouvements/imprimer${dlQs ? `?${dlQs}` : ""}`} excelHref={`/stock/mouvements/export${dlQs ? `?${dlQs}` : ""}`} />
+          <BoutonRapport types={[{ value: "MOUVEMENTS", label: "Mouvements" }]} pdfHref={`/stock/mouvements/pdf${dlQs ? `?${dlQs}` : ""}`} pdfDownload excelHref={`/stock/mouvements/export${dlQs ? `?${dlQs}` : ""}`} />
         </div>
       </div>
 

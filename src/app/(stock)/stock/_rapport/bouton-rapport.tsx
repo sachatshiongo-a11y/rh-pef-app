@@ -6,7 +6,7 @@ type T = { value: string; label: string };
 
 // Menu « Exporter ▾ » unique : regroupe les exports immédiats de la vue (PDF/Excel) et les
 // rapports sur période (chiffré/détaillé), au lieu d'aligner 3-5 boutons dans chaque en-tête.
-export function BoutonRapport({ types, pdfHref, excelHref }: { types?: T[]; pdfHref?: string; excelHref?: string }) {
+export function BoutonRapport({ types, pdfHref, excelHref, pdfDownload }: { types?: T[]; pdfHref?: string; excelHref?: string; pdfDownload?: boolean }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   // Position calculée à l'ouverture et CLAMPÉE au viewport : le panneau reste toujours
@@ -53,7 +53,9 @@ export function BoutonRapport({ types, pdfHref, excelHref }: { types?: T[]; pdfH
                 <div className="rounded-lg border p-2.5">
                   <div className="flex items-center gap-2">
                     <span className="w-16 shrink-0 text-xs text-muted-foreground">Cette vue</span>
-                    {pdfHref && <a href={pdfHref} target="_blank" rel="noopener" className={dl} onClick={() => setOpen(false)}>PDF</a>}
+                    {pdfHref && (pdfDownload
+                      ? <a href={pdfHref} download className={dl} onClick={() => setOpen(false)}>PDF</a>
+                      : <a href={pdfHref} target="_blank" rel="noopener" className={dl} onClick={() => setOpen(false)}>PDF</a>)}
                     {excelHref && <a href={excelHref} download className={dl} onClick={() => setOpen(false)}>Excel</a>}
                   </div>
                 </div>

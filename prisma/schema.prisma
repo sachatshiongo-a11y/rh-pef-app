@@ -1131,6 +1131,9 @@ model ClotureStock {
   mois      Int
   creeParId String? // User.id (pas de FK cross-schéma)
   createdAt DateTime @default(now())
+  // Instantané du stock figé au moment de la clôture : { valeurTotaleUSD, lignes: [{ designation, domaine, quantite, prixUnitaireUSD }] }.
+  // Permet d'exporter l'inventaire « à la date de clôture » même après des mouvements ultérieurs.
+  snapshot Json?
 
   @@unique([annee, mois])
   @@schema("stock")

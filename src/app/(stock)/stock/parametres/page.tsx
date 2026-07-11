@@ -60,11 +60,19 @@ export default async function StockParametresPage() {
           </p>
           <ul className="mt-3 divide-y">
             {moisRecents.map((m) => (
-              <li key={`${m.annee}-${m.mois}`} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
+              <li key={`${m.annee}-${m.mois}`} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5 text-sm">
                 <span className="capitalize">{m.label} {m.cloture && <span className="ml-1.5 rounded-full bg-muted px-2 py-0.5 text-xs">🔒 clôturé</span>}</span>
-                <div className="flex items-center gap-2">
-                  <a href={`/stock/mouvements/imprimer?mois=${m.annee}-${m.mois}`} target="_blank" rel="noopener" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
-                  <a href={`/stock/mouvements/export?mois=${m.annee}-${m.mois}`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Inventaire</span>
+                    <a href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=pdf`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
+                    <a href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=excel`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">Mouvements</span>
+                    <a href={`/stock/mouvements/pdf?mois=${m.annee}-${m.mois}`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
+                    <a href={`/stock/mouvements/export?mois=${m.annee}-${m.mois}`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
+                  </span>
                   {m.cloture ? (
                     <form action={rouvrirMoisStock.bind(null, m.annee, m.mois)}>
                       <button className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Rouvrir</button>
