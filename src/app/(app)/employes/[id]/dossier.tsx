@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import {
   ajouterContrat,
+  attacherFichierContrat,
   changerSalaire,
   ajouterDisciplinaire,
   ajouterEvaluation,
@@ -152,11 +153,18 @@ export function DossierEmploye({
                       {expireBientot ? "Contrat arrivant à échéance (30 j)" : "Fin de période d'essai proche (30 j)"}
                     </p>
                   )}
-                  <div className="mt-3 border-t pt-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
                     {c.documentUrl ? (
                       <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
                     ) : (
                       <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+                    )}
+                    {estAdmin && (
+                      // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
+                      <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
+                        <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="max-w-52 text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                        <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">{c.documentUrl ? "Remplacer" : "Joindre"}</button>
+                      </form>
                     )}
                   </div>
                 </div>

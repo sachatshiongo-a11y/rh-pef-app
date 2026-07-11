@@ -36,6 +36,7 @@ export async function demanderConge(formData: FormData) {
   });
 
   const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
+  // Notification TOUJOURS émise (choix client : trace visible même en auto-validation).
   if (!autoValide) {
     await creerNotification({
       type: "CONGE",
@@ -45,6 +46,12 @@ export async function demanderConge(formData: FormData) {
     });
   } else {
     await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "statut", nouvelleValeur: "APPROUVE (auto — Direction)", userId: user.id });
+    await creerNotification({
+      type: "CONGE",
+      message: `Congé (${type}) approuvé — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+      lien: "/conges",
+      refId: demande.id,
+    });
   }
 
   revalidatePath("/conges");

@@ -266,3 +266,22 @@ export async function ajouterDocument(employeeId: string, formData: FormData) {
 
   revalidatePath(`/employes/${employeeId}`);
 }
+
+/** Joint (ou remplace) le fichier d'un contrat EXISTANT — PDF, Word… Réservé à la Direction. */
+export async function attacherFichierContrat(employeeId: string, contratId: string, formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+
+  const fichier = formData.get("fichier");
+  if (!(fichier instanceof File) || fichier.size === 0) throw new Error("Aucun fichier sélectionné.");
+  const contrat = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId }, select: { employeeId: true, documentUrl: true } });
+  if (contrat.employeeId !== employeeId) throw new Error("Contrat introuvable pour cet employé.");
+
+  const documentUrl = await televerserFichier(employeeId, fichier);
+  await prisma.contrat.update({ where: { id: contratId }, data: { documentUrl } });
+  await journaliser(prisma, {
+    entite: "Contrat", entiteId: contratId, champ: "documentUrl",
+    ancienneValeur: contrat.documentUrl ? "remplacé" : null, nouvelleValeur: "joint", userId: user.id,
+  });
+  revalidatePath(`/employes/${employeeId}`);
+}

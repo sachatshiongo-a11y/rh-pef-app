@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
+import { joursEnConge } from "@/lib/conges-couverture";
 import { dureeShift, pariteSemaine } from "../planning/creneaux";
 import type { AttendanceCode } from "@prisma/client";
 
@@ -69,18 +70,23 @@ export async function saisirPresence(employeeId: string, date: string, code: Att
   revalidatePath("/employes");
 }
 
-/** Saisie en lot (collage type tableur) : un seul aller-retour réseau pour tout un bloc collé. */
+/** Saisie en lot (collage / actions groupées). Les jours couverts par un congé APPROUVÉ ne sont
+ * pas marqués présents (code P ignoré) : renvoyés à l'appelant pour remettre la case à vide. */
 export async function saisirPresencesEnLot(
   entrees: { employeeId: string; date: string; code: AttendanceCode | "" }[]
-) {
+): Promise<{ ignores: { employeeId: string; date: string }[] }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  const enConge = await joursEnConge(entrees);
+  const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, code } of entrees) {
+    if (code === "P" && enConge.has(`${employeeId}|${date}`)) { ignores.push({ employeeId, date }); continue; }
     await appliquerPresence(employeeId, date, code);
   }
 
   revalidatePath("/presences");
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  return { ignores };
 }

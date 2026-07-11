@@ -54,16 +54,19 @@ export function AttendanceGrid({
   joursFeries: Set<string>;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [noteConges, setNoteConges] = useState<string | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
 
   // Sélection d'employés pour les actions groupées.
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [bulkCode, setBulkCode] = useState<string>("P");
-  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "feries" | "alternes" | "jour">(
+  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "feries" | "alternes" | "jour" | "periode">(
     "mois"
   );
   const [bulkJour, setBulkJour] = useState<string>("1");
   const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
+  const [bulkDu, setBulkDu] = useState<string>("1");
+  const [bulkAu, setBulkAu] = useState<string>("1");
 
   // Vue mobile « jour par jour » : index du jour PARTAGÉ entre les grilles de la page (un seul
   // sélecteur), + miroir local des saisies pour afficher la valeur à jour quand on change de jour.
@@ -102,6 +105,12 @@ export function AttendanceGrid({
       // Jours ouvrables : ni dimanche, ni jour férié.
       return days.filter((d) => !estDimanche(d) && !estFerie(d));
     if (bulkScope === "feries") return days.filter((d) => estFerie(d));
+    if (bulkScope === "periode") {
+      // Période bornée « du jour N au jour M », hors dimanches et fériés (comme « ouvrables »).
+      const du = Math.max(1, Number(bulkDu) || 1);
+      const au = Math.min(days.length, Number(bulkAu) || days.length);
+      return days.filter((d) => d >= du && d <= au && !estDimanche(d) && !estFerie(d));
+    }
     if (bulkScope === "alternes") {
       // Un jour sur deux à partir du jour choisi (N, N+2, N+4…), en sautant les dimanches.
       const debut = Math.max(1, Number(bulkAlterneDebut) || 1);
@@ -126,7 +135,24 @@ export function AttendanceGrid({
         entrees.push({ employeeId: empId, date: isoDates[jour - 1], code });
       }
     }
-    startTransition(() => saisirPresencesEnLot(entrees));
+    envoyerLot(entrees);
+  }
+
+  // Envoie un lot au serveur ; les jours couverts par un congé approuvé reviennent « ignorés » :
+  // on remet leur case à vide et on l'annonce (la grille avait été mise à jour optimistiquement).
+  function envoyerLot(entrees: { employeeId: string; date: string; code: AttendanceCode | "" }[]) {
+    setNoteConges(null);
+    startTransition(async () => {
+      const { ignores } = await saisirPresencesEnLot(entrees);
+      if (ignores.length > 0) {
+        for (const ig of ignores) {
+          const jour = isoDates.indexOf(ig.date) + 1;
+          const select = tableRef.current?.querySelector<HTMLSelectElement>(`select[data-emp="${ig.employeeId}"][data-day="${jour}"]`);
+          if (select) { select.value = ""; appliquerCouleur(select, ""); }
+        }
+        setNoteConges(`${ignores.length} jour(s) non marqué(s) « P » : congé approuvé sur la période.`);
+      }
+    });
   }
 
   // Colore chaque case selon son code initial au premier rendu.
@@ -216,9 +242,7 @@ export function AttendanceGrid({
     });
 
     if (entrees.length > 0) {
-      startTransition(() => {
-        saisirPresencesEnLot(entrees);
-      });
+      envoyerLot(entrees);
     }
   }
 
@@ -279,7 +303,7 @@ export function AttendanceGrid({
           <select
             value={bulkScope}
             onChange={(e) =>
-              setBulkScope(e.target.value as "mois" | "ouvrables" | "feries" | "alternes" | "jour")
+              setBulkScope(e.target.value as "mois" | "ouvrables" | "feries" | "alternes" | "jour" | "periode")
             }
             className="rounded border border-input bg-background px-2 py-1 text-xs"
           >
@@ -288,6 +312,7 @@ export function AttendanceGrid({
             <option value="feries">jours fériés uniquement</option>
             <option value="alternes">1 jour sur 2</option>
             <option value="jour">jours précis</option>
+            <option value="periode">période (du jour… au jour…)</option>
           </select>
           {bulkScope === "jour" && (
             <input
@@ -297,6 +322,13 @@ export function AttendanceGrid({
               placeholder="ex. 3, 5, 12"
               className="w-24 rounded border border-input bg-background px-2 py-1 text-xs"
             />
+          )}
+          {bulkScope === "periode" && (
+            <span className="flex items-center gap-1 text-xs">du jour
+              <input type="number" min={1} max={days.length} value={bulkDu} onChange={(e) => setBulkDu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+              au
+              <input type="number" min={1} max={days.length} value={bulkAu} onChange={(e) => setBulkAu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+            </span>
           )}
           {bulkScope === "alternes" && (
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -332,6 +364,7 @@ export function AttendanceGrid({
           {isPending && <span className="text-xs text-muted-foreground">Enregistrement…</span>}
         </div>
       )}
+      {noteConges && <p className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">{noteConges}</p>}
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
       <table ref={tableRef} className="text-sm">
         <thead className="sticky top-0 z-20 bg-muted text-left">

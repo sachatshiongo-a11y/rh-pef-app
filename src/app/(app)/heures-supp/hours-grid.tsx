@@ -49,15 +49,18 @@ export function HoursGrid({
   joursFeries: Set<string>;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [noteConges, setNoteConges] = useState<string | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
 
   // Sélection d'employés pour les actions groupées (appliquer / supprimer sur des jours).
   const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "feries" | "alternes" | "jour">(
+  const [bulkScope, setBulkScope] = useState<"mois" | "ouvrables" | "feries" | "alternes" | "jour" | "periode">(
     "jour"
   );
   const [bulkJour, setBulkJour] = useState<string>("");
   const [bulkAlterneDebut, setBulkAlterneDebut] = useState<string>("1");
+  const [bulkDu, setBulkDu] = useState<string>("1");
+  const [bulkAu, setBulkAu] = useState<string>("1");
   const [bulkHeures, setBulkHeures] = useState<string>("");
 
   // Vue mobile « jour par jour » : jour choisi (défaut = aujourd'hui) + miroir des saisies.
@@ -94,6 +97,12 @@ export function HoursGrid({
     if (bulkScope === "ouvrables")
       return days.filter((d) => !estDimanche(d) && !estFerie(d));
     if (bulkScope === "feries") return days.filter((d) => estFerie(d));
+    if (bulkScope === "periode") {
+      // Période bornée « du jour N au jour M », hors dimanches et fériés (comme « ouvrables »).
+      const du = Math.max(1, Number(bulkDu) || 1);
+      const au = Math.min(days.length, Number(bulkAu) || days.length);
+      return days.filter((d) => d >= du && d <= au && !estDimanche(d) && !estFerie(d));
+    }
     if (bulkScope === "alternes") {
       const debut = Math.max(1, Number(bulkAlterneDebut) || 1);
       return days.filter((d) => d >= debut && (d - debut) % 2 === 0 && !estDimanche(d));
@@ -114,7 +123,24 @@ export function HoursGrid({
         entrees.push({ employeeId: empId, date: isoDates[jour - 1], heures });
       }
     }
-    startTransition(() => saisirHeuresEnLot(entrees));
+    envoyerLot(entrees);
+  }
+
+  // Envoie un lot au serveur ; les jours en congé approuvé reviennent « ignorés » : case remise à
+  // vide + note (la grille avait été mise à jour optimistiquement).
+  function envoyerLot(entrees: { employeeId: string; date: string; heures: string }[]) {
+    setNoteConges(null);
+    startTransition(async () => {
+      const { ignores } = await saisirHeuresEnLot(entrees);
+      if (ignores.length > 0) {
+        for (const ig of ignores) {
+          const jour = isoDates.indexOf(ig.date) + 1;
+          const input = tableRef.current?.querySelector<HTMLInputElement>(`input[data-emp="${ig.employeeId}"][data-day="${jour}"]`);
+          if (input) input.value = "";
+        }
+        setNoteConges(`${ignores.length} jour(s) sans heures : congé approuvé sur la période.`);
+      }
+    });
   }
 
   function handleChange(employeeId: string, day: number, value: string) {
@@ -197,9 +223,7 @@ export function HoursGrid({
     });
 
     if (entrees.length > 0) {
-      startTransition(() => {
-        saisirHeuresEnLot(entrees);
-      });
+      envoyerLot(entrees);
     }
   }
 
@@ -255,11 +279,12 @@ export function HoursGrid({
           <select
             value={bulkScope}
             onChange={(e) =>
-              setBulkScope(e.target.value as "mois" | "ouvrables" | "feries" | "alternes" | "jour")
+              setBulkScope(e.target.value as "mois" | "ouvrables" | "feries" | "alternes" | "jour" | "periode")
             }
             className="rounded border border-input bg-background px-2 py-1 text-xs"
           >
             <option value="jour">jours précis</option>
+            <option value="periode">période (du jour… au jour…)</option>
             <option value="ouvrables">jours ouvrables (hors dimanche et fériés)</option>
             <option value="feries">jours fériés uniquement</option>
             <option value="alternes">1 jour sur 2</option>
@@ -267,6 +292,13 @@ export function HoursGrid({
           </select>
           {bulkScope === "jour" && (
             <input type="text" value={bulkJour} onChange={(e) => setBulkJour(e.target.value)} placeholder="ex. 3, 5, 12" className="w-24 rounded border border-input bg-background px-2 py-1 text-xs" />
+          )}
+          {bulkScope === "periode" && (
+            <span className="flex items-center gap-1 text-xs">du jour
+              <input type="number" min={1} max={days.length} value={bulkDu} onChange={(e) => setBulkDu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+              au
+              <input type="number" min={1} max={days.length} value={bulkAu} onChange={(e) => setBulkAu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+            </span>
           )}
           {bulkScope === "alternes" && (
             <label className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -304,6 +336,7 @@ export function HoursGrid({
           {isPending && <span className="text-xs text-muted-foreground">Enregistrement…</span>}
         </div>
       )}
+      {noteConges && <p className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">{noteConges}</p>}
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
       <table ref={tableRef} className="text-sm">
         <thead className="sticky top-0 z-20 bg-muted text-left">
