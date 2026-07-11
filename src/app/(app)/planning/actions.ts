@@ -70,7 +70,7 @@ export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; deta
   const utiliserModeles = formData.get("modeles") === "on"; // coché par défaut dans le formulaire
   const ecraser = formData.get("ecraser") === "on";
 
-  const [employees, shifts, feries, existants, modeles, besoins, congesApprouves] = await Promise.all([
+  const [employees, shifts, feries, existants, modeles, besoins, polyvalences, congesApprouves] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       select: { id: true, nom: true, heuresParJour: true, heuresHebdomadaires: true, poste: true, secteur: true },
@@ -80,6 +80,7 @@ export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; deta
     prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, shiftId: true } }),
     utiliserModeles ? prisma.planningModele.findMany() : Promise.resolve([]),
     prisma.besoinShift.findMany(),
+    prisma.polyvalencePoste.findMany(),
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
       select: { employeeId: true, dateDebut: true, dateFin: true },
@@ -260,6 +261,24 @@ export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; deta
           if (have >= b.nombreRequis) break;
           affecter(e.id, d, b.shiftId, b.poste);
           have++;
+        }
+        // Titulaires insuffisants → POLYVALENCE : postes déclarés capables de couvrir ce besoin
+        // (ex. « Chef » couvre « Commis cuisine »), mêmes règles (dispo, congés, heures, équité).
+        if (have < b.nombreRequis) {
+          const sources = polyvalences.filter((p) => p.posteCible === b.poste).map((p) => p.posteSource);
+          const poolPoly = sources
+            .flatMap((src) => empsParPoste.get(src) ?? [])
+            .filter((e) => !occupeJour.has(`${e.id}_${isoD}`) && !estEnConge(e.id, d) && aDeLaPlace(e, lundi, ds));
+          poolPoly.sort(
+            (a, b2) =>
+              (heuresTotales.get(a.id) ?? 0) - (heuresTotales.get(b2.id) ?? 0) ||
+              (heuresSem.get(`${a.id}_${lundi}`) ?? 0) - (heuresSem.get(`${b2.id}_${lundi}`) ?? 0),
+          );
+          for (const e of poolPoly) {
+            if (have >= b.nombreRequis) break;
+            affecter(e.id, d, b.shiftId, b.poste);
+            have++;
+          }
         }
         if (have < b.nombreRequis) {
           const manque = b.nombreRequis - have;
@@ -458,5 +477,26 @@ export async function definirBesoin(shiftId: string, poste: string, jourSemaine:
       create: { shiftId, poste, jourSemaine, nombreRequis: n },
     });
   }
+  revalidatePath("/planning");
+}
+
+/** Déclare qu'un poste peut en couvrir un autre au planning (ex. « Chef » couvre « Commis cuisine »). */
+export async function definirPolyvalence(posteSource: string, posteCible: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const src = posteSource.trim(), cible = posteCible.trim();
+  if (!src || !cible || src === cible) return;
+  await prisma.polyvalencePoste.upsert({
+    where: { posteSource_posteCible: { posteSource: src, posteCible: cible } },
+    update: {},
+    create: { posteSource: src, posteCible: cible },
+  });
+  revalidatePath("/planning");
+}
+
+export async function supprimerPolyvalence(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  await prisma.polyvalencePoste.delete({ where: { id } });
   revalidatePath("/planning");
 }

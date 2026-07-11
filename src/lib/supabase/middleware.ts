@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getJwksKeys } from "@/lib/supabase/jwks";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/mot-de-passe-oublie", "/reinitialiser"];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });

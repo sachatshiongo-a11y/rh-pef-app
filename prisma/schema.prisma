@@ -1251,3 +1251,40 @@ model Rapport {
   @@index([type, createdAt])
   @@schema("stock")
 }
+
+// ─── Sécurité de connexion ───────────────────────────────────────────────────
+
+// Échecs de connexion récents (anti-force-brute : blocage temporaire après N échecs).
+model TentativeConnexion {
+  id        String   @id @default(uuid())
+  email     String
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@schema("public")
+}
+
+// Jetons de réinitialisation de mot de passe (hachés, usage unique, expirent vite).
+model JetonReinitialisation {
+  id        String    @id @default(uuid())
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+  @@schema("public")
+}
+
+// Polyvalence des postes (planning) : un employé au poste « source » peut couvrir
+// un besoin du poste « cible » quand les titulaires manquent.
+model PolyvalencePoste {
+  id          String @id @default(uuid())
+  posteSource String
+  posteCible  String
+
+  @@unique([posteSource, posteCible])
+  @@schema("public")
+}

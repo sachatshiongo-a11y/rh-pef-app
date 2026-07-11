@@ -47,6 +47,7 @@ export function LoginForm() {
         </div>
       </div>
 
+      <a href="/mot-de-passe-oublie" className="-mt-2 self-end text-xs text-muted-foreground underline hover:text-foreground">Mot de passe oublié ?</a>
       {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 
       <button
