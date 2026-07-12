@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
+import { analyserPrix } from "@/lib/stock-prix";
 
 const dCourt = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" }) : "—");
 const segDomaine = (dom: string) => (dom === "NOURRITURE" ? "nourriture" : dom === "BOISSON" ? "boissons" : "autre");
@@ -38,16 +39,13 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
   const valeur = stockQte * (Number(a.prixUnitaireUSD) || 0);
 
   // Évolution du prix : chaque ligne de facture porte un prix unitaire figé + la date de la facture.
-  const prixHisto = a.lignesFacture
-    .filter((l) => l.facture.date)
-    .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id, numero: l.facture.numero }))
-    .sort((x, y) => x.date.getTime() - y.date.getTime());
-  const prixVals = prixHisto.map((p) => p.prix);
-  const prixMin = prixVals.length ? Math.min(...prixVals) : null;
-  const prixMax = prixVals.length ? Math.max(...prixVals) : null;
-  const dernier = prixHisto.at(-1) ?? null;
-  const avant = prixHisto.length >= 2 ? prixHisto.at(-2)! : null;
-  const variation = dernier && avant && avant.prix > 0 ? ((dernier.prix - avant.prix) / avant.prix) * 100 : null;
+  const analyse = analyserPrix(
+    a.lignesFacture
+      .filter((l) => l.facture.date)
+      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id, numero: l.facture.numero })),
+  );
+  const prixHisto = analyse.points;
+  const { min: prixMin, max: prixMax, variation, hausse } = analyse;
 
   const source = (m: (typeof a.mouvements)[number]) => {
     const bc = m.reception?.bonDeCommande;
@@ -71,10 +69,25 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
             {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link></span>}
           </p>
         </div>
-        <Link href={`/stock/catalogue/${segDomaine(a.domaine)}?q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-          Éditer dans le catalogue
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <a href={`/stock/catalogue/${a.id}/pdf`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+            Exporter PDF
+          </a>
+          <Link href={`/stock/catalogue/${segDomaine(a.domaine)}?q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+            Éditer dans le catalogue
+          </Link>
+        </div>
       </div>
+
+      {/* Alerte visuelle : le dernier prix d'achat grimpe nettement au-dessus de la moyenne précédente. */}
+      {hausse && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+          <span className="font-semibold">⚠ Hausse du prix d&apos;achat</span>
+          <span>
+            Dernier achat à <span className="font-semibold">{usd(hausse.prix)}</span>, soit <span className="font-semibold">+{hausse.pct.toFixed(0)}%</span> au-dessus de la moyenne précédente ({usd(hausse.moyenneAnterieure)}).
+          </span>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
