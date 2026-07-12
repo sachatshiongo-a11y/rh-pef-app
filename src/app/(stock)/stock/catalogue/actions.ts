@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import type { Prisma } from "@prisma/client";
 
 const dec = (v: FormDataEntryValue | null): number | null => {
@@ -154,6 +155,33 @@ export async function definirFournisseurEnMasse(articleIds: string[], fournisseu
   await prisma.articleStock.updateMany({ where: { id: { in: ids } }, data: { fournisseurId: fournisseurId || null } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: `${ids.length} articles`, champ: "fournisseur (masse)", nouvelleValeur: fournisseurId || "retiré", userId: user.id });
   revalidatePath("/stock/catalogue");
+}
+
+/**
+ * Corrige les stocks négatifs des articles donnés en les remettant à 0. Un stock négatif traduit
+ * plus de sorties que d'entrées enregistrées : on le comble par un mouvement d'ENTRÉE d'ajustement
+ * (traçable), daté du jour, plutôt qu'en écrasant silencieusement la quantité.
+ */
+export async function corrigerStocksNegatifs(articleIds: string[]) {
+  const user = await garde();
+  const ids = [...new Set(articleIds.map(String))].filter(Boolean);
+  if (ids.length === 0) return { corriges: 0 };
+  const stocks = await prisma.stock.findMany({ where: { articleId: { in: ids }, quantite: { lt: 0 } } });
+  if (stocks.length === 0) return { corriges: 0 };
+  const date = new Date();
+  await exigerPeriodeOuverte(date);
+  await prisma.$transaction(async (tx) => {
+    for (const s of stocks) {
+      const manque = -Number(s.quantite); // quantité positive à réinjecter pour revenir à 0
+      await tx.mouvementStock.create({ data: { articleId: s.articleId, type: "ENTREE", quantite: manque, origine: "Correction stock négatif (mise à 0)", date, creeParId: user.id } });
+      await tx.stock.update({ where: { articleId: s.articleId }, data: { quantite: 0 } });
+    }
+  }, { timeout: 60000 });
+  await journaliser(prisma, { entite: "Stock", entiteId: `${stocks.length} articles`, champ: "correction stock négatif", nouvelleValeur: "remis à 0 (ajustement)", userId: user.id });
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock");
+  return { corriges: stocks.length };
 }
 
 /** Définit le stock minimum (seuil d'alerte de réappro) de plusieurs articles d'un coup. */

@@ -21,11 +21,8 @@ const valeurDe = (m: Mvt): { v: number; estime: boolean } | null => {
 };
 const totalValeur = (ms: Mvt[]) => ms.reduce((t, m) => t + (valeurDe(m)?.v ?? 0), 0);
 
-// Lien vers le catalogue de l'article (pré-filtré sur sa désignation), comme la recherche globale.
-const lienCatalogue = (m: Mvt) => {
-  const seg = m.article.domaine === "NOURRITURE" ? "nourriture" : m.article.domaine === "BOISSON" ? "boissons" : "autre";
-  return `/stock/catalogue/${seg}?q=${encodeURIComponent(m.article.designation)}`;
-};
+// Lien vers la fiche de l'article (historique des mouvements + évolution du prix).
+const lienArticle = (m: Mvt) => `/stock/catalogue/${m.articleId}`;
 
 // Liens vers la source du mouvement : facture + fournisseur (achat facturé) ou bon de commande +
 // fournisseur (réception). Rien pour les mouvements manuels / sans pièce rattachée.
@@ -55,7 +52,7 @@ function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouveme
   }
 
   const nomArticle = (m: Mvt) => (
-    <Link href={lienCatalogue(m)} className="truncate font-medium text-primary hover:underline">{m.article.designation}</Link>
+    <Link href={lienArticle(m)} className="truncate font-medium text-primary hover:underline">{m.article.designation}</Link>
   );
 
   return (

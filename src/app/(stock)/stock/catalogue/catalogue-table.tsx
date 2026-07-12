@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
-import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse } from "./actions";
+import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 
 const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.prix) || 0) * (Number(a.quantite) || 0);
@@ -191,6 +191,21 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </div>
       )}
 
+      {/* Correction rapide : le filtre « stock négatif » est actif → remise à 0 en un clic (ajustement tracé). */}
+      {manque === "negatif" && visibles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm">
+          <span className="font-medium text-red-800">{visibles.length} article(s) en stock négatif</span>
+          <span className="text-xs text-red-700/80">Un mouvement d&apos;ajustement (entrée) sera créé pour revenir à 0.</span>
+          <button
+            disabled={isPending}
+            onClick={() => run(async () => { await corrigerStocksNegatifs(visibles.map((a) => a.id)); setManque(""); })}
+            className="ml-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            Remettre à 0
+          </button>
+        </div>
+      )}
+
       {sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
           <span className="font-medium">{sel.size} sélectionné(s)</span>
@@ -301,15 +316,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
               <th className="w-14">Code</th>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
+              <ThTri col="stock" tri={tri} onTri={trierPar} align="right" className="w-16">Stock</ThTri>
+              <ThTri col="alerte" tri={tri} onTri={trierPar} className="w-24">Alerte</ThTri>
+              <ThTri col="min" tri={tri} onTri={trierPar} align="right" className="w-20">Min</ThTri>
               <ThTri col="categorie" tri={tri} onTri={trierPar}>Catégorie</ThTri>
               <ThTri col="fournisseur" tri={tri} onTri={trierPar}>Fournisseur</ThTri>
-              <ThTri col="stock" tri={tri} onTri={trierPar} align="right" className="w-16">Stock</ThTri>
               <th className="w-20">Unité</th>
               <ThTri col="valeur" tri={tri} onTri={trierPar} align="right" className="w-24" title="Prix × stock">Valeur</ThTri>
               <ThTri col="prix" tri={tri} onTri={trierPar} align="right" className="w-24">Prix&nbsp;USD</ThTri>
               <th className="w-20 text-right" title="Nombre d'unités par carton">Par carton</th>
-              <ThTri col="min" tri={tri} onTri={trierPar} align="right" className="w-20">Min</ThTri>
-              <ThTri col="alerte" tri={tri} onTri={trierPar} className="w-24">Alerte</ThTri>
             </tr>
           </thead>
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
@@ -330,9 +345,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           {visibles.length > 0 && (
             <tfoot className="sticky bottom-0 bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
-                <td colSpan={7} className="text-right">Valeur totale du stock affiché</td>
+                <td colSpan={9} className="text-right">Valeur totale du stock affiché</td>
                 <td className="text-right tabular-nums">{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}</td>
-                <td colSpan={4}></td>
+                <td colSpan={2}></td>
               </tr>
             </tfoot>
           )}
@@ -380,7 +395,15 @@ const LigneArticle = memo(function LigneArticle({
     <tr className={`hover:bg-accent/40 ${selected ? "bg-primary/10" : "even:bg-muted/25"} ${busy ? "opacity-60" : ""}`}>
       <td><input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} /></td>
       <td><input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} w-14 text-center tabular-nums`} placeholder="—" title="Code article" /></td>
-      <td><input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 font-medium`} title="Modifier le nom de l'article" /></td>
+      <td>
+        <div className="flex items-center gap-1">
+          <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 flex-1 font-medium`} title="Modifier le nom de l'article" />
+          <Link href={`/stock/catalogue/${a.id}`} title="Ouvrir la fiche article (historique, prix)" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche article">↗</Link>
+        </div>
+      </td>
+      <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
+      <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
+      <td><input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" /></td>
       <td>
         <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
@@ -398,13 +421,10 @@ const LigneArticle = memo(function LigneArticle({
           )}
         </div>
       </td>
-      <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td><input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
       <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
       <td><input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} text-right`} /></td>
       <td><input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" /></td>
-      <td><input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} text-right`} /></td>
-      <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
     </tr>
   );
 });
@@ -431,9 +451,17 @@ const CarteArticle = memo(function CarteArticle({
       <div className="flex items-start gap-2">
         <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="mt-2 shrink-0" aria-label="Sélectionner" />
         <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} flex-1 min-w-0 !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
+        <Link href={`/stock/catalogue/${a.id}`} className="mt-1.5 shrink-0 text-primary hover:text-primary/70" title="Fiche article" aria-label="Fiche article">↗</Link>
         {a.niveau && <span className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2">
+        {/* Stock + seuil mis en avant (comme les colonnes du tableur). */}
+        <label className={champLabel}>Stock (auto)
+          <span className={`rounded border px-1.5 py-1.5 text-right text-xs font-medium tabular-nums ${Number(a.quantite) < 0 ? "border-red-300 bg-red-50 text-red-700" : "border-input/40 bg-muted/40 text-muted-foreground"}`}>{a.quantite}</span>
+        </label>
+        <label className={champLabel}>Stock min.
+          <input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} !py-1.5 text-right`} />
+        </label>
         <label className={`${champLabel} col-span-2`}>Catégorie
           <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
             <option value="">— à classer —</option>
@@ -454,9 +482,6 @@ const CarteArticle = memo(function CarteArticle({
         <label className={champLabel}>Code article
           <input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
         </label>
-        <label className={champLabel}>Stock (auto)
-          <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{a.quantite}</span>
-        </label>
         <label className={champLabel}>Unité
           <input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
         </label>
@@ -466,11 +491,8 @@ const CarteArticle = memo(function CarteArticle({
         <label className={champLabel}>Prix USD
           <input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} !py-1.5 text-right`} />
         </label>
-        <label className={champLabel}>Unités / carton
+        <label className={`${champLabel} col-span-2`}>Unités / carton
           <input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
-        </label>
-        <label className={champLabel}>Stock min.
-          <input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} !py-1.5 text-right`} />
         </label>
       </div>
     </div>
