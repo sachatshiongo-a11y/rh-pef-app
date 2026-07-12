@@ -84,6 +84,14 @@ export function AutoPlanningForm({
                 <input name="nbParSemaine" type="number" min="0" max="7" defaultValue="0" className="w-16 rounded border border-input bg-background px-2 py-1" />
               </label>
 
+              <label className="flex items-start gap-2 rounded-md bg-primary/5 p-2 text-xs">
+                <input type="checkbox" name="completer" value="on" defaultChecked className="mt-0.5" />
+                <span>
+                  <span className="font-medium">Compléter jusqu&apos;aux heures (aucun creux)</span> — après la
+                  couverture des besoins, chaque employé encore sous ses heures hebdo reçoit son shift par
+                  défaut sur les jours vides (y compris les postes sans besoin déclaré).
+                </span>
+              </label>
               <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" name="inclureFeries" /> Couvrir aussi les jours fériés
               </label>

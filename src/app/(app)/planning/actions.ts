@@ -69,6 +69,7 @@ export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; deta
   const inclureFeries = formData.get("inclureFeries") === "on";
   const utiliserModeles = formData.get("modeles") === "on"; // coché par défaut dans le formulaire
   const ecraser = formData.get("ecraser") === "on";
+  const completer = formData.get("completer") === "on"; // après la couverture, remplir chacun jusqu'à ses heures
 
   const [employees, shifts, feries, existants, modeles, besoins, polyvalences, congesApprouves] = await Promise.all([
     prisma.employee.findMany({
@@ -290,6 +291,23 @@ export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; deta
         }
       }
     }
+
+    // 3) Remplissage complémentaire (« aucun creux ») : après la couverture des besoins, chaque
+    //    employé encore sous ses heures hebdo reçoit son shift par défaut (fiche) sur les jours
+    //    restés vides — mêmes garde-fous (congés, 1 shift/jour, plafond d'heures). Couvre aussi
+    //    les postes sans besoin déclaré (back-office, direction…).
+    if (completer) {
+      for (const emp of employees) {
+        const shiftEmp = shiftPourEmploye(emp);
+        if (!shiftEmp) continue;
+        const ds = dureeParShift.get(shiftEmp.id) || (Number(emp.heuresParJour) || 8);
+        for (const d of joursPlats) {
+          if (occupeJour.has(`${emp.id}_${iso(d)}`) || estEnConge(emp.id, d)) continue;
+          if (!aDeLaPlace(emp, lundiIso(d), ds)) continue;
+          affecter(emp.id, d, shiftEmp.id, emp.poste);
+        }
+      }
+    }
   } else {
     // ===== Aucun besoin défini : ancienne logique centrée employé (rôle selon fiche / modèle) =====
     for (const emp of employees) {
@@ -463,9 +481,10 @@ export async function reactiverShift(id: string) {
  * Définit l'effectif requis pour un shift × poste × jour de la semaine (0=dim…6=sam).
  * nombreRequis ≤ 0 efface le besoin. Pilote la génération auto « couverture d'abord ».
  */
-export async function definirBesoin(shiftId: string, poste: string, jourSemaine: number, nombreRequis: number) {
+export async function definirBesoin(shiftId: string, posteBrut: string, jourSemaine: number, nombreRequis: number) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const poste = posteBrut.trim(); // espaces fantômes = besoins jamais matchés
   if (!shiftId || !poste || jourSemaine < 0 || jourSemaine > 6) return;
   const n = Math.round(Number(nombreRequis) || 0);
   if (n <= 0) {
