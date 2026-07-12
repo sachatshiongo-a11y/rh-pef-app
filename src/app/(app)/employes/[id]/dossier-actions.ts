@@ -226,6 +226,7 @@ async function televerserFichier(employeeId: string, file: File): Promise<string
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+  if (!base || !key) throw new Error("Stockage non configuré (variables Supabase manquantes).");
   const res = await fetch(`${base}/storage/v1/object/${BUCKET_DOCS}/${path}`, {
     method: "POST",
     headers: {
@@ -236,7 +237,10 @@ async function televerserFichier(employeeId: string, file: File): Promise<string
     },
     body: bytes,
   });
-  if (!res.ok) throw new Error("Échec du téléversement du document.");
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Échec du téléversement (${res.status})${detail ? ` : ${detail.slice(0, 200)}` : ""}`);
+  }
   return `${base}/storage/v1/object/public/${BUCKET_DOCS}/${path}`;
 }
 
