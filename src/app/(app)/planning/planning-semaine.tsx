@@ -58,7 +58,11 @@ export function PlanningSemaine({
   const ouvrirMenu = (e: React.MouseEvent, empId: string, iso: string) => {
     if (!peutModifier) return;
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenu({ empId, iso, x: r.left, y: r.bottom + 4 });
+    const MENU_H = 300, MENU_W = 224; // hauteur/largeur approximatives du menu
+    // Ouvre vers le bas ; bascule vers le haut si la place manque (dernières lignes) ; borne à l'écran.
+    const y = window.innerHeight - r.bottom < MENU_H && r.top > MENU_H ? r.top - MENU_H - 4 : r.bottom + 4;
+    const x = Math.max(8, Math.min(r.left, window.innerWidth - MENU_W - 12));
+    setMenu({ empId, iso, x, y: Math.max(8, y) });
   };
   // Accessibilité : Échap ferme le menu ; à l'ouverture, le focus va sur le 1er choix.
   useEffect(() => {
@@ -271,7 +275,7 @@ export function PlanningSemaine({
       {menu && typeof document !== "undefined" && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
-          <div ref={menuRef} role="menu" aria-label="Choisir un shift" className="fixed z-50 max-h-72 w-56 overflow-auto rounded-xl border bg-card p-1 shadow-xl" style={{ left: Math.min(menu.x, window.innerWidth - 236), top: menu.y }}>
+          <div ref={menuRef} role="menu" aria-label="Choisir un shift" className="fixed z-50 max-h-72 w-56 overflow-auto rounded-xl border bg-card p-1 shadow-xl" style={{ left: menu.x, top: menu.y }}>
             <button onClick={() => setCreneau(menu.empId, menu.iso, "")} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-accent">
               <span className="h-3 w-3 rounded-full border border-dashed" /> Repos (vider)
             </button>
