@@ -90,6 +90,14 @@ export default async function PlanningPage({
     </div>
   );
   const ongletsDefaut = renderOnglets("/planning?vue=semaine", "/planning?vue=mois");
+  // Export PDF/Excel — téléchargement direct, conserve la période affichée.
+  const boutonsExport = (qs: string) => (
+    <div className="flex items-center overflow-hidden rounded-md border text-sm">
+      <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
+      <a href={`/planning/pdf${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">PDF</a>
+      <a href={`/planning/excel${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
+    </div>
+  );
 
   // Bouton de génération auto : rendu inline (un composant défini dans le rendu serait remonté à chaque rendu).
   const shiftsPourAuto = shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }));
@@ -221,6 +229,7 @@ export default async function PlanningPage({
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`)}
+            {boutonsExport(`?mois=${mois}&annee=${annee}`)}
             {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} shifts={shiftsPourAuto} />}
             <Link href={`/planning?vue=mois&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
             <Link href="/planning?vue=mois" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
@@ -329,6 +338,7 @@ export default async function PlanningPage({
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
+          {boutonsExport(`?debut=${isoDates[0]}`)}
           {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}
           <Link href={`/planning?debut=${semainePrec}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
           <Link href="/planning" className="rounded-md border px-3 py-1.5 hover:bg-accent">Cette semaine</Link>
