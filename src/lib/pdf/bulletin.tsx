@@ -10,12 +10,13 @@ registerPdfFonts();
 const WD = ["D", "L", "M", "M", "J", "V", "S"];
 
 const fmtJour = (d: Date) => new Date(d).toLocaleDateString("fr-FR");
-/** Jours ouvrables (hors dimanche), bornes incluses — même règle que le reste de l'app. */
-function joursOuvrables(debut: Date, fin: Date): number {
+/** Jours ouvrables (hors dimanche ET hors jours fériés), bornes incluses — même règle que le reste de l'app. */
+function joursOuvrables(debut: Date, fin: Date, feries: Set<string>): number {
   let n = 0;
   const cur = new Date(debut);
   while (cur <= new Date(fin)) {
-    if (cur.getUTCDay() !== 0) n++;
+    const iso = cur.toISOString().slice(0, 10);
+    if (cur.getUTCDay() !== 0 && !feries.has(iso)) n++;
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return n;
@@ -202,12 +203,14 @@ type BulletinProps = {
   run: PayrollRun;
   devise: Devise;
   congesPeriode: { dateDebut: Date; dateFin: Date }[];
+  feries?: string[]; // jours fériés (AAAA-MM-JJ) exclus du décompte des congés
   primes?: { nom: string; montantUSD: number }[]; // primes détaillées (une ligne chacune)
   codesParJour?: Record<number, string>; // jour du mois -> code de présence
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [] }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [] }: BulletinProps) {
+  const feriesSet = new Set(feries);
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
 
@@ -379,11 +382,11 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
               <Text style={styles.mentionTitre}>Congés pris sur la période</Text>
               {congesPeriode.map((c, i) => (
                 <Text key={i} style={styles.mentionLigne}>
-                  • du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {joursOuvrables(c.dateDebut, c.dateFin)} jour(s) ouvrable(s)
+                  • du {fmtJour(c.dateDebut)} au {fmtJour(c.dateFin)} — {joursOuvrables(c.dateDebut, c.dateFin, feriesSet)} jour(s) ouvrable(s)
                 </Text>
               ))}
               <Text style={[styles.mentionLigne, { fontWeight: 700 }]}>
-                Total congés : {congesPeriode.reduce((s, c) => s + joursOuvrables(c.dateDebut, c.dateFin), 0)} jour(s)
+                Total congés : {congesPeriode.reduce((s, c) => s + joursOuvrables(c.dateDebut, c.dateFin, feriesSet), 0)} jour(s)
               </Text>
             </>
           )}

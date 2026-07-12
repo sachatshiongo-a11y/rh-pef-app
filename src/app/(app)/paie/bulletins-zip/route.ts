@@ -24,13 +24,15 @@ export async function GET(request: Request) {
 
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const [conges, attendances, primes] = await Promise.all([
+  const [conges, attendances, primes, feriesRows] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
     }),
     prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.prime.findMany({ where: { mois, annee }, orderBy: { createdAt: "asc" } }),
+    prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
+  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
   const congesParEmp = new Map<string, { dateDebut: Date; dateFin: Date }[]>();
   for (const c of conges)
     (congesParEmp.get(c.employeeId) ?? congesParEmp.set(c.employeeId, []).get(c.employeeId)!).push({
@@ -69,6 +71,7 @@ export async function GET(request: Request) {
         congesPeriode: congesParEmp.get(l.employeeId) ?? [],
         primes: primesParEmp.get(l.employeeId) ?? [],
         codesParJour: codesParEmp.get(l.employeeId) ?? {},
+        feries,
       })
     );
     let nom = `${slug(l.employee.nom) || l.employee.matricule || l.employeeId}_${periode}_${devise}`;

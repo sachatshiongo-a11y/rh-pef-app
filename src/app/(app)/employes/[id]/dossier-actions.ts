@@ -212,7 +212,14 @@ export async function ajouterEvaluation(employeeId: string, formData: FormData) 
 }
 
 const BUCKET_DOCS = "employes";
-const EXT_DOC_OK = ["pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "xls", "xlsx"];
+// Type MIME par extension : le bucket restreint les types autorisés, et le navigateur renvoie
+// souvent un file.type vide (Word/PDF) → « octet-stream » refusé. On force le bon type d'après l'extension.
+const MIME_PAR_EXT: Record<string, string> = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp",
+  doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+const EXT_DOC_OK = Object.keys(MIME_PAR_EXT);
 
 /** Téléverse un fichier vers Supabase Storage et renvoie son URL publique. */
 async function televerserFichier(employeeId: string, file: File): Promise<string> {
@@ -232,7 +239,7 @@ async function televerserFichier(employeeId: string, file: File): Promise<string
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,
-      "Content-Type": file.type || "application/octet-stream",
+      "Content-Type": MIME_PAR_EXT[ext] ?? file.type ?? "application/octet-stream",
       "x-upsert": "true",
     },
     body: bytes,

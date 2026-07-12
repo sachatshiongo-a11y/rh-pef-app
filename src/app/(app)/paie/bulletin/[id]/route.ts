@@ -25,7 +25,7 @@ export async function GET(
 
   const debutMois = new Date(Date.UTC(ligne.payrollRun.annee, ligne.payrollRun.mois - 1, 1));
   const finMois = new Date(Date.UTC(ligne.payrollRun.annee, ligne.payrollRun.mois, 0));
-  const [congesApprouves, attendances, primes] = await Promise.all([
+  const [congesApprouves, attendances, primes, feriesRows] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: {
         employeeId: ligne.employeeId,
@@ -41,10 +41,12 @@ export async function GET(
       where: { employeeId: ligne.employeeId, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee },
       orderBy: { createdAt: "asc" },
     }),
+    prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
 
   const codesParJour: Record<number, string> = {};
   for (const a of attendances) codesParJour[new Date(a.date).getUTCDate()] = a.code;
+  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
   const buffer = await renderToBuffer(
     BulletinDocument({
@@ -58,6 +60,7 @@ export async function GET(
       })),
       primes: primes.map((p) => ({ nom: p.nom, montantUSD: Number(p.montantUSD) })),
       codesParJour,
+      feries,
     })
   );
 
