@@ -2,7 +2,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
-import { PlanningGrid, type EmployeeRow } from "./planning-grid";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { PlanningMensuel, type CreneauJour } from "./planning-mensuel";
 import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
@@ -10,7 +9,6 @@ import { ShiftsManager } from "./shifts-manager";
 import { BesoinsManager } from "./besoins-manager";
 import { PolyvalenceManager } from "./polyvalence-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
-import { CouvertureBar, calculerCouverture } from "./couverture-bar";
 import { PlanningSemaine, type SemaineEmployee } from "./planning-semaine";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 import { joursEnConge } from "@/lib/conges-couverture";
@@ -67,7 +65,6 @@ export default async function PlanningPage({
   const postesBesoin = postesRows.map((p) => p.poste).filter(Boolean);
   const shiftsBesoin = shifts.filter((s) => s.actif && !s.systeme).map((s) => ({ id: s.id, nom: s.nom }));
   const besoinsDTO = besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
-  const nomShift = (id: string) => shiftParId.get(id)?.nom ?? "?";
   const besoinsPanel = peutModifier ? (
     <div className="space-y-2">
       <BesoinsManager shifts={shiftsBesoin} postes={postesBesoin} besoins={besoinsDTO} />
@@ -167,34 +164,48 @@ export default async function PlanningPage({
     const dates = Array.from({ length: nbJours }, (_, i) => new Date(Date.UTC(annee, mois - 1, i + 1)));
     const isoDates = dates.map(isoJour);
 
-    const [employees, creneaux, feries] = await Promise.all([
+    const [employeesRaw, creneaux, feries] = await Promise.all([
       prisma.employee.findMany({
         where: { actif: true },
         orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-        select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true },
+        select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true, heuresHebdomadaires: true },
       }),
       prisma.planningCreneau.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     ]);
+    const employees = employeesRaw.map((e) => ({ ...e, heuresHebdomadaires: Number(e.heuresHebdomadaires) }));
     const nomParEmp = new Map(employees.map((e) => [e.id, e.nom]));
     const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
-    const joursMajores = dates.map((d, i) => d.getUTCDay() === 0 || feriesIso.has(isoDates[i]));
     const labelsJours = dates.map((d) => `${WD[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, "0")}`);
 
     const creneauMap: Record<string, string> = {};
+    const autoMois: string[] = [];
     const creneauxParJour: Record<string, CreneauJour[]> = {};
     for (const c of creneaux) {
       const key = isoJour(new Date(c.date));
-      creneauMap[`${c.employeeId}_${key}`] = c.shiftId;
+      const cle = `${c.employeeId}_${key}`;
+      creneauMap[cle] = c.shiftId;
+      if (c.genereAuto) autoMois.push(cle);
       const s = shiftParId.get(c.shiftId);
       if (s && s.actif)
         (creneauxParJour[key] ??= []).push({ nom: nomParEmp.get(c.employeeId) ?? "—", shift: libelleShift(s.nom, s.heureDebut, s.heureFin), couleur: s.couleur });
     }
 
+    // Congés approuvés du mois → cellules « Absence ».
+    const congeMoisSet = await joursEnConge(employees.flatMap((e) => isoDates.map((iso) => ({ employeeId: e.id, date: iso }))));
+    const absencesMois = [...congeMoisSet].map((k) => k.replace("|", "_"));
+
+    const versSemaineEmpMois = (e: (typeof employees)[number]): SemaineEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl, heuresHebdo: Number(e.heuresHebdomadaires) });
+    const joursMois = dates.map((d, i) => ({
+      iso: isoDates[i], label: labelsJours[i], dow: d.getUTCDay(),
+      ferie: feriesIso.has(isoDates[i]), dimanche: d.getUTCDay() === 0, aujourdhui: isoDates[i] === isoAujourdhui,
+    }));
+    const besoinsMois = besoinsDTO.map((b) => ({ shiftId: b.shiftId, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
+
     const moisPrec = mois === 1 ? { m: 12, a: annee - 1 } : { m: mois - 1, a: annee };
     const moisSuiv = mois === 12 ? { m: 1, a: annee + 1 } : { m: mois + 1, a: annee };
-    const brigade = employees.filter((e) => e.categorie === "BRIGADE") as EmployeeRow[];
-    const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE") as EmployeeRow[];
+    const brigade = employees.filter((e) => e.categorie === "BRIGADE").map(versSemaineEmpMois);
+    const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE").map(versSemaineEmpMois);
 
     return (
       <div>
@@ -214,12 +225,8 @@ export default async function PlanningPage({
 
         {configPanels}
         {legende}
-        <CouvertureBar
-          jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
-          isoAujourdhui={isoAujourdhui}
-        />
 
-        {/* Aperçu calendrier (lecture) — replié par défaut, les grilles éditables ci-dessous font foi */}
+        {/* Aperçu calendrier (lecture) — replié par défaut, la grille éditable ci-dessous fait foi */}
         <details className="mb-6">
           <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Aperçu calendrier du mois</summary>
           <div className="mt-3">
@@ -227,28 +234,30 @@ export default async function PlanningPage({
           </div>
         </details>
 
-        {/* Grilles éditables du mois (défilement horizontal) */}
+        {/* Grille éditable du mois — cartes de shift (défilement horizontal) */}
         {employees.length === 0 ? (
           <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
         ) : (
-          <div className="space-y-6">
-            <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
-            <div>
-              <h2 className="mb-2 text-base font-semibold">Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span></h2>
-              <PlanningGrid employees={brigade} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-            </div>
-            <div>
-              <h2 className="mb-2 text-base font-semibold">Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span></h2>
-              <PlanningGrid employees={backoffice} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-            </div>
-            </JourMobileProvider>
-          </div>
+          <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
+            <PlanningSemaine
+              groupes={[{ titre: "Brigade", employees: brigade }, { titre: "Backoffice", employees: backoffice }]}
+              jours={joursMois}
+              creneauMap={creneauMap}
+              absences={absencesMois}
+              autoSet={autoMois}
+              shifts={shiftsActifs}
+              besoins={besoinsMois}
+              peutModifier={peutModifier}
+              colJour={104}
+              afficherContrat={false}
+            />
+          </JourMobileProvider>
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Vue mensuelle éditable (les grilles défilent horizontalement). Colonne orange = dimanche ou
-          jour férié. « Générer automatiquement » remplit les jours ouvrables selon les heures de
-          chaque employé sans écraser vos saisies.
+          Vue mensuelle éditable (la grille défile horizontalement). ✨ = créneau posé par la
+          génération automatique. « Générer automatiquement » remplit les jours ouvrables selon les
+          heures de chaque employé sans écraser vos saisies.
         </p>
       </div>
     );
@@ -281,8 +290,11 @@ export default async function PlanningPage({
   const feriesIso = new Set(feriesDuMois.map((f) => isoJour(new Date(f.date))));
 
   const creneauMap: Record<string, string> = {};
+  const autoSemaine: string[] = [];
   for (const c of creneaux) {
-    creneauMap[`${c.employeeId}_${isoJour(new Date(c.date))}`] = c.shiftId;
+    const key = `${c.employeeId}_${isoJour(new Date(c.date))}`;
+    creneauMap[key] = c.shiftId;
+    if (c.genereAuto) autoSemaine.push(key);
   }
 
   // Congés approuvés de la semaine → cellules « Absence ».
@@ -331,6 +343,7 @@ export default async function PlanningPage({
             jours={joursSemaine}
             creneauMap={creneauMap}
             absences={absencesSemaine}
+            autoSet={autoSemaine}
             shifts={shiftsActifs}
             besoins={besoinsSemaine}
             peutModifier={peutModifier}

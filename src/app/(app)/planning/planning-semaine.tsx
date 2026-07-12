@@ -16,12 +16,12 @@ export type BesoinAgrege = { shiftId: string; jourSemaine: number; nombreRequis:
 
 // Largeurs fixes → les blocs empilés (couverture, totaux, employés) gardent leurs colonnes alignées.
 const COL_EMP = 190;
-const COL_JOUR = 132;
-const gridCols = (n: number) => ({ display: "grid", gridTemplateColumns: `${COL_EMP}px repeat(${n}, ${COL_JOUR}px)` });
+const gridCols = (n: number, w: number) => ({ display: "grid", gridTemplateColumns: `${COL_EMP}px repeat(${n}, ${w}px)` });
 const fmtH = (h: number) => (Number.isInteger(h) ? `${h}h` : `${h.toFixed(1).replace(".", ",")}h`);
 
 export function PlanningSemaine({
   groupes, jours, creneauMap, absences, shifts, besoins, peutModifier,
+  autoSet = [], colJour = 132, afficherContrat = true,
 }: {
   groupes: SemaineGroupe[];
   jours: SemaineJour[];
@@ -30,10 +30,14 @@ export function PlanningSemaine({
   shifts: ShiftDTO[];
   besoins: BesoinAgrege[];
   peutModifier: boolean;
+  autoSet?: string[]; // clés `${empId}_${iso}` posées par la génération automatique (✨)
+  colJour?: number; // largeur d'une colonne jour (réduite en vue mois)
+  afficherContrat?: boolean; // afficher le ratio heures/contrat (semaine) ou juste les heures (mois)
 }) {
   const [isPending, start] = useTransition();
   const parId = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
   const absSet = useMemo(() => new Set(absences), [absences]);
+  const autoKeys = useMemo(() => new Set(autoSet), [autoSet]);
   const allEmps = useMemo(() => groupes.flatMap((g) => g.employees), [groupes]);
 
   // Édition optimiste : on garde les changements localement en attendant la revalidation serveur.
@@ -98,7 +102,7 @@ export function PlanningSemaine({
   const idxAuj = Math.max(0, jours.findIndex((j) => j.aujourdhui));
   const [idxMobile, setIdxMobile] = useJourMobile(idxAuj);
 
-  const largeur = COL_EMP + jours.length * COL_JOUR;
+  const largeur = COL_EMP + jours.length * colJour;
 
   return (
     <div>
@@ -140,7 +144,7 @@ export function PlanningSemaine({
 
             {/* Lignes de couverture par shift */}
             {shiftsCouverture.map((s) => (
-              <div key={s.id} style={gridCols(jours.length)} className="border-b">
+              <div key={s.id} style={gridCols(jours.length, colJour)} className="border-b">
                 <div className="flex items-center gap-2 px-3 py-1.5">
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full`} style={{ backgroundColor: paletteDe(s.couleur).hex.text }} />
                   <span className="min-w-0">
@@ -164,7 +168,7 @@ export function PlanningSemaine({
             ))}
 
             {/* Ligne totaux jour */}
-            <div style={gridCols(jours.length)} className="border-b bg-muted/30">
+            <div style={gridCols(jours.length, colJour)} className="border-b bg-muted/30">
               <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total / jour</div>
               {jours.map((j, i) => (
                 <div key={j.iso} className={`border-l px-1 py-1.5 text-center ${j.aujourdhui ? "bg-primary/10" : ""}`}>
@@ -175,7 +179,7 @@ export function PlanningSemaine({
             </div>
 
             {/* En-tête jours */}
-            <div style={gridCols(jours.length)} className="sticky top-0 z-10 border-b bg-card">
+            <div style={gridCols(jours.length, colJour)} className="sticky top-0 z-10 border-b bg-card">
               <div className="flex items-center gap-2 px-3 py-2">
                 {peutModifier && <input type="checkbox" checked={allEmps.length > 0 && allEmps.every((e) => sel.has(e.id))} onChange={(e) => setSel(e.target.checked ? new Set(allEmps.map((x) => x.id)) : new Set())} aria-label="Tout sélectionner" />}
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Collaborateurs</span>
@@ -195,13 +199,13 @@ export function PlanningSemaine({
                   const hp = heuresEmp(e.id);
                   const sous = hp < e.heuresHebdo;
                   return (
-                    <div key={e.id} style={gridCols(jours.length)} className={`border-b last:border-0 ${sel.has(e.id) ? "bg-primary/5" : "hover:bg-accent/20"}`}>
+                    <div key={e.id} style={gridCols(jours.length, colJour)} className={`border-b last:border-0 ${sel.has(e.id) ? "bg-primary/5" : "hover:bg-accent/20"}`}>
                       <div className="flex items-center gap-2 px-3 py-1.5">
                         {peutModifier && <input type="checkbox" checked={sel.has(e.id)} onChange={() => toggleEmp(e.id)} className="shrink-0" aria-label={`Sélectionner ${e.nom}`} />}
                         <Avatar nom={e.nom} taille={30} photoUrl={e.photoUrl} />
                         <span className="min-w-0">
                           <Link href={`/employes/${e.id}`} className="block truncate text-sm font-medium hover:text-primary hover:underline">{e.nom}</Link>
-                          <span className={`block text-[10px] tabular-nums ${sous ? "text-muted-foreground" : "text-emerald-700"}`}>{fmtH(hp)} / {fmtH(e.heuresHebdo)}</span>
+                          <span className={`block text-[10px] tabular-nums ${afficherContrat && sous ? "text-muted-foreground" : "text-emerald-700"}`}>{afficherContrat ? `${fmtH(hp)} / ${fmtH(e.heuresHebdo)}` : fmtH(hp)}</span>
                         </span>
                       </div>
                       {jours.map((j) => (
@@ -279,10 +283,12 @@ export function PlanningSemaine({
 
     if (s) {
       const pal = paletteDe(s.couleur);
+      // ✨ si posé par la génération auto — sauf si l'utilisateur vient de le modifier localement.
+      const auto = autoKeys.has(`${empId}_${j.iso}`) && !(`${empId}_${j.iso}` in edits);
       return (
         <button type="button" disabled={!peutModifier} onClick={(ev) => ouvrirMenu(ev, empId, j.iso)} style={{ backgroundColor: pal.hex.bg, color: pal.hex.text }}
-          className={`${base} ${clic} font-medium hover:brightness-95`}>
-          <span className="truncate font-semibold">{s.nom}</span>
+          className={`${base} ${clic} relative font-medium hover:brightness-95`}>
+          <span className="flex items-center gap-1"><span className="truncate font-semibold">{s.nom}</span>{auto && <span title="Généré automatiquement" className="shrink-0 opacity-70">✨</span>}</span>
           {s.heureDebut && s.heureFin && <span className="opacity-80">{s.heureDebut}–{s.heureFin}</span>}
         </button>
       );

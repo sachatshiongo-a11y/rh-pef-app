@@ -17,8 +17,8 @@ export async function saisirCreneau(employeeId: string, dateIso: string, shiftId
   } else {
     await prisma.planningCreneau.upsert({
       where: { employeeId_date: { employeeId, date } },
-      update: { shiftId },
-      create: { employeeId, date, shiftId },
+      update: { shiftId, genereAuto: false }, // une modif manuelle retire le marqueur ✨
+      create: { employeeId, date, shiftId, genereAuto: false },
     });
   }
   revalidatePath("/planning");
@@ -359,7 +359,7 @@ export type ResumeGeneration = { crees: number; besoinsNonCouverts: number; deta
     await prisma.planningCreneau.deleteMany({ where: { date: { gte: debut, lte: fin } } });
   }
   if (aCreer.length > 0) {
-    await prisma.planningCreneau.createMany({ data: aCreer, skipDuplicates: true });
+    await prisma.planningCreneau.createMany({ data: aCreer.map((c) => ({ ...c, genereAuto: true })), skipDuplicates: true });
   }
   revalidatePath("/planning");
   return { crees: aCreer.length, besoinsNonCouverts, detailNonCouverts, sousHeures };
@@ -382,8 +382,8 @@ export async function saisirCreneauxEnLot(
     const date = new Date(e.dateIso + "T00:00:00Z");
     await prisma.planningCreneau.upsert({
       where: { employeeId_date: { employeeId: e.employeeId, date } },
-      update: { shiftId: e.shiftId },
-      create: { employeeId: e.employeeId, date, shiftId: e.shiftId },
+      update: { shiftId: e.shiftId, genereAuto: false }, // saisie manuelle groupée → retire le marqueur ✨
+      create: { employeeId: e.employeeId, date, shiftId: e.shiftId, genereAuto: false },
     });
   }
   revalidatePath("/planning");

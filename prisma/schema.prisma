@@ -343,6 +343,7 @@ model PlanningCreneau {
   date       DateTime @db.Date
   shiftId    String
   shift      Shift    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  genereAuto Boolean  @default(false) // true = posé par la génération automatique (marqueur ✨) ; false = saisi à la main
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
