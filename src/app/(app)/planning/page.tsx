@@ -35,9 +35,10 @@ export default async function PlanningPage({
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
   const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : "semaine";
-  const maintenant = new Date();
-  const nowUTC = new Date();
-  const isoAujourdhui = isoJour(new Date(Date.UTC(nowUTC.getFullYear(), nowUTC.getMonth(), nowUTC.getDate())));
+  // « Aujourd'hui » = date civile à Kinshasa (UTC+1), pas l'heure UTC du serveur : évite le décalage
+  // d'un jour entre 23h et minuit UTC. Le reste des dates est stocké en UTC minuit du bon jour.
+  const isoAujourdhui = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Kinshasa" }).format(new Date());
+  const maintenant = new Date(isoAujourdhui + "T00:00:00Z");
 
   const shifts = await prisma.shift.findMany({ orderBy: { ordre: "asc" } });
   const shiftsActifs: ShiftDTO[] = shifts
@@ -72,12 +73,15 @@ export default async function PlanningPage({
     </div>
   ) : null;
 
-  const onglets = (
+  // Onglets de vue — chaque lien conserve la période courante (semaine/mois) pour ne pas perdre le
+  // contexte temporel en changeant de vue. `renderOnglets` est appelé dans chaque branche avec les
+  // liens adaptés à la période affichée.
+  const renderOnglets = (semaineHref: string, moisHref: string) => (
     <div className="flex overflow-hidden rounded-md border text-sm">
-      <Link href="/planning?vue=semaine" className={`px-3 py-1.5 ${vue === "semaine" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
+      <Link href={semaineHref} className={`px-3 py-1.5 ${vue === "semaine" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
         Semaine
       </Link>
-      <Link href="/planning?vue=mois" className={`px-3 py-1.5 ${vue === "mois" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
+      <Link href={moisHref} className={`px-3 py-1.5 ${vue === "mois" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
         Mois
       </Link>
       <Link href="/planning?vue=modele" className={`px-3 py-1.5 ${vue === "modele" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
@@ -85,6 +89,7 @@ export default async function PlanningPage({
       </Link>
     </div>
   );
+  const ongletsDefaut = renderOnglets("/planning?vue=semaine", "/planning?vue=mois");
 
   // Bouton de génération auto : rendu inline (un composant défini dans le rendu serait remonté à chaque rendu).
   const shiftsPourAuto = shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }));
@@ -137,7 +142,7 @@ export default async function PlanningPage({
             <h1 className="text-xl font-semibold sm:text-2xl">Modèle hebdomadaire</h1>
             <p className="text-sm text-muted-foreground">Le shift/rôle habituel de chaque employé, par jour de la semaine</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">{onglets}</div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">{ongletsDefaut}</div>
         </div>
 
         {legende}
@@ -215,7 +220,7 @@ export default async function PlanningPage({
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {onglets}
+            {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`)}
             {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} shifts={shiftsPourAuto} />}
             <Link href={`/planning?vue=mois&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
             <Link href="/planning?vue=mois" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
@@ -264,8 +269,8 @@ export default async function PlanningPage({
   }
 
   // ------------------------------------------------------------- VUE SEMAINE
-  const base = sp.debut ? new Date(sp.debut + "T00:00:00Z") : new Date();
-  const lundi = lundiDeLaSemaine(isNaN(base.getTime()) ? new Date() : base);
+  const base = sp.debut ? new Date(sp.debut + "T00:00:00Z") : maintenant;
+  const lundi = lundiDeLaSemaine(isNaN(base.getTime()) ? maintenant : base);
   const dates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(lundi);
     d.setUTCDate(d.getUTCDate() + i);
@@ -323,7 +328,7 @@ export default async function PlanningPage({
           <p className="text-sm text-muted-foreground">Semaine du {titrePeriode}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          {onglets}
+          {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
           {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}
           <Link href={`/planning?debut=${semainePrec}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
           <Link href="/planning" className="rounded-md border px-3 py-1.5 hover:bg-accent">Cette semaine</Link>
