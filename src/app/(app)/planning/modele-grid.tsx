@@ -147,7 +147,7 @@ export function ModeleGrid({
       <div className="hidden max-h-[74vh] overflow-auto rounded-2xl border bg-card lg:block">
         <div style={{ minWidth: LARGEUR }}>
           <div style={gridStyle} className="sticky top-0 z-10 border-b bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <div className="px-3 py-2">Employé</div>
+            <div className="sticky left-0 z-[2] border-r bg-muted px-3 py-2">Employé</div>
             {JOURS.map((j) => <div key={j.v} className={`border-l px-1 py-2 text-center ${j.v === 0 ? "text-orange-700" : ""}`}>{j.court}</div>)}
             <div className="border-l px-1 py-2 text-right">H/sem</div>
             <div className="border-l px-1 py-2 text-right">Rémun.</div>
@@ -157,7 +157,7 @@ export function ModeleGrid({
             const t = totalSemaine(e.id);
             return (
               <div key={e.id} style={gridStyle} className="border-b last:border-0 hover:bg-accent/20">
-                <div className="flex items-center gap-2 px-3 py-1.5">
+                <div className="sticky left-0 z-[1] flex items-center gap-2 border-r bg-card px-3 py-1.5">
                   <Avatar nom={e.nom} taille={30} photoUrl={e.photoUrl} />
                   <Link href={`/employes/${e.id}`} className="min-w-0 truncate text-sm font-medium hover:text-primary hover:underline">{e.nom}</Link>
                 </div>

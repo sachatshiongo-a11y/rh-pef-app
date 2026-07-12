@@ -158,7 +158,7 @@ export function PlanningSemaine({
             {/* Lignes de couverture par shift (repliables) */}
             {couvOuverte && shiftsCouverture.map((s) => (
               <div key={s.id} style={gridCols(jours.length, colJour)} className="border-b">
-                <div className="flex items-center gap-2 px-3 py-1.5">
+                <div className="sticky left-0 z-[1] flex items-center gap-2 border-r bg-card px-3 py-1.5">
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full`} style={{ backgroundColor: paletteDe(s.couleur).hex.text }} />
                   <span className="min-w-0">
                     <span className="block truncate text-xs font-semibold">{s.nom}</span>
@@ -182,7 +182,7 @@ export function PlanningSemaine({
 
             {/* Ligne totaux jour */}
             <div style={gridCols(jours.length, colJour)} className="border-b bg-muted/30">
-              <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total / jour</div>
+              <div className="sticky left-0 z-[1] border-r bg-card px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total / jour</div>
               {jours.map((j, i) => (
                 <div key={j.iso} className={`border-l px-1 py-1.5 text-center ${j.aujourdhui ? "bg-primary/10" : ""}`}>
                   <div className="text-xs font-semibold tabular-nums">{fmtH(totJour[i].heures)}</div>
@@ -193,7 +193,7 @@ export function PlanningSemaine({
 
             {/* En-tête jours */}
             <div style={gridCols(jours.length, colJour)} className="sticky top-0 z-10 border-b bg-card">
-              <div className="flex items-center gap-2 px-3 py-2">
+              <div className="sticky left-0 z-[2] flex items-center gap-2 border-r bg-card px-3 py-2">
                 {peutModifier && <input type="checkbox" checked={allEmps.length > 0 && allEmps.every((e) => sel.has(e.id))} onChange={(e) => setSel(e.target.checked ? new Set(allEmps.map((x) => x.id)) : new Set())} aria-label="Tout sélectionner" />}
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Collaborateurs</span>
               </div>
@@ -213,7 +213,7 @@ export function PlanningSemaine({
                   const sous = hp < e.heuresHebdo;
                   return (
                     <div key={e.id} style={gridCols(jours.length, colJour)} className={`border-b last:border-0 ${sel.has(e.id) ? "bg-primary/5" : "hover:bg-accent/20"}`}>
-                      <div className="flex items-center gap-2 px-3 py-1.5">
+                      <div className="sticky left-0 z-[1] flex items-center gap-2 border-r bg-card px-3 py-1.5">
                         {peutModifier && <input type="checkbox" checked={sel.has(e.id)} onChange={() => toggleEmp(e.id)} className="shrink-0" aria-label={`Sélectionner ${e.nom}`} />}
                         <Avatar nom={e.nom} taille={30} photoUrl={e.photoUrl} />
                         <span className="min-w-0">
