@@ -20,6 +20,7 @@ export type FeuilleExcel = {
   variationCol?: number; // colonne d'écart/variation à colorer (vert ↑ / rouge ↓)
   sectionRows?: number[]; // indices (dans lignes) des lignes-titres de section (catégorie) : fusionnées, en gras
   couleurLigne?: (rowIdx: number) => string | undefined; // fond ARGB d'une ligne de données (ex. code couleur d'alerte)
+  couleurTexteCellule?: (rowIdx: number, colIdx: number) => string | undefined; // couleur ARGB du texte d'une cellule (ex. commande verte / livraison rouge)
 };
 
 /**
@@ -111,6 +112,17 @@ export async function classeurExcel(opts: {
         const argb = f.couleurLigne(idx);
         if (!argb) continue;
         ws.getRow(debutData + idx).eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } }; });
+      }
+    }
+
+    // Couleur de texte par cellule (ex. commande verte / livraison rouge).
+    if (f.couleurTexteCellule) {
+      for (let idx = 0; idx < f.lignes.length; idx++) {
+        const row = ws.getRow(debutData + idx);
+        for (let ci = 0; ci < f.entete.length; ci++) {
+          const argb = f.couleurTexteCellule(idx, ci);
+          if (argb) row.getCell(ci + 1).font = { name: OPTIMA, size: 10, bold: true, color: { argb } };
+        }
       }
     }
 

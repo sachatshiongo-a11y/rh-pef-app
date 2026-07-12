@@ -32,6 +32,7 @@ export function TableauDocument({
   totalDerniereLigne = false,
   sectionRows,
   couleurLigne,
+  couleurCellule,
   paysage = false,
   pied,
 }: {
@@ -42,6 +43,7 @@ export function TableauDocument({
   totalDerniereLigne?: boolean;
   sectionRows?: number[]; // indices de lignes-titres de section (catégorie) : pleine largeur, en gras
   couleurLigne?: (r: number) => string | undefined; // fond de ligne optionnel (ex. code couleur de statut)
+  couleurCellule?: (r: number, c: number) => string | undefined; // couleur de texte d'une cellule (ex. commande verte / livraison rouge)
   paysage?: boolean; // orientation paysage (tableaux larges, ex. grille hebdo)
   pied?: string;
 }) {
@@ -72,11 +74,14 @@ export function TableauDocument({
             const bg = !total ? couleurLigne?.(r) : undefined;
             return (
               <View key={r} style={[styles.tr, total ? styles.trTotal : {}, bg ? { backgroundColor: bg } : {}]} wrap={false}>
-                {colonnes.map((c, i) => (
-                  <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }]}>
-                    {String(ligne[i] ?? "")}
-                  </Text>
-                ))}
+                {colonnes.map((c, i) => {
+                  const couleur = !total ? couleurCellule?.(r, i) : undefined;
+                  return (
+                    <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }, couleur ? { color: couleur, fontWeight: 700 } : {}]}>
+                      {String(ligne[i] ?? "")}
+                    </Text>
+                  );
+                })}
               </View>
             );
           })}

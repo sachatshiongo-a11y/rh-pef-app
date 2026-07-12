@@ -59,6 +59,12 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
             <Link key={k} href={lien({ domaine: k })} className={`rounded-full border px-3 py-1 ${(domaine ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
           ))}
         </div>
+        <span className="text-muted-foreground">·</span>
+        <div className="flex items-center overflow-hidden rounded-md border">
+          <span className="px-2 py-1 text-xs text-muted-foreground">Exporter</span>
+          <a href={`/stock/journalier/pdf?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
+          <a href={`/stock/journalier/excel?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
+        </div>
       </div>
     </div>
   );
@@ -165,7 +171,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     <div className="space-y-4">
       {enTete}
       <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span><span className="font-semibold text-foreground">C</span> = commandé · <span className="font-semibold text-foreground">L</span> = livré</span>
+        <span><span className="font-semibold text-emerald-700">C</span> = commandé (vert) · <span className="font-semibold text-red-700">L</span> = livré (rouge)</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-200" /> écart (livré ≠ commandé)</span>
       </p>
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
@@ -192,16 +198,16 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
                   <tr className="even:bg-muted/25 hover:bg-accent/40">
                     <td className="sticky left-0 z-10 bg-background px-3 font-medium"><Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link></td>
                     {joursLabel.map((j, i) => {
-                      const c = r.cmd[i], l = r.liv[i], ecart = c !== l;
+                      const c = r.cmd[i], l = r.liv[i], ecart = c !== l && (c > 0 || l > 0);
                       return (
                         <Fragment key={j.iso}>
-                          <td className={`text-right tabular-nums ${ecart && (c > 0 || l > 0) ? "bg-orange-50" : ""}`}>{c > 0 ? qte(c) : ""}</td>
-                          <td className={`text-right tabular-nums ${ecart && (c > 0 || l > 0) ? "bg-orange-100 font-medium" : "text-muted-foreground"}`}>{l > 0 ? qte(l) : ""}</td>
+                          <td className={`text-right font-medium tabular-nums text-emerald-700 ${ecart ? "bg-orange-50" : ""}`}>{c > 0 ? qte(c) : ""}</td>
+                          <td className={`text-right font-medium tabular-nums text-red-700 ${ecart ? "bg-orange-100" : ""}`}>{l > 0 ? qte(l) : ""}</td>
                         </Fragment>
                       );
                     })}
-                    <td className="text-right font-semibold tabular-nums">{totC > 0 ? qte(totC) : ""}</td>
-                    <td className={`text-right font-semibold tabular-nums ${totC !== totL ? "text-orange-700" : ""}`}>{totL > 0 ? qte(totL) : ""}</td>
+                    <td className="text-right font-semibold tabular-nums text-emerald-700">{totC > 0 ? qte(totC) : ""}</td>
+                    <td className="text-right font-semibold tabular-nums text-red-700">{totL > 0 ? qte(totL) : ""}</td>
                   </tr>
                 </Fragment>
               );
