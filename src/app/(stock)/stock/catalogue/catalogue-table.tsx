@@ -2,7 +2,7 @@
 
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useMemo, useState, useTransition } from "react";
-import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles } from "./actions";
+import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 
 const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.prix) || 0) * (Number(a.quantite) || 0);
@@ -25,6 +25,15 @@ export type ArticleRow = {
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
 
+type ManqueKey = "" | "prix" | "fournisseur" | "seuil" | "unite" | "negatif";
+// Détecte un champ manquant (pur, hors composant → pas de dépendance de hook).
+const manqueDe = (a: ArticleRow, m: ManqueKey) =>
+  m === "prix" ? !a.prix || Number(a.prix) === 0 :
+  m === "fournisseur" ? !a.fournisseurId :
+  m === "seuil" ? !a.stockMinimum || Number(a.stockMinimum) <= 0 :
+  m === "unite" ? !a.unite || !a.unite.trim() :
+  m === "negatif" ? Number(a.quantite) < 0 : false;
+
 const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
@@ -39,6 +48,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [q, setQ] = useState(initialQ ?? "");
   const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
+  const [manque, setManque] = useState<ManqueKey>(""); // vue « À compléter »
+  const [bulkFour, setBulkFour] = useState("");
+  const [bulkSeuil, setBulkSeuil] = useState("");
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
 
@@ -47,9 +59,22 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     return articles.filter((a) =>
       (dom === "TOUS" || a.domaine === dom) &&
       (!alerte || a.niveau === alerte) &&
+      (!manque || manqueDe(a, manque)) &&
       (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)),
     );
-  }, [articles, q, dom, alerte]);
+  }, [articles, q, dom, alerte, manque]);
+
+  // Compteurs « À compléter » (sur le domaine courant) — dette de saisie qui bride alertes/valorisation.
+  const incomplets = useMemo(() => {
+    const base = articles.filter((a) => dom === "TOUS" || a.domaine === dom);
+    return {
+      prix: base.filter((a) => manqueDe(a, "prix")).length,
+      fournisseur: base.filter((a) => manqueDe(a, "fournisseur")).length,
+      seuil: base.filter((a) => manqueDe(a, "seuil")).length,
+      unite: base.filter((a) => manqueDe(a, "unite")).length,
+      negatif: base.filter((a) => manqueDe(a, "negatif")).length,
+    };
+  }, [articles, dom]);
 
   // Compteurs d'alerte (sur le domaine courant) pour le bandeau de réapprovisionnement.
   const compte = useMemo(() => {
@@ -118,6 +143,26 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
       </div>
 
+      {/* À compléter : champs manquants qui brident les alertes et la valorisation. Clic = filtre. */}
+      {(incomplets.prix + incomplets.fournisseur + incomplets.seuil + incomplets.unite + incomplets.negatif > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium text-muted-foreground">À compléter :</span>
+          {([
+            ["seuil", incomplets.seuil, "sans seuil (jamais d'alerte)"],
+            ["fournisseur", incomplets.fournisseur, "sans fournisseur"],
+            ["prix", incomplets.prix, "sans prix"],
+            ["unite", incomplets.unite, "sans unité"],
+            ["negatif", incomplets.negatif, "stock négatif"],
+          ] as const).filter(([, n]) => n > 0).map(([k, n, lbl]) => (
+            <button key={k} onClick={() => setManque(manque === k ? "" : k)}
+              className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${manque === k ? "border-primary bg-primary/10" : "hover:bg-accent"} ${k === "negatif" ? "text-red-700" : ""}`}>
+              {n} {lbl}
+            </button>
+          ))}
+          {manque && <button onClick={() => setManque("")} className="ml-auto text-xs text-muted-foreground underline">Voir tout</button>}
+        </div>
+      )}
+
       {sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
           <span className="font-medium">{sel.size} sélectionné(s)</span>
@@ -127,6 +172,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
           <button disabled={isPending || !bulkCat} onClick={() => run(async () => { await categoriserEnMasse([...sel], bulkCat); setSel(new Set()); setBulkCat(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
+          <span className="text-muted-foreground">· fournisseur :</span>
+          <select value={bulkFour} onChange={(e) => setBulkFour(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
+            <option value="">Choisir un fournisseur…</option>
+            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
+          </select>
+          <button disabled={isPending || !bulkFour} onClick={() => run(async () => { await definirFournisseurEnMasse([...sel], bulkFour); setSel(new Set()); setBulkFour(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
+          <span className="text-muted-foreground">· seuil min :</span>
+          <input type="number" min="0" step="0.001" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" className="w-16 rounded border border-input bg-background px-2 py-1 text-xs" />
+          <button disabled={isPending || bulkSeuil === ""} onClick={() => run(async () => { await definirSeuilEnMasse([...sel], Number(bulkSeuil)); setSel(new Set()); setBulkSeuil(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
           <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], true); setSel(new Set()); })} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Activer</button>
           <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Désactiver</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>

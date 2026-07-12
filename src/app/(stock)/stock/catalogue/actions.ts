@@ -145,3 +145,29 @@ export async function basculerActifArticles(articleIds: string[], actif: boolean
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
 }
+
+/** Affecte un fournisseur (ou le retire si vide) à plusieurs articles d'un coup. */
+export async function definirFournisseurEnMasse(articleIds: string[], fournisseurId: string) {
+  const user = await garde();
+  const ids = [...new Set(articleIds.map(String))].filter(Boolean);
+  if (ids.length === 0) return;
+  await prisma.articleStock.updateMany({ where: { id: { in: ids } }, data: { fournisseurId: fournisseurId || null } });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: `${ids.length} articles`, champ: "fournisseur (masse)", nouvelleValeur: fournisseurId || "retiré", userId: user.id });
+  revalidatePath("/stock/catalogue");
+}
+
+/** Définit le stock minimum (seuil d'alerte de réappro) de plusieurs articles d'un coup. */
+export async function definirSeuilEnMasse(articleIds: string[], seuil: number) {
+  const user = await garde();
+  const ids = [...new Set(articleIds.map(String))].filter(Boolean);
+  const s = Math.max(0, Number(seuil) || 0);
+  if (ids.length === 0) return;
+  // Le seuil vit sur la ligne Stock (créée si absente).
+  await prisma.$transaction(async (tx) => {
+    for (const articleId of ids) {
+      await tx.stock.upsert({ where: { articleId }, update: { stockMinimum: s }, create: { articleId, quantite: 0, stockMinimum: s } });
+    }
+  }, { timeout: 60000 });
+  await journaliser(prisma, { entite: "Stock", entiteId: `${ids.length} articles`, champ: "stockMinimum (masse)", nouvelleValeur: String(s), userId: user.id });
+  revalidatePath("/stock/catalogue");
+}
