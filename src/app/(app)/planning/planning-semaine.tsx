@@ -138,7 +138,7 @@ export function PlanningSemaine({
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-2xl border bg-card">
+        <div className="max-h-[74vh] overflow-auto rounded-2xl border bg-card">
           <div style={{ minWidth: largeur }}>
             {/* Bandeau récap — clic sur le titre = déplier/replier le détail par shift */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
