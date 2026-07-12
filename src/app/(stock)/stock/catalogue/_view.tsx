@@ -61,7 +61,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md border bg-muted/40 px-2.5 py-1 text-sm"><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{usd(rows.reduce((t, r) => t + (Number(r.prix) || 0) * (Number(r.quantite) || 0), 0))}</span></span>
           <span className="mr-1 text-sm text-muted-foreground">{rows.length} article(s)</span>
-          <BoutonRapport pdfHref={`/stock/catalogue/imprimer${qs}`} excelHref={`/stock/catalogue/export${qs}`} />
+          <BoutonRapport pdfHref={`/stock/catalogue/pdf${qs}`} pdfDownload excelHref={`/stock/catalogue/export${qs}`} />
         </div>
       </div>
 

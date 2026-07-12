@@ -1,8 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { classeurExcel } from "@/lib/export-excel";
-import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
+import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
+
+// Codes couleur d'alerte (ARGB) pour le fond des lignes Excel.
+const ALERTE_ARGB: Record<NiveauAlerte, string> = { URGENT: "FFFBE0E0", APPRO: "FFFBF0D4", OK: "FFE9F6EE" };
 
 export async function GET(req: Request) {
   const user = await verifySession();
@@ -23,8 +26,10 @@ export async function GET(req: Request) {
   ]);
   const hausses = articlesEnHausse(lignesFacture);
 
+  const alerteRow: (NiveauAlerte | null)[] = [];
   const lignes = articles.map((a) => {
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    alerteRow.push(niv);
     const qte = a.stock ? Number(a.stock.quantite) : 0;
     const prix = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
     const pct = hausses.get(a.id);
@@ -55,6 +60,7 @@ export async function GET(req: Request) {
       nom: "Catalogue",
       entete: ["Code", "Désignation", "Stock", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Unité", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine"],
       lignes,
+      couleurLigne: (r) => (alerteRow[r] ? ALERTE_ARGB[alerteRow[r]!] : undefined),
     }],
   });
   return new Response(new Uint8Array(buf), {
