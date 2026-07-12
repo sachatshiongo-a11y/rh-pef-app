@@ -17,6 +17,7 @@ import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
 import { HorairesModele } from "./horaires-modele";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -274,6 +275,7 @@ export default async function FicheEmployePage({
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <Chip>{employee.categorie}</Chip>
+            {labelCategoriePro(employee.categorieProfessionnelle) && <Chip>{labelCategoriePro(employee.categorieProfessionnelle)}</Chip>}
             <Chip>{employee.contrat}</Chip>
             <Chip>Ancienneté&nbsp;{anciennete} mois</Chip>
             <Chip>{soldeConges} j de congés</Chip>

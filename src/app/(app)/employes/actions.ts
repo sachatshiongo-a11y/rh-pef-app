@@ -20,6 +20,7 @@ function toEmployeeInput(formData: FormData) {
     poste: String(formData.get("poste") ?? ""),
     secteur: String(formData.get("secteur") ?? ""),
     categorie: String(formData.get("categorie") ?? "BRIGADE") as "BRIGADE" | "BACKOFFICE",
+    categorieProfessionnelle: String(formData.get("categorieProfessionnelle") ?? "").trim() || null,
     salaireMensuel: decimalField(formData, "salaireMensuel"),
     transportJourCDF: decimalField(formData, "transportJourCDF"),
     transportMoisCDF: decimalField(formData, "transportMoisCDF"),

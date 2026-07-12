@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Employee } from "@prisma/client";
+import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
 
 function toDateInput(d: Date | string | undefined) {
   if (!d) return "";
@@ -53,6 +54,15 @@ export function EmployeeForm({
 
       <Field label="Poste" name="poste" defaultValue={employee?.poste} required list="postes-existants" />
       <Field label="Secteur" name="secteur" defaultValue={employee?.secteur} required />
+
+      <div className="sm:col-span-2">
+        <Select
+          label="Catégorie professionnelle (Code du travail RDC)"
+          name="categorieProfessionnelle"
+          defaultValue={employee?.categorieProfessionnelle ?? ""}
+          options={[{ value: "", label: "— non définie —" }, ...CATEGORIES_PRO.map((c) => ({ value: c.value, label: c.label }))]}
+        />
+      </div>
 
       <Select
         label="Catégorie"

@@ -196,6 +196,7 @@ model Employee {
   poste                    String
   secteur                  String
   categorie                EmployeeCategory
+  categorieProfessionnelle String? // classification Code du travail RDC (manœuvre, ouvrier qualifié, employé, agent de maîtrise, cadre)
   salaireMensuel           Decimal          @db.Decimal(12, 2)
   transportJourCDF         Decimal          @default(0) @db.Decimal(12, 2)
   transportMoisCDF         Decimal          @default(0) @db.Decimal(12, 2)

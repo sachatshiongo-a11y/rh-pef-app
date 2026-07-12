@@ -3,6 +3,7 @@ import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfSignatureBox } from "./layout";
 import { pdfColors, entreprise, formatMontant, type Devise } from "./theme";
+import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 
 registerPdfFonts();
 
@@ -271,6 +272,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           <InfoLigne label="Matricule" value={employee.matricule} />
           <InfoLigne label="Nom et prénom" value={employee.nom} />
           <InfoLigne label="Poste" value={employee.poste} />
+          {labelCategoriePro(employee.categorieProfessionnelle) ? <InfoLigne label="Catégorie prof." value={labelCategoriePro(employee.categorieProfessionnelle)!} /> : null}
           <InfoLigne label="Sexe" value={employee.sexe} />
           <InfoLigne label="Date d'embauche" value={new Date(employee.dateEmbauche).toLocaleDateString("fr-FR")} />
           <InfoLigne label="Adresse" value={employee.adresse ?? "—"} />
