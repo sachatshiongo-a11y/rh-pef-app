@@ -75,9 +75,11 @@ export function FinContratForm({
             <div className="grid gap-3 sm:grid-cols-2">
               <Champ label="Motif du départ">
                 <select name="motif" value={motif} onChange={(e) => changerMotif(e.target.value)} className={cls}>
-                  <option value="DEMISSION">Démission</option>
-                  <option value="LICENCIEMENT">Licenciement</option>
+                  <option value="LICENCIEMENT">Licenciement (Art. 67 C.T.)</option>
+                  <option value="DEMISSION">Démission (Art. 69 C.T.)</option>
                   <option value="FIN_CDD">Fin de CDD</option>
+                  <option value="RETRAITE">Départ à la retraite</option>
+                  <option value="FAUTE_LOURDE">Faute lourde (Art. 72 C.T.)</option>
                   <option value="AUTRE">Autre</option>
                 </select>
               </Champ>

@@ -17,9 +17,11 @@ import {
 import { FinContratForm } from "./fin-contrat-form";
 
 const MOTIF_FIN: Record<string, string> = {
-  DEMISSION: "Démission",
-  LICENCIEMENT: "Licenciement",
+  LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
+  DEMISSION: "Démission (Art. 69 C.T.)",
   FIN_CDD: "Fin de CDD",
+  RETRAITE: "Départ à la retraite",
+  FAUTE_LOURDE: "Faute lourde (Art. 72 C.T.)",
   AUTRE: "Autre",
 };
 const money = (n: number) => Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
