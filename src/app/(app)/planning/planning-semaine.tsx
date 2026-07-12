@@ -142,7 +142,7 @@ export function PlanningSemaine({
           </div>
         )}
 
-        <div className="max-h-[74vh] overflow-auto rounded-2xl border bg-card">
+        <div className="max-h-[74vh] overflow-auto rounded-2xl border bg-card [scrollbar-gutter:stable]">
           <div style={{ minWidth: largeur }}>
             {/* Bandeau récap — clic sur le titre = déplier/replier le détail par shift */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
@@ -310,7 +310,7 @@ export function PlanningSemaine({
         </button>
       );
     }
-    if (enConge) return <div className={`${base} items-center justify-center bg-amber-50 text-center font-medium text-amber-700`}>Absence</div>;
+    if (enConge) return <div className={`${base} items-center justify-center bg-amber-50 text-center font-medium text-amber-700`}>Congé</div>;
     if (j.ferie) return (
       <button type="button" disabled={!peutModifier} onClick={(ev) => ouvrirMenu(ev, empId, j.iso)} className={`${base} ${clic} items-center justify-center bg-purple-50 text-center font-medium text-purple-700 hover:bg-purple-100`}>Jour férié</button>
     );

@@ -147,7 +147,7 @@ export function ModeleGrid({
       {selecteurCouche}
 
       {/* ---------- BUREAU ---------- */}
-      <div className="hidden max-h-[74vh] overflow-auto rounded-2xl border bg-card lg:block">
+      <div className="hidden max-h-[74vh] overflow-auto rounded-2xl border bg-card [scrollbar-gutter:stable] lg:block">
         <div style={{ minWidth: LARGEUR }}>
           <div style={gridStyle} className="sticky top-0 z-10 border-b bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             <div className="sticky left-0 z-[2] border-r bg-muted px-3 py-2">Employé</div>

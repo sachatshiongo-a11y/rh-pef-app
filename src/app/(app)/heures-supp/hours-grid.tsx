@@ -104,8 +104,9 @@ export function HoursGrid({
       return days.filter((d) => d >= du && d <= au && !estDimanche(d) && !estFerie(d));
     }
     if (bulkScope === "alternes") {
+      // Un jour sur deux (N, N+2…), en sautant dimanches et fériés.
       const debut = Math.max(1, Number(bulkAlterneDebut) || 1);
-      return days.filter((d) => d >= debut && (d - debut) % 2 === 0 && !estDimanche(d));
+      return days.filter((d) => d >= debut && (d - debut) % 2 === 0 && !estDimanche(d) && !estFerie(d));
     }
     return [...days];
   }
