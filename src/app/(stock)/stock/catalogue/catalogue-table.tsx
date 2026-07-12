@@ -27,9 +27,10 @@ export type ArticleRow = {
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
 
-type TriCol = "designation" | "categorie" | "fournisseur" | "stock" | "valeur" | "prix" | "min" | "alerte";
+type TriCol = "code" | "designation" | "categorie" | "fournisseur" | "stock" | "valeur" | "prix" | "min" | "alerte";
 const ORDRE_ALERTE: Record<string, number> = { URGENT: 0, APPRO: 1, OK: 2 };
 const valeurTri = (a: ArticleRow, col: TriCol, catNom: Map<string, string>, fourNom: Map<string, string>): string | number =>
+  col === "code" ? (a.code && Number.isFinite(Number(a.code)) ? Number(a.code) : a.code ? Number.MAX_SAFE_INTEGER : Number.POSITIVE_INFINITY) : // codes numériques triés en nombre, vides en dernier
   col === "designation" ? a.designation.toLowerCase() :
   col === "categorie" ? (a.categorieId ? catNom.get(a.categorieId) ?? "" : "￿").toLowerCase() :
   col === "fournisseur" ? (a.fournisseurId ? fourNom.get(a.fournisseurId) ?? "" : "￿").toLowerCase() :
@@ -337,7 +338,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
-              <th className="w-14">Code</th>
+              <ThTri col="code" tri={tri} onTri={trierPar} className="w-14">Code</ThTri>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
               <ThTri col="stock" tri={tri} onTri={trierPar} align="right" className="w-16">Stock</ThTri>
               <ThTri col="alerte" tri={tri} onTri={trierPar} className="w-24">Alerte</ThTri>
