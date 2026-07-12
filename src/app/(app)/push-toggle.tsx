@@ -22,19 +22,20 @@ export function PushToggle() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window) || !VAPID_PUBLIC) {
-      setEtat("non-supporte");
-      return;
-    }
-    if (Notification.permission === "denied") {
-      setEtat("refuse");
-      return;
-    }
-    navigator.serviceWorker
-      .register("/sw.js")
-      .then((reg) => reg.pushManager.getSubscription())
-      .then((sub) => setEtat(sub ? "actif" : "inactif"))
-      .catch(() => setEtat("non-supporte"));
+    let annule = false;
+    // Détection asynchrone (pas de setState synchrone dans l'effet → pas de rendu en cascade).
+    const detecter = async (): Promise<Etat> => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window) || !VAPID_PUBLIC) return "non-supporte";
+      if (Notification.permission === "denied") return "refuse";
+      try {
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        return (await reg.pushManager.getSubscription()) ? "actif" : "inactif";
+      } catch {
+        return "non-supporte";
+      }
+    };
+    detecter().then((e) => { if (!annule) setEtat(e); });
+    return () => { annule = true; };
   }, []);
 
   async function activer() {
