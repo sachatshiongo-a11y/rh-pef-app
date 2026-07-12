@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse } from "./actions";
@@ -387,10 +388,15 @@ const LigneArticle = memo(function LigneArticle({
         </select>
       </td>
       <td>
-        <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} min-w-32`}>
-          <option value="">—</option>
-          {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-        </select>
+        <div className="flex items-center gap-1">
+          <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} min-w-28 flex-1`}>
+            <option value="">—</option>
+            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
+          </select>
+          {a.fournisseurId && (
+            <Link href={`/stock/fournisseurs/${a.fournisseurId}`} title="Ouvrir la fiche fournisseur" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche fournisseur">↗</Link>
+          )}
+        </div>
       </td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td><input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
@@ -434,7 +440,12 @@ const CarteArticle = memo(function CarteArticle({
             {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
           </select>
         </label>
-        <label className={`${champLabel} col-span-2`}>Fournisseur
+        <label className={`${champLabel} col-span-2`}>
+          <span className="flex items-center justify-between">Fournisseur
+            {a.fournisseurId && (
+              <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="text-primary hover:underline">Voir la fiche ↗</Link>
+            )}
+          </span>
           <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} !py-1.5`}>
             <option value="">—</option>
             {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}

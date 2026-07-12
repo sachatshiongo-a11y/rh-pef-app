@@ -6,7 +6,12 @@ import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
 import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
-type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } } } }>;
+const mvtInclude = {
+  article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
+  facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
+  reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+} satisfies Prisma.MouvementStockInclude;
+type Mvt = Prisma.MouvementStockGetPayload<{ include: typeof mvtInclude }>;
 
 // Valeur d'un mouvement : montant saisi, sinon ESTIMATION quantité × prix catalogue (affichée ≈).
 const valeurDe = (m: Mvt): { v: number; estime: boolean } | null => {
@@ -21,6 +26,23 @@ const lienCatalogue = (m: Mvt) => {
   const seg = m.article.domaine === "NOURRITURE" ? "nourriture" : m.article.domaine === "BOISSON" ? "boissons" : "autre";
   return `/stock/catalogue/${seg}?q=${encodeURIComponent(m.article.designation)}`;
 };
+
+// Liens vers la source du mouvement : facture + fournisseur (achat facturé) ou bon de commande +
+// fournisseur (réception). Rien pour les mouvements manuels / sans pièce rattachée.
+function SourceLiens({ m }: { m: Mvt }) {
+  const bc = m.reception?.bonDeCommande;
+  const fournId = m.facture?.fournisseurId ?? bc?.fournisseurId ?? null;
+  const fournNom = m.facture?.fournisseurNom ?? bc?.fournisseur?.nom ?? null;
+  if (!m.facture && !bc && !fournId) return null;
+  const cls = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-1">
+      {m.facture && <Link href={`/stock/factures/${m.facture.id}`} className={cls}>🧾 Facture{m.facture.numero ? ` ${m.facture.numero}` : ""}</Link>}
+      {bc && <Link href={`/stock/commandes/${bc.id}`} className={cls}>📄 BC {bc.numero}</Link>}
+      {fournId && <Link href={`/stock/fournisseurs/${fournId}`} className={cls}>🏢 {fournNom ?? "Fournisseur"}</Link>}
+    </div>
+  );
+}
 
 function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouvements: Mvt[]; signe: string; couleur: string }) {
   // Classement par jour : les mouvements arrivent triés par date décroissante.
@@ -52,6 +74,7 @@ function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouveme
                   <div className="min-w-0">
                     {nomArticle(m)}
                     {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
+                    <SourceLiens m={m} />
                   </div>
                   <div className="flex shrink-0 items-center gap-3 text-right">
                     <div>
@@ -87,7 +110,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   }
 
   const [mouvements, articles] = await Promise.all([
-    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: { article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } } } }),
+    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: mvtInclude }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
   ]);
   const entrees = mouvements.filter((m) => m.type !== "SORTIE");
