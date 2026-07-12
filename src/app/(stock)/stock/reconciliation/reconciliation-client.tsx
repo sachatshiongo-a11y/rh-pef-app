@@ -1,17 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 
-type Art = { id: string; designation: string; theorique: number };
+type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number };
+type TriCol = "code" | "designation" | "categorie" | "theorique";
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
+const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-// Ligne indépendante : son propre état → taper dans une ligne ne re-rend QUE cette ligne
-// (évite le ralentissement quand la page en affiche plusieurs centaines).
-function LigneComptage({ a }: { a: Art }) {
+const valeurTri = (a: Art, col: TriCol): string | number =>
+  col === "code" ? (a.code && Number.isFinite(Number(a.code)) ? Number(a.code) : a.code ? Number.MAX_SAFE_INTEGER : Number.POSITIVE_INFINITY) :
+  col === "designation" ? a.designation.toLowerCase() :
+  col === "categorie" ? a.categorie.toLowerCase() :
+  col === "theorique" ? a.theorique : 0;
+
+function ThTri({ col, tri, onTri, align, className, children }: {
+  col: TriCol; tri: { col: TriCol; dir: 1 | -1 } | null; onTri: (c: TriCol) => void;
+  align?: "right"; className?: string; children: ReactNode;
+}) {
+  const actif = tri?.col === col;
+  return (
+    <th className={`${className ?? ""} ${align === "right" ? "text-right" : ""}`}>
+      <button type="button" onClick={() => onTri(col)} className={`inline-flex items-center gap-0.5 font-semibold hover:text-primary ${align === "right" ? "flex-row-reverse" : ""} ${actif ? "text-primary" : ""}`}>
+        {children}<span className="w-2 text-[10px]">{actif ? (tri!.dir === 1 ? "▲" : "▼") : ""}</span>
+      </button>
+    </th>
+  );
+}
+
+// Ligne mémoïsée à état propre : taper ne re-rend QUE cette ligne (perf sur des centaines d'articles).
+const LigneComptage = memo(function LigneComptage({ a, montrerCat }: { a: Art; montrerCat: boolean }) {
   const [v, setV] = useState("");
   const [expl, setExpl] = useState("");
   const num = Number(v.replace(",", "."));
@@ -21,37 +42,47 @@ function LigneComptage({ a }: { a: Art }) {
   const horsTol = ecart !== null && Math.abs(ecart) > 0.0001 && (a.theorique === 0 ? num !== 0 : Math.abs(pct!) > SEUIL_TOLERANCE_PCT);
   const couleurEcart = ecart === null ? "text-muted-foreground" : ecart === 0 ? "text-emerald-700" : horsTol ? "text-red-700" : ecart > 0 ? "text-blue-700" : "text-amber-700";
   return (
-    <div className={`border-t px-3 py-2 even:bg-muted/25 hover:bg-accent/40 sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_7rem_7rem] sm:items-center sm:gap-2 sm:py-1.5 ${horsTol ? "bg-red-50/50" : ""}`}>
-      <div className="font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></div>
-      <div className="mt-1 flex items-center justify-between sm:mt-0 sm:block sm:text-right">
-        <span className="text-xs text-muted-foreground sm:hidden">Théorique</span>
-        <span className="tabular-nums text-muted-foreground">{qte(a.theorique)}</span>
-      </div>
-      <div className="mt-1 flex items-center justify-between gap-2 sm:mt-0 sm:justify-end">
-        <span className="text-xs text-muted-foreground sm:hidden">Physique compté</span>
-        <input type="hidden" name="recon_articleId" value={a.id} />
-        <input name="recon_physique" type="number" step="0.001" value={v} onChange={(e) => setV(e.target.value)} placeholder="0" className={`${inp} w-28 text-right`} />
-      </div>
-      <div className={`mt-1 flex items-center justify-between font-medium tabular-nums sm:mt-0 sm:justify-end ${couleurEcart}`}>
-        <span className="text-xs font-normal text-muted-foreground sm:hidden">Écart</span>
-        <span>{ecart === null ? "—" : <>{ecart > 0 ? "+" : ""}{qte(ecart)}{pct !== null && a.theorique !== 0 ? <span className="ml-1 text-xs">({pct > 0 ? "+" : ""}{pct.toFixed(0)}%)</span> : null}</>}</span>
-        {!horsTol && <input type="hidden" name="recon_explication" value="" />}
-      </div>
-      {/* Explication requise si écart > seuil de tolérance. */}
+    <>
+      <tr className={`even:bg-muted/25 hover:bg-accent/40 ${horsTol ? "bg-red-50/50" : ""}`}>
+        <td className="text-center tabular-nums text-muted-foreground">{a.code ?? ""}</td>
+        <td className="font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></td>
+        <td className="text-muted-foreground">{montrerCat ? a.categorie : ""}</td>
+        <td className="text-right tabular-nums text-muted-foreground">{qte(a.theorique)}</td>
+        <td className="text-right">
+          <input type="hidden" name="recon_articleId" value={a.id} />
+          <input name="recon_physique" type="number" step="0.001" value={v} onChange={(e) => setV(e.target.value)} placeholder="0" className={`${inp} w-24 text-right`} />
+        </td>
+        <td className={`text-right font-medium tabular-nums ${couleurEcart}`}>
+          {ecart === null ? "—" : <>{ecart > 0 ? "+" : ""}{qte(ecart)}{pct !== null && a.theorique !== 0 ? <span className="ml-1 text-xs">({pct > 0 ? "+" : ""}{pct.toFixed(0)}%)</span> : null}</>}
+          {!horsTol && <input type="hidden" name="recon_explication" value="" />}
+        </td>
+      </tr>
       {horsTol && (
-        <div className="mt-2 sm:col-span-4">
+        <tr><td colSpan={6} className="!pt-0">
           <input name="recon_explication" value={expl} onChange={(e) => setExpl(e.target.value)} required placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
-        </div>
+        </td></tr>
       )}
-    </div>
+    </>
   );
-}
+});
 
 export function ReconciliationForm({ articles, domaine, estDirection = false }: { articles: Art[]; domaine?: string; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [cle, setCle] = useState(0);
+  const [q, setQ] = useState("");
+  const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null);
   const reinitialiser = () => { setMsg(null); setCle((c) => c + 1); };
+  const trierPar = (col: TriCol) => setTri((t) => (t?.col !== col ? { col, dir: 1 } : t.dir === 1 ? { col, dir: -1 } : null));
+
+  const visibles = useMemo(() => {
+    const nq = norm(q.trim());
+    return nq ? articles.filter((a) => norm(a.designation).includes(nq) || norm(a.categorie).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)) : articles;
+  }, [articles, q]);
+  const affichees = useMemo(() => {
+    if (!tri) return visibles;
+    return [...visibles].sort((a, b) => { const x = valeurTri(a, tri.col), y = valeurTri(b, tri.col); return (x < y ? -1 : x > y ? 1 : 0) * tri.dir; });
+  }, [visibles, tri]);
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -68,22 +99,41 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
 
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} w-full sm:w-auto sm:min-w-64 sm:flex-1`} />
-        <span className="text-xs text-muted-foreground">{articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise · fiche archivée</span>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {isPending ? "Application…" : "Appliquer le comptage"}
         </button>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-lg border text-sm">
-        <div className="sticky top-0 z-10 hidden gap-2 border-b bg-muted px-3 py-2 font-semibold shadow-sm sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_7rem_7rem]">
-          <span>Article</span>
-          <span className="text-right">Théorique</span>
-          <span className="text-right">Physique</span>
-          <span className="text-right">Écart</span>
-        </div>
-        {articles.map((a) => <LigneComptage key={a.id} a={a} />)}
-        {articles.length === 0 && <p className="px-3 py-6 text-center text-muted-foreground">Aucun article.</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article (code, nom, catégorie)…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
+        <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise</span>
+      </div>
+
+      <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
+        <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
+          <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
+            <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+              <ThTri col="code" tri={tri} onTri={trierPar} className="w-16">Code</ThTri>
+              <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
+              <ThTri col="categorie" tri={tri} onTri={trierPar}>Catégorie</ThTri>
+              <ThTri col="theorique" tri={tri} onTri={trierPar} align="right" className="w-24">Théorique</ThTri>
+              <th className="w-28 text-right">Physique</th>
+              <th className="w-24 text-right">Écart</th>
+            </tr>
+          </thead>
+          <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
+            {affichees.map((a, i) => (
+              <Fragment key={a.id}>
+                {!tri && (i === 0 || affichees[i - 1].categorie !== a.categorie) && (
+                  <tr><td colSpan={6} className="!bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{a.categorie} ({visibles.filter((x) => x.categorie === a.categorie).length})</td></tr>
+                )}
+                <LigneComptage a={a} montrerCat={!!tri} />
+              </Fragment>
+            ))}
+            {affichees.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </form>
   );
