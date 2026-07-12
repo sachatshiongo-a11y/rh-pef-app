@@ -336,6 +336,22 @@ model BesoinShift {
 }
 
 // Planning hebdomadaire prévisionnel (A3) : un shift par employé et par jour.
+// Commande de livraison au restaurant : quantité commandée par article et par jour. Se compare aux
+// livraisons réelles (sorties de stock) dans l'onglet Conso. journalière.
+model CommandeResto {
+  id        String       @id @default(uuid())
+  articleId String
+  article   ArticleStock @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  date      DateTime     @db.Date
+  quantite  Decimal      @db.Decimal(14, 3)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([articleId, date])
+  @@index([date])
+  @@schema("stock")
+}
+
 model PlanningCreneau {
   id         String   @id @default(uuid())
   employeeId String
@@ -906,10 +922,11 @@ model ArticleStock {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  stock         Stock?
-  mouvements    MouvementStock[]
-  lignesBC      LigneBonDeCommande[]
-  lignesFacture LigneFacture[]
+  stock          Stock?
+  mouvements     MouvementStock[]
+  lignesBC       LigneBonDeCommande[]
+  lignesFacture  LigneFacture[]
+  commandesResto CommandeResto[]
 
   @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
   @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
