@@ -1,7 +1,7 @@
 "use client";
 
 import { EtatVide } from "@/components/etat-vide";
-import { Fragment, memo, useMemo, useState, useTransition } from "react";
+import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 
@@ -24,6 +24,18 @@ export type ArticleRow = {
 };
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
+
+type TriCol = "designation" | "categorie" | "fournisseur" | "stock" | "valeur" | "prix" | "min" | "alerte";
+const ORDRE_ALERTE: Record<string, number> = { URGENT: 0, APPRO: 1, OK: 2 };
+const valeurTri = (a: ArticleRow, col: TriCol, catNom: Map<string, string>, fourNom: Map<string, string>): string | number =>
+  col === "designation" ? a.designation.toLowerCase() :
+  col === "categorie" ? (a.categorieId ? catNom.get(a.categorieId) ?? "" : "￿").toLowerCase() :
+  col === "fournisseur" ? (a.fournisseurId ? fourNom.get(a.fournisseurId) ?? "" : "￿").toLowerCase() :
+  col === "stock" ? Number(a.quantite) || 0 :
+  col === "valeur" ? valeurStock(a) :
+  col === "prix" ? Number(a.prix) || 0 :
+  col === "min" ? Number(a.stockMinimum) || 0 :
+  col === "alerte" ? (a.niveau ? ORDRE_ALERTE[a.niveau] : 3) : 0;
 
 type ManqueKey = "" | "prix" | "fournisseur" | "seuil" | "unite" | "negatif";
 // Détecte un champ manquant (pur, hors composant → pas de dépendance de hook).
@@ -51,8 +63,14 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [manque, setManque] = useState<ManqueKey>(""); // vue « À compléter »
   const [bulkFour, setBulkFour] = useState("");
   const [bulkSeuil, setBulkSeuil] = useState("");
+  const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null); // null = groupé par catégorie
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
+  const fourNom = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f.nom])), [fournisseurs]);
+
+  // Clic sur un en-tête : croissant → décroissant → retour au groupement par catégorie.
+  const trierPar = (col: TriCol) =>
+    setTri((t) => (t?.col !== col ? { col, dir: 1 } : t.dir === 1 ? { col, dir: -1 } : null));
 
   const visibles = useMemo(() => {
     const nq = norm(q.trim());
@@ -63,6 +81,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)),
     );
   }, [articles, q, dom, alerte, manque]);
+
+  // Liste affichée : triée par colonne si un tri est actif, sinon ordre d'origine (groupé par catégorie).
+  const affichees = useMemo(() => {
+    if (!tri) return visibles;
+    return [...visibles].sort((a, b) => {
+      const x = valeurTri(a, tri.col, catNom, fourNom), y = valeurTri(b, tri.col, catNom, fourNom);
+      return (x < y ? -1 : x > y ? 1 : 0) * tri.dir;
+    });
+  }, [visibles, tri, catNom, fourNom]);
 
   // Compteurs « À compléter » (sur le domaine courant) — dette de saisie qui bride alertes/valorisation.
   const incomplets = useMemo(() => {
@@ -252,9 +279,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
       {/* Mobile : cartes éditables (une par article), groupées par catégorie. */}
       <div className="space-y-2 lg:hidden">
-        {visibles.map((a, i) => (
+        {affichees.map((a, i) => (
           <Fragment key={a.id}>
-            {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
+            {!tri && (i === 0 || affichees[i - 1].categorieId !== a.categorieId) && (
               <div className="px-1 pt-1 text-xs font-bold uppercase tracking-wide text-amber-900">
                 {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
               </div>
@@ -272,22 +299,22 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
               <th className="w-14">Code</th>
-              <th>Désignation</th>
-              <th>Catégorie</th>
-              <th>Fournisseur</th>
-              <th className="w-16 text-right">Stock</th>
+              <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
+              <ThTri col="categorie" tri={tri} onTri={trierPar}>Catégorie</ThTri>
+              <ThTri col="fournisseur" tri={tri} onTri={trierPar}>Fournisseur</ThTri>
+              <ThTri col="stock" tri={tri} onTri={trierPar} align="right" className="w-16">Stock</ThTri>
               <th className="w-20">Unité</th>
-              <th className="w-24 text-right" title="Prix × stock">Valeur</th>
-              <th className="w-24 text-right">Prix&nbsp;USD</th>
+              <ThTri col="valeur" tri={tri} onTri={trierPar} align="right" className="w-24" title="Prix × stock">Valeur</ThTri>
+              <ThTri col="prix" tri={tri} onTri={trierPar} align="right" className="w-24">Prix&nbsp;USD</ThTri>
               <th className="w-20 text-right" title="Nombre d'unités par carton">Par carton</th>
-              <th className="w-20 text-right">Min</th>
-              <th className="w-24">Alerte</th>
+              <ThTri col="min" tri={tri} onTri={trierPar} align="right" className="w-20">Min</ThTri>
+              <ThTri col="alerte" tri={tri} onTri={trierPar} className="w-24">Alerte</ThTri>
             </tr>
           </thead>
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
-            {visibles.map((a, i) => (
+            {affichees.map((a, i) => (
               <Fragment key={a.id}>
-                {(i === 0 || visibles[i - 1].categorieId !== a.categorieId) && (
+                {!tri && (i === 0 || affichees[i - 1].categorieId !== a.categorieId) && (
                   <tr>
                     <td colSpan={12} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
@@ -303,7 +330,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <tfoot className="sticky bottom-0 bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
                 <td colSpan={7} className="text-right">Valeur totale du stock affiché</td>
-                <td className="text-right tabular-nums">{usd(visibles.reduce((t, a) => t + valeurStock(a), 0))}</td>
+                <td className="text-right tabular-nums">{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}</td>
                 <td colSpan={4}></td>
               </tr>
             </tfoot>
@@ -311,6 +338,26 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </table>
       </div>
     </div>
+  );
+}
+
+// En-tête de colonne triable : clic = croissant → décroissant → groupé par catégorie.
+function ThTri({ col, tri, onTri, align, className, title, children }: {
+  col: TriCol; tri: { col: TriCol; dir: 1 | -1 } | null; onTri: (c: TriCol) => void;
+  align?: "right"; className?: string; title?: string; children: ReactNode;
+}) {
+  const actif = tri?.col === col;
+  return (
+    <th className={`${className ?? ""} ${align === "right" ? "text-right" : ""}`} title={title}>
+      <button
+        type="button"
+        onClick={() => onTri(col)}
+        className={`inline-flex items-center gap-0.5 font-semibold hover:text-primary ${align === "right" ? "flex-row-reverse" : ""} ${actif ? "text-primary" : ""}`}
+      >
+        {children}
+        <span className="w-2 text-[10px]">{actif ? (tri!.dir === 1 ? "▲" : "▼") : ""}</span>
+      </button>
+    </th>
   );
 }
 
