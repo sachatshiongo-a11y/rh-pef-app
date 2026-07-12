@@ -11,7 +11,9 @@ import { BesoinsManager } from "./besoins-manager";
 import { PolyvalenceManager } from "./polyvalence-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
 import { CouvertureBar, calculerCouverture } from "./couverture-bar";
+import { PlanningSemaine, type SemaineEmployee } from "./planning-semaine";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
+import { joursEnConge } from "@/lib/conges-couverture";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 
@@ -264,31 +266,42 @@ export default async function PlanningPage({
   const debutSemaine = dates[0];
   const finSemaine = dates[6];
 
-  const [employees, creneaux, feriesDuMois] = await Promise.all([
+  const [employeesRaw, creneaux, feriesDuMois] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-      select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true },
+      select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true, heuresHebdomadaires: true },
     }),
     prisma.planningCreneau.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
   ]);
+  // Decimal → number dès la source : aucun objet Prisma non sérialisable ne franchit la frontière client.
+  const employees = employeesRaw.map((e) => ({ ...e, heuresHebdomadaires: Number(e.heuresHebdomadaires) }));
 
   const feriesIso = new Set(feriesDuMois.map((f) => isoJour(new Date(f.date))));
-  const joursMajores = dates.map((d, i) => i === 6 || feriesIso.has(isoDates[i]));
 
   const creneauMap: Record<string, string> = {};
   for (const c of creneaux) {
     creneauMap[`${c.employeeId}_${isoJour(new Date(c.date))}`] = c.shiftId;
   }
 
+  // Congés approuvés de la semaine → cellules « Absence ».
+  const congeSet = await joursEnConge(employees.flatMap((e) => isoDates.map((iso) => ({ employeeId: e.id, date: iso }))));
+  const absencesSemaine = [...congeSet].map((k) => k.replace("|", "_"));
+
   const labelsJours = dates.map((d, i) => `${JOURS[i]} ${String(d.getUTCDate()).padStart(2, "0")}`);
   const semainePrec = isoJour(new Date(lundi.getTime() - 7 * 86_400_000));
   const semaineSuiv = isoJour(new Date(lundi.getTime() + 7 * 86_400_000));
   const titrePeriode = `${debutSemaine.getUTCDate()} → ${finSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}`;
 
-  const brigade = employees.filter((e) => e.categorie === "BRIGADE") as EmployeeRow[];
-  const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE") as EmployeeRow[];
+  const versSemaineEmp = (e: (typeof employees)[number]): SemaineEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl, heuresHebdo: Number(e.heuresHebdomadaires) });
+  const brigade = employees.filter((e) => e.categorie === "BRIGADE").map(versSemaineEmp);
+  const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE").map(versSemaineEmp);
+  const joursSemaine = dates.map((d, i) => ({
+    iso: isoDates[i], label: labelsJours[i], dow: d.getUTCDay(),
+    ferie: feriesIso.has(isoDates[i]), dimanche: d.getUTCDay() === 0, aujourdhui: isoDates[i] === isoAujourdhui,
+  }));
+  const besoinsSemaine = besoinsDTO.map((b) => ({ shiftId: b.shiftId, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
 
   return (
     <div>
@@ -308,26 +321,21 @@ export default async function PlanningPage({
 
       {configPanels}
       {legende}
-      <CouvertureBar
-        jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
-        isoAujourdhui={isoAujourdhui}
-      />
 
       {employees.length === 0 ? (
         <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
       ) : (
-        <div className="space-y-6">
-          <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
-          <div>
-            <h2 className="mb-2 text-base font-semibold">Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span></h2>
-            <PlanningGrid employees={brigade} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-          </div>
-          <div>
-            <h2 className="mb-2 text-base font-semibold">Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span></h2>
-            <PlanningGrid employees={backoffice} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-          </div>
-          </JourMobileProvider>
-        </div>
+        <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
+          <PlanningSemaine
+            groupes={[{ titre: "Brigade", employees: brigade }, { titre: "Backoffice", employees: backoffice }]}
+            jours={joursSemaine}
+            creneauMap={creneauMap}
+            absences={absencesSemaine}
+            shifts={shiftsActifs}
+            besoins={besoinsSemaine}
+            peutModifier={peutModifier}
+          />
+        </JourMobileProvider>
       )}
 
       <p className="mt-4 text-xs text-muted-foreground">
