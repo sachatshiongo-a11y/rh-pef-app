@@ -28,10 +28,10 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   });
 
   // Agrégation article × jour
-  const parArticle = new Map<string, { designation: string; jours: number[]; total: number }>();
+  const parArticle = new Map<string, { articleId: string; designation: string; jours: number[]; total: number }>();
   for (const m of sorties) {
     const key = m.articleId;
-    if (!parArticle.has(key)) parArticle.set(key, { designation: m.article.designation, jours: Array(7).fill(0), total: 0 });
+    if (!parArticle.has(key)) parArticle.set(key, { articleId: key, designation: m.article.designation, jours: Array(7).fill(0), total: 0 });
     const idx = Math.floor((new Date(m.date).getTime() - lundi.getTime()) / 86_400_000);
     const q = Number(m.quantite);
     const row = parArticle.get(key)!;
@@ -88,7 +88,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
             {rows.map((r, ri) => (
               <tr key={ri} className="hover:bg-accent/40 even:bg-muted/25">
-                <td className="font-medium">{r.designation}</td>
+                <td className="font-medium"><Link href={`/stock/catalogue/${r.articleId}`} className="text-primary hover:underline">{r.designation}</Link></td>
                 {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
                 <td className="text-right font-semibold">{qte(r.total)}</td>
               </tr>

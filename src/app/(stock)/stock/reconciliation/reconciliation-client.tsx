@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
@@ -21,7 +22,7 @@ function LigneComptage({ a }: { a: Art }) {
   const couleurEcart = ecart === null ? "text-muted-foreground" : ecart === 0 ? "text-emerald-700" : horsTol ? "text-red-700" : ecart > 0 ? "text-blue-700" : "text-amber-700";
   return (
     <div className={`border-t px-3 py-2 even:bg-muted/25 hover:bg-accent/40 sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_7rem_7rem] sm:items-center sm:gap-2 sm:py-1.5 ${horsTol ? "bg-red-50/50" : ""}`}>
-      <div className="font-medium">{a.designation}</div>
+      <div className="font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></div>
       <div className="mt-1 flex items-center justify-between sm:mt-0 sm:block sm:text-right">
         <span className="text-xs text-muted-foreground sm:hidden">Théorique</span>
         <span className="tabular-nums text-muted-foreground">{qte(a.theorique)}</span>
