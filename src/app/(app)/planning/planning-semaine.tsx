@@ -39,6 +39,7 @@ export function PlanningSemaine({
   const absSet = useMemo(() => new Set(absences), [absences]);
   const autoKeys = useMemo(() => new Set(autoSet), [autoSet]);
   const allEmps = useMemo(() => groupes.flatMap((g) => g.employees), [groupes]);
+  const [couvOuverte, setCouvOuverte] = useState(false); // détail de couverture par shift, replié par défaut
 
   // Édition optimiste : on garde les changements localement en attendant la revalidation serveur.
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -130,9 +131,12 @@ export function PlanningSemaine({
 
         <div className="overflow-x-auto rounded-2xl border bg-card">
           <div style={{ minWidth: largeur }}>
-            {/* Bandeau récap */}
+            {/* Bandeau récap — clic sur le titre = déplier/replier le détail par shift */}
             <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2.5">
-              <span className="text-sm font-semibold">Couverture des besoins</span>
+              <button type="button" onClick={() => setCouvOuverte((o) => !o)} className="flex items-center gap-1.5 text-sm font-semibold hover:text-primary" aria-expanded={couvOuverte}>
+                <span aria-hidden className={`text-xs transition-transform ${couvOuverte ? "rotate-90" : ""}`}>▸</span>
+                Couverture des besoins
+              </button>
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
                 {shiftsCouverture.map((s) => (
                   <span key={s.id} className={`rounded-full px-2 py-0.5 uppercase tracking-wide ${paletteDe(s.couleur).classe}`}>{s.nom} : {requisSemaineParShift(s.id)}</span>
@@ -142,8 +146,8 @@ export function PlanningSemaine({
               </div>
             </div>
 
-            {/* Lignes de couverture par shift */}
-            {shiftsCouverture.map((s) => (
+            {/* Lignes de couverture par shift (repliables) */}
+            {couvOuverte && shiftsCouverture.map((s) => (
               <div key={s.id} style={gridCols(jours.length, colJour)} className="border-b">
                 <div className="flex items-center gap-2 px-3 py-1.5">
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full`} style={{ backgroundColor: paletteDe(s.couleur).hex.text }} />

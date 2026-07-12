@@ -142,7 +142,7 @@ export default async function PlanningPage({
 
         {legende}
 
-        <ModeleGrid employees={employees as ModeleEmployee[]} shifts={shiftsActifs} modeleMap={modeleMap} tauxDefautParEmp={tauxDefautParEmp} peutModifier={peutModifier} />
+        <ModeleGrid employees={employees.map((e): ModeleEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl }))} shifts={shiftsActifs} modeleMap={modeleMap} tauxDefautParEmp={tauxDefautParEmp} peutModifier={peutModifier} />
 
         <p className="mt-4 text-xs text-muted-foreground">
           Définissez ici, pour chaque employé, le shift/rôle de chaque jour (laissez « repos » les
