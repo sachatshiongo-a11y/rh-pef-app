@@ -34,6 +34,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [erreur, setErreur] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
+  const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
   const [ajout, setAjout] = useState(false);
   const [q, setQ] = useState(initialQ ?? "");
   const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
@@ -130,10 +131,40 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Désactiver</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
           {sel.size >= 2 && (
-            <button disabled={isPending} onClick={() => { if (confirm(`Fusionner ces ${sel.size} articles en un seul ? Les doublons seront supprimés (stock cumulé sur l'article conservé).`)) run(async () => { await fusionnerArticles([...sel]); setSel(new Set()); }); }} className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50">Fusionner en 1</button>
+            <button disabled={isPending} onClick={() => setFusionKeep([...sel][0])} className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50">Fusionner en 1…</button>
           )}
         </div>
       )}
+
+      {/* Panneau de fusion : choix explicite de l'article à CONSERVER ; les autres sont supprimés. */}
+      {fusionKeep && sel.size >= 2 && (() => {
+        const selectionnes = articles.filter((a) => sel.has(a.id));
+        const keepOk = selectionnes.some((a) => a.id === fusionKeep) ? fusionKeep : selectionnes[0]?.id;
+        return (
+          <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-sm">
+            <p className="mb-2 font-medium text-amber-900">Fusionner {selectionnes.length} articles — lequel <span className="underline">conserver</span> ?</p>
+            <p className="mb-2 text-xs text-amber-800">L&apos;article conservé récupère le stock, les mouvements, bons de commande et factures des autres. Les autres sont <strong>supprimés définitivement</strong>.</p>
+            <ul className="mb-3 space-y-1">
+              {selectionnes.map((a) => (
+                <li key={a.id}>
+                  <label className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 ${keepOk === a.id ? "border-amber-400 bg-amber-100" : "bg-background hover:bg-accent"}`}>
+                    <input type="radio" name="fusion-keep" checked={keepOk === a.id} onChange={() => setFusionKeep(a.id)} />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium">{a.code ? `${a.code} · ` : ""}{a.designation}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">stock {a.quantite}{a.categorieId ? " · catégorisé" : " · sans catégorie"}{a.prix ? ` · ${usd(Number(a.prix))}` : ""}</span>
+                    </span>
+                    {keepOk === a.id && <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-900">à conserver</span>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <div className="flex items-center gap-2">
+              <button disabled={isPending || !keepOk} onClick={() => run(async () => { await fusionnerArticles([...sel], keepOk); setSel(new Set()); setFusionKeep(null); })} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50">Fusionner ({selectionnes.length - 1} supprimé{selectionnes.length - 1 > 1 ? "s" : ""})</button>
+              <button onClick={() => setFusionKeep(null)} className="text-xs text-muted-foreground underline">Annuler</button>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="flex items-center justify-between">
         <button onClick={() => setAjout((v) => !v)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{ajout ? "Fermer" : "+ Ajouter un article"}</button>
