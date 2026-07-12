@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { qte } from "@/lib/stock";
-import { saisirCommandeResto } from "./actions";
+import { saisirCommandeResto, saisirCommandeLegume } from "./actions";
 
 export type CmdArticle = { id: string; designation: string; categorie: string };
 export type CmdJour = { iso: string; label: string };
@@ -26,7 +26,8 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
   const write = (articleId: string, iso: string, raw: string) => {
     const n = Math.max(0, Number(raw.replace(",", ".")) || 0);
     setVals((p) => ({ ...p, [key(articleId, iso)]: n }));
-    start(() => saisirCommandeResto(articleId, iso, n));
+    // Les légumes (id « legume:<nom> ») ont leur propre table ; les articles passent par CommandeResto.
+    start(() => (articleId.startsWith("legume:") ? saisirCommandeLegume(articleId.slice(7), iso, n) : saisirCommandeResto(articleId, iso, n)));
   };
   const totalArticle = (id: string) => jours.reduce((t, j) => t + (vals[key(id, j.iso)] ?? 0), 0);
   const totauxJour = useMemo(() => jours.map((j) => articles.reduce((t, a) => t + (vals[key(a.id, j.iso)] ?? 0), 0)), [jours, articles, vals]);

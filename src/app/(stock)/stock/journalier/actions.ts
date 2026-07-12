@@ -22,3 +22,22 @@ export async function saisirCommandeResto(articleId: string, dateIso: string, qu
   }
   revalidatePath("/stock/journalier");
 }
+
+/** Idem pour un légume frais (liste figée, hors catalogue). */
+export async function saisirCommandeLegume(legume: string, dateIso: string, quantite: number) {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  if (!legume || !/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return;
+  const date = new Date(dateIso + "T00:00:00Z");
+  const q = Number(quantite);
+  if (!Number.isFinite(q) || q <= 0) {
+    await prisma.commandeLegumeResto.deleteMany({ where: { legume, date } });
+  } else {
+    await prisma.commandeLegumeResto.upsert({
+      where: { legume_date: { legume, date } },
+      update: { quantite: q },
+      create: { legume, date, quantite: q },
+    });
+  }
+  revalidatePath("/stock/journalier");
+}

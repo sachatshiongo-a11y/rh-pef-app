@@ -5,6 +5,7 @@ import { qte } from "@/lib/stock";
 import { lundiDe } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import { CommandeGrid, type CmdArticle } from "./commande-grid";
+import { LEGUMES } from "../legumes/legumes-data";
 
 type SP = { semaine?: string; domaine?: string; vue?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -85,10 +86,33 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     return parArticle;
   };
 
-  // ---------- VUE CONSOMMATION (livraisons) ----------
+  // Légumes frais : achats du jour (AchatLegume) et commandes (CommandeLegumeResto). Cuisine only.
+  const inclureLegumes = domaine !== "BOISSON";
+  const chargerLegumesAchats = async () => {
+    const legumes = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { legume: true, date: true, quantite: true } });
+    const m = new Map<string, { jours: number[]; total: number }>();
+    for (const l of legumes) {
+      const row = m.get(l.legume) ?? { jours: Array(7).fill(0), total: 0 };
+      const idx = Math.floor((new Date(l.date).getTime() - lundi.getTime()) / 86_400_000);
+      const q = Number(l.quantite);
+      if (idx >= 0 && idx < 7) row.jours[idx] += q;
+      row.total += q;
+      m.set(l.legume, row);
+    }
+    return m;
+  };
+  const chargerCommandesLegumes = async () => {
+    const cmds = await prisma.commandeLegumeResto.findMany({ where: { date: { gte: lundi, lt: finSemaine } }, select: { legume: true, date: true, quantite: true } });
+    const map: Record<string, number> = {};
+    for (const c of cmds) map[`legume:${c.legume}_${iso(new Date(c.date))}`] = Number(c.quantite);
+    return map;
+  };
+
+  // ---------- VUE CONSOMMATION (livraisons + légumes) ----------
   if (vue === "conso") {
-    const parArticle = await chargerLivraisons();
+    const [parArticle, legAchats] = await Promise.all([chargerLivraisons(), inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>())]);
     const rows = [...parArticle.values()].sort((a, b) => a.designation.localeCompare(b.designation));
+    const legRows = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0]));
     const totauxJour = jours.map((_, i) => rows.reduce((t, r) => t + r.jours[i], 0));
     return (
       <div className="space-y-4">
@@ -110,7 +134,17 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
                   <td className="text-right font-semibold">{qte(r.total)}</td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucune livraison enregistrée cette semaine.</td></tr>}
+              {legRows.length > 0 && (
+                <tr><td colSpan={9} className="sticky left-0 !bg-emerald-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-emerald-900">Légumes frais (achats du jour)</td></tr>
+              )}
+              {legRows.map(([nom, r]) => (
+                <tr key={`leg-${nom}`} className="hover:bg-accent/40 even:bg-muted/25">
+                  <td className="sticky left-0 z-10 bg-background font-medium">{nom}</td>
+                  {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
+                  <td className="text-right font-semibold">{qte(r.total)}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && legRows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucune livraison enregistrée cette semaine.</td></tr>}
             </tbody>
             {rows.length > 0 && (
               <tfoot className="sticky bottom-0"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
@@ -143,18 +177,23 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
 
   // ---------- VUE COMMANDE (saisie) ----------
   if (vue === "commande") {
-    const [articles, commandes] = await Promise.all([chargerArticles(), chargerCommandes()]);
+    const [articles, commandes, cmdLeg] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({})]);
+    if (inclureLegumes) articles.push(...LEGUMES.map((l) => ({ id: `legume:${l.nom}`, designation: l.unite ? `${l.nom} (${l.unite})` : l.nom, categorie: "Légumes frais" })));
     return (
       <div className="space-y-4">
         {enTete}
-        <p className="text-xs text-muted-foreground">Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour. Enregistrement automatique.</p>
-        <CommandeGrid articles={articles} jours={joursLabel} commandes={commandes} peutModifier />
+        <p className="text-xs text-muted-foreground">Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</p>
+        <CommandeGrid articles={articles} jours={joursLabel} commandes={{ ...commandes, ...cmdLeg }} peutModifier />
       </div>
     );
   }
 
   // ---------- VUE COMPARAISON (commande vs livraison) ----------
-  const [livrParArticle, commandes, articles] = await Promise.all([chargerLivraisons(), chargerCommandes(), chargerArticles()]);
+  const [livrParArticle, commandes, articles, legAchatsC, cmdLegC] = await Promise.all([
+    chargerLivraisons(), chargerCommandes(), chargerArticles(),
+    inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
+    inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}),
+  ]);
   const nomCat = new Map(articles.map((a) => [a.id, { designation: a.designation, categorie: a.categorie }]));
   // Assemble par article : commande[7] et livraison[7]. On garde les articles ayant au moins une valeur.
   const combine = new Map<string, { designation: string; categorie: string; cmd: number[]; liv: number[] }>();
@@ -165,6 +204,12 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   }
   // Articles livrés mais absents du catalogue filtré (autre domaine) : on les ajoute si pas de filtre.
   if (!domaine) for (const [id, r] of livrParArticle) if (!combine.has(id) && r.total > 0) combine.set(id, { designation: r.designation, categorie: nomCat.get(id)?.categorie ?? "À classer", cmd: Array(7).fill(0), liv: r.jours });
+  // Légumes frais : commande (CommandeLegumeResto) vs achat (AchatLegume).
+  if (inclureLegumes) for (const nom of new Set([...LEGUMES.map((l) => l.nom), ...legAchatsC.keys()])) {
+    const cmd = joursLabel.map((j) => cmdLegC[`legume:${nom}_${j.iso}`] ?? 0);
+    const liv = legAchatsC.get(nom)?.jours ?? Array(7).fill(0);
+    if (cmd.some((v) => v > 0) || liv.some((v) => v > 0)) combine.set(`legume:${nom}`, { designation: nom, categorie: "Légumes frais", cmd, liv });
+  }
   const rows = [...combine.entries()].map(([id, r]) => ({ id, ...r })).sort((a, b) => a.categorie.localeCompare(b.categorie) || a.designation.localeCompare(b.designation));
 
   return (
@@ -196,7 +241,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
                 <Fragment key={r.id}>
                   {nouvelleCat && <tr><td colSpan={joursLabel.length * 2 + 3} className="sticky left-0 !bg-amber-100 !px-3 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{r.categorie}</td></tr>}
                   <tr className="even:bg-muted/25 hover:bg-accent/40">
-                    <td className="sticky left-0 z-10 bg-background px-3 font-medium"><Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link></td>
+                    <td className="sticky left-0 z-10 bg-background px-3 font-medium">{r.id.startsWith("legume:") ? r.designation : <Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link>}</td>
                     {joursLabel.map((j, i) => {
                       const c = r.cmd[i], l = r.liv[i], ecart = c !== l && (c > 0 || l > 0);
                       return (

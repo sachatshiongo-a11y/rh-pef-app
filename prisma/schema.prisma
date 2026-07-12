@@ -353,6 +353,21 @@ model CommandeResto {
   @@schema("stock")
 }
 
+// Commande de légumes frais au restaurant (liste figée, pas des articles du catalogue) : quantité
+// commandée par légume et par jour. Se compare aux achats réels (AchatLegume).
+model CommandeLegumeResto {
+  id        String   @id @default(uuid())
+  legume    String
+  date      DateTime @db.Date
+  quantite  Decimal  @db.Decimal(14, 3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([legume, date])
+  @@index([date])
+  @@schema("stock")
+}
+
 model PlanningCreneau {
   id         String   @id @default(uuid())
   employeeId String

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { lundiDe } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import type { Colonne } from "@/lib/pdf/tableau";
+import { LEGUMES } from "../legumes/legumes-data";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -81,6 +82,18 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   const cmdMap: Record<string, number[]> = {};
   for (const c of cmds) { (cmdMap[c.articleId] ??= Array(7).fill(0))[Math.floor((new Date(c.date).getTime() - lundi.getTime()) / 86_400_000)] += Number(c.quantite); }
 
+  // Légumes frais (cuisine) : commande (CommandeLegumeResto) et achat (AchatLegume).
+  const inclureLeg = domaine !== "BOISSON";
+  const cmdLeg = new Map<string, number[]>(), achatLeg = new Map<string, number[]>();
+  if (inclureLeg) {
+    const [cl, al] = await Promise.all([
+      prisma.commandeLegumeResto.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } }),
+      prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } }),
+    ]);
+    for (const c of cl) { const a = cmdLeg.get(c.legume) ?? Array(7).fill(0); a[Math.floor((new Date(c.date).getTime() - lundi.getTime()) / 86_400_000)] += Number(c.quantite); cmdLeg.set(c.legume, a); }
+    for (const c of al) { const a = achatLeg.get(c.legume) ?? Array(7).fill(0); a[Math.floor((new Date(c.date).getTime() - lundi.getTime()) / 86_400_000)] += Number(c.quantite); achatLeg.set(c.legume, a); }
+  }
+
   // ---------- COMMANDE ----------
   if (vue === "commande") {
     const lignes: (string | number)[][] = [];
@@ -92,6 +105,8 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
       const j = cmdMap[a.id] ?? Array(7).fill(0);
       lignes.push([a.designation, ...j.map(nb), nb(j.reduce((x, y) => x + y, 0))]);
     }
+    const legCmd = LEGUMES.map((l) => ({ nom: l.nom, j: cmdLeg.get(l.nom) ?? Array(7).fill(0) })).filter((x) => x.j.some((v) => v > 0));
+    if (legCmd.length) { sectionRows.push(lignes.length); lignes.push(["Légumes frais"]); for (const x of legCmd) lignes.push([x.nom, ...x.j.map(nb), nb(x.j.reduce((a, b) => a + b, 0))]); }
     return {
       titre: "Commande journalière", sousTitre, fichierBase: `Commande${suffixe}_${iso(lundi)}`,
       entete: ["Article", ...labels, "Total"],
@@ -114,6 +129,20 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
     for (let i = 0; i < 7; i++) { cells.push(nb(cmd[i]), nb(liv[i])); }
     cells.push(nb(cmd.reduce((x, y) => x + y, 0)), nb(liv.reduce((x, y) => x + y, 0)));
     lignes.push(cells);
+  }
+  // Légumes frais : commande vs achat.
+  const legComp = [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])]
+    .map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
+    .filter((x) => x.cmd.some((v) => v > 0) || x.liv.some((v) => v > 0))
+    .sort((a, b) => a.nom.localeCompare(b.nom));
+  if (legComp.length) {
+    sectionRows.push(lignes.length); lignes.push(["Légumes frais"]);
+    for (const x of legComp) {
+      const cells: (string | number)[] = [x.nom];
+      for (let i = 0; i < 7; i++) { cells.push(nb(x.cmd[i]), nb(x.liv[i])); }
+      cells.push(nb(x.cmd.reduce((a, b) => a + b, 0)), nb(x.liv.reduce((a, b) => a + b, 0)));
+      lignes.push(cells);
+    }
   }
   const colonnes: Colonne[] = [{ header: "Article", width: "18%" }];
   const entete: string[] = ["Article"];
