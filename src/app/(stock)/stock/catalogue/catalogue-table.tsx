@@ -22,6 +22,7 @@ export type ArticleRow = {
   quantite: string;
   stockMinimum: string;
   niveau: NiveauAlerte | null;
+  haussePct?: number | null; // % de hausse du dernier prix d'achat vs moyenne précédente (si anormale)
 };
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
@@ -62,6 +63,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
   const [manque, setManque] = useState<ManqueKey>(""); // vue « À compléter »
+  const [hausseSeule, setHausseSeule] = useState(false); // filtre : articles dont le prix d'achat a grimpé
   const [bulkFour, setBulkFour] = useState("");
   const [bulkSeuil, setBulkSeuil] = useState("");
   const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null); // null = groupé par catégorie
@@ -79,9 +81,10 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       (dom === "TOUS" || a.domaine === dom) &&
       (!alerte || a.niveau === alerte) &&
       (!manque || manqueDe(a, manque)) &&
+      (!hausseSeule || a.haussePct != null) &&
       (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)),
     );
-  }, [articles, q, dom, alerte, manque]);
+  }, [articles, q, dom, alerte, manque, hausseSeule]);
 
   // Liste affichée : triée par colonne si un tri est actif, sinon ordre d'origine (groupé par catégorie).
   const affichees = useMemo(() => {
@@ -103,6 +106,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       negatif: base.filter((a) => manqueDe(a, "negatif")).length,
     };
   }, [articles, dom]);
+
+  // Nombre d'articles dont le dernier prix d'achat a grimpé (sur le domaine courant).
+  const compteHausse = useMemo(
+    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && a.haussePct != null).length,
+    [articles, dom],
+  );
 
   // Compteurs d'alerte (sur le domaine courant) pour le bandeau de réapprovisionnement.
   const compte = useMemo(() => {
@@ -151,6 +160,20 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             </button>
           )}
           {alerte && <button onClick={() => setAlerte("")} className="ml-auto text-xs text-muted-foreground underline">Voir tout</button>}
+        </div>
+      )}
+
+      {/* Hausse de prix : articles rachetés nettement plus cher que la moyenne précédente. Clic = filtre. */}
+      {compteHausse > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm">
+          <span className="font-semibold text-red-800">📈 Hausse de prix d&apos;achat</span>
+          <button
+            onClick={() => setHausseSeule((v) => !v)}
+            className={`rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-800 ${hausseSeule ? "ring-2 ring-red-400" : ""}`}
+          >
+            {compteHausse} article{compteHausse > 1 ? "s" : ""}
+          </button>
+          {hausseSeule && <button onClick={() => setHausseSeule(false)} className="ml-auto text-xs text-muted-foreground underline">Voir tout</button>}
         </div>
       )}
 
@@ -398,6 +421,7 @@ const LigneArticle = memo(function LigneArticle({
       <td>
         <div className="flex items-center gap-1">
           <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 flex-1 font-medium`} title="Modifier le nom de l'article" />
+          {a.haussePct != null && <span title={`Dernier prix d'achat +${Math.round(a.haussePct)}% vs moyenne précédente`} className="shrink-0 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">📈+{Math.round(a.haussePct)}%</span>}
           <Link href={`/stock/catalogue/${a.id}`} title="Ouvrir la fiche article (historique, prix)" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche article">↗</Link>
         </div>
       </td>
@@ -451,6 +475,7 @@ const CarteArticle = memo(function CarteArticle({
       <div className="flex items-start gap-2">
         <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="mt-2 shrink-0" aria-label="Sélectionner" />
         <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} flex-1 min-w-0 !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
+        {a.haussePct != null && <span className="mt-1 shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
         <Link href={`/stock/catalogue/${a.id}`} className="mt-1.5 shrink-0 text-primary hover:text-primary/70" title="Fiche article" aria-label="Fiche article">↗</Link>
         {a.niveau && <span className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
       </div>

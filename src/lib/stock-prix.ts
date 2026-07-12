@@ -17,6 +17,29 @@ export type AnalysePrix = {
   hausse: { pct: number; moyenneAnterieure: number; prix: number } | null; // hausse anormale détectée
 };
 
+/** Ligne de facture brute (avec la date de sa facture) telle que lue en base. */
+export type LignePrix = { articleId: string | null; prixUnitaireUSD: unknown; quantite: unknown; facture: { id: string; numero: string | null; date: Date | null } };
+
+/**
+ * Regroupe des lignes de facture par article et renvoie, pour chaque article dont le dernier achat
+ * grimpe anormalement, le pourcentage de hausse. Utilisé par le catalogue pour badger les articles.
+ */
+export function articlesEnHausse(lignes: LignePrix[]): Map<string, number> {
+  const parArticle = new Map<string, PointPrix[]>();
+  for (const l of lignes) {
+    if (!l.articleId || !l.facture.date) continue;
+    const arr = parArticle.get(l.articleId) ?? [];
+    arr.push({ date: l.facture.date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id, numero: l.facture.numero });
+    parArticle.set(l.articleId, arr);
+  }
+  const res = new Map<string, number>();
+  for (const [articleId, pts] of parArticle) {
+    const h = analyserPrix(pts).hausse;
+    if (h) res.set(articleId, h.pct);
+  }
+  return res;
+}
+
 export function analyserPrix(points: PointPrix[]): AnalysePrix {
   const tri = [...points].sort((a, b) => a.date.getTime() - b.date.getTime());
   const vals = tri.map((p) => p.prix);

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte, usd, type NiveauAlerte } from "@/lib/stock";
+import { articlesEnHausse } from "@/lib/stock-prix";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { CatalogueTable, type ArticleRow } from "./catalogue-table";
 import type { Prisma } from "@prisma/client";
@@ -17,11 +18,19 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
   const domFiltre: Domaine | undefined = domaine ?? (sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined);
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
-  const [articles, categories, fournisseurs] = await Promise.all([
+  const [articles, categories, fournisseurs, lignes] = await Promise.all([
     prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    // Historique de prix (lignes de facture datées) pour détecter les hausses, en une requête.
+    prisma.ligneFacture.findMany({
+      where: { article: domFiltre ? { domaine: domFiltre } : {}, facture: { date: { not: null } } },
+      select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
+    }),
   ]);
+
+  // Pour chaque article, un éventuel % de hausse du dernier achat (badge dans le catalogue).
+  const haussePct = articlesEnHausse(lignes);
 
   const rows: ArticleRow[] = articles.map((a) => {
     const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
@@ -38,6 +47,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
       quantite: a.stock ? a.stock.quantite.toString() : "0",
       stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
       niveau,
+      haussePct: haussePct.get(a.id) ?? null,
     };
   });
 
