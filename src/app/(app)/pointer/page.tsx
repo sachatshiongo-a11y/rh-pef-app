@@ -1,14 +1,23 @@
+import Link from "next/link";
 import { verifySession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PointerClient } from "./pointer-client";
 
 export default async function PointerPage() {
   const user = await verifySession();
+  const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const u = await prisma.user.findUnique({ where: { id: user.id }, select: { employeeId: true } });
+
+  const lienSuivi = peutGerer ? (
+    <div className="mx-auto mb-3 max-w-md text-right">
+      <Link href="/pointer/suivi" className="text-sm text-primary underline">Suivi des pointages (Direction) →</Link>
+    </div>
+  ) : null;
 
   if (!u?.employeeId) {
     return (
       <div className="mx-auto max-w-md">
+        {lienSuivi}
         <h1 className="mb-3 text-xl font-semibold sm:text-2xl">Pointer</h1>
         <div className="rounded-2xl border border-dashed bg-card p-6 text-sm text-muted-foreground">
           Votre compte n'est pas encore lié à une fiche employé. Demandez à la Direction de faire le lien
@@ -33,6 +42,9 @@ export default async function PointerPage() {
     : null;
 
   return (
-    <PointerClient nom={emp?.nom ?? "—"} photoUrl={emp?.photoUrl ?? null} dateLabel={dateLabel} pointage={pointage} />
+    <>
+      {lienSuivi}
+      <PointerClient nom={emp?.nom ?? "—"} photoUrl={emp?.photoUrl ?? null} dateLabel={dateLabel} pointage={pointage} />
+    </>
   );
 }
