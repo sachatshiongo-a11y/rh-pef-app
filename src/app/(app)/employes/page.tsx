@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
 import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
+import { chargerParametresPaie } from "@/lib/config";
+import { GrilleTransport } from "@/app/(app)/transport/_grille";
 import type { Employee } from "@prisma/client";
 
 function formatMoney(n: number) {
@@ -13,13 +15,17 @@ function formatMoney(n: number) {
 export default async function EmployesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string }>;
+  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string; vue?: string }>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
+  const vue = sp.vue === "transport" ? "transport" : "rh";
 
-  const tous = await prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } });
+  const [tous, parametres] = await Promise.all([
+    prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
+    vue === "transport" ? chargerParametresPaie() : Promise.resolve(null),
+  ]);
 
   // Options de filtre dérivées de l'ensemble (stables quel que soit le filtre courant).
   const postes = [...new Set(tous.map((e) => e.poste))].sort();
@@ -46,6 +52,14 @@ export default async function EmployesPage({
   if (sp.secteur) qsExport.set("secteur", sp.secteur);
   if (sp.annee) qsExport.set("annee", sp.annee);
   const suffixeExport = qsExport.toString() ? `?${qsExport}` : "";
+  // L'export « Exporter ▾ » cible la vue active (RH ou Transport), en conservant les filtres.
+  const baseExport = vue === "transport" ? "/transport" : "/employes";
+  // Bascule de vue en gardant les filtres.
+  const lienVue = (v: string) => {
+    const p = new URLSearchParams(qsExport);
+    if (v !== "rh") p.set("vue", v);
+    return `/employes${p.toString() ? `?${p}` : ""}`;
+  };
 
   return (
     <div>
@@ -57,7 +71,7 @@ export default async function EmployesPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <BoutonRapport pdfHref={`/employes/pdf${suffixeExport}`} pdfDownload excelHref={`/employes/export${suffixeExport}`} />
+          <BoutonRapport pdfHref={`${baseExport}/pdf${suffixeExport}`} pdfDownload excelHref={`${baseExport}/export${suffixeExport}`} />
           {peutModifier && (
             <Link href="/employes/nouveau" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
               + Nouvel employé
@@ -96,26 +110,39 @@ export default async function EmployesPage({
         <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">
           Filtrer
         </button>
+        {vue === "transport" && <input type="hidden" name="vue" value="transport" />}
         {filtreActif && (
-          <Link href="/employes" className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">
+          <Link href={vue === "transport" ? "/employes?vue=transport" : "/employes"} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">
             Réinitialiser
           </Link>
         )}
       </form>
 
-      <div className="mb-8">
-        <h2 className="mb-3 text-base font-semibold">
-          Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
-        </h2>
-        <EmployeeTable employes={brigade} peutModifier={peutModifier} />
+      {/* Bascule de vue : Fiche RH / Transport (mêmes filtres et recherche partagés). */}
+      <div className="mb-5 flex flex-wrap gap-1.5 text-sm">
+        <Link href={lienVue("rh")} className={`rounded-full border px-3 py-1 ${vue === "rh" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fiche RH</Link>
+        <Link href={lienVue("transport")} className={`rounded-full border px-3 py-1 ${vue === "transport" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Transport</Link>
       </div>
 
-      <div>
-        <h2 className="mb-3 text-base font-semibold">
-          Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span>
-        </h2>
-        <EmployeeTable employes={backoffice} peutModifier={peutModifier} />
-      </div>
+      {vue === "transport" ? (
+        <GrilleTransport employes={employes} jours={parametres!.joursOuvrablesMois} taux={parametres!.tauxChangeCDF} />
+      ) : (
+        <>
+          <div className="mb-8">
+            <h2 className="mb-3 text-base font-semibold">
+              Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
+            </h2>
+            <EmployeeTable employes={brigade} peutModifier={peutModifier} />
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-base font-semibold">
+              Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span>
+            </h2>
+            <EmployeeTable employes={backoffice} peutModifier={peutModifier} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

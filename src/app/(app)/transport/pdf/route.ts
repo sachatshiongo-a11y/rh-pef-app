@@ -4,18 +4,17 @@ import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { lignesTransport, colonnesTransport, cdf, usd } from "../_donnees";
+import { filtrerEmployes } from "../../employes/_donnees";
 
-/** Export PDF de la grille de transport — mêmes colonnes et montants que l'onglet, total en pied. */
-export async function GET() {
+/** Export PDF de la grille de transport — mêmes filtres, colonnes et montants que l'onglet, total en pied. */
+export async function GET(request: Request) {
   await verifySession();
-  const [employes, parametres] = await Promise.all([
-    prisma.employee.findMany({
-      where: { actif: true },
-      orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-      select: { matricule: true, nom: true, poste: true, categorie: true, transportJourCDF: true, transportMoisUSD: true },
-    }),
+  const sp = new URL(request.url).searchParams;
+  const [tous, parametres] = await Promise.all([
+    prisma.employee.findMany({ where: { actif: true }, orderBy: [{ categorie: "asc" }, { nom: "asc" }] }),
     chargerParametresPaie(),
   ]);
+  const employes = filtrerEmployes(tous, sp);
   const jours = parametres.joursOuvrablesMois;
   const taux = parametres.tauxChangeCDF;
   const { items, totalMoisCDF } = lignesTransport(employes, jours, taux);
