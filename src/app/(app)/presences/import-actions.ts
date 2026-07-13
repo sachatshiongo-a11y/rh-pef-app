@@ -8,6 +8,7 @@ import { journaliser } from "@/lib/audit";
 import {
   calculerHeuresDepuisPointages,
   apparierPointages,
+  ajusterHeuresJour,
   type PointageBrut,
   type AnomaliePointage,
 } from "@/lib/pointage";
@@ -117,6 +118,16 @@ export async function importerPointageIVMS(
     where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
     select: { employeeId: true, dateDebut: true, dateFin: true },
   });
+
+  // Shift normal planifié par (employé, jour) → bornes horaires pour ajuster les heures
+  // (pause déjeuner, pas d'heures avant le début du shift, heures supp seulement 1 h après la fin).
+  const creneaux = await prisma.planningCreneau.findMany({
+    where: { date: { gte: debutMois, lte: finMois } },
+    select: { employeeId: true, date: true, shift: { select: { heureDebut: true, heureFin: true } } },
+  });
+  const shiftParJour = new Map<string, { heureDebut: string | null; heureFin: string | null }>();
+  for (const c of creneaux)
+    shiftParJour.set(`${c.employeeId}_${new Date(c.date).toISOString().slice(0, 10)}`, c.shift);
   const estEnConge = (employeeId: string, isoDate: string) => {
     const d = new Date(isoDate + "T00:00:00Z");
     return congesApprouves.some(
@@ -140,11 +151,21 @@ export async function importerPointageIVMS(
       continue;
     }
 
+    // Ajuste selon le shift normal du jour (pause 30 min, pas d'heures avant le début du shift,
+    // heures supp seulement 1 h après la fin). Sans shift planifié : on retire juste la pause.
+    const shift = shiftParJour.get(`${jour.employeeId}_${jour.date}`);
+    const heures = ajusterHeuresJour({
+      premier: jour.premier,
+      dernier: jour.dernier,
+      shiftDebut: shift?.heureDebut,
+      shiftFin: shift?.heureFin,
+    });
+
     // Heures travaillées → OvertimeEntry ; présence P → Attendance (sauf si déjà saisie autrement)
     await prisma.overtimeEntry.upsert({
       where: { employeeId_date: { employeeId: jour.employeeId, date: dObj } },
-      update: { heuresTravaillees: jour.heures },
-      create: { employeeId: jour.employeeId, date: dObj, heuresTravaillees: jour.heures },
+      update: { heuresTravaillees: heures },
+      create: { employeeId: jour.employeeId, date: dObj, heuresTravaillees: heures },
     });
     const presenceExistante = await prisma.attendance.findUnique({
       where: { employeeId_date: { employeeId: jour.employeeId, date: dObj } },

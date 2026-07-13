@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculerHeuresDepuisPointages,
   apparierPointages,
+  ajusterHeuresJour,
   type PointageBrut,
 } from "./pointage";
 
@@ -64,6 +65,40 @@ describe("calculerHeuresDepuisPointages — méthode paires (entrées/sorties)",
       { methode: "PAIRES" }
     );
     expect(r.jours[0].heures).toBe(8); // 4 + 4, pas de pause comptée
+  });
+});
+
+describe("ajusterHeuresJour — pause + shift normal", () => {
+  const D = (iso: string) => new Date(iso);
+  const shift = { shiftDebut: "08:00", shiftFin: "17:00" }; // journée 9 h
+
+  it("sans shift : retire seulement la pause de 30 min", () => {
+    // 08:00 → 17:00 = 9 h ; − 0,5 = 8,5
+    expect(ajusterHeuresJour({ premier: D("2026-06-01T08:00:00Z"), dernier: D("2026-06-01T17:00:00Z") })).toBe(8.5);
+  });
+
+  it("journée pile dans le shift : 9 h − 0,5 pause = 8,5", () => {
+    expect(ajusterHeuresJour({ premier: D("2026-06-01T08:00:00Z"), dernier: D("2026-06-01T17:00:00Z"), ...shift })).toBe(8.5);
+  });
+
+  it("arrivée en avance : les minutes avant le début du shift ne comptent pas", () => {
+    // badge 07:30 mais shift à 08:00 → compté depuis 08:00 : 9 h − 0,5 = 8,5
+    expect(ajusterHeuresJour({ premier: D("2026-06-01T07:30:00Z"), dernier: D("2026-06-01T17:00:00Z"), ...shift })).toBe(8.5);
+  });
+
+  it("départ dans l'heure de tolérance : aucune heure supp créditée", () => {
+    // parti 17:45 (< fin+1h) → traité comme 17:00 : 8,5
+    expect(ajusterHeuresJour({ premier: D("2026-06-01T08:00:00Z"), dernier: D("2026-06-01T17:45:00Z"), ...shift })).toBe(8.5);
+  });
+
+  it("heures supp seulement au-delà de fin+1h", () => {
+    // parti 19:00 : fin 17:00, tolérance jusqu'à 18:00, +1 h supp → 9 + 1 − 0,5 = 9,5
+    expect(ajusterHeuresJour({ premier: D("2026-06-01T08:00:00Z"), dernier: D("2026-06-01T19:00:00Z"), ...shift })).toBe(9.5);
+  });
+
+  it("départ anticipé : les heures réelles (moindres) sont conservées", () => {
+    // parti 12:00 : 4 h − 0,5 = 3,5
+    expect(ajusterHeuresJour({ premier: D("2026-06-01T08:00:00Z"), dernier: D("2026-06-01T12:00:00Z"), ...shift })).toBe(3.5);
   });
 });
 
