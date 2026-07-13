@@ -27,6 +27,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const f = sp.statut;
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";
   const vue = sp.vue === "fournisseur" ? "fournisseur" : sp.vue === "echeancier" ? "echeancier" : "detail";
+  // Arrivée depuis le tableau de bord (filtre « à payer » ou « échues ») → accordéons déroulés d'emblée.
+  const ouvertParDefaut = f === "du" || f === "A_REGLER" || f === "ECHUE_NON_REGLEE";
   const where: Prisma.FactureFournisseurWhereInput =
     f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
       : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {};
@@ -239,8 +241,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
           {tri === "mois"
-            ? <FacturesUI annees={annees} estDirection={estDirection} />
-            : <FacturesUI groupes={groupes} estDirection={estDirection} />}
+            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} />
+            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} />}
         </>
       )}
     </div>
