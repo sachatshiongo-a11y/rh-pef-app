@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { Avatar } from "@/components/avatar";
+import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
 
 const cdf = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} CDF`;
 const usd = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -58,9 +59,12 @@ export default async function TransportPage() {
             Prime de transport par employé. « Mois complet » = base {jours} jours ouvrables (brigade) ou forfait mensuel (back-office).
           </p>
         </div>
-        <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-          Taux : 1&nbsp;$ = {taux.toLocaleString("fr-FR")} CDF · {jours} j ouvrables
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+            Taux : 1&nbsp;$ = {taux.toLocaleString("fr-FR")} CDF · {jours} j ouvrables
+          </span>
+          <BoutonRapport pdfHref="/transport/pdf" pdfDownload excelHref="/transport/export" />
+        </div>
       </div>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">

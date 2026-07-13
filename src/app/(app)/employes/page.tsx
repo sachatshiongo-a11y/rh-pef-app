@@ -3,6 +3,7 @@ import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
+import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
 import type { Employee } from "@prisma/client";
 
 function formatMoney(n: number) {
@@ -38,6 +39,14 @@ export default async function EmployesPage({
   const backoffice = employes.filter((e) => e.categorie === "BACKOFFICE");
   const filtreActif = !!(sp.poste || sp.secteur || sp.annee || q);
 
+  // Exports : on transmet les filtres courants pour que le fichier reflète ce qui est affiché.
+  const qsExport = new URLSearchParams();
+  if (sp.q) qsExport.set("q", sp.q);
+  if (sp.poste) qsExport.set("poste", sp.poste);
+  if (sp.secteur) qsExport.set("secteur", sp.secteur);
+  if (sp.annee) qsExport.set("annee", sp.annee);
+  const suffixeExport = qsExport.toString() ? `?${qsExport}` : "";
+
   return (
     <div>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -47,11 +56,14 @@ export default async function EmployesPage({
             {employes.length} affiché(s){filtreActif ? ` sur ${tous.length}` : " actif(s)"}
           </p>
         </div>
-        {peutModifier && (
-          <Link href="/employes/nouveau" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-            + Nouvel employé
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <BoutonRapport pdfHref={`/employes/pdf${suffixeExport}`} pdfDownload excelHref={`/employes/export${suffixeExport}`} />
+          {peutModifier && (
+            <Link href="/employes/nouveau" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              + Nouvel employé
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Filtres */}
