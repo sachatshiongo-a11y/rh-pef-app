@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { demanderConge, approuverConge, refuserConge, reinitialiserConges } from "./actions";
+import { demanderConge, approuverConge, refuserConge, supprimerConge, reinitialiserConges } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
@@ -271,6 +271,16 @@ export default async function CongesPage({
                     </>
                   )}
                   <TelechargerLien href={`/conges/demande/${d.id}`} className="text-sm text-primary underline">PDF</TelechargerLien>
+                  {peutApprouver && (
+                    <form action={supprimerConge.bind(null, d.id)} className="inline">
+                      <ConfirmSubmitButton
+                        message={d.statut === "APPROUVE" ? "Supprimer ce congé approuvé ? Ses codes seront retirés de la feuille de présence." : "Supprimer cette demande de congé ?"}
+                        className="rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                      >
+                        ✕
+                      </ConfirmSubmitButton>
+                    </form>
+                  )}
                 </div>
               </div>
             );
