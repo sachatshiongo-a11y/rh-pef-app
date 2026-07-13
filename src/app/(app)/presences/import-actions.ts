@@ -19,6 +19,7 @@ export type ResultatImport = {
   nbLignes?: number;
   nbAppliques?: number;
   nbIgnoresConge?: number;
+  nbHorsMois?: number;
   anomalies?: AnomaliePointage[];
 };
 
@@ -46,6 +47,15 @@ export async function importerPointageIVMS(
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const mois = config.moisCourant;
   const annee = config.anneeCourante;
+
+  // Garde : une paie VALIDÉE fige le mois — l'import est refusé pour ne pas désynchroniser les bulletins.
+  const run = await prisma.payrollRun.findUnique({ where: { mois_annee: { mois, annee } }, select: { statut: true } });
+  if (run?.statut === "VALIDE") {
+    return {
+      ok: false,
+      message: `La paie de ${String(mois).padStart(2, "0")}/${annee} est déjà validée (figée). Rouvrez-la avant d'importer un pointage, sinon les bulletins ne correspondraient plus.`,
+    };
+  }
 
   // Lecture du classeur
   let lignes: Record<string, unknown>[];
@@ -128,6 +138,10 @@ export async function importerPointageIVMS(
   const shiftParJour = new Map<string, { heureDebut: string | null; heureFin: string | null }>();
   for (const c of creneaux)
     shiftParJour.set(`${c.employeeId}_${new Date(c.date).toISOString().slice(0, 10)}`, c.shift);
+
+  // Jours fériés : un jour férié travaillé est codé « F » (payé 100%), pas « P ».
+  const feriesRows = await prisma.jourFerie.findMany({ select: { date: true } });
+  const feriesSet = new Set(feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10)));
   const estEnConge = (employeeId: string, isoDate: string) => {
     const d = new Date(isoDate + "T00:00:00Z");
     return congesApprouves.some(
@@ -140,11 +154,15 @@ export async function importerPointageIVMS(
 
   let nbAppliques = 0;
   let nbIgnoresConge = 0;
+  let nbHorsMois = 0;
 
   for (const jour of apparies) {
     // On n'importe que les jours du mois courant en cours de traitement
     const dObj = new Date(jour.date + "T00:00:00Z");
-    if (dObj < debutMois || dObj > finMois) continue;
+    if (dObj < debutMois || dObj > finMois) {
+      nbHorsMois++;
+      continue;
+    }
 
     if (estEnConge(jour.employeeId, jour.date)) {
       nbIgnoresConge++;
@@ -172,7 +190,7 @@ export async function importerPointageIVMS(
     });
     if (!presenceExistante) {
       await prisma.attendance.create({
-        data: { employeeId: jour.employeeId, date: dObj, code: "P" },
+        data: { employeeId: jour.employeeId, date: dObj, code: feriesSet.has(jour.date) ? "F" : "P" },
       });
     }
     nbAppliques++;
@@ -203,10 +221,11 @@ export async function importerPointageIVMS(
 
   return {
     ok: true,
-    message: `Import terminé : ${nbAppliques} jour(s) appliqué(s), ${nbIgnoresConge} ignoré(s) pour congé, ${anomalies.length} anomalie(s).`,
+    message: `Import terminé : ${nbAppliques} jour(s) appliqué(s), ${nbIgnoresConge} ignoré(s) pour congé${nbHorsMois > 0 ? `, ${nbHorsMois} hors du mois courant (${String(mois).padStart(2, "0")}/${annee})` : ""}, ${anomalies.length} anomalie(s).`,
     nbLignes: pointages.length,
     nbAppliques,
     nbIgnoresConge,
+    nbHorsMois,
     anomalies,
   };
 }
