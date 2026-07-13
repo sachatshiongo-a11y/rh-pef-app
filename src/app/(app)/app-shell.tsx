@@ -26,6 +26,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Temps de travail",
     items: [
+      { href: "/pointer", label: "Pointer", icone: "horloge" },
       { href: "/planning", label: "Planning", icone: "calendrier" },
       { href: "/presences", label: "Présences", icone: "presence" },
       { href: "/heures-supp", label: "Heures supp.", icone: "horloge" },

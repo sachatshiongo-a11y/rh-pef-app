@@ -225,6 +225,7 @@ model Employee {
 
   attendances          Attendance[]
   overtimeEntries      OvertimeEntry[]
+  pointages            Pointage[]
   payrollLines         PayrollLine[]
   leaveRequests        LeaveRequest[]
   remplaceDans         LeaveRequest[]         @relation("Remplacant")
@@ -531,7 +532,29 @@ enum SourcePointage {
   MANUEL
   IVMS_RAPPORT
   IVMS_API
+  APP // pointage self-service depuis l'application (l'employé pointe lui-même)
 
+  @@schema("public")
+}
+
+/// Pointage interne (self-service) : un enregistrement par employé et par jour. L'arrivée et le
+/// départ sont horodatés par l'app ; la pause est saisie par l'employé. À la clôture (départ), les
+/// heures nettes alimentent OvertimeEntry + Attendance, comme l'import IVMS.
+model Pointage {
+  id           String         @id @default(uuid())
+  employeeId   String
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         DateTime       @db.Date
+  heureDebut   DateTime // arrivée (horodatée par l'app)
+  heureFin     DateTime? // départ ; null = pointage en cours
+  pauseMinutes Int            @default(0) // pause saisie par l'employé
+  source       SourcePointage @default(APP)
+  creeParId    String? // compte ayant saisi (l'employé lui-même, ou la Direction en manuel)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
   @@schema("public")
 }
 
