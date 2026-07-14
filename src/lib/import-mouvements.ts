@@ -78,11 +78,25 @@ export async function analyserMouvements(texte: string): Promise<PreviewMouvemen
 /**
  * Applique l'import : crée les mouvements (ENTREE/SORTIE), ajuste le stock et enregistre un
  * ImportBatch réversible. `dateDefaut` (AAAA-MM-JJ) sert aux lignes sans date. Direction.
+ * `lignesChoisies` (optionnel) : numéros de lignes CSV sélectionnées dans l'aperçu — seules
+ * celles-ci sont importées (période / cases décochées côté client) ; absent = tout le fichier.
  */
-export async function appliquerMouvements(texte: string, libelle: string, dateDefaut: string, userId: string | null): Promise<{ batchId: string; resume: PreviewMouvements["resume"] }> {
+export async function appliquerMouvements(texte: string, libelle: string, dateDefaut: string, userId: string | null, lignesChoisies?: number[]): Promise<{ batchId: string; resume: PreviewMouvements["resume"] }> {
   const preview = await analyserMouvements(texte);
-  const aInserer = preview.lignes.filter((p) => p.articleId);
+  const choisies = lignesChoisies ? new Set(lignesChoisies) : null;
+  const aInserer = preview.lignes.filter((p) => p.articleId && (!choisies || choisies.has(p.ligne)));
   if (aInserer.length === 0) throw new Error("Aucune ligne rapprochée à un article : rien à importer.");
+
+  // Le résumé archivé reflète ce qui est RÉELLEMENT importé (sélection), pas tout le fichier.
+  const resumeApplique: PreviewMouvements["resume"] = {
+    total: preview.resume.total,
+    rapprochees: aInserer.length,
+    inconnues: preview.resume.inconnues,
+    entreesQte: Math.round(aInserer.reduce((t, p) => t + p.entree, 0) * 1000) / 1000,
+    sortiesQte: Math.round(aInserer.reduce((t, p) => t + p.sortie, 0) * 1000) / 1000,
+    articles: new Set(aInserer.map((p) => p.articleId)).size,
+    sansDate: aInserer.filter((p) => !p.date).length,
+  };
 
   const dateDe = (p: MouvementPreview) => new Date(`${p.date ?? dateDefaut}T00:00:00.000Z`);
   // Refuse toute écriture dans un mois clôturé.
@@ -123,9 +137,9 @@ export async function appliquerMouvements(texte: string, libelle: string, dateDe
       await tx.stock.upsert({ where: { articleId }, update: { quantite: { increment: delta } }, create: { articleId, quantite: delta } });
     }
 
-    await tx.importBatch.update({ where: { id: batch.id }, data: { resume: preview.resume } });
+    await tx.importBatch.update({ where: { id: batch.id }, data: { resume: resumeApplique } });
     await tx.importOperation.createMany({ data: ops });
-    return { batchId: batch.id, resume: preview.resume };
+    return { batchId: batch.id, resume: resumeApplique };
   }, { timeout: 120000 });
 
   return res;

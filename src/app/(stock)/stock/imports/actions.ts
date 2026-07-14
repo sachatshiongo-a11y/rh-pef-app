@@ -63,14 +63,26 @@ export async function analyserMouvementsAction(formData: FormData): Promise<Prev
   return analyserMouvements(await file.text());
 }
 
-/** Applique l'import de mouvements (crée les mouvements, ajuste le stock) — réversible. */
+/** Applique l'import de mouvements (crée les mouvements, ajuste le stock) — réversible.
+ * `lignes` (JSON de numéros de lignes CSV, optionnel) : seules ces lignes de l'aperçu sont
+ * importées (sélection par cases + période côté client). */
 export async function appliquerMouvementsAction(formData: FormData): Promise<{ batchId: string; resume: PreviewMouvements["resume"] }> {
   const user = await gardeDirection();
   const file = formData.get("fichier");
   if (!(file instanceof File) || file.size === 0) throw new Error("Fichier manquant.");
   const libelle = String(formData.get("libelle") ?? "").trim() || `Mouvements ${new Date().toLocaleDateString("fr-FR")}`;
   const dateDefaut = String(formData.get("dateDefaut") ?? "").trim() || AUJ();
-  const res = await appliquerMouvements(await file.text(), libelle, dateDefaut, user.id);
+  let lignesChoisies: number[] | undefined;
+  const brut = String(formData.get("lignes") ?? "").trim();
+  if (brut) {
+    try {
+      const arr: unknown = JSON.parse(brut);
+      if (Array.isArray(arr)) lignesChoisies = arr.filter((n): n is number => Number.isInteger(n));
+    } catch {
+      /* sélection illisible → import complet (comportement historique) */
+    }
+  }
+  const res = await appliquerMouvements(await file.text(), libelle, dateDefaut, user.id, lignesChoisies);
   revalidatePath("/stock/imports");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue", "layout");
