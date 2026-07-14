@@ -3,22 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
-
-/** Supprime TOUTES les fiches de comptage archivées (Direction uniquement). Sans impact stock. */
-export async function supprimerTousComptages() {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-  const { count } = await prisma.sessionComptage.deleteMany({});
-  await journaliser(prisma, { entite: "SessionComptage", entiteId: "tous", champ: "suppression groupée", nouvelleValeur: `${count} comptage(s)`, userId: user.id });
-  revalidatePath("/stock/reconciliation");
-  revalidatePath("/stock/archives");
-}
 
 const num = (s: string) => Number(String(s).replace(",", ".").trim());
 

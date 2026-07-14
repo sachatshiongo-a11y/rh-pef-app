@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { demanderConge, approuverConge, refuserConge, supprimerConge, reinitialiserConges } from "./actions";
+import { demanderConge, approuverConge, refuserConge, supprimerConge } from "./actions";
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -72,16 +72,6 @@ export default async function CongesPage({
             <Link href="/conges?vue=calendrier" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
           </div>
         </div>
-        {peutApprouver && demandes.length > 0 && (
-          <form action={reinitialiserConges}>
-            <ConfirmSubmitButton
-              message="Supprimer TOUTES les demandes de congé (journal complet) ? Cette action est irréversible."
-              className="rounded-md border border-destructive px-4 py-2 text-sm font-medium text-destructive"
-            >
-              Réinitialiser les congés
-            </ConfirmSubmitButton>
-          </form>
-        )}
       </div>
 
       {/* Synthèse façon Factorial */}

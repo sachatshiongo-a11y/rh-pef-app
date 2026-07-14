@@ -2,26 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
-
-/** Supprime TOUTES les entrées de la liste d'achat (ENTREE hors facture) et annule leur effet sur le stock. */
-export async function supprimerToutesEntreesAchat() {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-  const mvts = await prisma.mouvementStock.findMany({ where: { type: "ENTREE", factureId: null }, select: { id: true, articleId: true, quantite: true } });
-  await prisma.$transaction(async (tx) => {
-    for (const m of mvts) await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: Number(m.quantite) } } });
-    await tx.mouvementStock.deleteMany({ where: { id: { in: mvts.map((m) => m.id) } } });
-  });
-  await journaliser(prisma, { entite: "MouvementStock", entiteId: "liste d'achat", champ: "suppression groupée", nouvelleValeur: `${mvts.length} entrée(s)`, userId: user.id });
-  revalidatePath("/stock/entree");
-  revalidatePath("/stock/mouvements");
-  revalidatePath("/stock/catalogue");
-  revalidatePath("/stock");
-}
 
 const dec = (v: FormDataEntryValue): number => {
   const n = Number(String(v ?? "").replace(",", ".").trim());

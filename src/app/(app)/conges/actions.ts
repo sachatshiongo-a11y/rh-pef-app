@@ -198,23 +198,3 @@ export async function refuserCongesEnLot(ids: string[]): Promise<number> {
   revaliderConges();
   return n;
 }
-
-/** Supprime toutes les demandes de congé (journal complet). Action destructive réservée à l'Admin. */
-export async function reinitialiserConges() {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
-
-  const nb = await prisma.leaveRequest.count();
-  await prisma.$transaction(async (tx) => {
-    await tx.leaveRequest.deleteMany({});
-    await journaliser(tx, {
-      entite: "LeaveRequest",
-      entiteId: "*",
-      champ: "suppression_totale",
-      ancienneValeur: `${nb} demande(s) supprimée(s)`,
-      userId: user.id,
-    });
-  });
-
-  revaliderConges();
-}
