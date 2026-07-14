@@ -115,14 +115,13 @@ export default async function PresencesPage() {
             heures sont payées double.
           </p>
         </div>
-        <div className="flex gap-2">
-          <a href="/presences/export" className="whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent">
-            Excel présences
-          </a>
-          <a href="/heures-supp/export" className="whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent">
-            Excel heures
-          </a>
-        </div>
+        <a
+          href="/presences/export"
+          className="whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+          title="Un seul classeur : Présences, Heures par jour, Détail hebdomadaire"
+        >
+          Exporter Excel
+        </a>
       </div>
 
       {peutModifier && <ImportPointage />}
