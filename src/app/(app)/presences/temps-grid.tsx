@@ -282,7 +282,7 @@ export function TempsGrid({
           });
       }
       if (nbIgnores > 0)
-        setNote(`${nbIgnores} case(s) ignorée(s) : congé approuvé ce jour-là, ou congé (C/S) sur un dimanche/férié.`);
+        setNote(`${nbIgnores} case(s) ignorée(s) : congé approuvé, jour de repos selon le modèle hebdo, ou congé (C/S) sur un dimanche/férié. La saisie case par case reste possible pour un travail exceptionnel.`);
     });
   }
 

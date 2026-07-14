@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
-import { joursEnConge } from "@/lib/conges-couverture";
+import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 
 // Un congé (C ou S) ne se pose JAMAIS sur un dimanche ou un jour férié : ces jours ne sont pas
 // décomptés des congés (même règle que calculerJoursOuvrables). Garde partagée unitaire/lot.
@@ -90,6 +90,8 @@ export async function saisirPresence(employeeId: string, date: string, code: Att
 
 /** Saisie en lot (collage / actions groupées). Sont ignorés et renvoyés à l'appelant :
  *  - « P » sur un jour couvert par un congé APPROUVÉ ;
+ *  - « P » sur un jour de REPOS selon le modèle hebdo (ex. le samedi d'Aimée — la saisie
+ *    unitaire reste libre pour un travail exceptionnel) ;
  *  - « C »/« S » sur un dimanche ou un jour férié (jamais décomptés des congés). */
 export async function saisirPresencesEnLot(
   entrees: { employeeId: string; date: string; code: AttendanceCode | "" }[]
@@ -97,10 +99,15 @@ export async function saisirPresencesEnLot(
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const [enConge, feries] = await Promise.all([joursEnConge(entrees), feriesDans(entrees.map((e) => e.date))]);
+  const [enConge, feries, repos] = await Promise.all([
+    joursEnConge(entrees),
+    feriesDans(entrees.map((e) => e.date)),
+    joursDeReposSelonModele(entrees),
+  ]);
   const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, code } of entrees) {
     if (code === "P" && enConge.has(`${employeeId}|${date}`)) { ignores.push({ employeeId, date }); continue; }
+    if (code === "P" && repos.has(`${employeeId}|${date}`)) { ignores.push({ employeeId, date }); continue; }
     if (code !== "" && estConge(code) && (estDimancheIso(date) || feries.has(date))) { ignores.push({ employeeId, date }); continue; }
     await appliquerPresence(employeeId, date, code);
   }
