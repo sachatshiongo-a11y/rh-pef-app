@@ -9,13 +9,14 @@ import { PaieBulk, type PaieRow } from "./paie-bulk";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
+import { HistoriquePaie, type SPHistorique } from "./historique-paie";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 
 export default async function PaiePage({
   searchParams,
 }: {
-  searchParams: Promise<{ vue?: string; erreur?: string; msg?: string }>;
+  searchParams: Promise<{ vue?: string; erreur?: string; msg?: string } & SPHistorique>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
@@ -154,6 +155,7 @@ export default async function PaiePage({
     { cle: "bulletins", label: "Valider les bulletins" },
     { cle: "remuneration", label: "Éléments de la paie" },
     { cle: "contrats", label: `Suivi des contrats (${contratRows.length})` },
+    { cle: "historique", label: "Historique" },
   ];
 
   // Frise chronologique jusqu'au jour de paie (le 30), couleur selon la proximité.
@@ -337,6 +339,9 @@ export default async function PaiePage({
       )}
 
       {vue === "remuneration" && <RemunerationElements lignes={remuLignes} />}
+
+      {/* Historique de tous les mois de paie (fusion de l'ancien onglet /historique). */}
+      {vue === "historique" && <HistoriquePaie sp={sp} />}
 
       {vue === "contrats" && (
         <SuiviContrats contrats={contratRows} peutGerer={peutGerer} estAdmin={estAdmin} />

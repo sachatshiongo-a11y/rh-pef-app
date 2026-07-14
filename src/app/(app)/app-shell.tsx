@@ -36,7 +36,6 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     titre: "Finances & archives",
     items: [
       { href: "/declarations", label: "Déclarations", icone: "recu" },
-      { href: "/historique", label: "Historique de paie", icone: "graphique" },
       { href: "/documents", label: "Documents", icone: "dossier" },
     ],
   },

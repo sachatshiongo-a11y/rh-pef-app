@@ -29,7 +29,7 @@ export default async function HistoriqueDetailPage({
 
   return (
     <div>
-      <Link href="/historique" className="text-sm text-primary underline">
+      <Link href="/paie?vue=historique" className="text-sm text-primary underline">
         ← Retour à l&apos;historique
       </Link>
       <h1 className="mt-2 mb-6 text-xl font-semibold sm:text-2xl capitalize">Paie — {periode}</h1>
