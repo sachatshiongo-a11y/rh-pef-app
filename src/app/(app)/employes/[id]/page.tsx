@@ -15,8 +15,10 @@ import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajoute
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
-import { HorairesModele } from "./horaires-modele";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { lundiDe } from "@/lib/dates-fr";
+import { dureeShift, libelleShift } from "../../planning/creneaux";
+import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 
 function formatMoney(n: number) {
@@ -100,21 +102,57 @@ export default async function FicheEmployePage({
     }),
   ]);
 
-  const [primes, acomptes, fraisMed, modeleEntries, shiftsPlanning] = await Promise.all([
+  // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
+  const kinshasa = new Date(Date.now() + 3_600_000);
+  const lundiSemaine = lundiDe(kinshasa);
+  const dimancheSemaine = new Date(lundiSemaine);
+  dimancheSemaine.setUTCDate(dimancheSemaine.getUTCDate() + 6);
+
+  const [primes, acomptes, fraisMed, creneauxSemaine, heuresSemaine, presencesSemaine] = await Promise.all([
     prisma.prime.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.acompteSalaire.findMany({ where: { employeeId: id }, orderBy: { dateDemande: "desc" }, take: 30 }),
     prisma.fraisMedical.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
-    prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true, semaine: true, shiftId: true } }),
-    prisma.shift.findMany({ where: { actif: true }, select: { id: true, nom: true, heureDebut: true, heureFin: true, dureeHeures: true } }),
+    prisma.planningCreneau.findMany({
+      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+      select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
+    }),
+    prisma.overtimeEntry.findMany({
+      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+      select: { date: true, heuresTravaillees: true },
+    }),
+    prisma.attendance.findMany({
+      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+      select: { date: true, code: true },
+    }),
   ]);
-  // Horaire réel = shifts du modèle hebdo (durées converties depuis Decimal).
-  const shiftsHoraire = shiftsPlanning.map((s) => ({
-    id: s.id,
-    nom: s.nom,
-    heureDebut: s.heureDebut,
-    heureFin: s.heureFin,
-    dureeHeures: s.dureeHeures != null ? Number(s.dureeHeures) : null,
-  }));
+
+  // Les 7 jours de la semaine : shift planifié (Planning) vs heures réellement travaillées
+  // (Présences & heures) — le « réel » vient des saisies/pointages, pas d'un modèle théorique.
+  const isoDe = (d: Date) => d.toISOString().slice(0, 10);
+  const creneauParJour = new Map(creneauxSemaine.map((c) => [isoDe(new Date(c.date)), c.shift]));
+  const heuresParJour = new Map(heuresSemaine.map((h) => [isoDe(new Date(h.date)), Number(h.heuresTravaillees)]));
+  const codeParJour = new Map(presencesSemaine.map((p) => [isoDe(new Date(p.date)), p.code]));
+  const isoAujourdHui = isoDe(new Date(Date.UTC(kinshasa.getUTCFullYear(), kinshasa.getUTCMonth(), kinshasa.getUTCDate())));
+  const joursSemaine = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(lundiSemaine);
+    d.setUTCDate(d.getUTCDate() + i);
+    const iso = isoDe(d);
+    const shift = creneauParJour.get(iso);
+    return {
+      iso,
+      estAujourdHui: iso === isoAujourdHui,
+      label: d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", timeZone: "UTC" }),
+      prevu: shift ? libelleShift(shift.nom, shift.heureDebut, shift.heureFin) : null,
+      prevuHeures: shift
+        ? dureeShift({ heureDebut: shift.heureDebut, heureFin: shift.heureFin, dureeHeures: shift.dureeHeures != null ? Number(shift.dureeHeures) : null })
+        : 0,
+      realise: heuresParJour.get(iso) ?? null,
+      code: codeParJour.get(iso) ?? null,
+    };
+  });
+  const totalPrevuSemaine = Math.round(joursSemaine.reduce((a, j) => a + j.prevuHeures, 0) * 100) / 100;
+  const totalRealiseSemaine = Math.round(joursSemaine.reduce((a, j) => a + (j.realise ?? 0), 0) * 100) / 100;
+  const labelSemaine = `${lundiSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })} → ${dimancheSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })}`;
   const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
   const finContrats =
     tab === "fin"
@@ -365,14 +403,53 @@ export default async function FicheEmployePage({
         </dl>
       </Section>
 
-      {/* Horaire réel (jours et durées variables) reconstitué depuis le modèle hebdomadaire */}
-      <Section title="Horaire de travail réel">
+      {/* Semaine en cours : planning prévu (Planning) vs heures réellement travaillées (Présences & heures). */}
+      <Section title={`Cette semaine — planning et heures réelles (${labelSemaine})`}>
         <p className="mb-3 text-xs text-muted-foreground">
-          Reconstitué depuis le <span className="font-medium">modèle hebdomadaire</span> (Planning → Modèle hebdo).
-          Reflète les jours réellement travaillés et les horaires variables. Le « seuil heures supp. » ci-dessus
-          est une valeur distincte, utilisée uniquement pour déclencher les heures supplémentaires.
+          <span className="font-medium">Planifié</span> = le planning de la semaine ·{" "}
+          <span className="font-medium">Réalisé</span> = les heures réellement saisies/pointées.
+          L&apos;horaire type se règle dans <Link href="/planning?vue=modele" className="text-primary underline">Planning → Modèle hebdo</Link>.
         </p>
-        <HorairesModele entries={modeleEntries} shifts={shiftsHoraire} />
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full min-w-[30rem] text-sm">
+            <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
+                <th>Jour</th><th>Planifié</th><th className="text-right">Prévu</th><th className="text-right">Réalisé</th><th>Présence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {joursSemaine.map((j) => (
+                <tr key={j.iso} className={`border-t ${j.estAujourdHui ? "bg-primary/5 font-medium" : ""}`}>
+                  <td className="px-3 py-1.5 capitalize">{j.label}{j.estAujourdHui ? " ·" : ""}</td>
+                  <td className="px-3 py-1.5">{j.prevu ?? <span className="text-muted-foreground">Repos</span>}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{j.prevuHeures > 0 ? `${j.prevuHeures} h` : "—"}</td>
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                    {j.realise !== null && j.realise > 0 ? `${j.realise.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—"}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {j.code ? (
+                      <span className={`rounded-md px-1.5 py-0.5 text-xs font-semibold ${COULEUR_CODE[j.code as CodePresence] ?? ""}`}>{j.code}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t bg-muted/40 font-medium">
+                <td className="px-3 py-1.5" colSpan={2}>Total semaine</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{totalPrevuSemaine > 0 ? `${totalPrevuSemaine} h` : "—"}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{totalRealiseSemaine > 0 ? `${totalRealiseSemaine} h` : "—"}</td>
+                <td className="px-3 py-1.5" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p className="mt-2 flex gap-4 text-xs">
+          <Link href="/planning" className="text-primary underline">Voir le planning →</Link>
+          <Link href="/presences" className="text-primary underline">Voir présences &amp; heures →</Link>
+        </p>
       </Section>
 
       {/* Détails salariaux */}
