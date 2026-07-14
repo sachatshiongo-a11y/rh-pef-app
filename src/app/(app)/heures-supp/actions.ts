@@ -25,6 +25,7 @@ export async function saisirHeures(employeeId: string, date: string, heures: str
 
   await appliquerHeures(employeeId, date, heures);
 
+  revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
 }
@@ -45,6 +46,7 @@ export async function saisirHeuresEnLot(
     await appliquerHeures(employeeId, date, heures);
   }
 
+  revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
   return { ignores };

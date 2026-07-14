@@ -28,8 +28,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     items: [
       { href: "/pointer", label: "Pointer", icone: "horloge" },
       { href: "/planning", label: "Planning", icone: "calendrier" },
-      { href: "/presences", label: "Présences", icone: "presence" },
-      { href: "/heures-supp", label: "Heures supp.", icone: "horloge" },
+      { href: "/presences", label: "Présences & heures", icone: "presence" },
       { href: "/conges", label: "Congés & absences", icone: "parasol" },
     ],
   },
