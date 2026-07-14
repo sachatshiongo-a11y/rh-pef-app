@@ -19,7 +19,7 @@ export async function calculerPaieDuMois() {
   await rafraichirPaieDuMois({ creerRun: true, userId: user.id });
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
   revalidatePath("/employes");
 }
 
@@ -133,7 +133,7 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   if (!ok) throw new Error(`Transition non autorisée vers ${versStatut}.`);
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
   revalidatePath("/a-valider");
 }
 
@@ -156,7 +156,7 @@ export async function changerStatutEnLot(
   }
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
   revalidatePath("/a-valider");
   return modifiees;
 }
@@ -191,7 +191,7 @@ export async function cloturerPaie(): Promise<void> {
 
   revalidatePath("/paie");
   revalidatePath("/a-valider");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
 }
 
 /**
@@ -232,7 +232,6 @@ export async function reinitialiserPaieDuMois() {
   });
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
-  revalidatePath("/historique");
+  revalidatePath("/accueil");
   redirect(`/paie?msg=${encodeURIComponent("Paie du mois réinitialisée.")}`);
 }

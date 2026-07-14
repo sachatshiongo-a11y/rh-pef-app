@@ -20,7 +20,7 @@ export async function mettreAJourConfig(formData: FormData) {
   });
 
   revalidatePath("/parametres");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
 }
 
 /**

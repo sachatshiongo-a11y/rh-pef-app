@@ -154,7 +154,7 @@ export default async function PresencesPage() {
         </div>
 
         <div>
-          <h2 className="mb-3 text-base font-semibold">Backoffice</h2>
+          <h2 className="mb-3 text-base font-semibold">Back-office</h2>
           <TempsGrid
             employees={backoffice}
             days={days}

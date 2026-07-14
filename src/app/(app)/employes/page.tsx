@@ -6,6 +6,7 @@ import { Avatar } from "@/components/avatar";
 import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
 import { chargerParametresPaie } from "@/lib/config";
 import { GrilleTransport } from "@/app/(app)/transport/_grille";
+import { filtrerEmployes } from "./_donnees";
 import type { Employee } from "@prisma/client";
 
 function formatMoney(n: number) {
@@ -32,26 +33,19 @@ export default async function EmployesPage({
   const secteurs = [...new Set(tous.map((e) => e.secteur))].sort();
   const annees = [...new Set(tous.map((e) => new Date(e.dateEmbauche).getFullYear()))].sort((a, b) => b - a);
 
-  const q = (sp.q ?? "").trim().toLowerCase();
-  const employes = tous.filter((e) => {
-    if (sp.poste && e.poste !== sp.poste) return false;
-    if (sp.secteur && e.secteur !== sp.secteur) return false;
-    if (sp.annee && String(new Date(e.dateEmbauche).getFullYear()) !== sp.annee) return false;
-    if (q && !e.nom.toLowerCase().includes(q) && !e.matricule.toLowerCase().includes(q)) return false;
-    return true;
-  });
-
-  const brigade = employes.filter((e) => e.categorie === "BRIGADE");
-  const backoffice = employes.filter((e) => e.categorie === "BACKOFFICE");
-  const filtreActif = !!(sp.poste || sp.secteur || sp.annee || q);
-
-  // Exports : on transmet les filtres courants pour que le fichier reflète ce qui est affiché.
+  // Filtres courants sous forme de query string : partagés entre l'affichage (filtrerEmployes,
+  // MÊME logique que les exports — plus de duplication), les liens d'export et la bascule de vue.
   const qsExport = new URLSearchParams();
   if (sp.q) qsExport.set("q", sp.q);
   if (sp.poste) qsExport.set("poste", sp.poste);
   if (sp.secteur) qsExport.set("secteur", sp.secteur);
   if (sp.annee) qsExport.set("annee", sp.annee);
   const suffixeExport = qsExport.toString() ? `?${qsExport}` : "";
+
+  const employes = filtrerEmployes(tous, qsExport);
+  const brigade = employes.filter((e) => e.categorie === "BRIGADE");
+  const backoffice = employes.filter((e) => e.categorie === "BACKOFFICE");
+  const filtreActif = qsExport.toString() !== "";
   // L'export « Exporter ▾ » cible la vue active (RH ou Transport), en conservant les filtres.
   const baseExport = vue === "transport" ? "/transport" : "/employes";
   // Bascule de vue en gardant les filtres.
@@ -137,7 +131,7 @@ export default async function EmployesPage({
 
           <div>
             <h2 className="mb-3 text-base font-semibold">
-              Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span>
+              Back-office <span className="font-normal text-muted-foreground">({backoffice.length})</span>
             </h2>
             <EmployeeTable employes={backoffice} peutModifier={peutModifier} />
           </div>

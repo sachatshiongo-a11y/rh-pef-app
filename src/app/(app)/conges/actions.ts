@@ -15,7 +15,7 @@ function revaliderConges() {
   revalidatePath("/a-valider");
   revalidatePath("/employes");
   revalidatePath("/", "layout");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
 }
 
 export async function demanderConge(formData: FormData) {

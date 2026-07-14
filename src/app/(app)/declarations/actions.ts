@@ -51,7 +51,7 @@ export async function marquerDeclaration(
   });
 
   revalidatePath("/declarations");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
 }
 
 /** Variante appelable depuis un <form> (server component) : lit les champs du FormData. */
