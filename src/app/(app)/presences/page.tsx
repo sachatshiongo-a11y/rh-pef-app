@@ -6,6 +6,7 @@ import { TempsGrid, type EmployeeRow } from "./temps-grid";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { COULEUR_CODE } from "./attendance-colors";
 import { ImportPointage } from "./import-pointage";
+import { rattraperCodesConges } from "@/lib/conges-presences";
 import { WeeklyBreakdownTable } from "../heures-supp/weekly-breakdown-table";
 
 // Chaque code = couleur + libellé + icône (jamais la couleur seule — D).
@@ -37,6 +38,10 @@ export default async function PresencesPage() {
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const nbSemaines = numeroSemaineDuMois(new Date(Date.UTC(annee, mois - 1, nbJours)));
+
+  // Les congés approuvés se répercutent TOUJOURS sur la grille (rattrapage des congés validés
+  // avant la synchro). Idempotent ; ne touche jamais un code existant ni un mois à paie validée.
+  await rattraperCodesConges();
 
   const [employees, attendances, entries, joursFeriesDuMois] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
