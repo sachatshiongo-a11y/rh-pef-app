@@ -315,7 +315,7 @@ export default async function AccueilPage() {
 
           <div className="space-y-2">
             <LienCarte href="/documents" titre="Documents & archives" desc="Contrats, bulletins, congés" />
-            <LienCarte href="/absences" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
+            <LienCarte href="/conges?vue=calendrier" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
             <LienCarte href="/historique" titre="Historique de paie" desc="Masse salariale par mois" />
           </div>
         </div>

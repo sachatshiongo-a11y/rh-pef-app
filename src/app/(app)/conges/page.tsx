@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { demanderConge, approuverConge, refuserConge, supprimerConge, reinitialiserConges } from "./actions";
+import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
@@ -23,10 +24,13 @@ function chipDate(dt: Date) {
 export default async function CongesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statut?: string; type?: string; q?: string }>;
+  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string } & SPCalendrier>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
+
+  // Vue Calendrier (fusion de l'ancien onglet /absences) : même donnée, deux présentations.
+  if (sp.vue === "calendrier") return <CalendrierAbsences sp={sp} />;
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const peutApprouver = user.role === "ADMIN";
 
@@ -65,7 +69,7 @@ export default async function CongesPage({
           <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences</h1>
           <div className="flex overflow-hidden rounded-md border text-sm">
             <span className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">Liste</span>
-            <Link href="/absences" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
+            <Link href="/conges?vue=calendrier" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
           </div>
         </div>
         {peutApprouver && demandes.length > 0 && (
