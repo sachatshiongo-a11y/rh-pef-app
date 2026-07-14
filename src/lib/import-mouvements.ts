@@ -23,21 +23,43 @@ export type PreviewMouvements = {
 type ArticleRef = { id: string; designation: string; code: string | null };
 
 function indexer(articles: ArticleRef[]) {
-  const parCode = new Map<string, ArticleRef>();
+  const parCode = new Map<string, ArticleRef[]>(); // un code peut être porté par PLUSIEURS articles
   const parNom = new Map<string, ArticleRef>();
   for (const a of articles) {
-    if (a.code && a.code.trim()) parCode.set(a.code.trim(), a);
+    if (a.code && a.code.trim()) {
+      const k = a.code.trim();
+      (parCode.get(k) ?? parCode.set(k, []).get(k)!).push(a);
+    }
     const k = cleAlnum(a.designation);
     if (k && !parNom.has(k)) parNom.set(k, a);
   }
   return { parCode, parNom };
 }
 
-/** Rapproche une ligne CSV d'un article : code exact, puis désignation exacte, puis flou. */
+/**
+ * Rapproche une ligne CSV d'un article. La DÉSIGNATION exacte prime : les codes entrent en
+ * collision entre les catalogues Nourriture / Boissons / Autre (chacun a sa numérotation —
+ * ex. « 16 » = Sprite en boissons ET côtes de porc en nourriture), et le schéma les documente
+ * comme « non fiables comme clé ». Ordre :
+ *  1. désignation exacte (insensible casse/accents/ponctuation) ;
+ *  2. code article : s'il est UNIQUE au catalogue → direct ; en collision → départagé par la
+ *     similarité de nom parmi les porteurs du code, sinon le code ne prouve rien (on continue) ;
+ *  3. repli flou sur tout le catalogue.
+ */
 function rapprocher(l: MouvementCsv, idx: ReturnType<typeof indexer>, candidats: { id: string; designation: string }[]): { article: ArticleRef | null; type: Rapprochement } {
-  if (l.code && idx.parCode.has(l.code.trim())) return { article: idx.parCode.get(l.code.trim())!, type: "code" };
   const k = cleAlnum(l.designation);
   if (k && idx.parNom.has(k)) return { article: idx.parNom.get(k)!, type: "nom" };
+
+  if (l.code && idx.parCode.has(l.code.trim())) {
+    const porteurs = idx.parCode.get(l.code.trim())!;
+    if (porteurs.length === 1) return { article: porteurs[0], type: "code" };
+    const m = l.designation
+      ? meilleurArticle(l.designation, porteurs.map((a) => ({ id: a.id, designation: a.designation })), 0.5)
+      : null;
+    if (m) return { article: { id: m.id, designation: m.designation, code: null }, type: "code" };
+    // Collision sans nom proche : on n'attribue PAS au hasard, le repli flou tranchera (ou inconnu).
+  }
+
   const m = l.designation ? meilleurArticle(l.designation, candidats, 0.6) : null;
   if (m) return { article: { id: m.id, designation: m.designation, code: null }, type: "flou" };
   return { article: null, type: "inconnu" };

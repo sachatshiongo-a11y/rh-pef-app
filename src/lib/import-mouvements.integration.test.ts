@@ -14,7 +14,7 @@ vi.mock("@/lib/prisma", () => ({
   }),
 }));
 
-const { appliquerMouvements } = await import("@/lib/import-mouvements");
+const { appliquerMouvements, analyserMouvements } = await import("@/lib/import-mouvements");
 const { annulerImport } = await import("@/lib/import-inventaire");
 
 let prisma: PrismaClient;
@@ -32,6 +32,16 @@ beforeAll(async () => {
   const art = await prisma.articleStock.create({ data: { code: "3", designation: "Riz basmati 5kg", domaine: "NOURRITURE", unite: "Sac" } });
   articleId = art.id;
   await prisma.stock.create({ data: { articleId, quantite: 10, stockMinimum: 4 } });
+
+  // Rapprochement : les codes se dupliquent entre catalogues (chaque domaine a sa numérotation).
+  await prisma.articleStock.createMany({
+    data: [
+      { code: "100", designation: "Limoncello", domaine: "BOISSON", unite: "Bouteille" },
+      { code: "999", designation: "Couteaux en plastique", domaine: "AUTRE", unite: "Paquet" },
+      { code: "55", designation: "Coca Cola-30cl", domaine: "BOISSON", unite: "Bouteille" },
+      { code: "55", designation: "Portions filet de boeuf", domaine: "NOURRITURE", unite: "Portion" },
+    ],
+  });
 }, 120_000);
 
 afterAll(async () => { await fermer?.(); });
@@ -63,5 +73,29 @@ describe("appliquerMouvements — import CSV + annulation réversible", () => {
     // Aucune écriture : le stock est resté à 10 (restauré au test précédent).
     const stock = await prisma.stock.findUniqueOrThrow({ where: { articleId } });
     expect(Number(stock.quantite)).toBe(10);
+  }, 60_000);
+});
+
+describe("analyserMouvements — la désignation prime, codes en collision départagés", () => {
+  const entete = "Date,Code article,Désignation,Entrées,Sorties\n";
+
+  it("la désignation exacte prime sur un code qui pointe ailleurs (codes renumérotés)", async () => {
+    // Cas réel : « 100 Couteaux en Plastique » était rapproché de « Limoncello » (code 100).
+    const p = await analyserMouvements(entete + "10/07/2026,100,Couteaux en Plastique,0,5");
+    expect(p.lignes[0].articleNom).toBe("Couteaux en plastique");
+    expect(p.lignes[0].rapprochement).toBe("nom");
+  }, 60_000);
+
+  it("code en collision entre domaines : départagé par la similarité de nom, jamais au hasard", async () => {
+    // « 55 » = Coca (boissons) ET filet de boeuf (nourriture) → le nom tranche.
+    const p = await analyserMouvements(entete + "10/07/2026,55,Coca 30CL,0,5");
+    expect(p.lignes[0].articleNom).toBe("Coca Cola-30cl");
+    expect(p.lignes[0].rapprochement).toBe("code");
+  }, 60_000);
+
+  it("code unique au catalogue : rapproche même sans désignation proche", async () => {
+    const p = await analyserMouvements(entete + "10/07/2026,3,Zzz mystere,1,0");
+    expect(p.lignes[0].articleNom).toBe("Riz basmati 5kg");
+    expect(p.lignes[0].rapprochement).toBe("code");
   }, 60_000);
 });
