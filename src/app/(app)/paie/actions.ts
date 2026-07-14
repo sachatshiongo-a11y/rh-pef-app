@@ -7,61 +7,16 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, roleRequisPour } from "@/lib/paie-etats";
-import { calculerLignesPaie } from "@/lib/paie-batch";
+import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
-
-// États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
-const STATUTS_FIGES: PaymentStatus[] = ["VALIDE", "PAYE"];
 
 export async function calculerPaieDuMois() {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  const mois = config.moisCourant;
-  const annee = config.anneeCourante;
-
-  const run = await prisma.payrollRun.upsert({
-    where: { mois_annee: { mois, annee } },
-    update: { tauxChangeUtilise: config.tauxChangeCDF },
-    create: { mois, annee, tauxChangeUtilise: config.tauxChangeCDF },
-  });
-
-  // Lignes déjà validées/payées : on ne les recalcule pas (bulletin émis non écrasable).
-  const lignesFigees = await prisma.payrollLine.findMany({
-    where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } },
-    select: { employeeId: true },
-  });
-  const employeeIdsFiges = new Set(lignesFigees.map((l) => l.employeeId));
-
-  // Calcul en mémoire de tous les actifs (logique partagée avec l'aperçu temps réel de la page).
-  const { lignes, employesFraisMedicaux: fraisTous } = await calculerLignesPaie(mois, annee);
-  const nouvellesLignes = lignes
-    .filter((l) => !employeeIdsFiges.has(l.employee.id))
-    .map((l) => ({ payrollRunId: run.id, employeeId: l.employee.id, ...l.data }));
-  // On ne remet à zéro le solde « frais médicaux » que des lignes réellement (ré)écrites.
-  const employesFraisMedicaux = fraisTous.filter((id) => !employeeIdsFiges.has(id));
-
-  // Écriture en masse dans une transaction (remplace ~100 requêtes par ~4).
-  await prisma.$transaction([
-    prisma.payrollLine.deleteMany({
-      where: { payrollRunId: run.id, statutPaiement: { notIn: STATUTS_FIGES } },
-    }),
-    prisma.payrollLine.createMany({ data: nouvellesLignes }),
-    prisma.employee.updateMany({
-      where: { id: { in: employesFraisMedicaux } },
-      data: { fraisMedicauxMoisCourant: 0 },
-    }),
-    prisma.journalAudit.create({
-      data: {
-        entite: "PayrollRun",
-        entiteId: run.id,
-        champ: "calcul",
-        nouvelleValeur: `${nouvellesLignes.length} salaire(s) recalculé(s) — ${mois}/${annee}`,
-        userId: user.id,
-      },
-    }),
-  ]);
+  // Cœur partagé avec le rafraîchissement automatique de la page Paie (lib/paie-refresh) :
+  // crée le run du mois si besoin et (re)calcule toutes les lignes non figées, avec audit.
+  await rafraichirPaieDuMois({ creerRun: true, userId: user.id });
 
   revalidatePath("/paie");
   revalidatePath("/dashboard");

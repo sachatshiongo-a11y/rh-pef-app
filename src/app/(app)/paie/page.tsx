@@ -10,6 +10,7 @@ import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
 import { HistoriquePaie, type SPHistorique } from "./historique-paie";
+import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 
@@ -27,6 +28,18 @@ export default async function PaiePage({
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? new Date().getMonth() + 1;
   const annee = config?.anneeCourante ?? new Date().getFullYear();
+
+  // Bulletins TOUJOURS à jour : si la paie a été calculée et qu'il reste des lignes non figées,
+  // on les recalcule silencieusement AVANT l'affichage — les présences, heures, pointages et
+  // congés saisis après le « Calculer » se répercutent ainsi sans re-cliquer. Les lignes
+  // validées/payées ne sont jamais touchées ; aucun run n'est créé ici.
+  const runMeta = await prisma.payrollRun.findUnique({
+    where: { mois_annee: { mois, annee } },
+    select: { lignes: { select: { statutPaiement: true } } },
+  });
+  if (runMeta && runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) {
+    await rafraichirPaieDuMois({ creerRun: false });
+  }
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },
