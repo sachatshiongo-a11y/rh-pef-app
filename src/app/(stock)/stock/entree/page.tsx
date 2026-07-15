@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { qte } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
+import { SupprimerAchatBtn } from "./supprimer-achat-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 
@@ -16,7 +17,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 
   const [articles, mouvements, config] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true, prixUnitaireUSD: true } }),
     prisma.mouvementStock.findMany({
       // Les entrées issues d'une FACTURE (factureId non nul) ne s'affichent PAS ici : elles
       // apparaissent dans « Mouvements » et se répercutent dans le catalogue. La liste d'achat
@@ -73,7 +74,11 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         </div>
       </div>
 
-      <ListeAchatForm articles={articles} taux={taux} estDirection={estDirection} />
+      <ListeAchatForm
+        articles={articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null }))}
+        taux={taux}
+        estDirection={estDirection}
+      />
 
       <div>
         <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
@@ -95,12 +100,15 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                 </summary>
                 <ul className="divide-y border-t text-sm">
                   {g.lignes.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between px-3 py-1">
+                    <li key={m.id} className="flex items-center justify-between gap-2 px-3 py-1">
                       <span className="truncate pr-2">
                         <Link href={`/stock/catalogue/${m.articleId}`} className="text-primary hover:underline">{m.article.designation}</Link>
                         {m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}
                       </span>
-                      <span className="shrink-0 font-medium text-emerald-700">+{qte(m.quantite)}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-medium text-emerald-700">+{qte(m.quantite)}</span>
+                        {estDirection && <SupprimerAchatBtn mouvementId={m.id} designation={m.article.designation} />}
+                      </span>
                     </li>
                   ))}
                 </ul>

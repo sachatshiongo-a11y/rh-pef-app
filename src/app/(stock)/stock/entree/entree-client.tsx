@@ -5,15 +5,17 @@ import { entreeListeAchat } from "./actions";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
 
-type Art = { id: string; designation: string };
+type Art = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
 export function ListeAchatForm({ articles, taux, estDirection = false }: { articles: Art[]; taux: number; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
-  // Lignes contrôlées : le prix unitaire (facultatif) répercute quantité × PU sur le montant.
-  type Ligne = { qte: string; pu: string; montant: string };
-  const vide = (): Ligne => ({ qte: "", pu: "", montant: "" });
+  // Lignes contrôlées : article du CATALOGUE (désignation/unité reprises) ou ÉCRITURE LIBRE
+  // (nouvel article, créé automatiquement au catalogue dans le domaine choisi).
+  // Le prix unitaire (facultatif) répercute quantité × PU sur le montant.
+  type Ligne = { articleId: string; designation: string; unite: string; domaine: string; qte: string; pu: string; montant: string };
+  const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", domaine: "NOURRITURE", qte: "", pu: "", montant: "" });
   const [lignes, setLignes] = useState<Ligne[]>([vide(), vide(), vide(), vide()]);
   const [devise, setDevise] = useState<"USD" | "CDF">("USD");
   const [cle, setCle] = useState(0);
@@ -34,12 +36,28 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
       })
     );
 
+  const choisirArticle = (i: number, articleId: string) => {
+    const a = articles.find((x) => x.id === articleId);
+    setLignes((ls) =>
+      ls.map((l, j) =>
+        j !== i
+          ? l
+          : a
+          ? { ...l, articleId, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, pu: devise === "USD" && a.prix ? a.prix : l.pu }
+          : { ...l, articleId: "", designation: "", unite: "" }
+      )
+    );
+  };
+
   const submit = (fd: FormData) => {
     setMsg(null);
     startTransition(async () => {
       const r = await entreeListeAchat(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
-      setMsg({ ok: true, texte: "Entrées enregistrées : le stock a été mis à jour." });
+      setMsg({
+        ok: true,
+        texte: `Entrées enregistrées : le stock a été mis à jour.${r.crees.length ? ` ${r.crees.length} nouvel(aux) article(s) créé(s) au catalogue : ${r.crees.join(", ")}.` : ""}`,
+      });
       setLignes([vide(), vide(), vide(), vide()]);
       setCle((c) => c + 1);
     });
@@ -71,24 +89,41 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
 
       <div className="space-y-2">
         {/* En-têtes de colonnes : ordinateur uniquement (sur mobile chaque champ est étiqueté par son placeholder). */}
-        <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
-          <span className="flex-1">Article</span>
-          <span className="w-24">Quantité</span>
-          <span className="w-28">Prix unit. ({devise})</span>
-          <span className="w-32">Montant payé ({devise})</span>
+        <div className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
+          <span className="flex-1">Article (catalogue)</span>
+          <span className="w-40">Désignation (libre si nouveau)</span>
+          <span className="w-20">Unité</span>
+          <span className="w-28">Domaine</span>
+          <span className="w-20">Qté</span>
+          <span className="w-24">P.U. ({devise})</span>
+          <span className="w-28">Montant ({devise})</span>
+          <span className="w-7" />
         </div>
-        {lignes.map((l, i) => (
-          <div key={i} className="grid grid-cols-3 gap-2 rounded-lg border p-2 sm:flex sm:items-center sm:rounded-none sm:border-0 sm:p-0">
-            <select name="articleId" defaultValue="" className={`${inp} col-span-3 min-w-0 sm:flex-1`}>
-              <option value="">— article —</option>
-              {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-            </select>
-            <input name="quantite" type="number" step="0.001" min="0" placeholder="Quantité" value={l.qte} onChange={(e) => majLigne(i, { qte: e.target.value })} className={`${inp} min-w-0 sm:w-24`} />
-            {/* Prix unitaire FACULTATIF : jamais envoyé au serveur, il sert à remplir le montant. */}
-            <input type="number" step="0.01" min="0" placeholder={`PU ${devise}`} title="Prix unitaire (facultatif) — remplit le montant : quantité × PU" value={l.pu} onChange={(e) => majLigne(i, { pu: e.target.value })} className={`${inp} min-w-0 sm:w-28`} />
-            <input name="montant" type="number" step="0.01" min="0" placeholder={`Montant ${devise}`} value={l.montant} onChange={(e) => majLigne(i, { montant: e.target.value })} className={`${inp} min-w-0 sm:w-32`} />
-          </div>
-        ))}
+        {lignes.map((l, i) => {
+          const libre = !l.articleId;
+          return (
+            <div key={i} className="grid grid-cols-3 gap-2 rounded-lg border p-2 lg:flex lg:items-center lg:rounded-none lg:border-0 lg:p-0">
+              <select name="articleId" value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} className={`${inp} col-span-3 min-w-0 lg:flex-1`}>
+                <option value="">— libre —</option>
+                {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
+              </select>
+              <input name="designation" placeholder="Désignation" value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${inp} col-span-3 min-w-0 ${!libre ? "text-muted-foreground" : ""} lg:w-40`} />
+              <input name="unite" placeholder="Kg…" value={l.unite} onChange={(e) => majLigne(i, { unite: e.target.value })} readOnly={!libre} className={`${inp} min-w-0 ${!libre ? "text-muted-foreground" : ""} lg:w-20`} />
+              {/* Domaine du NOUVEL article (création automatique au catalogue) — figé si article existant. */}
+              <select name="domaine" value={l.domaine} onChange={(e) => majLigne(i, { domaine: e.target.value })} disabled={!libre} className={`${inp} col-span-2 min-w-0 disabled:opacity-60 lg:w-28`}>
+                <option value="NOURRITURE">Nourriture</option>
+                <option value="BOISSON">Boisson</option>
+                <option value="AUTRE">Autre</option>
+              </select>
+              {!libre && <input type="hidden" name="domaine" value={l.domaine} />}
+              <input name="quantite" type="number" step="0.001" min="0" placeholder="Qté" value={l.qte} onChange={(e) => majLigne(i, { qte: e.target.value })} className={`${inp} min-w-0 lg:w-20`} />
+              {/* Prix unitaire FACULTATIF : jamais envoyé au serveur, il sert à remplir le montant. */}
+              <input type="number" step="0.01" min="0" placeholder={`PU ${devise}`} title="Prix unitaire (facultatif) — remplit le montant : quantité × PU" value={l.pu} onChange={(e) => majLigne(i, { pu: e.target.value })} className={`${inp} min-w-0 lg:w-24`} />
+              <input name="montant" type="number" step="0.01" min="0" placeholder={`Montant ${devise}`} value={l.montant} onChange={(e) => majLigne(i, { montant: e.target.value })} className={`${inp} min-w-0 lg:w-28`} />
+              <button type="button" onClick={() => setLignes((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : ls.map((x, j) => (j === i ? vide() : x))))} aria-label="Retirer la ligne" title="Retirer la ligne" className="rounded-md border px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive lg:w-7">✕</button>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex items-center gap-3">
@@ -98,7 +133,7 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
         </button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
       </div>
-      <p className="text-xs text-muted-foreground">Prix unitaire et montant sont facultatifs — le prix unitaire remplit le montant (quantité × PU), ajustable à la main. En CDF, le montant est converti en USD au taux courant et enregistré sur le mouvement (il nourrit l&apos;évolution du prix d&apos;achat).</p>
+      <p className="text-xs text-muted-foreground">Article du catalogue OU désignation libre : un nouvel article est <b>créé automatiquement au catalogue</b> (domaine choisi, unité et prix de cet achat comme référence) — une désignation identique retrouve l&apos;article existant. Prix unitaire et montant sont facultatifs — le PU remplit le montant (quantité × PU), ajustable. En CDF, converti en USD au taux courant (nourrit l&apos;évolution du prix d&apos;achat).</p>
     </form>
   );
 }

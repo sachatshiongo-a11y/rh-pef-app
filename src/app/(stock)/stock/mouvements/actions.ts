@@ -92,6 +92,7 @@ export const supprimerMouvement = actionLisible(async (id: string) => {
 
   await journaliser(prisma, { entite: "MouvementStock", entiteId: id, champ: "suppression", ancienneValeur: `${m.type} ${q} (${m.origine ?? ""})`, userId: user.id });
   revalidatePath("/stock/mouvements");
+  revalidatePath("/stock/entree"); // l'historique de la liste d'achat affiche aussi ces mouvements
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
 });
