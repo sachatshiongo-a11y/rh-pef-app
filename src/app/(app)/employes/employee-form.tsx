@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { Employee } from "@prisma/client";
 import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
+import type { ParametresPaie } from "@/lib/payroll";
+import { SimulationSalaire, lireValeursSimulation, type ValeursSimulation } from "./simulation-salaire";
 
 function toDateInput(d: Date | string | undefined) {
   if (!d) return "";
@@ -15,14 +17,37 @@ export function EmployeeForm({
   action,
   joursOuvrablesMois,
   postes = [],
+  parametres,
+  impact,
 }: {
   employee?: Employee;
   action: (formData: FormData) => void;
   joursOuvrablesMois: number;
   postes?: string[];
+  /** Fournis (page Nouvel employé) → simulation de bulletin en direct dans un panneau latéral. */
+  parametres?: ParametresPaie;
+  impact?: { netActuel: number; coutActuel: number; effectif: number; periode: string } | null;
 }) {
+  // Simulation en direct : recalculée à chaque frappe à partir des champs du formulaire.
+  const [sim, setSim] = useState<ValeursSimulation>({
+    salaireMensuel: Number(employee?.salaireMensuel ?? 0),
+    categorie: employee?.categorie ?? "BRIGADE",
+    contrat: employee?.contrat ?? "CDD",
+    enfants: employee?.enfants ?? 0,
+    heuresHebdomadaires: Number(employee?.heuresHebdomadaires ?? 48),
+    heuresParJour: Number(employee?.heuresParJour ?? 8),
+    transportJourCDF: Number(employee?.transportJourCDF ?? 0),
+    transportMoisUSD: Number(employee?.transportMoisUSD ?? 0),
+    transportMoisCDF: 0,
+  });
+
   return (
-    <form action={action} className="grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+    <form
+      action={action}
+      onInput={(e) => parametres && setSim(lireValeursSimulation(new FormData(e.currentTarget)))}
+      className="grid max-w-3xl flex-1 grid-cols-1 gap-4 sm:grid-cols-2"
+    >
       <datalist id="postes-existants">
         {postes.map((p) => (
           <option key={p} value={p} />
@@ -193,6 +218,12 @@ export function EmployeeForm({
         </button>
       </div>
     </form>
+    {parametres && (
+      <div className="w-full shrink-0 lg:w-80">
+        <SimulationSalaire valeurs={sim} parametres={parametres} impact={impact ?? null} />
+      </div>
+    )}
+    </div>
   );
 }
 
