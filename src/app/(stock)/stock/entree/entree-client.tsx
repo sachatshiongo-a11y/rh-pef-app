@@ -36,6 +36,21 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
       })
     );
 
+  // Bascule de devise : les PU et montants déjà saisis sont CONVERTIS au taux courant
+  // (le PU prérempli depuis le catalogue est en USD — sans conversion, il deviendrait faux en CDF).
+  const changerDevise = (d: "USD" | "CDF") => {
+    if (d === devise) return;
+    setDevise(d);
+    if (!taux) return;
+    const conv = (s: string, arrondi: number) => {
+      const v = Number(s.replace(",", "."));
+      if (!(v > 0)) return s;
+      const r = d === "CDF" ? v * taux : v / taux;
+      return String(Math.round(r * 10 ** arrondi) / 10 ** arrondi);
+    };
+    setLignes((ls) => ls.map((l) => ({ ...l, pu: conv(l.pu, d === "CDF" ? 0 : 4), montant: conv(l.montant, d === "CDF" ? 0 : 2) })));
+  };
+
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
     setLignes((ls) =>
@@ -79,8 +94,8 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
         <div className="text-sm">
           <span className="text-muted-foreground">Devise du montant</span>
           <div className="mt-1 inline-flex overflow-hidden rounded-md border">
-            <button type="button" onClick={() => setDevise("USD")} className={`px-3 py-1.5 ${devise === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>USD</button>
-            <button type="button" onClick={() => setDevise("CDF")} className={`px-3 py-1.5 ${devise === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>CDF (FC)</button>
+            <button type="button" onClick={() => changerDevise("USD")} className={`px-3 py-1.5 ${devise === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>USD</button>
+            <button type="button" onClick={() => changerDevise("CDF")} className={`px-3 py-1.5 ${devise === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>CDF (FC)</button>
           </div>
           <input type="hidden" name="devise" value={devise} />
         </div>
