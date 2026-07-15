@@ -62,7 +62,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
   const [ajout, setAjout] = useState(false);
   const [q, setQ] = useState(initialQ ?? "");
-  const [dom, setDom] = useState<"TOUS" | Domaine>(lockedDomaine ?? "TOUS");
+  const dom: "TOUS" | Domaine = lockedDomaine ?? "TOUS"; // choisi par les pilules d'en-tête (?domaine=)
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
   const [manque, setManque] = useState<ManqueKey>(""); // vue « À compléter »
   const [hausseSeule, setHausseSeule] = useState(false); // filtre : articles dont le prix d'achat a grimpé
@@ -182,13 +182,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
       <div className="flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
-        {!lockedDomaine && (
-          <div className="flex gap-1.5 text-sm">
-            {(["TOUS", "NOURRITURE", "BOISSON", "AUTRE"] as const).map((k) => (
-              <button key={k} onClick={() => setDom(k)} className={`rounded-full border px-3 py-1 ${dom === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{k === "TOUS" ? "Tous" : DOMAINE_LABEL[k]}</button>
-            ))}
-          </div>
-        )}
+        {/* Le domaine se choisit via les pilules d'en-tête (Tous / Nourriture / Boissons / Autre). */}
         <div className="flex gap-1.5 text-sm">
           {ALERTES.map(([k, label]) => (
             <button key={k} onClick={() => setAlerte(k as "" | NiveauAlerte)} className={`rounded-full border px-3 py-1 ${alerte === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</button>
