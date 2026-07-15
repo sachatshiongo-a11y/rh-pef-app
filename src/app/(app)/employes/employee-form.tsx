@@ -137,7 +137,18 @@ export function EmployeeForm({
         type="number"
         defaultValue={employee?.enfants?.toString() ?? "0"}
       />
-      <Field label="Contrat" name="contrat" defaultValue={employee?.contrat ?? "CDD"} required />
+      <Select
+        label="Contrat"
+        name="contrat"
+        defaultValue={employee?.contrat ?? "CDD"}
+        options={[
+          { value: "CDD", label: "CDD" },
+          { value: "CDI", label: "CDI" },
+          { value: "STAGE", label: "Stage (indemnité, sans cotisations ni congés)" },
+          { value: "JOURNALIER", label: "Journalier" },
+          { value: "INTERIM", label: "Intérim (payé par l'agence — hors paie)" },
+        ]}
+      />
 
       <Field
         label="Date d'embauche"

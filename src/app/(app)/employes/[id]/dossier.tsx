@@ -31,6 +31,7 @@ const STATUT_CONTRAT: Record<string, { label: string; classe: string }> = {
   ACTIF: { label: "Actif", classe: "bg-emerald-100 text-emerald-800" },
   EXPIRE: { label: "Expiré", classe: "bg-amber-100 text-amber-800" },
   RESILIE: { label: "Résilié", classe: "bg-red-100 text-red-800" },
+  TRANSFORME: { label: "Transformé", classe: "bg-sky-100 text-sky-800" },
 };
 function StatutContratBadge({ statut }: { statut: string }) {
   const s = STATUT_CONTRAT[statut] ?? { label: statut, classe: "bg-muted text-muted-foreground" };
@@ -128,8 +129,8 @@ export function DossierEmploye({
         ) : (
           <div className="mb-4 grid gap-3 md:grid-cols-2">
             {contrats.map((c) => {
-              const expireBientot = c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
-              const essaiBientot = c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
+              const expireBientot = c.statut === "ACTIF" && c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
+              const essaiBientot = c.statut === "ACTIF" && c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
               return (
                 <div key={c.id} className="rounded-xl border bg-card p-4">
                   <div className="mb-2 flex items-start justify-between gap-2">
