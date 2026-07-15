@@ -134,7 +134,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
             <tbody>
               {bc.lignes.map((l) => (
                 <tr key={l.id} className="border-b">
-                  <td className="py-1.5">{l.designation}</td>
+                  <td className="py-1.5">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
                   <td className="py-1.5 text-right">{qte(l.quantite)}</td>
                   <td className="py-1.5 text-right">{l.nbCartons ? qte(l.nbCartons) : "—"}</td>
                   <td className="py-1.5 text-right">{usd(l.prixUnitaireUSD)}</td>

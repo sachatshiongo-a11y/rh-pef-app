@@ -42,17 +42,17 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   const bonsLiables = bonsLiablesRaw.map((b) => ({ id: b.id, numero: b.numero, total: Number(b.totalUSD) }));
 
   // Réconciliation : croise les lignes du BC (commandé) et de la facture (facturé).
-  type L = { designation: string; qteBC: number; puBC: number; totBC: number; qteFac: number; puFac: number; totFac: number };
+  type L = { designation: string; articleId: string | null; qteBC: number; puBC: number; totBC: number; qteFac: number; puFac: number; totFac: number };
   const recon = new Map<string, L>();
   if (bc) for (const l of bc.lignes) {
     const k = cle(l.articleId, l.designation);
-    const e = recon.get(k) ?? { designation: l.designation, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
+    const e = recon.get(k) ?? { designation: l.designation, articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
     e.qteBC += Number(l.quantite); e.puBC = Number(l.prixUnitaireUSD); e.totBC += Number(l.totalLigneUSD);
     recon.set(k, e);
   }
   for (const l of facture.lignes) {
     const k = cle(l.articleId, l.designation);
-    const e = recon.get(k) ?? { designation: l.designation, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
+    const e = recon.get(k) ?? { designation: l.designation, articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
     e.qteFac += Number(l.quantite); e.puFac = Number(l.prixUnitaireUSD); e.totFac += Number(l.totalLigneUSD);
     recon.set(k, e);
   }
@@ -134,7 +134,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
             <tbody>
               {facture.lignes.map((l) => (
                 <tr key={l.id} className="border-t even:bg-muted/25">
-                  <td className="px-3 py-2 font-medium">{l.designation}</td>
+                  <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
                   <td className="px-3 py-2 text-muted-foreground">{l.unite ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{qte(l.quantite)}</td>
                   <td className="px-3 py-2 text-right">{usd(l.prixUnitaireUSD)}</td>
@@ -180,7 +180,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
                     const eTot = l.totFac - l.totBC;
                     return (
                       <tr key={i} className="border-t even:bg-muted/25">
-                        <td className="px-3 py-2 font-medium">{l.designation}</td>
+                        <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
                         <td className="px-3 py-2 text-right text-muted-foreground">{l.qteBC ? qte(l.qteBC) : "—"}</td>
                         <td className="px-3 py-2 text-right">{l.qteFac ? qte(l.qteFac) : "—"}</td>
                         <td className={`px-3 py-2 text-right ${eQte ? "font-medium text-amber-700" : "text-muted-foreground"}`}>{eQte ? `${eQte > 0 ? "+" : ""}${qte(eQte)}` : "0"}</td>
