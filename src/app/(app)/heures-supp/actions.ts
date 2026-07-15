@@ -28,6 +28,7 @@ export async function saisirHeures(employeeId: string, date: string, heures: str
   revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
 }
 
 /** Saisie en lot (collage / actions groupées). Ne reçoivent pas d'heures (entrée ignorée et
@@ -50,5 +51,6 @@ export async function saisirHeuresEnLot(
   revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
   return { ignores };
 }

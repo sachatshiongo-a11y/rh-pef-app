@@ -52,7 +52,8 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
   const employesFraisMedicaux = fraisTous.filter((id) => !employeeIdsFiges.has(id));
 
   // Écriture en masse dans une transaction (remplace ~100 requêtes par ~4).
-  await prisma.$transaction([
+  await prisma.$transaction(
+    [
     prisma.payrollLine.deleteMany({
       where: { payrollRunId: runId, statutPaiement: { notIn: STATUTS_FIGES } },
     }),
@@ -76,7 +77,9 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
           }),
         ]
       : []),
-  ]);
+    ],
+    { timeout: 60_000 }
+  );
 
   return true;
 }

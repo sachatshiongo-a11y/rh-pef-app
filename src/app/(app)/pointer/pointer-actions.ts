@@ -102,6 +102,7 @@ export async function pointerDepart(formData: FormData): Promise<ResultatPointag
     revalidatePath("/pointer");
     revalidatePath("/presences");
     revalidatePath("/heures-supp");
+    revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
   });
 }
 
@@ -132,5 +133,6 @@ export async function saisirHoraireManuel(formData: FormData): Promise<ResultatP
     revalidatePath("/pointer");
     revalidatePath("/presences");
     revalidatePath("/heures-supp");
+    revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
   });
 }

@@ -1,0 +1,10 @@
+import "dotenv/config";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const { PrismaClient } = require("@prisma/client");
+const { PrismaPg } = require("@prisma/adapter-pg");
+const p = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
+const run = await p.payrollRun.findUnique({ where: { mois_annee: { mois: 7, annee: 2026 } }, include: { lignes: { select: { id: true, statutPaiement: true } } } });
+const nonFigees = run.lignes.filter(l => !["VALIDE","PAYE"].includes(l.statutPaiement));
+console.log(`lignes: ${run.lignes.length} (non figées: ${nonFigees.length}) · empreinte: ${nonFigees.map(l => l.id.slice(0,6)).sort().join(",").slice(0,60)}`);
+await p.$disconnect();

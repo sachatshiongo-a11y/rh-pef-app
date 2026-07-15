@@ -38,7 +38,13 @@ export default async function PaiePage({
     select: { lignes: { select: { statutPaiement: true } } },
   });
   if (runMeta && runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) {
-    await rafraichirPaieDuMois({ creerRun: false });
+    try {
+      await rafraichirPaieDuMois({ creerRun: false });
+    } catch (e) {
+      // Échec ponctuel (réseau, pooler…) : on affiche le dernier état calculé plutôt qu'une
+      // page d'erreur — le prochain chargement retentera.
+      console.error("[paie] rafraîchissement automatique échoué :", e instanceof Error ? e.message : e);
+    }
   }
 
   const run = await prisma.payrollRun.findUnique({

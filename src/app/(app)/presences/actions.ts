@@ -85,6 +85,7 @@ export async function saisirPresence(employeeId: string, date: string, code: Att
   revalidatePath("/presences");
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
   return {};
 }
 
@@ -115,5 +116,6 @@ export async function saisirPresencesEnLot(
   revalidatePath("/presences");
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
   return { ignores };
 }
