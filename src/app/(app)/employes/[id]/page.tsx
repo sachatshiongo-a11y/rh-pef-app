@@ -19,6 +19,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { lundiDe } from "@/lib/dates-fr";
 import { dureeShift, libelleShift } from "../../planning/creneaux";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
+import { TempsTravail } from "./temps-travail";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges } from "@/lib/regles-contrats";
 
@@ -160,6 +161,44 @@ export default async function FicheEmployePage({
     tab === "fin"
       ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
       : [];
+  // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
+  const joursModele =
+    tab === "contrats"
+      ? [...new Set((await prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true } })).map((m) => m.jour))]
+      : [];
+
+  // Onglet « Temps de travail » : planning (2 semaines) + heures réelles (8 dernières semaines).
+  const lundiCourantIso = isoDe(lundiSemaine);
+  let donneesTemps: { creneaux: { iso: string; nom: string; heures: number }[]; heures: { iso: string; h: number }[]; codes: { iso: string; code: string }[] } | null = null;
+  if (tab === "temps") {
+    const debutRapport = new Date(lundiSemaine);
+    debutRapport.setUTCDate(debutRapport.getUTCDate() - 7 * 7); // 7 semaines avant la courante
+    const finPlanning = new Date(lundiSemaine);
+    finPlanning.setUTCDate(finPlanning.getUTCDate() + 13); // dimanche de la semaine suivante
+    const [creneauxTemps, heuresTemps, codesTemps] = await Promise.all([
+      prisma.planningCreneau.findMany({
+        where: { employeeId: id, date: { gte: lundiSemaine, lte: finPlanning } },
+        select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
+      }),
+      prisma.overtimeEntry.findMany({
+        where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
+        select: { date: true, heuresTravaillees: true },
+      }),
+      prisma.attendance.findMany({
+        where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
+        select: { date: true, code: true },
+      }),
+    ]);
+    donneesTemps = {
+      creneaux: creneauxTemps.map((c) => ({
+        iso: isoDe(new Date(c.date)),
+        nom: c.shift.nom,
+        heures: dureeShift({ heureDebut: c.shift.heureDebut, heureFin: c.shift.heureFin, dureeHeures: c.shift.dureeHeures != null ? Number(c.shift.dureeHeures) : null }),
+      })),
+      heures: heuresTemps.map((h) => ({ iso: isoDe(new Date(h.date)), h: Number(h.heuresTravaillees) })),
+      codes: codesTemps.map((c) => ({ iso: isoDe(new Date(c.date)), code: c.code })),
+    };
+  }
   // Paramètres légaux de départ (préavis, indemnité) — configurables dans Paramètres (À VALIDER).
   const paramsDepart =
     tab === "fin"
@@ -354,6 +393,7 @@ export default async function FicheEmployePage({
       <div className="mb-5 flex gap-2 overflow-x-auto border-b">
         {[
           { cle: "apercu", label: "Aperçu" },
+          { cle: "temps", label: "Temps de travail" },
           { cle: "conges", label: "Congés & absences" },
           { cle: "paie", label: "Paie" },
           { cle: "contrats", label: "Contrats" },
@@ -715,6 +755,15 @@ export default async function FicheEmployePage({
       </>
       )}
 
+      {tab === "temps" && donneesTemps && (
+        <TempsTravail
+          lundiCourantIso={lundiCourantIso}
+          creneaux={donneesTemps.creneaux}
+          heures={donneesTemps.heures}
+          codes={donneesTemps.codes}
+        />
+      )}
+
       {(tab === "contrats" || tab === "fin" || tab === "dossier") && (
       <DossierEmploye
         vue={tab}
@@ -729,6 +778,7 @@ export default async function FicheEmployePage({
         preavisLicenciement={valParam("preavis_jours_licenciement")}
         indemniteLicenciementJoursParAn={valParam("indemnite_licenciement_jours_par_an")}
         actif={employee.actif}
+        joursModele={joursModele}
         contrats={contrats}
         historique={historique}
         disciplinaire={disciplinaire}

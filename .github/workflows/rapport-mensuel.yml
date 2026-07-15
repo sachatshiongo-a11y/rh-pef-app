@@ -1,0 +1,18 @@
+name: Rapport mensuel automatique
+
+# Envoie le 1er de chaque mois la synthèse du mois écoulé (paie + achats) par e-mail
+# aux comptes Direction, en appelant l'endpoint sécurisé de l'application.
+on:
+  schedule:
+    - cron: "0 6 1 * *" # 06:00 UTC le 1er du mois = 07:00 à Kinshasa (UTC+1)
+  workflow_dispatch: {} # bouton « Run workflow » pour tester manuellement
+
+jobs:
+  rapport:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déclencher l'envoi du rapport mensuel
+        run: |
+          curl -fsS --max-time 120 -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://rh.patesenfolie.cd/api/cron/rapport-mensuel

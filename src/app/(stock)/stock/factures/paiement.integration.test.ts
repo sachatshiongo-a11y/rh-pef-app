@@ -61,7 +61,7 @@ describe("enregistrerPaiement — paiement / avoir / CDF / soldé / garde", () =
   }, 60_000);
 
   it("avoir sans motif : refusé", async () => {
-    await expect(enregistrerPaiement(factureId, fd({ type: "AVOIR", devise: "USD", montant: "5" }))).rejects.toThrow(/motif de l'avoir/i);
+    await expect(enregistrerPaiement(factureId, fd({ type: "AVOIR", devise: "USD", montant: "5" }))).resolves.toMatchObject({ erreur: expect.stringMatching(/motif de l'avoir/i) });
   }, 60_000);
 
   it("paiement en CDF : converti au taux, montant FC + taux figés, facture soldée", async () => {
@@ -78,6 +78,6 @@ describe("enregistrerPaiement — paiement / avoir / CDF / soldé / garde", () =
   }, 60_000);
 
   it("dépassement du reste à payer : refusé (facture déjà soldée)", async () => {
-    await expect(enregistrerPaiement(factureId, fd({ type: "PAIEMENT", devise: "USD", montant: "5" }))).rejects.toThrow(/dépasse le reste/i);
+    await expect(enregistrerPaiement(factureId, fd({ type: "PAIEMENT", devise: "USD", montant: "5" }))).resolves.toMatchObject({ erreur: expect.stringMatching(/dépasse le reste/i) });
   }, 60_000);
 });

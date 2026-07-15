@@ -70,7 +70,7 @@ describe("appliquerComptage — écriture + garde de tolérance (Postgres éphé
   it("refuse un écart hors tolérance sans explication (aucune écriture)", async () => {
     const avant = await prisma.mouvementStock.count();
     // stock now 9 → physique 3 = -66 % (> 10 %) sans explication → doit lever une erreur.
-    await expect(appliquerComptage(fd(3))).rejects.toThrow(/explication/i);
+    await expect(appliquerComptage(fd(3))).resolves.toMatchObject({ erreur: expect.stringMatching(/explication/i) });
 
     const apres = await prisma.mouvementStock.count();
     expect(apres).toBe(avant); // rien n'a été écrit

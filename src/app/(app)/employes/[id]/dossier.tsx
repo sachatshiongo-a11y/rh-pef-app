@@ -67,6 +67,55 @@ function d(date: Date | null | undefined) {
   return date ? new Date(date).toLocaleDateString("fr-FR") : "—";
 }
 
+const TYPE_CONTRAT_LABEL: Record<string, string> = {
+  CDI: "CDI — durée indéterminée",
+  CDD: "CDD — durée déterminée",
+  STAGE: "Stage",
+  JOURNALIER: "Journalier",
+  INTERIM: "Intérim",
+};
+
+// Dates relatives de la carte « Conditions actuelles » (« il y a 3 ans », « dans 6 mois »).
+function ecartMois(a: Date, b: Date) {
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+}
+function relatifPasse(date: Date) {
+  const m = Math.max(0, ecartMois(date, new Date()));
+  if (m >= 12) { const ans = Math.floor(m / 12); return `il y a ${ans} an${ans > 1 ? "s" : ""}`; }
+  if (m >= 1) return `il y a ${m} mois`;
+  return "ce mois-ci";
+}
+function relatifFutur(date: Date) {
+  const m = ecartMois(new Date(), date);
+  if (m < 0) return "échue";
+  if (m >= 12) { const ans = Math.floor(m / 12); return `dans ${ans} an${ans > 1 ? "s" : ""}`; }
+  if (m >= 1) return `dans ${m} mois`;
+  return "ce mois-ci";
+}
+
+/** Encadré thématique de la carte contrat (Informations / Poste / Rémunération / Horaires). */
+function BlocContrat({ icone, titre, children }: { icone: string; titre: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <p className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <span aria-hidden>{icone}</span>
+        {titre}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function Champ({ label, valeur, note, alerte }: { label: string; valeur: string; note?: string; alerte?: boolean }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-sm font-medium ${alerte ? "text-amber-700" : ""}`}>{valeur}</p>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
 const inputCls =
   "rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 
@@ -83,6 +132,7 @@ export function DossierEmploye({
   preavisLicenciement,
   indemniteLicenciementJoursParAn,
   actif,
+  joursModele = [],
   contrats,
   historique,
   disciplinaire,
@@ -104,6 +154,7 @@ export function DossierEmploye({
   preavisLicenciement: number | null;
   indemniteLicenciementJoursParAn: number | null;
   actif: boolean;
+  joursModele?: number[]; // jours travaillés selon le modèle hebdo (0=dim … 6=sam)
   contrats: Contrat[];
   historique: HistoriqueSalaire[];
   disciplinaire: DossierDisciplinaire[];
@@ -118,120 +169,245 @@ export function DossierEmploye({
 
   return (
     <>
-      {vue === "contrats" && (
+      {vue === "contrats" && (() => {
+        // Le contrat COURANT (actif le plus récent) est mis en avant façon « Conditions actuelles » ;
+        // les autres (transformés, expirés, résiliés…) forment l'historique replié en dessous.
+        const courant = contrats.find((c) => c.statut === "ACTIF") ?? null;
+        const anciens = contrats.filter((c) => c !== courant);
+        return (
       <>
-      {/* Contrats */}
-      <Section title="Contrats">
-        {contrats.length === 0 ? (
+      {/* Conditions actuelles (contrat actif) */}
+      <Section title="Conditions actuelles">
+        {!courant ? (
           <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Aucun contrat enregistré.
+            Aucun contrat actif. {contrats.length > 0 ? "Consultez l'historique ci-dessous ou ajoutez un nouveau contrat." : "Ajoutez un premier contrat ci-dessous."}
           </p>
-        ) : (
-          <div className="mb-4 grid gap-3 md:grid-cols-2">
-            {contrats.map((c) => {
-              const expireBientot = c.statut === "ACTIF" && c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
-              const essaiBientot = c.statut === "ACTIF" && c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
-              return (
-                <div key={c.id} className="rounded-xl border bg-card p-4">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
-                      <p className="text-sm text-muted-foreground">
-                        du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
-                        {c.renouvellements > 0 ? ` · prolongé ${c.renouvellements} fois` : ""}
-                      </p>
-                      {c.agence && (
-                        <p className="text-xs text-muted-foreground">
-                          Agence : <b>{c.agence}</b>{c.coutJourUSD ? ` · ${Number(c.coutJourUSD).toLocaleString("fr-FR")} $/jour facturé` : ""} — payé par l&apos;agence (hors paie)
-                        </p>
-                      )}
-                    </div>
-                    <StatutContratBadge statut={c.statut} />
+        ) : (() => {
+          const c = courant;
+          const expireBientot = c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
+          const essaiBientot = c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
+          const essaiEnCours = c.finPeriodeEssai && new Date(c.finPeriodeEssai) >= aujourdhui;
+          return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                Effectives depuis le <b className="text-foreground">{d(c.dateDebut)}</b>
+              </p>
+              <StatutContratBadge statut={c.statut} />
+            </div>
+
+            {(expireBientot || essaiBientot) && (
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                {expireBientot ? "⚠ Contrat arrivant à échéance (30 j)" : "⚠ Fin de période d'essai proche (30 j)"}
+              </p>
+            )}
+
+            {/* Informations sur le contrat */}
+            <BlocContrat icone="📋" titre="Informations sur le contrat">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ label="Date de début" valeur={d(c.dateDebut)} note={relatifPasse(new Date(c.dateDebut))} />
+                <Champ label="Type de contrat" valeur={TYPE_CONTRAT_LABEL[c.type] ?? c.type} note={c.renouvellements > 0 ? `prolongé ${c.renouvellements} fois` : undefined} />
+                <Champ
+                  label="Date de fin"
+                  valeur={c.dateFin ? d(c.dateFin) : "Indéterminée"}
+                  note={c.dateFin ? relatifFutur(new Date(c.dateFin)) : undefined}
+                  alerte={Boolean(expireBientot)}
+                />
+                <Champ
+                  label="Période d'essai"
+                  valeur={c.finPeriodeEssai ? `Jusqu'au ${d(c.finPeriodeEssai)}` : "—"}
+                  note={essaiEnCours ? "en cours" : c.finPeriodeEssai ? "terminée" : undefined}
+                  alerte={Boolean(essaiBientot)}
+                />
+              </div>
+            </BlocContrat>
+
+            {/* Poste */}
+            <BlocContrat icone="💼" titre="Poste">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ label="Position actuelle" valeur={c.poste} />
+                {c.agence && (
+                  <div className="col-span-2 md:col-span-3">
+                    <Champ
+                      label="Agence d'intérim"
+                      valeur={c.agence}
+                      note={`${c.coutJourUSD ? `${Number(c.coutJourUSD).toLocaleString("fr-FR")} $/jour facturé — ` : ""}payé par l'agence (hors paie)`}
+                    />
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Salaire mensuel</p>
-                      <p className="font-medium">{Number(c.salaireMensuel).toLocaleString("fr-FR")} {c.devise}</p>
+                )}
+              </div>
+            </BlocContrat>
+
+            {/* Rémunération */}
+            <BlocContrat icone="💰" titre="Rémunération">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ
+                  label="Salaire brut"
+                  valeur={`${Number(c.salaireMensuel).toLocaleString("fr-FR")} ${c.devise} / mois`}
+                  note={`soit ${(Number(c.salaireMensuel) * 12).toLocaleString("fr-FR")} ${c.devise} / an`}
+                />
+                <Champ label="Politique de paie" valeur="Mensuelle (aux heures)" note="détail dans l'onglet Paie" />
+              </div>
+            </BlocContrat>
+
+            {/* Horaires */}
+            <BlocContrat icone="🕐" titre="Horaires">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ label="Heures de travail" valeur={`${Number(c.heuresHebdo).toLocaleString("fr-FR")} h / semaine`} />
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Jours travaillés</p>
+                  {joursModele.length > 0 ? (
+                    <div className="mt-1 flex gap-1.5">
+                      {["L", "M", "M", "J", "V", "S", "D"].map((lettre, i) => {
+                        const jsJour = (i + 1) % 7; // 0=lun → jour JS 1 … 6=dim → jour JS 0
+                        const travaille = joursModele.includes(jsJour);
+                        return (
+                          <span
+                            key={i}
+                            title={["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][i]}
+                            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                              travaille ? "bg-teal-600 text-white" : "border text-muted-foreground"
+                            }`}
+                          >
+                            {lettre}
+                          </span>
+                        );
+                      })}
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Fin de période d&apos;essai</p>
-                      <p className={`font-medium ${essaiBientot ? "text-amber-700" : ""}`}>{d(c.finPeriodeEssai)}</p>
-                    </div>
-                  </div>
-                  {(expireBientot || essaiBientot) && (
-                    <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
-                      {expireBientot ? "Contrat arrivant à échéance (30 j)" : "Fin de période d'essai proche (30 j)"}
-                    </p>
-                  )}
-                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
-                    {c.documentUrl ? (
-                      <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
-                    )}
-                    {c.type === "STAGE" && (
-                      <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
-                        Attestation de fin de stage →
-                      </a>
-                    )}
-                    {estAdmin && (
-                      // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
-                      <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
-                        <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="max-w-52 text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs" />
-                        <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">{c.documentUrl ? "Remplacer" : "Joindre"}</button>
-                      </form>
-                    )}
-                  </div>
-                  {peutModifier && c.statut === "ACTIF" && (
-                    <details className="mt-2 rounded-lg border bg-muted/20">
-                      <summary className="cursor-pointer px-3 py-2 text-xs font-medium">Transformer · Prolonger · Période d&apos;essai</summary>
-                      <div className="space-y-3 p-3 pt-1">
-                        {/* Transformation historisée : l'ancien contrat reste lisible (statut TRANSFORMÉ). */}
-                        <form action={transformerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
-                          <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
-                          <label className="flex flex-col gap-0.5">Nouveau type
-                            <select name="type" defaultValue={c.type === "CDI" ? "CDD" : "CDI"} className={inputCls}>
-                              {["CDI", "CDD"].filter((t) => t !== c.type).map((t) => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                          </label>
-                          <label className="flex flex-col gap-0.5">Début du nouveau contrat
-                            <input type="date" name="dateDebut" defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} />
-                          </label>
-                          <label className="flex flex-col gap-0.5">Fin (si CDD)
-                            <input type="date" name="dateFin" className={inputCls} />
-                          </label>
-                          <button className="rounded-md bg-primary px-2.5 py-1.5 font-medium text-primary-foreground">Transformer</button>
-                          <span className="text-muted-foreground">L&apos;ancien contrat reste dans l&apos;historique.</span>
-                        </form>
-                        {c.dateFin && (
-                          <form action={prolongerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
-                            <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
-                            <label className="flex flex-col gap-0.5">Nouvelle date de fin
-                              <input type="date" name="dateFin" required className={inputCls} />
-                            </label>
-                            <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger le contrat</button>
-                            {c.type === "CDD" && <span className="text-muted-foreground">Compté et borné (Code du travail — Barèmes).</span>}
-                          </form>
-                        )}
-                        {c.finPeriodeEssai && (
-                          <form action={prolongerEssai.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
-                            <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
-                            <label className="flex flex-col gap-0.5">Nouvelle fin d&apos;essai
-                              <input type="date" name="finPeriodeEssai" required className={inputCls} />
-                            </label>
-                            <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger l&apos;essai</button>
-                            <span className="text-muted-foreground">Bornée à la durée légale maximale.</span>
-                          </form>
-                        )}
-                      </div>
-                    </details>
+                  ) : (
+                    <p className="mt-1 text-sm text-muted-foreground">Modèle hebdo non défini — réglable dans Planning → Modèle hebdo.</p>
                   )}
                 </div>
-              );
-            })}
+              </div>
+            </BlocContrat>
+
+            {/* Fichier du contrat + attestation */}
+            <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+              {c.documentUrl ? (
+                <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
+              ) : (
+                <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+              )}
+              {c.type === "STAGE" && (
+                <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
+                  Attestation de fin de stage →
+                </a>
+              )}
+              {estAdmin && (
+                // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
+                <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
+                  <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="max-w-52 text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                  <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">{c.documentUrl ? "Remplacer" : "Joindre"}</button>
+                </form>
+              )}
+            </div>
+
+            {peutModifier && (
+              <details className="rounded-lg border bg-muted/20">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium">＋ Nouvelles conditions — transformer · prolonger · période d&apos;essai</summary>
+                <div className="space-y-3 p-3 pt-1">
+                  {/* Transformation historisée : l'ancien contrat reste lisible (statut TRANSFORMÉ). */}
+                  <form action={transformerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                    <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                    <label className="flex flex-col gap-0.5">Nouveau type
+                      <select name="type" defaultValue={c.type === "CDI" ? "CDD" : "CDI"} className={inputCls}>
+                        {["CDI", "CDD"].filter((t) => t !== c.type).map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-0.5">Début du nouveau contrat
+                      <input type="date" name="dateDebut" defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Fin (si CDD)
+                      <input type="date" name="dateFin" className={inputCls} />
+                    </label>
+                    <button className="rounded-md bg-primary px-2.5 py-1.5 font-medium text-primary-foreground">Transformer</button>
+                    <span className="text-muted-foreground">L&apos;ancien contrat reste dans l&apos;historique.</span>
+                  </form>
+                  {c.dateFin && (
+                    <form action={prolongerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                      <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                      <label className="flex flex-col gap-0.5">Nouvelle date de fin
+                        <input type="date" name="dateFin" required className={inputCls} />
+                      </label>
+                      <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger le contrat</button>
+                      {c.type === "CDD" && <span className="text-muted-foreground">Compté et borné (Code du travail — Barèmes).</span>}
+                    </form>
+                  )}
+                  {c.finPeriodeEssai && (
+                    <form action={prolongerEssai.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                      <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                      <label className="flex flex-col gap-0.5">Nouvelle fin d&apos;essai
+                        <input type="date" name="finPeriodeEssai" required className={inputCls} />
+                      </label>
+                      <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger l&apos;essai</button>
+                      <span className="text-muted-foreground">Bornée à la durée légale maximale.</span>
+                    </form>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
-        )}
-        {peutModifier && (
+          );
+        })()}
+      </Section>
+
+      {/* Historique des contrats (transformés, expirés, résiliés…) */}
+      {anciens.length > 0 && (
+        <Section title={`Historique (${anciens.length} contrat${anciens.length > 1 ? "s" : ""})`}>
+          <div className="grid gap-3 md:grid-cols-2">
+            {anciens.map((c) => (
+              <div key={c.id} className="rounded-xl border bg-card p-4">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
+                    <p className="text-sm text-muted-foreground">
+                      du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
+                      {c.renouvellements > 0 ? ` · prolongé ${c.renouvellements} fois` : ""}
+                    </p>
+                    {c.agence && (
+                      <p className="text-xs text-muted-foreground">
+                        Agence : <b>{c.agence}</b>{c.coutJourUSD ? ` · ${Number(c.coutJourUSD).toLocaleString("fr-FR")} $/jour facturé` : ""} — payé par l&apos;agence (hors paie)
+                      </p>
+                    )}
+                  </div>
+                  <StatutContratBadge statut={c.statut} />
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Salaire mensuel</p>
+                    <p className="font-medium">{Number(c.salaireMensuel).toLocaleString("fr-FR")} {c.devise}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Fin de période d&apos;essai</p>
+                    <p className="font-medium">{d(c.finPeriodeEssai)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
+                  {c.documentUrl ? (
+                    <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+                  )}
+                  {c.type === "STAGE" && (
+                    <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
+                      Attestation de fin de stage →
+                    </a>
+                  )}
+                  {estAdmin && (
+                    <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
+                      <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="max-w-52 text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                      <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">{c.documentUrl ? "Remplacer" : "Joindre"}</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {peutModifier && (
+      <Section title="Nouveau contrat">
           <details className="rounded-lg border bg-muted/20">
             <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">Ajouter / importer un contrat</summary>
             <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
@@ -254,10 +430,11 @@ export function DossierEmploye({
               </div>
             </form>
           </details>
-        )}
       </Section>
-      </>
       )}
+      </>
+        );
+      })()}
 
       {vue === "dossier" && (
       <>

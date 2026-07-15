@@ -34,9 +34,10 @@ async function appliquerPresence(
     create: { employeeId, date: new Date(date), code },
   });
 
-  // Un jour de présence (P) pré-remplit les heures supp. avec la DURÉE DU SHIFT du jour (modèle
-  // hebdo de l'employé) — ex. Caisse 12h pour Rachel, Admin 3,5h pour Aimée. À défaut de modèle,
-  // on retombe sur l'horaire contractuel (heures/jour). Ajustable ensuite dans la grille.
+  // Un jour de présence (P) pré-remplit les heures avec, par ordre de priorité :
+  //  1. le CRÉNEAU PLANIFIÉ du jour (onglet Planning) — la réalité de la semaine prime ;
+  //  2. sinon le shift du MODÈLE HEBDO de l'employé (rôle habituel du jour) ;
+  //  3. sinon l'horaire contractuel (heures/jour). Ajustable ensuite dans la grille.
   if (code === "P") {
     const dejaSaisi = await prisma.overtimeEntry.findUnique({
       where: { employeeId_date: { employeeId, date: new Date(date) } },
@@ -46,21 +47,39 @@ async function appliquerPresence(
       let heures = Number(employee.heuresParJour);
       const dObj = new Date(date);
       const jour = dObj.getUTCDay();
-      // Modèle du jour : couche de la parité (semaine A/B), sinon couche « chaque semaine ».
-      const modeles = await prisma.planningModele.findMany({
-        where: { employeeId, jour, semaine: { in: [pariteSemaine(dObj), 0] } },
+
+      // 1. Planning du jour (un Repos/Congé planifié n'a pas d'heures → on passe au modèle).
+      const creneau = await prisma.planningCreneau.findUnique({
+        where: { employeeId_date: { employeeId, date: dObj } },
+        include: { shift: true },
       });
-      const modele =
-        modeles.find((m) => m.semaine === pariteSemaine(dObj)) ?? modeles.find((m) => m.semaine === 0);
-      if (modele) {
-        const shift = await prisma.shift.findUnique({ where: { id: modele.shiftId } });
-        if (shift) {
-          const d = dureeShift({
-            heureDebut: shift.heureDebut,
-            heureFin: shift.heureFin,
-            dureeHeures: shift.dureeHeures != null ? Number(shift.dureeHeures) : null,
-          });
-          if (d > 0) heures = d;
+      let dureePlanifiee = 0;
+      if (creneau) {
+        dureePlanifiee = dureeShift({
+          heureDebut: creneau.shift.heureDebut,
+          heureFin: creneau.shift.heureFin,
+          dureeHeures: creneau.shift.dureeHeures != null ? Number(creneau.shift.dureeHeures) : null,
+        });
+      }
+      if (dureePlanifiee > 0) {
+        heures = dureePlanifiee;
+      } else {
+        // 2. Modèle du jour : couche de la parité (semaine A/B), sinon couche « chaque semaine ».
+        const modeles = await prisma.planningModele.findMany({
+          where: { employeeId, jour, semaine: { in: [pariteSemaine(dObj), 0] } },
+        });
+        const modele =
+          modeles.find((m) => m.semaine === pariteSemaine(dObj)) ?? modeles.find((m) => m.semaine === 0);
+        if (modele) {
+          const shift = await prisma.shift.findUnique({ where: { id: modele.shiftId } });
+          if (shift) {
+            const d = dureeShift({
+              heureDebut: shift.heureDebut,
+              heureFin: shift.heureFin,
+              dureeHeures: shift.dureeHeures != null ? Number(shift.dureeHeures) : null,
+            });
+            if (d > 0) heures = d;
+          }
         }
       }
       await prisma.overtimeEntry.create({
