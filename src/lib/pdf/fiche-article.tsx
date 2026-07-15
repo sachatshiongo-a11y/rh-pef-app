@@ -119,6 +119,9 @@ export function FicheArticleDocument({
           <Text style={{ fontSize: 8, color: pdfColors.textMuted, marginTop: -6, marginBottom: 14 }}>
             Min {usd(analyse.min)} · Max {usd(analyse.max)}
             {analyse.variation !== null ? `   ·   ${analyse.variation >= 0 ? "+" : ""}${analyse.variation.toFixed(1)}% vs achat précédent` : ""}
+            {analyse.dernier && prixReference !== null && prixReference > 0
+              ? `   ·   ${analyse.dernier.prix >= prixReference ? "+" : ""}${(((analyse.dernier.prix - prixReference) / prixReference) * 100).toFixed(1)}% vs prix de référence (${usd(prixReference)})`
+              : ""}
           </Text>
         )}
 

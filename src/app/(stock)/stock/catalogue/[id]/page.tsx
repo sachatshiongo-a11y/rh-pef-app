@@ -120,6 +120,15 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
                   {variation > 0 ? "▲" : variation < 0 ? "▼" : ""} {Math.abs(variation).toFixed(1)}% vs achat précédent
                 </span>
               )}
+              {analyse.dernier && Number(a.prixUnitaireUSD) > 0 && (() => {
+                const ref = Number(a.prixUnitaireUSD);
+                const ecart = ((analyse.dernier.prix - ref) / ref) * 100;
+                return (
+                  <span className={`ml-2 font-medium ${ecart > 0 ? "text-red-700" : ecart < 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                    {ecart > 0 ? "▲" : ecart < 0 ? "▼" : "="} {Math.abs(ecart).toFixed(1)}% vs prix de référence
+                  </span>
+                );
+              })()}
             </span>
           )}
         </div>
@@ -127,7 +136,12 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
           <p className="text-sm text-muted-foreground">Aucun achat facturé pour cet article. Le prix évoluera au fil des factures.</p>
         ) : (
           <>
-            <Sparkline points={prixHisto.map((p) => p.prix)} />
+            <Sparkline points={prixHisto.map((p) => p.prix)} reference={Number(a.prixUnitaireUSD) > 0 ? Number(a.prixUnitaireUSD) : null} />
+            {Number(a.prixUnitaireUSD) > 0 && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                <span className="mr-1 inline-block w-5 border-t-2 border-dashed border-amber-500 align-middle" /> prix de référence ({usd(a.prixUnitaireUSD)}) — un prix d&apos;achat de repère, lui aussi
+              </p>
+            )}
             <div className="mt-3 max-h-64 overflow-auto">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs text-muted-foreground">
@@ -198,17 +212,25 @@ function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?
 }
 
 // Mini-courbe SVG de l'évolution du prix (sans dépendance). Chronologique, gauche → droite.
-function Sparkline({ points }: { points: number[] }) {
-  if (points.length < 2) return <p className="text-xs text-muted-foreground">Un seul achat — pas encore de courbe.</p>;
-  const w = 600, h = 60, pad = 4;
-  const min = Math.min(...points), max = Math.max(...points);
+// `reference` (prix du catalogue) trace une ligne de base pointillée, incluse dans l'échelle :
+// on VOIT d'un coup d'œil si les achats se font au-dessus ou en dessous du prix de référence.
+function Sparkline({ points, reference = null }: { points: number[]; reference?: number | null }) {
+  if (points.length === 0) return null;
+  if (points.length < 2 && reference === null)
+    return <p className="text-xs text-muted-foreground">Un seul achat — pas encore de courbe.</p>;
+  const w = 600, h = 64, pad = 5;
+  const tous = reference !== null ? [...points, reference] : points;
+  const min = Math.min(...tous), max = Math.max(...tous);
   const span = max - min || 1;
-  const x = (i: number) => pad + (i * (w - 2 * pad)) / (points.length - 1);
+  const x = (i: number) => (points.length < 2 ? w / 2 : pad + (i * (w - 2 * pad)) / (points.length - 1));
   const y = (v: number) => h - pad - ((v - min) / span) * (h - 2 * pad);
   const d = points.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full" preserveAspectRatio="none" role="img" aria-label="Évolution du prix">
-      <path d={d} fill="none" stroke="currentColor" strokeWidth={2} className="text-primary" vectorEffect="non-scaling-stroke" />
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full" preserveAspectRatio="none" role="img" aria-label="Évolution du prix (pointillé : prix de référence)">
+      {reference !== null && (
+        <line x1={pad} x2={w - pad} y1={y(reference)} y2={y(reference)} strokeDasharray="6 4" strokeWidth={1.5} className="stroke-amber-500" vectorEffect="non-scaling-stroke" />
+      )}
+      {points.length >= 2 && <path d={d} fill="none" stroke="currentColor" strokeWidth={2} className="text-primary" vectorEffect="non-scaling-stroke" />}
       {points.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={2.5} className="fill-primary" />)}
     </svg>
   );
