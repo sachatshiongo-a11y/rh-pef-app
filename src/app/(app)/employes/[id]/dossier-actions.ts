@@ -221,7 +221,7 @@ const MIME_PAR_EXT: Record<string, string> = {
 };
 const EXT_DOC_OK = Object.keys(MIME_PAR_EXT);
 
-/** Téléverse un fichier vers Supabase Storage et renvoie son URL publique. */
+/** Téléverse un fichier vers le bucket privé et renvoie son lien applicatif /fichiers/… (session requise). */
 async function televerserFichier(employeeId: string, file: File): Promise<string> {
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
   if (!EXT_DOC_OK.includes(ext))
@@ -248,7 +248,7 @@ async function televerserFichier(employeeId: string, file: File): Promise<string
     const detail = await res.text().catch(() => "");
     throw new Error(`Échec du téléversement (${res.status})${detail ? ` : ${detail.slice(0, 200)}` : ""}`);
   }
-  return `${base}/storage/v1/object/public/${BUCKET_DOCS}/${path}`;
+  return `/fichiers/${path}`;
 }
 
 export async function ajouterDocument(employeeId: string, formData: FormData) {

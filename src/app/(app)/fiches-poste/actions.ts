@@ -38,7 +38,7 @@ async function televerserFiche(poste: string, file: File): Promise<string> {
       throw new Error("Type de fichier non accepté par le stockage (PDF ou Word attendu).");
     throw new Error("Le téléversement du fichier a échoué. Réessayez.");
   }
-  return `${base}/storage/v1/object/public/${BUCKET}/${path}`;
+  return `/fichiers/${path}`; // bucket privé — servi derrière session
 }
 
 /** Crée un nouvel intitulé de poste (fiche vide, à documenter ensuite). Admin/Manager. */

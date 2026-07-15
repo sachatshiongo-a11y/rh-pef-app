@@ -39,8 +39,9 @@ export async function uploadPhotoEmploye(employeeId: string, formData: FormData)
   });
   if (!res.ok) throw new Error("Échec de l'upload de la photo.");
 
-  const publicUrl = `${base}/storage/v1/object/public/${BUCKET}/${path}`;
-  await prisma.employee.update({ where: { id: employeeId }, data: { photoUrl: publicUrl } });
+  // Lien applicatif servi derrière session (bucket privé) — voir src/app/fichiers/[...chemin].
+  const urlPrivee = `/fichiers/${path}`;
+  await prisma.employee.update({ where: { id: employeeId }, data: { photoUrl: urlPrivee } });
 
   revalidatePath(`/employes/${employeeId}`);
   revalidatePath("/employes");

@@ -24,12 +24,12 @@ async function televerserFacturePdf(file: File, fournisseurNom: string): Promise
     body: Buffer.from(await file.arrayBuffer()),
   });
   if (!res.ok) throw new Error(`Téléversement du PDF échoué (${res.status}).`);
-  return `${base}/storage/v1/object/public/employes/${dest}`;
+  return `/fichiers/${dest}`; // bucket privé — servi derrière session
 }
 
 const EXT_MIME: Record<string, string> = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic" };
 
-/** Téléverse un document de facture (PDF ou image scannée) et renvoie son URL publique. */
+/** Téléverse un document de facture (PDF ou image scannée) et renvoie son lien applicatif privé. */
 async function televerserDocument(file: File, fournisseurNom: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -42,7 +42,7 @@ async function televerserDocument(file: File, fournisseurNom: string): Promise<s
     body: Buffer.from(await file.arrayBuffer()),
   });
   if (!res.ok) throw new Error(`Téléversement du document échoué (${res.status}).`);
-  return `${base}/storage/v1/object/public/employes/${dest}`;
+  return `/fichiers/${dest}`; // bucket privé — servi derrière session
 }
 
 /** Joint (ou remplace) le document d'origine d'une facture existante — PDF ou scan image. Direction uniquement. */

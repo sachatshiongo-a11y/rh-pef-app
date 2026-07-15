@@ -90,7 +90,7 @@ async function televerserCertificat(employeeId: string, file: File): Promise<str
     body: Buffer.from(await file.arrayBuffer()),
   });
   if (!res.ok) throw new Error("Échec du téléversement du certificat.");
-  return `${base}/storage/v1/object/public/employes/${path}`;
+  return `/fichiers/${path}`; // bucket privé — servi derrière session
 }
 
 /** Ajoute un frais médical (avec certificat) pour la période en cours. Répercuté au calcul de la paie. */

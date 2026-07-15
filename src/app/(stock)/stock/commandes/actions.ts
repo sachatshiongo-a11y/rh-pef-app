@@ -24,7 +24,7 @@ async function televerserBC(file: File, dest: string): Promise<string> {
     body: Buffer.from(await file.arrayBuffer()),
   });
   if (!res.ok) throw new Error(`téléversement PDF (${res.status})`);
-  return `${base}/storage/v1/object/public/employes/${dest}`;
+  return `/fichiers/${dest}`; // bucket privé — servi derrière session
 }
 
 /**
