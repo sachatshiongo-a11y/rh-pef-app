@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import type { TypeContrat } from "@prisma/client";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 function revalider(employeeId: string) {
   revalidatePath("/paie");
@@ -59,19 +60,22 @@ export async function rompreContrat(id: string) {
 
 /** Prolonge un contrat (nouvelle date de fin). */
 export async function prolongerContrat(id: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
-  const dateFinStr = String(formData.get("dateFin") ?? "").trim();
-  if (!dateFinStr) throw new Error("Nouvelle date de fin requise.");
-  const contrat = await prisma.contrat.findUnique({ where: { id } });
-  if (!contrat) return;
-  await prisma.contrat.update({ where: { id }, data: { dateFin: new Date(dateFinStr) } });
-  await journaliser(prisma, {
-    entite: "Contrat",
-    entiteId: contrat.employeeId,
-    champ: "prolongation",
-    nouvelleValeur: new Date(dateFinStr).toLocaleDateString("fr-FR"),
-    userId: user.id,
+  await formulaireLisible("/paie", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
+    const dateFinStr = String(formData.get("dateFin") ?? "").trim();
+    if (!dateFinStr) throw new Error("Nouvelle date de fin requise.");
+    const contrat = await prisma.contrat.findUnique({ where: { id } });
+    if (!contrat) return;
+    await prisma.contrat.update({ where: { id }, data: { dateFin: new Date(dateFinStr) } });
+    await journaliser(prisma, {
+      entite: "Contrat",
+      entiteId: contrat.employeeId,
+      champ: "prolongation",
+      nouvelleValeur: new Date(dateFinStr).toLocaleDateString("fr-FR"),
+      userId: user.id,
+    });
+    revalider(contrat.employeeId);
+
   });
-  revalider(contrat.employeeId);
 }

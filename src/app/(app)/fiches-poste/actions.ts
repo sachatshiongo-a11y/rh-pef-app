@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 const BUCKET = "employes";
 const EXT_OK = ["pdf", "doc", "docx"];
@@ -43,72 +44,78 @@ async function televerserFiche(poste: string, file: File): Promise<string> {
 
 /** Crée un nouvel intitulé de poste (fiche vide, à documenter ensuite). Admin/Manager. */
 export async function creerPoste(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const poste = String(formData.get("poste") ?? "").trim();
-  if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Indiquez un intitulé de poste.")}`);
+    const poste = String(formData.get("poste") ?? "").trim();
+    if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Indiquez un intitulé de poste.")}`);
 
-  // Existe déjà comme fiche ou comme poste d'un employé ? On ne crée pas de doublon.
-  const [existeFiche, existeEmploye] = await Promise.all([
-    prisma.fichePoste.findUnique({ where: { poste } }),
-    prisma.employee.findFirst({ where: { poste }, select: { id: true } }),
-  ]);
-  if (existeFiche || existeEmploye) {
-    redirect(`/fiches-poste?erreur=${encodeURIComponent(`Le poste « ${poste} » existe déjà.`)}`);
-  }
+    // Existe déjà comme fiche ou comme poste d'un employé ? On ne crée pas de doublon.
+    const [existeFiche, existeEmploye] = await Promise.all([
+      prisma.fichePoste.findUnique({ where: { poste } }),
+      prisma.employee.findFirst({ where: { poste }, select: { id: true } }),
+    ]);
+    if (existeFiche || existeEmploye) {
+      redirect(`/fiches-poste?erreur=${encodeURIComponent(`Le poste « ${poste} » existe déjà.`)}`);
+    }
 
-  await prisma.fichePoste.create({ data: { poste, creeParId: user.id } });
-  await journaliser(prisma, { entite: "FichePoste", entiteId: poste, champ: "creation", nouvelleValeur: "poste créé", userId: user.id });
+    await prisma.fichePoste.create({ data: { poste, creeParId: user.id } });
+    await journaliser(prisma, { entite: "FichePoste", entiteId: poste, champ: "creation", nouvelleValeur: "poste créé", userId: user.id });
 
-  revalidatePath("/fiches-poste");
-  revalidatePath("/employes");
-  redirect(`/fiches-poste?msg=${encodeURIComponent(`Poste « ${poste} » créé. Vous pouvez le documenter et l'affecter à un employé.`)}`);
+    revalidatePath("/fiches-poste");
+    revalidatePath("/employes");
+    redirect(`/fiches-poste?msg=${encodeURIComponent(`Poste « ${poste} » créé. Vous pouvez le documenter et l'affecter à un employé.`)}`);
+
+  });
 }
 
 /** Crée ou met à jour la fiche d'un poste (description + fichier optionnel). Admin/Manager. */
 export async function enregistrerFichePoste(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const poste = String(formData.get("poste") ?? "").trim();
-  if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Intitulé de poste manquant.")}`);
+    const poste = String(formData.get("poste") ?? "").trim();
+    if (!poste) redirect(`/fiches-poste?erreur=${encodeURIComponent("Intitulé de poste manquant.")}`);
 
-  // Les erreurs (format/taille refusés, échec de téléversement…) sont renvoyées à la page sous
-  // forme de message lisible plutôt que de faire planter la page en « server error ».
-  let erreur: string | null = null;
-  try {
-    const description = String(formData.get("description") ?? "").trim() || null;
-    const existante = await prisma.fichePoste.findUnique({ where: { poste } });
+    // Les erreurs (format/taille refusés, échec de téléversement…) sont renvoyées à la page sous
+    // forme de message lisible plutôt que de faire planter la page en « server error ».
+    let erreur: string | null = null;
+    try {
+      const description = String(formData.get("description") ?? "").trim() || null;
+      const existante = await prisma.fichePoste.findUnique({ where: { poste } });
 
-    let fichierUrl = existante?.fichierUrl ?? null;
-    let fichierNom = existante?.fichierNom ?? null;
-    const file = formData.get("fichier");
-    if (file instanceof File && file.size > 0) {
-      fichierUrl = await televerserFiche(poste, file);
-      fichierNom = file.name;
+      let fichierUrl = existante?.fichierUrl ?? null;
+      let fichierNom = existante?.fichierNom ?? null;
+      const file = formData.get("fichier");
+      if (file instanceof File && file.size > 0) {
+        fichierUrl = await televerserFiche(poste, file);
+        fichierNom = file.name;
+      }
+
+      await prisma.fichePoste.upsert({
+        where: { poste },
+        create: { poste, description, fichierUrl, fichierNom, creeParId: user.id },
+        update: { description, fichierUrl, fichierNom },
+      });
+
+      await journaliser(prisma, {
+        entite: "FichePoste",
+        entiteId: poste,
+        champ: existante ? "modification" : "creation",
+        nouvelleValeur: `${description ? "description" : "—"}${fichierNom ? ` + ${fichierNom}` : ""}`,
+        userId: user.id,
+      });
+    } catch (e) {
+      erreur = e instanceof Error ? e.message : "Erreur lors de l'enregistrement de la fiche.";
     }
 
-    await prisma.fichePoste.upsert({
-      where: { poste },
-      create: { poste, description, fichierUrl, fichierNom, creeParId: user.id },
-      update: { description, fichierUrl, fichierNom },
-    });
+    if (erreur) redirect(`/fiches-poste?erreur=${encodeURIComponent(erreur)}`);
+    revalidatePath("/fiches-poste");
+    redirect(`/fiches-poste?msg=${encodeURIComponent(`Fiche du poste « ${poste} » enregistrée.`)}`);
 
-    await journaliser(prisma, {
-      entite: "FichePoste",
-      entiteId: poste,
-      champ: existante ? "modification" : "creation",
-      nouvelleValeur: `${description ? "description" : "—"}${fichierNom ? ` + ${fichierNom}` : ""}`,
-      userId: user.id,
-    });
-  } catch (e) {
-    erreur = e instanceof Error ? e.message : "Erreur lors de l'enregistrement de la fiche.";
-  }
-
-  if (erreur) redirect(`/fiches-poste?erreur=${encodeURIComponent(erreur)}`);
-  revalidatePath("/fiches-poste");
-  redirect(`/fiches-poste?msg=${encodeURIComponent(`Fiche du poste « ${poste} » enregistrée.`)}`);
+  });
 }
 
 const STOPWORDS = new Set(["de", "du", "des", "la", "le", "les", "et", "aux", "au", "un", "une", "pour", "fiche", "poste", "pef"]);
@@ -146,71 +153,77 @@ function reconnaitrePoste(nomFichier: string, postes: string[]): string | null {
  * reconnu d'après son nom. Les fichiers non reconnus sont signalés à l'utilisateur. Admin/Manager.
  */
 export async function importerFichesEnMasse(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
-  if (fichiers.length === 0) redirect(`/fiches-poste?erreur=${encodeURIComponent("Aucun fichier sélectionné.")}`);
+    const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
+    if (fichiers.length === 0) redirect(`/fiches-poste?erreur=${encodeURIComponent("Aucun fichier sélectionné.")}`);
 
-  // Liste des postes connus (employés actifs + fiches existantes).
-  const [employes, fiches] = await Promise.all([
-    prisma.employee.findMany({ where: { actif: true }, select: { poste: true } }),
-    prisma.fichePoste.findMany({ select: { poste: true } }),
-  ]);
-  const postes = [...new Set([...employes.map((e) => e.poste.trim()), ...fiches.map((f) => f.poste)])].filter(Boolean);
+    // Liste des postes connus (employés actifs + fiches existantes).
+    const [employes, fiches] = await Promise.all([
+      prisma.employee.findMany({ where: { actif: true }, select: { poste: true } }),
+      prisma.fichePoste.findMany({ select: { poste: true } }),
+    ]);
+    const postes = [...new Set([...employes.map((e) => e.poste.trim()), ...fiches.map((f) => f.poste)])].filter(Boolean);
 
-  const importes: string[] = [];
-  const nonReconnus: string[] = [];
-  const echecs: string[] = [];
+    const importes: string[] = [];
+    const nonReconnus: string[] = [];
+    const echecs: string[] = [];
 
-  for (const file of fichiers) {
-    const poste = reconnaitrePoste(file.name, postes);
-    if (!poste) {
-      nonReconnus.push(file.name);
-      continue;
+    for (const file of fichiers) {
+      const poste = reconnaitrePoste(file.name, postes);
+      if (!poste) {
+        nonReconnus.push(file.name);
+        continue;
+      }
+      try {
+        const url = await televerserFiche(poste, file);
+        const existante = await prisma.fichePoste.findUnique({ where: { poste } });
+        await prisma.fichePoste.upsert({
+          where: { poste },
+          create: { poste, description: null, fichierUrl: url, fichierNom: file.name, creeParId: user.id },
+          update: { fichierUrl: url, fichierNom: file.name },
+        });
+        await journaliser(prisma, {
+          entite: "FichePoste", entiteId: poste, champ: existante ? "import (maj)" : "import (creation)",
+          nouvelleValeur: file.name, userId: user.id,
+        });
+        importes.push(`${poste} ← ${file.name}`);
+      } catch (e) {
+        echecs.push(`${file.name} (${e instanceof Error ? e.message : "échec"})`);
+      }
     }
-    try {
-      const url = await televerserFiche(poste, file);
-      const existante = await prisma.fichePoste.findUnique({ where: { poste } });
-      await prisma.fichePoste.upsert({
-        where: { poste },
-        create: { poste, description: null, fichierUrl: url, fichierNom: file.name, creeParId: user.id },
-        update: { fichierUrl: url, fichierNom: file.name },
-      });
-      await journaliser(prisma, {
-        entite: "FichePoste", entiteId: poste, champ: existante ? "import (maj)" : "import (creation)",
-        nouvelleValeur: file.name, userId: user.id,
-      });
-      importes.push(`${poste} ← ${file.name}`);
-    } catch (e) {
-      echecs.push(`${file.name} (${e instanceof Error ? e.message : "échec"})`);
-    }
-  }
 
-  revalidatePath("/fiches-poste");
-  revalidatePath("/documents");
+    revalidatePath("/fiches-poste");
+    revalidatePath("/documents");
 
-  const parts: string[] = [];
-  if (importes.length) parts.push(`${importes.length} fiche(s) importée(s) : ${importes.join(" ; ")}.`);
-  if (nonReconnus.length) parts.push(`${nonReconnus.length} fichier(s) non reconnu(s) — à renseigner manuellement : ${nonReconnus.join(", ")}.`);
-  if (echecs.length) parts.push(`${echecs.length} échec(s) : ${echecs.join(", ")}.`);
-  const cle = nonReconnus.length || echecs.length ? "erreur" : "msg";
-  redirect(`/fiches-poste?${cle}=${encodeURIComponent(parts.join(" ") || "Aucune fiche importée.")}`);
+    const parts: string[] = [];
+    if (importes.length) parts.push(`${importes.length} fiche(s) importée(s) : ${importes.join(" ; ")}.`);
+    if (nonReconnus.length) parts.push(`${nonReconnus.length} fichier(s) non reconnu(s) — à renseigner manuellement : ${nonReconnus.join(", ")}.`);
+    if (echecs.length) parts.push(`${echecs.length} échec(s) : ${echecs.join(", ")}.`);
+    const cle = nonReconnus.length || echecs.length ? "erreur" : "msg";
+    redirect(`/fiches-poste?${cle}=${encodeURIComponent(parts.join(" ") || "Aucune fiche importée.")}`);
+
+  });
 }
 
 /** Supprime la fiche d'un poste (la description et le lien ; le fichier reste dans Storage). Admin. */
 export async function supprimerFichePoste(poste: string) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
-  const existante = await prisma.fichePoste.findUnique({ where: { poste } });
-  if (!existante) return;
-  await prisma.fichePoste.delete({ where: { poste } });
-  await journaliser(prisma, {
-    entite: "FichePoste",
-    entiteId: poste,
-    champ: "suppression",
-    ancienneValeur: existante.fichierNom ?? "fiche",
-    userId: user.id,
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
+    const existante = await prisma.fichePoste.findUnique({ where: { poste } });
+    if (!existante) return;
+    await prisma.fichePoste.delete({ where: { poste } });
+    await journaliser(prisma, {
+      entite: "FichePoste",
+      entiteId: poste,
+      champ: "suppression",
+      ancienneValeur: existante.fichierNom ?? "fiche",
+      userId: user.id,
+    });
+    revalidatePath("/fiches-poste");
+
   });
-  revalidatePath("/fiches-poste");
 }

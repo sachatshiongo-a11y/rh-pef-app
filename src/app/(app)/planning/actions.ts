@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { pariteSemaine, dureeShift } from "./creneaux";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -403,49 +404,55 @@ function lireNombre(v: FormDataEntryValue | null): number | null {
 
 /** Ajoute un nouveau shift configurable. */
 export async function creerShift(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/planning", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const nom = String(formData.get("nom") ?? "").trim();
-  if (!nom) throw new Error("Le nom du shift est requis.");
-  const couleur = String(formData.get("couleur") ?? "indigo");
-  const dernier = await prisma.shift.findFirst({ orderBy: { ordre: "desc" } });
+    const nom = String(formData.get("nom") ?? "").trim();
+    if (!nom) throw new Error("Le nom du shift est requis.");
+    const couleur = String(formData.get("couleur") ?? "indigo");
+    const dernier = await prisma.shift.findFirst({ orderBy: { ordre: "desc" } });
 
-  await prisma.shift.create({
-    data: {
-      nom,
-      heureDebut: lireHeure(formData.get("heureDebut")),
-      heureFin: lireHeure(formData.get("heureFin")),
-      couleur,
-      dureeHeures: lireNombre(formData.get("dureeHeures")),
-      tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
-      ordre: (dernier?.ordre ?? 0) + 1,
-    },
+    await prisma.shift.create({
+      data: {
+        nom,
+        heureDebut: lireHeure(formData.get("heureDebut")),
+        heureFin: lireHeure(formData.get("heureFin")),
+        couleur,
+        dureeHeures: lireNombre(formData.get("dureeHeures")),
+        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
+        ordre: (dernier?.ordre ?? 0) + 1,
+      },
+    });
+    revalidatePath("/planning");
+
   });
-  revalidatePath("/planning");
 }
 
 /** Modifie un shift existant (nom, heures, couleur). */
 export async function modifierShift(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/planning", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const id = String(formData.get("id"));
-  const nom = String(formData.get("nom") ?? "").trim();
-  if (!nom) throw new Error("Le nom du shift est requis.");
+    const id = String(formData.get("id"));
+    const nom = String(formData.get("nom") ?? "").trim();
+    if (!nom) throw new Error("Le nom du shift est requis.");
 
-  await prisma.shift.update({
-    where: { id },
-    data: {
-      nom,
-      heureDebut: lireHeure(formData.get("heureDebut")),
-      heureFin: lireHeure(formData.get("heureFin")),
-      couleur: String(formData.get("couleur") ?? "indigo"),
-      dureeHeures: lireNombre(formData.get("dureeHeures")),
-      tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
-    },
+    await prisma.shift.update({
+      where: { id },
+      data: {
+        nom,
+        heureDebut: lireHeure(formData.get("heureDebut")),
+        heureFin: lireHeure(formData.get("heureFin")),
+        couleur: String(formData.get("couleur") ?? "indigo"),
+        dureeHeures: lireNombre(formData.get("dureeHeures")),
+        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
+      },
+    });
+    revalidatePath("/planning");
+
   });
-  revalidatePath("/planning");
 }
 
 /**
@@ -454,19 +461,22 @@ export async function modifierShift(formData: FormData) {
  * plutôt que de le supprimer.
  */
 export async function supprimerShift(id: string) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/planning", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
-  if (!shift) return;
-  if (shift.systeme) throw new Error("Ce shift système ne peut pas être supprimé.");
+    const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
+    if (!shift) return;
+    if (shift.systeme) throw new Error("Ce shift système ne peut pas être supprimé.");
 
-  if (shift._count.creneaux > 0) {
-    await prisma.shift.update({ where: { id }, data: { actif: false } });
-  } else {
-    await prisma.shift.delete({ where: { id } });
-  }
-  revalidatePath("/planning");
+    if (shift._count.creneaux > 0) {
+      await prisma.shift.update({ where: { id }, data: { actif: false } });
+    } else {
+      await prisma.shift.delete({ where: { id } });
+    }
+    revalidatePath("/planning");
+
+  });
 }
 
 /** Réactive un shift désactivé. */

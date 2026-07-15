@@ -59,13 +59,14 @@ export default async function FicheEmployePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; erreur?: string }>;
 }) {
   const user = await verifySession();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
   const { id } = await params;
-  const tab = (await searchParams).tab ?? "apercu";
+  const sp = await searchParams;
+  const tab = sp.tab ?? "apercu";
 
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
@@ -285,6 +286,7 @@ export default async function FicheEmployePage({
 
   return (
     <div className="max-w-5xl">
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       {notifications.length > 0 && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="mb-1 font-semibold">Notifications</p>

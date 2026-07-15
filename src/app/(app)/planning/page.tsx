@@ -29,7 +29,7 @@ function isoJour(d: Date): string {
 export default async function PlanningPage({
   searchParams,
 }: {
-  searchParams: Promise<{ debut?: string; vue?: string; mois?: string; annee?: string }>;
+  searchParams: Promise<{ debut?: string; vue?: string; mois?: string; annee?: string; erreur?: string }>;
 }) {
   const user = await verifySession();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
@@ -145,6 +145,7 @@ export default async function PlanningPage({
 
     return (
       <div>
+        {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold sm:text-2xl">Modèle hebdomadaire</h1>
@@ -222,6 +223,7 @@ export default async function PlanningPage({
 
     return (
       <div>
+        {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold sm:text-2xl">Planning mensuel</h1>
@@ -331,6 +333,7 @@ export default async function PlanningPage({
 
   return (
     <div>
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Planning hebdomadaire</h1>

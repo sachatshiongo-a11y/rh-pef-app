@@ -10,6 +10,7 @@ import type {
   TypeDisciplinaire,
   TypeDocument,
 } from "@prisma/client";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -20,64 +21,67 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  * mécaniquement que le salaire au prorata et l'indemnité de congés non pris.
  */
 export async function terminerContrat(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  const motif = String(formData.get("motif") ?? "AUTRE");
-  const dateFin = new Date(String(formData.get("dateFin")));
-  const joursTravaillesMois = Number(formData.get("joursTravaillesMois") ?? 0) || 0;
-  const joursCongesNonPris = Number(formData.get("joursCongesNonPris") ?? 0) || 0;
-  const preavisJours = Number(formData.get("preavisJours") ?? 0) || 0;
-  const indemniteLicenciementUSD = Number(formData.get("indemniteLicenciementUSD") ?? 0) || 0;
-  const autresUSD = Number(formData.get("autresUSD") ?? 0) || 0;
-  const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
+    const motif = String(formData.get("motif") ?? "AUTRE");
+    const dateFin = new Date(String(formData.get("dateFin")));
+    const joursTravaillesMois = Number(formData.get("joursTravaillesMois") ?? 0) || 0;
+    const joursCongesNonPris = Number(formData.get("joursCongesNonPris") ?? 0) || 0;
+    const preavisJours = Number(formData.get("preavisJours") ?? 0) || 0;
+    const indemniteLicenciementUSD = Number(formData.get("indemniteLicenciementUSD") ?? 0) || 0;
+    const autresUSD = Number(formData.get("autresUSD") ?? 0) || 0;
+    const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
 
-  const [employee, parametres] = await Promise.all([
-    prisma.employee.findUniqueOrThrow({ where: { id: employeeId } }),
-    chargerParametresPaie(),
-  ]);
-  const salaireJournalier = r2(Number(employee.salaireMensuel) / parametres.joursOuvrablesMois);
-  const salaireProrataUSD = r2(salaireJournalier * joursTravaillesMois);
-  const indemniteCongesUSD = r2(salaireJournalier * joursCongesNonPris);
-  const indemnitePreavisUSD = r2(salaireJournalier * preavisJours);
-  const totalUSD = r2(
-    salaireProrataUSD + indemniteCongesUSD + indemnitePreavisUSD + indemniteLicenciementUSD + autresUSD
-  );
+    const [employee, parametres] = await Promise.all([
+      prisma.employee.findUniqueOrThrow({ where: { id: employeeId } }),
+      chargerParametresPaie(),
+    ]);
+    const salaireJournalier = r2(Number(employee.salaireMensuel) / parametres.joursOuvrablesMois);
+    const salaireProrataUSD = r2(salaireJournalier * joursTravaillesMois);
+    const indemniteCongesUSD = r2(salaireJournalier * joursCongesNonPris);
+    const indemnitePreavisUSD = r2(salaireJournalier * preavisJours);
+    const totalUSD = r2(
+      salaireProrataUSD + indemniteCongesUSD + indemnitePreavisUSD + indemniteLicenciementUSD + autresUSD
+    );
 
-  await prisma.finContrat.create({
-    data: {
-      employeeId,
-      motif,
-      dateFin,
-      salaireJournalierUSD: salaireJournalier,
-      joursTravaillesMois,
-      salaireProrataUSD,
-      joursCongesNonPris,
-      indemniteCongesUSD,
-      preavisJours,
-      indemnitePreavisUSD,
-      indemniteLicenciementUSD,
-      autresUSD,
-      totalUSD,
-      commentaire,
-      creeParId: user.id,
-    },
+    await prisma.finContrat.create({
+      data: {
+        employeeId,
+        motif,
+        dateFin,
+        salaireJournalierUSD: salaireJournalier,
+        joursTravaillesMois,
+        salaireProrataUSD,
+        joursCongesNonPris,
+        indemniteCongesUSD,
+        preavisJours,
+        indemnitePreavisUSD,
+        indemniteLicenciementUSD,
+        autresUSD,
+        totalUSD,
+        commentaire,
+        creeParId: user.id,
+      },
+    });
+
+    // Sortie de l'employé : contrats actifs résiliés + employé désactivé (jamais supprimé).
+    await prisma.contrat.updateMany({ where: { employeeId, statut: "ACTIF" }, data: { statut: "RESILIE" } });
+    await prisma.employee.update({ where: { id: employeeId }, data: { actif: false } });
+
+    await journaliser(prisma, {
+      entite: "Employee",
+      entiteId: employeeId,
+      champ: "finContrat",
+      nouvelleValeur: `${motif} — solde ${totalUSD.toFixed(2)} $`,
+      userId: user.id,
+    });
+
+    revalidatePath(`/employes/${employeeId}`);
+    revalidatePath("/employes");
+
   });
-
-  // Sortie de l'employé : contrats actifs résiliés + employé désactivé (jamais supprimé).
-  await prisma.contrat.updateMany({ where: { employeeId, statut: "ACTIF" }, data: { statut: "RESILIE" } });
-  await prisma.employee.update({ where: { id: employeeId }, data: { actif: false } });
-
-  await journaliser(prisma, {
-    entite: "Employee",
-    entiteId: employeeId,
-    champ: "finContrat",
-    nouvelleValeur: `${motif} — solde ${totalUSD.toFixed(2)} $`,
-    userId: user.id,
-  });
-
-  revalidatePath(`/employes/${employeeId}`);
-  revalidatePath("/employes");
 }
 
 function date(formData: FormData, name: string): Date | null {
@@ -86,40 +90,43 @@ function date(formData: FormData, name: string): Date | null {
 }
 
 export async function ajouterContrat(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  // Fichier du contrat téléversé (prioritaire), sinon URL fournie.
-  const fichier = formData.get("fichier");
-  let documentUrl = String(formData.get("documentUrl") ?? "").trim() || null;
-  if (fichier instanceof File && fichier.size > 0) {
-    documentUrl = await televerserFichier(employeeId, fichier);
-  }
+    // Fichier du contrat téléversé (prioritaire), sinon URL fournie.
+    const fichier = formData.get("fichier");
+    let documentUrl = String(formData.get("documentUrl") ?? "").trim() || null;
+    if (fichier instanceof File && fichier.size > 0) {
+      documentUrl = await televerserFichier(employeeId, fichier);
+    }
 
-  await prisma.contrat.create({
-    data: {
-      employeeId,
-      type: String(formData.get("type")) as TypeContrat,
-      dateDebut: new Date(String(formData.get("dateDebut"))),
-      dateFin: date(formData, "dateFin"),
-      finPeriodeEssai: date(formData, "finPeriodeEssai"),
-      heuresHebdo: Number(formData.get("heuresHebdo")) || 48,
-      salaireMensuel: Number(formData.get("salaireMensuel")) || 0,
-      devise: String(formData.get("devise") ?? "USD"),
-      poste: String(formData.get("poste") ?? ""),
-      documentUrl,
-    },
+    await prisma.contrat.create({
+      data: {
+        employeeId,
+        type: String(formData.get("type")) as TypeContrat,
+        dateDebut: new Date(String(formData.get("dateDebut"))),
+        dateFin: date(formData, "dateFin"),
+        finPeriodeEssai: date(formData, "finPeriodeEssai"),
+        heuresHebdo: Number(formData.get("heuresHebdo")) || 48,
+        salaireMensuel: Number(formData.get("salaireMensuel")) || 0,
+        devise: String(formData.get("devise") ?? "USD"),
+        poste: String(formData.get("poste") ?? ""),
+        documentUrl,
+      },
+    });
+
+    await journaliser(prisma, {
+      entite: "Contrat",
+      entiteId: employeeId,
+      champ: "creation",
+      nouvelleValeur: String(formData.get("type")),
+      userId: user.id,
+    });
+
+    revalidatePath(`/employes/${employeeId}`);
+
   });
-
-  await journaliser(prisma, {
-    entite: "Contrat",
-    entiteId: employeeId,
-    champ: "creation",
-    nouvelleValeur: String(formData.get("type")),
-    userId: user.id,
-  });
-
-  revalidatePath(`/employes/${employeeId}`);
 }
 
 /**
@@ -127,88 +134,97 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
  * (le prompt exige la traçabilité des promotions et changements de salaire).
  */
 export async function changerSalaire(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
-  const nouveauSalaire = Number(formData.get("nouveauSalaire"));
-  const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
-  const motif = String(formData.get("motif") ?? "Ajustement");
+    const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
+    const nouveauSalaire = Number(formData.get("nouveauSalaire"));
+    const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
+    const motif = String(formData.get("motif") ?? "Ajustement");
 
-  await prisma.$transaction(async (tx) => {
-    await tx.historiqueSalaire.create({
-      data: {
-        employeeId,
-        ancienSalaire: employee.salaireMensuel,
-        nouveauSalaire,
-        ancienPoste: employee.poste,
-        nouveauPoste,
-        motif,
-        decideParId: user.id,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.historiqueSalaire.create({
+        data: {
+          employeeId,
+          ancienSalaire: employee.salaireMensuel,
+          nouveauSalaire,
+          ancienPoste: employee.poste,
+          nouveauPoste,
+          motif,
+          decideParId: user.id,
+        },
+      });
+      await tx.employee.update({
+        where: { id: employeeId },
+        data: { salaireMensuel: nouveauSalaire, poste: nouveauPoste },
+      });
+      await journaliser(tx, {
+        entite: "Employee",
+        entiteId: employeeId,
+        champ: "salaireMensuel",
+        ancienneValeur: employee.salaireMensuel.toString(),
+        nouvelleValeur: String(nouveauSalaire),
+        userId: user.id,
+      });
     });
-    await tx.employee.update({
-      where: { id: employeeId },
-      data: { salaireMensuel: nouveauSalaire, poste: nouveauPoste },
-    });
-    await journaliser(tx, {
-      entite: "Employee",
-      entiteId: employeeId,
-      champ: "salaireMensuel",
-      ancienneValeur: employee.salaireMensuel.toString(),
-      nouvelleValeur: String(nouveauSalaire),
-      userId: user.id,
-    });
+
+    revalidatePath(`/employes/${employeeId}`);
+
   });
-
-  revalidatePath(`/employes/${employeeId}`);
 }
 
 export async function ajouterDisciplinaire(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  await prisma.dossierDisciplinaire.create({
-    data: {
-      employeeId,
-      type: String(formData.get("type")) as TypeDisciplinaire,
-      date: new Date(String(formData.get("date"))),
-      motif: String(formData.get("motif") ?? ""),
-      description: String(formData.get("description") ?? "").trim() || null,
-      documentUrl: String(formData.get("documentUrl") ?? "").trim() || null,
-      emisParId: user.id,
-    },
+    await prisma.dossierDisciplinaire.create({
+      data: {
+        employeeId,
+        type: String(formData.get("type")) as TypeDisciplinaire,
+        date: new Date(String(formData.get("date"))),
+        motif: String(formData.get("motif") ?? ""),
+        description: String(formData.get("description") ?? "").trim() || null,
+        documentUrl: String(formData.get("documentUrl") ?? "").trim() || null,
+        emisParId: user.id,
+      },
+    });
+
+    await journaliser(prisma, {
+      entite: "DossierDisciplinaire",
+      entiteId: employeeId,
+      champ: "creation",
+      nouvelleValeur: String(formData.get("type")),
+      userId: user.id,
+    });
+
+    revalidatePath(`/employes/${employeeId}`);
+
   });
-
-  await journaliser(prisma, {
-    entite: "DossierDisciplinaire",
-    entiteId: employeeId,
-    champ: "creation",
-    nouvelleValeur: String(formData.get("type")),
-    userId: user.id,
-  });
-
-  revalidatePath(`/employes/${employeeId}`);
 }
 
 export async function ajouterEvaluation(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const noteRaw = String(formData.get("note") ?? "").trim();
+    const noteRaw = String(formData.get("note") ?? "").trim();
 
-  await prisma.evaluation.create({
-    data: {
-      employeeId,
-      date: new Date(String(formData.get("date"))),
-      note: noteRaw ? Number(noteRaw) : null,
-      commentaire: String(formData.get("commentaire") ?? "").trim() || null,
-      evaluateur: String(formData.get("evaluateur") ?? "").trim() || user.nom,
-      documentUrl: String(formData.get("documentUrl") ?? "").trim() || null,
-    },
+    await prisma.evaluation.create({
+      data: {
+        employeeId,
+        date: new Date(String(formData.get("date"))),
+        note: noteRaw ? Number(noteRaw) : null,
+        commentaire: String(formData.get("commentaire") ?? "").trim() || null,
+        evaluateur: String(formData.get("evaluateur") ?? "").trim() || user.nom,
+        documentUrl: String(formData.get("documentUrl") ?? "").trim() || null,
+      },
+    });
+
+    revalidatePath(`/employes/${employeeId}`);
+
   });
-
-  revalidatePath(`/employes/${employeeId}`);
 }
 
 const BUCKET_DOCS = "employes";
@@ -252,47 +268,53 @@ async function televerserFichier(employeeId: string, file: File): Promise<string
 }
 
 export async function ajouterDocument(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  // Fichier téléversé prioritaire, sinon URL fournie (rétrocompatibilité).
-  const file = formData.get("fichier");
-  let fichierUrl = String(formData.get("fichierUrl") ?? "").trim();
-  if (file instanceof File && file.size > 0) {
-    fichierUrl = await televerserFichier(employeeId, file);
-  }
-  if (!fichierUrl) throw new Error("Ajoutez un fichier ou une URL.");
+    // Fichier téléversé prioritaire, sinon URL fournie (rétrocompatibilité).
+    const file = formData.get("fichier");
+    let fichierUrl = String(formData.get("fichierUrl") ?? "").trim();
+    if (file instanceof File && file.size > 0) {
+      fichierUrl = await televerserFichier(employeeId, file);
+    }
+    if (!fichierUrl) throw new Error("Ajoutez un fichier ou une URL.");
 
-  await prisma.documentEmploye.create({
-    data: {
-      employeeId,
-      type: String(formData.get("type")) as TypeDocument,
-      nom: String(formData.get("nom") ?? ""),
-      fichierUrl,
-      dateEmission: date(formData, "dateEmission"),
-      dateExpiration: date(formData, "dateExpiration"),
-      importeParId: user.id,
-    },
+    await prisma.documentEmploye.create({
+      data: {
+        employeeId,
+        type: String(formData.get("type")) as TypeDocument,
+        nom: String(formData.get("nom") ?? ""),
+        fichierUrl,
+        dateEmission: date(formData, "dateEmission"),
+        dateExpiration: date(formData, "dateExpiration"),
+        importeParId: user.id,
+      },
+    });
+
+    revalidatePath(`/employes/${employeeId}`);
+
   });
-
-  revalidatePath(`/employes/${employeeId}`);
 }
 
 /** Joint (ou remplace) le fichier d'un contrat EXISTANT — PDF, Word… Réservé à la Direction. */
 export async function attacherFichierContrat(employeeId: string, contratId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible(`/employes/${employeeId}`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  const fichier = formData.get("fichier");
-  if (!(fichier instanceof File) || fichier.size === 0) throw new Error("Aucun fichier sélectionné.");
-  const contrat = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId }, select: { employeeId: true, documentUrl: true } });
-  if (contrat.employeeId !== employeeId) throw new Error("Contrat introuvable pour cet employé.");
+    const fichier = formData.get("fichier");
+    if (!(fichier instanceof File) || fichier.size === 0) throw new Error("Aucun fichier sélectionné.");
+    const contrat = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId }, select: { employeeId: true, documentUrl: true } });
+    if (contrat.employeeId !== employeeId) throw new Error("Contrat introuvable pour cet employé.");
 
-  const documentUrl = await televerserFichier(employeeId, fichier);
-  await prisma.contrat.update({ where: { id: contratId }, data: { documentUrl } });
-  await journaliser(prisma, {
-    entite: "Contrat", entiteId: contratId, champ: "documentUrl",
-    ancienneValeur: contrat.documentUrl ? "remplacé" : null, nouvelleValeur: "joint", userId: user.id,
+    const documentUrl = await televerserFichier(employeeId, fichier);
+    await prisma.contrat.update({ where: { id: contratId }, data: { documentUrl } });
+    await journaliser(prisma, {
+      entite: "Contrat", entiteId: contratId, champ: "documentUrl",
+      ancienneValeur: contrat.documentUrl ? "remplacé" : null, nouvelleValeur: "joint", userId: user.id,
+    });
+    revalidatePath(`/employes/${employeeId}`);
+
   });
-  revalidatePath(`/employes/${employeeId}`);
 }

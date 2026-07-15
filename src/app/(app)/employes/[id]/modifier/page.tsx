@@ -11,9 +11,12 @@ import { Avatar } from "@/components/avatar";
 
 export default async function ModifierEmployePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ erreur?: string }>;
 }) {
+  const sp = await searchParams;
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
@@ -29,6 +32,7 @@ export default async function ModifierEmployePage({
 
   return (
     <div>
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <Link href={`/employes/${employee.id}`} className="text-sm text-primary underline">
         ← Retour à la fiche
       </Link>
