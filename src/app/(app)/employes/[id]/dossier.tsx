@@ -15,6 +15,7 @@ import {
   ajouterDocument,
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
+import { Icone } from "@/components/icones";
 import { transformerContrat, prolongerContrat, prolongerEssai } from "../../paie/contrat-actions";
 
 const MOTIF_FIN: Record<string, string> = {
@@ -93,12 +94,13 @@ function relatifFutur(date: Date) {
   return "ce mois-ci";
 }
 
-/** Encadré thématique de la carte contrat (Informations / Poste / Rémunération / Horaires). */
+/** Encadré thématique de la carte contrat (Informations / Poste / Rémunération / Horaires) —
+ *  icônes du jeu maison (mêmes tracés que le menu), pas d'emoji. */
 function BlocContrat({ icone, titre, children }: { icone: string; titre: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border bg-card p-4">
       <p className="mb-3 flex items-center gap-2 text-sm font-semibold">
-        <span aria-hidden>{icone}</span>
+        <Icone nom={icone} className="shrink-0 text-muted-foreground" />
         {titre}
       </p>
       {children}
@@ -203,7 +205,7 @@ export function DossierEmploye({
             )}
 
             {/* Informations sur le contrat */}
-            <BlocContrat icone="📋" titre="Informations sur le contrat">
+            <BlocContrat icone="document" titre="Informations sur le contrat">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
                 <Champ label="Date de début" valeur={d(c.dateDebut)} note={relatifPasse(new Date(c.dateDebut))} />
                 <Champ label="Type de contrat" valeur={TYPE_CONTRAT_LABEL[c.type] ?? c.type} note={c.renouvellements > 0 ? `prolongé ${c.renouvellements} fois` : undefined} />
@@ -223,7 +225,7 @@ export function DossierEmploye({
             </BlocContrat>
 
             {/* Poste */}
-            <BlocContrat icone="💼" titre="Poste">
+            <BlocContrat icone="mallette" titre="Poste">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
                 <Champ label="Position actuelle" valeur={c.poste} />
                 {c.agence && (
@@ -239,7 +241,7 @@ export function DossierEmploye({
             </BlocContrat>
 
             {/* Rémunération */}
-            <BlocContrat icone="💰" titre="Rémunération">
+            <BlocContrat icone="billet" titre="Rémunération">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
                 <Champ
                   label="Salaire brut"
@@ -251,7 +253,7 @@ export function DossierEmploye({
             </BlocContrat>
 
             {/* Horaires */}
-            <BlocContrat icone="🕐" titre="Horaires">
+            <BlocContrat icone="horloge" titre="Horaires">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
                 <Champ label="Heures de travail" valeur={`${Number(c.heuresHebdo).toLocaleString("fr-FR")} h / semaine`} />
                 <div className="col-span-2">
