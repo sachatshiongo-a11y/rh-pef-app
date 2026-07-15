@@ -3,14 +3,24 @@ import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { supprimerArticle } from "../actions";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 
 const dCourt = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" }) : "—");
 
-export default async function ArticleFichePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ArticleFichePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ erreur?: string }>;
+}) {
+  const sp = await searchParams;
   const { id } = await params;
-  await verifySession();
+  const user = await verifySession();
+  const estDirection = user.role === "ADMIN";
 
   const a = await prisma.articleStock.findUnique({
     where: { id },
@@ -80,8 +90,19 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
           <Link href={`/stock/catalogue?domaine=${a.domaine}&q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Éditer dans le catalogue
           </Link>
+          {estDirection && (
+            <form action={supprimerArticle.bind(null, a.id)}>
+              <ConfirmSubmitButton
+                message={`Supprimer « ${a.designation} » du catalogue ? Refusé s'il a un historique (mouvements, factures…) — dans ce cas, désactivez-le plutôt.`}
+                className="rounded-md border border-destructive px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
+              >
+                Supprimer
+              </ConfirmSubmitButton>
+            </form>
+          )}
         </div>
       </div>
+      {sp.erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
       {/* Alerte visuelle : le dernier prix d'achat grimpe nettement au-dessus de la moyenne précédente. */}
       {hausse && (

@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { decOptionnel as dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import type { Prisma } from "@prisma/client";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { redirect } from "next/navigation";
 
 
 async function garde() {
@@ -195,3 +197,46 @@ export const definirSeuilEnMasse = actionLisible(async (articleIds: string[], se
   await journaliser(prisma, { entite: "Stock", entiteId: `${ids.length} articles`, champ: "stockMinimum (masse)", nouvelleValeur: String(s), userId: user.id });
   revalidatePath("/stock/catalogue");
 });
+
+/**
+ * Supprime un article du catalogue (Direction). GARDE-FOU : un article avec un HISTORIQUE
+ * (mouvements, lignes de facture ou de bon de commande, comptages, commandes resto) ne peut
+ * pas être supprimé — la traçabilité prime : désactivez-le (il disparaît des listes) ou
+ * fusionnez-le. Un article vierge est supprimé avec sa ligne de stock, et journalisé.
+ */
+export async function supprimerArticle(id: string) {
+  await formulaireLisible(`/stock/catalogue/${id}`, async () => {
+    const user = await verifySession();
+    requireModule(user, "stock");
+    requireRole(user, ["ADMIN"]);
+
+    const a = await prisma.articleStock.findUniqueOrThrow({ where: { id }, select: { designation: true } });
+    const [mvts, lFac, lBC, cResto, cComptage] = await Promise.all([
+      prisma.mouvementStock.count({ where: { articleId: id } }),
+      prisma.ligneFacture.count({ where: { articleId: id } }),
+      prisma.ligneBonDeCommande.count({ where: { articleId: id } }),
+      prisma.commandeResto.count({ where: { articleId: id } }),
+      prisma.ligneComptage.count({ where: { articleId: id } }),
+    ]);
+    const attaches: string[] = [];
+    if (mvts) attaches.push(`${mvts} mouvement(s)`);
+    if (lFac) attaches.push(`${lFac} ligne(s) de facture`);
+    if (lBC) attaches.push(`${lBC} ligne(s) de bon de commande`);
+    if (cResto) attaches.push(`${cResto} commande(s) resto`);
+    if (cComptage) attaches.push(`${cComptage} comptage(s)`);
+    if (attaches.length > 0) {
+      throw new Error(
+        `« ${a.designation} » a un historique (${attaches.join(", ")}) : il ne peut pas être supprimé. Désactivez-le (il disparaît des listes) ou fusionnez-le avec un doublon.`
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stock.deleteMany({ where: { articleId: id } });
+      await tx.articleStock.delete({ where: { id } });
+      await journaliser(tx, { entite: "ArticleStock", entiteId: id, champ: "suppression", ancienneValeur: a.designation, userId: user.id });
+    });
+    revalidatePath("/stock/catalogue", "layout");
+    revalidatePath("/stock");
+  });
+  redirect("/stock/catalogue"); // succès : retour au catalogue
+}
