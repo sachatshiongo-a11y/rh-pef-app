@@ -9,7 +9,6 @@ import { classeurExcel } from "@/lib/export-excel";
  * 1. « Présences » : codes par jour + totaux (Payé 100% / 2/3 / Non payé / Total présences) ;
  * 2. « Heures par jour » : heures travaillées par jour + H. totales, HS 30/60/100, valorisation ;
  * 3. « Détail hebdomadaire » : les heures supp. semaine par semaine.
- * (L'export /heures-supp/export reste disponible pour les anciens liens.)
  */
 export async function GET() {
   await verifySession();

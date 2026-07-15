@@ -94,7 +94,7 @@ export default async function StockDashboard() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Kpi label="Articles" valeur={String(nbArticles)} href="/stock/catalogue/nourriture" />
+        <Kpi label="Articles" valeur={String(nbArticles)} href="/stock/catalogue" />
         <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
         <Kpi label="À réapprovisionner" valeur={String(nbAppro)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
         <Kpi label="Valeur du stock" valeur={usd(valeurStock)} />
@@ -125,7 +125,7 @@ export default async function StockDashboard() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Bloc titre={`Articles au seuil minimum (${nbUrgent + nbAppro})`} lien="/stock/catalogue/nourriture">
+        <Bloc titre={`Articles au seuil minimum (${nbUrgent + nbAppro})`} lien="/stock/catalogue">
           {auSeuil.length === 0 ? <Vide t="Aucun article sous le seuil." /> : (
             <ul className="divide-y text-sm">
               {auSeuil.map((a, i) => (

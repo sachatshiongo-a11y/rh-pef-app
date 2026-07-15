@@ -8,14 +8,25 @@ import type { Prisma } from "@prisma/client";
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string };
 
-const TITRE: Record<Domaine, string> = { NOURRITURE: "Catalogue — Nourriture", BOISSON: "Catalogue — Boissons", AUTRE: "Catalogue — Autre" };
+const DOMAINES: { cle: Domaine | ""; label: string }[] = [
+  { cle: "", label: "Tous" },
+  { cle: "NOURRITURE", label: "Nourriture" },
+  { cle: "BOISSON", label: "Boissons" },
+  { cle: "AUTRE", label: "Autre" },
+];
 
-/** Vue catalogue partagée. `domaine` fixe le domaine (onglet dédié) ; sinon vue « tous domaines ». */
-export async function CatalogueView({ domaine, searchParams }: { domaine?: Domaine; searchParams: Promise<CatalogueSP> }) {
+/** Vue catalogue unique : le domaine se choisit par pilules (?domaine=), plus d'onglets dédiés. */
+export async function CatalogueView({ searchParams }: { searchParams: Promise<CatalogueSP> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const alerteInit = sp.alerte === "URGENT" || sp.alerte === "APPRO" || sp.alerte === "OK" ? sp.alerte : undefined;
-  const domFiltre: Domaine | undefined = domaine ?? (sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined);
+  const domFiltre: Domaine | undefined = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
+
+  // Bascule de domaine en conservant recherche et filtre d'alerte.
+  const lienDomaine = (cle: Domaine | "") => {
+    const p = new URLSearchParams({ ...(q ? { q } : {}), ...(alerteInit ? { alerte: alerteInit } : {}), ...(cle ? { domaine: cle } : {}) });
+    return `/stock/catalogue${p.toString() ? `?${p}` : ""}`;
+  };
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const [articles, categories, fournisseurs, lignes] = await Promise.all([
@@ -57,7 +68,18 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold sm:text-2xl">{domaine ? TITRE[domaine] : "Catalogue"}</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold sm:text-2xl">Catalogue</h1>
+          <div className="flex overflow-hidden rounded-md border text-sm">
+            {DOMAINES.map((d) =>
+              (domFiltre ?? "") === d.cle ? (
+                <span key={d.label} className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">{d.label}</span>
+              ) : (
+                <a key={d.label} href={lienDomaine(d.cle)} className="px-3 py-1.5 hover:bg-accent">{d.label}</a>
+              )
+            )}
+          </div>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md border bg-muted/40 px-2.5 py-1 text-sm"><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{usd(rows.reduce((t, r) => t + (Number(r.prix) || 0) * (Number(r.quantite) || 0), 0))}</span></span>
           <span className="mr-1 text-sm text-muted-foreground">{rows.length} article(s)</span>
@@ -65,7 +87,7 @@ export async function CatalogueView({ domaine, searchParams }: { domaine?: Domai
         </div>
       </div>
 
-      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerteInit} />
+      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domFiltre} initialQ={q} initialAlerte={alerteInit} />
     </div>
   );
 }

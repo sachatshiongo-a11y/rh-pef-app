@@ -1,5 +1,6 @@
-import { CatalogueView, type CatalogueSP } from "../_view";
+import { redirect } from "next/navigation";
 
-export default function CatalogueNourriturePage({ searchParams }: { searchParams: Promise<CatalogueSP> }) {
-  return <CatalogueView domaine="NOURRITURE" searchParams={searchParams} />;
+/** Les catalogues par domaine ont fusionné en un seul onglet (pilules de domaine). */
+export default function CatalogueRedirect() {
+  redirect("/stock/catalogue?domaine=NOURRITURE");
 }

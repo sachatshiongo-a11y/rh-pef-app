@@ -7,7 +7,6 @@ import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte 
 import { analyserPrix } from "@/lib/stock-prix";
 
 const dCourt = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" }) : "—");
-const segDomaine = (dom: string) => (dom === "NOURRITURE" ? "nourriture" : dom === "BOISSON" ? "boissons" : "autre");
 
 export default async function ArticleFichePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -56,7 +55,7 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
 
   return (
     <div className="max-w-4xl space-y-5">
-      <FilAriane segments={[{ label: "Catalogue", href: `/stock/catalogue/${segDomaine(a.domaine)}` }, { label: a.designation }]} />
+      <FilAriane segments={[{ label: "Catalogue", href: `/stock/catalogue?domaine=${a.domaine}` }, { label: a.designation }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -73,7 +72,7 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
           <a href={`/stock/catalogue/${a.id}/pdf`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Exporter PDF
           </a>
-          <Link href={`/stock/catalogue/${segDomaine(a.domaine)}?q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+          <Link href={`/stock/catalogue?domaine=${a.domaine}&q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Éditer dans le catalogue
           </Link>
         </div>

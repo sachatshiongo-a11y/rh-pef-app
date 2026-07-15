@@ -40,9 +40,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
       badges={{
         "/stock/a-valider": nbAValider,
         "/stock/commandes": nbAValider,
-        "/stock/catalogue/nourriture": urgent.NOURRITURE,
-        "/stock/catalogue/boissons": urgent.BOISSON,
-        "/stock/catalogue/autre": urgent.AUTRE,
+        "/stock/catalogue": urgent.NOURRITURE + urgent.BOISSON + urgent.AUTRE,
       }}
       notif={{ items: notifs.items, nonLues: notifs.nonLues, cloture: null }}
     >

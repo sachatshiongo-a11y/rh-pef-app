@@ -22,9 +22,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Dépôt",
     items: [
-      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "marmite" },
-      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "gobelet" },
-      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "colis" },
+      { href: "/stock/catalogue", label: "Catalogue", icone: "marmite" },
       { href: "/stock/entree", label: "Liste d'achat", icone: "panier" },
       { href: "/stock/mouvements", label: "Mouvements", icone: "echanges" },
       { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },
