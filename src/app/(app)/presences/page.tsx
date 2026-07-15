@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
-import { TempsGrid, type EmployeeRow } from "./temps-grid";
+import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
+import { pariteSemaine } from "../planning/creneaux";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { COULEUR_CODE } from "./attendance-colors";
 import { ImportPointage } from "./import-pointage";
@@ -43,12 +44,59 @@ export default async function PresencesPage() {
   // avant la synchro). Idempotent ; ne touche jamais un code existant ni un mois à paie validée.
   await rattraperCodesConges();
 
-  const [employees, attendances, entries, joursFeriesDuMois] = await Promise.all([
+  const [employees, attendances, entries, joursFeriesDuMois, pointages, creneauxMois, modeles, shifts] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
     prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.overtimeEntry.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
+    prisma.pointage.findMany({
+      where: { date: { gte: debutMois, lte: finMois } },
+      select: { employeeId: true, date: true, heureDebut: true, heureFin: true },
+    }),
+    prisma.planningCreneau.findMany({
+      where: { date: { gte: debutMois, lte: finMois } },
+      select: { employeeId: true, date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true } } },
+    }),
+    prisma.planningModele.findMany({ select: { employeeId: true, jour: true, semaine: true, shiftId: true } }),
+    prisma.shift.findMany({ select: { id: true, nom: true, heureDebut: true, heureFin: true } }),
   ]);
+
+  // Shift du jour par case (façon planning) : pointage RÉEL (heures horodatées) > créneau
+  // PLANIFIÉ (onglet Planning) > MODÈLE hebdo — même hiérarchie que les heures auto des P.
+  const fmtHeure = (x: Date) =>
+    new Date(x).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Kinshasa" });
+  const horaireDe = (s: { heureDebut: string | null; heureFin: string | null }) =>
+    s.heureDebut && s.heureFin ? `${s.heureDebut}–${s.heureFin}` : null;
+  const shiftParId = new Map(shifts.map((s) => [s.id, s]));
+  const modeleParCle = new Map<string, string>(); // `${empId}|${jour}|${semaine}` -> shiftId
+  for (const m of modeles) modeleParCle.set(`${m.employeeId}|${m.jour}|${m.semaine}`, m.shiftId);
+
+  const shiftMap: Record<string, InfoShift> = {};
+  for (const e of employees) {
+    for (const d of days) {
+      const dt = new Date(Date.UTC(annee, mois - 1, d));
+      const jour = dt.getUTCDay();
+      const sid =
+        modeleParCle.get(`${e.id}|${jour}|${pariteSemaine(dt)}`) ?? modeleParCle.get(`${e.id}|${jour}|0`);
+      const s = sid ? shiftParId.get(sid) : undefined;
+      if (s) shiftMap[`${e.id}_${d}`] = { nom: s.nom, horaire: horaireDe(s), reel: false };
+    }
+  }
+  for (const c of creneauxMois) {
+    shiftMap[`${c.employeeId}_${new Date(c.date).getUTCDate()}`] = {
+      nom: c.shift.nom,
+      horaire: horaireDe(c.shift),
+      reel: false,
+    };
+  }
+  for (const p of pointages) {
+    const k = `${p.employeeId}_${new Date(p.date).getUTCDate()}`;
+    shiftMap[k] = {
+      nom: shiftMap[k]?.nom ?? null,
+      horaire: `${fmtHeure(p.heureDebut)}–${p.heureFin ? fmtHeure(p.heureFin) : "…"}`,
+      reel: true,
+    };
+  }
 
   const joursFeries = new Set(
     joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10))
@@ -136,6 +184,9 @@ export default async function PresencesPage() {
         <span className="rounded-md bg-orange-100 px-2 py-1 text-xs text-orange-800">
           Colonne surlignée = dimanche ou jour férié (heures payées double)
         </span>
+        <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
+          Sous le code : le shift du jour et ses horaires (Planning / modèle hebdo) — <b>●</b> = pointage réel
+        </span>
       </div>
 
       <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(new Date().toISOString().slice(0, 10)))}>
@@ -146,6 +197,7 @@ export default async function PresencesPage() {
             days={days}
             attendanceMap={attendanceMap}
             hoursMap={hoursMap}
+            shiftMap={shiftMap}
             peutModifier={peutModifier}
             isoDates={isoDates}
             joursFeries={joursFeries}
@@ -160,6 +212,7 @@ export default async function PresencesPage() {
             days={days}
             attendanceMap={attendanceMap}
             hoursMap={hoursMap}
+            shiftMap={shiftMap}
             peutModifier={peutModifier}
             isoDates={isoDates}
             joursFeries={joursFeries}

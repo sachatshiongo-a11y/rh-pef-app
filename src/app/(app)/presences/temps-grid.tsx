@@ -35,6 +35,10 @@ export type EmployeeRow = {
 };
 
 type Cellule = { code: string; heures: number | null };
+
+/** Shift du jour affiché dans la case (façon planning) : nom + horaire début–fin.
+ *  `reel` = heures issues d'un pointage horodaté (sinon : créneau planifié ou modèle hebdo). */
+export type InfoShift = { nom: string | null; horaire: string | null; reel: boolean };
 type Scope = "mois" | "ouvrables" | "feries" | "alternes" | "jour" | "periode";
 
 const fmtH = (n: number) =>
@@ -45,6 +49,7 @@ export function TempsGrid({
   days,
   attendanceMap,
   hoursMap,
+  shiftMap = {},
   peutModifier,
   isoDates,
   joursFeries,
@@ -54,6 +59,7 @@ export function TempsGrid({
   days: number[];
   attendanceMap: Record<string, string>; // `${employeeId}_${day}` -> code
   hoursMap: Record<string, number>; // `${employeeId}_${day}` -> heures
+  shiftMap?: Record<string, InfoShift>; // `${employeeId}_${day}` -> shift du jour (réel > planning > modèle)
   peutModifier: boolean;
   isoDates: string[]; // isoDates[day-1] = "YYYY-MM-DD"
   joursFeries: Set<string>;
@@ -341,12 +347,19 @@ export function TempsGrid({
           {employees.map((emp) => {
             const c = cel(emp.id, jourMobile);
             const coul = couleurDe(c.code);
+            const info = shiftMap[`${emp.id}_${jourMobile}`];
             return (
               <div key={emp.id} className="flex items-center gap-3 rounded-xl border bg-card p-2.5">
                 <Avatar nom={emp.nom} taille={36} photoUrl={emp.photoUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{emp.nom}</div>
                   <div className="font-mono text-xs text-muted-foreground">{emp.matricule}</div>
+                  {info && (info.nom || info.horaire) && (
+                    <div className="truncate text-[11px] text-muted-foreground">
+                      {info.nom}{info.nom && info.horaire ? " · " : ""}
+                      {info.horaire && <span className={`tabular-nums ${info.reel ? "font-semibold text-foreground" : ""}`}>{info.reel ? "● " : ""}{info.horaire}</span>}
+                    </div>
+                  )}
                 </div>
                 {peutModifier ? (
                   <>
@@ -455,7 +468,7 @@ export function TempsGrid({
                   </span>
                 </th>
                 {days.map((d) => (
-                  <th key={d} className={`w-12 px-1 py-2 text-center ${estMajore(d) ? "bg-orange-100" : ""}`} title={estMajore(d) ? "Dimanche ou jour férié" : undefined}>
+                  <th key={d} className={`px-1 py-2 text-center ${estMajore(d) ? "bg-orange-100" : ""}`} title={estMajore(d) ? "Dimanche ou jour férié" : undefined}>
                     {d}
                   </th>
                 ))}
@@ -484,6 +497,10 @@ export function TempsGrid({
                     {days.map((d, colIndex) => {
                       const c = cel(e.id, d);
                       const coul = couleurDe(c.code);
+                      const info = shiftMap[`${e.id}_${d}`];
+                      const infoTitre = info
+                        ? ` ${info.nom ?? ""}${info.horaire ? ` ${info.horaire}` : ""}${info.reel ? " (pointage réel)" : " (planifié)"}`.trimEnd()
+                        : "";
                       return (
                         <td key={d} className={`p-0.5 text-center ${estMajore(d) ? "bg-orange-50" : ""}`}>
                           <button
@@ -493,14 +510,26 @@ export function TempsGrid({
                             disabled={!peutModifier}
                             onClick={(ev) => ouvrirMenu(ev, e.id, d)}
                             onKeyDown={(ev) => clavier(ev, e.id, d, rowIndex, colIndex)}
-                            title={peutModifier ? "Clic : menu code + heures. Ou tapez une lettre (P, O, M…) ; Suppr efface ; flèches pour naviguer." : undefined}
-                            className="flex h-9 w-11 flex-col items-center justify-center rounded-md border border-transparent leading-none hover:border-input focus:border-primary focus:outline-none disabled:cursor-default"
+                            title={`${peutModifier ? "Clic : menu code + heures. Ou tapez une lettre (P, O, M…) ; Suppr efface ; flèches pour naviguer." : ""}${infoTitre}` || undefined}
+                            className="flex h-12 w-[4.6rem] flex-col items-center justify-center rounded-md border border-transparent leading-none hover:border-input focus:border-primary focus:outline-none disabled:cursor-default"
                             style={coul ? { backgroundColor: coul.bg, color: coul.text } : undefined}
                           >
-                            <span className="text-[11px] font-bold">{c.code || "·"}</span>
-                            <span className="mt-0.5 text-[9px] opacity-80 tabular-nums">
-                              {c.heures !== null && c.heures > 0 ? fmtH(c.heures) : "—"}
+                            <span className="text-[11px] font-bold">
+                              {c.code || "·"}
+                              <span className="ml-1 text-[9px] font-normal opacity-80 tabular-nums">
+                                {c.heures !== null && c.heures > 0 ? `${fmtH(c.heures)} h` : ""}
+                              </span>
                             </span>
+                            {info?.nom && (
+                              <span className="mt-0.5 max-w-full truncate text-[8px] opacity-75">{info.nom}</span>
+                            )}
+                            {info?.horaire ? (
+                              <span className={`mt-0.5 text-[8px] tabular-nums ${info.reel ? "font-semibold" : "opacity-60"}`}>
+                                {info.reel ? "● " : ""}{info.horaire}
+                              </span>
+                            ) : !info?.nom ? (
+                              <span className="mt-0.5 text-[8px] opacity-40">—</span>
+                            ) : null}
                           </button>
                         </td>
                       );
