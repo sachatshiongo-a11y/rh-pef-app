@@ -55,7 +55,15 @@ export function SimulationSalaire({
 }: {
   valeurs: ValeursSimulation;
   parametres: ParametresPaie;
-  impact: { netActuel: number; coutActuel: number; effectif: number; periode: string } | null;
+  impact: {
+    netActuel: number;
+    coutActuel: number;
+    effectif: number;
+    periode: string;
+    /** Bulletin ACTUEL de cet employé dans la paie de référence (mode « modification » :
+     *  l'impact affiché est le DELTA, pas un ajout à l'effectif). */
+    actuel?: { net: number; cout: number } | null;
+  } | null;
 }) {
   const v = valeurs;
 
@@ -142,25 +150,38 @@ export function SimulationSalaire({
         </div>
       </dl>
 
-      {impact && impact.effectif > 0 && (
-        <div className="mt-3 rounded-md bg-muted/40 p-2.5 text-xs">
-          <p className="mb-1 font-semibold">Impact sur la paie ({impact.periode})</p>
-          <p>
-            Masse nette : {usd(impact.netActuel)} → <b>{usd(impact.netActuel + ligne.salNetUSD)}</b>{" "}
-            <span className="text-muted-foreground">
-              (+{((ligne.salNetUSD / impact.netActuel) * 100).toFixed(1)} %)
-            </span>
-          </p>
-          <p>
-            Coût employeur : {usd(impact.coutActuel)} →{" "}
-            <b>{usd(impact.coutActuel + ligne.coutEmployeurUSD)}</b>{" "}
-            <span className="text-muted-foreground">
-              (+{((ligne.coutEmployeurUSD / impact.coutActuel) * 100).toFixed(1)} %)
-            </span>
-          </p>
-          <p className="text-muted-foreground">Effectif payé : {impact.effectif} → {impact.effectif + 1}</p>
-        </div>
-      )}
+      {impact && impact.effectif > 0 && (() => {
+        // Création : le simulé S'AJOUTE. Modification : le simulé REMPLACE le bulletin actuel.
+        const deltaNet = ligne.salNetUSD - (impact.actuel?.net ?? 0);
+        const deltaCout = ligne.coutEmployeurUSD - (impact.actuel?.cout ?? 0);
+        const pct = (d: number, base: number) => `${d >= 0 ? "+" : "−"}${((Math.abs(d) / base) * 100).toFixed(1)} %`;
+        return (
+          <div className="mt-3 rounded-md bg-muted/40 p-2.5 text-xs">
+            <p className="mb-1 font-semibold">
+              {impact.actuel ? `Impact de la modification (réf. ${impact.periode})` : `Impact sur la paie (${impact.periode})`}
+            </p>
+            {impact.actuel && (
+              <p>
+                Net de l&apos;employé : {usd(impact.actuel.net)} → <b>{usd(ligne.salNetUSD)}</b>{" "}
+                <span className={deltaNet >= 0 ? "text-emerald-700" : "text-red-700"}>
+                  ({deltaNet >= 0 ? "+" : "−"}{usd(Math.abs(deltaNet))})
+                </span>
+              </p>
+            )}
+            <p>
+              Masse nette : {usd(impact.netActuel)} → <b>{usd(impact.netActuel + deltaNet)}</b>{" "}
+              <span className="text-muted-foreground">({pct(deltaNet, impact.netActuel)})</span>
+            </p>
+            <p>
+              Coût employeur : {usd(impact.coutActuel)} → <b>{usd(impact.coutActuel + deltaCout)}</b>{" "}
+              <span className="text-muted-foreground">({pct(deltaCout, impact.coutActuel)})</span>
+            </p>
+            {!impact.actuel && (
+              <p className="text-muted-foreground">Effectif payé : {impact.effectif} → {impact.effectif + 1}</p>
+            )}
+          </div>
+        );
+      })()}
 
       <p className="mt-2 text-[11px] text-muted-foreground">
         Estimation d&apos;un mois « type » : heures contractuelles, sans heures supp., absences,

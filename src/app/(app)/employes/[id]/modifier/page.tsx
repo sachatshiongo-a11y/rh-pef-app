@@ -8,6 +8,7 @@ import { uploadPhotoEmploye } from "../../photo-actions";
 import { chargerParametresPaie } from "@/lib/config";
 import { chargerPostes } from "@/lib/postes";
 import { Avatar } from "@/components/avatar";
+import { MOIS_FR } from "@/lib/dates-fr";
 
 export default async function ModifierEmployePage({
   params,
@@ -21,12 +22,29 @@ export default async function ModifierEmployePage({
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const { id } = await params;
-  const [employee, parametres, postes] = await Promise.all([
+  const [employee, parametres, postes, dernierRun] = await Promise.all([
     prisma.employee.findUnique({ where: { id } }),
     chargerParametresPaie(),
     chargerPostes(),
+    // Dernière paie calculée : référence de la simulation (visualiser une augmentation).
+    prisma.payrollRun.findFirst({
+      orderBy: [{ annee: "desc" }, { mois: "desc" }],
+      include: { lignes: { select: { employeeId: true, salNetUSD: true, coutEmployeurUSD: true } } },
+    }),
   ]);
   if (!employee) notFound();
+
+  const ligneEmp = dernierRun?.lignes.find((l) => l.employeeId === id) ?? null;
+  const impact =
+    dernierRun && dernierRun.lignes.length > 0
+      ? {
+          netActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.salNetUSD), 0),
+          coutActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.coutEmployeurUSD), 0),
+          effectif: dernierRun.lignes.length,
+          periode: `${MOIS_FR[dernierRun.mois - 1]} ${dernierRun.annee}`,
+          actuel: ligneEmp ? { net: Number(ligneEmp.salNetUSD), cout: Number(ligneEmp.coutEmployeurUSD) } : null,
+        }
+      : null;
 
   const action = modifierEmploye.bind(null, employee.id);
 
@@ -57,7 +75,14 @@ export default async function ModifierEmployePage({
         </form>
       </div>
 
-      <EmployeeForm employee={employee} action={action} joursOuvrablesMois={parametres.joursOuvrablesMois} postes={postes} />
+      <EmployeeForm
+        employee={employee}
+        action={action}
+        joursOuvrablesMois={parametres.joursOuvrablesMois}
+        postes={postes}
+        parametres={parametres}
+        impact={impact}
+      />
     </div>
   );
 }
