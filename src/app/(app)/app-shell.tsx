@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
+import { BoutonRetour } from "@/components/bouton-retour";
 
 // Menu groupé façon PayFit : sections + icônes.
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
@@ -197,6 +198,7 @@ export function AppShell({
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         {/* En-tête mobile : hamburger + titre + cloche — collant, sous l'encoche (safe-area) */}
         <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
+          <BoutonRetour />
           <button
             type="button"
             onClick={() => setOpen(true)}
@@ -222,7 +224,8 @@ export function AppShell({
 
         {/* Barre cloche (desktop uniquement, comportement d'origine) */}
         {notif && (
-          <div className="hidden justify-end border-b bg-background px-8 py-2 lg:flex">
+          <div className="hidden items-center justify-between border-b bg-background px-8 py-2 lg:flex">
+            <BoutonRetour />
             <NotificationBell {...notif} />
           </div>
         )}
