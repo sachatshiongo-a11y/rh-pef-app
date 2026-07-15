@@ -169,6 +169,11 @@ export function DossierEmploye({
                     ) : (
                       <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
                     )}
+                    {c.type === "STAGE" && (
+                      <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
+                        Attestation de fin de stage →
+                      </a>
+                    )}
                     {estAdmin && (
                       // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
                       <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">

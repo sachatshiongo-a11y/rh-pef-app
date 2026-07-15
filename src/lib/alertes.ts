@@ -107,7 +107,12 @@ export async function calculerAlertes(): Promise<Alerte[]> {
         type: "CONTRAT",
         espace: "RH",
         niveau: "warning",
-        message: `Contrat ${c.type} de ${c.employee.nom} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`,
+        message:
+          c.type === "STAGE"
+            ? `Stage de ${c.employee.nom} se termine le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`
+            : c.type === "INTERIM"
+            ? `Mission d'intérim de ${c.employee.nom} se termine le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`
+            : `Contrat ${c.type} de ${c.employee.nom} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`,
         lien: `/employes/${c.employee.id}`,
       });
     }

@@ -51,7 +51,12 @@ export async function tachesBloquantesCloture(mois: number, annee: number): Prom
         type: "CONTRAT",
         employeeId: c.employee.id,
         nom: c.employee.nom,
-        detail: `Contrat ${c.type} arrive à échéance le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}`,
+        detail:
+          c.type === "STAGE"
+            ? `Fin de stage le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}`
+            : c.type === "INTERIM"
+            ? `Fin de mission d'intérim le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}`
+            : `Contrat ${c.type} arrive à échéance le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}`,
       });
     if (c.finPeriodeEssai && c.finPeriodeEssai >= debutMois && c.finPeriodeEssai <= finMois)
       taches.push({
