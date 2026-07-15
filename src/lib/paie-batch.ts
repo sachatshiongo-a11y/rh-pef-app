@@ -23,6 +23,8 @@ export type DonneesLignePaie = {
   joursNonPayes: number;
   nombreAbsences: number;
   remuneration100: number;
+  joursPayesNonTravailles: number;
+  remunerationJoursPayesUSD: number;
   remuneration2_3: number;
   hsValorisee: number;
   heuresTravaillees: number;
@@ -235,6 +237,14 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         joursNonPayes: resume.nonPayes,
         nombreAbsences,
         remuneration100: ligne.remuneration100,
+        // Part « jours payés non travaillés » de la rémunération 100 % (brigade uniquement :
+        // back-office = salaire fixe, stage = indemnité forfaitaire).
+        joursPayesNonTravailles:
+          estStage || employee.categorie !== "BRIGADE" ? 0 : joursPayesNonTravailles,
+        remunerationJoursPayesUSD:
+          estStage || employee.categorie !== "BRIGADE"
+            ? 0
+            : Math.round(salaireJournalier * joursPayesNonTravailles * 100) / 100,
         remuneration2_3: ligne.remuneration2_3,
         hsValorisee: estStage ? 0 : hs.hsValorisee,
         heuresTravaillees: hs.heuresTotalesMois,

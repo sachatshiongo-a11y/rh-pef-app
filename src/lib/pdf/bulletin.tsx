@@ -306,7 +306,28 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <Text style={[styles.thCell, styles.cEmp]}>Part empl.</Text>
           </View>
 
-          <Row designation="Salaire de base" base={`${heuresNormales} h`} taux={m(tauxHoraire)} montant={m(Number(ligne.remuneration100))} />
+          {/* Scission lisible : heures travaillées d'un côté, jours payés non travaillés de
+              l'autre (les montants de la ligne se recoupent enfin : base × taux = montant).
+              Les bulletins figés d'avant la scission n'ont pas la part « jours payés » → ligne
+              unique historique. */}
+          {Number(ligne.remunerationJoursPayesUSD ?? 0) > 0 ? (
+            <>
+              <Row
+                designation="Salaire de base (heures travaillées)"
+                base={`${heuresNormales} h`}
+                taux={m(tauxHoraire)}
+                montant={m(Number(ligne.remuneration100) - Number(ligne.remunerationJoursPayesUSD))}
+              />
+              <Row
+                designation="Jours payés non travaillés (congés, fériés, repos)"
+                base={`${Number(ligne.joursPayesNonTravailles ?? 0)} j`}
+                taux={m(tauxHoraire * Number(employee.heuresParJour))}
+                montant={m(Number(ligne.remunerationJoursPayesUSD))}
+              />
+            </>
+          ) : (
+            <Row designation="Salaire de base" base={`${heuresNormales} h`} taux={m(tauxHoraire)} montant={m(Number(ligne.remuneration100))} />
+          )}
           {Number(ligne.remuneration2_3) > 0 && (
             <Row designation="Indemnité maladie (2/3)" montant={m(Number(ligne.remuneration2_3))} />
           )}

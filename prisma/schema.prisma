@@ -635,6 +635,11 @@ model PayrollLine {
   joursNonPayes   Int     @default(0)
   nombreAbsences  Int     @default(0) // A + N + S sur la période
   remuneration100 Decimal @default(0) @db.Decimal(12, 2)
+  // Scission de remuneration100 pour l'affichage du bulletin : part « jours payés non
+  // travaillés » (congés/fériés/repos sans heures, valorisés à la journée). 0 = anciens
+  // bulletins figés → le bulletin retombe sur la ligne unique historique.
+  joursPayesNonTravailles   Int     @default(0)
+  remunerationJoursPayesUSD Decimal @default(0) @db.Decimal(12, 2)
   remuneration2_3 Decimal @default(0) @db.Decimal(12, 2)
   hsValorisee     Decimal @default(0) @db.Decimal(12, 2)
 
