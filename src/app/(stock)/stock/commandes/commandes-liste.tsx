@@ -8,6 +8,7 @@ import { MoisAccordeon } from "@/components/mois-accordeon";
 import { grouperParMois } from "@/lib/dates-fr";
 import { validerBonsEnLot, supprimerBonsEnLot } from "./actions";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 export type BCRow = {
   id: string; numero: string; fournisseurId: string | null; fournisseurNom: string | null;
@@ -19,7 +20,7 @@ export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]
   const [erreur, setErreur] = useState<string | null>(null);
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
   const brouillons = ids.filter((id) => commandes.some((c) => c.id === id && c.statut === "BROUILLON"));
-  const run = (fn: () => Promise<void>) => { setErreur(null); start(async () => { try { await fn(); clear(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } }); };
+  const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) { setErreur(r.erreur); return; } clear(); }); };
   const pdfLien = (c: BCRow) => c.documentUrl
     ? <a href={c.documentUrl} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
     : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a> : null;

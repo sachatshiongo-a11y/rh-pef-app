@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { creerBonCommande, modifierBonCommande } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 type Art = { id: string; designation: string; prix: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
@@ -17,6 +18,18 @@ const vide = (): Ligne => ({ articleId: "", designation: "", quantite: "", prix:
 export function NouveauBonForm({ articles, fournisseurs, initial, estDirection = false }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial; estDirection?: boolean }) {
   const [lignes, setLignes] = useState<Ligne[]>(initial?.lignes.length ? initial.lignes : [vide(), vide(), vide()]);
   const action = initial ? modifierBonCommande.bind(null, initial.bcId) : creerBonCommande;
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [isPending, start] = useTransition();
+  // Le succès redirige (exception interne de Next, laissée passer) ; une erreur métier revient
+  // en { erreur } lisible et s'affiche sous le formulaire.
+  const submit = (fd: FormData) => {
+    setErreur(null);
+    start(async () => {
+      let r: Awaited<ReturnType<typeof action>>;
+      try { r = await action(fd); } catch { return; }
+      if (estErreur(r)) setErreur(r.erreur);
+    });
+  };
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const choisirArticle = (i: number, articleId: string) => {
@@ -26,7 +39,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
   const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
 
   return (
-    <form action={action} className="space-y-4">
+    <form action={submit} className="space-y-4">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Fournisseur</span>
@@ -119,7 +132,8 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
         </label>
       )}
 
-      <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{initial ? "Enregistrer les modifications" : "Créer le bon de commande"}</button>
+      {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      <button disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "…" : initial ? "Enregistrer les modifications" : "Créer le bon de commande"}</button>
     </form>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { enregistrerPaiement } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
@@ -19,8 +20,9 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
   const submit = (fd: FormData) => {
     setErreur(null);
     start(async () => {
-      try { await enregistrerPaiement(factureId, fd); setOuvert(false); setMontant(""); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await enregistrerPaiement(factureId, fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setOuvert(false); setMontant("");
     });
   };
 

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { receptionnerBonCommande } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 type L = { id: string; designation: string; quantite: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -16,8 +17,9 @@ export function ReceptionForm({ bcId, lignes }: { bcId: string; lignes: L[] }) {
   const submit = (fd: FormData) => {
     setErreur(null);
     startTransition(async () => {
-      try { await receptionnerBonCommande(bcId, fd); setOuvert(false); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await receptionnerBonCommande(bcId, fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setOuvert(false);
     });
   };
 
@@ -27,8 +29,8 @@ export function ReceptionForm({ bcId, lignes }: { bcId: string; lignes: L[] }) {
     const fd = new FormData();
     for (const l of lignes) { fd.append("recu_ligneId", l.id); fd.append("recu_quantite", l.quantite); }
     startTransition(async () => {
-      try { await receptionnerBonCommande(bcId, fd); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await receptionnerBonCommande(bcId, fd);
+      if (estErreur(r)) setErreur(r.erreur);
     });
   };
 

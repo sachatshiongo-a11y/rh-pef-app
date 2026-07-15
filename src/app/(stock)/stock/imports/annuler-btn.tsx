@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { annulerImportAction } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 
 export function BoutonAnnulerImport({ batchId, libelle }: { batchId: string; libelle: string }) {
   const [isPending, start] = useTransition();
@@ -9,7 +10,10 @@ export function BoutonAnnulerImport({ batchId, libelle }: { batchId: string; lib
   const annuler = () => {
     if (!confirm(`Annuler l'import « ${libelle} » ?\n\nLes articles créés seront supprimés et les stocks/prix modifiés restaurés à leur valeur précédente. Les mouvements et achats de cet import seront retirés.`)) return;
     setErreur(null);
-    start(async () => { try { await annulerImportAction(batchId); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    start(async () => {
+      const r = await annulerImportAction(batchId);
+      if (estErreur(r)) setErreur(r.erreur);
+    });
   };
   return (
     <div className="text-right">

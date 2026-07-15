@@ -130,7 +130,8 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
     { modePaiement, preuveUrl, commentaire },
     user.id
   );
-  if (!ok) throw new Error(`Transition non autorisée vers ${versStatut}.`);
+  // Message lisible via ?erreur= (un throw serait masqué par Next en production).
+  if (!ok) redirect(`/paie?erreur=${encodeURIComponent(`Transition non autorisée vers ${versStatut}.`)}`);
 
   revalidatePath("/paie");
   revalidatePath("/accueil");
@@ -173,8 +174,9 @@ export async function cloturerPaie(): Promise<void> {
 
   const taches = await tachesBloquantesCloture(config.moisCourant, config.anneeCourante);
   if (taches.length > 0) {
-    throw new Error(
-      `Clôture bloquée : ${taches.length} tâche(s) à traiter avant de valider la paie (voir la bannière).`
+    // Message lisible via ?erreur= (un throw serait masqué par Next en production).
+    redirect(
+      `/paie?erreur=${encodeURIComponent(`Clôture bloquée : ${taches.length} tâche(s) à traiter avant de valider la paie (voir la bannière).`)}`
     );
   }
 

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { lierFactureABon } from "../actions";
 import { usd } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 type Bon = { id: string; numero: string; total: number };
 
@@ -13,7 +14,7 @@ export function LierBon({ factureId, bonActuelId, bons }: { factureId: string; b
 
   const run = (bcId: string | null) => {
     setErreur(null);
-    start(async () => { try { await lierFactureABon(factureId, bcId); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    start(async () => { const r = await lierFactureABon(factureId, bcId); if (estErreur(r)) setErreur(r.erreur); });
   };
 
   return (

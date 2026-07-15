@@ -5,6 +5,7 @@ import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
+import { estErreur } from "@/lib/action-lisible";
 
 type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number };
 type TriCol = "code" | "designation" | "categorie" | "theorique";
@@ -87,8 +88,9 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
   const submit = (fd: FormData) => {
     setMsg(null);
     startTransition(async () => {
-      try { await appliquerComptage(fd); setMsg({ ok: true, texte: "Comptage appliqué : le stock a été ajusté au réel." }); setCle((c) => c + 1); }
-      catch (e) { setMsg({ ok: false, texte: e instanceof Error ? e.message : "Erreur." }); }
+      const r = await appliquerComptage(fd);
+      if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
+      setMsg({ ok: true, texte: "Comptage appliqué : le stock a été ajusté au réel." }); setCle((c) => c + 1);
     });
   };
 

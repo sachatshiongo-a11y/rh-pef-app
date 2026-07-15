@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -16,7 +17,7 @@ const dec = (v: FormDataEntryValue): number => {
  * Mouvement de stock manuel (entrée ou sortie), multi-lignes. ENTRÉE incrémente l'inventaire,
  * SORTIE le décrémente. Trace un MouvementStock par ligne.
  */
-export async function mouvementManuel(formData: FormData) {
+export const mouvementManuel = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
 
@@ -68,14 +69,14 @@ export async function mouvementManuel(formData: FormData) {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-}
+});
 
 /**
  * Supprime un mouvement de stock et ANNULE son effet sur l'inventaire :
  * une ENTRÉE supprimée décrémente le stock, une SORTIE l'incrémente.
  * Un AJUSTEMENT n'enregistre pas son sens → on retire la ligne sans recalculer le stock.
  */
-export async function supprimerMouvement(id: string) {
+export const supprimerMouvement = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
@@ -96,10 +97,10 @@ export async function supprimerMouvement(id: string) {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-}
+});
 
 /** Supprime plusieurs mouvements d'un coup (Direction) — annule leur effet sur le stock. */
-export async function supprimerMouvementsEnLot(ids: string[]) {
+export const supprimerMouvementsEnLot = actionLisible(async (ids: string[]) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
@@ -119,4 +120,4 @@ export async function supprimerMouvementsEnLot(ids: string[]) {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-}
+});

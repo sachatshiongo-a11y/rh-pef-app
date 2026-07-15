@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
@@ -46,7 +47,7 @@ async function televerserDocument(file: File, fournisseurNom: string): Promise<s
 }
 
 /** Joint (ou remplace) le document d'origine d'une facture existante — PDF ou scan image. Direction uniquement. */
-export async function attacherDocumentFacture(id: string, formData: FormData) {
+export const attacherDocumentFacture = actionLisible(async (id: string, formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
@@ -59,7 +60,7 @@ export async function attacherDocumentFacture(id: string, formData: FormData) {
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "documentUrl", nouvelleValeur: "joint", userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath(`/stock/factures/${id}`);
-}
+});
 
 /** Lit un PDF de facture et renvoie un pré-remplissage complet (fournisseur, date, n°, LIGNES) — Direction. À CONFIRMER. */
 export type LigneAnalyse = {
@@ -74,7 +75,7 @@ export type AnalyseFacture = {
 };
 const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, lignes: [] };
 
-export async function analyserFacturePDF(formData: FormData): Promise<AnalyseFacture> {
+export const analyserFacturePDF = actionLisible(async (formData: FormData): Promise<AnalyseFacture> => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
@@ -112,14 +113,14 @@ export async function analyserFacturePDF(formData: FormData): Promise<AnalyseFac
   } catch {
     return VIDE;
   }
-}
+});
 
 /**
  * Importe un ou plusieurs classeurs Excel « Suivi des factures fournisseurs ». Direction uniquement.
  * Rattache chaque facture au fournisseur existant (par nom) ou le crée ; ignore les doublons
  * (même fournisseur/mois/année/montant/n°) pour permettre des imports répétés.
  */
-export async function importerFacturesExcel(formData: FormData): Promise<{ importees: number; ignorees: number; fournisseursCrees: string[]; erreurs: string[] }> {
+export const importerFacturesExcel = actionLisible(async (formData: FormData): Promise<{ importees: number; ignorees: number; fournisseursCrees: string[]; erreurs: string[] }> => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
@@ -177,7 +178,7 @@ export async function importerFacturesExcel(formData: FormData): Promise<{ impor
 
   revalidatePath("/stock/factures");
   return { importees: aInserer.length, ignorees: lignes.length - aInserer.length, fournisseursCrees, erreurs };
-}
+});
 
 const dec = (v: FormDataEntryValue | null): number => {
   const n = Number(String(v ?? "").replace(",", ".").trim());
@@ -198,7 +199,7 @@ async function garde() {
 }
 
 /** Lie (ou détache si bonDeCommandeId = null) une facture à un bon de commande — à tout moment. */
-export async function lierFactureABon(factureId: string, bonDeCommandeId: string | null) {
+export const lierFactureABon = actionLisible(async (factureId: string, bonDeCommandeId: string | null) => {
   const user = await garde();
   const bcId = bonDeCommandeId || null;
   if (bcId) {
@@ -215,46 +216,13 @@ export async function lierFactureABon(factureId: string, bonDeCommandeId: string
   if (bcId) revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/factures");
   revalidatePath("/stock/commandes");
-}
-
-/** Ajoute une facture fournisseur individuellement (via le formulaire). */
-export async function creerFacture(formData: FormData) {
-  const user = await garde();
-  const fournisseurNom = String(formData.get("fournisseurNom") ?? "").trim();
-  const montantUSD = dec(formData.get("montantUSD"));
-  const dateStr = String(formData.get("date") ?? "").trim() || null;
-  if (!fournisseurNom) throw new Error("Le fournisseur est requis.");
-  if (montantUSD <= 0) throw new Error("Le montant doit être supérieur à 0.");
-
-  const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
-  const echeanceStr = String(formData.get("dateEcheance") ?? "").trim() || null;
-  const montantRegleUSD = dec(formData.get("montantRegleUSD"));
-  const reste = Math.max(0, montantUSD - montantRegleUSD);
-  const ref = dateStr ?? echeanceStr ?? AUJ();
-  const d = new Date(ref);
-
-  const bonDeCommandeId = String(formData.get("bonDeCommandeId") ?? "").trim() || null;
-  const fac = await prisma.factureFournisseur.create({
-    data: {
-      fournisseurId, fournisseurNom, bonDeCommandeId,
-      numero: String(formData.get("numero") ?? "").trim() || null,
-      date: dateStr ? new Date(dateStr) : null,
-      dateEcheance: echeanceStr ? new Date(echeanceStr) : null,
-      montantUSD, montantRegleUSD, resteAPayerUSD: reste,
-      statut: statutDe(reste, echeanceStr),
-      modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
-      mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
-    },
-  });
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD`, userId: user.id });
-  revalidatePath("/stock/factures");
-}
+});
 
 /**
  * Crée une facture fournisseur détaillée (avec ses lignes d'articles et quantités).
  * Le montant total est calculé à partir des lignes.
  */
-export async function creerFactureAvecLignes(formData: FormData) {
+export const creerFactureAvecLignes = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const fournisseurNom = String(formData.get("fournisseurNom") ?? "").trim();
   if (!fournisseurNom) throw new Error("Le fournisseur est requis.");
@@ -384,10 +352,10 @@ export async function creerFactureAvecLignes(formData: FormData) {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
   redirect(`/stock/factures/${fac.id}`);
-}
+});
 
 /** Supprime une facture fournisseur et ANNULE ses entrées de stock (décrémente ce qu'elle avait fait entrer). */
-export async function supprimerFacture(id: string) {
+export const supprimerFacture = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   const f = await prisma.factureFournisseur.findUniqueOrThrow({
@@ -407,7 +375,7 @@ export async function supprimerFacture(id: string) {
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
-}
+});
 
 /**
  * CŒUR UNIQUE des règlements : applique un paiement/avoir sur une facture (trace datée,
@@ -448,16 +416,16 @@ async function appliquerReglement(userId: string, id: string, p: {
 }
 
 /** Marque une facture comme réglée : un paiement du reste à payer, daté d'aujourd'hui. */
-export async function marquerPayee(id: string) {
+export const marquerPayee = actionLisible(async (id: string) => {
   const user = await garde();
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id }, select: { resteAPayerUSD: true } });
   const reste = Number(f.resteAPayerUSD);
   if (reste <= 0.001) return; // déjà soldée
   await appliquerReglement(user.id, id, { montant: reste, note: "Marquée payée" });
-}
+});
 
 /** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit). */
-export async function enregistrerPaiement(id: string, formData: FormData) {
+export const enregistrerPaiement = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
   const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
   const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
@@ -479,10 +447,10 @@ export async function enregistrerPaiement(id: string, formData: FormData) {
   }
 
   await appliquerReglement(user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
-}
+});
 
 /** Marque plusieurs factures comme réglées d'un coup (réglé = montant, reste = 0, payée aujourd'hui). */
-export async function marquerPayeesEnLot(ids: string[]) {
+export const marquerPayeesEnLot = actionLisible(async (ids: string[]) => {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
@@ -501,10 +469,10 @@ export async function marquerPayeesEnLot(ids: string[]) {
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${n} facture(s) réglée(s)`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock");
-}
+});
 
 /** Supprime plusieurs factures d'un coup (Direction) — reprend le stock entré par chacune. */
-export async function supprimerFacturesEnLot(ids: string[]) {
+export const supprimerFacturesEnLot = actionLisible(async (ids: string[]) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]);
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
@@ -524,4 +492,4 @@ export async function supprimerFacturesEnLot(ids: string[]) {
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
-}
+});

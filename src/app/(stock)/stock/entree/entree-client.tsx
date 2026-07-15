@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { entreeListeAchat } from "./actions";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
+import { estErreur } from "@/lib/action-lisible";
 
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -18,14 +19,11 @@ export function ListeAchatForm({ articles, taux, estDirection = false }: { artic
   const submit = (fd: FormData) => {
     setMsg(null);
     startTransition(async () => {
-      try {
-        await entreeListeAchat(fd);
-        setMsg({ ok: true, texte: "Entrées enregistrées : le stock a été mis à jour." });
-        setNbLignes(4);
-        setCle((c) => c + 1);
-      } catch (e) {
-        setMsg({ ok: false, texte: e instanceof Error ? e.message : "Erreur." });
-      }
+      const r = await entreeListeAchat(fd);
+      if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
+      setMsg({ ok: true, texte: "Entrées enregistrées : le stock a été mis à jour." });
+      setNbLignes(4);
+      setCle((c) => c + 1);
     });
   };
 

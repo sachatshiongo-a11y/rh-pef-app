@@ -39,6 +39,7 @@ describe("corrigerStocksNegatifs — remise à 0 des stocks négatifs", () => {
     await prisma.stock.create({ data: { articleId: positif.id, quantite: 8 } });
 
     const res = await corrigerStocksNegatifs([negatif.id, positif.id]);
+    if ("erreur" in res) throw new Error(res.erreur);
     expect(res.corriges).toBe(1);
 
     // Le stock négatif est remonté à 0…

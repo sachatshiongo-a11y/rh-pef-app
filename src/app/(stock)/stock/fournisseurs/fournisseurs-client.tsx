@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { creerFournisseur, fusionnerFournisseurs } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
@@ -23,9 +24,9 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
   const [q, setQ] = useState("");
 
   const tries = useMemo(() => [...fournisseurs].sort((a, b) => a.nom.localeCompare(b.nom, "fr")), [fournisseurs]);
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
-    startTransition(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
   };
   const fusionner = () => {
     const s = fournisseurs.find((f) => f.id === source);

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
@@ -31,7 +32,7 @@ async function televerserBC(file: File, dest: string): Promise<string> {
  * Importe des bons de commande depuis leurs PDF (texte). Direction uniquement. Chaque BC est créé
  * avec son PDF joint (source de vérité) ; les numéros en collision sont suffixés, les doublons ignorés.
  */
-export async function importerBonsCommandePDF(formData: FormData): Promise<{ importes: number; ignores: number; fournisseursCrees: string[]; erreurs: string[] }> {
+export const importerBonsCommandePDF = actionLisible(async (formData: FormData): Promise<{ importes: number; ignores: number; fournisseursCrees: string[]; erreurs: string[] }> => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
@@ -100,7 +101,7 @@ export async function importerBonsCommandePDF(formData: FormData): Promise<{ imp
   if (importes > 0) await journaliser(prisma, { entite: "BonDeCommande", entiteId: "import", champ: "import PDF", nouvelleValeur: `${importes} BC`, userId: user.id });
   revalidatePath("/stock/commandes");
   return { importes, ignores, fournisseursCrees, erreurs };
-}
+});
 const dec = (v: FormDataEntryValue | undefined): number => {
   const n = Number(String(v ?? "").replace(",", ".").trim());
   return Number.isFinite(n) ? n : 0;
@@ -123,7 +124,7 @@ async function garde() {
 }
 
 /** Crée un bon de commande avec numérotation NNN/PEF/MOIS/AA (séquence remise à zéro chaque année). */
-export async function creerBonCommande(formData: FormData) {
+export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
 
@@ -206,10 +207,10 @@ export async function creerBonCommande(formData: FormData) {
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
   redirect(`/stock/commandes/${bc.id}`);
-}
+});
 
 /** Modifie un bon de commande encore à l'état BROUILLON (remplace ses lignes et son en-tête). */
-export async function modifierBonCommande(id: string, formData: FormData) {
+export const modifierBonCommande = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true } });
   if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
@@ -256,7 +257,7 @@ export async function modifierBonCommande(id: string, formData: FormData) {
   revalidatePath(`/stock/commandes/${id}`);
   revalidatePath("/stock/commandes");
   redirect(`/stock/commandes/${id}`);
-}
+});
 
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
 export async function validerBonCommande(id: string, _formData: FormData) {
@@ -307,7 +308,7 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
  * en stock se fait uniquement à l'enregistrement de la FACTURE fournisseur (articles + quantités)
  * ou via la liste d'achat. La réception et l'entrée en stock sont volontairement différenciées.
  */
-export async function receptionnerBonCommande(bcId: string, formData: FormData) {
+export const receptionnerBonCommande = actionLisible(async (bcId: string, formData: FormData) => {
   const user = await garde();
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, include: { lignes: true } });
 
@@ -329,10 +330,10 @@ export async function receptionnerBonCommande(bcId: string, formData: FormData) 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");
-}
+});
 
 /** Valide plusieurs bons de commande à l'état BROUILLON d'un coup (Direction). */
-export async function validerBonsEnLot(ids: string[]) {
+export const validerBonsEnLot = actionLisible(async (ids: string[]) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]);
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
@@ -349,10 +350,10 @@ export async function validerBonsEnLot(ids: string[]) {
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
   revalidatePath("/stock");
-}
+});
 
 /** Supprime plusieurs bons de commande d'un coup (Direction). */
-export async function supprimerBonsEnLot(ids: string[]) {
+export const supprimerBonsEnLot = actionLisible(async (ids: string[]) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]);
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
@@ -363,4 +364,4 @@ export async function supprimerBonsEnLot(ids: string[]) {
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
   revalidatePath("/stock");
-}
+});

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEnLot } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 export type FactureRow = {
   id: string;
@@ -42,9 +43,12 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
   const [erreur, setErreur] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
 
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
-    startTransition(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    startTransition(async () => {
+      const r = await fn();
+      if (estErreur(r)) setErreur(r.erreur);
+    });
   };
 
   // Toutes les factures affichées (à plat), pour « tout sélectionner » et les actions groupées.
@@ -128,7 +132,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
         {sel.size > 0 && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button
-              onClick={() => run(async () => { await marquerPayeesEnLot(selNonReglees); clear(); })}
+              onClick={() => run(async () => { const r = await marquerPayeesEnLot(selNonReglees); if (!estErreur(r)) clear(); return r; })}
               disabled={isPending || selNonReglees.length === 0}
               className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
             >
@@ -136,7 +140,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
             </button>
             {estDirection && (
               <button
-                onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { await supprimerFacturesEnLot(selIds); clear(); }); }}
+                onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { const r = await supprimerFacturesEnLot(selIds); if (!estErreur(r)) clear(); return r; }); }}
                 disabled={isPending}
                 className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
               >

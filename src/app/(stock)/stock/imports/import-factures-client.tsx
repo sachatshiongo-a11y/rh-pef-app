@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { analyserFacturesAction, appliquerFacturesAction } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 import type { PreviewFactures } from "@/lib/import-factures";
 import { usd } from "@/lib/stock";
 
@@ -15,14 +16,20 @@ export function ImportFacturesClient() {
   const analyser = () => {
     setErreur(null); setSucces(null); setPreview(null);
     const fd = new FormData(formRef.current!);
-    start(async () => { try { setPreview(await analyserFacturesAction(fd)); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    start(async () => {
+      const p = await analyserFacturesAction(fd);
+      if (estErreur(p)) { setErreur(p.erreur); return; }
+      setPreview(p);
+    });
   };
   const appliquer = () => {
     setErreur(null);
     const fd = new FormData(formRef.current!);
     start(async () => {
-      try { const r = await appliquerFacturesAction(fd); setSucces(`Import appliqué : ${r.resume.aInserer} facture(s) ajoutée(s), ${r.resume.fournisseursCrees} fournisseur(s) créé(s), ${r.resume.doublons} doublon(s) ignoré(s).`); setPreview(null); formRef.current?.reset(); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await appliquerFacturesAction(fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setSucces(`Import appliqué : ${r.resume.aInserer} facture(s) ajoutée(s), ${r.resume.fournisseursCrees} fournisseur(s) créé(s), ${r.resume.doublons} doublon(s) ignoré(s).`);
+      setPreview(null); formRef.current?.reset();
     });
   };
 

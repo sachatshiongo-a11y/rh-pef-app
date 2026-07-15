@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { analyserInventaireAction, appliquerInventaireAction } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 import type { PreviewInventaire } from "@/lib/import-inventaire";
 
 export function ImportInventaireClient() {
@@ -14,14 +15,20 @@ export function ImportInventaireClient() {
   const analyser = () => {
     setErreur(null); setSucces(null); setPreview(null);
     const fd = new FormData(formRef.current!);
-    start(async () => { try { setPreview(await analyserInventaireAction(fd)); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    start(async () => {
+      const p = await analyserInventaireAction(fd);
+      if (estErreur(p)) { setErreur(p.erreur); return; }
+      setPreview(p);
+    });
   };
   const appliquer = () => {
     setErreur(null);
     const fd = new FormData(formRef.current!);
     start(async () => {
-      try { const r = await appliquerInventaireAction(fd); setSucces(`Import appliqué : ${r.resume.maj} article(s) mis à jour, ${r.resume.crees} créé(s), ${r.resume.mvEntree + r.resume.mvSortie} mouvement(s), ${r.resume.legumes} achat(s) de légumes.`); setPreview(null); formRef.current?.reset(); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await appliquerInventaireAction(fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setSucces(`Import appliqué : ${r.resume.maj} article(s) mis à jour, ${r.resume.crees} créé(s), ${r.resume.mvEntree + r.resume.mvSortie} mouvement(s), ${r.resume.legumes} achat(s) de légumes.`);
+      setPreview(null); formRef.current?.reset();
     });
   };
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { analyserMouvementsAction, appliquerMouvementsAction } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 import type { PreviewMouvements } from "@/lib/import-mouvements";
 
 const RAPPRO_LABEL: Record<string, string> = { code: "Code", nom: "Nom", flou: "Approché", inconnu: "Inconnu" };
@@ -42,14 +43,13 @@ export function ImportMouvementsClient() {
     setErreur(null); setSucces(null); setPreview(null); setDecochees(new Set());
     const fd = new FormData(formRef.current!);
     start(async () => {
-      try {
-        const p = await analyserMouvementsAction(fd);
-        setPreview(p);
-        // Période pré-remplie avec les bornes du fichier (dates effectives).
-        const dates = p.lignes.map((l) => l.date ?? dateDefaut).sort();
-        setDu(dates[0] ?? "");
-        setAu(dates[dates.length - 1] ?? "");
-      } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const p = await analyserMouvementsAction(fd);
+      if (estErreur(p)) { setErreur(p.erreur); return; }
+      setPreview(p);
+      // Période pré-remplie avec les bornes du fichier (dates effectives).
+      const dates = p.lignes.map((l) => l.date ?? dateDefaut).sort();
+      setDu(dates[0] ?? "");
+      setAu(dates[dates.length - 1] ?? "");
     });
   };
   const appliquer = () => {
@@ -57,11 +57,10 @@ export function ImportMouvementsClient() {
     const fd = new FormData(formRef.current!);
     fd.set("lignes", JSON.stringify(selection.map((l) => l.ligne)));
     start(async () => {
-      try {
-        const r = await appliquerMouvementsAction(fd);
-        setSucces(`Import appliqué : ${r.resume.rapprochees} ligne(s) sur ${r.resume.articles} article(s) — ${r.resume.entreesQte} entrée(s), ${r.resume.sortiesQte} sortie(s).`);
-        setPreview(null); formRef.current?.reset();
-      } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await appliquerMouvementsAction(fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setSucces(`Import appliqué : ${r.resume.rapprochees} ligne(s) sur ${r.resume.articles} article(s) — ${r.resume.entreesQte} entrée(s), ${r.resume.sortiesQte} sortie(s).`);
+      setPreview(null); formRef.current?.reset();
     });
   };
 

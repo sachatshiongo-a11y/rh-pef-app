@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -17,7 +18,7 @@ async function garde() {
 }
 
 /** Crée un fournisseur. */
-export async function creerFournisseur(formData: FormData) {
+export const creerFournisseur = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const nom = String(formData.get("nom") ?? "").trim();
   if (!nom) throw new Error("Le nom est requis.");
@@ -31,10 +32,10 @@ export async function creerFournisseur(formData: FormData) {
   const f = await prisma.fournisseur.create({ data });
   await journaliser(prisma, { entite: "Fournisseur", entiteId: f.id, champ: "creation", nouvelleValeur: nom, userId: user.id });
   revalidatePath("/stock/fournisseurs");
-}
+});
 
 /** Modifie un ou plusieurs champs d'un fournisseur. */
-export async function modifierFournisseur(id: string, formData: FormData) {
+export const modifierFournisseur = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
   const data: Prisma.FournisseurUpdateInput = {};
   for (const c of CHAMPS) {
@@ -48,14 +49,14 @@ export async function modifierFournisseur(id: string, formData: FormData) {
   await journaliser(prisma, { entite: "Fournisseur", entiteId: id, champ: "modification", userId: user.id });
   revalidatePath("/stock/fournisseurs");
   revalidatePath(`/stock/fournisseurs/${id}`);
-}
+});
 
 /**
  * Fusionne deux fournisseurs : réaffecte articles, bons de commande et factures du
  * fournisseur `sourceId` vers `cibleId`, complète les coordonnées manquantes de la cible
  * avec celles de la source, puis supprime la source. Direction uniquement.
  */
-export async function fusionnerFournisseurs(sourceId: string, cibleId: string) {
+export const fusionnerFournisseurs = actionLisible(async (sourceId: string, cibleId: string) => {
   const user = await garde();
   if (!sourceId || !cibleId || sourceId === cibleId) throw new Error("Choisissez deux fournisseurs différents.");
   const [source, cible] = await Promise.all([
@@ -88,14 +89,14 @@ export async function fusionnerFournisseurs(sourceId: string, cibleId: string) {
   revalidatePath("/stock/fournisseurs");
   revalidatePath("/stock/factures");
   revalidatePath("/stock/commandes");
-}
+});
 
 /** Supprime un fournisseur (les articles/factures/BC liés sont simplement détachés — FK SET NULL). */
-export async function supprimerFournisseur(id: string) {
+export const supprimerFournisseur = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // suppression réservée à la Direction
   const f = await prisma.fournisseur.findUniqueOrThrow({ where: { id } });
   await prisma.fournisseur.delete({ where: { id } });
   await journaliser(prisma, { entite: "Fournisseur", entiteId: id, champ: "suppression", ancienneValeur: f.nom, userId: user.id });
   revalidatePath("/stock/fournisseurs");
-}
+});

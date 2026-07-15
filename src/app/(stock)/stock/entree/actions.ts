@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -15,7 +16,7 @@ const dec = (v: FormDataEntryValue): number => {
  * Liste d'achat → inventaire : chaque ligne (article + quantité) crée un MouvementStock d'ENTRÉE
  * et incrémente le stock de l'article. Tout est appliqué dans une transaction.
  */
-export async function entreeListeAchat(formData: FormData) {
+export const entreeListeAchat = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
   await exigerPeriodeOuverte(new Date()); // les entrées sont datées du jour
@@ -65,4 +66,4 @@ export async function entreeListeAchat(formData: FormData) {
   revalidatePath("/stock/entree");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-}
+});

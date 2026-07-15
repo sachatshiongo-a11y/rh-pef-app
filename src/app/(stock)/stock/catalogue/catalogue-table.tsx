@@ -5,6 +5,7 @@ import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.prix) || 0) * (Number(a.quantite) || 0);
 
@@ -125,13 +126,14 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     return { urgent, appro };
   }, [articles, dom]);
 
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
-    startTransition(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
   };
   const save = async (id: string, name: string, value: string) => {
     const fd = new FormData(); fd.set(name, value);
-    try { await modifierArticle(id, fd); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+    const r = await modifierArticle(id, fd);
+    if (estErreur(r)) setErreur(r.erreur);
   };
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toutSel = (on: boolean) => setSel(on ? new Set(visibles.map((a) => a.id)) : new Set());

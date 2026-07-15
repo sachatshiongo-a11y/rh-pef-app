@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { lierFactureABon } from "../../factures/actions";
 import { usd } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 type Fac = { id: string; libelle: string; montant: number };
 
@@ -18,7 +19,7 @@ export function LierFacture({ bcId, factures }: { bcId: string; factures: Fac[] 
   const run = () => {
     if (!choix) return;
     setErreur(null);
-    start(async () => { try { await lierFactureABon(choix, bcId); setChoix(""); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    start(async () => { const r = await lierFactureABon(choix, bcId); if (estErreur(r)) { setErreur(r.erreur); return; } setChoix(""); });
   };
 
   return (

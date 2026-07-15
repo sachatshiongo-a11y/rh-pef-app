@@ -3,6 +3,7 @@
 import { Fragment, memo, useState, useTransition } from "react";
 import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto } from "./actions";
 import type { JourResto } from "./semaine";
+import { estErreur } from "@/lib/action-lisible";
 
 export type Jour = JourResto;
 export type LigneResto = {
@@ -26,13 +27,15 @@ export function RestaurantGrille({
   const save = async (id: string, name: string, value: string) => {
     setErreur(null);
     const fd = new FormData(); fd.set(name, value);
-    try { await modifierArticleResto(id, fd); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+    const r = await modifierArticleResto(id, fd);
+    if (estErreur(r)) setErreur(r.erreur);
   };
   const saveComptage = async (id: string, iso: string, value: string) => {
     setErreur(null);
-    try { await majComptage(id, iso, value); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+    const r = await majComptage(id, iso, value);
+    if (estErreur(r)) setErreur(r.erreur);
   };
-  const run = (fn: () => Promise<void>) => { setErreur(null); start(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } }); };
+  const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); }); };
 
   return (
     <div className="space-y-3">

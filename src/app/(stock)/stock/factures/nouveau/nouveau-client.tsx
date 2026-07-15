@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 type Art = { id: string; designation: string; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
@@ -42,6 +43,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
     fd.set("facturePdf", file);
     analyserFacturePDF(fd)
       .then((r) => {
+        if (estErreur(r)) { setErreur(r.erreur); return; }
         setAnalyse(r);
         if (r.date) setDate(r.date);
         if (r.numero) setNumero(r.numero);
@@ -95,16 +97,17 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   const submit = (fd: FormData) => {
     setErreur(null); setDoublon(null);
     start(async () => {
-      try { await creerFactureAvecLignes(fd); }
+      let r: Awaited<ReturnType<typeof creerFactureAvecLignes>>;
+      try { r = await creerFactureAvecLignes(fd); }
       catch (e) {
-        // redirect() lève une exception attendue : ne pas l'afficher comme erreur.
-        if (e instanceof Error && e.message === "NEXT_REDIRECT") return;
+        // redirect() (succès) lève une exception interne de Next : ne pas l'afficher comme erreur.
         const d = e as { digest?: string };
-        if (d?.digest?.startsWith?.("NEXT_REDIRECT")) return;
-        const msg = e instanceof Error ? e.message : "Erreur.";
-        if (msg.startsWith("DOUBLON_POSSIBLE|")) setDoublon(msg.slice("DOUBLON_POSSIBLE|".length));
-        else setErreur(msg);
+        if ((e instanceof Error && e.message === "NEXT_REDIRECT") || d?.digest?.startsWith?.("NEXT_REDIRECT")) return;
+        throw e;
       }
+      if (!estErreur(r)) return;
+      if (r.erreur.startsWith("DOUBLON_POSSIBLE|")) setDoublon(r.erreur.slice("DOUBLON_POSSIBLE|".length));
+      else setErreur(r.erreur);
     });
   };
 

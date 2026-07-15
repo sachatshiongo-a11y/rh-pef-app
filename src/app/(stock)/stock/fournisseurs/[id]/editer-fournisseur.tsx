@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { modifierFournisseur, supprimerFournisseur } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 export type FournEdit = {
   id: string; nom: string; contactNom: string; telephone: string; email: string; ville: string; pays: string;
@@ -27,16 +28,18 @@ export function EditerFournisseur({ f }: { f: FournEdit }) {
   const enregistrer = (fd: FormData) => {
     setErreur(null);
     start(async () => {
-      try { await modifierFournisseur(f.id, fd); setOuvert(false); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await modifierFournisseur(f.id, fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setOuvert(false);
     });
   };
   const supprimer = () => {
     if (!confirm(`Supprimer le fournisseur « ${f.nom} » ? Les articles, bons de commande et factures liés seront détachés (non supprimés).`)) return;
     setErreur(null);
     start(async () => {
-      try { await supprimerFournisseur(f.id); router.push("/stock/fournisseurs"); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await supprimerFournisseur(f.id);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      router.push("/stock/fournisseurs");
     });
   };
 

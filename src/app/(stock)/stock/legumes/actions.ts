@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -15,7 +16,7 @@ const dec = (v: FormDataEntryValue | null): number => {
  * Enregistre des achats de légumes frais (multi-lignes) : montant saisi en CDF, converti en USD
  * au taux partagé (Config). Journal daté — ne touche pas au stock permanent.
  */
-export async function creerAchatsLegumes(formData: FormData) {
+export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
 
@@ -46,10 +47,10 @@ export async function creerAchatsLegumes(formData: FormData) {
   });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: `${lignes.length} ligne(s)`, champ: "achat legumes", nouvelleValeur: date.toISOString().slice(0, 10), userId: user.id });
   revalidatePath("/stock/legumes");
-}
+});
 
 /** Supprime une ligne d'achat de légumes. */
-export async function supprimerAchatLegume(id: string) {
+export const supprimerAchatLegume = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
@@ -58,18 +59,5 @@ export async function supprimerAchatLegume(id: string) {
   await prisma.achatLegume.delete({ where: { id } });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: id, champ: "suppression", ancienneValeur: `${a.legume} ${a.quantite}`, userId: user.id });
   revalidatePath("/stock/legumes");
-}
+});
 
-/** Supprime plusieurs achats de légumes d'un coup (Direction). */
-export async function supprimerAchatsLegumesEnLot(ids: string[]) {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-  const uniq = [...new Set(ids.map(String))].filter(Boolean);
-  if (uniq.length === 0) return;
-  const dates = await prisma.achatLegume.findMany({ where: { id: { in: uniq } }, select: { date: true } });
-  await exigerPeriodesOuvertes(dates.map((d) => new Date(d.date)));
-  const n = await prisma.achatLegume.deleteMany({ where: { id: { in: uniq } } });
-  await journaliser(prisma, { entite: "AchatLegume", entiteId: "lot", champ: "suppression", nouvelleValeur: `${n.count} achat(s)`, userId: user.id });
-  revalidatePath("/stock/legumes");
-}

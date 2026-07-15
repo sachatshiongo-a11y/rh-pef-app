@@ -5,6 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 import { mouvementManuel, supprimerMouvement, supprimerMouvementsEnLot } from "./actions";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { qte, usd } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -59,7 +60,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
   const supprimerSel = () => {
     if (!confirm(`Supprimer ${sel.size} mouvement(s) ? Leur effet sur le stock sera annulé.`)) return;
     setErreur(null);
-    start(async () => { try { await supprimerMouvementsEnLot([...sel]); setSel(new Set()); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    start(async () => { const r = await supprimerMouvementsEnLot([...sel]); if (estErreur(r)) { setErreur(r.erreur); return; } setSel(new Set()); });
   };
 
   return (
@@ -134,7 +135,7 @@ export function SupprimerMouvementBtn({ id }: { id: string }) {
       type="button"
       disabled={isPending}
       title="Supprimer ce mouvement (annule son effet sur le stock)"
-      onClick={() => { if (confirm("Supprimer ce mouvement ? Son effet sur le stock sera annulé.")) start(() => supprimerMouvement(id)); }}
+      onClick={() => { if (confirm("Supprimer ce mouvement ? Son effet sur le stock sera annulé.")) start(async () => { await supprimerMouvement(id); }); }}
       className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
     >
       ✕
@@ -155,8 +156,9 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
   const submit = (fd: FormData) => {
     setMsg(null);
     startTransition(async () => {
-      try { await mouvementManuel(fd); setMsg({ ok: true, texte: type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté." }); setNb(3); }
-      catch (e) { setMsg({ ok: false, texte: e instanceof Error ? e.message : "Erreur." }); }
+      const r = await mouvementManuel(fd);
+      if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
+      setMsg({ ok: true, texte: type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté." }); setNb(3);
     });
   };
 

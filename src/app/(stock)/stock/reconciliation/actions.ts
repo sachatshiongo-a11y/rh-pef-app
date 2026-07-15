@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
@@ -16,7 +17,7 @@ const num = (s: string) => Number(String(s).replace(",", ".").trim());
  * et exige une explication pour tout écart > 10 %. Si des écarts dépassent le seuil, notifie la
  * Direction et le responsable stock.
  */
-export async function appliquerComptage(formData: FormData) {
+export const appliquerComptage = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
 
@@ -112,4 +113,4 @@ export async function appliquerComptage(formData: FormData) {
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
-}
+});

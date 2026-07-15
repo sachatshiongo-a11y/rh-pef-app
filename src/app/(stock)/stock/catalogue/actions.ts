@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -21,7 +22,7 @@ async function garde() {
 }
 
 /** Crée un article dans l'inventaire (+ sa ligne de stock). */
-export async function creerArticle(formData: FormData) {
+export const creerArticle = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const designation = String(formData.get("designation") ?? "").trim();
   const domaineRaw = String(formData.get("domaine") ?? "");
@@ -51,10 +52,10 @@ export async function creerArticle(formData: FormData) {
   });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: art.id, champ: "creation", nouvelleValeur: designation, userId: user.id });
   revalidatePath("/stock/catalogue");
-}
+});
 
 /** Modifie un ou plusieurs champs d'un article (et ses seuils/stock). */
-export async function modifierArticle(id: string, formData: FormData) {
+export const modifierArticle = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
   const data: Prisma.ArticleStockUpdateInput = {};
   if (formData.has("code")) data.code = String(formData.get("code") ?? "").trim() || null;
@@ -91,7 +92,7 @@ export async function modifierArticle(id: string, formData: FormData) {
   }
   await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", userId: user.id });
   revalidatePath("/stock/catalogue");
-}
+});
 
 /** Fusionne plusieurs articles en un seul (pour les doublons sémantiques : crème fraîche = cooking
  * cream…). Garde le premier ; réaffecte mouvements et lignes de BC, cumule le stock, supprime les autres. */
@@ -101,7 +102,7 @@ export async function modifierArticle(id: string, formData: FormData) {
  * Les mouvements, lignes de BC et lignes de facture des doublons sont rattachés à l'article conservé,
  * leur stock cumulé, puis ils sont supprimés.
  */
-export async function fusionnerArticles(articleIds: string[], keepId?: string) {
+export const fusionnerArticles = actionLisible(async (articleIds: string[], keepId?: string) => {
   const user = await garde();
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length < 2) throw new Error("Sélectionnez au moins deux articles à fusionner.");
@@ -125,19 +126,19 @@ export async function fusionnerArticles(articleIds: string[], keepId?: string) {
   });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: keep.id, champ: "fusion", nouvelleValeur: `${losers.length} doublon(s) fusionné(s) → ${keep.designation}`, userId: user.id });
   revalidatePath("/stock/catalogue");
-}
+});
 
 /** Catégorise en masse : affecte une catégorie à plusieurs articles. */
-export async function categoriserEnMasse(articleIds: string[], categorieId: string) {
+export const categoriserEnMasse = actionLisible(async (articleIds: string[], categorieId: string) => {
   const user = await garde();
   if (articleIds.length === 0 || !categorieId) return;
   await prisma.articleStock.updateMany({ where: { id: { in: articleIds } }, data: { categorieId } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: categorieId, userId: user.id });
   revalidatePath("/stock/catalogue");
-}
+});
 
 /** Active ou désactive plusieurs articles d'un coup. */
-export async function basculerActifArticles(articleIds: string[], actif: boolean) {
+export const basculerActifArticles = actionLisible(async (articleIds: string[], actif: boolean) => {
   const user = await garde();
   const uniq = [...new Set(articleIds.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
@@ -145,24 +146,24 @@ export async function basculerActifArticles(articleIds: string[], actif: boolean
   await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "actif", nouvelleValeur: `${n.count} article(s) ${actif ? "activé(s)" : "désactivé(s)"}`, userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-}
+});
 
 /** Affecte un fournisseur (ou le retire si vide) à plusieurs articles d'un coup. */
-export async function definirFournisseurEnMasse(articleIds: string[], fournisseurId: string) {
+export const definirFournisseurEnMasse = actionLisible(async (articleIds: string[], fournisseurId: string) => {
   const user = await garde();
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length === 0) return;
   await prisma.articleStock.updateMany({ where: { id: { in: ids } }, data: { fournisseurId: fournisseurId || null } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: `${ids.length} articles`, champ: "fournisseur (masse)", nouvelleValeur: fournisseurId || "retiré", userId: user.id });
   revalidatePath("/stock/catalogue");
-}
+});
 
 /**
  * Corrige les stocks négatifs des articles donnés en les remettant à 0. Un stock négatif traduit
  * plus de sorties que d'entrées enregistrées : on le comble par un mouvement d'ENTRÉE d'ajustement
  * (traçable), daté du jour, plutôt qu'en écrasant silencieusement la quantité.
  */
-export async function corrigerStocksNegatifs(articleIds: string[]) {
+export const corrigerStocksNegatifs = actionLisible(async (articleIds: string[]) => {
   const user = await garde();
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length === 0) return { corriges: 0 };
@@ -182,10 +183,10 @@ export async function corrigerStocksNegatifs(articleIds: string[]) {
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
   return { corriges: stocks.length };
-}
+});
 
 /** Définit le stock minimum (seuil d'alerte de réappro) de plusieurs articles d'un coup. */
-export async function definirSeuilEnMasse(articleIds: string[], seuil: number) {
+export const definirSeuilEnMasse = actionLisible(async (articleIds: string[], seuil: number) => {
   const user = await garde();
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   const s = Math.max(0, Number(seuil) || 0);
@@ -198,4 +199,4 @@ export async function definirSeuilEnMasse(articleIds: string[], seuil: number) {
   }, { timeout: 60000 });
   await journaliser(prisma, { entite: "Stock", entiteId: `${ids.length} articles`, champ: "stockMinimum (masse)", nouvelleValeur: String(s), userId: user.id });
   revalidatePath("/stock/catalogue");
-}
+});
