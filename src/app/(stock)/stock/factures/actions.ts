@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { dec } from "@/lib/nombre";
+import { cleAlnum as normNom } from "@/lib/texte";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
@@ -13,7 +15,6 @@ import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
 import { Prisma } from "@prisma/client";
 
-const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 async function televerserFacturePdf(file: File, fournisseurNom: string): Promise<string> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -180,10 +181,6 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
   return { importees: aInserer.length, ignorees: lignes.length - aInserer.length, fournisseursCrees, erreurs };
 });
 
-const dec = (v: FormDataEntryValue | null): number => {
-  const n = Number(String(v ?? "").replace(",", ".").trim());
-  return Number.isFinite(n) ? n : 0;
-};
 const AUJ = () => new Date().toISOString().slice(0, 10);
 
 function statutDe(reste: number, echeanceISO: string | null): "REGLEE" | "A_REGLER" | "ECHUE_NON_REGLEE" {

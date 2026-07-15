@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { dec } from "@/lib/nombre";
+import { cleAlnum as normNom } from "@/lib/texte";
+import { MOIS_FR } from "@/lib/dates-fr";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
@@ -11,9 +14,7 @@ import { creerNotification, supprimerNotificationsPour } from "@/lib/notificatio
 import { usd } from "@/lib/stock";
 import { extraireBonCommandePDF, type LigneBonCommande } from "@/lib/import-bc-pdf";
 
-const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
 
-const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const slugBC = (s: string) => normNom(s).slice(0, 40) || "bc";
 
 async function televerserBC(file: File, dest: string): Promise<string> {
@@ -102,10 +103,6 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
   revalidatePath("/stock/commandes");
   return { importes, ignores, fournisseursCrees, erreurs };
 });
-const dec = (v: FormDataEntryValue | undefined): number => {
-  const n = Number(String(v ?? "").replace(",", ".").trim());
-  return Number.isFinite(n) ? n : 0;
-};
 const STATUTS = ["BROUILLON", "ENVOYE", "RECU_PARTIEL", "RECU", "ANNULE"] as const;
 type Statut = (typeof STATUTS)[number];
 
@@ -166,7 +163,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const bc = await prisma.$transaction(async (tx) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
     const sequence = (dernier._max.sequence ?? 0) + 1;
-    const numero = `${String(sequence).padStart(3, "0")}/PEF/${tag ? `${tag}/` : ""}${MOIS_FR[mois - 1]}/${String(annee).slice(-2)}`;
+    const numero = `${String(sequence).padStart(3, "0")}/PEF/${tag ? `${tag}/` : ""}${MOIS_FR[mois - 1].toUpperCase()}/${String(annee).slice(-2)}`;
     return tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,

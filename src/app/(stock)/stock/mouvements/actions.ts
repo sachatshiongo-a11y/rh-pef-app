@@ -2,16 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 
-const dec = (v: FormDataEntryValue): number => {
-  const n = Number(String(v ?? "").replace(",", ".").trim());
-  return Number.isFinite(n) ? n : 0;
-};
 
 /**
  * Mouvement de stock manuel (entrée ou sortie), multi-lignes. ENTRÉE incrémente l'inventaire,

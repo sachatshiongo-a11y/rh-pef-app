@@ -2,15 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { decOptionnel as dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 
-const dec = (v: FormDataEntryValue | null): number | null => {
-  const s = String(v ?? "").replace(",", ".").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-};
 
 async function garde() {
   const user = await verifySession();

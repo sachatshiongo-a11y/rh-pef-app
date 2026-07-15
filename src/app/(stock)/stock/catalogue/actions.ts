@@ -2,18 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { decOptionnel as dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import type { Prisma } from "@prisma/client";
 
-const dec = (v: FormDataEntryValue | null): number | null => {
-  const s = String(v ?? "").replace(",", ".").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-};
 
 async function garde() {
   const user = await verifySession();

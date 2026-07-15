@@ -4,13 +4,13 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { creerFournisseur, fusionnerFournisseurs } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
+import { normTexte } from "@/lib/texte";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
   rccm: string; idNational: string; delaiPaiement: string; delaiLivraison: string; nbArticles: number;
 };
 const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 // Liste de fournisseurs : navigation pure (le nom mène à la fiche, où se fait l'édition).
 // L'ajout et la fusion restent ici ; modifier/supprimer un fournisseur se fait sur sa fiche.
@@ -37,8 +37,8 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
   };
 
   const visibles = useMemo(() => {
-    const nq = norm(q.trim());
-    const base = nq ? fournisseurs.filter((f) => norm(`${f.nom} ${f.contactNom} ${f.ville}`).includes(nq)) : fournisseurs;
+    const nq = normTexte(q.trim());
+    const base = nq ? fournisseurs.filter((f) => normTexte(`${f.nom} ${f.contactNom} ${f.ville}`).includes(nq)) : fournisseurs;
     return [...base].sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
   }, [fournisseurs, q]);
 

@@ -2,15 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
+import { dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 
-const dec = (v: FormDataEntryValue | null): number => {
-  const n = Number(String(v ?? "").replace(",", ".").trim());
-  return Number.isFinite(n) ? n : 0;
-};
 
 /**
  * Enregistre des achats de légumes frais (multi-lignes) : montant saisi en CDF, converti en USD

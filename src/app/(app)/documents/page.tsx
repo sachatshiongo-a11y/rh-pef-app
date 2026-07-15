@@ -6,6 +6,7 @@ import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import type { PaymentStatus } from "@prisma/client";
+import { normTexte } from "@/lib/texte";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -41,7 +42,6 @@ export default async function DocumentsPage({
   const mois = sp.mois ? Number(sp.mois) : null;
   const statut = sp.statut || null;
   const q = (sp.q ?? "").trim();
-  const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
   const [bulletinsAll, contratsAll, documentsAll, congesAll, fichesAll] = await Promise.all([
     prisma.payrollLine.findMany({
@@ -57,7 +57,7 @@ export default async function DocumentsPage({
 
   // Fiches de poste documentées (fichier ou description), filtrées par la recherche texte.
   const fiches = fichesAll.filter(
-    (f) => (f.fichierUrl || f.description) && (!q || norm(f.poste).includes(norm(q)) || norm(f.fichierNom ?? "").includes(norm(q)))
+    (f) => (f.fichierUrl || f.description) && (!q || normTexte(f.poste).includes(normTexte(q)) || normTexte(f.fichierNom ?? "").includes(normTexte(q)))
   );
 
   const annees = [

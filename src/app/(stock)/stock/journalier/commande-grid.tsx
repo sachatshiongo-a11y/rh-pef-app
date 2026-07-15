@@ -3,12 +3,12 @@
 import { Fragment, memo, useCallback, useMemo, useState, useTransition } from "react";
 import { qte } from "@/lib/stock";
 import { saisirCommandeResto, saisirCommandeLegume } from "./actions";
+import { normTexte } from "@/lib/texte";
 
 export type CmdArticle = { id: string; designation: string; categorie: string };
 export type CmdJour = { iso: string; label: string };
 
 const inp = "w-14 rounded border border-input bg-background px-1 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /**
  * Saisie des commandes de livraison au restaurant : quantité par article et par jour, groupée par
@@ -31,8 +31,8 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
   }, []);
 
   const visibles = useMemo(() => {
-    const nq = norm(q.trim());
-    return nq ? articles.filter((a) => norm(a.designation).includes(nq) || norm(a.categorie).includes(nq)) : articles;
+    const nq = normTexte(q.trim());
+    return nq ? articles.filter((a) => normTexte(a.designation).includes(nq) || normTexte(a.categorie).includes(nq)) : articles;
   }, [articles, q]);
 
   const totauxJour = useMemo(() => jours.map((j) => visibles.reduce((t, a) => t + (totaux[`${a.id}_${j.iso}`] ?? 0), 0)), [jours, visibles, totaux]);
