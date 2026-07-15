@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { qte } from "@/lib/stock";
+import { qte, usd } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { SupprimerAchatBtn } from "./supprimer-achat-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
@@ -97,6 +97,10 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
               <details key={g.cle} className="group overflow-hidden rounded-lg border">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/50 px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} ligne(s)</span></span>
+                  {(() => {
+                    const total = g.lignes.reduce((t, m) => t + Number(m.montantUSD ?? 0), 0);
+                    return total > 0 ? <span className="shrink-0 tabular-nums text-emerald-700">{usd(total)}</span> : null;
+                  })()}
                 </summary>
                 <ul className="divide-y border-t text-sm">
                   {g.lignes.map((m) => (
@@ -107,6 +111,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
                         <span className="font-medium text-emerald-700">+{qte(m.quantite)}</span>
+                        {m.montantUSD !== null && <span className="tabular-nums text-muted-foreground">{usd(m.montantUSD)}</span>}
                         {estDirection && <SupprimerAchatBtn mouvementId={m.id} designation={m.article.designation} />}
                       </span>
                     </li>
