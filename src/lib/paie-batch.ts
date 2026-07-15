@@ -7,6 +7,7 @@ import {
   calculerJoursOuvrables,
   calculerPaieBackoffice,
   calculerPaieBrigade,
+  calculerPaieStage,
   resumerPresences,
   type CodePresence,
 } from "@/lib/payroll";
@@ -73,7 +74,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois] =
+  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs] =
     await Promise.all([
       prisma.employee.findMany({ where: { actif: true } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -83,7 +84,12 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
       prisma.acompteSalaire.findMany({ where: { mois, annee, statut: "APPROUVE" } }),
       prisma.leaveRequest.findMany({ where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } } }),
       prisma.fraisMedical.findMany({ where: { mois, annee } }),
+      prisma.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: { dateDebut: "asc" }, select: { employeeId: true, type: true } }),
     ]);
+
+  // Régime de paie par employé : type du contrat ACTIF le plus récent, sinon le type de la fiche.
+  const typeContratParEmp = new Map<string, string>();
+  for (const c of contratsActifs) typeContratParEmp.set(c.employeeId, c.type);
 
   const fraisMedParEmp = new Map<string, number>();
   for (const f of fraisMedDuMois) fraisMedParEmp.set(f.employeeId, (fraisMedParEmp.get(f.employeeId) ?? 0) + Number(f.montantUSD));
@@ -136,6 +142,10 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   const employesFraisMedicaux: string[] = [];
 
   for (const employee of employees) {
+    const typeContrat = typeContratParEmp.get(employee.id) ?? employee.contrat;
+    // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici.
+    if (typeContrat === "INTERIM") continue;
+
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);
     const heuresHebdo = Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6;
@@ -164,7 +174,8 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
       params: parametres,
     });
 
-    const joursCongePris = Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
+    const estStage = typeContrat === "STAGE";
+    const joursCongePris = estStage ? 0 : Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
     const indemniteCongesUSD = joursCongePris * salaireJournalier;
     const nombreAbsences = codes.filter((c) => c === "A" || c === "N" || c === "S").length;
     const heuresContractuelles = Math.round(heuresMoisContrat * 100) / 100;
@@ -189,7 +200,12 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
     const acompteUSD = acomptesParEmp.get(employee.id) ?? 0;
 
     const ligne =
-      employee.categorie === "BRIGADE"
+      typeContrat === "STAGE"
+        ? calculerPaieStage(
+            { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD },
+            parametres
+          )
+        : employee.categorie === "BRIGADE"
         ? calculerPaieBrigade(
             {
               salaireJournalier,
@@ -220,12 +236,12 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         nombreAbsences,
         remuneration100: ligne.remuneration100,
         remuneration2_3: ligne.remuneration2_3,
-        hsValorisee: hs.hsValorisee,
+        hsValorisee: estStage ? 0 : hs.hsValorisee,
         heuresTravaillees: hs.heuresTotalesMois,
         heuresContractuelles,
-        heuresSupp30: hs.hs30,
-        heuresSupp60: hs.hs60,
-        heuresSupp100: hs.hs100,
+        heuresSupp30: estStage ? 0 : hs.hs30,
+        heuresSupp60: estStage ? 0 : hs.hs60,
+        heuresSupp100: estStage ? 0 : hs.hs100,
         joursCongePris,
         indemniteCongesUSD,
         fraisMedicauxUSD,

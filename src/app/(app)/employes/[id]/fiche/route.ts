@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
+import { typeSansConges } from "@/lib/regles-contrats";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const usd = (n: number) =>
@@ -41,7 +42,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const anciennete =
     (new Date(annee, mois - 1).getFullYear() - new Date(employee.dateEmbauche).getFullYear()) * 12 +
     (new Date(annee, mois - 1).getMonth() - new Date(employee.dateEmbauche).getMonth());
-  const congesAcquis = calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
+  const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
   // Congés spéciaux (maternité, maladie…) NON déduits du solde — même logique que partout.
   const congesPris = leaveRequests
     .filter((l) => l.statut === "APPROUVE" && new Date(l.dateDebut) >= debutAnnee && congeDeductibleDuSolde(l.type))

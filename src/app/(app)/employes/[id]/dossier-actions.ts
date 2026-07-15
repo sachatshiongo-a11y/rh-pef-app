@@ -101,10 +101,15 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
       documentUrl = await televerserFichier(employeeId, fichier);
     }
 
+    const type = String(formData.get("type")) as TypeContrat;
+    const agence = String(formData.get("agence") ?? "").trim() || null;
+    const coutJour = Number(String(formData.get("coutJourUSD") ?? "").replace(",", "."));
+    if (type === "INTERIM" && !agence) throw new Error("Pour un intérimaire, indiquez l'agence d'intérim (c'est elle qui l'emploie et le paie).");
+
     await prisma.contrat.create({
       data: {
         employeeId,
-        type: String(formData.get("type")) as TypeContrat,
+        type,
         dateDebut: new Date(String(formData.get("dateDebut"))),
         dateFin: date(formData, "dateFin"),
         finPeriodeEssai: date(formData, "finPeriodeEssai"),
@@ -113,8 +118,12 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
         devise: String(formData.get("devise") ?? "USD"),
         poste: String(formData.get("poste") ?? ""),
         documentUrl,
+        agence,
+        coutJourUSD: type === "INTERIM" && Number.isFinite(coutJour) && coutJour > 0 ? coutJour : null,
       },
     });
+    // La fiche employé affiche le type du contrat courant.
+    await prisma.employee.update({ where: { id: employeeId }, data: { contrat: type } });
 
     await journaliser(prisma, {
       entite: "Contrat",

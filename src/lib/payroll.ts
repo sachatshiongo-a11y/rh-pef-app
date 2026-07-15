@@ -182,6 +182,46 @@ export function calculerPaieBackoffice(
   );
 }
 
+export type EntreesPaieStage = {
+  indemniteUSD: number; // indemnité de stage forfaitaire (salaireMensuel de la fiche)
+  transportUSD: number;
+  fraisMedicauxUSD?: number;
+  primesUSD?: number;
+  acompteUSD?: number;
+};
+
+/**
+ * Bulletin d'un STAGIAIRE : indemnité forfaitaire + transport, SANS cotisations (CNSS/INPP/ONEM),
+ * SANS impôt (IPR) ni allocations familiales — défaut prudent À VALIDER par un juriste (le régime
+ * fiscal des indemnités de stage n'est pas celui d'un salaire). Pas d'heures supp. ni de congés.
+ */
+export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresPaie): LignePaie {
+  const primesUSD = entrees.primesUSD ?? 0;
+  const acompteUSD = entrees.acompteUSD ?? 0;
+  const fraisMedicauxUSD = entrees.fraisMedicauxUSD ?? 0;
+  const salBrutUSD = entrees.indemniteUSD + entrees.transportUSD + primesUSD;
+  const salNetUSD = salBrutUSD + fraisMedicauxUSD - acompteUSD;
+  return {
+    remuneration100: entrees.indemniteUSD,
+    remuneration2_3: 0,
+    salBrutUSD,
+    cnssSalarieUSD: 0,
+    netImposableUSD: 0,
+    iprCalculeUSD: 0,
+    allocFamilialeUSD: 0,
+    fraisMedicauxUSD,
+    primesUSD,
+    acompteUSD,
+    salNetUSD,
+    salNetCDF: salNetUSD * params.tauxChangeCDF,
+    cnssPatronalUSD: 0,
+    inppUSD: 0,
+    onemUSD: 0,
+    coutEmployeurUSD: salBrutUSD,
+    coutEmployeurCDF: salBrutUSD * params.tauxChangeCDF,
+  };
+}
+
 function finaliserLignePaie(
   base: {
     remuneration100: number;

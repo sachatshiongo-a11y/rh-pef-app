@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
+import { typeSansConges } from "@/lib/regles-contrats";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -311,7 +312,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
           <tbody>
             {employeesAff.map((e) => {
               const anciennete = moisEntre(new Date(e.dateEmbauche), maintenant);
-              const droits = calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
+              const droits = typeSansConges(e.contrat) ? 0 : calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
               const pris = congesAnnuelsParEmp.get(e.id) ?? 0;
               const solde = droits - pris;
               return (

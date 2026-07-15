@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
 import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
+import { typeSansConges } from "@/lib/regles-contrats";
 
 export async function GET(
   _request: Request,
@@ -31,7 +32,7 @@ export async function GET(
       12 +
     (new Date(annee, mois - 1, 1).getMonth() - new Date(demande.employee.dateEmbauche).getMonth());
   const parametres = await chargerParametresPaie();
-  const congesAcquis = calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
+  const congesAcquis = typeSansConges(demande.employee.contrat) ? 0 : calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
 
   const approuvees = await prisma.leaveRequest.findMany({
     where: {

@@ -15,6 +15,7 @@ import {
   ajouterDocument,
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
+import { transformerContrat, prolongerContrat, prolongerEssai } from "../../paie/contrat-actions";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -136,7 +137,13 @@ export function DossierEmploye({
                       <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
                       <p className="text-sm text-muted-foreground">
                         du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
+                        {c.renouvellements > 0 ? ` · prolongé ${c.renouvellements} fois` : ""}
                       </p>
+                      {c.agence && (
+                        <p className="text-xs text-muted-foreground">
+                          Agence : <b>{c.agence}</b>{c.coutJourUSD ? ` · ${Number(c.coutJourUSD).toLocaleString("fr-FR")} $/jour facturé` : ""} — payé par l&apos;agence (hors paie)
+                        </p>
+                      )}
                     </div>
                     <StatutContratBadge statut={c.statut} />
                   </div>
@@ -169,6 +176,50 @@ export function DossierEmploye({
                       </form>
                     )}
                   </div>
+                  {peutModifier && c.statut === "ACTIF" && (
+                    <details className="mt-2 rounded-lg border bg-muted/20">
+                      <summary className="cursor-pointer px-3 py-2 text-xs font-medium">Transformer · Prolonger · Période d&apos;essai</summary>
+                      <div className="space-y-3 p-3 pt-1">
+                        {/* Transformation historisée : l'ancien contrat reste lisible (statut TRANSFORMÉ). */}
+                        <form action={transformerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                          <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                          <label className="flex flex-col gap-0.5">Nouveau type
+                            <select name="type" defaultValue={c.type === "CDI" ? "CDD" : "CDI"} className={inputCls}>
+                              {["CDI", "CDD"].filter((t) => t !== c.type).map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-0.5">Début du nouveau contrat
+                            <input type="date" name="dateDebut" defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} />
+                          </label>
+                          <label className="flex flex-col gap-0.5">Fin (si CDD)
+                            <input type="date" name="dateFin" className={inputCls} />
+                          </label>
+                          <button className="rounded-md bg-primary px-2.5 py-1.5 font-medium text-primary-foreground">Transformer</button>
+                          <span className="text-muted-foreground">L&apos;ancien contrat reste dans l&apos;historique.</span>
+                        </form>
+                        {c.dateFin && (
+                          <form action={prolongerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                            <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                            <label className="flex flex-col gap-0.5">Nouvelle date de fin
+                              <input type="date" name="dateFin" required className={inputCls} />
+                            </label>
+                            <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger le contrat</button>
+                            {c.type === "CDD" && <span className="text-muted-foreground">Compté et borné (Code du travail — Barèmes).</span>}
+                          </form>
+                        )}
+                        {c.finPeriodeEssai && (
+                          <form action={prolongerEssai.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                            <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                            <label className="flex flex-col gap-0.5">Nouvelle fin d&apos;essai
+                              <input type="date" name="finPeriodeEssai" required className={inputCls} />
+                            </label>
+                            <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger l&apos;essai</button>
+                            <span className="text-muted-foreground">Bornée à la durée légale maximale.</span>
+                          </form>
+                        )}
+                      </div>
+                    </details>
+                  )}
                 </div>
               );
             })}
@@ -178,13 +229,15 @@ export function DossierEmploye({
           <details className="rounded-lg border bg-muted/20">
             <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">Ajouter / importer un contrat</summary>
             <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
-              <LabeledInput name="type" label="Type" select defaultValue="CDD" options={["CDD", "CDI", "STAGE", "JOURNALIER"]} />
+              <LabeledInput name="type" label="Type" select defaultValue="CDD" options={["CDD", "CDI", "STAGE", "JOURNALIER", "INTERIM"]} />
               <LabeledInput name="poste" label="Poste" defaultValue={poste} required />
               <LabeledInput name="dateDebut" label="Début" type="date" required />
               <LabeledInput name="dateFin" label="Fin (CDD)" type="date" />
               <LabeledInput name="finPeriodeEssai" label="Fin période d'essai" type="date" />
               <LabeledInput name="salaireMensuel" label="Salaire mensuel" type="number" step="0.01" defaultValue={salaireMensuel} />
               <LabeledInput name="heuresHebdo" label="Heures / semaine" type="number" step="0.5" defaultValue="48" />
+              <LabeledInput name="agence" label="Agence (intérim) — qui l'emploie et le paie" />
+              <LabeledInput name="coutJourUSD" label="Coût / jour facturé $ (intérim)" type="number" step="0.01" />
               <div className="flex flex-col gap-1 sm:col-span-2">
                 <span className="text-xs text-muted-foreground">Fichier du contrat (PDF, Word… max 15 Mo)</span>
                 <input type="file" name="fichier" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" className={inputCls} />

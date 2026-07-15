@@ -20,6 +20,7 @@ import { lundiDe } from "@/lib/dates-fr";
 import { dureeShift, libelleShift } from "../../planning/creneaux";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
+import { typeSansConges } from "@/lib/regles-contrats";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -197,7 +198,7 @@ export default async function FicheEmployePage({
   const transportMoisCDF = transportMoisUSD * parametres.tauxChangeCDF;
 
   const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(annee, mois - 1, 1));
-  const congesAcquis = calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
+  const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
   const congesPrisAnnee = leaveRequests
     .filter(
       (l) =>

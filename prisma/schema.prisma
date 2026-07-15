@@ -390,6 +390,7 @@ enum TypeContrat {
   CDI
   STAGE
   JOURNALIER
+  INTERIM
 
   @@schema("public")
 }
@@ -398,6 +399,7 @@ enum StatutContrat {
   ACTIF
   EXPIRE
   RESILIE
+  TRANSFORME // clos par transformation (ex. CDD devenu CDI) — l'historique reste lisible
 
   @@schema("public")
 }
@@ -417,6 +419,9 @@ model Contrat {
   poste           String
   statut          StatutContrat @default(ACTIF)
   documentUrl     String?
+  renouvellements Int           @default(0) // nb de prolongations du CDD (garde-fou légal)
+  agence          String? // INTERIM : agence d'intérim qui emploie et paie la personne
+  coutJourUSD     Decimal?      @db.Decimal(12, 2) // INTERIM : coût journalier facturé par l'agence
   createdAt       DateTime      @default(now())
 
   @@index([employeeId])

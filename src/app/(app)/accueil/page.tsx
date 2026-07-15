@@ -50,6 +50,8 @@ export default async function AccueilPage() {
     runsHistorique,
     employesAnniv,
     contratsEcheance,
+    nbStagiaires,
+    nbInterimaires,
   ] = await Promise.all([
     prisma.employee.count({ where: { categorie: "BRIGADE", actif: true } }),
     prisma.employee.count({ where: { categorie: "BACKOFFICE", actif: true } }),
@@ -79,6 +81,8 @@ export default async function AccueilPage() {
       orderBy: { dateFin: "asc" },
       take: 10,
     }),
+    prisma.employee.count({ where: { actif: true, contrat: "STAGE" } }),
+    prisma.employee.count({ where: { actif: true, contrat: "INTERIM" } }),
   ]);
 
   const lignes = run?.lignes ?? [];
@@ -128,6 +132,9 @@ export default async function AccueilPage() {
   const cartes = [
     { label: "Effectif brigade", value: String(effectifBrigade) },
     { label: "Effectif backoffice", value: String(effectifBackoffice) },
+    ...(nbStagiaires + nbInterimaires > 0
+      ? [{ label: "Dont stagiaires / intérim", value: `${nbStagiaires} · ${nbInterimaires}` }]
+      : []),
     { label: "Masse salariale nette", value: usd(masseNette) },
     { label: "Coût total employeur", value: usd(coutTotal) },
     { label: "Heures supp. valorisées", value: usd(hsValoriseeTotal) },
