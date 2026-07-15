@@ -8,7 +8,8 @@ import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, roleRequisPour } from "@/lib/paie-etats";
 import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
-import type { ModePaiement, PaymentStatus } from "@prisma/client";
+import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
+import { actionLisible } from "@/lib/action-lisible";
 
 export async function calculerPaieDuMois() {
   const user = await verifySession();
@@ -42,16 +43,18 @@ export async function recalculerPaieSiCalculee() {
  * Cœur d'une transition de la machine à états de paie (En attente → Préparé → Validé → Payé,
  * annulation possible). Enregistre la transition, journalise l'audit, fige un snapshot immuable
  * du bulletin au passage en « Validé ». Retourne false si la transition n'est pas autorisée
- * (en lot : on ignore silencieusement les lignes non concernées). NE vérifie pas le rôle ni ne
- * revalide — l'appelant s'en charge (unitaire ou groupé).
+ * (en lot : on ignore silencieusement les lignes non concernées). S'exécute dans la transaction
+ * fournie par l'appelant (unitaire : la sienne ; lot : UNE transaction pour tout le lot — tout ou
+ * rien). NE vérifie pas le rôle ni ne revalide — l'appelant s'en charge.
  */
 async function appliquerTransitionPaie(
+  tx: Prisma.TransactionClient,
   payrollLineId: string,
   versStatut: PaymentStatus,
   opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null },
   userId: string
 ): Promise<boolean> {
-  const ligne = await prisma.payrollLine.findUnique({
+  const ligne = await tx.payrollLine.findUnique({
     where: { id: payrollLineId },
     include: { employee: true, payrollRun: true },
   });
@@ -62,53 +65,51 @@ async function appliquerTransitionPaie(
   // — plus jamais « espèces » imposé par défaut, y compris pour les actions groupées.
   const modePaiement = opts.modePaiement ?? ligne.employee.modePaiement;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.payrollLine.update({
-      where: { id: payrollLineId },
-      data: {
-        statutPaiement: versStatut,
-        datePaiement: versStatut === "PAYE" ? new Date() : ligne.datePaiement,
-        modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
-        payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
-      },
-    });
+  await tx.payrollLine.update({
+    where: { id: payrollLineId },
+    data: {
+      statutPaiement: versStatut,
+      datePaiement: versStatut === "PAYE" ? new Date() : ligne.datePaiement,
+      modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
+      payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
+    },
+  });
 
-    await tx.transitionPaie.create({
+  await tx.transitionPaie.create({
+    data: {
+      payrollLineId,
+      deStatut,
+      versStatut,
+      userId,
+      modePaiement: versStatut === "PAYE" ? modePaiement : null,
+      preuveUrl: opts.preuveUrl ?? null,
+      commentaire: opts.commentaire ?? null,
+    },
+  });
+
+  // Au passage en « Validé », on fige un snapshot immuable du bulletin (jamais écrasé ensuite).
+  if (versStatut === "VALIDE") {
+    const dernier = await tx.versionBulletin.findFirst({
+      where: { payrollLineId },
+      orderBy: { numeroVersion: "desc" },
+    });
+    await tx.versionBulletin.create({
       data: {
         payrollLineId,
-        deStatut,
-        versStatut,
-        userId,
-        modePaiement: versStatut === "PAYE" ? modePaiement : null,
-        preuveUrl: opts.preuveUrl ?? null,
-        commentaire: opts.commentaire ?? null,
+        numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
+        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun })),
+        genreParId: userId,
       },
     });
+  }
 
-    // Au passage en « Validé », on fige un snapshot immuable du bulletin (jamais écrasé ensuite).
-    if (versStatut === "VALIDE") {
-      const dernier = await tx.versionBulletin.findFirst({
-        where: { payrollLineId },
-        orderBy: { numeroVersion: "desc" },
-      });
-      await tx.versionBulletin.create({
-        data: {
-          payrollLineId,
-          numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
-          snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun })),
-          genreParId: userId,
-        },
-      });
-    }
-
-    await journaliser(tx, {
-      entite: "PayrollLine",
-      entiteId: payrollLineId,
-      champ: "statutPaiement",
-      ancienneValeur: deStatut,
-      nouvelleValeur: versStatut,
-      userId,
-    });
+  await journaliser(tx, {
+    entite: "PayrollLine",
+    entiteId: payrollLineId,
+    champ: "statutPaiement",
+    ancienneValeur: deStatut,
+    nouvelleValeur: versStatut,
+    userId,
   });
 
   return true;
@@ -124,11 +125,8 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
 
   requireRole(user, roleRequisPour(versStatut));
 
-  const ok = await appliquerTransitionPaie(
-    payrollLineId,
-    versStatut,
-    { modePaiement, preuveUrl, commentaire },
-    user.id
+  const ok = await prisma.$transaction((tx) =>
+    appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire }, user.id)
   );
   // Message lisible via ?erreur= (un throw serait masqué par Next en production).
   if (!ok) redirect(`/paie?erreur=${encodeURIComponent(`Transition non autorisée vers ${versStatut}.`)}`);
@@ -143,24 +141,29 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
  * Les lignes pour lesquelles la transition n'est pas autorisée sont ignorées. Retourne le
  * nombre de lignes effectivement modifiées.
  */
-export async function changerStatutEnLot(
+export const changerStatutEnLot = actionLisible(async (
   payrollLineIds: string[],
   versStatut: PaymentStatus,
   modePaiement?: ModePaiement | null
-): Promise<number> {
+): Promise<number> => {
   const user = await verifySession();
   requireRole(user, roleRequisPour(versStatut));
 
-  let modifiees = 0;
-  for (const id of payrollLineIds) {
-    if (await appliquerTransitionPaie(id, versStatut, { modePaiement }, user.id)) modifiees++;
-  }
+  // ATOMIQUE : tout ou rien — un échec au milieu annule TOUT le lot (jamais de paie à moitié
+  // validée). Les lignes dont la transition n'est pas autorisée restent simplement ignorées.
+  const modifiees = await prisma.$transaction(async (tx) => {
+    let n = 0;
+    for (const id of payrollLineIds) {
+      if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement }, user.id)) n++;
+    }
+    return n;
+  }, { timeout: 120_000 });
 
   revalidatePath("/paie");
   revalidatePath("/accueil");
   revalidatePath("/a-valider");
   return modifiees;
-}
+});
 
 /**
  * CLÔTURE GLOBALE (§9) : valide d'un coup tous les bulletins « pas validé » du mois.
@@ -186,10 +189,13 @@ export async function cloturerPaie(): Promise<void> {
   });
   if (!run) return;
 
-  for (const l of run.lignes) {
-    await appliquerTransitionPaie(l.id, "VALIDE", {}, user.id);
-  }
-  await prisma.payrollRun.update({ where: { id: run.id }, data: { statut: "VALIDE" } });
+  // ATOMIQUE : tous les bulletins et l'état du run basculent dans UNE transaction.
+  await prisma.$transaction(async (tx) => {
+    for (const l of run.lignes) {
+      await appliquerTransitionPaie(tx, l.id, "VALIDE", {}, user.id);
+    }
+    await tx.payrollRun.update({ where: { id: run.id }, data: { statut: "VALIDE" } });
+  }, { timeout: 120_000 });
 
   revalidatePath("/paie");
   revalidatePath("/a-valider");

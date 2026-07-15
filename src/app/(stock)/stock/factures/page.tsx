@@ -8,7 +8,7 @@ import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
-type SP = { statut?: string; tri?: string; vue?: string };
+type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
 const JOUR_MS = 86400000;
 /** Jours restants avant l'échéance (négatif si dépassée) ; null si réglée ou sans échéance. */
@@ -28,10 +28,26 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";
   const vue = sp.vue === "fournisseur" ? "fournisseur" : sp.vue === "echeancier" ? "echeancier" : "detail";
   // Arrivée depuis le tableau de bord (filtre « à payer » ou « échues ») → accordéons déroulés d'emblée.
-  const ouvertParDefaut = f === "du" || f === "A_REGLER" || f === "ECHUE_NON_REGLEE";
-  const where: Prisma.FactureFournisseurWhereInput =
-    f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
-      : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {};
+  const filtreImpayes = f === "du" || f === "A_REGLER" || f === "ECHUE_NON_REGLEE";
+  const ouvertParDefaut = filtreImpayes;
+
+  // Liste BORNÉE par année (défaut : année courante) — la table grandit sans fin, on ne la
+  // recharge plus entièrement. Exceptions voulues : les vues d'impayés couvrent TOUTES les
+  // années (masquer une vieille dette serait pire que tout), « Toutes » reste accessible.
+  const [anneesRows, configAnnee] = await Promise.all([
+    prisma.factureFournisseur.groupBy({ by: ["annee"], orderBy: { annee: "desc" } }),
+    prisma.config.findUnique({ where: { id: "singleton" }, select: { anneeCourante: true } }),
+  ]);
+  const anneesDispo = anneesRows.map((r) => r.annee);
+  const anneeDefaut = configAnnee?.anneeCourante ?? new Date().getFullYear();
+  const anneeSel: number | null =
+    filtreImpayes || sp.annee === "toutes" ? null : Number(sp.annee) || anneeDefaut;
+
+  const where: Prisma.FactureFournisseurWhereInput = {
+    ...(f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
+      : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {}),
+    ...(anneeSel ? { annee: anneeSel } : {}),
+  };
   const orderBy: Prisma.FactureFournisseurOrderByWithRelationInput[] =
     tri === "fournisseur" ? [{ fournisseurNom: "asc" }, { annee: "desc" }, { mois: "desc" }] : [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }];
 
@@ -136,10 +152,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
   const lien = (params: Partial<SP>) => {
     const p = new URLSearchParams();
-    const s = { statut: f, tri, vue, ...params };
+    const s = { statut: f, tri, vue, annee: sp.annee, ...params };
     if (s.statut) p.set("statut", s.statut);
     if (s.tri && s.tri !== "mois") p.set("tri", s.tri);
     if (s.vue && s.vue !== "detail") p.set("vue", s.vue);
+    if (s.annee && s.annee !== String(anneeDefaut)) p.set("annee", s.annee);
     return `/stock/factures${p.toString() ? `?${p}` : ""}`;
   };
 
@@ -233,6 +250,18 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
                 <a key={k} href={lien({ statut: k })} className={`rounded-full border px-3 py-1 ${(f ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
               ))}
             </div>
+            <span className="text-muted-foreground">·</span>
+            {filtreImpayes ? (
+              <span className="text-xs text-muted-foreground">Impayés : toutes les années confondues.</span>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground">Année :</span>
+                {anneesDispo.map((a) => (
+                  <a key={a} href={lien({ annee: String(a) })} className={`rounded-full border px-3 py-1 ${anneeSel === a ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{a}</a>
+                ))}
+                <a href={lien({ annee: "toutes" })} className={`rounded-full border px-3 py-1 ${anneeSel === null ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Toutes</a>
+              </div>
+            )}
             <span className="text-muted-foreground">·</span>
             <div className="flex gap-1.5">
               <span className="text-muted-foreground">Grouper :</span>

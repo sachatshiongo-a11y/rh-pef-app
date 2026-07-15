@@ -6,6 +6,7 @@ import { changerStatutEnLot } from "../paie/actions";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
+import { estErreur } from "@/lib/action-lisible";
 
 export type BulletinRow = {
   id: string;
@@ -36,6 +37,7 @@ export function BulletinsInbox({
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState("VIREMENT");
   const [isPending, startTransition] = useTransition();
+  const [erreur, setErreur] = useState<string | null>(null);
 
   function toggle(id: string) {
     setSelection((s) => {
@@ -46,14 +48,17 @@ export function BulletinsInbox({
   }
   function lancer(ids: string[]) {
     if (ids.length === 0) return;
+    setErreur(null);
     startTransition(async () => {
-      await changerStatutEnLot(ids, cible, cible === "PAYE" ? (mode as ModePaiement) : null);
+      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? (mode as ModePaiement) : null);
+      if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });
   }
 
   return (
     <div>
+      {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input

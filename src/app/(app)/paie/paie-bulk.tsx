@@ -7,6 +7,7 @@ import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import type { PaymentStatus, ModePaiement } from "@prisma/client";
+import { estErreur } from "@/lib/action-lisible";
 
 export type PaieRow = {
   id: string;
@@ -54,6 +55,7 @@ export function PaieBulk({
   const toutes = [...brigadeAff, ...backofficeAff];
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
+  const [erreur, setErreur] = useState<string | null>(null);
   // "" = automatique (suit la fiche de chaque employé) ; sinon on force ce mode pour tout le lot.
   const [modeBulk, setModeBulk] = useState<"" | ModePaiement>("");
 
@@ -86,8 +88,10 @@ export function PaieBulk({
     if (ids.length === 0) return;
     // Au paiement : mode forcé si choisi, sinon null → le serveur suit la fiche de chaque employé.
     const mode = versStatut === "PAYE" ? (modeBulk || null) : null;
+    setErreur(null);
     startTransition(async () => {
-      await changerStatutEnLot(ids, versStatut, mode);
+      const r = await changerStatutEnLot(ids, versStatut, mode);
+      if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });
   }
@@ -96,6 +100,7 @@ export function PaieBulk({
 
   return (
     <div>
+      {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
       {/* Barre d'actions groupées */}
       {n > 0 && (
         <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">

@@ -45,7 +45,12 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   const sp = await searchParams;
   const user = await verifySession();
   const estDirection = user.role === "ADMIN";
-  const mois = sp.mois && /^\d{4}-\d{1,2}$/.test(sp.mois) ? sp.mois : undefined; // « 2026-7 »
+  // Liste BORNÉE : mois courant par défaut (« tous » = tout l'historique, plafonné et signalé).
+  const now = new Date();
+  const moisCourant = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+  const mois = sp.mois === "tous" ? undefined
+    : sp.mois && /^\d{4}-\d{1,2}$/.test(sp.mois) ? sp.mois
+    : moisCourant; // « 2026-7 »
   const articleId = sp.articleId || undefined;
 
   const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}) };
@@ -54,15 +59,16 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     where.date = { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
   }
 
-  const [mouvements, articles] = await Promise.all([
-    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: mvtInclude }),
+  const PLAFOND = 600;
+  const [mouvements, nbTotal, articles] = await Promise.all([
+    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
+    prisma.mouvementStock.count({ where }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
   ]);
   const entrees = mouvements.filter((m) => m.type !== "SORTIE").map(versLite);
   const sorties = mouvements.filter((m) => m.type === "SORTIE").map(versLite);
 
   // 12 derniers mois pour le filtre.
-  const now = new Date();
   const moisOptions = Array.from({ length: 12 }).map((_, i) => {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     return { val: `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`, label: `${MOIS_FR[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
@@ -76,8 +82,8 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
-        <select name="mois" defaultValue={mois ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
-          <option value="">Tous les mois</option>
+        <select name="mois" defaultValue={mois ?? "tous"} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="tous">Tous les mois</option>
           {moisOptions.map((o) => <option key={o.val} value={o.val}>{o.label}</option>)}
         </select>
         <select name="articleId" defaultValue={articleId ?? ""} className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5">
@@ -85,7 +91,12 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
           {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(mois || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        {(mois !== moisCourant || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {nbTotal > PLAFOND
+            ? `${PLAFOND} affichés sur ${nbTotal} — affinez par mois ou par produit.`
+            : `${nbTotal} mouvement(s)`}
+        </span>
       </form>
 
       <MouvementForm articles={articles} estDirection={estDirection} />

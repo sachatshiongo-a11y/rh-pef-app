@@ -8,6 +8,7 @@ import {
   supprimerConge,
   approuverCongesEnLot,
   refuserCongesEnLot,
+  type RapportLotConges,
 } from "../conges/actions";
 import { Avatar } from "@/components/avatar";
 
@@ -28,6 +29,7 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [note, setNote] = useState<string | null>(null);
 
   function toggle(id: string) {
     setSelection((s) => {
@@ -36,12 +38,15 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
       return n;
     });
   }
-  function bulk(fn: (ids: string[]) => Promise<number>) {
+  function bulk(fn: (ids: string[]) => Promise<RapportLotConges>) {
     const ids = [...selection];
     if (ids.length === 0) return;
+    setNote(null);
     startTransition(async () => {
-      await fn(ids);
+      const r = await fn(ids);
       setSelection(new Set());
+      // Rapport de fin : l'échec d'une demande ne bloque pas les autres, mais il est NOMMÉ.
+      if (r.echecs.length > 0) setNote(`${r.traitees} traitée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}`);
     });
   }
   function individuel(fn: (id: string) => Promise<unknown>, id: string) {
@@ -60,6 +65,7 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
 
   return (
     <div>
+      {note && <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{note}</p>}
       {peutValider && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">

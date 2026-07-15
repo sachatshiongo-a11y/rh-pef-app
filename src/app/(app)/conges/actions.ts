@@ -146,55 +146,69 @@ export async function supprimerConge(leaveRequestId: string) {
   revaliderConges();
 }
 
+/** Rapport d'un lot : demandes traitées + échecs NOMMÉS (l'échec d'une demande ne bloque pas
+ * les autres — les approbations sont des actes indépendants, contrairement au lot de paie). */
+export type RapportLotConges = { traitees: number; echecs: string[] };
+
 /** ACTION GROUPÉE : approuve plusieurs demandes en attente d'un coup. */
-export async function approuverCongesEnLot(ids: string[]): Promise<number> {
+export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotConges> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   let n = 0;
+  const echecs: string[] = [];
   for (const id of ids) {
-    const d = await prisma.leaveRequest.findUnique({ where: { id } });
+    const d = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } });
     if (!d || d.statut !== "EN_ATTENTE") continue;
-    await prisma.leaveRequest.update({
-      where: { id },
-      data: { statut: "APPROUVE", approuveParId: user.id },
-    });
-    await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type);
-    await journaliser(prisma, {
-      entite: "LeaveRequest",
-      entiteId: id,
-      champ: "statut",
-      nouvelleValeur: "APPROUVE",
-      userId: user.id,
-    });
-    await supprimerNotificationsPour(id);
-    n++;
+    try {
+      await prisma.leaveRequest.update({
+        where: { id },
+        data: { statut: "APPROUVE", approuveParId: user.id },
+      });
+      await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type);
+      await journaliser(prisma, {
+        entite: "LeaveRequest",
+        entiteId: id,
+        champ: "statut",
+        nouvelleValeur: "APPROUVE",
+        userId: user.id,
+      });
+      await supprimerNotificationsPour(id);
+      n++;
+    } catch (e) {
+      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+    }
   }
   revaliderConges();
-  return n;
+  return { traitees: n, echecs };
 }
 
 /** ACTION GROUPÉE : refuse plusieurs demandes en attente d'un coup. */
-export async function refuserCongesEnLot(ids: string[]): Promise<number> {
+export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConges> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   let n = 0;
+  const echecs: string[] = [];
   for (const id of ids) {
-    const d = await prisma.leaveRequest.findUnique({ where: { id } });
+    const d = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } });
     if (!d || d.statut !== "EN_ATTENTE") continue;
-    await prisma.leaveRequest.update({
-      where: { id },
-      data: { statut: "REFUSE", approuveParId: user.id },
-    });
-    await journaliser(prisma, {
-      entite: "LeaveRequest",
-      entiteId: id,
-      champ: "statut",
-      nouvelleValeur: "REFUSE",
-      userId: user.id,
-    });
-    await supprimerNotificationsPour(id);
-    n++;
+    try {
+      await prisma.leaveRequest.update({
+        where: { id },
+        data: { statut: "REFUSE", approuveParId: user.id },
+      });
+      await journaliser(prisma, {
+        entite: "LeaveRequest",
+        entiteId: id,
+        champ: "statut",
+        nouvelleValeur: "REFUSE",
+        userId: user.id,
+      });
+      await supprimerNotificationsPour(id);
+      n++;
+    } catch (e) {
+      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+    }
   }
   revaliderConges();
-  return n;
+  return { traitees: n, echecs };
 }
