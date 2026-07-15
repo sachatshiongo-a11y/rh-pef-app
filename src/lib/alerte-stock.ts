@@ -36,11 +36,11 @@ export async function notifierNouvellesAlertes(articleIds: string[], avant: Map<
   const urgents = nouvelles.filter((n) => n.niveau === "URGENT");
   const message = `Stock bas — ${nouvelles.map((n) => `${n.designation} (${ALERTE_LABEL[n.niveau]})`).join(", ")}`.slice(0, 480);
   const cibles = await prisma.user.findMany({ where: { role: { in: ["ADMIN", "STOCK"] }, actif: true }, select: { id: true } });
-  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message, lien: `/stock/catalogue/nourriture?alerte=${urgents.length ? "URGENT" : "APPRO"}`, refId: "alerte-stock" } });
+  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message, lien: `/stock/catalogue?alerte=${urgents.length ? "URGENT" : "APPRO"}`, refId: "alerte-stock" } });
   await envoyerPush(cibles.map((c) => c.id), {
     title: urgents.length ? "Articles en rupture (urgent)" : "Articles à réapprovisionner",
     body: message.slice(0, 180),
-    url: "/stock/catalogue/nourriture",
+    url: "/stock/catalogue?alerte=URGENT",
     tag: "alerte-stock",
   });
 }

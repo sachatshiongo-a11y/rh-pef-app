@@ -7,6 +7,7 @@ import {
   basculerTypeConge,
   supprimerTypeConge,
 } from "./typeconge-actions";
+import { estErreur } from "@/lib/action-lisible";
 
 export type TypeCongeRow = {
   id: string;
@@ -23,14 +24,11 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
-  function run(fn: () => Promise<void>) {
+  function run(fn: () => Promise<unknown>) {
     setErreur(null);
     startTransition(async () => {
-      try {
-        await fn();
-      } catch (e) {
-        setErreur(e instanceof Error ? e.message : "Erreur.");
-      }
+      const r = await fn();
+      if (estErreur(r)) setErreur(r.erreur);
     });
   }
 
