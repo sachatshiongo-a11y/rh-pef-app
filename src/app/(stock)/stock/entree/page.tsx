@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { qte } from "@/lib/stock";
@@ -95,7 +96,10 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                 <ul className="divide-y border-t text-sm">
                   {g.lignes.map((m) => (
                     <li key={m.id} className="flex items-center justify-between px-3 py-1">
-                      <span className="truncate pr-2">{m.article.designation}{m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}</span>
+                      <span className="truncate pr-2">
+                        <Link href={`/stock/catalogue/${m.articleId}`} className="text-primary hover:underline">{m.article.designation}</Link>
+                        {m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}
+                      </span>
                       <span className="shrink-0 font-medium text-emerald-700">+{qte(m.quantite)}</span>
                     </li>
                   ))}

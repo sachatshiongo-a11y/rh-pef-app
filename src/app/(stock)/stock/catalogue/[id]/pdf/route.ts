@@ -2,7 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
-import { analyserPrix } from "@/lib/stock-prix";
+import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 import { FicheArticleDocument, type MouvementLigne } from "@/lib/pdf/fiche-article";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -33,11 +33,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const stockQte = a.stock ? Number(a.stock.quantite) : null;
   const prixRef = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
 
-  const analyse = analyserPrix(
-    a.lignesFacture
+  const analyse = analyserPrix([
+    ...a.lignesFacture
       .filter((l) => l.facture.date)
-      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id, numero: l.facture.numero })),
-  );
+      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id as string | null, numero: l.facture.numero })),
+    ...a.mouvements
+      .filter((m) => m.type === "ENTREE" && !m.factureId && m.montantUSD !== null)
+      .map((m) => pointDeMouvement({ articleId: m.articleId, montantUSD: m.montantUSD, quantite: m.quantite, date: new Date(m.date), origine: m.origine }))
+      .filter((x): x is NonNullable<typeof x> => x !== null),
+  ]);
 
   const mouvements: MouvementLigne[] = a.mouvements.map((m) => {
     const bc = m.reception?.bonDeCommande;

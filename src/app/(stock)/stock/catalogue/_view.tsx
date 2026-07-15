@@ -29,7 +29,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
   };
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
-  const [articles, categories, fournisseurs, lignes] = await Promise.all([
+  const [articles, categories, fournisseurs, lignes, entreesPayees] = await Promise.all([
     prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
@@ -38,10 +38,16 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       where: { article: domFiltre ? { domaine: domFiltre } : {}, facture: { date: { not: null } } },
       select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
     }),
+    // Entrées PAYÉES hors facture (liste d'achat, mouvement manuel avec montant) : des achats
+    // quand même — leur prix unitaire compte dans l'évolution du prix d'achat.
+    prisma.mouvementStock.findMany({
+      where: { type: "ENTREE", factureId: null, montantUSD: { not: null }, ...(domFiltre ? { article: { domaine: domFiltre } } : {}) },
+      select: { articleId: true, montantUSD: true, quantite: true, date: true, origine: true },
+    }),
   ]);
 
   // Pour chaque article, un éventuel % de hausse du dernier achat (badge dans le catalogue).
-  const haussePct = articlesEnHausse(lignes);
+  const haussePct = articlesEnHausse(lignes, entreesPayees);
 
   const rows: ArticleRow[] = articles.map((a) => {
     const niveau: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;

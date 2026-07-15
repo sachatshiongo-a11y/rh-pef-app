@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
-import { analyserPrix } from "@/lib/stock-prix";
+import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 
 const dCourt = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" }) : "—");
 
@@ -38,11 +38,16 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
   const valeur = stockQte * (Number(a.prixUnitaireUSD) || 0);
 
   // Évolution du prix : chaque ligne de facture porte un prix unitaire figé + la date de la facture.
-  const analyse = analyserPrix(
-    a.lignesFacture
+  const analyse = analyserPrix([
+    ...a.lignesFacture
       .filter((l) => l.facture.date)
-      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id, numero: l.facture.numero })),
-  );
+      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id as string | null, numero: l.facture.numero })),
+    // Entrées payées hors facture (liste d'achat…) : des achats quand même.
+    ...a.mouvements
+      .filter((m) => m.type === "ENTREE" && !m.factureId && m.montantUSD !== null)
+      .map((m) => pointDeMouvement({ articleId: m.articleId, montantUSD: m.montantUSD, quantite: m.quantite, date: new Date(m.date), origine: m.origine }))
+      .filter((x): x is NonNullable<typeof x> => x !== null),
+  ]);
   const prixHisto = analyse.points;
   const { min: prixMin, max: prixMax, variation, hausse } = analyse;
 
@@ -132,7 +137,7 @@ export default async function ArticleFichePage({ params }: { params: Promise<{ i
                   {[...prixHisto].reverse().map((p, i) => (
                     <tr key={i} className="border-t">
                       <td className="py-1.5">{dCourt(p.date)}</td>
-                      <td className="py-1.5"><Link href={`/stock/factures/${p.factureId}`} className="text-primary hover:underline">{p.numero ?? "Facture"}</Link></td>
+                      <td className="py-1.5">{p.factureId ? <Link href={`/stock/factures/${p.factureId}`} className="text-primary hover:underline">{p.numero ?? "Facture"}</Link> : <span className="text-muted-foreground">{p.numero ?? "Liste d'achat"}</span>}</td>
                       <td className="py-1.5 text-right tabular-nums">{qte(p.qte)}</td>
                       <td className="py-1.5 text-right font-medium tabular-nums">{usd(p.prix)}</td>
                     </tr>
