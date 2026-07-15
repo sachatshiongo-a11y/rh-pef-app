@@ -27,11 +27,14 @@ export async function creerNotification(params: {
 
   // Notification e-mail + push aux comptes Direction (best-effort ; no-op si non configuré).
   const admins = await prisma.user.findMany({ where: { role: "ADMIN", actif: true }, select: { id: true, email: true } });
+  // Lien DIRECT vers la page à traiter (demande de congé → /a-valider, etc.).
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://gestion.patesenfolie.cd";
+  const urlDirecte = `${base}${params.lien ?? "/a-valider"}`;
   await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
       `Pâtes en Folie · ${params.message}`,
-      `${params.message}\n\nConnectez-vous pour traiter la demande.`
+      `${params.message}\n\nTraiter directement : ${urlDirecte}`
     ),
     envoyerPush(admins.map((a) => a.id), {
       title: "Pâtes en Folie",

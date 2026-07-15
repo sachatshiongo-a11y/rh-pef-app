@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
+import { envoyerEmail } from "@/lib/email";
 import { niveauAlerte, ALERTE_LABEL, type NiveauAlerte } from "@/lib/stock";
 
 /** Niveaux d'alerte actuels des articles donnés (à appeler AVANT une opération pour comparer). */
@@ -35,12 +36,29 @@ export async function notifierNouvellesAlertes(articleIds: string[], avant: Map<
 
   const urgents = nouvelles.filter((n) => n.niveau === "URGENT");
   const message = `Stock bas — ${nouvelles.map((n) => `${n.designation} (${ALERTE_LABEL[n.niveau]})`).join(", ")}`.slice(0, 480);
-  const cibles = await prisma.user.findMany({ where: { role: { in: ["ADMIN", "STOCK"] }, actif: true }, select: { id: true } });
-  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message, lien: `/stock/catalogue?alerte=${urgents.length ? "URGENT" : "APPRO"}`, refId: "alerte-stock" } });
-  await envoyerPush(cibles.map((c) => c.id), {
-    title: urgents.length ? "Articles en rupture (urgent)" : "Articles à réapprovisionner",
-    body: message.slice(0, 180),
-    url: "/stock/catalogue?alerte=URGENT",
-    tag: "alerte-stock",
-  });
+  const cibles = await prisma.user.findMany({ where: { role: { in: ["ADMIN", "STOCK"] }, actif: true }, select: { id: true, email: true } });
+  const filtre = urgents.length ? "URGENT" : "APPRO";
+  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message, lien: `/stock/catalogue?alerte=${filtre}`, refId: "alerte-stock" } });
+
+  // Cloche + push + E-MAIL (Direction et responsable stock), avec lien direct vers le catalogue filtré.
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://gestion.patesenfolie.cd";
+  const sujet = urgents.length
+    ? `Stock URGENT — ${urgents.length} article(s) sous le seuil critique`
+    : `Stock à réapprovisionner — ${nouvelles.length} article(s) sous le seuil`;
+  const corps = [
+    "Des articles viennent de passer sous leur seuil :",
+    "",
+    ...nouvelles.map((n) => `• ${n.designation} — ${ALERTE_LABEL[n.niveau]}`),
+    "",
+    `Voir le catalogue : ${base}/stock/catalogue?alerte=${filtre}`,
+  ].join("\n");
+  await Promise.all([
+    envoyerPush(cibles.map((c) => c.id), {
+      title: urgents.length ? "Articles en rupture (urgent)" : "Articles à réapprovisionner",
+      body: message.slice(0, 180),
+      url: `/stock/catalogue?alerte=${filtre}`,
+      tag: "alerte-stock",
+    }),
+    envoyerEmail(cibles.map((c) => c.email), sujet, corps),
+  ]);
 }

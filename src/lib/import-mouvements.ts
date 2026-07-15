@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { cleAlnum } from "./texte";
 import { meilleurArticle } from "./article-match";
 import { exigerPeriodesOuvertes } from "./cloture-stock";
+import { niveauxActuels, notifierNouvellesAlertes } from "./alerte-stock";
 import { parserMouvementsCsv, type MouvementCsv } from "./import-mouvements-csv";
 
 // Import de mouvements de stock (entrées/sorties) depuis un CSV, avec aperçu et journal réversible.
@@ -125,6 +126,8 @@ export async function appliquerMouvements(texte: string, libelle: string, dateDe
   await exigerPeriodesOuvertes(aInserer.map(dateDe));
 
   const articleIds = [...new Set(aInserer.map((p) => p.articleId!))];
+  // Niveaux d'alerte AVANT l'import : pour notifier les articles qui passent sous leur seuil.
+  const niveauxAvant = await niveauxActuels(articleIds);
 
   const res = await prisma.$transaction(async (tx) => {
     const batch = await tx.importBatch.create({ data: { type: "MOUVEMENTS", libelle, statut: "APPLIQUE", creeParId: userId } });
@@ -164,5 +167,6 @@ export async function appliquerMouvements(texte: string, libelle: string, dateDe
     return { batchId: batch.id, resume: resumeApplique };
   }, { timeout: 120000 });
 
+  await notifierNouvellesAlertes(articleIds, niveauxAvant);
   return res;
 }
