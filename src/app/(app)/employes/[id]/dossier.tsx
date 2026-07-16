@@ -15,6 +15,7 @@ import {
   ajouterDocument,
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
+import { ContratViewerButton } from "./contrat-viewer";
 import { Icone } from "@/components/icones";
 import { transformerContrat, prolongerContrat, prolongerEssai } from "../../paie/contrat-actions";
 
@@ -125,6 +126,8 @@ export function DossierEmploye({
   vue,
   employeeId,
   poste,
+  fichePosteDescription,
+  fichePosteFichierUrl,
   salaireMensuel,
   salaireJournalier,
   soldeConges,
@@ -147,6 +150,8 @@ export function DossierEmploye({
   vue: "contrats" | "fin" | "dossier";
   employeeId: string;
   poste: string;
+  fichePosteDescription?: string | null;
+  fichePosteFichierUrl?: string | null;
   salaireMensuel: number;
   salaireJournalier: number;
   soldeConges: number;
@@ -238,6 +243,24 @@ export function DossierEmploye({
                   </div>
                 )}
               </div>
+
+              {/* Description des tâches — issue de la fiche de poste de l'intitulé, en texte (pas en liste). */}
+              <div className="mt-4 border-t pt-3">
+                <p className="text-xs text-muted-foreground">Description des tâches</p>
+                {fichePosteDescription?.trim() ? (
+                  <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescription.trim()}</p>
+                ) : (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Aucune fiche de poste pour «&nbsp;{c.poste}&nbsp;».{" "}
+                    <a href="/fiches-poste" className="text-primary underline">Créer la fiche de poste</a>
+                  </p>
+                )}
+                {fichePosteFichierUrl && (
+                  <a href={fichePosteFichierUrl} target="_blank" className="mt-1 inline-block text-xs text-primary underline">
+                    Ouvrir la fiche de poste (fichier) →
+                  </a>
+                )}
+              </div>
             </BlocContrat>
 
             {/* Rémunération */}
@@ -285,7 +308,7 @@ export function DossierEmploye({
 
             {/* Fichier du contrat + attestation + génération PDF */}
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
-              <a href={`/employes/${employeeId}/contrat/${c.id}`} target="_blank" className="text-sm font-medium text-primary underline">Générer le contrat (PDF) →</a>
+              <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
               {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté par le salarié le {d(c.accepteLe)}</span>}
               {c.documentUrl && (
                 <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>
@@ -385,7 +408,7 @@ export function DossierEmploye({
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
-                  <a href={`/employes/${employeeId}/contrat/${c.id}`} target="_blank" className="text-sm font-medium text-primary underline">Générer le contrat (PDF) →</a>
+                  <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
                   {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {d(c.accepteLe)}</span>}
                   {c.documentUrl && (
                     <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>

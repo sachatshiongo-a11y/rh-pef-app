@@ -75,12 +75,14 @@ export default async function FicheEmployePage({
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
 
-  const [contrats, historique, disciplinaire, evaluations, documents] = await Promise.all([
+  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
     prisma.historiqueSalaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.dossierDisciplinaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.evaluation.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.documentEmploye.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } }),
+    // Fiche de poste liée à l'intitulé de poste du salarié (tâches affichées dans l'onglet Contrat).
+    prisma.fichePoste.findUnique({ where: { poste: employee.poste } }),
   ]);
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -787,6 +789,8 @@ export default async function FicheEmployePage({
         vue={tab}
         employeeId={employee.id}
         poste={employee.poste}
+        fichePosteDescription={fichePoste?.description ?? null}
+        fichePosteFichierUrl={fichePoste?.fichierUrl ?? null}
         salaireMensuel={Number(employee.salaireMensuel)}
         salaireJournalier={salaireJournalier}
         soldeConges={soldeConges}

@@ -44,6 +44,9 @@ export function ContratDocument({ employee, contrat, params, accepteLe }: { empl
   const cdd = contrat.type === "CDD";
   const heures = Number(contrat.heuresHebdo);
   const salaire = `${Number(contrat.salaireMensuel).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} ${contrat.devise}`;
+  // Numérotation continue des articles (la période d'essai est facultative → un compteur évite tout décalage).
+  let noArt = 0;
+  const artNo = () => ++noArt;
 
   return (
     <Document title={`Contrat de travail — ${employee.nom}`}>
@@ -70,14 +73,14 @@ export function ContratDocument({ employee, contrat, params, accepteLe }: { empl
 
         <Text style={styles.ph}>IL A ÉTÉ CONVENU CE QUI SUIT</Text>
 
-        <Text style={styles.artTitre}>Article 1 — Engagement et fonctions</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Engagement et fonctions</Text>
         <Text style={styles.art}>
           L&apos;Employeur engage {femme ? "la Salariée" : "le Salarié"}, qui accepte, en qualité de{" "}
-          <Text style={styles.gras}>{contrat.poste || employee.poste}</Text>. {femme ? "Elle" : "Il"} exercera ses fonctions
+          <Text style={styles.gras}>{contrat.poste || employee.poste}</Text>. {femme ? "Elle" : "Il"}{" "}exercera ses fonctions
           sous l&apos;autorité et selon les directives de l&apos;Employeur, et s&apos;engage à les accomplir avec diligence et loyauté.
         </Text>
 
-        <Text style={styles.artTitre}>Article 2 — Nature et durée du contrat</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Nature et durée du contrat</Text>
         <Text style={styles.art}>
           Le présent contrat est un contrat de travail <Text style={styles.gras}>{TYPE_LABEL[contrat.type] ?? contrat.type}</Text>.
           Il prend effet le <Text style={styles.gras}>{fr(contrat.dateDebut)}</Text>
@@ -87,58 +90,85 @@ export function ContratDocument({ employee, contrat, params, accepteLe }: { empl
 
         {contrat.finPeriodeEssai && (
           <>
-            <Text style={styles.artTitre}>Article 3 — Période d&apos;essai</Text>
+            <Text style={styles.artTitre}>Article {artNo()} — Période d&apos;essai</Text>
             <Text style={styles.art}>
               Les parties conviennent d&apos;une période d&apos;essai courant jusqu&apos;au{" "}
-              <Text style={styles.gras}>{fr(contrat.finPeriodeEssai)}</Text>, durant laquelle chacune peut mettre fin au
-              contrat dans les conditions prévues par la loi.
+              <Text style={styles.gras}>{fr(contrat.finPeriodeEssai)}</Text>, conformément à l&apos;article 43 de la loi
+              n°&nbsp;15/2002 du 16 octobre 2002 portant Code du travail, durant laquelle chacune des parties peut mettre fin au
+              contrat sans préavis ni indemnité.
             </Text>
           </>
         )}
 
-        <Text style={styles.artTitre}>Article {contrat.finPeriodeEssai ? 4 : 3} — Lieu et durée du travail</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Lieu et durée du travail</Text>
         <Text style={styles.art}>
-          {femme ? "La Salariée" : "Le Salarié"} exercera principalement ses fonctions au siège de l&apos;établissement,
-          {" "}{entreprise.adresse}. La durée du travail est fixée à <Text style={styles.gras}>{heures.toLocaleString("fr-FR")} heures par semaine</Text>,
+          {femme ? "La Salariée" : "Le Salarié"}{" "}exercera principalement ses fonctions au restaurant «&nbsp;{entreprise.enseigne}&nbsp;»,
+          {" "}sis {entreprise.lieuTravail}. La durée du travail est fixée à <Text style={styles.gras}>{heures.toLocaleString("fr-FR")} heures par semaine</Text>,
           répartie selon le planning établi par l&apos;Employeur.
         </Text>
 
-        <Text style={styles.artTitre}>Article {contrat.finPeriodeEssai ? 5 : 4} — Rémunération</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Rémunération</Text>
         <Text style={styles.art}>
-          En contrepartie de son travail, {femme ? "la Salariée" : "le Salarié"} percevra une rémunération mensuelle brute de{" "}
+          En contrepartie de son travail, {femme ? "la Salariée" : "le Salarié"}{" "}percevra une rémunération mensuelle brute de{" "}
           <Text style={styles.gras}>{salaire}</Text>, payable à terme échu, sous déduction des cotisations et impôts légaux
           (CNSS, IPR). S&apos;y ajoutent, le cas échéant, les indemnités et primes prévues par la politique de l&apos;établissement
           (transport, allocations, heures supplémentaires) conformément à la réglementation.
         </Text>
 
-        <Text style={styles.artTitre}>Article {contrat.finPeriodeEssai ? 6 : 5} — Congés et sécurité sociale</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Congés et sécurité sociale</Text>
         <Text style={styles.art}>
-          {femme ? "La Salariée" : "Le Salarié"} bénéficie des congés payés{params.droitsCongesAnnuel ? <> à hauteur de <Text style={styles.gras}>{params.droitsCongesAnnuel} jours ouvrables par an</Text></> : ""},
-          acquis dans les conditions légales. {femme ? "Elle" : "Il"} est {femme ? "affiliée" : "affilié"} à la Caisse Nationale
-          de Sécurité Sociale (CNSS) et bénéficie de la couverture correspondante.
+          Après douze (12) mois de service ininterrompu, {femme ? "la Salariée" : "le Salarié"}{" "}bénéficie de congés payés
+          {params.droitsCongesAnnuel ? <> à hauteur de <Text style={styles.gras}>{params.droitsCongesAnnuel} jours ouvrables</Text></> : ""},
+          acquis dans les conditions prévues par le Code du travail. {femme ? "Elle" : "Il"}{" "}est{" "}{femme ? "affiliée" : "affilié"}{" "}à la Caisse
+          Nationale de Sécurité Sociale (CNSS) et bénéficie de la couverture correspondante.
         </Text>
 
-        <Text style={styles.artTitre}>Article {contrat.finPeriodeEssai ? 7 : 6} — Rupture et préavis</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Soins médicaux</Text>
+        <Text style={styles.art}>
+          L&apos;Employeur assure à {femme ? "la Salariée" : "le Salarié"} les soins médicaux et pharmaceutiques dans les limites
+          et aux conditions fixées par les articles 177 à 184 de la loi n°&nbsp;15/2002 du 16 octobre 2002 portant Code du travail
+          et ses textes d&apos;application. Les membres de la famille effectivement à charge et n&apos;exerçant pas d&apos;activité
+          lucrative bénéficient des mêmes avantages.
+        </Text>
+
+        <Text style={styles.artTitre}>Article {artNo()} — Rupture et préavis</Text>
         <Text style={styles.art}>
           Le contrat peut être rompu par l&apos;une ou l&apos;autre des parties dans les conditions et formes prévues par le Code du
           travail, moyennant un préavis
           {params.preavisDemission || params.preavisLicenciement
             ? <> de <Text style={styles.gras}>{params.preavisDemission ?? "—"} jours en cas de démission</Text> et de <Text style={styles.gras}>{params.preavisLicenciement ?? "—"} jours en cas de licenciement</Text></>
-            : " légal"}, sauf faute lourde ou cas de rupture immédiate prévus par la loi.
+            : " légal"}. En cas de faute lourde — notamment vol, fraude, malversation, divulgation d&apos;informations
+          confidentielles, ou tout acte portant gravement atteinte à la réputation ou aux intérêts de l&apos;établissement — le
+          contrat peut être rompu immédiatement, sans préavis ni indemnité, conformément au Code du travail.
         </Text>
 
-        <Text style={styles.artTitre}>Article {contrat.finPeriodeEssai ? 8 : 7} — Obligations générales</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Obligations et confidentialité</Text>
         <Text style={styles.art}>
-          {femme ? "La Salariée" : "Le Salarié"} s&apos;engage à respecter le règlement intérieur, à observer une stricte
-          confidentialité sur les informations de l&apos;établissement, et à consacrer son activité professionnelle à
-          l&apos;Employeur pendant la durée du contrat.
+          {femme ? "La Salariée" : "Le Salarié"}{" "}s&apos;engage à respecter le règlement intérieur, à consacrer, pendant les
+          heures de service, son activité professionnelle à l&apos;Employeur, et à faire preuve d&apos;une discrétion absolue.
+          {femme ? " Elle" : " Il"} s&apos;interdit de divulguer ou d&apos;utiliser à son profit ou au profit de tiers les
+          informations confidentielles de l&apos;établissement, aussi bien pendant la durée du contrat que pendant une (1) année
+          après sa cessation, quelle qu&apos;en soit la cause. Tout manquement constitue une faute lourde.
         </Text>
 
-        <Text style={styles.artTitre}>Article {contrat.finPeriodeEssai ? 9 : 8} — Dispositions diverses</Text>
+        <Text style={styles.artTitre}>Article {artNo()} — Aptitude médicale</Text>
         <Text style={styles.art}>
-          Pour tout ce qui n&apos;est pas expressément prévu au présent contrat, les parties se réfèrent aux dispositions du
-          Code du travail de la République Démocratique du Congo et à ses textes d&apos;application. Le présent contrat est établi
-          en deux exemplaires originaux, chacune des parties reconnaissant en avoir reçu un.
+          L&apos;aptitude physique de {femme ? "la Salariée" : "le Salarié"} à l&apos;emploi est constatée conformément à
+          l&apos;article 38 de la loi n°&nbsp;15/2002 du 16 octobre 2002 portant Code du travail, préalablement à sa prise de fonction.
+        </Text>
+
+        <Text style={styles.artTitre}>Article {artNo()} — Litiges et dispositions diverses</Text>
+        <Text style={styles.art}>
+          Pour tout ce qui n&apos;est pas expressément prévu au présent contrat, et en cas de litige, les parties se réfèrent aux
+          dispositions de la loi n°&nbsp;15/2002 du 16 octobre 2002 portant Code du travail de la République Démocratique du Congo
+          et à ses textes d&apos;application. Le présent contrat est établi en deux exemplaires originaux, chacune des parties
+          reconnaissant en avoir reçu un.
+        </Text>
+
+        <Text style={styles.art}>
+          {femme ? "La Salariée" : "Le Salarié"}{" "}reconnaît avoir reçu, au moins deux jours ouvrables avant la signature, un
+          exemplaire du projet de contrat dont {femme ? "elle déclare" : "il déclare"} avoir pris parfaite connaissance. La
+          signature est précédée de la mention manuscrite «&nbsp;Lu et approuvé&nbsp;».
         </Text>
 
         <Text style={styles.lieuDate}>Fait à Kinshasa, le {fr(new Date())}</Text>

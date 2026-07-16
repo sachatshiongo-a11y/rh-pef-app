@@ -5,6 +5,8 @@ import { View, Text, Image, StyleSheet } from "@react-pdf/renderer";
 import { pdfColors, entreprise } from "./theme";
 
 const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
+/** Logo TOLYA SARL (utilisé pour les documents contractuels ; les bulletins gardent le logo Pâtes en Folie). */
+export const logoTolyaPath = path.join(process.cwd(), "public/logo-tolya.jpg");
 const SIGNATURE_DIRECTRICE_PATH = path.join(
   process.cwd(),
   "public/signatures/signature-directrice.png"
@@ -79,12 +81,12 @@ const styles = StyleSheet.create({
   footerLine: { fontSize: 7, color: pdfColors.textMuted, lineHeight: 1.5 },
 });
 
-export function PdfHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+export function PdfHeader({ title, subtitle, logo }: { title: string; subtitle?: string; logo?: string }) {
   return (
     <View style={styles.header} fixed>
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
-          <Image src={logoPath} style={styles.logo} />
+          <Image src={logo ?? logoPath} style={styles.logo} />
         </View>
         <View style={styles.headerRight}>
           <Text style={styles.headerTitle}>{title}</Text>

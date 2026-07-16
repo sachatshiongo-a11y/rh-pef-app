@@ -4,6 +4,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { envoyerMonCertificat } from "../actions";
 import { Icone } from "@/components/icones";
 import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
+import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { AccepterContrat } from "./accepter-contrat";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
@@ -88,8 +89,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3 text-sm">
-                  <a href={`/espace/contrat/${c.id}`} target="_blank" className="text-primary underline">Voir le contrat</a>
-                  <a href={`/espace/contrat/${c.id}?dl=1`} className="text-primary underline">PDF</a>
+                  <ContratViewerButton href={`/espace/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} className="text-primary underline" />
                   {c.statut === "ACTIF" && !c.accepteLe && <AccepterContrat id={c.id} />}
                   {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-xs text-muted-foreground underline">pièce jointe</a>}
                 </div>
