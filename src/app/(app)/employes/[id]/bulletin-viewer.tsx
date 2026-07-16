@@ -20,9 +20,9 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
       {ouvert && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/70 p-4" onClick={() => setOuvert(false)}>
           <div className="mx-auto flex h-full w-full max-w-5xl flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between rounded-t-lg bg-card px-4 py-2">
-              <span className="text-sm font-semibold">Bulletin — {nom}</span>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-lg bg-card px-4 py-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold">Bulletin — {nom}</span>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <div className="flex overflow-hidden rounded-md border text-xs">
                   {(["USD", "CDF"] as Devise[]).map((d) => (
                     <button
@@ -37,8 +37,8 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
                 <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                   Télécharger
                 </TelechargerLien>
-                <button onClick={() => setOuvert(false)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
-                  Réduire ✕
+                <button onClick={() => setOuvert(false)} className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90">
+                  Fermer ✕
                 </button>
               </div>
             </div>

@@ -7,7 +7,7 @@ import { pdfColors, entreprise } from "./theme";
 const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
 /** Logo TOLYA SARL (utilisé pour les documents contractuels ; les bulletins gardent le logo Pâtes en Folie). */
 export const logoTolyaPath = path.join(process.cwd(), "public/logo-tolya.jpg");
-const SIGNATURE_DIRECTRICE_PATH = path.join(
+export const SIGNATURE_DIRECTRICE_PATH = path.join(
   process.cwd(),
   "public/signatures/signature-directrice.png"
 );

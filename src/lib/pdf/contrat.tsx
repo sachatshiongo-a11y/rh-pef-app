@@ -1,7 +1,7 @@
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, Contrat } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
-import { PdfHeader, PdfFooter, PdfSignatureBox, signatureDirectriceDisponible } from "./layout";
+import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise } from "./theme";
 
 registerPdfFonts();
@@ -24,6 +24,10 @@ const styles = StyleSheet.create({
   accepte: { marginTop: 4, fontSize: 8.5, color: pdfColors.text },
   colSign: { width: "45%", alignItems: "center" },
   signLine: { marginTop: 34, borderTopWidth: 0.8, borderTopColor: pdfColors.text, width: "100%", paddingTop: 3, textAlign: "center", fontSize: 9 },
+  // Bloc signature aligné : espace fixe au-dessus, puis la ligne à la même hauteur des deux côtés.
+  signSpace: { width: "100%", height: 56, justifyContent: "flex-end", alignItems: "center" },
+  signImg: { width: 210, height: 56, objectFit: "contain", marginBottom: -2 },
+  signLineBase: { borderTopWidth: 0.8, borderTopColor: pdfColors.text, width: "100%", paddingTop: 3, textAlign: "center", fontSize: 9 },
   luApprouve: { fontSize: 8.5, fontStyle: "italic", marginBottom: 2 },
 });
 
@@ -64,15 +68,11 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
         </Text>
 
         <Text style={styles.ph}>ENTRE LES PARTIES</Text>
-        <View style={styles.tbl}>
-          <View style={styles.tblRow}><Text style={styles.tblLabel}>Employeur</Text><Text style={styles.tblValue}>{entreprise.nom} (enseigne «&nbsp;{entreprise.enseigne}&nbsp;»)</Text></View>
-          <View style={styles.tblRow}><Text style={styles.tblLabel}>RCCM</Text><Text style={styles.tblValue}>{entreprise.rccm}</Text></View>
-          <View style={styles.tblRow}><Text style={styles.tblLabel}>Id. Nat.</Text><Text style={styles.tblValue}>{entreprise.idNat}</Text></View>
-          <View style={styles.tblRow}><Text style={styles.tblLabel}>N° Impôt</Text><Text style={styles.tblValue}>{entreprise.numImpot}</Text></View>
-          <View style={styles.tblRow}><Text style={styles.tblLabel}>Siège</Text><Text style={styles.tblValue}>{entreprise.adresse}</Text></View>
-        </View>
         <Text style={styles.partie}>
-          Ci-après dénommée «&nbsp;<Text style={styles.gras}>l&apos;Employeur</Text>&nbsp;», d&apos;une part ;
+          <Text style={styles.gras}>{entreprise.nom}</Text>, exploitant l&apos;enseigne «&nbsp;{entreprise.enseigne}&nbsp;»,
+          immatriculée au RCCM sous le numéro {entreprise.rccm}, Id. Nat. {entreprise.idNat}, N° Impôt {entreprise.numImpot},
+          dont le siège est situé {entreprise.adresse}, ci-après dénommée «&nbsp;<Text style={styles.gras}>l&apos;Employeur</Text>&nbsp;»,
+          d&apos;une part ;
         </Text>
         <Text style={styles.partie}>
           Et <Text style={styles.gras}>{civilite} {employee.nom}</Text>, {ne} et de nationalité {employee.type === "EXPATRIE" ? "étrangère" : "congolaise"},
@@ -181,26 +181,27 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
 
         <Text style={styles.art}>
           {femme ? "La Salariée" : "Le Salarié"}{" "}reconnaît avoir reçu, au moins deux jours ouvrables avant la signature, un
-          exemplaire du projet de contrat dont {femme ? "elle déclare" : "il déclare"} avoir pris parfaite connaissance. La
+          exemplaire du projet de contrat dont {femme ? "elle déclare" : "il déclare"}{" "}avoir pris parfaite connaissance. La
           signature est précédée de la mention manuscrite «&nbsp;Lu et approuvé&nbsp;».
         </Text>
 
         <Text style={styles.lieuDate}>Fait à Kinshasa, le {fr(new Date())}</Text>
 
         <View style={styles.signatures} wrap={false}>
+          {/* Employeur : signature de la Direction dans un espace fixe, puis la ligne. */}
           <View style={styles.colSign}>
-            <PdfSignatureBox label="L'Employeur" signe={signatureDirectriceDisponible()} large />
+            <View style={styles.signSpace}>
+              {signatureDirectriceDisponible() && <Image src={SIGNATURE_DIRECTRICE_PATH} style={styles.signImg} />}
+            </View>
+            <Text style={styles.signLineBase}>L&apos;Employeur</Text>
           </View>
-          <View style={[styles.colSign, { height: 86, justifyContent: "flex-end" }]}>
-            <Text style={styles.luApprouve}>Lu et approuvé</Text>
-            {accepteLe ? (
-              <Text style={[styles.signLine, { marginTop: 0 }]}>
-                {femme ? "La Salariée" : "Le Salarié"} — {employee.nom}{"\n"}
-                <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>
-              </Text>
-            ) : (
-              <Text style={[styles.signLine, { marginTop: 0 }]}>{femme ? "La Salariée" : "Le Salarié"} — {employee.nom}</Text>
-            )}
+          {/* Salarié : « Lu et approuvé » dans le même espace fixe → lignes alignées. */}
+          <View style={styles.colSign}>
+            <View style={styles.signSpace}>
+              <Text style={styles.luApprouve}>Lu et approuvé</Text>
+            </View>
+            <Text style={styles.signLineBase}>{femme ? "La Salariée" : "Le Salarié"} — {employee.nom}</Text>
+            {accepteLe && <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>}
           </View>
         </View>
 
