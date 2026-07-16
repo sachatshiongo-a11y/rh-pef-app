@@ -2,6 +2,7 @@ import "server-only";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { ContratDocument, type ParamsContrat } from "@/lib/pdf/contrat";
+import { chargerEntreprise } from "@/lib/entreprise";
 
 /**
  * Génère le PDF d'un contrat (buffer + nom de fichier) — partagé entre la route Direction
@@ -30,8 +31,9 @@ export async function genererContratPdf(contratId: string): Promise<{ buffer: Bu
     droitsCongesAnnuel: val("droits_conges_annuel"),
   };
 
+  const ent = await chargerEntreprise();
   const buffer = await renderToBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null }),
+    ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   const nom = contrat.employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nom}.pdf`, employeeId: contrat.employeeId };

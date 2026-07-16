@@ -3,6 +3,52 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
+
+/** Téléverse une image (logo/signature) vers Supabase Storage (bucket privé). PNG/JPG, max 5 Mo. */
+async function televerserImageEntreprise(dossier: string, file: File): Promise<{ url: string; nom: string }> {
+  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  if (!["png", "jpg", "jpeg"].includes(ext)) throw new Error("Image PNG ou JPG uniquement.");
+  if (file.size > 5 * 1024 * 1024) throw new Error("Image trop lourde (max 5 Mo).");
+  const path = `parametres/${dossier}-${Date.now()}.${ext}`;
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const res = await fetch(`${base}/storage/v1/object/employes/${path}`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": file.type || "application/octet-stream", "x-upsert": "true" },
+    body: Buffer.from(await file.arrayBuffer()),
+  });
+  if (!res.ok) throw new Error("Le téléversement de l'image a échoué. Réessayez.");
+  return { url: `/fichiers/${path}`, nom: file.name };
+}
+
+/** Identité de l'entreprise (en-tête/pied des documents) : coordonnées, logo, signature. Admin. */
+export async function mettreAJourEntreprise(formData: FormData) {
+  await formulaireLisible("/parametres", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
+
+    const t = (n: string) => String(formData.get(n) ?? "").trim() || null;
+    const existante = await prisma.paramEntreprise.findUnique({ where: { id: "singleton" } });
+
+    let logoUrl = existante?.logoUrl ?? null, logoNom = existante?.logoNom ?? null;
+    let signatureUrl = existante?.signatureUrl ?? null, signatureNom = existante?.signatureNom ?? null;
+    const logo = formData.get("logo");
+    if (logo instanceof File && logo.size > 0) { const r = await televerserImageEntreprise("logo", logo); logoUrl = r.url; logoNom = r.nom; }
+    const sig = formData.get("signature");
+    if (sig instanceof File && sig.size > 0) { const r = await televerserImageEntreprise("signature", sig); signatureUrl = r.url; signatureNom = r.nom; }
+
+    const data = {
+      nom: t("nom"), enseigne: t("enseigne"), telephone: t("telephone"), email: t("email"), site: t("site"),
+      adresse: t("adresse"), lieuTravail: t("lieuTravail"), pays: t("pays"), compteBancaire: t("compteBancaire"),
+      rccm: t("rccm"), idNat: t("idNat"), numImpot: t("numImpot"), logoUrl, logoNom, signatureUrl, signatureNom,
+    };
+    await prisma.paramEntreprise.upsert({ where: { id: "singleton" }, create: { id: "singleton", ...data }, update: data });
+
+    revalidatePath("/parametres");
+    revalidatePath("/", "layout");
+  });
+}
 
 /** Paramètres opérationnels (non légaux) : taux de change et période courante. */
 export async function mettreAJourConfig(formData: FormData) {

@@ -84,12 +84,14 @@ const styles = StyleSheet.create({
   footerLine: { fontSize: 7, color: pdfColors.textMuted, lineHeight: 1.5 },
 });
 
-export function PdfHeader({ title, subtitle, logo }: { title: string; subtitle?: string; logo?: string }) {
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
+
+export function PdfHeader({ title, subtitle, logo }: { title: string; subtitle?: string; logo?: ImageSrc }) {
   return (
     <View style={styles.header} fixed>
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
-          <Image src={logo ?? logoPath} style={styles.logo} />
+          <Image src={(logo ?? logoPath) as string} style={styles.logo} />
         </View>
         <View style={styles.headerRight}>
           <Text style={styles.headerTitle}>{title}</Text>
@@ -123,7 +125,7 @@ export function PdfSignatureBox({ label, signe, large = false }: { label: string
   );
 }
 
-export function PdfFooter({ docLabel }: { docLabel?: string }) {
+export function PdfFooter({ docLabel, ent = entreprise }: { docLabel?: string; ent?: typeof entreprise }) {
   return (
     <View style={styles.footer} fixed>
       {docLabel && (
@@ -138,21 +140,21 @@ export function PdfFooter({ docLabel }: { docLabel?: string }) {
       <View style={styles.footerRule} />
       <View style={styles.footerRow}>
         <View style={styles.footerCol}>
-          <Text style={styles.footerLine}>Téléphone : {entreprise.telephone}</Text>
+          <Text style={styles.footerLine}>Téléphone : {ent.telephone}</Text>
           <Text style={styles.footerLine}>
-            E-mail : {entreprise.email} - {entreprise.site}
+            E-mail : {ent.email} - {ent.site}
           </Text>
-          <Text style={styles.footerLine}>Adresse : {entreprise.adresse}</Text>
-          <Text style={styles.footerLine}>{entreprise.pays}</Text>
+          <Text style={styles.footerLine}>Adresse : {ent.adresse}</Text>
+          <Text style={styles.footerLine}>{ent.pays}</Text>
         </View>
         <View style={styles.footerDivider} />
         <View style={styles.footerCol}>
           <Text style={styles.footerLine}>
-            Numéro de compte Ecobank USD : {entreprise.compteEcobank}
+            Numéro de compte Ecobank USD : {ent.compteEcobank}
           </Text>
-          <Text style={styles.footerLine}>RCCM : {entreprise.rccm}</Text>
-          <Text style={styles.footerLine}>Id. Nat. : {entreprise.idNat}</Text>
-          <Text style={styles.footerLine}>N. Impôt : {entreprise.numImpot}</Text>
+          <Text style={styles.footerLine}>RCCM : {ent.rccm}</Text>
+          <Text style={styles.footerLine}>Id. Nat. : {ent.idNat}</Text>
+          <Text style={styles.footerLine}>N. Impôt : {ent.numImpot}</Text>
         </View>
       </View>
     </View>

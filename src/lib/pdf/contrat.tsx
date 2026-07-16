@@ -2,7 +2,9 @@ import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/render
 import type { Employee, Contrat } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
-import { pdfColors, entreprise } from "./theme";
+import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
+
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
 registerPdfFonts();
 
@@ -46,7 +48,9 @@ export type ParamsContrat = { preavisDemission: number | null; preavisLicencieme
  * Contrat de travail (PDF, modèle RDC) auto-rempli depuis la fiche + les termes du contrat.
  * ⚠️ Modèle générique — à FAIRE VALIDER par un juriste avant usage réel (comme les barèmes de paie).
  */
-export function ContratDocument({ employee, contrat, params, accepteLe, fonctions }: { employee: Employee; contrat: Contrat; params: ParamsContrat; accepteLe?: Date | null; fonctions?: string | null }) {
+export function ContratDocument({ employee, contrat, params, accepteLe, fonctions, entreprise = entrepriseDefaut, logo, signature }: { employee: Employee; contrat: Contrat; params: ParamsContrat; accepteLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null }) {
+  // Signature de la Direction : téléversée (paramètres) si fournie, sinon celle groupée dans le projet.
+  const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
   const civilite = femme ? "Madame" : "Monsieur";
   const ne = femme ? "née" : "né";
@@ -60,7 +64,7 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
   return (
     <Document title={`Contrat de travail — ${employee.nom}`}>
       <Page size="A4" style={styles.page}>
-        <PdfHeader title="Contrat de travail" subtitle={`${TYPE_LABEL[contrat.type] ?? contrat.type} — ${employee.nom}`} />
+        <PdfHeader title="Contrat de travail" subtitle={`${TYPE_LABEL[contrat.type] ?? contrat.type} — ${employee.nom}`} logo={logo} />
 
         <Text style={styles.intro}>
           Le présent contrat est conclu entre les soussignés, sous l&apos;empire de la législation du travail en vigueur en{" "}
@@ -191,7 +195,7 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
           {/* Employeur : signature de la Direction dans un espace fixe, puis la ligne. */}
           <View style={styles.colSign}>
             <View style={styles.signSpace}>
-              {signatureDirectriceDisponible() && <Image src={SIGNATURE_DIRECTRICE_PATH} style={styles.signImg} />}
+              {signatureSrc && <Image src={signatureSrc as string} style={styles.signImg} />}
             </View>
             <Text style={styles.signLineBase}>L&apos;Employeur</Text>
           </View>
@@ -205,7 +209,7 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
           </View>
         </View>
 
-        <PdfFooter docLabel={`Contrat de travail — ${employee.matricule}`} />
+        <PdfFooter docLabel={`Contrat de travail — ${employee.matricule}`} ent={entreprise} />
       </Page>
     </Document>
   );

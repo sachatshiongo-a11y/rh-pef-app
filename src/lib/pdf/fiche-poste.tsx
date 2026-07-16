@@ -2,7 +2,9 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { FichePoste } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader } from "./layout";
-import { pdfColors, entreprise } from "./theme";
+import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
+
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
 registerPdfFonts();
 
@@ -60,11 +62,11 @@ function BlocListe({ titre, texte }: { titre: string; texte: string | null | und
  * Fiche de poste (PDF, modèle PEF) auto-remplie depuis la fiche enregistrée.
  * La classe / catégorie professionnelle est déduite des salariés du poste (voir buffer).
  */
-export function FichePosteDocument({ fiche, classe }: { fiche: FichePoste; classe: string | null }) {
+export function FichePosteDocument({ fiche, classe, entreprise = entrepriseDefaut, logo }: { fiche: FichePoste; classe: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc }) {
   return (
     <Document title={`Fiche de poste — ${fiche.poste}`}>
       <Page size="A4" style={styles.page}>
-        <PdfHeader title="Fiche de poste" subtitle={fiche.poste} />
+        <PdfHeader title="Fiche de poste" subtitle={fiche.poste} logo={logo} />
 
         <PdfSectionHeader>Identification du poste</PdfSectionHeader>
         <View style={{ marginTop: 6 }}>
@@ -92,7 +94,7 @@ export function FichePosteDocument({ fiche, classe }: { fiche: FichePoste; class
           <BlocListe titre="Expériences exigées :" texte={fiche.experiencesExigees} />
         </View>
 
-        <PdfFooter docLabel={`Fiche de poste — ${fiche.poste}`} />
+        <PdfFooter docLabel={`Fiche de poste — ${fiche.poste}`} ent={entreprise} />
       </Page>
     </Document>
   );

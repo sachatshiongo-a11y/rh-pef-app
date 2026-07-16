@@ -130,6 +130,31 @@ model Config {
   @@schema("public")
 }
 
+// Identité de l'entreprise (singleton) — éditable dans Paramètres. Remplace/complète les valeurs
+// par défaut de src/lib/pdf/theme.ts sur tous les documents PDF. Champs vides = valeur par défaut.
+model ParamEntreprise {
+  id            String   @id @default("singleton")
+  nom           String?
+  enseigne      String?
+  telephone     String?
+  email         String?
+  site          String?
+  adresse       String? // siège social
+  lieuTravail   String? // restaurant / lieu de travail
+  pays          String?
+  compteBancaire String?
+  rccm          String?
+  idNat         String?
+  numImpot      String?
+  logoUrl       String? // logo d'en-tête des documents (Storage)
+  logoNom       String?
+  signatureUrl  String? // signature de la Direction (Storage)
+  signatureNom  String?
+  updatedAt     DateTime @updatedAt
+
+  @@schema("public")
+}
+
 /// Semaine de planning PUBLIÉE (visible par les salariés dans leur espace). Tant qu'une semaine
 /// n'est pas publiée, seuls la Direction/RH la voient. `lundi` = lundi UTC de la semaine.
 model SemainePubliee {
