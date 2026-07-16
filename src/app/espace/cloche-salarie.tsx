@@ -41,13 +41,18 @@ export function ClocheSalarie({ items, nonLues }: { items: NotificationItem[]; n
           <div className="fixed inset-0 z-40" onClick={() => setOuvert(false)} />
           {/* Mobile : feuille pleine largeur ancrée en haut (respecte l'encoche) ; ordinateur : menu déroulant ancré à droite. */}
           <div className="fixed inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] z-50 overflow-hidden rounded-xl border bg-card shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80">
-            <div className="flex items-center justify-between border-b px-4 py-2.5">
+            <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
               <span className="text-sm font-semibold">Notifications</span>
-              {nonLues > 0 && (
-                <button onClick={() => { void marquerMesNotificationsLues(); setOuvert(false); }} className="text-xs text-primary hover:underline">
-                  Tout marquer lu
+              <span className="flex items-center gap-3">
+                {nonLues > 0 && (
+                  <button onClick={() => { void marquerMesNotificationsLues(); setOuvert(false); }} className="text-xs text-primary hover:underline">
+                    Tout marquer lu
+                  </button>
+                )}
+                <button onClick={() => setOuvert(false)} aria-label="Fermer" className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                 </button>
-              )}
+              </span>
             </div>
 
             <ul className="max-h-96 divide-y overflow-y-auto">

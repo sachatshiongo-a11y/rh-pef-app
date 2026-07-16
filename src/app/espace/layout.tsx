@@ -40,7 +40,7 @@ export default async function EspaceLayout({ children }: { children: React.React
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col">
       {/* En-tête + nav COLLANTS, avec padding d'encoche (safe-area) pour le mode PWA plein écran :
           sans ça, l'en-tête passe sous la barre d'état / l'encoche de l'iPhone. */}
-      <div className="sticky top-0 z-20 bg-background/95 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur sm:px-4">
+      <div className="sticky top-0 z-20 bg-background px-3 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b py-2.5 sm:py-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <Image src="/logo-pates-en-folie.png" alt="Pâtes en Folie" width={132} height={45} priority className="h-8 w-auto shrink-0 sm:h-9" />
