@@ -4,6 +4,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { envoyerMonCertificat } from "../actions";
 import { Icone } from "@/components/icones";
 import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
+import { AccepterContrat } from "./accepter-contrat";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const moisAnnee = (m: number, a: number) => new Date(a, m - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -79,15 +80,19 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
           <ul className="divide-y">
             {contrats.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-medium">{c.type} · {c.poste}</p>
-                  <p className="text-xs text-muted-foreground">{fr(c.dateDebut)} → {c.dateFin ? fr(c.dateFin) : "indéterminé"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {fr(c.dateDebut)} → {c.dateFin ? fr(c.dateFin) : "indéterminé"}
+                    {c.accepteLe ? <span className="text-emerald-700"> · accepté le {fr(c.accepteLe)}</span> : null}
+                  </p>
                 </div>
-                {c.documentUrl ? (
-                  <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir</a>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Pas de fichier joint</span>
-                )}
+                <div className="flex shrink-0 items-center gap-3 text-sm">
+                  <a href={`/espace/contrat/${c.id}`} target="_blank" className="text-primary underline">Voir le contrat</a>
+                  <a href={`/espace/contrat/${c.id}?dl=1`} className="text-primary underline">PDF</a>
+                  {c.statut === "ACTIF" && !c.accepteLe && <AccepterContrat id={c.id} />}
+                  {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-xs text-muted-foreground underline">pièce jointe</a>}
+                </div>
               </li>
             ))}
           </ul>

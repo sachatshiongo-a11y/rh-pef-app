@@ -283,12 +283,12 @@ export function DossierEmploye({
               </div>
             </BlocContrat>
 
-            {/* Fichier du contrat + attestation */}
+            {/* Fichier du contrat + attestation + génération PDF */}
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
-              {c.documentUrl ? (
-                <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
-              ) : (
-                <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+              <a href={`/employes/${employeeId}/contrat/${c.id}`} target="_blank" className="text-sm font-medium text-primary underline">Générer le contrat (PDF) →</a>
+              {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté par le salarié le {d(c.accepteLe)}</span>}
+              {c.documentUrl && (
+                <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>
               )}
               {c.type === "STAGE" && (
                 <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
@@ -385,10 +385,10 @@ export function DossierEmploye({
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
-                  {c.documentUrl ? (
-                    <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+                  <a href={`/employes/${employeeId}/contrat/${c.id}`} target="_blank" className="text-sm font-medium text-primary underline">Générer le contrat (PDF) →</a>
+                  {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {d(c.accepteLe)}</span>}
+                  {c.documentUrl && (
+                    <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>
                   )}
                   {c.type === "STAGE" && (
                     <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">

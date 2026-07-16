@@ -270,6 +270,25 @@ export async function annulerEchange(id: string) {
   revalidatePath("/", "layout");
 }
 
+/** Le salarié accepte numériquement son contrat (« Lu et approuvé », horodaté). Notifie la Direction. */
+export async function accepterMonContrat(id: string) {
+  const user = await verifySession();
+  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const c = await prisma.contrat.findUnique({ where: { id }, select: { employeeId: true, accepteLe: true, type: true } });
+  if (!c || c.employeeId !== user.employeeId || c.accepteLe) return; // déjà accepté ou pas le mien
+  await prisma.contrat.update({ where: { id }, data: { accepteLe: new Date() } });
+  const emp = await prisma.employee.findUnique({ where: { id: user.employeeId }, select: { nom: true } });
+  await creerNotification({
+    type: "AUTRE",
+    message: `${emp?.nom ?? "Un salarié"} a accepté son contrat (${c.type}).`,
+    lien: `/employes/${user.employeeId}?tab=contrats`,
+    refId: `contrat:${id}:accept`,
+  });
+  revalidatePath("/espace/documents");
+  revalidatePath(`/employes/${user.employeeId}`);
+  revalidatePath("/", "layout");
+}
+
 /** Le salarié envoie un certificat médical (justificatif) → document rattaché à sa fiche + notif Direction. */
 export async function envoyerMonCertificat(formData: FormData) {
   return formulaireLisible("/espace/documents", async () => {
