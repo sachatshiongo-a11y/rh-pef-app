@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { chargerParametresPaie } from "@/lib/config";
 import type {
@@ -70,11 +70,19 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
     await prisma.contrat.updateMany({ where: { employeeId, statut: "ACTIF" }, data: { statut: "RESILIE" } });
     await prisma.employee.update({ where: { id: employeeId }, data: { actif: false } });
 
+    // Sécurité : couper l'accès du compte lié (espace salarié / stock) — l'ex-salarié ne doit plus
+    // pouvoir se connecter. Le compte n'est pas supprimé (réactivable si erreur).
+    const compte = await prisma.user.findUnique({ where: { employeeId }, select: { id: true, actif: true } });
+    if (compte?.actif) {
+      await prisma.user.update({ where: { id: compte.id }, data: { actif: false } });
+      invaliderProfil(compte.id); // prise en compte immédiate (la session est refusée à la prochaine requête)
+    }
+
     await journaliser(prisma, {
       entite: "Employee",
       entiteId: employeeId,
       champ: "finContrat",
-      nouvelleValeur: `${motif} — solde ${totalUSD.toFixed(2)} $`,
+      nouvelleValeur: `${motif} — solde ${totalUSD.toFixed(2)} $${compte?.actif ? " · compte désactivé" : ""}`,
       userId: user.id,
     });
 
