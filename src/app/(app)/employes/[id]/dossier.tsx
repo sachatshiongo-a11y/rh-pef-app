@@ -17,7 +17,7 @@ import {
 import { FinContratForm } from "./fin-contrat-form";
 import { ContratViewerButton } from "./contrat-viewer";
 import { Icone } from "@/components/icones";
-import { transformerContrat, prolongerContrat, prolongerEssai } from "../../paie/contrat-actions";
+import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat } from "../../paie/contrat-actions";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -326,6 +326,62 @@ export function DossierEmploye({
                 </form>
               )}
             </div>
+
+            {peutModifier && (() => {
+              const iso = (x: Date | null | undefined) => (x ? new Date(x).toISOString().slice(0, 10) : "");
+              return (
+              <details className="rounded-lg border bg-muted/20">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium">✎ Corriger les conditions actuelles</summary>
+                <div className="p-3 pt-1">
+                  <p className="mb-2 text-xs text-muted-foreground">Rectification directe du contrat actif (sans créer d&apos;historique). La fiche employé (type, poste, salaire) est mise à jour.</p>
+                  <form action={modifierContrat.bind(null, c.id)} className="grid grid-cols-2 gap-3 text-xs md:grid-cols-3">
+                    <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                    <label className="flex flex-col gap-0.5">Type de contrat
+                      <select name="type" defaultValue={c.type} className={inputCls}>
+                        {["CDI", "CDD", "STAGE", "JOURNALIER", "INTERIM"].map((t) => <option key={t} value={t}>{TYPE_CONTRAT_LABEL[t] ?? t}</option>)}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-0.5">Poste
+                      <input type="text" name="poste" required defaultValue={c.poste} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Date de début
+                      <input type="date" name="dateDebut" required defaultValue={iso(c.dateDebut)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Date de fin <span className="text-muted-foreground">(vide si CDI)</span>
+                      <input type="date" name="dateFin" defaultValue={iso(c.dateFin)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Fin de période d&apos;essai
+                      <input type="date" name="finPeriodeEssai" defaultValue={iso(c.finPeriodeEssai)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Heures / semaine
+                      <input type="number" name="heuresHebdo" step="0.5" min="1" defaultValue={Number(c.heuresHebdo)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Salaire mensuel brut
+                      <input type="number" name="salaireMensuel" step="0.01" min="0" required defaultValue={Number(c.salaireMensuel)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Devise
+                      <select name="devise" defaultValue={c.devise} className={inputCls}>
+                        {["USD", "CDF"].map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </label>
+                    {c.type === "INTERIM" && (
+                      <>
+                        <label className="flex flex-col gap-0.5">Agence d&apos;intérim
+                          <input type="text" name="agence" defaultValue={c.agence ?? ""} className={inputCls} />
+                        </label>
+                        <label className="flex flex-col gap-0.5">Coût / jour facturé ($)
+                          <input type="number" name="coutJourUSD" step="0.01" min="0" defaultValue={c.coutJourUSD ? Number(c.coutJourUSD) : ""} className={inputCls} />
+                        </label>
+                      </>
+                    )}
+                    <div className="col-span-2 md:col-span-3">
+                      <button className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Enregistrer les corrections</button>
+                    </div>
+                  </form>
+                </div>
+              </details>
+              );
+            })()}
 
             {peutModifier && (
               <details className="rounded-lg border bg-muted/20">

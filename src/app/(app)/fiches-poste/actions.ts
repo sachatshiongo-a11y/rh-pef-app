@@ -208,6 +208,77 @@ export async function importerFichesEnMasse(formData: FormData) {
   });
 }
 
+/** Renomme un intitulé de poste partout où il est utilisé (employés, contrats, fiche, besoins,
+ *  polyvalences). L'historique des changements de poste (HistoriqueSalaire) n'est pas réécrit.
+ *  Admin/Manager. */
+export async function renommerPoste(formData: FormData) {
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
+
+    const ancien = String(formData.get("poste") ?? "").trim();
+    const nouveau = String(formData.get("nouveau") ?? "").trim();
+    if (!ancien) redirect(`/fiches-poste?erreur=${encodeURIComponent("Poste introuvable.")}`);
+    if (!nouveau) redirect(`/fiches-poste?erreur=${encodeURIComponent("Indiquez le nouveau nom du poste.")}`);
+    if (nouveau === ancien) redirect(`/fiches-poste?msg=${encodeURIComponent("Le nom est inchangé.")}`);
+
+    // Refuse la fusion accidentelle : le nouveau nom ne doit pas déjà exister ailleurs.
+    const [fEmp, fFiche, fContrat, fBesoin, fPoly] = await Promise.all([
+      prisma.employee.findFirst({ where: { poste: nouveau }, select: { id: true } }),
+      prisma.fichePoste.findUnique({ where: { poste: nouveau }, select: { id: true } }),
+      prisma.contrat.findFirst({ where: { poste: nouveau }, select: { id: true } }),
+      prisma.besoinShift.findFirst({ where: { poste: nouveau }, select: { id: true } }),
+      prisma.polyvalencePoste.findFirst({ where: { OR: [{ posteSource: nouveau }, { posteCible: nouveau }] }, select: { id: true } }),
+    ]);
+    if (fEmp || fFiche || fContrat || fBesoin || fPoly) {
+      redirect(`/fiches-poste?erreur=${encodeURIComponent(`Le poste « ${nouveau} » existe déjà. Choisissez un autre nom.`)}`);
+    }
+
+    await prisma.$transaction([
+      prisma.employee.updateMany({ where: { poste: ancien }, data: { poste: nouveau } }),
+      prisma.contrat.updateMany({ where: { poste: ancien }, data: { poste: nouveau } }),
+      prisma.fichePoste.updateMany({ where: { poste: ancien }, data: { poste: nouveau } }),
+      prisma.besoinShift.updateMany({ where: { poste: ancien }, data: { poste: nouveau } }),
+      prisma.polyvalencePoste.updateMany({ where: { posteSource: ancien }, data: { posteSource: nouveau } }),
+      prisma.polyvalencePoste.updateMany({ where: { posteCible: ancien }, data: { posteCible: nouveau } }),
+    ]);
+    await journaliser(prisma, { entite: "FichePoste", entiteId: nouveau, champ: "renommage", ancienneValeur: ancien, nouvelleValeur: nouveau, userId: user.id });
+
+    revalidatePath("/fiches-poste");
+    revalidatePath("/employes");
+    revalidatePath("/planning");
+    redirect(`/fiches-poste?msg=${encodeURIComponent(`Poste « ${ancien} » renommé en « ${nouveau} ».`)}`);
+
+  });
+}
+
+/** Supprime entièrement un intitulé de poste (fiche + besoins + polyvalences liés). Bloqué s'il
+ *  reste des salariés à ce poste. Admin. */
+export async function supprimerPoste(poste: string) {
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
+
+    const nb = await prisma.employee.count({ where: { poste } });
+    if (nb > 0) {
+      redirect(`/fiches-poste?erreur=${encodeURIComponent(`Impossible de supprimer « ${poste} » : ${nb} salarié(s) l'occupent encore. Renommez-les ou réaffectez-les d'abord.`)}`);
+    }
+
+    await prisma.$transaction([
+      prisma.fichePoste.deleteMany({ where: { poste } }),
+      prisma.besoinShift.deleteMany({ where: { poste } }),
+      prisma.polyvalencePoste.deleteMany({ where: { OR: [{ posteSource: poste }, { posteCible: poste }] } }),
+    ]);
+    await journaliser(prisma, { entite: "FichePoste", entiteId: poste, champ: "suppression du poste", ancienneValeur: poste, userId: user.id });
+
+    revalidatePath("/fiches-poste");
+    revalidatePath("/employes");
+    revalidatePath("/planning");
+    redirect(`/fiches-poste?msg=${encodeURIComponent(`Poste « ${poste} » supprimé.`)}`);
+
+  });
+}
+
 /** Supprime la fiche d'un poste (la description et le lien ; le fichier reste dans Storage). Admin. */
 export async function supprimerFichePoste(poste: string) {
   await formulaireLisible("/fiches-poste", async () => {

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste } from "./actions";
+import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste, renommerPoste, supprimerPoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
 export default async function FichesPostePage({
@@ -177,16 +177,53 @@ export default async function FichesPostePage({
                       </button>
                     </div>
                   </form>
-                  {estAdmin && fiche && (
-                    <form action={supprimerFichePoste.bind(null, poste)} className="mt-2">
-                      <ConfirmSubmitButton
-                        message={`Supprimer la fiche du poste « ${poste} » ?`}
-                        className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive"
-                      >
-                        Supprimer la fiche
-                      </ConfirmSubmitButton>
-                    </form>
-                  )}
+                  {/* Renommer le poste (répercuté sur employés, contrats, besoins, polyvalences). */}
+                  <form action={renommerPoste} className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                    <input type="hidden" name="poste" value={poste} />
+                    <input
+                      type="text"
+                      name="nouveau"
+                      required
+                      defaultValue={poste}
+                      aria-label={`Nouveau nom pour le poste ${poste}`}
+                      className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+                    />
+                    <ConfirmSubmitButton
+                      message={`Renommer le poste « ${poste} » ? Le changement s'applique à tous les employés, contrats et plannings concernés.`}
+                      className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+                    >
+                      Renommer
+                    </ConfirmSubmitButton>
+                  </form>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {estAdmin && fiche && (
+                      <form action={supprimerFichePoste.bind(null, poste)}>
+                        <ConfirmSubmitButton
+                          message={`Supprimer la fiche du poste « ${poste} » ? (Le poste et ses employés sont conservés.)`}
+                          className="rounded-md border border-destructive/60 px-3 py-1 text-xs font-medium text-destructive"
+                        >
+                          Supprimer la fiche
+                        </ConfirmSubmitButton>
+                      </form>
+                    )}
+                    {estAdmin && (
+                      effectif === 0 ? (
+                        <form action={supprimerPoste.bind(null, poste)}>
+                          <ConfirmSubmitButton
+                            message={`Supprimer définitivement le poste « ${poste} » ? La fiche, les besoins de planning et les polyvalences liés seront supprimés.`}
+                            className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive"
+                          >
+                            Supprimer le poste
+                          </ConfirmSubmitButton>
+                        </form>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Pour supprimer ce poste, réaffectez d&apos;abord ses {effectif} salarié(s).
+                        </span>
+                      )
+                    )}
+                  </div>
                 </details>
               )}
             </div>

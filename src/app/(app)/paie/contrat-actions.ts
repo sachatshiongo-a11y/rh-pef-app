@@ -69,6 +69,71 @@ export async function transformerContrat(id: string, formData: FormData) {
   });
 }
 
+/**
+ * Correction DIRECTE des conditions actuelles (contrat actif) : type, poste, dates, essai, salaire,
+ * heures, devise. Contrairement à `transformerContrat`, ne crée PAS d'historique — c'est une
+ * rectification (utile en phase de test / saisie erronée). Synchronise la fiche employé. Admin/Manager.
+ */
+export async function modifierContrat(id: string, formData: FormData) {
+  await formulaireLisible(retourDe(formData), async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
+
+    const contrat = await prisma.contrat.findUnique({ where: { id } });
+    if (!contrat) return;
+    if (contrat.statut !== "ACTIF") throw new Error("Seul le contrat actif peut être corrigé.");
+
+    const type = String(formData.get("type") ?? contrat.type) as TypeContrat;
+    const poste = String(formData.get("poste") ?? "").trim();
+    const dateDebutStr = String(formData.get("dateDebut") ?? "").trim();
+    const dateFinStr = String(formData.get("dateFin") ?? "").trim();
+    const finEssaiStr = String(formData.get("finPeriodeEssai") ?? "").trim();
+    const salaireStr = String(formData.get("salaireMensuel") ?? "").trim().replace(",", ".");
+    const heuresStr = String(formData.get("heuresHebdo") ?? "").trim().replace(",", ".");
+    const devise = (String(formData.get("devise") ?? contrat.devise).trim() || "USD").toUpperCase();
+    const agence = String(formData.get("agence") ?? "").trim() || null;
+    const coutJourStr = String(formData.get("coutJourUSD") ?? "").trim().replace(",", ".");
+
+    if (!poste) throw new Error("Le poste est obligatoire.");
+    if (!dateDebutStr) throw new Error("La date de début est obligatoire.");
+    if (type !== "CDI" && !dateFinStr) throw new Error(`Un ${type} doit avoir une date de fin.`);
+    const salaire = Number(salaireStr);
+    if (!Number.isFinite(salaire) || salaire < 0) throw new Error("Salaire mensuel invalide.");
+    const heures = heuresStr ? Number(heuresStr) : Number(contrat.heuresHebdo);
+    if (!Number.isFinite(heures) || heures <= 0) throw new Error("Heures par semaine invalides.");
+    const coutJour = coutJourStr ? Number(coutJourStr) : null;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.contrat.update({
+        where: { id },
+        data: {
+          type,
+          poste,
+          dateDebut: new Date(dateDebutStr),
+          dateFin: type === "CDI" ? null : new Date(dateFinStr),
+          finPeriodeEssai: finEssaiStr ? new Date(finEssaiStr) : null,
+          salaireMensuel: salaire,
+          heuresHebdo: heures,
+          devise,
+          agence: type === "INTERIM" ? agence : null,
+          coutJourUSD: type === "INTERIM" ? coutJour : null,
+        },
+      });
+      // La fiche employé reflète le contrat courant (type, poste, salaire).
+      await tx.employee.update({ where: { id: contrat.employeeId }, data: { contrat: type, poste, salaireMensuel: salaire } });
+      await journaliser(tx, {
+        entite: "Contrat",
+        entiteId: contrat.employeeId,
+        champ: "correction des conditions",
+        ancienneValeur: `${contrat.type} · ${contrat.poste} · ${contrat.salaireMensuel} ${contrat.devise}`,
+        nouvelleValeur: `${type} · ${poste} · ${salaire} ${devise}`,
+        userId: user.id,
+      });
+    });
+    revalider(contrat.employeeId);
+  });
+}
+
 /** Rompt un contrat (statut RÉSILIÉ) — sortie de l'employé. */
 export async function rompreContrat(id: string) {
   const user = await verifySession();
