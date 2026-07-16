@@ -14,14 +14,15 @@ async function chargerBadges(): Promise<Record<string, number>> {
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const filtreRun = config ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } } : {};
-  const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente] = await Promise.all([
+  const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente, changementsShift] = await Promise.all([
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.acompteSalaire.count({ where: { statut: "EN_ATTENTE" } }),
+    prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
   ]);
   const badges = {
-    "/a-valider": congesEnAttente + bulletinsPasValide + bulletinsValide + acomptesEnAttente,
+    "/a-valider": congesEnAttente + bulletinsPasValide + bulletinsValide + acomptesEnAttente + changementsShift,
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
   };

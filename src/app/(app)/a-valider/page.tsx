@@ -3,6 +3,8 @@ import { verifySession } from "@/lib/auth";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
+import { Avatar } from "@/components/avatar";
+import { approuverChangementShift, refuserChangementShift } from "../planning/actions";
 
 function joursAvant(date: Date): number {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
@@ -21,6 +23,7 @@ function money(n: number) {
 export default async function AValiderPage() {
   const user = await verifySession();
   const peutValider = user.role === "ADMIN";
+  const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const filtreRun = config
@@ -49,6 +52,18 @@ export default async function AValiderPage() {
       orderBy: { dateDemande: "asc" },
     }),
   ]);
+
+  // Demandes de changement de shift en attente (avec noms de shifts).
+  const changements = await prisma.demandeChangementShift.findMany({
+    where: { statut: "EN_ATTENTE" },
+    include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+    orderBy: { date: "asc" },
+  });
+  const shiftsMap = new Map(
+    changements.length > 0
+      ? (await prisma.shift.findMany({ select: { id: true, nom: true } })).map((sh) => [sh.id, sh.nom])
+      : [],
+  );
 
   const congeRows: CongeRow[] = conges.map((d) => {
     const ech = echeanceInfo(d.dateDebut);
@@ -86,7 +101,7 @@ export default async function AValiderPage() {
     motif: a.motif ?? null,
     demandeLe: new Date(a.dateDemande).toLocaleDateString("fr-FR"),
   }));
-  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length;
+  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length + changements.length;
 
   return (
     <div className="max-w-5xl">
@@ -121,6 +136,44 @@ export default async function AValiderPage() {
           Demandes d&apos;acompte sur salaire ({acompteRows.length})
         </h2>
         <AcomptesInbox rows={acompteRows} peutValider={peutValider} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Changements de shift ({changements.length})
+        </h2>
+        {changements.length === 0 ? (
+          <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">Aucune demande de changement de shift.</div>
+        ) : (
+          <ul className="space-y-2">
+            {changements.map((dem) => (
+              <li key={dem.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
+                <Avatar nom={dem.employee.nom} taille={32} photoUrl={dem.employee.photoUrl} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{dem.employee.nom}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {new Date(dem.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} ·{" "}
+                    {dem.shiftActuelId ? `${shiftsMap.get(dem.shiftActuelId) ?? "—"} → ` : "→ "}
+                    <b className="text-foreground">{shiftsMap.get(dem.shiftDemandeId) ?? "—"}</b>
+                    {dem.motif ? ` · ${dem.motif}` : ""}
+                  </p>
+                </div>
+                {peutPlanning ? (
+                  <span className="flex shrink-0 gap-2">
+                    <form action={approuverChangementShift.bind(null, dem.id)}>
+                      <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">Approuver</button>
+                    </form>
+                    <form action={refuserChangementShift.bind(null, dem.id)}>
+                      <button className="rounded-md border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">Refuser</button>
+                    </form>
+                  </span>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">En attente</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {peutValider && (

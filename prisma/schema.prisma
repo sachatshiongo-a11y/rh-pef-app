@@ -253,8 +253,28 @@ model Employee {
   primes               Prime[]
   acomptes             AcompteSalaire[]
   fraisMed             FraisMedical[]
+  demandesChangementShift DemandeChangementShift[]
   compte               User?                  @relation("CompteEmploye")
 
+  @@schema("public")
+}
+
+/// Demande par un salarié de changer son shift sur un jour donné (self-service) → validée par la
+/// Direction. À l'approbation, le créneau du planning est mis à jour. `statut` réutilise LeaveStatus.
+model DemandeChangementShift {
+  id             String      @id @default(uuid())
+  employeeId     String
+  employee       Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date           DateTime    @db.Date
+  shiftActuelId  String? // shift planifié au moment de la demande (peut être nul si repos)
+  shiftDemandeId String // shift souhaité (parmi ceux correspondant au poste)
+  motif          String?
+  statut         LeaveStatus @default(EN_ATTENTE)
+  decideParId    String?
+  createdAt      DateTime    @default(now())
+
+  @@index([employeeId])
+  @@index([statut, createdAt])
   @@schema("public")
 }
 

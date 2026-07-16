@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { pariteSemaine, dureeShift } from "./creneaux";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
-import { notifierSalarie } from "@/lib/notifications";
+import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { MOIS_FR } from "@/lib/dates-fr";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
@@ -582,4 +582,58 @@ export async function depublierSemaine(lundiIso: string) {
   revalidatePath("/planning");
   revalidatePath("/espace/planning");
   revalidatePath("/espace");
+}
+
+/** Direction : approuve une demande de changement de shift → met à jour le planning + notifie le salarié. */
+export async function approuverChangementShift(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
+  if (!dem || dem.statut !== "EN_ATTENTE") return;
+
+  await prisma.$transaction([
+    prisma.planningCreneau.upsert({
+      where: { employeeId_date: { employeeId: dem.employeeId, date: dem.date } },
+      update: { shiftId: dem.shiftDemandeId, genereAuto: false },
+      create: { employeeId: dem.employeeId, date: dem.date, shiftId: dem.shiftDemandeId, genereAuto: false },
+    }),
+    prisma.demandeChangementShift.update({ where: { id }, data: { statut: "APPROUVE", decideParId: user.id } }),
+  ]);
+
+  const [shift, userId] = await Promise.all([
+    prisma.shift.findUnique({ where: { id: dem.shiftDemandeId }, select: { nom: true } }),
+    compteSalarieDe(dem.employeeId),
+  ]);
+  if (userId) await notifierSalarie(userId, {
+    type: "PLANNING",
+    message: `Votre changement de shift du ${dem.date.toLocaleDateString("fr-FR", { timeZone: "UTC" })} (${shift?.nom ?? ""}) a été approuvé ✅.`,
+    lien: "/espace/planning",
+    refId: `${id}:decision`,
+  });
+  await supprimerNotificationsPour(id);
+  revalidatePath("/planning");
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/planning");
+  revalidatePath("/", "layout");
+}
+
+/** Direction : refuse une demande de changement de shift → notifie le salarié. */
+export async function refuserChangementShift(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
+  if (!dem || dem.statut !== "EN_ATTENTE") return;
+  await prisma.demandeChangementShift.update({ where: { id }, data: { statut: "REFUSE", decideParId: user.id } });
+
+  const userId = await compteSalarieDe(dem.employeeId);
+  if (userId) await notifierSalarie(userId, {
+    type: "PLANNING",
+    message: `Votre demande de changement de shift du ${dem.date.toLocaleDateString("fr-FR", { timeZone: "UTC" })} a été refusée.`,
+    lien: "/espace/planning",
+    refId: `${id}:decision`,
+  });
+  await supprimerNotificationsPour(id);
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/planning");
+  revalidatePath("/", "layout");
 }

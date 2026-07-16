@@ -116,6 +116,44 @@ export async function demanderMonAcompte(formData: FormData) {
   });
 }
 
+/** Le salarié demande à changer son shift sur un jour donné (EN_ATTENTE ; notifie la Direction). */
+export async function demanderChangementShift(formData: FormData) {
+  return formulaireLisible("/espace/planning", async () => {
+    const { employeeId } = await exigerSalarie();
+    const dateIso = String(formData.get("date") ?? "").trim();
+    const shiftDemandeId = String(formData.get("shiftDemandeId") ?? "").trim();
+    const motif = String(formData.get("motif") ?? "").trim() || null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso) || !shiftDemandeId) throw new Error("Choisissez un jour et un shift souhaité.");
+    const date = new Date(dateIso + "T00:00:00.000Z");
+
+    // Le shift souhaité doit exister et être actif ; le créneau actuel est lu du planning.
+    const [shift, creneau, dejaEnAttente] = await Promise.all([
+      prisma.shift.findFirst({ where: { id: shiftDemandeId, actif: true }, select: { id: true, nom: true } }),
+      prisma.planningCreneau.findUnique({ where: { employeeId_date: { employeeId, date } }, select: { shiftId: true } }),
+      prisma.demandeChangementShift.findFirst({ where: { employeeId, date, statut: "EN_ATTENTE" }, select: { id: true } }),
+    ]);
+    if (!shift) throw new Error("Shift souhaité introuvable.");
+    if (dejaEnAttente) throw new Error("Vous avez déjà une demande en attente pour ce jour.");
+    if (creneau?.shiftId === shiftDemandeId) throw new Error("C'est déjà votre shift ce jour-là.");
+
+    const dem = await prisma.demandeChangementShift.create({
+      data: { employeeId, date, shiftActuelId: creneau?.shiftId ?? null, shiftDemandeId, motif },
+    });
+    const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
+    await creerNotification({
+      type: "AUTRE",
+      message: `Demande de changement de shift — ${emp?.nom ?? "salarié"}, ${date.toLocaleDateString("fr-FR", { timeZone: "UTC" })} → ${shift.nom}.`,
+      lien: "/a-valider",
+      refId: dem.id,
+    });
+
+    revalidatePath("/espace/planning");
+    revalidatePath("/a-valider");
+    revalidatePath("/", "layout");
+    redirect("/espace/planning?echange=1");
+  });
+}
+
 /** Le salarié envoie un certificat médical (justificatif) → document rattaché à sa fiche + notif Direction. */
 export async function envoyerMonCertificat(formData: FormData) {
   return formulaireLisible("/espace/documents", async () => {
