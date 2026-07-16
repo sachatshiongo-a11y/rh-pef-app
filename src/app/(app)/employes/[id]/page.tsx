@@ -791,6 +791,7 @@ export default async function FicheEmployePage({
         employeeId={employee.id}
         poste={employee.poste}
         fichePosteExiste={Boolean(fichePoste)}
+        fichePosteDescriptionPoste={fichePoste?.descriptionPoste ?? null}
         fichePosteDescription={fichePoste?.description ?? null}
         fichePosteFichierUrl={fichePoste?.fichierUrl ?? null}
         salaireMensuel={Number(employee.salaireMensuel)}

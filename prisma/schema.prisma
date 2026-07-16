@@ -587,7 +587,8 @@ model DocumentEmploye {
 model FichePoste {
   id          String   @id @default(uuid())
   poste       String   @unique
-  description String?  @db.Text
+  descriptionPoste String? @db.Text // mission / rôle (« Description du poste »)
+  description String?  @db.Text // responsabilités (« Description des tâches »)
   fichierUrl  String?
   fichierNom  String?
   creeParId   String?

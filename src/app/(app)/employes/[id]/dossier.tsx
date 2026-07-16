@@ -127,6 +127,7 @@ export function DossierEmploye({
   employeeId,
   poste,
   fichePosteExiste,
+  fichePosteDescriptionPoste,
   fichePosteDescription,
   fichePosteFichierUrl,
   salaireMensuel,
@@ -152,6 +153,7 @@ export function DossierEmploye({
   employeeId: string;
   poste: string;
   fichePosteExiste?: boolean;
+  fichePosteDescriptionPoste?: string | null;
   fichePosteDescription?: string | null;
   fichePosteFichierUrl?: string | null;
   salaireMensuel: number;
@@ -246,25 +248,41 @@ export function DossierEmploye({
                 )}
               </div>
 
-              {/* Description des tâches — issue de la fiche de poste de l'intitulé, en texte (pas en liste). */}
+              {/* Description du poste + Description des tâches, façon Factorial (deux colonnes, en prose). */}
               <div className="mt-4 border-t pt-3">
-                <p className="text-xs text-muted-foreground">Description des tâches</p>
-                {fichePosteDescription?.trim() ? (
-                  <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescription.trim()}</p>
+                {(fichePosteDescriptionPoste?.trim() || fichePosteDescription?.trim()) ? (
+                  <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Description du poste</p>
+                      {fichePosteDescriptionPoste?.trim() ? (
+                        <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescriptionPoste.trim()}</p>
+                      ) : (
+                        <p className="mt-1 text-sm text-muted-foreground">Non renseignée.</p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Description des tâches</p>
+                      {fichePosteDescription?.trim() ? (
+                        <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescription.trim()}</p>
+                      ) : (
+                        <p className="mt-1 text-sm text-muted-foreground">Non renseignée.</p>
+                      )}
+                    </div>
+                  </div>
                 ) : fichePosteExiste ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    La fiche de poste existe mais n&apos;a pas de description texte.{" "}
-                    <a href="/fiches-poste" className="text-primary underline">Ajouter une description</a>
-                    {fichePosteFichierUrl ? " ou consultez le document ci-dessous." : "."}
+                  <p className="text-sm text-muted-foreground">
+                    La fiche de poste existe mais n&apos;a pas encore de description.{" "}
+                    <a href="/fiches-poste" className="text-primary underline">La renseigner</a>
+                    {fichePosteFichierUrl ? " ou consulter le document ci-dessous." : "."}
                   </p>
                 ) : (
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Aucune fiche de poste pour «&nbsp;{c.poste}&nbsp;».{" "}
                     <a href="/fiches-poste" className="text-primary underline">Créer la fiche de poste</a>
                   </p>
                 )}
                 {fichePosteFichierUrl && (
-                  <a href={fichePosteFichierUrl} target="_blank" className="mt-1 inline-block text-xs text-primary underline">
+                  <a href={fichePosteFichierUrl} target="_blank" className="mt-2 inline-block text-xs text-primary underline">
                     Ouvrir la fiche de poste (fichier) →
                   </a>
                 )}

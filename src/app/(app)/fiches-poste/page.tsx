@@ -32,7 +32,10 @@ export default async function FichesPostePage({
     a.localeCompare(b, "fr")
   );
 
-  const avecFiche = postes.filter((p) => ficheParPoste.get(p)?.fichierUrl || ficheParPoste.get(p)?.description).length;
+  const avecFiche = postes.filter((p) => {
+    const f = ficheParPoste.get(p);
+    return f?.fichierUrl || f?.description || f?.descriptionPoste;
+  }).length;
 
   return (
     <div>
@@ -114,7 +117,7 @@ export default async function FichesPostePage({
         {postes.map((poste) => {
           const fiche = ficheParPoste.get(poste);
           const effectif = effectifParPoste.get(poste) ?? 0;
-          const documente = Boolean(fiche?.fichierUrl || fiche?.description);
+          const documente = Boolean(fiche?.fichierUrl || fiche?.description || fiche?.descriptionPoste);
           return (
             <div key={poste} className={`rounded-xl border bg-card p-4 ${documente ? "" : "border-dashed"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -124,13 +127,24 @@ export default async function FichesPostePage({
                     {effectif > 0 ? `${effectif} employé(s)` : "aucun employé actif"}
                     {fiche?.fichierNom ? ` · 📎 ${fiche.fichierNom}` : ""}
                   </p>
-                  {fiche?.description && (
+                  {(fiche?.descriptionPoste || fiche?.description) && (
                     <details className="group mt-2">
                       <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary [&::-webkit-details-marker]:hidden">
                         <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
                         Voir la description
                       </summary>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{fiche.description}</p>
+                      {fiche?.descriptionPoste && (
+                        <>
+                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Description du poste</p>
+                          <p className="whitespace-pre-line text-sm text-foreground/90">{fiche.descriptionPoste}</p>
+                        </>
+                      )}
+                      {fiche?.description && (
+                        <>
+                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Description des tâches</p>
+                          <p className="whitespace-pre-line text-sm text-foreground/90">{fiche.description}</p>
+                        </>
+                      )}
                     </details>
                   )}
                 </div>
@@ -160,11 +174,20 @@ export default async function FichesPostePage({
                   </summary>
                   <form action={enregistrerFichePoste} className="mt-3 space-y-2">
                     <input type="hidden" name="poste" value={poste} />
+                    <label className="block text-xs font-medium text-muted-foreground">Description du poste <span className="font-normal">(mission, rôle, positionnement)</span></label>
+                    <textarea
+                      name="descriptionPoste"
+                      defaultValue={fiche?.descriptionPoste ?? ""}
+                      rows={3}
+                      placeholder="En quelques phrases : la mission du poste, son rôle dans l'équipe, son positionnement…"
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    />
+                    <label className="block text-xs font-medium text-muted-foreground">Description des tâches <span className="font-normal">(responsabilités concrètes)</span></label>
                     <textarea
                       name="description"
                       defaultValue={fiche?.description ?? ""}
-                      rows={4}
-                      placeholder="Description du poste : missions, responsabilités, compétences requises…"
+                      rows={5}
+                      placeholder="Les responsabilités concrètes du poste, rédigées en phrases (pas en liste à puces)…"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     />
                     <div className="flex flex-wrap items-center gap-2">
