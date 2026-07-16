@@ -88,6 +88,7 @@ model User {
   employeeId String?   @unique // compte lié à une fiche employé (même personne)
   employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
   motDePasseTemporaire Boolean @default(false) // compte salarié : forcer le changement à la 1re connexion
+  accesStock Boolean @default(false) // compte salarié qui a AUSSI accès à l'espace Stock (cumul de rôles)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -813,8 +814,9 @@ model DeclarationTaxe {
 /// clôture de paie proche… `lu` global (petite structure, 1–2 comptes Direction).
 model Notification {
   id        String   @id @default(uuid())
-  domaine   String   @default("RH") // RH | STOCK — cloisonne la cloche par espace
-  type      String // CONGE | ACOMPTE | CLOTURE | AUTRE
+  domaine   String   @default("RH") // RH | STOCK | SALARIE — cloisonne la cloche par espace
+  destinataireUserId String? // pour SALARIE : le compte salarié destinataire (cloche personnelle)
+  type      String // CONGE | ACOMPTE | CLOTURE | PLANNING | AUTRE
   refId     String? // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
   message   String
   lien      String?
@@ -822,6 +824,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([domaine, lu, createdAt])
+  @@index([destinataireUserId, lu, createdAt])
   @@schema("public")
 }
 

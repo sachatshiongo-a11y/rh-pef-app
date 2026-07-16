@@ -10,6 +10,22 @@ import { calculerJoursOuvrables } from "@/lib/payroll";
 import { creerNotification } from "@/lib/notifications";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 
+/** Marque comme lues MES notifications (cloche salarié) — scopé à mon compte uniquement. */
+export async function marquerMesNotificationsLues() {
+  const user = await verifySession();
+  if (user.role !== "EMPLOYE") throw new Error("Accès refusé.");
+  await prisma.notification.updateMany({ where: { domaine: "SALARIE", destinataireUserId: user.id, lu: false }, data: { lu: true } });
+  revalidatePath("/espace", "layout");
+}
+
+/** Supprime UNE de mes notifications (vérifie qu'elle m'appartient). */
+export async function supprimerMaNotification(id: string) {
+  const user = await verifySession();
+  if (user.role !== "EMPLOYE") throw new Error("Accès refusé.");
+  await prisma.notification.deleteMany({ where: { id, domaine: "SALARIE", destinataireUserId: user.id } });
+  revalidatePath("/espace", "layout");
+}
+
 /** Garde commune à l'espace salarié : feature active + rôle EMPLOYE + fiche liée. Renvoie l'employeeId. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
   const user = await verifySession();

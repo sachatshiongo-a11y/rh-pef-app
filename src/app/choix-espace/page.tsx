@@ -2,16 +2,16 @@ import Link from "next/link";
 import Image from "next/image";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifySession, espacesAutorises } from "@/lib/auth";
+import { verifySession, espacesDe } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 
-// Sélecteur d'espace — réservé aux comptes à double accès (la Direction).
+// Sélecteur d'espace — pour les comptes à accès multiple (Direction RH+Stock, ou salarié + stock).
 // Un compte à accès unique n'a rien à choisir : on le renvoie au résolveur d'entrée.
 // Le dernier espace visité (cookie posé par le middleware) est mis en avant.
 export default async function ChoixEspacePage() {
   const user = await verifySession();
-  const espaces = espacesAutorises(user.role);
+  const espaces = espacesDe(user);
   if (espaces.length < 2) redirect("/entree");
   const dernier = (await cookies()).get("dernier-espace")?.value ?? null;
 
@@ -23,8 +23,15 @@ export default async function ChoixEspacePage() {
       </div>
 
       <div className="grid w-full max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
-        <EspaceCard href="/accueil" icone="employes" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} />
-        <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Catalogue, fournisseurs, bons de commande" dernier={dernier === "stock"} />
+        {espaces.includes("salarie") && (
+          <EspaceCard href="/espace" icone="employes" titre="Mon espace salarié" sous="Planning, congés, pointage, documents" dernier={dernier === "salarie"} />
+        )}
+        {espaces.includes("rh") && (
+          <EspaceCard href="/accueil" icone="employes" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} />
+        )}
+        {espaces.includes("stock") && (
+          <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Catalogue, fournisseurs, bons de commande" dernier={dernier === "stock"} />
+        )}
       </div>
 
       <form action={logout}>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { actionLisible } from "@/lib/action-lisible";
 import { espaceEmployeActif, emailInterneMatricule, genererMotDePasseTemporaire } from "@/lib/espace-employe";
@@ -60,6 +60,18 @@ export const reinitialiserCompteEmploye = actionLisible(async (employeeId: strin
   await journaliser(prisma, { entite: "User", entiteId: compte.id, champ: "reinitialisation", nouvelleValeur: "mot de passe temporaire régénéré", userId: user.id });
   revalidatePath(`/employes/${employeeId}`);
   return { matricule: compte.employe?.matricule ?? "", motDePasse };
+});
+
+/** Accorde / retire au salarié l'accès à l'espace Stock (cumul de rôles) — Direction. */
+export const definirAccesStock = actionLisible(async (employeeId: string, actif: boolean): Promise<void> => {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const compte = await prisma.user.findUnique({ where: { employeeId }, select: { id: true, role: true } });
+  if (!compte || compte.role !== "EMPLOYE") throw new Error("Aucun compte salarié pour cet employé.");
+  await prisma.user.update({ where: { id: compte.id }, data: { accesStock: actif } });
+  invaliderProfil(compte.id); // le nouvel accès prend effet à la prochaine navigation
+  await journaliser(prisma, { entite: "User", entiteId: compte.id, champ: "accesStock", nouvelleValeur: actif ? "accordé" : "retiré", userId: user.id });
+  revalidatePath(`/employes/${employeeId}`);
 });
 
 /** Désactive le compte salarié (le salarié ne peut plus se connecter ; réactivable par reset). */

@@ -172,7 +172,7 @@ export default async function FicheEmployePage({
   // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Aperçu.
   const espaceActif = tab === "apercu" && estAdmin ? await espaceEmployeActif() : false;
   const compteSalarie = espaceActif
-    ? await prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true } })
+    ? await prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true, accesStock: true } })
     : null;
 
   // Onglet « Temps de travail » : planning (2 semaines) + heures réelles (8 dernières semaines).
@@ -430,6 +430,7 @@ export default async function FicheEmployePage({
             employeeId={employee.id}
             aCompte={compteSalarie?.role === "EMPLOYE"}
             compteActif={compteSalarie?.actif ?? false}
+            accesStock={compteSalarie?.accesStock ?? false}
           />
         </div>
       )}

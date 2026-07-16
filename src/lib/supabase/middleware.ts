@@ -54,7 +54,7 @@ export async function updateSession(request: NextRequest) {
   // depuis /choix-espace) — le sélecteur d'espace met ensuite ce choix en avant.
   if (estAuthentifie) {
     const p = request.nextUrl.pathname;
-    const espace = p === "/stock" || p.startsWith("/stock/") ? "stock" : p === "/accueil" ? "rh" : null;
+    const espace = p === "/stock" || p.startsWith("/stock/") ? "stock" : p === "/espace" || p.startsWith("/espace/") ? "salarie" : p === "/accueil" ? "rh" : null;
     if (espace && request.cookies.get("dernier-espace")?.value !== espace) {
       response.cookies.set("dernier-espace", espace, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
     }

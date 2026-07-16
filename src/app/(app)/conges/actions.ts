@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
-import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
+import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { poserCodesConge, retirerCodesConge } from "@/lib/conges-presences";
 
 function revaliderConges() {
@@ -84,6 +84,7 @@ export async function approuverConge(leaveRequestId: string) {
     userId: user.id,
   });
   await supprimerNotificationsPour(leaveRequestId);
+  await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), true);
 
   revaliderConges();
 }
@@ -107,8 +108,22 @@ export async function refuserConge(leaveRequestId: string) {
     userId: user.id,
   });
   await supprimerNotificationsPour(leaveRequestId);
+  await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), false);
 
   revaliderConges();
+}
+
+/** Notifie le salarié concerné (cloche perso + push) de la décision sur SA demande de congé. */
+async function notifierSalarieDecision(employeeId: string, leaveRequestId: string, type: string, dateDebut: Date, dateFin: Date, approuve: boolean) {
+  const userId = await compteSalarieDe(employeeId);
+  if (!userId) return; // pas de compte salarié → rien à notifier
+  const periode = `du ${dateDebut.toLocaleDateString("fr-FR", { timeZone: "UTC" })} au ${dateFin.toLocaleDateString("fr-FR", { timeZone: "UTC" })}`;
+  await notifierSalarie(userId, {
+    type: "CONGE",
+    message: `Votre demande de congé (${type}) ${periode} a été ${approuve ? "approuvée ✅" : "refusée"}.`,
+    lien: "/espace/conges",
+    refId: `${leaveRequestId}:decision`, // refId distinct → non supprimé par supprimerNotificationsPour
+  });
 }
 
 /**
@@ -173,6 +188,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
         userId: user.id,
       });
       await supprimerNotificationsPour(id);
+      await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), true);
       n++;
     } catch (e) {
       echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
@@ -204,6 +220,7 @@ export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConge
         userId: user.id,
       });
       await supprimerNotificationsPour(id);
+      await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), false);
       n++;
     } catch (e) {
       echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession, estStock } from "@/lib/auth";
+import { verifySession, estStock, espacesDe } from "@/lib/auth";
 import { chargerNotifications } from "@/lib/notifications";
 import { StockShell } from "./stock-shell";
 
@@ -8,7 +8,7 @@ import { StockShell } from "./stock-shell";
 // accès Stock est renvoyé vers le résolveur d'entrée (→ son propre espace).
 export default async function StockLayout({ children }: { children: React.ReactNode }) {
   const user = await verifySession();
-  if (!estStock(user.role)) redirect("/entree");
+  if (!estStock(user)) redirect("/entree");
 
   const [moi, nbAValider, notifs, urgents] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
@@ -36,7 +36,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
       userNom={user.nom}
       userRole={user.role}
       maPhoto={moi?.employe?.photoUrl ?? null}
-      doubleAcces={user.role === "ADMIN"}
+      doubleAcces={espacesDe(user).length > 1}
       badges={{
         "/stock/a-valider": nbAValider,
         "/stock/commandes": nbAValider,

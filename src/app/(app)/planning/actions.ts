@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { pariteSemaine, dureeShift } from "./creneaux";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { notifierSalarie } from "@/lib/notifications";
+import { MOIS_FR } from "@/lib/dates-fr";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -535,11 +537,37 @@ export async function publierSemaine(lundiIso: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
   const lundi = new Date(lundiIso + "T00:00:00Z");
+  const dejaPubliee = await prisma.semainePubliee.findUnique({ where: { lundi }, select: { id: true } });
   await prisma.semainePubliee.upsert({
     where: { lundi },
     update: { publieeParId: user.id },
     create: { lundi, publieeParId: user.id },
   });
+
+  // À la PREMIÈRE publication de cette semaine, notifier les salariés qui y ont des créneaux
+  // (cloche perso + push). On ne re-notifie pas une re-publication (évite le spam).
+  if (!dejaPubliee) {
+    const dim = new Date(lundi); dim.setUTCDate(dim.getUTCDate() + 6);
+    const creneaux = await prisma.planningCreneau.findMany({
+      where: { date: { gte: lundi, lte: dim } },
+      select: { employeeId: true },
+      distinct: ["employeeId"],
+    });
+    if (creneaux.length > 0) {
+      const comptes = await prisma.user.findMany({
+        where: { role: "EMPLOYE", actif: true, employeeId: { in: creneaux.map((c) => c.employeeId) } },
+        select: { id: true },
+      });
+      const label = `${lundi.getUTCDate()} ${MOIS_FR[lundi.getUTCMonth()]}`;
+      await Promise.all(comptes.map((c) => notifierSalarie(c.id, {
+        type: "PLANNING",
+        message: `Votre planning de la semaine du ${label} est publié.`,
+        lien: "/espace/planning",
+        refId: `planning:${lundiIso}`,
+      })));
+    }
+  }
+
   revalidatePath("/planning");
   revalidatePath("/espace/planning");
   revalidatePath("/espace");

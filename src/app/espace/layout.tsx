@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { Icone } from "@/components/icones";
 import { Avatar } from "@/components/avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PushToggle } from "@/app/(app)/push-toggle";
+import { ClocheSalarie } from "./cloche-salarie";
+import { chargerNotificationsSalarie } from "@/lib/notifications";
 import { logout } from "@/app/login/actions";
 
 // Espace salarié (self-service). Garde stricte : la fonctionnalité doit être ACTIVÉE et le compte
@@ -16,10 +19,13 @@ export default async function EspaceLayout({ children }: { children: React.React
   if (!(await espaceEmployeActif())) redirect("/entree");
   if (user.role !== "EMPLOYE") redirect("/entree");
 
-  const compte = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { employe: { select: { id: true, nom: true, photoUrl: true } } },
-  });
+  const [compte, notifs] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { employe: { select: { id: true, nom: true, matricule: true, photoUrl: true } } },
+    }),
+    chargerNotificationsSalarie(user.id),
+  ]);
   const emp = compte?.employe;
 
   const liens = [
@@ -42,6 +48,8 @@ export default async function EspaceLayout({ children }: { children: React.React
             <span className="hidden text-sm text-muted-foreground sm:inline">· Espace salarié</span>
           </div>
           <div className="flex items-center gap-2">
+            <PushToggle />
+            <ClocheSalarie items={notifs.items} nonLues={notifs.nonLues} />
             <ThemeToggle />
             <form action={logout}>
               <button className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm hover:bg-accent" title="Se déconnecter">
@@ -66,7 +74,9 @@ export default async function EspaceLayout({ children }: { children: React.React
           <Avatar nom={emp?.nom ?? user.nom} taille={40} photoUrl={emp?.photoUrl} />
           <div className="min-w-0">
             <p className="truncate text-base font-semibold">{emp?.nom ?? user.nom}</p>
-            <p className="text-xs text-muted-foreground">Votre espace personnel</p>
+            <p className="text-xs text-muted-foreground">
+              {emp?.matricule ? <>Matricule <span className="font-mono font-medium text-foreground">{emp.matricule}</span></> : "Votre espace personnel"}
+            </p>
           </div>
         </div>
 

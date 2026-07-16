@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { creerCompteEmploye, reinitialiserCompteEmploye, desactiverCompteEmploye } from "./compte-actions";
+import { creerCompteEmploye, reinitialiserCompteEmploye, desactiverCompteEmploye, definirAccesStock } from "./compte-actions";
 import { estErreur } from "@/lib/action-lisible";
 
 /**
@@ -12,14 +12,17 @@ export function CompteEmployePanel({
   employeeId,
   aCompte,
   compteActif,
+  accesStock = false,
 }: {
   employeeId: string;
   aCompte: boolean;
   compteActif: boolean;
+  accesStock?: boolean;
 }) {
   const [isPending, start] = useTransition();
   const [creds, setCreds] = useState<{ matricule: string; motDePasse: string } | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [stock, setStock] = useState(accesStock);
 
   function lancer(fn: () => Promise<unknown>) {
     setErreur(null);
@@ -64,6 +67,26 @@ export function CompteEmployePanel({
           )}
         </div>
       </div>
+
+      {aCompte && (
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={stock}
+            disabled={isPending}
+            onChange={(e) => {
+              const val = e.target.checked;
+              setStock(val);
+              setErreur(null);
+              start(async () => {
+                const r = await definirAccesStock(employeeId, val);
+                if (estErreur(r)) { setErreur(r.erreur); setStock(!val); }
+              });
+            }}
+          />
+          <span>Donner aussi accès à l&apos;espace <b>Stock</b> — à la connexion, le salarié choisira entre son espace et Stock.</span>
+        </label>
+      )}
 
       {erreur && <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
