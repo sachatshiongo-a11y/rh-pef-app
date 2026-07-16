@@ -119,7 +119,7 @@ export async function demanderMonAcompte(formData: FormData) {
 
 /** Le salarié demande à changer son shift sur un jour donné (EN_ATTENTE ; notifie la Direction). */
 export async function demanderChangementShift(formData: FormData) {
-  return formulaireLisible("/espace/planning", async () => {
+  return formulaireLisible("/espace/echanges", async () => {
     const { employeeId } = await exigerSalarie();
     const dateIso = String(formData.get("date") ?? "").trim();
     const shiftDemandeId = String(formData.get("shiftDemandeId") ?? "").trim();
@@ -148,10 +148,10 @@ export async function demanderChangementShift(formData: FormData) {
       refId: dem.id,
     });
 
-    revalidatePath("/espace/planning");
+    revalidatePath("/espace/echanges");
     revalidatePath("/a-valider");
     revalidatePath("/", "layout");
-    redirect("/espace/planning?echange=1");
+    redirect("/espace/echanges?echange=1");
   });
 }
 
@@ -192,9 +192,14 @@ export async function demanderEchange(formData: FormData) {
     if (dejaEnAttente) throw new Error("Vous avez déjà une demande d'échange en attente pour ce jour.");
 
     const [moi, collegue] = await Promise.all([
-      prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } }),
-      prisma.employee.findUnique({ where: { id: collegueId }, select: { nom: true } }),
+      prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true, poste: true } }),
+      prisma.employee.findUnique({ where: { id: collegueId }, select: { nom: true, poste: true } }),
     ]);
+    // Le collègue doit pouvoir COUVRIR mon poste (même poste ou polyvalence posteSource→posteCible).
+    if (moi && collegue && collegue.poste !== moi.poste) {
+      const couvre = await prisma.polyvalencePoste.findFirst({ where: { posteSource: collegue.poste, posteCible: moi.poste }, select: { id: true } });
+      if (!couvre) throw new Error("Ce collègue n'a pas un poste pouvant couvrir le vôtre.");
+    }
     const ech = await prisma.echangeCreneau.create({
       data: {
         demandeurId: employeeId, demandeurDate: maDate, demandeurShiftId: monCreneau.shiftId,

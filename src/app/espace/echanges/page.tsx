@@ -26,7 +26,7 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
   const fin = new Date(lundiCourant); fin.setUTCDate(fin.getUTCDate() + 27); // 4 semaines
 
   const emp = await prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { poste: true } });
-  const [publiees, mesCreneaux, creneauxCollegues, shiftsActifs, besoins, recus, mesEchanges, mesChangements] = await Promise.all([
+  const [publiees, mesCreneaux, creneauxCollegues, shiftsActifs, besoins, polyvalences, recus, mesEchanges, mesChangements] = await Promise.all([
     prisma.semainePubliee.findMany({ where: { lundi: { gte: lundiCourant, lte: fin } }, select: { lundi: true } }),
     prisma.planningCreneau.findMany({ where: { employeeId: s.employeeId, date: { gte: today, lte: fin } }, select: { date: true, shiftId: true } }),
     prisma.planningCreneau.findMany({
@@ -36,6 +36,8 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
     }),
     prisma.shift.findMany({ where: { actif: true, systeme: false }, orderBy: { ordre: "asc" }, select: { id: true, nom: true, heureDebut: true, heureFin: true } }),
     prisma.besoinShift.findMany({ where: { poste: emp.poste }, select: { shiftId: true } }),
+    // Postes qui PEUVENT COUVRIR le mien (polyvalence : posteSource couvre posteCible) → cibles élargies.
+    prisma.polyvalencePoste.findMany({ where: { posteCible: emp.poste }, select: { posteSource: true } }),
     prisma.echangeCreneau.findMany({ where: { collegueId: s.employeeId, statut: "EN_ATTENTE" }, orderBy: { createdAt: "desc" }, include: { demandeur: { select: { nom: true } } } }),
     prisma.echangeCreneau.findMany({ where: { demandeurId: s.employeeId }, orderBy: { createdAt: "desc" }, take: 15, include: { collegue: { select: { nom: true } } } }),
     prisma.demandeChangementShift.findMany({ where: { employeeId: s.employeeId }, orderBy: { createdAt: "desc" }, take: 15 }),
@@ -49,9 +51,11 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
 
   // Mes créneaux publiés à venir (jours que je peux céder).
   const mesEligibles = mesCreneaux.filter((c) => estPubliee(c.date)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  // Créneaux publiés à venir des collègues DE MON POSTE (cibles d'échange, on montre QUI l'effectue).
+  // Cibles d'échange = collègues dont le poste PEUT COUVRIR le mien (même poste ou polyvalence),
+  // sur un service publié à venir. On montre QUI l'effectue et son poste.
+  const postesCouvrants = new Set([emp.poste, ...polyvalences.map((p) => p.posteSource)]);
   const ciblesCollegues = creneauxCollegues
-    .filter((c) => c.employee.poste === emp.poste && estPubliee(c.date))
+    .filter((c) => postesCouvrants.has(c.employee.poste) && estPubliee(c.date))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   return (
@@ -109,7 +113,7 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
               <select name="cible" required className={inputCls}>
                 {ciblesCollegues.map((c) => (
                   <option key={`${c.employeeId}__${iso(c.date)}`} value={`${c.employeeId}__${iso(c.date)}`}>
-                    {c.employee.nom} — {jourCourt(c.date)} — {shiftNom.get(c.shiftId) ?? "shift"}
+                    {c.employee.nom}{c.employee.poste !== emp.poste ? ` (${c.employee.poste})` : ""} — {jourCourt(c.date)} — {shiftNom.get(c.shiftId) ?? "shift"}
                   </option>
                 ))}
               </select>
