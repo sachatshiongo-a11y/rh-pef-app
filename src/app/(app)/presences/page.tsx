@@ -63,10 +63,10 @@ export default async function PresencesPage() {
 
   // Shift du jour par case (façon planning) : pointage RÉEL (heures horodatées) > créneau
   // PLANIFIÉ (onglet Planning) > MODÈLE hebdo — même hiérarchie que les heures auto des P.
+  // On transmet début et fin SÉPARÉMENT (« HH:MM ») pour que la grille puisse recalculer une
+  // heure de fin effective quand la journée déborde en heures supplémentaires.
   const fmtHeure = (x: Date) =>
     new Date(x).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Kinshasa" });
-  const horaireDe = (s: { heureDebut: string | null; heureFin: string | null }) =>
-    s.heureDebut && s.heureFin ? `${s.heureDebut}–${s.heureFin}` : null;
   const shiftParId = new Map(shifts.map((s) => [s.id, s]));
   const modeleParCle = new Map<string, string>(); // `${empId}|${jour}|${semaine}` -> shiftId
   for (const m of modeles) modeleParCle.set(`${m.employeeId}|${m.jour}|${m.semaine}`, m.shiftId);
@@ -79,21 +79,21 @@ export default async function PresencesPage() {
       const sid =
         modeleParCle.get(`${e.id}|${jour}|${pariteSemaine(dt)}`) ?? modeleParCle.get(`${e.id}|${jour}|0`);
       const s = sid ? shiftParId.get(sid) : undefined;
-      if (s) shiftMap[`${e.id}_${d}`] = { nom: s.nom, horaire: horaireDe(s), reel: false };
+      if (s) shiftMap[`${e.id}_${d}`] = { debut: s.heureDebut, fin: s.heureFin, reel: false };
     }
   }
   for (const c of creneauxMois) {
     shiftMap[`${c.employeeId}_${new Date(c.date).getUTCDate()}`] = {
-      nom: c.shift.nom,
-      horaire: horaireDe(c.shift),
+      debut: c.shift.heureDebut,
+      fin: c.shift.heureFin,
       reel: false,
     };
   }
   for (const p of pointages) {
     const k = `${p.employeeId}_${new Date(p.date).getUTCDate()}`;
     shiftMap[k] = {
-      nom: shiftMap[k]?.nom ?? null,
-      horaire: `${fmtHeure(p.heureDebut)}–${p.heureFin ? fmtHeure(p.heureFin) : "…"}`,
+      debut: fmtHeure(p.heureDebut),
+      fin: p.heureFin ? fmtHeure(p.heureFin) : null,
       reel: true,
     };
   }
@@ -185,7 +185,10 @@ export default async function PresencesPage() {
           Colonne surlignée = dimanche ou jour férié (heures payées double)
         </span>
         <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
-          Sous le code : le shift du jour et ses horaires (Planning / modèle hebdo) — <b>●</b> = pointage réel
+          Sous le code : les horaires du jour (Planning / modèle hebdo) — <b>●</b> = pointage réel
+        </span>
+        <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+          Heures en <b>ambre</b> = au-delà du shift prévu (heures supplémentaires)
         </span>
       </div>
 

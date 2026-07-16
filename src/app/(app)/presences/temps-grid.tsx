@@ -36,9 +36,64 @@ export type EmployeeRow = {
 
 type Cellule = { code: string; heures: number | null };
 
-/** Shift du jour affiché dans la case (façon planning) : nom + horaire début–fin.
+/** Horaires du jour affichés dans la case (façon planning) : début et fin « HH:MM ».
  *  `reel` = heures issues d'un pointage horodaté (sinon : créneau planifié ou modèle hebdo). */
-export type InfoShift = { nom: string | null; horaire: string | null; reel: boolean };
+export type InfoShift = { debut: string | null; fin: string | null; reel: boolean };
+
+// « HH:MM » → minutes depuis minuit (null si non parsable).
+function enMinutes(hhmm: string | null): number | null {
+  if (!hhmm) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+// minutes depuis minuit → « HH:MM » (modulo 24 h : un shift peut finir après minuit).
+function enHHMM(min: number): string {
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+/** Durée prévue d'un shift en heures (gère le passage minuit), ou null. */
+function dureePrevueH(debut: string | null, fin: string | null): number | null {
+  const d = enMinutes(debut);
+  const f = enMinutes(fin);
+  if (d === null || f === null) return null;
+  const delta = f >= d ? f - d : f + 1440 - d;
+  return delta / 60;
+}
+
+/**
+ * Prépare l'affichage horaire d'une case : la plage à montrer, si la journée est en heures
+ * supplémentaires (au-delà du shift prévu → ambre) et un libellé pour l'infobulle.
+ *  — Réel (pointage) : on montre les heures horodatées telles quelles ; fin absente = « … ».
+ *  — Planifié : en heures supp., la fin est RECALCULÉE (début + heures travaillées) pour montrer
+ *    l'heure de fin effective ; sinon on montre la plage prévue.
+ */
+function infoHoraire(
+  c: { heures: number | null },
+  info: InfoShift | undefined,
+  heuresParJourContrat: number
+): { horaire: string | null; supp: boolean; titre: string } {
+  if (!info) return { horaire: null, supp: false, titre: "" };
+  const worked = c.heures;
+  const dureePrevue = dureePrevueH(info.debut, info.fin);
+  const attendu = dureePrevue ?? heuresParJourContrat;
+  const supp = worked !== null && worked > 0 && attendu > 0 && worked > attendu + 0.01;
+
+  let horaire: string | null = null;
+  if (info.reel) {
+    horaire = info.debut ? `${info.debut}–${info.fin ?? "…"}` : null;
+  } else if (supp && info.debut && worked !== null) {
+    const dbt = enMinutes(info.debut);
+    horaire = dbt !== null ? `${info.debut}–${enHHMM(dbt + worked * 60)}` : info.fin ? `${info.debut}–${info.fin}` : info.debut;
+  } else if (info.debut && info.fin) {
+    horaire = `${info.debut}–${info.fin}`;
+  }
+
+  const titre = horaire
+    ? ` ${horaire}${info.reel ? " (pointage réel)" : " (planifié)"}${supp ? " · heures supp." : ""}`
+    : "";
+  return { horaire, supp, titre };
+}
 type Scope = "mois" | "ouvrables" | "feries" | "alternes" | "jour" | "periode";
 
 const fmtH = (n: number) =>
@@ -348,16 +403,16 @@ export function TempsGrid({
             const c = cel(emp.id, jourMobile);
             const coul = couleurDe(c.code);
             const info = shiftMap[`${emp.id}_${jourMobile}`];
+            const hs = infoHoraire(c, info, emp.heuresParJour);
             return (
               <div key={emp.id} className="flex items-center gap-3 rounded-xl border bg-card p-2.5">
                 <Avatar nom={emp.nom} taille={36} photoUrl={emp.photoUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{emp.nom}</div>
                   <div className="font-mono text-xs text-muted-foreground">{emp.matricule}</div>
-                  {info && (info.nom || info.horaire) && (
-                    <div className="truncate text-[11px] text-muted-foreground">
-                      {info.nom}{info.nom && info.horaire ? " · " : ""}
-                      {info.horaire && <span className={`tabular-nums ${info.reel ? "font-semibold text-foreground" : ""}`}>{info.reel ? "● " : ""}{info.horaire}</span>}
+                  {hs.horaire && (
+                    <div className={`truncate text-[11px] tabular-nums ${hs.supp ? "font-semibold text-amber-700" : info?.reel ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
+                      {info?.reel ? "● " : ""}{hs.horaire}{hs.supp ? " · h. supp." : ""}
                     </div>
                   )}
                 </div>
@@ -495,12 +550,10 @@ export function TempsGrid({
                       </span>
                     </td>
                     {days.map((d, colIndex) => {
-                      const c = cel(e.id, d);
-                      const coul = couleurDe(c.code);
                       const info = shiftMap[`${e.id}_${d}`];
-                      const infoTitre = info
-                        ? ` ${info.nom ?? ""}${info.horaire ? ` ${info.horaire}` : ""}${info.reel ? " (pointage réel)" : " (planifié)"}`.trimEnd()
-                        : "";
+                      const c = cel(e.id, d);
+                      const hs = infoHoraire(c, info, e.heuresParJour);
+                      const coul = couleurDe(c.code);
                       return (
                         <td key={d} className={`p-0.5 text-center ${estMajore(d) ? "bg-orange-50" : ""}`}>
                           <button
@@ -510,26 +563,25 @@ export function TempsGrid({
                             disabled={!peutModifier}
                             onClick={(ev) => ouvrirMenu(ev, e.id, d)}
                             onKeyDown={(ev) => clavier(ev, e.id, d, rowIndex, colIndex)}
-                            title={`${peutModifier ? "Clic : menu code + heures. Ou tapez une lettre (P, O, M…) ; Suppr efface ; flèches pour naviguer." : ""}${infoTitre}` || undefined}
-                            className="flex h-12 w-[4.6rem] flex-col items-center justify-center rounded-md border border-transparent leading-none hover:border-input focus:border-primary focus:outline-none disabled:cursor-default"
+                            title={`${peutModifier ? "Clic : menu code + heures. Ou tapez une lettre (P, O, M…) ; Suppr efface ; flèches pour naviguer." : ""}${hs.titre}` || undefined}
+                            className="flex h-10 w-[4.6rem] flex-col items-center justify-center rounded-md border border-transparent leading-none hover:border-input focus:border-primary focus:outline-none disabled:cursor-default"
                             style={coul ? { backgroundColor: coul.bg, color: coul.text } : undefined}
                           >
                             <span className="text-[11px] font-bold">
                               {c.code || "·"}
-                              <span className="ml-1 text-[9px] font-normal opacity-80 tabular-nums">
-                                {c.heures !== null && c.heures > 0 ? `${fmtH(c.heures)} h` : ""}
-                              </span>
+                              {c.heures !== null && c.heures > 0 && (
+                                <span className={`ml-1 text-[9px] font-semibold tabular-nums ${hs.supp ? "text-amber-700" : "font-normal opacity-80"}`}>
+                                  {fmtH(c.heures)} h
+                                </span>
+                              )}
                             </span>
-                            {info?.nom && (
-                              <span className="mt-0.5 max-w-full truncate text-[8px] opacity-75">{info.nom}</span>
-                            )}
-                            {info?.horaire ? (
-                              <span className={`mt-0.5 text-[8px] tabular-nums ${info.reel ? "font-semibold" : "opacity-60"}`}>
-                                {info.reel ? "● " : ""}{info.horaire}
+                            {hs.horaire ? (
+                              <span className={`mt-0.5 text-[8px] tabular-nums ${hs.supp ? "font-semibold text-amber-700" : info?.reel ? "font-semibold" : "opacity-60"}`}>
+                                {info?.reel ? "● " : ""}{hs.horaire}
                               </span>
-                            ) : !info?.nom ? (
+                            ) : (
                               <span className="mt-0.5 text-[8px] opacity-40">—</span>
-                            ) : null}
+                            )}
                           </button>
                         </td>
                       );
