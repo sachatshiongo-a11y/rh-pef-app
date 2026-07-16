@@ -3,6 +3,7 @@ import { chargerSalarie } from "../garde";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { envoyerMonCertificat } from "../actions";
 import { Icone } from "@/components/icones";
+import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const moisAnnee = (m: number, a: number) => new Date(a, m - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -60,9 +61,10 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                   <p className="text-sm font-medium capitalize">{moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}</p>
                   <p className="text-xs text-muted-foreground">Net : {Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</p>
                 </div>
-                <div className="flex gap-3 text-sm">
-                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=USD`} className="text-primary underline">Bulletin $</TelechargerLien>
-                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=CDF`} className="text-primary underline">Bulletin CDF</TelechargerLien>
+                <div className="flex items-center gap-3 text-sm">
+                  <BulletinViewerButton payrollLineId={b.id} nom={`bulletin ${moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}`} base="/espace/bulletin" />
+                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=USD`} className="text-primary underline">$</TelechargerLien>
+                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=CDF`} className="text-primary underline">CDF</TelechargerLien>
                 </div>
               </li>
             ))}

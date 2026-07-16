@@ -6,6 +6,7 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { pariteSemaine, dureeShift } from "./creneaux";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
+import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { MOIS_FR } from "@/lib/dates-fr";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
@@ -635,5 +636,41 @@ export async function refuserChangementShift(id: string) {
   await supprimerNotificationsPour(id);
   revalidatePath("/a-valider");
   revalidatePath("/espace/planning");
+  revalidatePath("/", "layout");
+}
+
+/** Direction : approuve un échange de créneau. Le swap n'a lieu que si le collègue a aussi accepté. */
+export async function approuverEchange(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const e = await prisma.echangeCreneau.findUnique({ where: { id } });
+  if (!e || e.statut !== "EN_ATTENTE") return;
+  await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "APPROUVE" } });
+  const fait = await finaliserEchangeSiComplet(id);
+  if (!fait) {
+    // En attente du collègue : le prévenir qu'il ne manque que sa réponse.
+    const uB = await compteSalarieDe(e.collegueId);
+    if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "La Direction a approuvé un échange de shift vous concernant — votre accord est attendu.", lien: "/espace/echanges", refId: `${id}:dir` });
+  }
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/echanges");
+  revalidatePath("/planning");
+  revalidatePath("/", "layout");
+}
+
+/** Direction : refuse un échange de créneau → clôt la demande et prévient les deux salariés. */
+export async function refuserEchange(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const e = await prisma.echangeCreneau.findUnique({ where: { id } });
+  if (!e || e.statut !== "EN_ATTENTE") return;
+  await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "REFUSE", statut: "REFUSE" } });
+  await supprimerNotificationsPour(id);
+  const [uA, uB] = await Promise.all([compteSalarieDe(e.demandeurId), compteSalarieDe(e.collegueId)]);
+  const msg = "Un échange de shift a été refusé par la Direction.";
+  if (uA) await notifierSalarie(uA, { type: "PLANNING", message: msg, lien: "/espace/echanges", refId: `${id}:dir` });
+  if (uB) await notifierSalarie(uB, { type: "PLANNING", message: msg, lien: "/espace/echanges", refId: `${id}:dir` });
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/echanges");
   revalidatePath("/", "layout");
 }

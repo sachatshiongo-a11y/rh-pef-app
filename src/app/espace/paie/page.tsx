@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "../garde";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "@/app/(app)/employes/[id]/apercu-bulletin";
+import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
 import { demanderMonAcompte } from "../actions";
 import { MOIS_FR } from "@/lib/dates-fr";
 
@@ -23,9 +24,11 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
   const annee = config?.anneeCourante ?? new Date().getFullYear();
   const periode = `${MOIS_FR[mois - 1]} ${annee}`;
 
-  const [apercu, acomptes] = await Promise.all([
+  const [apercu, acomptes, ligneEnCours] = await Promise.all([
     calculerBulletinLive(s.employeeId, mois, annee),
     prisma.acompteSalaire.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDemande: "desc" }, take: 20 }),
+    // Bulletin PDF de la période en cours S'IL est déjà calculé (quel que soit son statut).
+    prisma.payrollLine.findFirst({ where: { employeeId: s.employeeId, payrollRun: { mois, annee } }, select: { id: true, statutPaiement: true } }),
   ]);
   const totalHS = apercu ? apercu.hs30 + apercu.hs60 + apercu.hs100 : 0;
 
@@ -59,8 +62,13 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
       ) : (
         <div className="rounded-2xl border bg-card p-5 text-sm text-muted-foreground">Aperçu du bulletin indisponible pour cette période.</div>
       )}
-      <p className="-mt-3 text-xs text-muted-foreground">
-        Aperçu indicatif calculé en temps réel — le bulletin officiel est celui validé par la Direction (onglet Documents).
+      <p className="-mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        Aperçu indicatif calculé en temps réel — le bulletin officiel est celui validé par la Direction.
+        {ligneEnCours && (
+          <span className="font-medium">
+            <BulletinViewerButton payrollLineId={ligneEnCours.id} nom={`bulletin ${periode} (aperçu)`} base="/espace/bulletin" libelle="Voir le bulletin PDF de la période →" />
+          </span>
+        )}
       </p>
 
       {/* Demande d'acompte */}

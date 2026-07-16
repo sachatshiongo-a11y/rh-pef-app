@@ -254,8 +254,36 @@ model Employee {
   acomptes             AcompteSalaire[]
   fraisMed             FraisMedical[]
   demandesChangementShift DemandeChangementShift[]
+  echangesDemandes     EchangeCreneau[]       @relation("EchangeDemandeur")
+  echangesRecus        EchangeCreneau[]       @relation("EchangeCollegue")
   compte               User?                  @relation("CompteEmploye")
 
+  @@schema("public")
+}
+
+/// Échange de créneau entre DEUX salariés, à double validation : le collègue concerné ET la
+/// Direction doivent accepter. À la double acceptation, les deux créneaux du planning sont permutés.
+/// Le demandeur peut annuler tant que c'est en attente. Statuts en String (EN_ATTENTE/ACCEPTE/
+/// REFUSE/APPROUVE/ANNULE) pour rester lisible et découplé.
+model EchangeCreneau {
+  id               String   @id @default(uuid())
+  demandeurId      String
+  demandeur        Employee @relation("EchangeDemandeur", fields: [demandeurId], references: [id], onDelete: Cascade)
+  demandeurDate    DateTime @db.Date
+  demandeurShiftId String
+  collegueId       String
+  collegue         Employee @relation("EchangeCollegue", fields: [collegueId], references: [id], onDelete: Cascade)
+  collegueDate     DateTime @db.Date
+  collegueShiftId  String
+  motif            String?
+  reponseCollegue  String   @default("EN_ATTENTE") // EN_ATTENTE | ACCEPTE | REFUSE
+  reponseDirection String   @default("EN_ATTENTE") // EN_ATTENTE | APPROUVE | REFUSE
+  statut           String   @default("EN_ATTENTE") // EN_ATTENTE | APPROUVE | REFUSE | ANNULE
+  createdAt        DateTime @default(now())
+
+  @@index([demandeurId])
+  @@index([collegueId])
+  @@index([statut, createdAt])
   @@schema("public")
 }
 

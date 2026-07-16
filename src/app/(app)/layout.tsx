@@ -21,8 +21,9 @@ async function chargerBadges(): Promise<Record<string, number>> {
     prisma.acompteSalaire.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
   ]);
+  const echangesEnAttente = await prisma.echangeCreneau.count({ where: { statut: "EN_ATTENTE" } });
   const badges = {
-    "/a-valider": congesEnAttente + bulletinsPasValide + bulletinsValide + acomptesEnAttente + changementsShift,
+    "/a-valider": congesEnAttente + bulletinsPasValide + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente,
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
   };

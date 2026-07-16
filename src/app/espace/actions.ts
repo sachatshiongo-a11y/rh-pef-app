@@ -7,9 +7,10 @@ import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
 import { calculerJoursOuvrables } from "@/lib/payroll";
-import { creerNotification } from "@/lib/notifications";
+import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
+import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 
 /** Marque comme lues MES notifications (cloche salarié) — scopé à mon compte uniquement. */
 export async function marquerMesNotificationsLues() {
@@ -152,6 +153,116 @@ export async function demanderChangementShift(formData: FormData) {
     revalidatePath("/", "layout");
     redirect("/espace/planning?echange=1");
   });
+}
+
+/** Le salarié annule sa demande de changement de shift simple (tant qu'elle est en attente). */
+export async function annulerChangement(id: string) {
+  const user = await verifySession();
+  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const d = await prisma.demandeChangementShift.findUnique({ where: { id }, select: { employeeId: true, statut: true } });
+  if (!d || d.employeeId !== user.employeeId || d.statut !== "EN_ATTENTE") return;
+  await prisma.demandeChangementShift.delete({ where: { id } });
+  await supprimerNotificationsPour(id);
+  revalidatePath("/espace/echanges");
+  revalidatePath("/a-valider");
+  revalidatePath("/", "layout");
+}
+
+/** Le salarié propose un ÉCHANGE de créneau avec un collègue (double validation collègue + Direction). */
+export async function demanderEchange(formData: FormData) {
+  return formulaireLisible("/espace/echanges", async () => {
+    const { employeeId } = await exigerSalarie();
+    const dateIso = String(formData.get("date") ?? "").trim(); // mon créneau (jour cédé)
+    const cible = String(formData.get("cible") ?? "").trim();   // "collegueId__dateIso" (créneau visé)
+    const motif = String(formData.get("motif") ?? "").trim() || null;
+    const [collegueId, collegueDateIso] = cible.split("__");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso) || !collegueId || !/^\d{4}-\d{2}-\d{2}$/.test(collegueDateIso ?? ""))
+      throw new Error("Choisissez votre créneau et le créneau à échanger.");
+    if (collegueId === employeeId) throw new Error("Choisissez le créneau d'un collègue.");
+    const maDate = new Date(dateIso + "T00:00:00.000Z");
+    const saDate = new Date(collegueDateIso + "T00:00:00.000Z");
+
+    const [monCreneau, sonCreneau, dejaEnAttente] = await Promise.all([
+      prisma.planningCreneau.findUnique({ where: { employeeId_date: { employeeId, date: maDate } }, select: { shiftId: true } }),
+      prisma.planningCreneau.findUnique({ where: { employeeId_date: { employeeId: collegueId, date: saDate } }, select: { shiftId: true } }),
+      prisma.echangeCreneau.findFirst({ where: { demandeurId: employeeId, demandeurDate: maDate, statut: "EN_ATTENTE" }, select: { id: true } }),
+    ]);
+    if (!monCreneau) throw new Error("Vous n'avez pas de service publié ce jour-là.");
+    if (!sonCreneau) throw new Error("Ce collègue n'a plus ce service.");
+    if (dejaEnAttente) throw new Error("Vous avez déjà une demande d'échange en attente pour ce jour.");
+
+    const [moi, collegue] = await Promise.all([
+      prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } }),
+      prisma.employee.findUnique({ where: { id: collegueId }, select: { nom: true } }),
+    ]);
+    const ech = await prisma.echangeCreneau.create({
+      data: {
+        demandeurId: employeeId, demandeurDate: maDate, demandeurShiftId: monCreneau.shiftId,
+        collegueId, collegueDate: saDate, collegueShiftId: sonCreneau.shiftId, motif,
+      },
+    });
+
+    // Notifier le COLLÈGUE (cloche + push) et la Direction (inbox À valider).
+    const uCollegue = await compteSalarieDe(collegueId);
+    if (uCollegue) await notifierSalarie(uCollegue, {
+      type: "PLANNING",
+      message: `${moi?.nom ?? "Un collègue"} vous propose un échange de shift (${maDate.toLocaleDateString("fr-FR", { timeZone: "UTC" })}). À accepter ou refuser.`,
+      lien: "/espace/echanges",
+      refId: ech.id,
+    });
+    await creerNotification({
+      type: "AUTRE",
+      message: `Échange de shift proposé — ${moi?.nom ?? "salarié"} ↔ ${collegue?.nom ?? "collègue"}.`,
+      lien: "/a-valider",
+      refId: ech.id,
+    });
+
+    revalidatePath("/espace/echanges");
+    revalidatePath("/a-valider");
+    revalidatePath("/", "layout");
+    redirect("/espace/echanges?propose=1");
+  });
+}
+
+/** Le COLLÈGUE concerné accepte ou refuse l'échange. Accepter peut finaliser (si Direction OK). */
+export async function repondreEchange(id: string, accepte: boolean) {
+  const user = await verifySession();
+  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const e = await prisma.echangeCreneau.findUnique({ where: { id } });
+  if (!e || e.statut !== "EN_ATTENTE" || e.collegueId !== user.employeeId) return;
+
+  if (!accepte) {
+    await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "REFUSE", statut: "REFUSE" } });
+    await supprimerNotificationsPour(id);
+    const uA = await compteSalarieDe(e.demandeurId);
+    if (uA) await notifierSalarie(uA, { type: "PLANNING", message: "Votre proposition d'échange de shift a été refusée par le collègue.", lien: "/espace/echanges", refId: `${id}:rep` });
+  } else {
+    await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "ACCEPTE" } });
+    const fait = await finaliserEchangeSiComplet(id);
+    if (!fait) {
+      // En attente de la Direction : on la relance.
+      const noms = await prisma.employee.findMany({ where: { id: { in: [e.demandeurId, e.collegueId] } }, select: { nom: true } });
+      await creerNotification({ type: "AUTRE", message: `Échange de shift accepté par le collègue — ${noms.map((n) => n.nom).join(" ↔ ")}. À valider.`, lien: "/a-valider", refId: id });
+    }
+  }
+  revalidatePath("/espace/echanges");
+  revalidatePath("/a-valider");
+  revalidatePath("/", "layout");
+}
+
+/** Le DEMANDEUR annule sa proposition tant qu'elle est en attente. */
+export async function annulerEchange(id: string) {
+  const user = await verifySession();
+  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const e = await prisma.echangeCreneau.findUnique({ where: { id } });
+  if (!e || e.statut !== "EN_ATTENTE" || e.demandeurId !== user.employeeId) return;
+  await prisma.echangeCreneau.update({ where: { id }, data: { statut: "ANNULE" } });
+  await supprimerNotificationsPour(id);
+  const uB = await compteSalarieDe(e.collegueId);
+  if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "Une proposition d'échange de shift a été annulée.", lien: "/espace/echanges", refId: `${id}:ann` });
+  revalidatePath("/espace/echanges");
+  revalidatePath("/a-valider");
+  revalidatePath("/", "layout");
 }
 
 /** Le salarié envoie un certificat médical (justificatif) → document rattaché à sa fiche + notif Direction. */

@@ -4,16 +4,17 @@ import { useState } from "react";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import type { Devise } from "@/lib/pdf/theme";
 
-/** Bouton « Aperçu » ouvrant le vrai bulletin PDF en plein écran (sans téléchargement), façon PayFit. */
-export function BulletinViewerButton({ payrollLineId, nom }: { payrollLineId: string; nom: string }) {
+/** Bouton « Aperçu » ouvrant le vrai bulletin PDF en plein écran (sans téléchargement), façon PayFit.
+ *  `base` = route du PDF (Direction : /paie/bulletin ; espace salarié : /espace/bulletin). */
+export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulletin", libelle = "Aperçu" }: { payrollLineId: string; nom: string; base?: string; libelle?: string }) {
   const [ouvert, setOuvert] = useState(false);
   const [devise, setDevise] = useState<Devise>("USD");
-  const src = `/paie/bulletin/${payrollLineId}?devise=${devise}`;
+  const src = `${base}/${payrollLineId}?devise=${devise}`;
 
   return (
     <>
       <button onClick={() => setOuvert(true)} className="font-medium text-primary underline">
-        Aperçu
+        {libelle}
       </button>
 
       {ouvert && (
