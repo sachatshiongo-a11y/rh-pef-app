@@ -529,3 +529,29 @@ export async function supprimerPolyvalence(id: string) {
   await prisma.polyvalencePoste.delete({ where: { id } });
   revalidatePath("/planning");
 }
+
+/** Publie une semaine de planning (visible par les salariés dans leur espace). `lundiIso` = lundi UTC. */
+export async function publierSemaine(lundiIso: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const lundi = new Date(lundiIso + "T00:00:00Z");
+  await prisma.semainePubliee.upsert({
+    where: { lundi },
+    update: { publieeParId: user.id },
+    create: { lundi, publieeParId: user.id },
+  });
+  revalidatePath("/planning");
+  revalidatePath("/espace/planning");
+  revalidatePath("/espace");
+}
+
+/** Retire une semaine de la publication (les salariés ne la voient plus). */
+export async function depublierSemaine(lundiIso: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const lundi = new Date(lundiIso + "T00:00:00Z");
+  await prisma.semainePubliee.deleteMany({ where: { lundi } });
+  revalidatePath("/planning");
+  revalidatePath("/espace/planning");
+  revalidatePath("/espace");
+}

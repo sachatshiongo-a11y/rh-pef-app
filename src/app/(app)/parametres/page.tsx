@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import {
   mettreAJourConfig,
+  basculerEspaceEmploye,
   mettreAJourParametreLegal,
   mettreAJourTrancheIprCDF,
   ajouterJourFerie,
@@ -64,6 +65,26 @@ export default async function ParametresPage() {
 
       <Section title="Types de congés & absences">
         <TypesCongesAdmin types={typeCongeRows} />
+      </Section>
+
+      <Section title="Espace salarié (self-service)">
+        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+          Ouvre un espace personnel aux salariés : ils se connectent avec leur <b>matricule</b> pour
+          consulter leur <b>planning publié</b>, leur <b>dossier</b> et leurs <b>documents</b>, et
+          déposer leurs <b>demandes de congé</b> (à valider par la Direction). Les comptes se créent
+          ensuite sur chaque fiche employé. <b>Désactivé par défaut.</b>
+        </p>
+        <form action={basculerEspaceEmploye} className="flex flex-wrap items-center gap-3">
+          <input type="hidden" name="actif" value={config.espaceEmployeActif ? "0" : "1"} />
+          <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${config.espaceEmployeActif ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
+            {config.espaceEmployeActif ? "● Activé" : "○ Désactivé"}
+          </span>
+          {estAdmin && (
+            <button type="submit" className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent">
+              {config.espaceEmployeActif ? "Désactiver l'espace salarié" : "Activer l'espace salarié"}
+            </button>
+          )}
+        </form>
       </Section>
 
       <Section title="Paramètres opérationnels">

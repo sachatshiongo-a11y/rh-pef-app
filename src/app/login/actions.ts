@@ -9,6 +9,7 @@ import {
   minutesBlocage, enregistrerEchec, effacerEchecs,
   genererJetonReinitialisation, verifierJeton, consommerJeton, changerMotDePasseAdmin,
 } from "@/lib/securite-connexion";
+import { emailInterneMatricule, estMatricule, espaceEmployeActif } from "@/lib/espace-employe";
 
 export type LoginState = { error?: string } | undefined;
 
@@ -18,25 +19,39 @@ async function ipClient(): Promise<string | null> {
 }
 
 export async function login(_prevState: LoginState, formData: FormData): Promise<LoginState> {
-  const email = String(formData.get("email") ?? "");
+  const saisi = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  if (!email || !password) {
-    return { error: "Email et mot de passe requis." };
+  if (!saisi || !password) {
+    return { error: "Identifiant et mot de passe requis." };
   }
 
-  // Anti-force-brute : après 5 échecs en 15 min, blocage temporaire de l'email.
+  // Un salarié se connecte avec son MATRICULE : on le traduit en identifiant interne. La Direction
+  // et la RH gardent la connexion par e-mail. (Domaine .salarie.local = clé, jamais un vrai e-mail.)
+  const email = estMatricule(saisi) ? emailInterneMatricule(saisi) : saisi.toLowerCase();
+
+  // Anti-force-brute : après 5 échecs en 15 min, blocage temporaire de l'identifiant.
   const attente = await minutesBlocage(email);
   if (attente > 0) {
     return { error: `Trop de tentatives. Réessayez dans ${attente} min, ou utilisez « Mot de passe oublié ».` };
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     await enregistrerEchec(email, await ipClient());
     return { error: "Identifiants incorrects." };
+  }
+
+  // Compte salarié alors que l'espace salarié est désactivé sur ce déploiement : on refuse.
+  const sub = data.user?.id;
+  if (sub) {
+    const profil = await prisma.user.findUnique({ where: { id: sub }, select: { role: true, actif: true } });
+    if (profil && (!profil.actif || (profil.role === "EMPLOYE" && !(await espaceEmployeActif())))) {
+      await supabase.auth.signOut();
+      return { error: "Identifiants incorrects." };
+    }
   }
 
   await effacerEchecs(email);

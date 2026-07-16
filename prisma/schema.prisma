@@ -12,6 +12,7 @@ enum Role {
   MANAGER
   VIEWER
   STOCK
+  EMPLOYE // espace salarié en lecture seule (+ ses propres congés) — activable par déploiement
 
   @@schema("public")
 }
@@ -86,6 +87,7 @@ model User {
   actif      Boolean   @default(true)
   employeeId String?   @unique // compte lié à une fiche employé (même personne)
   employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
+  motDePasseTemporaire Boolean @default(false) // compte salarié : forcer le changement à la 1re connexion
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -121,7 +123,19 @@ model Config {
   anneeCourante Int
   moisCourant   Int
   jourPaie      Int      @default(30) // jour du mois de la paie convenue (frise + alerte clôture)
+  espaceEmployeActif Boolean @default(false) // ouvre l'espace salarié (self-service) — OFF par défaut
   updatedAt     DateTime @updatedAt
+
+  @@schema("public")
+}
+
+/// Semaine de planning PUBLIÉE (visible par les salariés dans leur espace). Tant qu'une semaine
+/// n'est pas publiée, seuls la Direction/RH la voient. `lundi` = lundi UTC de la semaine.
+model SemainePubliee {
+  id           String   @id @default(uuid())
+  lundi        DateTime @unique @db.Date
+  publieeParId String?
+  createdAt    DateTime @default(now())
 
   @@schema("public")
 }

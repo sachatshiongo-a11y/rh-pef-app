@@ -12,6 +12,8 @@ import { AutoPlanningForm } from "./auto-planning-form";
 import { PlanningSemaine, type SemaineEmployee } from "./planning-semaine";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 import { joursEnConge } from "@/lib/conges-couverture";
+import { espaceEmployeActif } from "@/lib/espace-employe";
+import { PublierSemaineBtn } from "./publier-btn";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 
@@ -291,7 +293,7 @@ export default async function PlanningPage({
   const debutSemaine = dates[0];
   const finSemaine = dates[6];
 
-  const [employeesRaw, creneaux, feriesDuMois] = await Promise.all([
+  const [employeesRaw, creneaux, feriesDuMois, espaceActif, semainePubliee] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -299,6 +301,8 @@ export default async function PlanningPage({
     }),
     prisma.planningCreneau.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
+    espaceEmployeActif(),
+    prisma.semainePubliee.findUnique({ where: { lundi: debutSemaine }, select: { id: true } }),
   ]);
   // Decimal → number dès la source : aucun objet Prisma non sérialisable ne franchit la frontière client.
   const employees = employeesRaw.map((e) => ({ ...e, heuresHebdomadaires: Number(e.heuresHebdomadaires) }));
@@ -342,6 +346,7 @@ export default async function PlanningPage({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
           {boutonsExport(`?debut=${isoDates[0]}`)}
+          {peutModifier && espaceActif && <PublierSemaineBtn lundiIso={isoDates[0]} publiee={!!semainePubliee} />}
           {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}
           <Link href={`/planning?debut=${semainePrec}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
           <Link href="/planning" className="rounded-md border px-3 py-1.5 hover:bg-accent">Cette semaine</Link>

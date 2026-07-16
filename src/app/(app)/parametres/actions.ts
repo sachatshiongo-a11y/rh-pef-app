@@ -23,6 +23,16 @@ export async function mettreAJourConfig(formData: FormData) {
   revalidatePath("/accueil");
 }
 
+/** Active / désactive l'espace salarié (self-service). Réservé à l'ADMIN. OFF par défaut. */
+export async function basculerEspaceEmploye(formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const actif = String(formData.get("actif")) === "1";
+  await prisma.config.update({ where: { id: "singleton" }, data: { espaceEmployeActif: actif } });
+  revalidatePath("/parametres");
+  revalidatePath("/", "layout");
+}
+
 /**
  * Paramètres légaux versionnés — modification réservée à l'ADMIN (le directeur).
  * Toute modification remet le statut à « À VALIDER » sauf validation explicite.

@@ -72,3 +72,36 @@ export async function changerMotDePasseAdmin(userId: string, nouveauMotDePasse: 
   });
   if (!res.ok) throw new Error(`Échec de la mise à jour du mot de passe (${res.status}).`);
 }
+
+/**
+ * Crée un utilisateur Supabase Auth (service role) et renvoie son id (= futur User.id).
+ * `emailConfirme` marque l'e-mail comme vérifié (comptes salariés à identifiant interne : pas
+ * d'e-mail de confirmation à envoyer). Le mot de passe est fourni par l'appelant.
+ */
+export async function creerUtilisateurAuth(email: string, motDePasse: string): Promise<string> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const res = await fetch(`${base}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password: motDePasse, email_confirm: true }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    if (res.status === 422 || /already/i.test(txt)) throw new Error("Un compte existe déjà pour ce salarié.");
+    throw new Error(`Échec de la création du compte (${res.status}).`);
+  }
+  const data = (await res.json()) as { id?: string };
+  if (!data.id) throw new Error("Réponse inattendue du service d'authentification.");
+  return data.id;
+}
+
+/** Supprime un utilisateur Supabase Auth (service role) — nettoyage après échec ou désactivation. */
+export async function supprimerUtilisateurAuth(userId: string): Promise<void> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  await fetch(`${base}/auth/v1/admin/users/${userId}`, {
+    method: "DELETE",
+    headers: { apikey: key, Authorization: `Bearer ${key}` },
+  }).catch(() => {});
+}

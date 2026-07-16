@@ -20,6 +20,8 @@ import { lundiDe } from "@/lib/dates-fr";
 import { dureeShift, libelleShift } from "../../planning/creneaux";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { TempsTravail } from "./temps-travail";
+import { espaceEmployeActif } from "@/lib/espace-employe";
+import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges } from "@/lib/regles-contrats";
 
@@ -166,6 +168,12 @@ export default async function FicheEmployePage({
     tab === "contrats"
       ? [...new Set((await prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true } })).map((m) => m.jour))]
       : [];
+
+  // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Contrats.
+  const espaceActif = tab === "contrats" && estAdmin ? await espaceEmployeActif() : false;
+  const compteSalarie = espaceActif
+    ? await prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true } })
+    : null;
 
   // Onglet « Temps de travail » : planning (2 semaines) + heures réelles (8 dernières semaines).
   const lundiCourantIso = isoDe(lundiSemaine);
@@ -762,6 +770,16 @@ export default async function FicheEmployePage({
           heures={donneesTemps.heures}
           codes={donneesTemps.codes}
         />
+      )}
+
+      {tab === "contrats" && espaceActif && (
+        <div className="mb-5">
+          <CompteEmployePanel
+            employeeId={employee.id}
+            aCompte={compteSalarie?.role === "EMPLOYE"}
+            compteActif={compteSalarie?.actif ?? false}
+          />
+        </div>
       )}
 
       {(tab === "contrats" || tab === "fin" || tab === "dossier") && (
