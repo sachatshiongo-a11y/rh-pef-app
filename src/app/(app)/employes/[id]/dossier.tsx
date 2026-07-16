@@ -126,6 +126,7 @@ export function DossierEmploye({
   vue,
   employeeId,
   poste,
+  fichePosteExiste,
   fichePosteDescription,
   fichePosteFichierUrl,
   salaireMensuel,
@@ -150,6 +151,7 @@ export function DossierEmploye({
   vue: "contrats" | "fin" | "dossier";
   employeeId: string;
   poste: string;
+  fichePosteExiste?: boolean;
   fichePosteDescription?: string | null;
   fichePosteFichierUrl?: string | null;
   salaireMensuel: number;
@@ -249,6 +251,12 @@ export function DossierEmploye({
                 <p className="text-xs text-muted-foreground">Description des tâches</p>
                 {fichePosteDescription?.trim() ? (
                   <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescription.trim()}</p>
+                ) : fichePosteExiste ? (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    La fiche de poste existe mais n&apos;a pas de description texte.{" "}
+                    <a href="/fiches-poste" className="text-primary underline">Ajouter une description</a>
+                    {fichePosteFichierUrl ? " ou consultez le document ci-dessous." : "."}
+                  </p>
                 ) : (
                   <p className="mt-1 text-sm text-muted-foreground">
                     Aucune fiche de poste pour «&nbsp;{c.poste}&nbsp;».{" "}

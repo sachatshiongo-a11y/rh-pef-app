@@ -82,7 +82,8 @@ export default async function FicheEmployePage({
     prisma.evaluation.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.documentEmploye.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } }),
     // Fiche de poste liée à l'intitulé de poste du salarié (tâches affichées dans l'onglet Contrat).
-    prisma.fichePoste.findUnique({ where: { poste: employee.poste } }),
+    // Correspondance insensible à la casse et aux espaces (ex. « Chef de salle » vs « chef de salle »).
+    prisma.fichePoste.findFirst({ where: { poste: { equals: employee.poste.trim(), mode: "insensitive" } } }),
   ]);
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -789,6 +790,7 @@ export default async function FicheEmployePage({
         vue={tab}
         employeeId={employee.id}
         poste={employee.poste}
+        fichePosteExiste={Boolean(fichePoste)}
         fichePosteDescription={fichePoste?.description ?? null}
         fichePosteFichierUrl={fichePoste?.fichierUrl ?? null}
         salaireMensuel={Number(employee.salaireMensuel)}
