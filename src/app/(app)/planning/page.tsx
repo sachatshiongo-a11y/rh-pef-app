@@ -14,6 +14,7 @@ import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 import { joursEnConge } from "@/lib/conges-couverture";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { PublierSemaineBtn } from "./publier-btn";
+import { VueSelect } from "./vue-select";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 
@@ -79,17 +80,7 @@ export default async function PlanningPage({
   // contexte temporel en changeant de vue. `renderOnglets` est appelé dans chaque branche avec les
   // liens adaptés à la période affichée.
   const renderOnglets = (semaineHref: string, moisHref: string) => (
-    <div className="flex overflow-hidden rounded-md border text-sm">
-      <Link href={semaineHref} className={`px-3 py-1.5 ${vue === "semaine" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-        Semaine
-      </Link>
-      <Link href={moisHref} className={`px-3 py-1.5 ${vue === "mois" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-        Mois
-      </Link>
-      <Link href="/planning?vue=modele" className={`px-3 py-1.5 ${vue === "modele" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-        Modèle hebdo
-      </Link>
-    </div>
+    <VueSelect vue={vue} semaineHref={semaineHref} moisHref={moisHref} />
   );
   const ongletsDefaut = renderOnglets("/planning?vue=semaine", "/planning?vue=mois");
   // Export PDF/Excel — téléchargement direct, conserve la période affichée.
@@ -104,25 +95,36 @@ export default async function PlanningPage({
   // Bouton de génération auto : rendu inline (un composant défini dans le rendu serait remonté à chaque rendu).
   const shiftsPourAuto = shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }));
 
+  const chipsLegende = (
+    <div className="flex flex-wrap gap-2">
+      {shiftsActifs.map((s) => (
+        <span key={s.id} className={`rounded-md px-2 py-1 text-xs ${paletteDe(s.couleur).classe}`}>
+          {libelleShift(s.nom, s.heureDebut, s.heureFin)}
+        </span>
+      ))}
+    </div>
+  );
+  // Lecteurs (sans droit de modif) : seule la légende, repliée.
   const legende = (
     <details className="mb-4">
       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Légende des shifts</summary>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {shiftsActifs.map((s) => (
-          <span key={s.id} className={`rounded-md px-2 py-1 text-xs ${paletteDe(s.couleur).classe}`}>
-            {libelleShift(s.nom, s.heureDebut, s.heureFin)}
-          </span>
-        ))}
-      </div>
+      <div className="mt-2">{chipsLegende}</div>
     </details>
   );
 
-  // Panneaux de configuration (shifts + effectifs requis) regroupés côte à côte pour épurer la vue.
+  // Réglages + légende regroupés sous UN SEUL volet replié au-dessus de la grille (épure la vue :
+  // par défaut, une seule barre fine au lieu de la légende + la rangée de panneaux de config).
   const configPanels = peutModifier ? (
-    <div className="mb-4 grid items-start gap-3 md:grid-cols-2">
-      <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
-      {besoinsPanel}
-    </div>
+    <details className="mb-4 rounded-lg border bg-card">
+      <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-muted-foreground">Réglages &amp; légende — shifts, effectifs requis, couleurs</summary>
+      <div className="space-y-3 border-t p-3">
+        {chipsLegende}
+        <div className="grid items-start gap-3 md:grid-cols-2">
+          <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
+          {besoinsPanel}
+        </div>
+      </div>
+    </details>
   ) : null;
 
   // -------------------------------------------------------------- VUE MODÈLE
@@ -241,8 +243,7 @@ export default async function PlanningPage({
           </div>
         </div>
 
-        {configPanels}
-        {legende}
+        {configPanels ?? legende}
 
         {/* Aperçu calendrier (lecture) — replié par défaut, la grille éditable ci-dessous fait foi */}
         <details className="mb-6">
@@ -354,8 +355,7 @@ export default async function PlanningPage({
         </div>
       </div>
 
-      {configPanels}
-      {legende}
+      {configPanels ?? legende}
 
       {employees.length === 0 ? (
         <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
