@@ -37,7 +37,7 @@ export default async function EspaceLayout({ children }: { children: React.React
   ];
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col overflow-x-hidden">
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-3xl flex-col">
       {/* En-tête + nav COLLANTS, avec padding d'encoche (safe-area) pour le mode PWA plein écran :
           sans ça, l'en-tête passe sous la barre d'état / l'encoche de l'iPhone. */}
       <div className="sticky top-0 z-20 bg-background/95 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur sm:px-4">
