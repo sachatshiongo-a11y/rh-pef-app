@@ -31,6 +31,7 @@ export default async function EspaceLayout({ children }: { children: React.React
     { href: "/espace", icone: "accueil", label: "Accueil" },
     { href: "/espace/pointer", icone: "horloge", label: "Pointer" },
     { href: "/espace/planning", icone: "calendrier", label: "Planning & heures" },
+    { href: "/espace/paie", icone: "billet", label: "Ma paie" },
     { href: "/espace/conges", icone: "parasol", label: "Congés" },
     { href: "/espace/dossier", icone: "dossier", label: "Dossier" },
     { href: "/espace/documents", icone: "document", label: "Documents" },

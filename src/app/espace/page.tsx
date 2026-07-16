@@ -15,19 +15,22 @@ export default async function EspaceAccueil() {
   const s = await chargerSalarie();
   const params = await chargerParametresPaie();
   const now = new Date();
-  const lundi = lundiDe(new Date(Date.now() + 3_600_000));
-  const dimanche = new Date(lundi);
-  dimanche.setUTCDate(dimanche.getUTCDate() + 6);
+  // « Aujourd'hui » à l'heure de Kinshasa (UTC+1) → DATE à minuit UTC (cohérent avec le planning).
+  const k = new Date(Date.now() + 3_600_000);
+  const today = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
+  const lundiCourant = lundiDe(k);
 
-  const [emp, congesEnAttente, prochainCreneau, semainePubliee] = await Promise.all([
+  const [emp, congesEnAttente, prochainsCreneaux, publiees] = await Promise.all([
     prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { contrat: true, dateEmbauche: true } }),
     prisma.leaveRequest.count({ where: { employeeId: s.employeeId, statut: "EN_ATTENTE" } }),
-    prisma.planningCreneau.findFirst({
-      where: { employeeId: s.employeeId, date: { gte: lundi } },
+    // Prochains services À PARTIR D'AUJOURD'HUI (plus de créneaux passés de la semaine).
+    prisma.planningCreneau.findMany({
+      where: { employeeId: s.employeeId, date: { gte: today } },
       orderBy: { date: "asc" },
+      take: 21,
       select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true } } },
     }),
-    prisma.semainePubliee.findUnique({ where: { lundi }, select: { id: true } }),
+    prisma.semainePubliee.findMany({ where: { lundi: { gte: lundiCourant } }, select: { lundi: true } }),
   ]);
 
   const anciennete = ancienneteEnMois(new Date(emp.dateEmbauche), now);
@@ -40,7 +43,11 @@ export default async function EspaceAccueil() {
   const congesPris = congesAnnee.filter((l) => congeDeductibleDuSolde(l.type)).reduce((a, l) => a + Number(l.nbJours), 0);
   const solde = Math.round((congesAcquis - congesPris) * 10) / 10;
 
-  const creneauVisible = semainePubliee ? prochainCreneau : null;
+  // Prochain service = premier créneau à venir dont la SEMAINE est publiée (et qui a un horaire).
+  const publieeSet = new Set(publiees.map((p) => new Date(p.lundi).toISOString().slice(0, 10)));
+  const creneauVisible = prochainsCreneaux.find(
+    (c) => c.shift.heureDebut && publieeSet.has(lundiDe(new Date(c.date)).toISOString().slice(0, 10)),
+  ) ?? null;
 
   return (
     <div className="space-y-5">
@@ -55,7 +62,7 @@ export default async function EspaceAccueil() {
         <Carte
           titre="Prochain service"
           valeur={creneauVisible ? (creneauVisible.shift.heureDebut ?? creneauVisible.shift.nom) : "—"}
-          sousTitre={creneauVisible ? new Date(creneauVisible.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }) : "planning non publié"}
+          sousTitre={creneauVisible ? new Date(creneauVisible.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }) : "aucun service publié à venir"}
           icone="calendrier"
           href="/espace/planning"
         />
@@ -64,10 +71,12 @@ export default async function EspaceAccueil() {
       <div className="rounded-2xl border bg-card p-5">
         <h2 className="mb-3 text-base font-semibold">Accès rapides</h2>
         <div className="grid gap-2 sm:grid-cols-2">
-          <LienRapide href="/espace/planning" icone="calendrier" titre="Mon planning" desc="Mes services des semaines publiées" />
+          <LienRapide href="/espace/pointer" icone="horloge" titre="Pointer" desc="Pointer mon arrivée et mon départ" />
+          <LienRapide href="/espace/planning" icone="calendrier" titre="Planning & heures" desc="Mes services et mes heures effectuées" />
+          <LienRapide href="/espace/paie" icone="billet" titre="Ma paie" desc="Aperçu du bulletin, heures supp., acompte" />
           <LienRapide href="/espace/conges" icone="parasol" titre="Mes congés" desc="Demander un congé, suivre mes demandes" />
           <LienRapide href="/espace/dossier" icone="dossier" titre="Mon dossier" desc="Contrat, poste, rémunération" />
-          <LienRapide href="/espace/documents" icone="document" titre="Mes documents" desc="Bulletins, contrats, attestations" />
+          <LienRapide href="/espace/documents" icone="document" titre="Mes documents" desc="Bulletins, certificats, attestations" />
         </div>
       </div>
     </div>

@@ -1,12 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "../garde";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { envoyerMonCertificat } from "../actions";
+import { Icone } from "@/components/icones";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const moisAnnee = (m: number, a: number) => new Date(a, m - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
-export default async function EspaceDocuments() {
+export default async function EspaceDocuments({ searchParams }: { searchParams: Promise<{ certif?: string; erreur?: string }> }) {
   const s = await chargerSalarie();
+  const sp = await searchParams;
   const [bulletins, contrats, documents] = await Promise.all([
     // Seuls les bulletins VALIDÉS ou PAYÉS sont montrés au salarié (pas les brouillons en préparation).
     prisma.payrollLine.findMany({
@@ -24,6 +28,25 @@ export default async function EspaceDocuments() {
       <div>
         <h1 className="text-xl font-semibold">Mes documents</h1>
         <p className="text-sm text-muted-foreground">Vos bulletins de paie, contrats et documents personnels.</p>
+      </div>
+
+      {/* Envoi d'un certificat médical à la Direction */}
+      <div className="rounded-2xl border bg-card p-5">
+        <h2 className="mb-1 flex items-center gap-2 text-base font-semibold"><Icone nom="document" className="shrink-0 text-muted-foreground" /> Envoyer un certificat médical</h2>
+        <p className="mb-3 text-sm text-muted-foreground">Transmettez votre certificat (justificatif d&apos;absence) à la Direction. Formats : PDF ou image.</p>
+        {sp.certif && <p className="mb-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Certificat envoyé à la Direction. Merci !</p>}
+        {sp.erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
+        <form action={envoyerMonCertificat} className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">Fichier du certificat
+            <input type="file" name="certificat" required accept=".pdf,.png,.jpg,.jpeg,.webp" className={`${inputCls} file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs`} />
+          </label>
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">Précision (facultatif)
+            <input type="text" name="note" placeholder="ex. arrêt maladie du 14 au 16 juillet" className={inputCls} />
+          </label>
+          <div className="sm:col-span-2">
+            <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Envoyer le certificat</button>
+          </div>
+        </form>
       </div>
 
       <Section titre="Bulletins de paie">
