@@ -253,19 +253,19 @@ export function DossierEmploye({
                 {(fichePosteDescriptionPoste?.trim() || fichePosteDescription?.trim()) ? (
                   <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
                     <div>
-                      <p className="text-xs text-muted-foreground">Description du poste</p>
+                      <p className="text-xs text-muted-foreground">Missions principales du poste</p>
                       {fichePosteDescriptionPoste?.trim() ? (
                         <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescriptionPoste.trim()}</p>
                       ) : (
-                        <p className="mt-1 text-sm text-muted-foreground">Non renseignée.</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Non renseignées.</p>
                       )}
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Description des tâches</p>
+                      <p className="text-xs text-muted-foreground">Activités et tâches principales</p>
                       {fichePosteDescription?.trim() ? (
                         <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescription.trim()}</p>
                       ) : (
-                        <p className="mt-1 text-sm text-muted-foreground">Non renseignée.</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Non renseignées.</p>
                       )}
                     </div>
                   </div>

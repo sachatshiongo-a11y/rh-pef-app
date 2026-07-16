@@ -136,13 +136,13 @@ export default async function FichesPostePage({
                       </summary>
                       {fiche?.descriptionPoste && (
                         <>
-                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Description du poste</p>
+                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Missions principales du poste</p>
                           <p className="whitespace-pre-line text-sm text-foreground/90">{fiche.descriptionPoste}</p>
                         </>
                       )}
                       {fiche?.description && (
                         <>
-                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Description des tâches</p>
+                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Activités et tâches principales</p>
                           <p className="whitespace-pre-line text-sm text-foreground/90">{fiche.description}</p>
                         </>
                       )}
@@ -183,20 +183,20 @@ export default async function FichesPostePage({
                   </summary>
                   <form action={enregistrerFichePoste} className="mt-3 space-y-2">
                     <input type="hidden" name="poste" value={poste} />
-                    <label className="block text-xs font-medium text-muted-foreground">Description du poste <span className="font-normal">(mission, rôle, positionnement)</span></label>
+                    <label className="block text-xs font-medium text-muted-foreground">Missions principales du poste</label>
                     <textarea
                       name="descriptionPoste"
                       defaultValue={fiche?.descriptionPoste ?? ""}
-                      rows={3}
-                      placeholder="En quelques phrases : la mission du poste, son rôle dans l'équipe, son positionnement…"
+                      rows={4}
+                      placeholder="Les missions principales / responsabilités du poste…"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     />
-                    <label className="block text-xs font-medium text-muted-foreground">Description des tâches — missions principales <span className="font-normal">(une par ligne)</span></label>
+                    <label className="block text-xs font-medium text-muted-foreground">Activités et tâches principales</label>
                     <textarea
                       name="description"
                       defaultValue={fiche?.description ?? ""}
                       rows={5}
-                      placeholder="Les missions / responsabilités du poste, une par ligne…"
+                      placeholder="Les activités et tâches concrètes (avant / pendant / après le service…)…"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     />
 

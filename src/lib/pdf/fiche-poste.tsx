@@ -79,8 +79,8 @@ export function FichePosteDocument({ fiche, classe }: { fiche: FichePoste; class
 
         <View style={styles.sectionEspace}>
           <PdfSectionHeader>Description du poste</PdfSectionHeader>
-          {fiche.descriptionPoste?.trim() ? <Text style={[styles.prose, { marginTop: 6 }]}>{fiche.descriptionPoste.trim()}</Text> : null}
-          <BlocListe titre="Missions principales du poste :" texte={fiche.description} />
+          <BlocListe titre="Missions principales du poste :" texte={fiche.descriptionPoste} />
+          <BlocListe titre="Activités et tâches principales :" texte={fiche.description} />
         </View>
 
         <View style={styles.sectionEspace}>
