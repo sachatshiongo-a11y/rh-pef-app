@@ -592,6 +592,7 @@ model FichePoste {
   // Champs du modèle « fiche de poste » (générateur PDF). La classe/catégorie est déduite des salariés du poste.
   typeContrat           String? // ex. « CDD à temps partiel »
   echelleSalariale      String? // ex. « 100 usd »
+  categorieProfessionnelle String? // classe RDC du poste (MANOEUVRE/OUVRIER_QUALIFIE/EMPLOYE/AGENT_MAITRISE/CADRE)
   superieurHierarchique String? // ex. « Contrôleur de gestion »
   tempsTravail          String? // ex. « 10 heures/semaine »
   competencesTechniques String? @db.Text

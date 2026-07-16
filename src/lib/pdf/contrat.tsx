@@ -189,17 +189,17 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
 
         <View style={styles.signatures} wrap={false}>
           <View style={styles.colSign}>
-            <PdfSignatureBox label="L'Employeur" signe={signatureDirectriceDisponible()} />
+            <PdfSignatureBox label="L'Employeur" signe={signatureDirectriceDisponible()} large />
           </View>
-          <View style={styles.colSign}>
+          <View style={[styles.colSign, { height: 86, justifyContent: "flex-end" }]}>
             <Text style={styles.luApprouve}>Lu et approuvé</Text>
             {accepteLe ? (
-              <Text style={styles.signLine}>
+              <Text style={[styles.signLine, { marginTop: 0 }]}>
                 {femme ? "La Salariée" : "Le Salarié"} — {employee.nom}{"\n"}
                 <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>
               </Text>
             ) : (
-              <Text style={styles.signLine}>{femme ? "La Salariée" : "Le Salarié"} — {employee.nom}</Text>
+              <Text style={[styles.signLine, { marginTop: 0 }]}>{femme ? "La Salariée" : "Le Salarié"} — {employee.nom}</Text>
             )}
           </View>
         </View>

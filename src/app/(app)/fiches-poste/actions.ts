@@ -89,6 +89,7 @@ export async function enregistrerFichePoste(formData: FormData) {
       const donneesGenerateur = {
         typeContrat: champ("typeContrat"),
         echelleSalariale: champ("echelleSalariale"),
+        categorieProfessionnelle: champ("categorieProfessionnelle"),
         superieurHierarchique: champ("superieurHierarchique"),
         tempsTravail: champ("tempsTravail"),
         competencesTechniques: champ("competencesTechniques"),

@@ -16,16 +16,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const url = new URL(request.url);
   const devise: Devise = url.searchParams.get("devise") === "CDF" ? "CDF" : "USD";
+  // ?dl=1 → téléchargement direct ; sinon affichage inline (aperçu dans le visualiseur).
+  const telecharger = url.searchParams.get("dl") === "1";
 
   const pdf = await genererBulletinPdf(id, devise);
   if (!pdf) return new Response("Bulletin introuvable", { status: 404 });
-  // Contrôle de propriété : un salarié ne peut télécharger QUE ses propres bulletins.
+  // Contrôle de propriété : un salarié ne peut consulter QUE ses propres bulletins.
   if (pdf.employeeId !== compte.employeeId) return new Response("Accès refusé", { status: 403 });
 
   return new Response(new Uint8Array(pdf.buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${pdf.nomFichier}"`,
+      "Content-Disposition": `${telecharger ? "attachment" : "inline"}; filename="${pdf.nomFichier}"`,
     },
   });
 }

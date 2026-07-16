@@ -49,6 +49,9 @@ const styles = StyleSheet.create({
   // signature de la directrice (agrandie) se place juste au-dessus de la ligne.
   signatureBox: { width: "45%", height: 60, justifyContent: "flex-end" },
   signatureImage: { width: 185, height: 52, objectFit: "contain", alignSelf: "flex-start", marginBottom: -5 },
+  // Variante « grande » (contrat) : boîte pleine largeur, signature plus grande et centrée.
+  signatureBoxLarge: { width: "100%", height: 86, justifyContent: "flex-end" },
+  signatureImageLarge: { width: 230, height: 78, objectFit: "contain", alignSelf: "center", marginBottom: -3 },
   signatureLine: {
     borderTop: `0.75 solid ${pdfColors.text}`,
     paddingTop: 4,
@@ -110,11 +113,11 @@ export function PdfSectionHeader({ children }: { children: ReactNode }) {
  * Bloc signature réutilisable. Si `signe` est vrai et que la signature de la directrice est
  * disponible (public/signatures/signature-directrice.png), elle est insérée automatiquement.
  */
-export function PdfSignatureBox({ label, signe }: { label: string; signe: boolean }) {
+export function PdfSignatureBox({ label, signe, large = false }: { label: string; signe: boolean; large?: boolean }) {
   const aSignature = signe && signatureDirectriceDisponible();
   return (
-    <View style={styles.signatureBox}>
-      {aSignature && <Image src={SIGNATURE_DIRECTRICE_PATH} style={styles.signatureImage} />}
+    <View style={large ? styles.signatureBoxLarge : styles.signatureBox}>
+      {aSignature && <Image src={SIGNATURE_DIRECTRICE_PATH} style={large ? styles.signatureImageLarge : styles.signatureImage} />}
       <Text style={styles.signatureLine}>{label}</Text>
     </View>
   );

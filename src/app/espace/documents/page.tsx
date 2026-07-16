@@ -65,8 +65,8 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                 </div>
                 <div className="flex items-center gap-3 text-sm">
                   <BulletinViewerButton payrollLineId={b.id} nom={`bulletin ${moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}`} base="/espace/bulletin" />
-                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=USD`} className="text-primary underline">$</TelechargerLien>
-                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=CDF`} className="text-primary underline">CDF</TelechargerLien>
+                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">$</TelechargerLien>
+                  <TelechargerLien href={`/espace/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
                 </div>
               </li>
             ))}

@@ -4,6 +4,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste, renommerPoste, supprimerPoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
+import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
 
 export default async function FichesPostePage({
   searchParams,
@@ -215,8 +216,14 @@ export default async function FichesPostePage({
                       <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Temps de travail
                         <input type="text" name="tempsTravail" defaultValue={fiche?.tempsTravail ?? ""} placeholder="ex. 10 heures/semaine" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
                       </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Classe / Catégorie professionnelle
+                        <select name="categorieProfessionnelle" defaultValue={fiche?.categorieProfessionnelle ?? ""} className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground">
+                          <option value="">— (déduite des salariés du poste)</option>
+                          {CATEGORIES_PRO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </label>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">La classe / catégorie professionnelle et le lieu de travail se remplissent automatiquement (catégorie des salariés du poste ; restaurant Pâtes en Folie).</p>
+                    <p className="text-[11px] text-muted-foreground">Le lieu de travail se remplit automatiquement (restaurant Pâtes en Folie). Si la catégorie n&apos;est pas choisie ici, elle est déduite des salariés du poste.</p>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Compétences techniques <span className="font-normal">(une par ligne)</span>
                         <textarea name="competencesTechniques" defaultValue={fiche?.competencesTechniques ?? ""} rows={3} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
