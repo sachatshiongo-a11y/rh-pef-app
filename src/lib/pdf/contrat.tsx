@@ -10,6 +10,11 @@ const styles = StyleSheet.create({
   page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10, fontFamily: "Optima", color: pdfColors.text, lineHeight: 1.55 },
   intro: { marginTop: 8, marginBottom: 6, textAlign: "justify" },
   partie: { marginBottom: 8, textAlign: "justify" },
+  // Tableau « ENTRE LES PARTIES » (identification de l'employeur), façon modèle Word.
+  tbl: { marginTop: 4, marginBottom: 6, borderTopWidth: 0.75, borderTopColor: "#DDD", borderBottomWidth: 0.75, borderBottomColor: "#DDD" },
+  tblRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#EEE" },
+  tblLabel: { width: "26%", backgroundColor: pdfColors.goldLight, paddingVertical: 3, paddingHorizontal: 6, fontWeight: 700, color: pdfColors.brownDark, fontSize: 9 },
+  tblValue: { width: "74%", paddingVertical: 3, paddingHorizontal: 6, fontSize: 9.5 },
   gras: { fontWeight: 700, color: pdfColors.brownDark },
   artTitre: { marginTop: 10, marginBottom: 3, fontSize: 10.5, fontWeight: 700, color: pdfColors.brownDark },
   art: { marginBottom: 4, textAlign: "justify" },
@@ -37,7 +42,7 @@ export type ParamsContrat = { preavisDemission: number | null; preavisLicencieme
  * Contrat de travail (PDF, modèle RDC) auto-rempli depuis la fiche + les termes du contrat.
  * ⚠️ Modèle générique — à FAIRE VALIDER par un juriste avant usage réel (comme les barèmes de paie).
  */
-export function ContratDocument({ employee, contrat, params, accepteLe }: { employee: Employee; contrat: Contrat; params: ParamsContrat; accepteLe?: Date | null }) {
+export function ContratDocument({ employee, contrat, params, accepteLe, fonctions }: { employee: Employee; contrat: Contrat; params: ParamsContrat; accepteLe?: Date | null; fonctions?: string | null }) {
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
   const civilite = femme ? "Madame" : "Monsieur";
   const ne = femme ? "née" : "né";
@@ -59,15 +64,19 @@ export function ContratDocument({ employee, contrat, params, accepteLe }: { empl
         </Text>
 
         <Text style={styles.ph}>ENTRE LES PARTIES</Text>
+        <View style={styles.tbl}>
+          <View style={styles.tblRow}><Text style={styles.tblLabel}>Employeur</Text><Text style={styles.tblValue}>{entreprise.nom} (enseigne «&nbsp;{entreprise.enseigne}&nbsp;»)</Text></View>
+          <View style={styles.tblRow}><Text style={styles.tblLabel}>RCCM</Text><Text style={styles.tblValue}>{entreprise.rccm}</Text></View>
+          <View style={styles.tblRow}><Text style={styles.tblLabel}>Id. Nat.</Text><Text style={styles.tblValue}>{entreprise.idNat}</Text></View>
+          <View style={styles.tblRow}><Text style={styles.tblLabel}>N° Impôt</Text><Text style={styles.tblValue}>{entreprise.numImpot}</Text></View>
+          <View style={styles.tblRow}><Text style={styles.tblLabel}>Siège</Text><Text style={styles.tblValue}>{entreprise.adresse}</Text></View>
+        </View>
         <Text style={styles.partie}>
-          <Text style={styles.gras}>{entreprise.nom}</Text>, exploitant l&apos;enseigne «&nbsp;{entreprise.enseigne}&nbsp;»,
-          immatriculée au RCCM sous le numéro {entreprise.rccm}, Id. Nat. {entreprise.idNat}, N° Impôt {entreprise.numImpot},
-          dont le siège est situé {entreprise.adresse}, ci-après dénommée «&nbsp;<Text style={styles.gras}>l&apos;Employeur</Text>&nbsp;»,
-          d&apos;une part ;
+          Ci-après dénommée «&nbsp;<Text style={styles.gras}>l&apos;Employeur</Text>&nbsp;», d&apos;une part ;
         </Text>
         <Text style={styles.partie}>
           Et <Text style={styles.gras}>{civilite} {employee.nom}</Text>, {ne} et de nationalité {employee.type === "EXPATRIE" ? "étrangère" : "congolaise"},
-          matricule {employee.matricule}{employee.telephone ? `, tél. ${employee.telephone}` : ""}, ci-après {femme ? "dénommée" : "dénommé"}{" "}
+          matricule {employee.matricule}{employee.telephone ? `, tél. ${employee.telephone}` : ""}{employee.adresse ? `, demeurant à ${employee.adresse}` : ""}, ci-après {femme ? "dénommée" : "dénommé"}{" "}
           «&nbsp;<Text style={styles.gras}>{femme ? "la Salariée" : "le Salarié"}</Text>&nbsp;», d&apos;autre part.
         </Text>
 
@@ -79,6 +88,11 @@ export function ContratDocument({ employee, contrat, params, accepteLe }: { empl
           <Text style={styles.gras}>{contrat.poste || employee.poste}</Text>. {femme ? "Elle" : "Il"}{" "}exercera ses fonctions
           sous l&apos;autorité et selon les directives de l&apos;Employeur, et s&apos;engage à les accomplir avec diligence et loyauté.
         </Text>
+        {fonctions?.trim() ? (
+          <Text style={styles.art}>
+            À ce titre, {femme ? "elle" : "il"} assure notamment les missions suivantes&nbsp;: {fonctions.trim().replace(/\s*\n\s*/g, " ")}
+          </Text>
+        ) : null}
 
         <Text style={styles.artTitre}>Article {artNo()} — Nature et durée du contrat</Text>
         <Text style={styles.art}>

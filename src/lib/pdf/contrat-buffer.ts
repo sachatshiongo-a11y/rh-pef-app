@@ -11,6 +11,10 @@ export async function genererContratPdf(contratId: string): Promise<{ buffer: Bu
   const contrat = await prisma.contrat.findUnique({ where: { id: contratId }, include: { employee: true } });
   if (!contrat) return null;
 
+  // Fonctions décrites dans la fiche de poste (missions principales) → injectées dans l'Article 1.
+  const poste = (contrat.poste || contrat.employee.poste).trim();
+  const fiche = poste ? await prisma.fichePoste.findFirst({ where: { poste: { equals: poste, mode: "insensitive" } }, select: { descriptionPoste: true } }) : null;
+
   // Préavis + droits congés depuis les paramètres légaux versionnés (À VALIDER par un comptable).
   const legaux = await prisma.parametreLegal.findMany({
     where: { cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "droits_conges_annuel"] } },
@@ -27,7 +31,7 @@ export async function genererContratPdf(contratId: string): Promise<{ buffer: Bu
   };
 
   const buffer = await renderToBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe }),
+    ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null }),
   );
   const nom = contrat.employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nom}.pdf`, employeeId: contrat.employeeId };
