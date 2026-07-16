@@ -39,7 +39,8 @@ export function ClocheSalarie({ items, nonLues }: { items: NotificationItem[]; n
       {ouvert && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOuvert(false)} />
-          <div className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border bg-card shadow-lg">
+          {/* Mobile : feuille pleine largeur ancrée en haut (respecte l'encoche) ; ordinateur : menu déroulant ancré à droite. */}
+          <div className="fixed inset-x-2 top-[max(0.5rem,env(safe-area-inset-top))] z-50 overflow-hidden rounded-xl border bg-card shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80">
             <div className="flex items-center justify-between border-b px-4 py-2.5">
               <span className="text-sm font-semibold">Notifications</span>
               {nonLues > 0 && (
