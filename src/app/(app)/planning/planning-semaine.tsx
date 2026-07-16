@@ -151,7 +151,8 @@ export function PlanningSemaine({
                 Couverture des besoins
               </button>
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-medium">
-                {shiftsCouverture.map((s) => (
+                {/* Pastilles par shift affichées seulement quand le détail est déplié (épure l'en-tête). */}
+                {couvOuverte && shiftsCouverture.map((s) => (
                   <span key={s.id} className={`rounded-full px-2 py-0.5 uppercase tracking-wide ${paletteDe(s.couleur).classe}`}>{s.nom} : {requisSemaineParShift(s.id)}</span>
                 ))}
                 <span className="rounded-full bg-foreground/10 px-2 py-0.5 tabular-nums">{fmtH(heuresSemaine)}</span>
@@ -302,11 +303,15 @@ export function PlanningSemaine({
       const pal = paletteDe(s.couleur);
       // ✨ si posé par la génération auto — sauf si l'utilisateur vient de le modifier localement.
       const auto = autoKeys.has(`${empId}_${j.iso}`) && !(`${empId}_${j.iso}` in edits);
+      const aHoraire = Boolean(s.heureDebut && s.heureFin);
+      // Épuration : la COULEUR porte le rôle (voir légende), les HORAIRES sont le texte principal ;
+      // le nom du shift revient au survol (title). Sans horaires, on affiche le nom (rien d'autre).
       return (
         <button type="button" disabled={!peutModifier} onClick={(ev) => ouvrirMenu(ev, empId, j.iso)} style={{ backgroundColor: pal.hex.bg, color: pal.hex.text }}
-          className={`${base} ${clic} relative font-medium hover:brightness-95`}>
-          <span className="flex items-center gap-1"><span className="truncate font-semibold">{s.nom}</span>{auto && <span title="Généré automatiquement" className="shrink-0 opacity-70">✨</span>}</span>
-          {s.heureDebut && s.heureFin && <span className="opacity-80">{s.heureDebut}–{s.heureFin}</span>}
+          title={`${s.nom}${aHoraire ? ` · ${s.heureDebut}–${s.heureFin}` : ""}${auto ? " (généré automatiquement)" : ""}`}
+          className={`${base} ${clic} relative items-center justify-center text-center font-semibold hover:brightness-95`}>
+          {aHoraire ? <span className="tabular-nums">{s.heureDebut}–{s.heureFin}</span> : <span className="truncate">{s.nom}</span>}
+          {auto && <span aria-hidden title="Généré automatiquement" className="absolute right-1 top-1 text-[9px] opacity-60">✨</span>}
         </button>
       );
     }

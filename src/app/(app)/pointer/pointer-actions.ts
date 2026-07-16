@@ -82,6 +82,7 @@ export async function pointerArrivee(): Promise<ResultatPointage> {
 
     await prisma.pointage.create({ data: { employeeId, date, heureDebut: now, source: "APP", creeParId: userId } });
     revalidatePath("/pointer");
+    revalidatePath("/espace/pointer");
   });
 }
 
@@ -100,6 +101,7 @@ export async function pointerDepart(formData: FormData): Promise<ResultatPointag
     await prisma.pointage.update({ where: { id: p.id }, data: { heureFin: fin, pauseMinutes } });
     await appliquerAuxPresences(employeeId, date, heures);
     revalidatePath("/pointer");
+    revalidatePath("/espace/pointer");
     revalidatePath("/presences");
     revalidatePath("/heures-supp");
     revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
@@ -131,6 +133,7 @@ export async function saisirHoraireManuel(formData: FormData): Promise<ResultatP
     });
     await appliquerAuxPresences(employeeId, date, heures);
     revalidatePath("/pointer");
+    revalidatePath("/espace/pointer");
     revalidatePath("/presences");
     revalidatePath("/heures-supp");
     revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage

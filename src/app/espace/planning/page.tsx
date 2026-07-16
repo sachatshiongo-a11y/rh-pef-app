@@ -6,6 +6,11 @@ const JOURS_COURTS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 function iso(d: Date) { return d.toISOString().slice(0, 10); }
 function addJours(base: Date, n: number) { const d = new Date(base); d.setUTCDate(d.getUTCDate() + n); return d; }
+function fmtH(h: number) {
+  const heures = Math.floor(h);
+  const min = Math.round((h - heures) * 60);
+  return `${heures}h ${String(min).padStart(2, "0")}m`;
+}
 
 export default async function EspacePlanning() {
   const s = await chargerSalarie();
@@ -14,22 +19,75 @@ export default async function EspacePlanning() {
   const semaines = [0, 1, 2, 3].map((i) => addJours(lundiCourant, i * 7));
   const fin = addJours(semaines[semaines.length - 1], 6);
 
-  const [creneaux, publiees] = await Promise.all([
+  // Heures RÉELLEMENT effectuées : mois civil en cours (heure de Kinshasa).
+  const k = new Date(Date.now() + 3_600_000);
+  const debutMois = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), 1));
+  const finMois = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() + 1, 0));
+
+  const [creneaux, publiees, heuresMois] = await Promise.all([
     prisma.planningCreneau.findMany({
       where: { employeeId: s.employeeId, date: { gte: lundiCourant, lte: fin } },
       select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true } } },
     }),
     prisma.semainePubliee.findMany({ where: { lundi: { gte: lundiCourant, lte: fin } }, select: { lundi: true } }),
+    prisma.overtimeEntry.findMany({
+      where: { employeeId: s.employeeId, date: { gte: debutMois, lte: finMois } },
+      select: { date: true, heuresTravaillees: true },
+      orderBy: { date: "asc" },
+    }),
   ]);
   const publieeSet = new Set(publiees.map((p) => iso(new Date(p.lundi))));
   const parJour = new Map(creneaux.map((c) => [iso(new Date(c.date)), c.shift]));
   const isoAuj = iso(new Date());
 
+  // Total du mois + total de la semaine en cours (heures effectuées).
+  const totalMois = heuresMois.reduce((a, h) => a + Number(h.heuresTravaillees), 0);
+  const dimCourant = addJours(lundiCourant, 6);
+  const totalSemaine = heuresMois
+    .filter((h) => { const d = new Date(h.date); return d >= lundiCourant && d <= dimCourant; })
+    .reduce((a, h) => a + Number(h.heuresTravaillees), 0);
+  const moisLabel = `${MOIS_FR[k.getUTCMonth()]} ${k.getUTCFullYear()}`;
+
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold">Mon planning</h1>
-        <p className="text-sm text-muted-foreground">Vos services des semaines publiées par la Direction.</p>
+        <h1 className="text-xl font-semibold">Planning &amp; heures</h1>
+        <p className="text-sm text-muted-foreground">Vos services publiés et vos heures réellement effectuées.</p>
+      </div>
+
+      {/* Heures effectuées */}
+      <div className="rounded-2xl border bg-card p-5">
+        <h2 className="mb-3 text-base font-semibold">Mes heures effectuées</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border p-4">
+            <p className="text-xs text-muted-foreground">Cette semaine</p>
+            <p className="text-2xl font-semibold tabular-nums">{totalSemaine > 0 ? fmtH(totalSemaine) : "—"}</p>
+          </div>
+          <div className="rounded-xl border p-4">
+            <p className="text-xs capitalize text-muted-foreground">Total {moisLabel}</p>
+            <p className="text-2xl font-semibold tabular-nums">{totalMois > 0 ? fmtH(totalMois) : "—"}</p>
+          </div>
+        </div>
+        {heuresMois.length > 0 ? (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Détail jour par jour ({moisLabel})</summary>
+            <ul className="mt-2 divide-y text-sm">
+              {heuresMois.map((h) => (
+                <li key={iso(new Date(h.date))} className="flex items-center justify-between py-1.5">
+                  <span className="capitalize">{new Date(h.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}</span>
+                  <span className="font-medium tabular-nums">{fmtH(Number(h.heuresTravaillees))}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">Aucune heure enregistrée ce mois-ci. Pensez à <b>pointer</b> vos journées.</p>
+        )}
+      </div>
+
+      <div>
+        <h2 className="mb-1 text-base font-semibold">Mon planning</h2>
+        <p className="mb-3 text-sm text-muted-foreground">Vos services des semaines publiées par la Direction.</p>
       </div>
 
       {semaines.map((lundi) => {

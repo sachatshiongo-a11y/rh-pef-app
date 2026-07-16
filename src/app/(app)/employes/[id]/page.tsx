@@ -169,8 +169,8 @@ export default async function FicheEmployePage({
       ? [...new Set((await prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true } })).map((m) => m.jour))]
       : [];
 
-  // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Contrats.
-  const espaceActif = tab === "contrats" && estAdmin ? await espaceEmployeActif() : false;
+  // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Aperçu.
+  const espaceActif = tab === "apercu" && estAdmin ? await espaceEmployeActif() : false;
   const compteSalarie = espaceActif
     ? await prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true } })
     : null;
@@ -424,6 +424,15 @@ export default async function FicheEmployePage({
 
       {tab === "apercu" && (
         <>
+      {espaceActif && (
+        <div className="mb-5">
+          <CompteEmployePanel
+            employeeId={employee.id}
+            aCompte={compteSalarie?.role === "EMPLOYE"}
+            compteActif={compteSalarie?.actif ?? false}
+          />
+        </div>
+      )}
       {apercuBulletin && (
         <HeuresTravailleesCard
           periode={periodeLabel}
@@ -770,16 +779,6 @@ export default async function FicheEmployePage({
           heures={donneesTemps.heures}
           codes={donneesTemps.codes}
         />
-      )}
-
-      {tab === "contrats" && espaceActif && (
-        <div className="mb-5">
-          <CompteEmployePanel
-            employeeId={employee.id}
-            aCompte={compteSalarie?.role === "EMPLOYE"}
-            compteActif={compteSalarie?.actif ?? false}
-          />
-        </div>
       )}
 
       {(tab === "contrats" || tab === "fin" || tab === "dossier") && (
