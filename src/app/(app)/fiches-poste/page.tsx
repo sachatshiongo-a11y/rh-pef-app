@@ -3,6 +3,7 @@ import { verifySession } from "@/lib/auth";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste, renommerPoste, supprimerPoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 
 export default async function FichesPostePage({
   searchParams,
@@ -149,13 +150,21 @@ export default async function FichesPostePage({
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {fiche && (
+                    <ContratViewerButton
+                      href={`/fiches-poste/${fiche.id}/pdf`}
+                      titre={`Fiche de poste — ${poste}`}
+                      libelle="Générer la fiche (PDF)"
+                      className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                    />
+                  )}
                   {fiche?.fichierUrl && (
                     <TelechargerLien
                       href={fiche.fichierUrl}
                       nomFichier={fiche.fichierNom ?? undefined}
                       className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
                     >
-                      Télécharger
+                      Télécharger le document
                     </TelechargerLien>
                   )}
                   {!documente && (
@@ -182,14 +191,50 @@ export default async function FichesPostePage({
                       placeholder="En quelques phrases : la mission du poste, son rôle dans l'équipe, son positionnement…"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     />
-                    <label className="block text-xs font-medium text-muted-foreground">Description des tâches <span className="font-normal">(responsabilités concrètes)</span></label>
+                    <label className="block text-xs font-medium text-muted-foreground">Description des tâches — missions principales <span className="font-normal">(une par ligne)</span></label>
                     <textarea
                       name="description"
                       defaultValue={fiche?.description ?? ""}
                       rows={5}
-                      placeholder="Les responsabilités concrètes du poste, rédigées en phrases (pas en liste à puces)…"
+                      placeholder="Les missions / responsabilités du poste, une par ligne…"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     />
+
+                    {/* Champs du générateur de fiche de poste (PDF). */}
+                    <p className="mt-2 border-t pt-2 text-xs font-semibold text-muted-foreground">Informations pour la fiche de poste (PDF)</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Type de contrat
+                        <input type="text" name="typeContrat" defaultValue={fiche?.typeContrat ?? ""} placeholder="ex. CDD à temps partiel" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Échelle salariale
+                        <input type="text" name="echelleSalariale" defaultValue={fiche?.echelleSalariale ?? ""} placeholder="ex. 100 USD" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Supérieur hiérarchique direct
+                        <input type="text" name="superieurHierarchique" defaultValue={fiche?.superieurHierarchique ?? ""} placeholder="ex. Contrôleur de gestion" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Temps de travail
+                        <input type="text" name="tempsTravail" defaultValue={fiche?.tempsTravail ?? ""} placeholder="ex. 10 heures/semaine" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">La classe / catégorie professionnelle et le lieu de travail se remplissent automatiquement (catégorie des salariés du poste ; restaurant Pâtes en Folie).</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Compétences techniques <span className="font-normal">(une par ligne)</span>
+                        <textarea name="competencesTechniques" defaultValue={fiche?.competencesTechniques ?? ""} rows={3} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Savoir-être, soft skills <span className="font-normal">(une par ligne)</span>
+                        <textarea name="savoirEtre" defaultValue={fiche?.savoirEtre ?? ""} rows={3} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Formations requises
+                        <textarea name="formationsRequises" defaultValue={fiche?.formationsRequises ?? ""} rows={2} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Diplômes requis
+                        <textarea name="diplomesRequis" defaultValue={fiche?.diplomesRequis ?? ""} rows={2} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground sm:col-span-2">Expériences exigées
+                        <textarea name="experiencesExigees" defaultValue={fiche?.experiencesExigees ?? ""} rows={2} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                    </div>
+
                     <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="file"

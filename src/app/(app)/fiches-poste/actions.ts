@@ -83,8 +83,20 @@ export async function enregistrerFichePoste(formData: FormData) {
     // forme de message lisible plutôt que de faire planter la page en « server error ».
     let erreur: string | null = null;
     try {
-      const descriptionPoste = String(formData.get("descriptionPoste") ?? "").trim() || null;
-      const description = String(formData.get("description") ?? "").trim() || null;
+      const champ = (n: string) => String(formData.get(n) ?? "").trim() || null;
+      const descriptionPoste = champ("descriptionPoste");
+      const description = champ("description");
+      const donneesGenerateur = {
+        typeContrat: champ("typeContrat"),
+        echelleSalariale: champ("echelleSalariale"),
+        superieurHierarchique: champ("superieurHierarchique"),
+        tempsTravail: champ("tempsTravail"),
+        competencesTechniques: champ("competencesTechniques"),
+        savoirEtre: champ("savoirEtre"),
+        formationsRequises: champ("formationsRequises"),
+        diplomesRequis: champ("diplomesRequis"),
+        experiencesExigees: champ("experiencesExigees"),
+      };
       const existante = await prisma.fichePoste.findUnique({ where: { poste } });
 
       let fichierUrl = existante?.fichierUrl ?? null;
@@ -97,8 +109,8 @@ export async function enregistrerFichePoste(formData: FormData) {
 
       await prisma.fichePoste.upsert({
         where: { poste },
-        create: { poste, descriptionPoste, description, fichierUrl, fichierNom, creeParId: user.id },
-        update: { descriptionPoste, description, fichierUrl, fichierNom },
+        create: { poste, descriptionPoste, description, fichierUrl, fichierNom, creeParId: user.id, ...donneesGenerateur },
+        update: { descriptionPoste, description, fichierUrl, fichierNom, ...donneesGenerateur },
       });
 
       await journaliser(prisma, {

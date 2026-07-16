@@ -588,7 +588,17 @@ model FichePoste {
   id          String   @id @default(uuid())
   poste       String   @unique
   descriptionPoste String? @db.Text // mission / rôle (« Description du poste »)
-  description String?  @db.Text // responsabilités (« Description des tâches »)
+  description String?  @db.Text // responsabilités / missions (« Description des tâches »)
+  // Champs du modèle « fiche de poste » (générateur PDF). La classe/catégorie est déduite des salariés du poste.
+  typeContrat           String? // ex. « CDD à temps partiel »
+  echelleSalariale      String? // ex. « 100 usd »
+  superieurHierarchique String? // ex. « Contrôleur de gestion »
+  tempsTravail          String? // ex. « 10 heures/semaine »
+  competencesTechniques String? @db.Text
+  savoirEtre            String? @db.Text
+  formationsRequises    String? @db.Text
+  diplomesRequis        String? @db.Text
+  experiencesExigees    String? @db.Text
   fichierUrl  String?
   fichierNom  String?
   creeParId   String?
