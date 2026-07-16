@@ -69,10 +69,10 @@ export async function notifierSalarie(
   });
 }
 
-/** Résout le compte salarié ACTIF (rôle EMPLOYE) lié à une fiche employé, s'il existe. */
+/** Résout le compte salarié ACTIF (EMPLOYE ou magasinier STOCK) lié à une fiche employé, s'il existe. */
 export async function compteSalarieDe(employeeId: string): Promise<string | null> {
   const u = await prisma.user.findUnique({ where: { employeeId }, select: { id: true, role: true, actif: true } });
-  return u && u.role === "EMPLOYE" && u.actif ? u.id : null;
+  return u && u.actif && (u.role === "EMPLOYE" || u.role === "STOCK") ? u.id : null;
 }
 
 /** Charge la cloche personnelle d'un salarié (ses notifications SALARIE). */

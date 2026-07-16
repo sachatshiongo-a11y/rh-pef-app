@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estStock, espacesDe } from "@/lib/auth";
+import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { StockShell } from "./stock-shell";
 
@@ -10,7 +11,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user)) redirect("/entree");
 
-  const [moi, nbAValider, notifs, urgents] = await Promise.all([
+  const [moi, nbAValider, notifs, urgents, espaceSalarieActif] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
     chargerNotifications("STOCK"),
@@ -25,6 +26,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
         AND s."stockMinimum" > 0
         AND s."quantite" <= 0
       GROUP BY a."domaine"`,
+    espaceEmployeActif(),
   ]);
 
   // Badge persistant par catalogue, à la manière des « Demandes à valider ».
@@ -36,7 +38,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
       userNom={user.nom}
       userRole={user.role}
       maPhoto={moi?.employe?.photoUrl ?? null}
-      doubleAcces={espacesDe(user).length > 1}
+      doubleAcces={espacesDe(user, espaceSalarieActif).length > 1}
       badges={{
         "/stock/a-valider": nbAValider,
         "/stock/commandes": nbAValider,

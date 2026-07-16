@@ -1,4 +1,4 @@
-import { verifySession } from "@/lib/auth";
+import { verifySession, estSalarie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { genererBulletinPdf } from "@/lib/pdf/bulletin-buffer";
@@ -7,11 +7,11 @@ import type { Devise } from "@/lib/pdf/theme";
 // Bulletin d'un salarié pour SON espace : accès strictement limité à ses propres bulletins.
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await verifySession();
-  if (!(await espaceEmployeActif()) || user.role !== "EMPLOYE") {
+  if (!(await espaceEmployeActif()) || !estSalarie(user)) {
     return new Response("Accès refusé", { status: 403 });
   }
-  const compte = await prisma.user.findUnique({ where: { id: user.id }, select: { employeeId: true } });
-  if (!compte?.employeeId) return new Response("Compte non relié", { status: 403 });
+  const compte = { employeeId: user.employeeId };
+  if (!compte.employeeId) return new Response("Compte non relié", { status: 403 });
 
   const { id } = await params;
   const url = new URL(request.url);

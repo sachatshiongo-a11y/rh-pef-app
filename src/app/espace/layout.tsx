@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { verifySession } from "@/lib/auth";
+import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { prisma } from "@/lib/prisma";
 import { Icone } from "@/components/icones";
@@ -16,8 +16,7 @@ import { logout } from "@/app/login/actions";
 // doit être de rôle EMPLOYE. Sinon on renvoie vers le résolveur d'entrée (qui oriente ailleurs).
 export default async function EspaceLayout({ children }: { children: React.ReactNode }) {
   const user = await verifySession();
-  if (!(await espaceEmployeActif())) redirect("/entree");
-  if (user.role !== "EMPLOYE") redirect("/entree");
+  if (!(await espaceEmployeActif()) || !estSalarie(user)) redirect("/entree");
 
   const [compte, notifs] = await Promise.all([
     prisma.user.findUnique({

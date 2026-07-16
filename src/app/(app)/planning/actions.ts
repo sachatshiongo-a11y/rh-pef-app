@@ -555,7 +555,7 @@ export async function publierSemaine(lundiIso: string) {
     });
     if (creneaux.length > 0) {
       const comptes = await prisma.user.findMany({
-        where: { role: "EMPLOYE", actif: true, employeeId: { in: creneaux.map((c) => c.employeeId) } },
+        where: { role: { in: ["EMPLOYE", "STOCK"] }, actif: true, employeeId: { in: creneaux.map((c) => c.employeeId) } },
         select: { id: true },
       });
       const label = `${lundi.getUTCDate()} ${MOIS_FR[lundi.getUTCMonth()]}`;

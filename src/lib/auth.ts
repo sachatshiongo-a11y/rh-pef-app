@@ -12,7 +12,8 @@ export type CurrentUser = {
   email: string;
   nom: string;
   role: Role;
-  accesStock: boolean; // salarié (EMPLOYE) ayant AUSSI accès à l'espace Stock (cumul de rôles)
+  accesStock: boolean; // compte salarié (EMPLOYE) ayant AUSSI accès à l'espace Stock
+  employeeId: string | null; // fiche employé liée → ouvre l'espace salarié (self-service)
 };
 
 // Cache mémoire du profil (le serveur `next start` est un process durable). Évite une requête
@@ -56,6 +57,7 @@ export const verifySession = cache(async (): Promise<CurrentUser> => {
     nom: profile.nom,
     role: profile.role,
     accesStock: profile.accesStock,
+    employeeId: profile.employeeId,
   };
   cacheProfil.set(sub, { profil, expire: Date.now() + CACHE_PROFIL_MS });
   return profil;
@@ -69,9 +71,12 @@ export function requireRole(user: CurrentUser, allowed: Role[]) {
 }
 
 // ── Accès par espace (cloisonnement RH / Stock / Salarié) ─────────────────────
-// Espaces indépendants. Le rôle porte la dimension d'accès : ADMIN (Direction) voit tout ;
-// MANAGER/VIEWER = RH ; STOCK = Stock ; EMPLOYE = espace salarié (self-service).
-// Un salarié peut CUMULER l'accès Stock (User.accesStock) → il choisit son espace à la connexion.
+// DEUX dimensions INDÉPENDANTES :
+//   1. le RÔLE porte l'accès back-office : ADMIN (Direction) = RH + Stock ; MANAGER/VIEWER = RH ;
+//      STOCK = Stock. Un salarié peut recevoir en plus l'accès Stock (User.accesStock).
+//   2. l'ESPACE SALARIÉ (self-service) appartient à tout compte OPÉRATIONNEL relié à une fiche
+//      employé (rôle EMPLOYE ou STOCK) — indépendamment de l'accès stock. Ainsi un magasinier
+//      (STOCK) relié à sa fiche a À LA FOIS l'espace Stock ET son espace salarié, sans être Direction.
 export type Espace = "rh" | "stock" | "salarie";
 
 export function estRH(role: Role): boolean {
@@ -83,12 +88,16 @@ export function estStock(user: { role: Role; accesStock?: boolean }): boolean {
   return user.role === "ADMIN" || user.role === "STOCK" || (user.role === "EMPLOYE" && !!user.accesStock);
 }
 
-/** Espaces auxquels un compte a accès (ADMIN = RH + Stock ; salarié = salarié [+ Stock si accordé]). */
-export function espacesDe(user: CurrentUser): Espace[] {
-  if (user.role === "EMPLOYE") {
-    return estStock(user) ? ["salarie", "stock"] : ["salarie"];
-  }
+/** A un espace salarié : compte opérationnel (EMPLOYE ou STOCK) relié à une fiche employé.
+ *  Ne dépend PAS de l'accès stock. Toujours conditionné à l'activation de la fonctionnalité. */
+export function estSalarie(user: { role: Role; employeeId?: string | null }): boolean {
+  return !!user.employeeId && (user.role === "EMPLOYE" || user.role === "STOCK");
+}
+
+/** Espaces auxquels un compte a accès. `espaceSalarieActif` = interrupteur global (Config). */
+export function espacesDe(user: CurrentUser, espaceSalarieActif: boolean): Espace[] {
   const espaces: Espace[] = [];
+  if (espaceSalarieActif && estSalarie(user)) espaces.push("salarie");
   if (estRH(user.role)) espaces.push("rh");
   if (estStock(user)) espaces.push("stock");
   return espaces;
@@ -101,6 +110,6 @@ export function accueilEspace(espace: Espace): string {
 
 /** À utiliser dans les Server Actions / Server Components pour exiger l'accès à un espace. */
 export function requireModule(user: CurrentUser, espace: Espace) {
-  const ok = espace === "rh" ? estRH(user.role) : espace === "stock" ? estStock(user) : user.role === "EMPLOYE";
+  const ok = espace === "rh" ? estRH(user.role) : espace === "stock" ? estStock(user) : estSalarie(user);
   if (!ok) throw new Error("Accès refusé : module non autorisé.");
 }

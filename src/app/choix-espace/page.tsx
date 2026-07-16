@@ -3,6 +3,7 @@ import Image from "next/image";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifySession, espacesDe } from "@/lib/auth";
+import { espaceEmployeActif } from "@/lib/espace-employe";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 
@@ -11,7 +12,7 @@ import { Icone } from "@/components/icones";
 // Le dernier espace visité (cookie posé par le middleware) est mis en avant.
 export default async function ChoixEspacePage() {
   const user = await verifySession();
-  const espaces = espacesDe(user);
+  const espaces = espacesDe(user, await espaceEmployeActif());
   if (espaces.length < 2) redirect("/entree");
   const dernier = (await cookies()).get("dernier-espace")?.value ?? null;
 

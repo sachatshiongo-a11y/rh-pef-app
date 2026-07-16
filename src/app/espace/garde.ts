@@ -1,6 +1,6 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { verifySession } from "@/lib/auth";
+import { verifySession, estSalarie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 
@@ -17,7 +17,7 @@ export type Salarie = {
  */
 export async function chargerSalarie(): Promise<Salarie> {
   const user = await verifySession();
-  if (!(await espaceEmployeActif()) || user.role !== "EMPLOYE") redirect("/entree");
+  if (!(await espaceEmployeActif()) || !estSalarie(user)) redirect("/entree");
 
   const compte = await prisma.user.findUnique({
     where: { id: user.id },

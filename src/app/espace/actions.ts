@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
 import { calculerJoursOuvrables } from "@/lib/payroll";
@@ -13,7 +13,7 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 /** Marque comme lues MES notifications (cloche salarié) — scopé à mon compte uniquement. */
 export async function marquerMesNotificationsLues() {
   const user = await verifySession();
-  if (user.role !== "EMPLOYE") throw new Error("Accès refusé.");
+  if (!estSalarie(user)) throw new Error("Accès refusé.");
   await prisma.notification.updateMany({ where: { domaine: "SALARIE", destinataireUserId: user.id, lu: false }, data: { lu: true } });
   revalidatePath("/espace", "layout");
 }
@@ -21,18 +21,17 @@ export async function marquerMesNotificationsLues() {
 /** Supprime UNE de mes notifications (vérifie qu'elle m'appartient). */
 export async function supprimerMaNotification(id: string) {
   const user = await verifySession();
-  if (user.role !== "EMPLOYE") throw new Error("Accès refusé.");
+  if (!estSalarie(user)) throw new Error("Accès refusé.");
   await prisma.notification.deleteMany({ where: { id, domaine: "SALARIE", destinataireUserId: user.id } });
   revalidatePath("/espace", "layout");
 }
 
-/** Garde commune à l'espace salarié : feature active + rôle EMPLOYE + fiche liée. Renvoie l'employeeId. */
+/** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
   const user = await verifySession();
-  if (!(await espaceEmployeActif()) || user.role !== "EMPLOYE") throw new Error("Accès refusé.");
-  const compte = await prisma.user.findUnique({ where: { id: user.id }, select: { employeeId: true } });
-  if (!compte?.employeeId) throw new Error("Compte non relié à une fiche employé.");
-  return { userId: user.id, employeeId: compte.employeeId };
+  if (!(await espaceEmployeActif()) || !estSalarie(user)) throw new Error("Accès refusé.");
+  if (!user.employeeId) throw new Error("Compte non relié à une fiche employé.");
+  return { userId: user.id, employeeId: user.employeeId };
 }
 
 /** Le salarié définit son nouveau mot de passe (fin du mot de passe temporaire). */
