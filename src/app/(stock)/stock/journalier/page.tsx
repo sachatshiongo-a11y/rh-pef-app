@@ -40,10 +40,17 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
         </p>
       </div>
 
-      {/* Sélecteur de vue */}
-      <div className="flex overflow-hidden rounded-md border text-sm w-fit">
+      {/* Sélecteur de vue — pleine largeur et gros onglets sur mobile (bien visible au doigt),
+          compact sur ordinateur. */}
+      <div className="flex w-full overflow-hidden rounded-lg border text-sm font-medium sm:w-fit">
         {([["conso", "Consommation"], ["commande", "Commande"], ["comparaison", "Comparaison"]] as const).map(([v, label]) => (
-          <Link key={v} href={lien({ vue: v })} className={`px-3 py-1.5 ${vue === v ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>{label}</Link>
+          <Link
+            key={v}
+            href={lien({ vue: v })}
+            className={`flex-1 border-l px-3 py-2.5 text-center first:border-l-0 sm:flex-none sm:py-1.5 ${vue === v ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+          >
+            {label}
+          </Link>
         ))}
       </div>
 
