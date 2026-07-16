@@ -125,7 +125,13 @@ export default async function FichesPostePage({
                     {fiche?.fichierNom ? ` · 📎 ${fiche.fichierNom}` : ""}
                   </p>
                   {fiche?.description && (
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{fiche.description}</p>
+                    <details className="group mt-2">
+                      <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary [&::-webkit-details-marker]:hidden">
+                        <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
+                        Voir la description
+                      </summary>
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{fiche.description}</p>
+                    </details>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
