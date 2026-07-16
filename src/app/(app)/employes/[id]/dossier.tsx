@@ -344,6 +344,8 @@ export function DossierEmploye({
                   Attestation de fin de stage →
                 </a>
               )}
+              <ContratViewerButton href={`/employes/${employeeId}/attestation/travail`} titre="Attestation de travail" libelle="Attestation de travail (PDF)" className="text-sm font-medium text-primary underline" />
+              <ContratViewerButton href={`/employes/${employeeId}/attestation/salaire`} titre="Attestation de salaire" libelle="Attestation de salaire (PDF)" className="text-sm font-medium text-primary underline" />
               {estAdmin && (
                 // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
                 <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
