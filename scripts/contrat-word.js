@@ -115,14 +115,14 @@ const doc = new Document({
         para([
           b("TOLYA SARL"), r(", exploitant l'enseigne « Pâtes en Folie », immatriculée au RCCM sous le numéro CD/KNG/RCCM/18-B-01373, Id. Nat. 01-F4300-N74832J, N° Impôt A1820933, dont le siège est situé 31, avenue Comité Urbain - Gombe - Kinshasa, ci-après dénommée « "),
           b("l'Employeur"), r(" », d'une part ;"),
-        ]),
+        ], { alignment: AlignmentType.LEFT }),
         para([
           r("Et "), b("Madame / Monsieur "), ph("NOM ET PRÉNOM DU SALARIÉ"),
           r(", né(e) le "), ph("DATE DE NAISSANCE"), r(" et de nationalité "), ph("NATIONALITÉ"),
           r(", matricule "), ph("MATRICULE"), r(", tél. "), ph("TÉLÉPHONE"),
           r(", demeurant à "), ph("ADRESSE DU SALARIÉ"),
           r(", ci-après dénommé(e) « "), b("le Salarié / la Salariée"), r(" », d'autre part.")
-        ]),
+        ], { alignment: AlignmentType.LEFT }),
 
         new Paragraph({ spacing: { before: 120, after: 120 }, children: [new TextRun({ text: "IL A ÉTÉ CONVENU CE QUI SUIT :", bold: true, size: 20, color: BROWN })] }),
 

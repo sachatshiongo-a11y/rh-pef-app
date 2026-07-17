@@ -12,7 +12,9 @@ registerPdfFonts();
 const styles = StyleSheet.create({
   page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10, fontFamily: "Optima", color: pdfColors.text, lineHeight: 1.55 },
   intro: { marginTop: 8, marginBottom: 6, textAlign: "justify" },
-  partie: { marginBottom: 8, textAlign: "justify" },
+  // Pas de justification ici : les identifiants longs et insécables (RCCM, Id. Nat.) cassent la
+  // ligne tôt et la justification écarte alors exagérément les mots restants.
+  partie: { marginBottom: 8 },
   // Tableau « ENTRE LES PARTIES » (identification de l'employeur), façon modèle Word.
   tbl: { marginTop: 4, marginBottom: 6, borderTopWidth: 0.75, borderTopColor: "#DDD", borderBottomWidth: 0.75, borderBottomColor: "#DDD" },
   tblRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#EEE" },
