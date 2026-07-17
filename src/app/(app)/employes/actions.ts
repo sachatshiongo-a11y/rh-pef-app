@@ -63,7 +63,15 @@ export async function creerEmploye(formData: FormData) {
     data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
   }
 
-  await prisma.employee.create({ data });
+  const nouvel = await prisma.employee.create({ data });
+
+  // Checklist d'intégration : copie du modèle d'onboarding pour le nouvel employé.
+  const modeleOnboarding = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
+  if (modeleOnboarding.length > 0) {
+    await prisma.tacheOnboarding.createMany({
+      data: modeleOnboarding.map((m) => ({ employeeId: nouvel.id, libelle: m.libelle, ordre: m.ordre })),
+    });
+  }
 
   revalidatePath("/employes");
   redirect("/employes");

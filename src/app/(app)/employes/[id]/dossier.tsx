@@ -17,6 +17,7 @@ import {
 import { FinContratForm } from "./fin-contrat-form";
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
+import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
 import { Icone } from "@/components/icones";
 import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat } from "../../paie/contrat-actions";
 
@@ -143,6 +144,7 @@ export function DossierEmploye({
   joursModele = [],
   contrats,
   prets = [],
+  tachesOnboarding = [],
   historique,
   disciplinaire,
   evaluations,
@@ -170,6 +172,7 @@ export function DossierEmploye({
   joursModele?: number[]; // jours travaillés selon le modèle hebdo (0=dim … 6=sam)
   contrats: Contrat[];
   prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number }[];
+  tachesOnboarding?: { id: string; libelle: string; fait: boolean; faitLe: Date | null }[];
   historique: HistoriqueSalaire[];
   disciplinaire: DossierDisciplinaire[];
   evaluations: Evaluation[];
@@ -600,6 +603,43 @@ export function DossierEmploye({
           </form>
         )}
         <p className="mt-2 text-xs text-muted-foreground">La retenue est déduite automatiquement du salaire net chaque mois (ligne « Retenue prêt » sur le bulletin) jusqu&apos;au remboursement complet.</p>
+      </Section>
+
+      {/* Intégration (onboarding) */}
+      <Section title="Intégration (onboarding)">
+        {tachesOnboarding.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            <p className="mb-2">Aucune checklist d&apos;intégration pour ce salarié.</p>
+            {peutModifier && (
+              <form action={genererOnboarding.bind(null, employeeId)}>
+                <button className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Générer la checklist d&apos;intégration</button>
+              </form>
+            )}
+          </div>
+        ) : (() => {
+          const faites = tachesOnboarding.filter((t) => t.fait).length;
+          const pct = Math.round((faites / tachesOnboarding.length) * 100);
+          return (
+            <>
+              <div className="mb-3 flex items-center gap-3">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></div>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">{faites}/{tachesOnboarding.length} · {pct}%</span>
+              </div>
+              <ul className="divide-y">
+                {tachesOnboarding.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2 py-2">
+                    <span className={t.fait ? "text-sm text-muted-foreground line-through" : "text-sm"}>{t.libelle}</span>
+                    {peutModifier ? (
+                      <form action={basculerTacheOnboarding.bind(null, employeeId, t.id)}>
+                        <button className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium ${t.fait ? "border-emerald-300 text-emerald-700" : "text-primary hover:bg-accent"}`}>{t.fait ? "✓ Fait" : "Marquer fait"}</button>
+                      </form>
+                    ) : t.fait ? <span className="text-xs text-emerald-700">✓</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          );
+        })()}
       </Section>
 
       {/* Historique salarial */}

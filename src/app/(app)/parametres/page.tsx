@@ -8,6 +8,7 @@ import {
   ajouterJourFerie,
   supprimerJourFerie,
   mettreAJourEntreprise,
+  mettreAJourModeleOnboarding,
 } from "./actions";
 import { UsersAdmin, type UserRow } from "./users-admin";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
@@ -18,7 +19,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 
-  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt] = await Promise.all([
+  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding] = await Promise.all([
     prisma.config.findUniqueOrThrow({ where: { id: "singleton" } }),
     prisma.exerciceFiscal.findFirst({
       where: { actif: true },
@@ -32,6 +33,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
     prisma.typeConge.findMany({ orderBy: { ordre: "asc" } }),
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     prisma.paramEntreprise.findUnique({ where: { id: "singleton" } }),
+    prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } }),
   ]);
   // Valeur affichée = valeur saisie, sinon valeur par défaut (theme.ts).
   const ent = (k: keyof typeof entrepriseDefaut, saved?: string | null) => (saved ?? "") || (entrepriseDefaut[k] as string) || "";
@@ -113,6 +115,22 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           <div className="sm:col-span-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Enregistrer l&apos;identité</button>
           </div>
+        </form>
+      </Section>
+
+      <Section title="Modèle d'intégration (onboarding)">
+        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+          Liste des tâches d&apos;intégration (une par ligne) — copiée automatiquement dans la fiche de chaque nouvel employé (onglet Dossier).
+        </p>
+        <form action={mettreAJourModeleOnboarding} className="space-y-2">
+          <textarea
+            name="taches"
+            rows={8}
+            defaultValue={modeleOnboarding.map((m) => m.libelle).join("\n")}
+            placeholder={"Signer le contrat de travail\nRemettre le règlement intérieur\n…"}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          />
+          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Enregistrer le modèle</button>
         </form>
       </Section>
 

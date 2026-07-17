@@ -278,6 +278,7 @@ model Employee {
   primes               Prime[]
   acomptes             AcompteSalaire[]
   prets                PretPersonnel[]
+  tachesOnboarding     TacheOnboarding[]
   fraisMed             FraisMedical[]
   demandesChangementShift DemandeChangementShift[]
   echangesDemandes     EchangeCreneau[]       @relation("EchangeDemandeur")
@@ -411,6 +412,30 @@ model PretPersonnel {
   retenues           RetenuePret[]
 
   @@index([employeeId, statut])
+  @@schema("public")
+}
+
+// Modèle de checklist d'intégration (onboarding) — tâches par défaut, éditables dans Paramètres.
+model ModeleTacheOnboarding {
+  id      String @id @default(uuid())
+  libelle String
+  ordre   Int    @default(0)
+
+  @@schema("public")
+}
+
+// Tâche d'intégration d'un employé (copiée depuis le modèle à l'embauche).
+model TacheOnboarding {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  libelle    String
+  ordre      Int       @default(0)
+  fait       Boolean   @default(false)
+  faitLe     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([employeeId])
   @@schema("public")
 }
 

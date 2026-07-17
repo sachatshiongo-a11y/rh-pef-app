@@ -75,7 +75,7 @@ export default async function FicheEmployePage({
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
 
-  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets] = await Promise.all([
+  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets, tachesOnboarding] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
     prisma.historiqueSalaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.dossierDisciplinaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
@@ -85,6 +85,7 @@ export default async function FicheEmployePage({
     // Correspondance insensible à la casse et aux espaces (ex. « Chef de salle » vs « chef de salle »).
     prisma.fichePoste.findFirst({ where: { poste: { equals: employee.poste.trim(), mode: "insensitive" } } }),
     prisma.pretPersonnel.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, include: { retenues: { orderBy: [{ annee: "asc" }, { mois: "asc" }] } } }),
+    prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
   ]);
   const pretsView = prets.map((p) => {
     const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
@@ -821,6 +822,7 @@ export default async function FicheEmployePage({
         joursModele={joursModele}
         contrats={contrats}
         prets={pretsView}
+        tachesOnboarding={tachesOnboarding.map((t) => ({ id: t.id, libelle: t.libelle, fait: t.fait, faitLe: t.faitLe }))}
         historique={historique}
         disciplinaire={disciplinaire}
         evaluations={evaluations}

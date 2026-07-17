@@ -22,6 +22,21 @@ async function televerserImageEntreprise(dossier: string, file: File): Promise<{
   return { url: `/fichiers/${path}`, nom: file.name };
 }
 
+/** Modèle de checklist d'intégration (onboarding) : une tâche par ligne. Admin. */
+export async function mettreAJourModeleOnboarding(formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const lignes = String(formData.get("taches") ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  await prisma.$transaction([
+    prisma.modeleTacheOnboarding.deleteMany({}),
+    prisma.modeleTacheOnboarding.createMany({ data: lignes.map((libelle, i) => ({ libelle, ordre: i + 1 })) }),
+  ]);
+  revalidatePath("/parametres");
+}
+
 /** Identité de l'entreprise (en-tête/pied des documents) : coordonnées, logo, signature. Admin. */
 export async function mettreAJourEntreprise(formData: FormData) {
   await formulaireLisible("/parametres", async () => {
