@@ -9,7 +9,10 @@ import { lireFichier } from "@/lib/storage";
  * Génère le PDF d'un contrat (buffer + nom de fichier) — partagé entre la route Direction
  * (/employes/[id]/contrat) et l'espace salarié (/espace/contrat). Renvoie null si introuvable.
  */
-export async function genererContratPdf(contratId: string): Promise<{ buffer: Buffer; nomFichier: string; employeeId: string } | null> {
+export async function genererContratPdf(
+  contratId: string,
+  opts?: { ignorerFige?: boolean },
+): Promise<{ buffer: Buffer; nomFichier: string; employeeId: string } | null> {
   const contrat = await prisma.contrat.findUnique({ where: { id: contratId }, include: { employee: true } });
   if (!contrat) return null;
 
@@ -17,7 +20,7 @@ export async function genererContratPdf(contratId: string): Promise<{ buffer: Bu
 
   // Contrat ACCEPTÉ : on sert l'exemplaire FIGÉ au moment de l'acceptation (celui qui fait foi),
   // jamais une régénération — le modèle a pu évoluer depuis.
-  if (contrat.pdfAccepteUrl) {
+  if (contrat.pdfAccepteUrl && !opts?.ignorerFige) {
     const fige = await lireFichier(contrat.pdfAccepteUrl);
     if (fige) return { buffer: fige, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
   }

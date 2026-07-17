@@ -6,6 +6,8 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerReglesContrats, verifierProlongationCdd, verifierProlongationEssai } from "@/lib/regles-contrats";
+import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
+import { televerserFichier } from "@/lib/storage";
 import type { TypeContrat } from "@prisma/client";
 
 function revalider(employeeId: string) {
@@ -132,6 +134,33 @@ export async function modifierContrat(id: string, formData: FormData) {
     });
     revalider(contrat.employeeId);
   });
+}
+
+/**
+ * Fige l'exemplaire PDF du contrat — c'est lui qui FAIT FOI ensuite (plus de régénération).
+ * Normalement déclenché par l'acceptation numérique du salarié ; cette action permet à la
+ * Direction de le figer elle-même (indispensable quand l'espace salarié est désactivé).
+ * Un contrat déjà figé ne peut être remplacé que par un Admin.
+ */
+export async function figerContrat(id: string) {
+  const user = await verifySession();
+  const contrat = await prisma.contrat.findUnique({ where: { id }, select: { employeeId: true, pdfAccepteUrl: true } });
+  if (!contrat) return;
+  requireRole(user, contrat.pdfAccepteUrl ? ["ADMIN"] : ["ADMIN", "MANAGER"]);
+
+  // ignorerFige : on régénère depuis les données courantes (sinon on recopierait l'ancien exemplaire).
+  const pdf = await genererContratPdf(id, { ignorerFige: true });
+  if (!pdf) return;
+  const url = await televerserFichier(`contrats/${id}.pdf`, pdf.buffer, "application/pdf");
+  await prisma.contrat.update({ where: { id }, data: { pdfAccepteUrl: url } });
+  await journaliser(prisma, {
+    entite: "Contrat",
+    entiteId: id,
+    champ: "figeage",
+    nouvelleValeur: contrat.pdfAccepteUrl ? "exemplaire figé remplacé" : "exemplaire figé",
+    userId: user.id,
+  });
+  revalider(contrat.employeeId);
 }
 
 /** Rompt un contrat (statut RÉSILIÉ) — sortie de l'employé. */

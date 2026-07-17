@@ -17,9 +17,10 @@ import {
 import { FinContratForm } from "./fin-contrat-form";
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
+import { listeEnProse } from "@/lib/texte";
 import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
 import { Icone } from "@/components/icones";
-import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat } from "../../paie/contrat-actions";
+import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat, figerContrat } from "../../paie/contrat-actions";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -261,7 +262,7 @@ export function DossierEmploye({
                     <div>
                       <p className="text-xs text-muted-foreground">Missions principales du poste</p>
                       {fichePosteDescriptionPoste?.trim() ? (
-                        <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescriptionPoste.trim()}</p>
+                        <p className="mt-1 text-sm leading-relaxed text-foreground">{listeEnProse(fichePosteDescriptionPoste)}</p>
                       ) : (
                         <p className="mt-1 text-sm text-muted-foreground">Non renseignées.</p>
                       )}
@@ -269,7 +270,7 @@ export function DossierEmploye({
                     <div>
                       <p className="text-xs text-muted-foreground">Activités et tâches principales</p>
                       {fichePosteDescription?.trim() ? (
-                        <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-foreground">{fichePosteDescription.trim()}</p>
+                        <p className="mt-1 text-sm leading-relaxed text-foreground">{listeEnProse(fichePosteDescription)}</p>
                       ) : (
                         <p className="mt-1 text-sm text-muted-foreground">Non renseignées.</p>
                       )}
@@ -356,6 +357,21 @@ export function DossierEmploye({
               )}
               <ContratViewerButton href={`/employes/${employeeId}/attestation/travail`} titre="Attestation de travail" libelle="Attestation de travail (PDF)" className="text-sm font-medium text-primary underline" />
               <ContratViewerButton href={`/employes/${employeeId}/attestation/salaire`} titre="Attestation de salaire" libelle="Attestation de salaire (PDF)" className="text-sm font-medium text-primary underline" />
+              {/* Figeage par la Direction : indispensable si l'espace salarié (acceptation) est désactivé. */}
+              {peutModifier && !c.pdfAccepteUrl && (
+                <form action={figerContrat.bind(null, c.id)}>
+                  <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Enregistre l'exemplaire PDF définitif : c'est lui qui fera foi (plus de régénération).">
+                    Figer l&apos;exemplaire (fait foi)
+                  </button>
+                </form>
+              )}
+              {estAdmin && c.pdfAccepteUrl && (
+                <form action={figerContrat.bind(null, c.id)}>
+                  <button className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent" title="Remplace l'exemplaire figé par une régénération depuis les données actuelles.">
+                    Re-figer
+                  </button>
+                </form>
+              )}
               {estAdmin && (
                 // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
                 <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">

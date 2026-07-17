@@ -16,27 +16,28 @@ const styles = StyleSheet.create({
   bloc: { marginTop: 6, marginBottom: 4 },
   blocTitre: { fontSize: 10, fontWeight: 700, color: pdfColors.brownDark, marginTop: 6, marginBottom: 2 },
   prose: { textAlign: "justify", marginBottom: 3 },
-  puce: { flexDirection: "row", marginBottom: 1.5 },
-  puceMarque: { width: 10 },
-  puceTexte: { flex: 1, textAlign: "justify" },
+  // Tableau des missions / activités : une ligne = un élément (numérotée).
+  tbl: { marginTop: 2, borderTopWidth: 0.5, borderTopColor: "#DDD" },
+  tblRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#DDD", paddingVertical: 3 },
+  tblNum: { width: 20, paddingLeft: 4, fontSize: 9, color: pdfColors.brownDark, fontWeight: 700 },
+  tblTxt: { flex: 1, paddingRight: 4, textAlign: "justify" },
   vide: { color: pdfColors.textMuted, fontStyle: "italic" },
   sectionEspace: { marginTop: 10 },
 });
 
-/** Découpe un texte multi-lignes en éléments de liste (une puce par ligne non vide). */
+/** Découpe un texte en éléments (une ligne = un élément) et les présente en TABLEAU numéroté. */
 function Liste({ texte }: { texte: string | null | undefined }) {
   const lignes = (texte ?? "").split(/\r?\n/).map((l) => l.replace(/^[•\-–*]\s*/, "").trim()).filter(Boolean);
   if (lignes.length === 0) return <Text style={styles.vide}>—</Text>;
-  if (lignes.length === 1) return <Text style={styles.prose}>{lignes[0]}</Text>;
   return (
-    <>
+    <View style={styles.tbl}>
       {lignes.map((l, i) => (
-        <View key={i} style={styles.puce}>
-          <Text style={styles.puceMarque}>•</Text>
-          <Text style={styles.puceTexte}>{l}</Text>
+        <View key={i} style={styles.tblRow} wrap={false}>
+          <Text style={styles.tblNum}>{i + 1}</Text>
+          <Text style={styles.tblTxt}>{l}</Text>
         </View>
       ))}
-    </>
+    </View>
   );
 }
 

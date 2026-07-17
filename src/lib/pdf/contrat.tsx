@@ -3,6 +3,7 @@ import type { Employee, Contrat } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
+import { listeEnProse } from "@/lib/texte";
 
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
@@ -94,7 +95,7 @@ export function ContratDocument({ employee, contrat, params, accepteLe, fonction
         </Text>
         {fonctions?.trim() ? (
           <Text style={styles.art}>
-            À ce titre, {femme ? "elle" : "il"} assure notamment les missions suivantes&nbsp;: {fonctions.trim().replace(/\s*\n\s*/g, " ")}
+            À ce titre, {femme ? "elle" : "il"} assure notamment les missions suivantes&nbsp;: {listeEnProse(fonctions)}
           </Text>
         ) : null}
 

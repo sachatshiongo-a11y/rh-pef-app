@@ -18,3 +18,19 @@ export function jaccard(a: string[], b: string[]): number {
   const union = new Set([...A, ...B]).size;
   return union ? inter / union : 0;
 }
+
+/**
+ * Les missions / activités d'une fiche de poste sont saisies en LISTE (une ligne = un élément) :
+ * c'est la forme structurée, rendue en TABLEAU sur la fiche de poste PDF. Là où une rédaction
+ * suivie est attendue (contrat, carte « Poste » de la fiche employé), on convertit cette liste en
+ * énumération lisible — d'où cet utilitaire partagé.
+ */
+export function listeEnProse(texte: string | null | undefined): string {
+  const lignes = (texte ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^[•\-–*]\s*/, "").trim())
+    .filter(Boolean);
+  if (lignes.length === 0) return "";
+  if (lignes.length === 1) return lignes[0];
+  return lignes.map((l) => l.replace(/[.;]+\s*$/, "")).join(" ; ") + ".";
+}
