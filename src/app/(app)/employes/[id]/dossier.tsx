@@ -220,6 +220,22 @@ export function DossierEmploye({
               </p>
             )}
 
+            {/* L'exemplaire qui fait foi a été figé, puis les conditions ont été corrigées. */}
+            {c.pdfAccepteObsolete && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+                <p className="text-xs font-medium text-destructive">
+                  ⚠ L&apos;exemplaire figé ne reflète plus ces conditions (corrigées depuis). C&apos;est pourtant lui qui est servi et qui fait foi.
+                </p>
+                {estAdmin && (
+                  <form action={figerContrat.bind(null, c.id)}>
+                    <button className="shrink-0 rounded-md bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground hover:opacity-90">
+                      Re-figer l&apos;exemplaire
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
             {/* Informations sur le contrat */}
             <BlocContrat icone="document" titre="Informations sur le contrat">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
@@ -365,7 +381,7 @@ export function DossierEmploye({
                   </button>
                 </form>
               )}
-              {estAdmin && c.pdfAccepteUrl && (
+              {estAdmin && c.pdfAccepteUrl && !c.pdfAccepteObsolete && (
                 <form action={figerContrat.bind(null, c.id)}>
                   <button className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent" title="Remplace l'exemplaire figé par une régénération depuis les données actuelles.">
                     Re-figer

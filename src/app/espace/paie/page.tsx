@@ -24,13 +24,29 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
   const annee = config?.anneeCourante ?? new Date().getFullYear();
   const periode = `${MOIS_FR[mois - 1]} ${annee}`;
 
-  const [apercu, acomptes, ligneEnCours] = await Promise.all([
+  const [apercu, acomptes, ligneEnCours, pretsBruts] = await Promise.all([
     calculerBulletinLive(s.employeeId, mois, annee),
     prisma.acompteSalaire.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDemande: "desc" }, take: 20 }),
     // Bulletin PDF de la période en cours S'IL est déjà calculé (quel que soit son statut).
     prisma.payrollLine.findFirst({ where: { employeeId: s.employeeId, payrollRun: { mois, annee } }, select: { id: true, statutPaiement: true } }),
+    // Prêts du salarié : la retenue apparaît sur son bulletin, il doit pouvoir suivre son solde.
+    prisma.pretPersonnel.findMany({
+      where: { employeeId: s.employeeId, statut: { in: ["EN_COURS", "SOLDE"] } },
+      orderBy: { createdAt: "desc" },
+      include: { retenues: true },
+    }),
   ]);
   const totalHS = apercu ? apercu.hs30 + apercu.hs60 + apercu.hs100 : 0;
+  const prets = pretsBruts.map((p) => {
+    const montant = Number(p.montantUSD);
+    const rembourse = p.retenues.reduce((sum, r) => sum + Number(r.montantUSD), 0);
+    return {
+      id: p.id, montant, rembourse, motif: p.motif, statut: p.statut as string,
+      retenueMensuelle: Number(p.retenueMensuelleUSD),
+      solde: Math.max(0, montant - rembourse),
+      pct: montant > 0 ? Math.min(100, Math.round((rembourse / montant) * 100)) : 0,
+    };
+  });
 
   return (
     <div className="space-y-5">
@@ -70,6 +86,34 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
           </span>
         )}
       </p>
+
+      {/* Mes prêts : suivi du solde (la retenue mensuelle apparaît sur le bulletin). */}
+      {prets.length > 0 && (
+        <div className="rounded-2xl border bg-card p-5">
+          <h2 className="mb-1 text-base font-semibold">Mes prêts</h2>
+          <p className="mb-3 text-sm text-muted-foreground">Une retenue mensuelle est déduite de votre salaire net jusqu&apos;au remboursement complet.</p>
+          <ul className="divide-y">
+            {prets.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    Prêt de {usd(p.montant)}
+                    <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.statut === "SOLDE" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {p.statut === "SOLDE" ? "Soldé" : "En cours"}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">{p.motif ? `${p.motif} · ` : ""}retenue de {usd(p.retenueMensuelle)} par mois</p>
+                </div>
+                <div className="min-w-[10rem] text-right">
+                  <p className="text-sm font-semibold">Reste à rembourser : {usd(p.solde)}</p>
+                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${p.pct}%` }} /></div>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{usd(p.rembourse)} remboursés · {p.pct}%</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Demande d'acompte */}
       <div className="rounded-2xl border bg-card p-5">

@@ -148,6 +148,31 @@ export default async function PaiePage({
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
+  // Prêts en cours : encours total + échéance retenue ce mois-ci (onglet Rémunération).
+  const pretsEnCours = await prisma.pretPersonnel.findMany({
+    where: { statut: "EN_COURS" },
+    include: { employee: { select: { id: true, nom: true } }, retenues: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const pretsRecap = pretsEnCours.map((p) => {
+    const montant = Number(p.montantUSD);
+    const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
+    const dejaHorsMois = p.retenues
+      .filter((r) => !(r.mois === mois && r.annee === annee))
+      .reduce((s, r) => s + Number(r.montantUSD), 0);
+    const soldeAvant = montant - dejaHorsMois;
+    return {
+      id: p.id,
+      employeeId: p.employee.id,
+      nom: p.employee.nom,
+      montant,
+      solde: Math.max(0, montant - rembourse),
+      echeanceMois: soldeAvant > 0 ? Math.min(Number(p.retenueMensuelleUSD), soldeAvant) : 0,
+    };
+  });
+  const encoursTotal = pretsRecap.reduce((s, p) => s + p.solde, 0);
+  const echeancesMois = pretsRecap.reduce((s, p) => s + p.echeanceMois, 0);
+
   const contratsDuMois = await prisma.contrat.findMany({
     where: {
       statut: "ACTIF",
@@ -357,7 +382,39 @@ export default async function PaiePage({
       </>
       )}
 
-      {vue === "remuneration" && <RemunerationElements lignes={remuLignes} />}
+      {vue === "remuneration" && (
+        <>
+          <RemunerationElements lignes={remuLignes} />
+
+          {/* Prêts au personnel : encours et retenues du mois (vue d'ensemble). */}
+          <div className="mt-6 rounded-2xl border bg-card p-5">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold">Prêts au personnel</h2>
+                <p className="text-sm text-muted-foreground">Retenus automatiquement sur le salaire net jusqu&apos;au remboursement.</p>
+              </div>
+              <div className="flex gap-4 text-sm">
+                <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">Encours : {usd(encoursTotal)}</span>
+                <span className="rounded-full bg-muted px-3 py-1 font-medium">Retenues du mois : {usd(echeancesMois)}</span>
+              </div>
+            </div>
+            {pretsRecap.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucun prêt en cours.</p>
+            ) : (
+              <ul className="divide-y">
+                {pretsRecap.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+                    <Link href={`/employes/${p.employeeId}?tab=dossier`} className="font-medium text-primary underline">{p.nom}</Link>
+                    <span className="text-muted-foreground">Prêt de {usd(p.montant)}</span>
+                    <span>Retenue ce mois : <b>{usd(p.echeanceMois)}</b></span>
+                    <span>Reste dû : <b>{usd(p.solde)}</b></span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Historique de tous les mois de paie (fusion de l'ancien onglet /historique). */}
       {vue === "historique" && <HistoriquePaie sp={sp} />}

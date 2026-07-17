@@ -581,6 +581,9 @@ model Contrat {
   // PDF FIGÉ au moment de l'acceptation : c'est l'exemplaire qui fait foi (le contrat n'est plus
   // régénéré ensuite, même si le modèle évolue). Stocké dans Supabase Storage.
   pdfAccepteUrl   String?
+  // Passe à true si les conditions sont corrigées APRÈS le figeage : l'exemplaire figé ne reflète
+  // plus le contrat → la Direction est avertie et peut le re-figer.
+  pdfAccepteObsolete Boolean @default(false)
   createdAt       DateTime      @default(now())
 
   @@index([employeeId])

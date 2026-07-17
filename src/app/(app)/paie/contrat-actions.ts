@@ -119,6 +119,8 @@ export async function modifierContrat(id: string, formData: FormData) {
           devise,
           agence: type === "INTERIM" ? agence : null,
           coutJourUSD: type === "INTERIM" ? coutJour : null,
+          // Les conditions changent : un exemplaire déjà figé ne reflète plus le contrat.
+          pdfAccepteObsolete: contrat.pdfAccepteUrl ? true : undefined,
         },
       });
       // La fiche employé reflète le contrat courant (type, poste, salaire).
@@ -152,7 +154,7 @@ export async function figerContrat(id: string) {
   const pdf = await genererContratPdf(id, { ignorerFige: true });
   if (!pdf) return;
   const url = await televerserFichier(`contrats/${id}.pdf`, pdf.buffer, "application/pdf");
-  await prisma.contrat.update({ where: { id }, data: { pdfAccepteUrl: url } });
+  await prisma.contrat.update({ where: { id }, data: { pdfAccepteUrl: url, pdfAccepteObsolete: false } });
   await journaliser(prisma, {
     entite: "Contrat",
     entiteId: id,

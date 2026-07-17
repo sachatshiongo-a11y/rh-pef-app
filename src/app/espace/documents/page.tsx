@@ -33,6 +33,16 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
         <p className="text-sm text-muted-foreground">Vos bulletins de paie, contrats et documents personnels.</p>
       </div>
 
+      {/* Attestations en self-service : générées à la demande depuis le contrat courant. */}
+      <div className="rounded-2xl border bg-card p-5">
+        <h2 className="mb-1 flex items-center gap-2 text-base font-semibold"><Icone nom="document" className="shrink-0 text-muted-foreground" /> Mes attestations</h2>
+        <p className="mb-3 text-sm text-muted-foreground">Générez vous-même votre attestation, sans passer par la Direction.</p>
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <ContratViewerButton href="/espace/attestation/travail" titre="Attestation de travail" libelle="Attestation de travail" className="text-primary underline" />
+          <ContratViewerButton href="/espace/attestation/salaire" titre="Attestation de salaire" libelle="Attestation de salaire" className="text-primary underline" />
+        </div>
+      </div>
+
       {/* Envoi d'un certificat médical à la Direction */}
       <div className="rounded-2xl border bg-card p-5">
         <h2 className="mb-1 flex items-center gap-2 text-base font-semibold"><Icone nom="document" className="shrink-0 text-muted-foreground" /> Envoyer un certificat médical</h2>
