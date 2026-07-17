@@ -2,6 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { BulletinsDocument } from "@/lib/pdf/bulletin";
+import { chargerEntreprise } from "@/lib/entreprise";
 import type { Devise } from "@/lib/pdf/theme";
 
 /** Tous les bulletins du mois courant dans UN seul PDF (une page par employé). */
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
       montantUSD: Number(p.montantUSD),
     });
 
+  const ent = await chargerEntreprise();
   const bulletins = run.lignes.map((l) => ({
     employee: l.employee,
     ligne: l,
@@ -58,6 +60,8 @@ export async function GET(request: Request) {
     primes: primesParEmp.get(l.employeeId) ?? [],
     codesParJour: codesParEmp.get(l.employeeId) ?? {},
     feries,
+    entreprise: ent.entreprise,
+    logo: ent.logo,
   }));
 
   const buffer = await renderToBuffer(BulletinsDocument({ bulletins, devise }));

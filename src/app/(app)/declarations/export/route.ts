@@ -2,6 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { verifySession } from "@/lib/auth";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import { BordereauDeclarationsDocument } from "@/lib/pdf/declarations";
+import { chargerEntreprise } from "@/lib/entreprise";
 
 export async function GET(request: Request) {
   await verifySession();
@@ -18,12 +19,15 @@ export async function GET(request: Request) {
     return new Response("Aucune paie calculée pour ce mois", { status: 404 });
   }
 
+  const ent = await chargerEntreprise();
   const buffer = await renderToBuffer(
     BordereauDeclarationsDocument({
       lignes: bordereau.lignes,
       mois,
       annee,
       tauxChange: bordereau.tauxChange,
+      entreprise: ent.entreprise,
+      logo: ent.logo,
     })
   );
 

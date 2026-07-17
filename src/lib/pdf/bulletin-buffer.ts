@@ -3,6 +3,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { BulletinDocument } from "@/lib/pdf/bulletin";
 import type { Devise } from "@/lib/pdf/theme";
+import { chargerEntreprise } from "@/lib/entreprise";
 
 /**
  * Génère le PDF d'un bulletin (buffer + nom de fichier) à partir de sa ligne de paie.
@@ -37,6 +38,7 @@ export async function genererBulletinPdf(
   for (const a of attendances) codesParJour[new Date(a.date).getUTCDate()] = a.code;
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
+  const ent = await chargerEntreprise();
   const buffer = await renderToBuffer(
     BulletinDocument({
       employee: ligne.employee,
@@ -47,6 +49,8 @@ export async function genererBulletinPdf(
       primes: primes.map((p) => ({ nom: p.nom, montantUSD: Number(p.montantUSD) })),
       codesParJour,
       feries,
+      entreprise: ent.entreprise,
+      logo: ent.logo,
     })
   );
 

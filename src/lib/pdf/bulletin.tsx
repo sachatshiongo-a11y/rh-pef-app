@@ -2,7 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfSignatureBox } from "./layout";
-import { pdfColors, entreprise, formatMontant, type Devise } from "./theme";
+import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 
 registerPdfFonts();
@@ -197,6 +197,8 @@ function Row({
   );
 }
 
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
+
 type BulletinProps = {
   employee: Employee;
   ligne: PayrollLine;
@@ -206,10 +208,13 @@ type BulletinProps = {
   feries?: string[]; // jours fériés (AAAA-MM-JJ) exclus du décompte des congés
   primes?: { nom: string; montantUSD: number }[]; // primes détaillées (une ligne chacune)
   codesParJour?: Record<number, string>; // jour du mois -> code de présence
+  /** Identité de l'entreprise (Paramètres) ; par défaut les valeurs de theme.ts. */
+  entreprise?: typeof entrepriseDefaut;
+  logo?: ImageSrc;
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [] }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo }: BulletinProps) {
   const feriesSet = new Set(feries);
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
@@ -259,7 +264,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
 
   return (
     <Page size="A4" style={styles.page}>
-      <PdfHeader title="Bulletin de paie" subtitle={periode} />
+      <PdfHeader title="Bulletin de paie" subtitle={periode} logo={logo} />
 
       <View style={styles.identite}>
         <View style={[styles.identiteCol, styles.identiteColGauche]}>

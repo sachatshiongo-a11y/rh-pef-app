@@ -2,9 +2,11 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, Contrat } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSignatureBox, signatureDirectriceDisponible } from "./layout";
-import { pdfColors, entreprise } from "./theme";
+import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
 
 registerPdfFonts();
+
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
 const styles = StyleSheet.create({
   page: {
@@ -34,7 +36,7 @@ const fr = (d: Date | string | null | undefined) =>
  * Attestation de fin de stage : lettre d'une page, générée depuis la fiche employé pour un
  * contrat STAGE. Texte volontairement sobre (« pour servir et valoir ce que de droit »).
  */
-export function AttestationStageDocument({ employee, contrat }: { employee: Employee; contrat: Contrat }) {
+export function AttestationStageDocument({ employee, contrat, entreprise = entrepriseDefaut, logo }: { employee: Employee; contrat: Contrat; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc }) {
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
   const civilite = femme ? "Madame" : "Monsieur";
   const interesse = femme ? "l'intéressée" : "l'intéressé";
@@ -42,7 +44,7 @@ export function AttestationStageDocument({ employee, contrat }: { employee: Empl
   return (
     <Document title={`Attestation de fin de stage — ${employee.nom}`}>
       <Page size="A4" style={styles.page}>
-        <PdfHeader title="Attestation de fin de stage" subtitle={employee.nom} />
+        <PdfHeader title="Attestation de fin de stage" subtitle={employee.nom} logo={logo} />
 
         <View style={styles.bloc}>
           <Text style={styles.paragraphe}>
@@ -72,7 +74,7 @@ export function AttestationStageDocument({ employee, contrat }: { employee: Empl
           <PdfSignatureBox label="La Direction" signe={signatureDirectriceDisponible()} />
         </View>
 
-        <PdfFooter docLabel="Attestation de fin de stage" />
+        <PdfFooter docLabel="Attestation de fin de stage" ent={entreprise} />
       </Page>
     </Document>
   );

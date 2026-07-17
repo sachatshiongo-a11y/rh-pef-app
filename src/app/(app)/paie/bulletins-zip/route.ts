@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { BulletinDocument } from "@/lib/pdf/bulletin";
+import { chargerEntreprise } from "@/lib/entreprise";
 import type { Devise } from "@/lib/pdf/theme";
 
 /** Tous les bulletins du mois courant, un fichier PDF SÉPARÉ par employé, regroupés dans un ZIP. */
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
       .replace(/[^a-zA-Z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "");
 
+  const ent = await chargerEntreprise();
   const zip = new JSZip();
   const utilises = new Set<string>();
   for (const l of run.lignes) {
@@ -72,6 +74,8 @@ export async function GET(request: Request) {
         primes: primesParEmp.get(l.employeeId) ?? [],
         codesParJour: codesParEmp.get(l.employeeId) ?? {},
         feries,
+        entreprise: ent.entreprise,
+        logo: ent.logo,
       })
     );
     let nom = `${slug(l.employee.nom) || l.employee.matricule || l.employeeId}_${periode}_${devise}`;
