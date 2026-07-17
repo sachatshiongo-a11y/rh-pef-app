@@ -88,10 +88,13 @@ export function estStock(user: { role: Role; accesStock?: boolean }): boolean {
   return user.role === "ADMIN" || user.role === "STOCK" || (user.role === "EMPLOYE" && !!user.accesStock);
 }
 
-/** A un espace salarié : compte opérationnel (EMPLOYE ou STOCK) relié à une fiche employé.
+/** A un espace salarié : TOUT compte relié à une fiche employé, quel que soit son rôle.
+ *  La Direction (ADMIN/MANAGER) qui est aussi salariée y consulte SES bulletins et congés, et peut
+ *  prévisualiser l'espace avant de l'ouvrir aux équipes. Sans risque : chaque page/route de
+ *  l'espace est déjà limitée aux données de `user.employeeId`.
  *  Ne dépend PAS de l'accès stock. Toujours conditionné à l'activation de la fonctionnalité. */
 export function estSalarie(user: { role: Role; employeeId?: string | null }): boolean {
-  return !!user.employeeId && (user.role === "EMPLOYE" || user.role === "STOCK");
+  return !!user.employeeId;
 }
 
 /** Espaces auxquels un compte a accès. `espaceSalarieActif` = interrupteur global (Config). */
