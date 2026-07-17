@@ -40,7 +40,7 @@ export async function calculerBulletinLive(
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  const [attendances, overtimeEntries, joursFeriesDuMois, primesDuMois, fraisMedDuMois, acomptesDuMois, creneauxMois] =
+  const [attendances, overtimeEntries, joursFeriesDuMois, primesDuMois, fraisMedDuMois, acomptesDuMois, creneauxMois, pretsEnCours] =
     await Promise.all([
       prisma.attendance.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
       prisma.overtimeEntry.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
@@ -52,6 +52,7 @@ export async function calculerBulletinLive(
         where: { employeeId, date: { gte: debutMois, lte: finMois } },
         include: { shift: { select: { tauxHoraireUSD: true } } },
       }),
+      prisma.pretPersonnel.findMany({ where: { employeeId, statut: "EN_COURS" }, include: { retenues: true } }),
     ]);
 
   const joursFeries = new Set(joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10)));
@@ -110,6 +111,12 @@ export async function calculerBulletinLive(
       : Number(employee.transportMoisUSD);
   const primesUSD = primesDuMois.reduce((s, p) => s + Number(p.montantUSD), 0);
   const acompteUSD = acomptesDuMois.reduce((s, a) => s + Number(a.montantUSD), 0);
+  // Échéance de prêt du mois : min(retenue mensuelle, solde avant ce mois). Idempotent au recalcul.
+  const retenuePretUSD = pretsEnCours.reduce((s, p) => {
+    const dejaHorsMois = p.retenues.filter((r) => !(r.mois === mois && r.annee === annee)).reduce((a, r) => a + Number(r.montantUSD), 0);
+    const soldeAvant = Number(p.montantUSD) - dejaHorsMois;
+    return soldeAvant > 0 ? s + Math.min(Number(p.retenueMensuelleUSD), soldeAvant) : s;
+  }, 0);
   const fraisMedicauxUSD =
     Number(employee.fraisMedicauxMoisCourant) + fraisMedDuMois.reduce((s, f) => s + Number(f.montantUSD), 0);
 
@@ -128,6 +135,7 @@ export async function calculerBulletinLive(
             fraisMedicauxUSD,
             primesUSD,
             acompteUSD,
+            retenuePretUSD,
           },
           parametres
         )
@@ -139,6 +147,7 @@ export async function calculerBulletinLive(
             fraisMedicauxUSD,
             primesUSD,
             acompteUSD,
+            retenuePretUSD,
           },
           parametres
         );

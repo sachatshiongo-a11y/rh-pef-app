@@ -277,6 +277,7 @@ model Employee {
   planningCreneaux     PlanningCreneau[]
   primes               Prime[]
   acomptes             AcompteSalaire[]
+  prets                PretPersonnel[]
   fraisMed             FraisMedical[]
   demandesChangementShift DemandeChangementShift[]
   echangesDemandes     EchangeCreneau[]       @relation("EchangeDemandeur")
@@ -384,6 +385,47 @@ model AcompteSalaire {
   dateDecision DateTime?
 
   @@index([employeeId, annee, mois])
+  @@schema("public")
+}
+
+enum StatutPret {
+  EN_COURS
+  SOLDE
+  ANNULE
+
+  @@schema("public")
+}
+
+// Prêt au personnel : montant avancé, remboursé par retenues mensuelles automatiques sur la paie.
+model PretPersonnel {
+  id                 String        @id @default(uuid())
+  employeeId         String
+  employee           Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  montantUSD         Decimal       @db.Decimal(12, 2)
+  retenueMensuelleUSD Decimal      @db.Decimal(12, 2)
+  motif              String?
+  statut             StatutPret    @default(EN_COURS)
+  dateAccord         DateTime      @default(now())
+  creeParId          String?
+  createdAt          DateTime      @default(now())
+  retenues           RetenuePret[]
+
+  @@index([employeeId, statut])
+  @@schema("public")
+}
+
+// Une retenue mensuelle appliquée sur la paie pour rembourser un prêt (une par mois/année).
+model RetenuePret {
+  id            String   @id @default(uuid())
+  pretId        String
+  pret          PretPersonnel @relation(fields: [pretId], references: [id], onDelete: Cascade)
+  mois          Int
+  annee         Int
+  montantUSD    Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+
+  @@unique([pretId, mois, annee])
+  @@index([pretId])
   @@schema("public")
 }
 
@@ -760,6 +802,7 @@ model PayrollLine {
   transportUSD      Decimal @default(0) @db.Decimal(12, 2)
   primesUSD         Decimal @default(0) @db.Decimal(12, 2)
   acompteUSD        Decimal @default(0) @db.Decimal(12, 2)
+  retenuePretUSD    Decimal @default(0) @db.Decimal(12, 2) // échéance de prêt du personnel, déduite du net
   salBrutUSD        Decimal @db.Decimal(12, 2)
   cnssSalarieUSD    Decimal @db.Decimal(12, 2)
   netImposableUSD   Decimal @db.Decimal(12, 2)

@@ -75,7 +75,7 @@ export default async function FicheEmployePage({
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
 
-  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste] = await Promise.all([
+  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
     prisma.historiqueSalaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.dossierDisciplinaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
@@ -84,7 +84,22 @@ export default async function FicheEmployePage({
     // Fiche de poste liée à l'intitulé de poste du salarié (tâches affichées dans l'onglet Contrat).
     // Correspondance insensible à la casse et aux espaces (ex. « Chef de salle » vs « chef de salle »).
     prisma.fichePoste.findFirst({ where: { poste: { equals: employee.poste.trim(), mode: "insensitive" } } }),
+    prisma.pretPersonnel.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, include: { retenues: { orderBy: [{ annee: "asc" }, { mois: "asc" }] } } }),
   ]);
+  const pretsView = prets.map((p) => {
+    const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
+    return {
+      id: p.id,
+      montant: Number(p.montantUSD),
+      retenueMensuelle: Number(p.retenueMensuelleUSD),
+      motif: p.motif,
+      statut: p.statut as string,
+      dateAccord: p.dateAccord,
+      rembourse,
+      solde: Math.max(0, Number(p.montantUSD) - rembourse),
+      nbRetenues: p.retenues.length,
+    };
+  });
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? new Date().getMonth() + 1;
@@ -805,6 +820,7 @@ export default async function FicheEmployePage({
         actif={employee.actif}
         joursModele={joursModele}
         contrats={contrats}
+        prets={pretsView}
         historique={historique}
         disciplinaire={disciplinaire}
         evaluations={evaluations}

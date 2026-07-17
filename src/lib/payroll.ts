@@ -100,6 +100,7 @@ export type EntreesPaieBrigade = {
   fraisMedicauxUSD?: number;
   primesUSD?: number; // primes du mois (gain imposable)
   acompteUSD?: number; // acompte approuvé, déduit du net
+  retenuePretUSD?: number; // échéance de prêt du personnel
 };
 
 export type LignePaie = {
@@ -113,6 +114,7 @@ export type LignePaie = {
   fraisMedicauxUSD: number;
   primesUSD: number; // primes du mois (gain imposable, incluses dans le brut)
   acompteUSD: number; // acompte approuvé, déduit du net
+  retenuePretUSD: number; // échéance de prêt du personnel, déduite du net
   salNetUSD: number;
   salNetCDF: number;
   cnssPatronalUSD: number;
@@ -147,6 +149,7 @@ export function calculerPaieBrigade(
       fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
       primesUSD,
       acompteUSD: entrees.acompteUSD ?? 0,
+      retenuePretUSD: entrees.retenuePretUSD ?? 0,
     },
     params
   );
@@ -159,6 +162,7 @@ export type EntreesPaieBackoffice = {
   fraisMedicauxUSD?: number;
   primesUSD?: number;
   acompteUSD?: number;
+  retenuePretUSD?: number;
 };
 
 export function calculerPaieBackoffice(
@@ -177,6 +181,7 @@ export function calculerPaieBackoffice(
       fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
       primesUSD,
       acompteUSD: entrees.acompteUSD ?? 0,
+      retenuePretUSD: entrees.retenuePretUSD ?? 0,
     },
     params
   );
@@ -188,6 +193,7 @@ export type EntreesPaieStage = {
   fraisMedicauxUSD?: number;
   primesUSD?: number;
   acompteUSD?: number;
+  retenuePretUSD?: number;
 };
 
 /**
@@ -198,9 +204,10 @@ export type EntreesPaieStage = {
 export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresPaie): LignePaie {
   const primesUSD = entrees.primesUSD ?? 0;
   const acompteUSD = entrees.acompteUSD ?? 0;
+  const retenuePretUSD = entrees.retenuePretUSD ?? 0;
   const fraisMedicauxUSD = entrees.fraisMedicauxUSD ?? 0;
   const salBrutUSD = entrees.indemniteUSD + entrees.transportUSD + primesUSD;
-  const salNetUSD = salBrutUSD + fraisMedicauxUSD - acompteUSD;
+  const salNetUSD = salBrutUSD + fraisMedicauxUSD - acompteUSD - retenuePretUSD;
   return {
     remuneration100: entrees.indemniteUSD,
     remuneration2_3: 0,
@@ -212,6 +219,7 @@ export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresP
     fraisMedicauxUSD,
     primesUSD,
     acompteUSD,
+    retenuePretUSD,
     salNetUSD,
     salNetCDF: salNetUSD * params.tauxChangeCDF,
     cnssPatronalUSD: 0,
@@ -231,11 +239,13 @@ function finaliserLignePaie(
     fraisMedicauxUSD: number;
     primesUSD?: number;
     acompteUSD?: number;
+    retenuePretUSD?: number;
   },
   params: ParametresPaie
 ): LignePaie {
   const primesUSD = base.primesUSD ?? 0;
   const acompteUSD = base.acompteUSD ?? 0;
+  const retenuePretUSD = base.retenuePretUSD ?? 0;
   const taux = params.tauxChangeCDF;
 
   // Assiette CNSS, éventuellement plafonnée (plafond exprimé en CDF)
@@ -264,7 +274,8 @@ function finaliserLignePaie(
     iprCalculeUSD +
     allocFamilialeUSD +
     base.fraisMedicauxUSD -
-    acompteUSD;
+    acompteUSD -
+    retenuePretUSD;
   const salNetCDF = salNetUSD * taux;
 
   // Charges patronales : CNSS (pensions + risques + prestations familiales) + INPP + ONEM
@@ -287,6 +298,7 @@ function finaliserLignePaie(
     fraisMedicauxUSD: base.fraisMedicauxUSD,
     primesUSD,
     acompteUSD,
+    retenuePretUSD,
     salNetUSD,
     salNetCDF,
     cnssPatronalUSD,

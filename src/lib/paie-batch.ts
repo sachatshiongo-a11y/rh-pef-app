@@ -38,6 +38,7 @@ export type DonneesLignePaie = {
   transportUSD: number;
   primesUSD: number;
   acompteUSD: number;
+  retenuePretUSD: number;
   salBrutUSD: number;
   cnssSalarieUSD: number;
   netImposableUSD: number;
@@ -76,7 +77,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs] =
+  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours] =
     await Promise.all([
       prisma.employee.findMany({ where: { actif: true } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -87,7 +88,21 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
       prisma.leaveRequest.findMany({ where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } } }),
       prisma.fraisMedical.findMany({ where: { mois, annee } }),
       prisma.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: { dateDebut: "asc" }, select: { employeeId: true, type: true } }),
+      prisma.pretPersonnel.findMany({ where: { statut: "EN_COURS" }, include: { retenues: true } }),
     ]);
+
+  // Échéance de prêt du mois par employé : min(retenue mensuelle, solde AVANT ce mois). On exclut
+  // la retenue du mois courant du solde → le recalcul de la paie du mois est idempotent.
+  const pretParEmp = new Map<string, number>();
+  for (const p of pretsEnCours) {
+    const dejaRembourse = p.retenues
+      .filter((r) => !(r.mois === mois && r.annee === annee))
+      .reduce((s, r) => s + Number(r.montantUSD), 0);
+    const soldeAvant = Number(p.montantUSD) - dejaRembourse;
+    if (soldeAvant <= 0) continue;
+    const echeance = Math.min(Number(p.retenueMensuelleUSD), soldeAvant);
+    if (echeance > 0) pretParEmp.set(p.employeeId, (pretParEmp.get(p.employeeId) ?? 0) + echeance);
+  }
 
   // Régime de paie par employé : type du contrat ACTIF le plus récent, sinon le type de la fiche.
   const typeContratParEmp = new Map<string, string>();
@@ -200,11 +215,12 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
 
     const primesUSD = primesParEmp.get(employee.id) ?? 0;
     const acompteUSD = acomptesParEmp.get(employee.id) ?? 0;
+    const retenuePretUSD = pretParEmp.get(employee.id) ?? 0;
 
     const ligne =
       typeContrat === "STAGE"
         ? calculerPaieStage(
-            { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD },
+            { indemniteUSD: Number(employee.salaireMensuel), transportUSD, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
             parametres
           )
         : employee.categorie === "BRIGADE"
@@ -221,11 +237,12 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
               fraisMedicauxUSD,
               primesUSD,
               acompteUSD,
+              retenuePretUSD,
             },
             parametres
           )
         : calculerPaieBackoffice(
-            { salaireBaseUSD: Number(employee.salaireMensuel), transportUSD, enfants: employee.enfants, fraisMedicauxUSD, primesUSD, acompteUSD },
+            { salaireBaseUSD: Number(employee.salaireMensuel), transportUSD, enfants: employee.enfants, fraisMedicauxUSD, primesUSD, acompteUSD, retenuePretUSD },
             parametres
           );
 
@@ -258,6 +275,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         transportUSD,
         primesUSD: ligne.primesUSD,
         acompteUSD: ligne.acompteUSD,
+        retenuePretUSD: ligne.retenuePretUSD,
         salBrutUSD: ligne.salBrutUSD,
         cnssSalarieUSD: ligne.cnssSalarieUSD,
         netImposableUSD: ligne.netImposableUSD,

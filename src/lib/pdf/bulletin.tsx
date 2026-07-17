@@ -245,7 +245,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   const tauxHoraire = heuresContractuelles > 0 ? Number(employee.salaireMensuel) / heuresContractuelles : 0;
 
   const totalRetenuesSal =
-    Number(ligne.cnssSalarieUSD) + Number(ligne.iprCalculeUSD) + Number(ligne.acompteUSD);
+    Number(ligne.cnssSalarieUSD) + Number(ligne.iprCalculeUSD) + Number(ligne.acompteUSD) + Number(ligne.retenuePretUSD ?? 0);
   const totalPatronal = Number(ligne.cnssPatronalUSD) + Number(ligne.inppUSD) + Number(ligne.onemUSD);
   const totalGains =
     Number(ligne.salBrutUSD) + Number(ligne.allocFamilialeUSD) + Number(ligne.fraisMedicauxUSD);
@@ -354,6 +354,9 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           <Row designation="IPR (impôt sur le revenu)" base={m(Number(ligne.netImposableUSD))} partSal={m(Number(ligne.iprCalculeUSD))} />
           {Number(ligne.acompteUSD) > 0 && (
             <Row designation="Acompte sur salaire" partSal={m(Number(ligne.acompteUSD))} />
+          )}
+          {Number(ligne.retenuePretUSD ?? 0) > 0 && (
+            <Row designation="Retenue prêt au personnel" partSal={m(Number(ligne.retenuePretUSD))} />
           )}
 
           <Row designation="Allocation familiale (non imposable)" montant={m(Number(ligne.allocFamilialeUSD))} />

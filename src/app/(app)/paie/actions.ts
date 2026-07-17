@@ -101,6 +101,27 @@ async function appliquerTransitionPaie(
         genreParId: userId,
       },
     });
+
+    // Remboursement de prêt : au figeage du bulletin, on enregistre l'échéance du mois (diminue le
+    // solde) et on solde le prêt quand il est totalement remboursé. Idempotent (unique mois/année).
+    if (Number(ligne.retenuePretUSD) > 0) {
+      const prets = await tx.pretPersonnel.findMany({ where: { employeeId: ligne.employeeId, statut: "EN_COURS" }, include: { retenues: true } });
+      for (const p of prets) {
+        const dejaHorsMois = p.retenues
+          .filter((r) => !(r.mois === ligne.payrollRun.mois && r.annee === ligne.payrollRun.annee))
+          .reduce((s, r) => s + Number(r.montantUSD), 0);
+        const soldeAvant = Number(p.montantUSD) - dejaHorsMois;
+        if (soldeAvant <= 0) continue;
+        const echeance = Math.min(Number(p.retenueMensuelleUSD), soldeAvant);
+        if (echeance <= 0) continue;
+        await tx.retenuePret.upsert({
+          where: { pretId_mois_annee: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee } },
+          create: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee, montantUSD: echeance },
+          update: { montantUSD: echeance },
+        });
+        if (soldeAvant - echeance <= 0.001) await tx.pretPersonnel.update({ where: { id: p.id }, data: { statut: "SOLDE" } });
+      }
+    }
   }
 
   await journaliser(tx, {

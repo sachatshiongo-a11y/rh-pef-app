@@ -31,7 +31,7 @@ function Ligne({ label, usd, taux, signe }: { label: string; usd: number; taux: 
 export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin; periode: string }) {
   const l = apercu.ligne;
   const t = apercu.tauxChangeCDF;
-  const totalRetenues = Number(l.cnssSalarieUSD) + Number(l.iprCalculeUSD) + Number(l.acompteUSD);
+  const totalRetenues = Number(l.cnssSalarieUSD) + Number(l.iprCalculeUSD) + Number(l.acompteUSD) + Number(l.retenuePretUSD ?? 0);
 
   return (
     <div className="mb-6 overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -62,6 +62,7 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
           <Ligne taux={t} label={L.cnss} usd={Number(l.cnssSalarieUSD)} signe="-" />
           <Ligne taux={t} label={L.ipr} usd={Number(l.iprCalculeUSD)} signe="-" />
           {Number(l.acompteUSD) > 0 && <Ligne taux={t} label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />}
+          {Number(l.retenuePretUSD ?? 0) > 0 && <Ligne taux={t} label="Retenue prêt" usd={Number(l.retenuePretUSD)} signe="-" />}
           <Ligne taux={t} label="Total retenues" usd={totalRetenues} signe="-" />
           <p className="mt-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground">Heures</p>
           <div className="flex items-center justify-between px-3 py-1.5 text-sm">

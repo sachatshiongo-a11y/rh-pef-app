@@ -16,6 +16,7 @@ import {
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
 import { ContratViewerButton } from "./contrat-viewer";
+import { creerPret, annulerPret } from "./pret-actions";
 import { Icone } from "@/components/icones";
 import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat } from "../../paie/contrat-actions";
 
@@ -141,6 +142,7 @@ export function DossierEmploye({
   actif,
   joursModele = [],
   contrats,
+  prets = [],
   historique,
   disciplinaire,
   evaluations,
@@ -167,6 +169,7 @@ export function DossierEmploye({
   actif: boolean;
   joursModele?: number[]; // jours travaillés selon le modèle hebdo (0=dim … 6=sam)
   contrats: Contrat[];
+  prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number }[];
   historique: HistoriqueSalaire[];
   disciplinaire: DossierDisciplinaire[];
   evaluations: Evaluation[];
@@ -547,6 +550,58 @@ export function DossierEmploye({
 
       {vue === "dossier" && (
       <>
+      {/* Prêts au personnel */}
+      <Section title="Prêts au personnel">
+        {prets.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucun prêt.</p>
+        ) : (
+          <ul className="mb-4 divide-y">
+            {prets.map((p) => {
+              const pct = p.montant > 0 ? Math.min(100, Math.round((p.rembourse / p.montant) * 100)) : 0;
+              return (
+                <li key={p.id} className="py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {p.montant.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $ · retenue {p.retenueMensuelle.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $/mois
+                        <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.statut === "SOLDE" ? "bg-emerald-100 text-emerald-800" : p.statut === "ANNULE" ? "bg-muted text-muted-foreground" : "bg-amber-100 text-amber-800"}`}>
+                          {p.statut === "SOLDE" ? "Soldé" : p.statut === "ANNULE" ? "Annulé" : "En cours"}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">{p.motif ? `${p.motif} · ` : ""}accordé le {d(p.dateAccord)} · {p.nbRetenues} retenue(s)</p>
+                    </div>
+                    <div className="min-w-[9rem] text-right">
+                      <p className="text-sm font-semibold">Solde : {p.solde.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</p>
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></div>
+                    </div>
+                  </div>
+                  {estAdmin && p.statut === "EN_COURS" && (
+                    <form action={annulerPret.bind(null, employeeId, p.id)} className="mt-1">
+                      <button className="text-xs text-destructive underline">Annuler le prêt (arrête les retenues futures)</button>
+                    </form>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {peutModifier && (
+          <form action={creerPret.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 border-t pt-3 text-xs">
+            <label className="flex flex-col gap-0.5">Montant du prêt ($)
+              <input type="number" name="montantUSD" step="0.01" min="0" required className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-0.5">Retenue mensuelle ($)
+              <input type="number" name="retenueMensuelleUSD" step="0.01" min="0" required className={inputCls} />
+            </label>
+            <label className="flex flex-col gap-0.5">Motif (optionnel)
+              <input type="text" name="motif" placeholder="ex. avance médicale" className={inputCls} />
+            </label>
+            <SubmitBtn>Accorder le prêt</SubmitBtn>
+          </form>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">La retenue est déduite automatiquement du salaire net chaque mois (ligne « Retenue prêt » sur le bulletin) jusqu&apos;au remboursement complet.</p>
+      </Section>
+
       {/* Historique salarial */}
       <Section title="Historique salarial & promotions">
         {historique.length === 0 ? (
