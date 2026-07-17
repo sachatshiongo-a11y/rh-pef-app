@@ -5,6 +5,7 @@ import { verifySession } from "@/lib/auth";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import type { PaymentStatus } from "@prisma/client";
 import { normTexte } from "@/lib/texte";
 
@@ -206,7 +207,11 @@ export default async function DocumentsPage({
               <Badge classe={COULEUR_CONTRAT[c.statut] ?? ""}>{c.statut}</Badge>
             </div>
             <div className="mt-1.5 text-xs text-muted-foreground">{c.type} · {fr(c.dateDebut)} → {fr(c.dateFin)}</div>
-            {c.documentUrl && <div className="mt-2 text-sm"><a href={c.documentUrl} target="_blank" className="text-primary underline">Ouvrir la pièce</a></div>}
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
+              <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
+              {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-muted-foreground underline">Pièce jointe</a>}
+            </div>
           </div>
         ))}
         {onglet === "documents" && documents.map((d) => (
@@ -278,7 +283,7 @@ export default async function DocumentsPage({
 
           {onglet === "contrats" && (
             <>
-              <Thead cols={["Employé", "Type", "Début", "Échéance", "Statut", "Pièce"]} />
+              <Thead cols={["Employé", "Type", "Début", "Échéance", "Statut", "Contrat (PDF)", "Pièce jointe"]} />
               <tbody>
                 {contrats.map((c) => (
                   <tr key={c.id} className="border-t">
@@ -287,10 +292,16 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
                     <td className="px-3 py-2"><Badge classe={COULEUR_CONTRAT[c.statut] ?? ""}>{c.statut}</Badge></td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
+                        <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
+                      </div>
+                    </td>
                     <td className="px-3 py-2">{c.documentUrl ? <a href={c.documentUrl} target="_blank" className="text-primary underline">Ouvrir</a> : "—"}</td>
                   </tr>
                 ))}
-                <Vide n={contrats.length} cols={6} />
+                <Vide n={contrats.length} cols={7} />
               </tbody>
             </>
           )}
