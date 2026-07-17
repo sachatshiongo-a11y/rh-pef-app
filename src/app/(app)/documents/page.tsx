@@ -56,9 +56,9 @@ export default async function DocumentsPage({
     prisma.fichePoste.findMany({ orderBy: { poste: "asc" }, take: 1000 }),
   ]);
 
-  // Fiches de poste documentées (fichier ou description), filtrées par la recherche texte.
+  // Toutes les fiches de poste (le PDF est générable pour chacune), filtrées par la recherche texte.
   const fiches = fichesAll.filter(
-    (f) => (f.fichierUrl || f.description) && (!q || normTexte(f.poste).includes(normTexte(q)) || normTexte(f.fichierNom ?? "").includes(normTexte(q)))
+    (f) => !q || normTexte(f.poste).includes(normTexte(q)) || normTexte(f.fichierNom ?? "").includes(normTexte(q))
   );
 
   const annees = [
@@ -241,13 +241,14 @@ export default async function DocumentsPage({
         ))}
         {onglet === "fiches" && fiches.map((f) => (
           <div key={f.id} className="rounded-xl border bg-card p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{f.poste}</span>
-              {f.fichierUrl
-                ? <TelechargerLien href={f.fichierUrl} nomFichier={f.fichierNom ?? undefined} className="text-sm text-primary underline">Télécharger</TelechargerLien>
-                : <Link href="/fiches-poste" className="text-sm text-primary underline">Voir</Link>}
+            <span className="font-medium">{f.poste}</span>
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              <ContratViewerButton href={`/fiches-poste/${f.id}/pdf`} titre={`Fiche de poste — ${f.poste}`} libelle="Aperçu" className="text-primary underline" />
+              <TelechargerLien href={`/fiches-poste/${f.id}/pdf?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
+              {f.fichierUrl && (
+                <TelechargerLien href={f.fichierUrl} nomFichier={f.fichierNom ?? undefined} className="text-muted-foreground underline">Pièce jointe</TelechargerLien>
+              )}
             </div>
-            {(f.fichierNom || f.description) && <div className="mt-1 truncate text-xs text-muted-foreground">{f.fichierNom ?? f.description}</div>}
           </div>
         ))}
         {((onglet === "bulletins" && bulletins.length === 0) || (onglet === "contrats" && contrats.length === 0) || (onglet === "documents" && documents.length === 0) || (onglet === "conges" && conges.length === 0) || (onglet === "fiches" && fiches.length === 0)) && (
@@ -345,19 +346,22 @@ export default async function DocumentsPage({
 
           {onglet === "fiches" && (
             <>
-              <Thead cols={["Poste", "Document", "Description", "Pièce"]} />
+              <Thead cols={["Poste", "Description", "Fiche de poste (PDF)", "Pièce jointe"]} />
               <tbody>
                 {fiches.map((f) => (
                   <tr key={f.id} className="border-t">
                     <td className="px-3 py-2 font-medium">{f.poste}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{f.fichierNom ?? "—"}</td>
-                    <td className="max-w-md truncate px-3 py-2 text-muted-foreground">{f.description ?? "—"}</td>
+                    <td className="max-w-md truncate px-3 py-2 text-muted-foreground">{f.descriptionPoste ?? f.description ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        <ContratViewerButton href={`/fiches-poste/${f.id}/pdf`} titre={`Fiche de poste — ${f.poste}`} libelle="Aperçu" className="text-primary underline" />
+                        <TelechargerLien href={`/fiches-poste/${f.id}/pdf?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
+                      </div>
+                    </td>
                     <td className="px-3 py-2">
                       {f.fichierUrl ? (
-                        <TelechargerLien href={f.fichierUrl} nomFichier={f.fichierNom ?? undefined} className="text-primary underline">Télécharger</TelechargerLien>
-                      ) : (
-                        <Link href="/fiches-poste" className="text-primary underline">Voir</Link>
-                      )}
+                        <TelechargerLien href={f.fichierUrl} nomFichier={f.fichierNom ?? undefined} className="text-primary underline">Ouvrir</TelechargerLien>
+                      ) : "—"}
                     </td>
                   </tr>
                 ))}

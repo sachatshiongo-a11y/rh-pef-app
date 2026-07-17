@@ -11,6 +11,8 @@ import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificat
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
+import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
+import { televerserFichier } from "@/lib/storage";
 
 /** Marque comme lues MES notifications (cloche salarié) — scopé à mon compte uniquement. */
 export async function marquerMesNotificationsLues() {
@@ -277,6 +279,19 @@ export async function accepterMonContrat(id: string) {
   const c = await prisma.contrat.findUnique({ where: { id }, select: { employeeId: true, accepteLe: true, type: true } });
   if (!c || c.employeeId !== user.employeeId || c.accepteLe) return; // déjà accepté ou pas le mien
   await prisma.contrat.update({ where: { id }, data: { accepteLe: new Date() } });
+
+  // Fige l'exemplaire qui FAIT FOI : le PDF est généré une fois (avec l'acceptation horodatée) puis
+  // stocké. Toute consultation ultérieure sert ce fichier, jamais une régénération.
+  try {
+    const pdf = await genererContratPdf(id);
+    if (pdf) {
+      const url = await televerserFichier(`contrats/${id}.pdf`, pdf.buffer, "application/pdf");
+      await prisma.contrat.update({ where: { id }, data: { pdfAccepteUrl: url } });
+    }
+  } catch {
+    // Le figeage ne doit jamais bloquer l'acceptation : à défaut, le contrat reste généré à la volée.
+  }
+
   const emp = await prisma.employee.findUnique({ where: { id: user.employeeId }, select: { nom: true } });
   await creerNotification({
     type: "AUTRE",

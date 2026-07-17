@@ -341,7 +341,11 @@ export function DossierEmploye({
             {/* Fichier du contrat + attestation + génération PDF */}
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
               <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
-              {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté par le salarié le {d(c.accepteLe)}</span>}
+              {c.accepteLe && (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800" title={c.pdfAccepteUrl ? "Le PDF servi est l'exemplaire figé au moment de l'acceptation — il fait foi." : undefined}>
+                  Accepté par le salarié le {d(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}
+                </span>
+              )}
               {c.documentUrl && (
                 <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>
               )}

@@ -3,6 +3,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { prisma } from "@/lib/prisma";
 import { ContratDocument, type ParamsContrat } from "@/lib/pdf/contrat";
 import { chargerEntreprise } from "@/lib/entreprise";
+import { lireFichier } from "@/lib/storage";
 
 /**
  * Génère le PDF d'un contrat (buffer + nom de fichier) — partagé entre la route Direction
@@ -11,6 +12,15 @@ import { chargerEntreprise } from "@/lib/entreprise";
 export async function genererContratPdf(contratId: string): Promise<{ buffer: Buffer; nomFichier: string; employeeId: string } | null> {
   const contrat = await prisma.contrat.findUnique({ where: { id: contratId }, include: { employee: true } });
   if (!contrat) return null;
+
+  const nomEmp = contrat.employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
+
+  // Contrat ACCEPTÉ : on sert l'exemplaire FIGÉ au moment de l'acceptation (celui qui fait foi),
+  // jamais une régénération — le modèle a pu évoluer depuis.
+  if (contrat.pdfAccepteUrl) {
+    const fige = await lireFichier(contrat.pdfAccepteUrl);
+    if (fige) return { buffer: fige, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
+  }
 
   // Fonctions décrites dans la fiche de poste (missions principales) → injectées dans l'Article 1.
   const poste = (contrat.poste || contrat.employee.poste).trim();
@@ -35,6 +45,5 @@ export async function genererContratPdf(contratId: string): Promise<{ buffer: Bu
   const buffer = await renderToBuffer(
     ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
-  const nom = contrat.employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
-  return { buffer, nomFichier: `Contrat_${contrat.type}_${nom}.pdf`, employeeId: contrat.employeeId };
+  return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
 }
