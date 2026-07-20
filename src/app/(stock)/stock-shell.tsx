@@ -10,14 +10,55 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
-import { NAV_GESTION, filtrerNavGestion } from "@/components/gestion-nav";
+
+const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
+  {
+    titre: "Pilotage",
+    items: [
+      { href: "/stock", label: "Tableau de bord", icone: "accueil" },
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "valider", adminOnly: true },
+      { href: "/stock/archives", label: "Archives", icone: "archives" },
+    ],
+  },
+  {
+    titre: "Dépôt",
+    items: [
+      { href: "/stock/catalogue", label: "Catalogue", icone: "marmite" },
+      { href: "/stock/entree", label: "Liste d'achat", icone: "panier" },
+      { href: "/stock/mouvements", label: "Mouvements", icone: "echanges" },
+      { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },
+    ],
+  },
+  {
+    titre: "Restaurant",
+    items: [
+      { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts" },
+      { href: "/stock/legumes", label: "Achats légumes frais", icone: "feuille" },
+      { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours" },
+    ],
+  },
+  {
+    titre: "Achats",
+    items: [
+      { href: "/stock/commandes", label: "Bons de commande", icone: "presence" },
+      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "camion" },
+      { href: "/stock/factures", label: "Factures", icone: "recu" },
+    ],
+  },
+  {
+    titre: "Configuration",
+    items: [
+      { href: "/stock/imports", label: "Imports", icone: "importer", adminOnly: true },
+      { href: "/stock/parametres", label: "Paramètres", icone: "parametres" },
+      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "employes", adminOnly: true },
+    ],
+  },
+];
 
 export function StockShell({
   userNom,
   userRole,
   maPhoto,
-  accesRH,
-  accesStock,
   doubleAcces,
   badges = {},
   notif,
@@ -26,8 +67,6 @@ export function StockShell({
   userNom: string;
   userRole: string;
   maPhoto: string | null;
-  accesRH: boolean;
-  accesStock: boolean;
   doubleAcces: boolean;
   badges?: Record<string, number>;
   notif: React.ComponentProps<typeof NotificationBell> | null;
@@ -36,10 +75,7 @@ export function StockShell({
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const fermer = () => setOpen(false);
-  // Barre de navigation UNIFIÉE (RH + Stock), filtrée selon les accès du compte.
-  const groupes = filtrerNavGestion(NAV_GESTION, { accesRH, accesStock, isAdmin: userRole === "ADMIN" });
-  // État actif : les tableaux de bord (/accueil, /stock) en correspondance exacte, sinon par préfixe.
-  const actif = (href: string) => (href === "/accueil" || href === "/stock" ? pathname === href : pathname.startsWith(href));
+  const actif = (href: string) => (href === "/stock" ? pathname === href : pathname.startsWith(href));
   const roleLabel = userRole === "ADMIN" ? "Direction" : "Responsable stock";
 
   return (
@@ -54,7 +90,7 @@ export function StockShell({
         <div className="mb-4 flex items-start justify-between px-2">
           <div>
             <Image src="/logo-pates-en-folie.png" alt="Pâtes en Folie" width={160} height={55} priority className="h-auto w-full max-w-36" />
-            <p className="mt-1 text-xs font-medium text-muted-foreground">Gestion</p>
+            <p className="mt-1 text-xs font-medium text-muted-foreground">Stock &amp; Achats</p>
           </div>
           <button type="button" onClick={fermer} aria-label="Fermer le menu" className="-mr-1 rounded-md p-1 text-muted-foreground hover:bg-accent lg:hidden">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
@@ -69,12 +105,14 @@ export function StockShell({
         </form>
 
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
-          {groupes.map((groupe) => {
+          {NAV_GROUPS.map((groupe) => {
+            const items = groupe.items.filter((it) => !it.adminOnly || userRole === "ADMIN");
+            if (items.length === 0) return null;
             return (
             <div key={groupe.titre}>
               <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{groupe.titre}</p>
               <div className="flex flex-col gap-0.5">
-                {groupe.items.map((item) => (
+                {items.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -122,7 +160,7 @@ export function StockShell({
           <button type="button" onClick={() => setOpen(true)} aria-label="Ouvrir le menu" className="rounded-md p-1.5 hover:bg-accent">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
-          <span className="truncate font-medium">Pâtes en Folie — Gestion</span>
+          <span className="truncate font-medium">Stock &amp; Achats</span>
           <div className="ml-auto flex items-center gap-2">
             {notif && <NotificationBell {...notif} domaine="STOCK" />}
             <Avatar nom={userNom} taille={28} photoUrl={maPhoto} />

@@ -2,14 +2,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { verifySession, espacesDe, accueilEspace } from "@/lib/auth";
+import { verifySession, espacesDe } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 
-// Sélecteur d'espace — ne reste utile que pour les comptes à DOUBLE accès (espace salarié + gestion),
-// quand l'espace salarié est activé. RH et Stock sont désormais fusionnés dans un seul espace de
-// gestion : un compte back-office (même Direction RH+Stock) n'a donc plus à choisir entre deux.
+// Sélecteur d'espace — pour les comptes à accès multiple (Direction RH+Stock, ou salarié + stock).
 // Un compte à accès unique n'a rien à choisir : on le renvoie au résolveur d'entrée.
 // Le dernier espace visité (cookie posé par le middleware) est mis en avant.
 export default async function ChoixEspacePage() {
@@ -29,8 +27,11 @@ export default async function ChoixEspacePage() {
         {espaces.includes("salarie") && (
           <EspaceCard href="/espace" icone="employes" titre="Mon espace salarié" sous="Planning, congés, pointage, documents" dernier={dernier === "salarie"} />
         )}
-        {espaces.includes("gestion") && (
-          <EspaceCard href={accueilEspace("gestion", user)} icone="colis" titre="Gestion" sous="Ressources humaines et Stock & Achats" dernier={dernier === "gestion"} />
+        {espaces.includes("rh") && (
+          <EspaceCard href="/accueil" icone="employes" titre="Ressources humaines" sous="Employés, paie, congés, présences" dernier={dernier === "rh"} />
+        )}
+        {espaces.includes("stock") && (
+          <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Catalogue, fournisseurs, bons de commande" dernier={dernier === "stock"} />
         )}
       </div>
 
