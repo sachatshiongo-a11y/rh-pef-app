@@ -1,5 +1,5 @@
 import "server-only";
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { ContratDocument, type ParamsContrat } from "@/lib/pdf/contrat";
 import { chargerEntreprise } from "@/lib/entreprise";
@@ -45,7 +45,7 @@ export async function genererContratPdf(
   };
 
   const ent = await chargerEntreprise();
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };

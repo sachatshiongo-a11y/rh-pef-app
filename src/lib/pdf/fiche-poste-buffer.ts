@@ -1,5 +1,5 @@
 import "server-only";
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { FichePosteDocument } from "@/lib/pdf/fiche-poste";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
@@ -30,7 +30,7 @@ export async function genererFichePostePdf(ficheId: string): Promise<{ buffer: B
   const classe = labelCategoriePro(categorie);
 
   const ent = await chargerEntreprise();
-  const buffer = await renderToBuffer(FichePosteDocument({ fiche, classe, entreprise: ent.entreprise, logo: ent.logo }));
+  const buffer = await renderPdfBuffer(FichePosteDocument({ fiche, classe, entreprise: ent.entreprise, logo: ent.logo }));
   const slug = fiche.poste.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   return { buffer, nomFichier: `Fiche_de_poste_${slug || "poste"}.pdf` };
 }

@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
@@ -60,8 +60,8 @@ export async function GET(req: Request) {
 
   // PDF : un ou deux tableaux (synthèse + détail) selon le rapport.
   const buffer = data.table2
-    ? await renderToBuffer(TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(data.table2, data.table2.titre)] }))
-    : await renderToBuffer(TableauDocument({ ...versTableSpec(data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
+    ? await renderPdfBuffer(TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(data.table2, data.table2.titre)] }))
+    : await renderPdfBuffer(TableauDocument({ ...versTableSpec(data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

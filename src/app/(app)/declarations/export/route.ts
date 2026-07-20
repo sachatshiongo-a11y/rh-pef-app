@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { verifySession } from "@/lib/auth";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import { BordereauDeclarationsDocument } from "@/lib/pdf/declarations";
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   }
 
   const ent = await chargerEntreprise();
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     BordereauDeclarationsDocument({
       lignes: bordereau.lignes,
       mois,

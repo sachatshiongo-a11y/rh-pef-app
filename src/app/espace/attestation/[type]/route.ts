@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ type
   if (!contrat) return new Response("Aucun contrat enregistré.", { status: 404 });
 
   const ent = await chargerEntreprise();
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     AttestationDocument({ employee, contrat, type: type as TypeAttestation, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   const nom = employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");

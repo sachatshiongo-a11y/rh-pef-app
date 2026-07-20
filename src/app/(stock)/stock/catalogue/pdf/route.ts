@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
@@ -69,7 +69,7 @@ export async function GET(req: Request) {
   ];
 
   const label = domaine ? DOMAINE_LABEL[domaine] : "Tous domaines";
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: `Catalogue — ${label}`,
       sousTitre: new Date().toLocaleDateString("fr-FR"),

@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { verifySession, requireModule } from "@/lib/auth";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { donneesJournalier } from "../export-data";
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const d = await donneesJournalier(new URL(req.url).searchParams);
   const large = d.colonnes.length > 9;
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: d.titre, sousTitre: d.sousTitre, colonnes: d.colonnes, lignes: d.lignes, sectionRows: d.sectionRows,
       paysage: large,

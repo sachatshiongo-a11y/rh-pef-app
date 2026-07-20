@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { verifySession } from "@/lib/auth";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import { donneesPlanning } from "../export-data";
@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     ...labels.map((l) => ({ header: l, width: dayW, align: "center" as const })),
   ];
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     TableauDocument({ titre, sousTitre, colonnes, lignes, sectionRows, paysage: true, pied: "« — » = repos. Planning prévisionnel." }),
   );
   return new Response(new Uint8Array(buffer), {

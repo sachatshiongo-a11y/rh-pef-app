@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
   const zip = new JSZip();
   const utilises = new Set<string>();
   for (const l of run.lignes) {
-    const buffer = await renderToBuffer(
+    const buffer = await renderPdfBuffer(
       BulletinDocument({
         employee: l.employee,
         ligne: l,

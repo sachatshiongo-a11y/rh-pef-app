@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { TableauDocument } from "@/lib/pdf/tableau";
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const employes = filtrerEmployes(tous, sp);
   const lignes = employes.map(ligneEmploye);
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: "Liste des employés",
       sousTitre: `${employes.length} employé(s) actif(s)`,

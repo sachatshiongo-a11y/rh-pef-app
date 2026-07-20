@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { BulletinsDocument } from "@/lib/pdf/bulletin";
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     logo: ent.logo,
   }));
 
-  const buffer = await renderToBuffer(BulletinsDocument({ bulletins, devise }));
+  const buffer = await renderPdfBuffer(BulletinsDocument({ bulletins, devise }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

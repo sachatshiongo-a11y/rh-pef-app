@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     cdf(l.moisCompletCDF),
   ]);
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: "Grille de transport",
       sousTitre: `${items.length} employé(s) · base ${jours} j ouvrables · 1 $ = ${taux.toLocaleString("fr-FR")} CDF`,

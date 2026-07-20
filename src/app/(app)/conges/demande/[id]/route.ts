@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
@@ -48,7 +48,7 @@ export async function GET(
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     DemandeCongeDocument({
       employee: demande.employee,
       demande,

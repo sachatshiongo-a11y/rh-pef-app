@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
@@ -53,7 +53,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     return { id: m.id, date: m.date, type: m.type, quantite: Number(m.quantite), origine: m.origine, source };
   });
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     FicheArticleDocument({
       designation: a.designation,
       code: a.code,

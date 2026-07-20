@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { AttestationStageDocument } from "@/lib/pdf/attestation-stage";
@@ -21,7 +21,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!contrat) return new Response("Aucun contrat de stage pour cet employé.", { status: 404 });
 
   const ent = await chargerEntreprise();
-  const buffer = await renderToBuffer(AttestationStageDocument({ employee, contrat, entreprise: ent.entreprise, logo: ent.logo }));
+  const buffer = await renderPdfBuffer(AttestationStageDocument({ employee, contrat, entreprise: ent.entreprise, logo: ent.logo }));
   const nom = employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
   return new Response(new Uint8Array(buffer), {
     headers: {

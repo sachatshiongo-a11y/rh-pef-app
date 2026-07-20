@@ -1,5 +1,5 @@
 import "server-only";
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { BulletinDocument } from "@/lib/pdf/bulletin";
 import type { Devise } from "@/lib/pdf/theme";
@@ -39,7 +39,7 @@ export async function genererBulletinPdf(
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
   const ent = await chargerEntreprise();
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     BulletinDocument({
       employee: ligne.employee,
       ligne,

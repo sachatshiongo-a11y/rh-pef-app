@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   ];
 
   const label = espace === "BAR" ? "Bar" : "Cuisine";
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: `Stock restaurant — ${label}`,
       sousTitre: `Semaine du ${jours[0].num} au ${jours[6].num}`,

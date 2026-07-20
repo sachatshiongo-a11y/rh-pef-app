@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { BonCommandeDocument } from "@/lib/pdf/bon-commande";
@@ -19,7 +19,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const acheteur = await prisma.parametresAchat.findUnique({ where: { id: "singleton" } });
 
-  const buffer = await renderToBuffer(BonCommandeDocument({ bc, fournisseur: bc.fournisseur, acheteur }));
+  const buffer = await renderPdfBuffer(BonCommandeDocument({ bc, fournisseur: bc.fournisseur, acheteur }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

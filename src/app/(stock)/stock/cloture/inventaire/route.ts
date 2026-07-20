@@ -1,4 +1,4 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { classeurInventaire, type FeuilleInventaire } from "@/lib/export-excel";
@@ -108,7 +108,7 @@ export async function GET(req: Request) {
   }
   lignes.push(["STOCK TOTAL", "", "", "", "", usd(inv.valeurTotaleUSD)]); couleurs.push(undefined);
 
-  const buf = await renderToBuffer(
+  const buf = await renderPdfBuffer(
     TableauDocument({
       titre: `Inventaire — ${periodeLabel}`,
       sousTitre: `${etat} · stock total ${usd(inv.valeurTotaleUSD)}`,
