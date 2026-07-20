@@ -17,6 +17,6 @@ export default async function EntreePage() {
 
   const espaces = espacesDe(user, await espaceEmployeActif());
   if (espaces.length === 0) redirect("/login"); // aucun accès (ne devrait pas arriver)
-  if (espaces.length === 1) redirect(accueilEspace(espaces[0]));
+  if (espaces.length === 1) redirect(accueilEspace(espaces[0], user));
   redirect("/choix-espace");
 }

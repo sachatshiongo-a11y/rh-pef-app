@@ -11,40 +11,7 @@ import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
-
-// Menu groupé façon PayFit : sections + icônes.
-const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
-  {
-    titre: "Les essentiels",
-    items: [
-      { href: "/accueil", label: "Tableau de bord", icone: "accueil" },
-      { href: "/a-valider", label: "Demandes de validation", icone: "valider", adminOnly: true },
-      { href: "/employes", label: "Employés", icone: "employes" },
-      { href: "/fiches-poste", label: "Fiches de poste", icone: "document" },
-      { href: "/paie", label: "Paie", icone: "billet" },
-    ],
-  },
-  {
-    titre: "Temps de travail",
-    items: [
-      { href: "/pointer", label: "Pointer", icone: "horloge" },
-      { href: "/planning", label: "Planning", icone: "calendrier" },
-      { href: "/presences", label: "Présences & heures", icone: "presence" },
-      { href: "/conges", label: "Congés & absences", icone: "parasol" },
-    ],
-  },
-  {
-    titre: "Finances & archives",
-    items: [
-      { href: "/declarations", label: "Déclarations", icone: "recu" },
-      { href: "/documents", label: "Documents", icone: "dossier" },
-    ],
-  },
-  {
-    titre: "Configuration",
-    items: [{ href: "/parametres", label: "Paramètres", icone: "parametres" }],
-  },
-];
+import { NAV_GESTION, filtrerNavGestion } from "@/components/gestion-nav";
 
 type NotifData = React.ComponentProps<typeof NotificationBell> | null;
 
@@ -54,6 +21,9 @@ export function AppShell({
   userRole,
   maPhoto,
   employeeId,
+  accesRH,
+  accesStock,
+  doubleAcces,
   notif,
   children,
 }: {
@@ -62,14 +32,19 @@ export function AppShell({
   userRole: string;
   maPhoto: string | null;
   employeeId: string | null;
+  accesRH: boolean;
+  accesStock: boolean;
+  doubleAcces: boolean;
   notif: NotifData;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const fermer = () => setOpen(false);
   const pathname = usePathname();
-  // État actif du menu (même règle que l'espace Stock) : accueil = exact, sinon préfixe.
-  const actif = (href: string) => (href === "/accueil" ? pathname === href : pathname.startsWith(href));
+  // Barre de navigation UNIFIÉE (RH + Stock), filtrée selon les accès du compte.
+  const groupes = filtrerNavGestion(NAV_GESTION, { accesRH, accesStock, isAdmin: userRole === "ADMIN" });
+  // État actif : les tableaux de bord (/accueil, /stock) en correspondance exacte, sinon par préfixe.
+  const actif = (href: string) => (href === "/accueil" || href === "/stock" ? pathname === href : pathname.startsWith(href));
 
   const roleLabel =
     userRole === "ADMIN" ? "Direction" : userRole === "MANAGER" ? "Responsable RH" : "Consultation";
@@ -101,7 +76,7 @@ export function AppShell({
               priority
               className="h-auto w-full max-w-36"
             />
-            <p className="mt-1 text-xs text-muted-foreground">Ressources humaines</p>
+            <p className="mt-1 text-xs text-muted-foreground">Gestion</p>
           </div>
           {/* Fermer le tiroir (mobile) */}
           <button
@@ -129,16 +104,14 @@ export function AppShell({
         </form>
 
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
-          {NAV_GROUPS.map((groupe) => {
-            const items = groupe.items.filter((it) => !it.adminOnly || userRole === "ADMIN");
-            if (items.length === 0) return null;
+          {groupes.map((groupe) => {
             return (
             <div key={groupe.titre}>
               <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {groupe.titre}
               </p>
               <div className="flex flex-col gap-0.5">
-                {items.map((item) => {
+                {groupe.items.map((item) => {
                   const badge = badges[item.href] ?? 0;
                   return (
                     <Link
@@ -174,7 +147,7 @@ export function AppShell({
           <div className="mt-1">
             <PushToggle />
           </div>
-          {userRole === "ADMIN" && (
+          {doubleAcces && (
             <Link
               href="/choix-espace"
               onClick={fermer}
@@ -209,7 +182,7 @@ export function AppShell({
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="truncate font-medium">Pâtes en Folie — Ressources humaines</span>
+          <span className="truncate font-medium">Pâtes en Folie — Gestion</span>
           <div className="ml-auto flex items-center gap-2">
             {notif && <NotificationBell {...notif} />}
             {employeeId ? (
