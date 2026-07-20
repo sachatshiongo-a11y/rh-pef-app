@@ -12,6 +12,7 @@ import {
 } from "./actions";
 import { UsersAdmin, type UserRow } from "./users-admin";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
+import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<{ erreur?: string; msg?: string }> }) {
@@ -365,6 +366,12 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           </tbody>
         </table>
         </div>
+      </Section>
+
+      <Section title="Clôture mensuelle du stock">
+        {/* Onglet Paramètres UNIQUE (demande user) : la clôture du stock, jadis dans
+            /stock/parametres, vit désormais ici ; /stock/parametres redirige vers cette page. */}
+        <ClotureStockSection />
       </Section>
     </div>
   );
