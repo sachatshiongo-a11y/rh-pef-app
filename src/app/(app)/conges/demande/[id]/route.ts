@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
 import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
+import { chargerTauxParTypeConge } from "@/lib/conges";
 
 export async function GET(
   _request: Request,
@@ -40,10 +41,11 @@ export async function GET(
       dateDebut: { gte: debutAnnee },
     },
   });
-  // Seuls les congés DÉDUCTIBLES (annuels) entament le solde ; les congés spéciaux
-  // (maternité, paternité, maladie, accident…) n'y touchent pas — même logique que partout ailleurs.
+  const tauxParType = await chargerTauxParTypeConge();
+  // Seuls les congés DÉDUCTIBLES (annuels payés) entament le solde ; les congés spéciaux
+  // (maternité, paternité, maladie, accident…) et les congés sans solde n'y touchent pas.
   const congesPris = approuvees
-    .filter((l) => congeDeductibleDuSolde(l.type))
+    .filter((l) => congeDeductibleDuSolde(l.type, tauxParType.get(l.type)))
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
 

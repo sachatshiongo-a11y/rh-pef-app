@@ -6,6 +6,7 @@ import {
   calculerPaieBackoffice,
   calculerPaieBrigade,
   calculerCongesAcquis,
+  congeDeductibleDuSolde,
   tauxPrimeAnciennete,
   resumerPresences,
   type ParametresPaie,
@@ -297,5 +298,26 @@ describe("tauxPrimeAnciennete — barème RDC (0% <3 ans, +1%/an, plafond 25%)",
     const salaireBase = 700;
     const montant = salaireBase * (tauxPrimeAnciennete(7) / 100);
     expect(montant).toBeCloseTo(49, 5);
+  });
+});
+
+describe("congeDeductibleDuSolde", () => {
+  it("congé annuel payé (tauxPct > 0) → déductible du solde", () => {
+    expect(congeDeductibleDuSolde("Congé annuel payé", 100)).toBe(true);
+  });
+
+  it("congé sans solde (tauxPct = 0) → NON déductible du solde payé", () => {
+    expect(congeDeductibleDuSolde("Congé sans solde", 0)).toBe(false);
+  });
+
+  it("taux null ou non fourni (type À VALIDER) → traité comme payé, déductible", () => {
+    expect(congeDeductibleDuSolde("Congé annuel payé", null)).toBe(true);
+    expect(congeDeductibleDuSolde("Congé annuel payé")).toBe(true);
+  });
+
+  it("congé légal spécial (maternité/maladie…) → non déductible quel que soit le taux", () => {
+    expect(congeDeductibleDuSolde("Congé de maternité", 100)).toBe(false);
+    expect(congeDeductibleDuSolde("Congé maladie", 66)).toBe(false);
+    expect(congeDeductibleDuSolde("Congé de paternité / naissance", 0)).toBe(false);
   });
 });

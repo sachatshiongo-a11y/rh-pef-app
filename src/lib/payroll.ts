@@ -427,10 +427,18 @@ export function tauxPrimeAnciennete(anneesAnciennete: number): number {
 // maternité/paternité, arrivée d'un enfant (naissance), maladie, maladie professionnelle, accident.
 const MOTS_CONGES_NON_DEDUCTIBLES = ["matern", "patern", "naiss", "enfant", "maladie", "accident"];
 
-/** Un congé de ce type doit-il être décompté du solde de congés annuels ? */
-export function congeDeductibleDuSolde(type: string): boolean {
+/**
+ * Un congé de ce type doit-il être décompté du solde de congés annuels payés ?
+ * Déductible SSI le congé est PAYÉ (`tauxPct` du TypeConge ≠ 0) ET n'est pas un congé légal
+ * spécial (maternité/paternité/naissance/maladie/accident, non déductibles quel que soit le taux).
+ * Un congé sans solde (`tauxPct === 0`) n'entame donc pas le solde de congés payés acquis.
+ * `tauxPct` non fourni ou null (type « À VALIDER ») → traité comme payé par défaut (comportement inchangé).
+ */
+export function congeDeductibleDuSolde(type: string, tauxPct?: number | null): boolean {
   const t = type.toLowerCase();
-  return !MOTS_CONGES_NON_DEDUCTIBLES.some((mot) => t.includes(mot));
+  if (MOTS_CONGES_NON_DEDUCTIBLES.some((mot) => t.includes(mot))) return false;
+  if (tauxPct === 0) return false;
+  return true;
 }
 
 /** Nombre de jours ouvrables (hors dimanche) entre deux dates, bornes incluses. */

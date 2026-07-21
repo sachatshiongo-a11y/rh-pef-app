@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
+import { chargerTauxParTypeConge } from "@/lib/conges";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
@@ -81,7 +82,7 @@ export default async function FicheEmployePage({
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
 
-  const [attendances, leaveRequests, payrollLines] = await Promise.all([
+  const [attendances, leaveRequests, payrollLines, tauxParType] = await Promise.all([
     prisma.attendance.findMany({
       where: { employeeId: id, date: { gte: debutMois, lte: finMois } },
       orderBy: { date: "asc" },
@@ -96,6 +97,7 @@ export default async function FicheEmployePage({
       include: { payrollRun: true },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
+    chargerTauxParTypeConge(),
   ]);
 
   const [primes, acomptes, fraisMed, modeleEntries, shiftsPlanning] = await Promise.all([
@@ -162,7 +164,7 @@ export default async function FicheEmployePage({
       (l) =>
         l.statut === "APPROUVE" &&
         new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(l.type)
+        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
     )
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPrisAnnee) * 10) / 10;

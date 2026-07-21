@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
+import { chargerTauxParTypeConge } from "@/lib/conges";
 import { Avatar } from "@/components/avatar";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -105,7 +106,7 @@ export default async function AbsencesPage({
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   const finAnnee = new Date(Date.UTC(annee, 11, 31));
 
-  const [employees, demandesRange, demandesAnnee, feries, params] = await Promise.all([
+  const [employees, demandesRange, demandesAnnee, feries, params, tauxParType] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -120,6 +121,7 @@ export default async function AbsencesPage({
     }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutRange, lte: finRange } } }),
     chargerParametresPaie(),
+    chargerTauxParTypeConge(),
   ]);
 
   const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
@@ -149,7 +151,7 @@ export default async function AbsencesPage({
   // --- Soldes annuels (conservés sous le calendrier) ---
   const congesAnnuelsParEmp = new Map<string, number>();
   for (const d of demandesAnnee) {
-    if (!congeDeductibleDuSolde(d.type)) continue;
+    if (!congeDeductibleDuSolde(d.type, tauxParType.get(d.type))) continue;
     const debut = new Date(Math.max(new Date(d.dateDebut).getTime(), debutAnnee.getTime()));
     const fin = new Date(Math.min(new Date(d.dateFin).getTime(), finAnnee.getTime()));
     if (debut > fin) continue;
