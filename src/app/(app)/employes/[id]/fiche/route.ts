@@ -4,7 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
-import { typeSansConges } from "@/lib/regles-contrats";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const usd = (n: number) =>
@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
 
-  const [contrats, attendances, leaveRequests, payrollLines, parametres] = await Promise.all([
+  const [contrats, attendances, leaveRequests, payrollLines, parametres, tauxParType] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
     prisma.attendance.findMany({ where: { employeeId: id, date: { gte: debutMois, lte: finMois } } }),
     prisma.leaveRequest.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" }, take: 15 }),
@@ -34,6 +34,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
     chargerParametresPaie(),
+    chargerTauxParTypeConge(),
   ]);
 
   const resume = resumerPresences(attendances.map((a) => a.code as CodePresence));
@@ -43,9 +44,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     (new Date(annee, mois - 1).getFullYear() - new Date(employee.dateEmbauche).getFullYear()) * 12 +
     (new Date(annee, mois - 1).getMonth() - new Date(employee.dateEmbauche).getMonth());
   const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
-  // Congés spéciaux (maternité, maladie…) NON déduits du solde — même logique que partout.
+  // Congés spéciaux (maternité, maladie…) et congés sans solde (tauxPct = 0) NON déduits du solde
+  // payé — même logique que partout.
   const congesPris = leaveRequests
-    .filter((l) => l.statut === "APPROUVE" && new Date(l.dateDebut) >= debutAnnee && congeDeductibleDuSolde(l.type))
+    .filter(
+      (l) =>
+        l.statut === "APPROUVE" &&
+        new Date(l.dateDebut) >= debutAnnee &&
+        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
+    )
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
 
   const periodePresences = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {

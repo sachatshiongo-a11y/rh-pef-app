@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
-import { typeSansConges } from "@/lib/regles-contrats";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -106,7 +106,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   const finAnnee = new Date(Date.UTC(annee, 11, 31));
 
-  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee, params] = await Promise.all([
+  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee, params, tauxParType] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -122,6 +122,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
     prisma.jourFerie.findMany({ where: { date: { gte: debutRange, lte: finRange } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutAnnee, lte: finAnnee } }, select: { date: true } }),
     chargerParametresPaie(),
+    chargerTauxParTypeConge(),
   ]);
 
   const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
@@ -151,7 +152,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   // --- Soldes annuels (conservés sous le calendrier) ---
   const congesAnnuelsParEmp = new Map<string, number>();
   for (const d of demandesAnnee) {
-    if (!congeDeductibleDuSolde(d.type)) continue;
+    if (!congeDeductibleDuSolde(d.type, tauxParType.get(d.type))) continue;
     const debut = new Date(Math.max(new Date(d.dateDebut).getTime(), debutAnnee.getTime()));
     const fin = new Date(Math.min(new Date(d.dateFin).getTime(), finAnnee.getTime()));
     if (debut > fin) continue;

@@ -4,7 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
 import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
-import { typeSansConges } from "@/lib/regles-contrats";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 export async function GET(
   _request: Request,
@@ -34,17 +34,21 @@ export async function GET(
   const parametres = await chargerParametresPaie();
   const congesAcquis = typeSansConges(demande.employee.contrat) ? 0 : calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
 
-  const approuvees = await prisma.leaveRequest.findMany({
-    where: {
-      employeeId: demande.employeeId,
-      statut: "APPROUVE",
-      dateDebut: { gte: debutAnnee },
-    },
-  });
-  // Seuls les congés DÉDUCTIBLES (annuels) entament le solde ; les congés spéciaux
-  // (maternité, paternité, maladie, accident…) n'y touchent pas — même logique que partout ailleurs.
+  const [approuvees, tauxParType] = await Promise.all([
+    prisma.leaveRequest.findMany({
+      where: {
+        employeeId: demande.employeeId,
+        statut: "APPROUVE",
+        dateDebut: { gte: debutAnnee },
+      },
+    }),
+    chargerTauxParTypeConge(),
+  ]);
+  // Seuls les congés DÉDUCTIBLES (payés, hors congés spéciaux) entament le solde ; les congés
+  // spéciaux (maternité, paternité, maladie, accident…) et les congés sans solde (tauxPct = 0)
+  // n'y touchent pas — même logique que partout ailleurs.
   const congesPris = approuvees
-    .filter((l) => congeDeductibleDuSolde(l.type))
+    .filter((l) => congeDeductibleDuSolde(l.type, tauxParType.get(l.type)))
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
 

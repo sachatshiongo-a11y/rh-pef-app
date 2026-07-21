@@ -23,7 +23,7 @@ import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
-import { typeSansConges } from "@/lib/regles-contrats";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -109,7 +109,7 @@ export default async function FicheEmployePage({
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
 
-  const [attendances, leaveRequests, payrollLines] = await Promise.all([
+  const [attendances, leaveRequests, payrollLines, tauxParType] = await Promise.all([
     prisma.attendance.findMany({
       where: { employeeId: id, date: { gte: debutMois, lte: finMois } },
       orderBy: { date: "asc" },
@@ -124,6 +124,7 @@ export default async function FicheEmployePage({
       include: { payrollRun: true },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
+    chargerTauxParTypeConge(),
   ]);
 
   // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
@@ -270,7 +271,7 @@ export default async function FicheEmployePage({
       (l) =>
         l.statut === "APPROUVE" &&
         new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(l.type)
+        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
     )
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPrisAnnee) * 10) / 10;

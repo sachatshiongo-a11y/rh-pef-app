@@ -22,15 +22,21 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
   const [emp, demandes, typesConges] = await Promise.all([
     prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { contrat: true, dateEmbauche: true } }),
     prisma.leaveRequest.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" }, take: 60 }),
-    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true } }),
+    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true, tauxPct: true } }),
   ]);
+  const tauxParType = new Map(typesConges.map((t) => [t.nom, t.tauxPct]));
 
   const now = new Date();
   const anciennete = Math.max(0, (now.getFullYear() - new Date(emp.dateEmbauche).getFullYear()) * 12 + (now.getMonth() - new Date(emp.dateEmbauche).getMonth()));
   const congesAcquis = typeSansConges(emp.contrat) ? 0 : calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
   const debutAnnee = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
   const congesPris = demandes
-    .filter((l) => l.statut === "APPROUVE" && new Date(l.dateDebut) >= debutAnnee && congeDeductibleDuSolde(l.type))
+    .filter(
+      (l) =>
+        l.statut === "APPROUVE" &&
+        new Date(l.dateDebut) >= debutAnnee &&
+        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
+    )
     .reduce((a, l) => a + Number(l.nbJours), 0);
   const solde = Math.round((congesAcquis - congesPris) * 10) / 10;
 
