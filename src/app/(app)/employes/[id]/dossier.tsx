@@ -135,6 +135,7 @@ export function DossierEmploye({
   fichePosteFichierUrl,
   salaireMensuel,
   salaireJournalier,
+  salaireEstNet,
   soldeConges,
   joursPresence,
   ancienneteMois,
@@ -163,6 +164,7 @@ export function DossierEmploye({
   fichePosteFichierUrl?: string | null;
   salaireMensuel: number;
   salaireJournalier: number;
+  salaireEstNet: boolean;
   soldeConges: number;
   joursPresence: number;
   ancienneteMois: number;
@@ -316,7 +318,7 @@ export function DossierEmploye({
             <BlocContrat icone="billet" titre="Rémunération">
               <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
                 <Champ
-                  label="Salaire brut"
+                  label={salaireEstNet ? "Salaire net" : "Salaire brut"}
                   valeur={`${Number(c.salaireMensuel).toLocaleString("fr-FR")} ${c.devise} / mois`}
                   note={`soit ${(Number(c.salaireMensuel) * 12).toLocaleString("fr-FR")} ${c.devise} / an`}
                 />
@@ -426,7 +428,7 @@ export function DossierEmploye({
                     <label className="flex flex-col gap-0.5">Heures / semaine
                       <input type="number" name="heuresHebdo" step="0.5" min="1" defaultValue={Number(c.heuresHebdo)} className={inputCls} />
                     </label>
-                    <label className="flex flex-col gap-0.5">Salaire mensuel brut
+                    <label className="flex flex-col gap-0.5">Salaire mensuel {salaireEstNet ? "net" : "brut"}
                       <input type="number" name="salaireMensuel" step="0.01" min="0" required defaultValue={Number(c.salaireMensuel)} className={inputCls} />
                     </label>
                     <label className="flex flex-col gap-0.5">Devise

@@ -190,6 +190,11 @@ export type LignePaie = {
   onemUSD: number;
   coutEmployeurUSD: number;
   coutEmployeurCDF: number;
+  // Facteur de reconstitution brut/net (ρ) appliqué au salaire de base quand les salaires sont
+  // saisis en net (1 sinon). Exposé pour que l'appelant (paie-batch) grossisse de façon COHÉRENTE
+  // les composantes d'affichage dérivées du taux (jours payés non travaillés, HS, indemnité congés),
+  // afin que « base × taux = montant » reste vrai ligne à ligne sur le bulletin.
+  facteurReconstitution?: number;
 };
 
 export function calculerPaieBrigade(
@@ -237,20 +242,23 @@ export function calculerPaieBrigade(
   const salBrutUSD =
     remuneration100 + remuneration2_3 + hsValorisee + entrees.transportMoisUSD + primesUSD;
 
-  return finaliserLignePaie(
-    {
-      remuneration100,
-      remuneration2_3,
-      salBrutUSD,
-      enfants: entrees.enfants,
-      fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
-      primesUSD,
-      acompteUSD: entrees.acompteUSD ?? 0,
-      retenuePretUSD: entrees.retenuePretUSD ?? 0,
-      transportUSD: entrees.transportMoisUSD,
-    },
-    params
-  );
+  return {
+    ...finaliserLignePaie(
+      {
+        remuneration100,
+        remuneration2_3,
+        salBrutUSD,
+        enfants: entrees.enfants,
+        fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
+        primesUSD,
+        acompteUSD: entrees.acompteUSD ?? 0,
+        retenuePretUSD: entrees.retenuePretUSD ?? 0,
+        transportUSD: entrees.transportMoisUSD,
+      },
+      params
+    ),
+    facteurReconstitution: rho,
+  };
 }
 
 export type EntreesPaieBackoffice = {

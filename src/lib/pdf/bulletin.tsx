@@ -2,7 +2,7 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfSignatureBox } from "./layout";
-import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
+import { pdfColors, entreprise as entrepriseDefaut, formatMontant, formatCDF, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
 
@@ -28,7 +28,7 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingHorizontal: 30,
     paddingBottom: 22,
-    fontSize: 8,
+    fontSize: 8.5,
     fontFamily: "Optima",
     color: pdfColors.text,
   },
@@ -78,20 +78,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: pdfColors.brownDark,
   },
-  thCell: { color: "#ffffff", fontSize: 6.5, fontWeight: 700, paddingVertical: 3, paddingHorizontal: 3, textTransform: "uppercase" },
+  thCell: { color: "#ffffff", fontSize: 7, fontWeight: 700, paddingVertical: 4, paddingHorizontal: 4, textTransform: "uppercase" },
   tr: { flexDirection: "row", borderTop: `0.5 solid ${pdfColors.border}` },
-  td: { fontSize: 7.5, paddingVertical: 2.5, paddingHorizontal: 3 },
+  td: { fontSize: 8, paddingVertical: 3.6, paddingHorizontal: 4 },
   trTotal: { backgroundColor: pdfColors.goldLight },
   trSection: { backgroundColor: "#f3efe6" },
   tdBold: { fontWeight: 700, color: pdfColors.brownDark },
 
   // largeurs de colonnes
-  cDesig: { width: "34%" },
-  cBase: { width: "13%", textAlign: "right" },
-  cTaux: { width: "11%", textAlign: "right" },
+  cDesig: { width: "38%" },
+  cBase: { width: "12%", textAlign: "right" },
+  cTaux: { width: "10%", textAlign: "right" },
   cMontant: { width: "14%", textAlign: "right" },
-  cSal: { width: "14%", textAlign: "right" },
-  cEmp: { width: "14%", textAlign: "right" },
+  cSal: { width: "13%", textAlign: "right" },
+  cEmp: { width: "13%", textAlign: "right" },
 
   // Calendrier
   calWrap: { width: "27%", border: `0.75 solid ${pdfColors.border}` },
@@ -122,6 +122,13 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 10.5, fontWeight: 700, color: pdfColors.brownDark },
   totalValue: { fontSize: 13, fontWeight: 700, color: pdfColors.brownDark },
+  coutRow: {
+    marginTop: 3,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  coutText: { fontSize: 7, color: pdfColors.textMuted },
 
   conservation: {
     marginTop: 4,
@@ -369,7 +376,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           {totHS > 0 && (
             <Row designation="Heures supplémentaires" base={`${totHS} h`} montant={m(Number(ligne.hsValorisee))} />
           )}
-          <Row designation="Frais de transport (non imposable, non cotisable)" montant={m(Number(ligne.transportUSD))} />
+          <Row designation="Frais de transport (non imposable)" montant={m(Number(ligne.transportUSD))} />
           {/* Primes détaillées (une ligne par prime) UNIQUEMENT si leur somme correspond au montant
               de primes réellement inclus dans le brut calculé. Sinon (bulletin figé alors qu'une
               prime a été ajoutée après, ou calcul non rafraîchi) on affiche le total stocké pour
@@ -406,7 +413,6 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             partEmp={m(totalPatronal)}
             total
           />
-          <Row designation="Coût total employeur" partEmp={m(Number(ligne.coutEmployeurUSD))} section />
         </View>
 
         {/* Colonne calendrier */}
@@ -431,6 +437,16 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         <Text style={styles.totalLabel}>SALAIRE NET À PAYER</Text>
         <Text style={styles.totalValue}>{m(Number(ligne.salNetUSD))}</Text>
       </View>
+      <View style={styles.coutRow}>
+        <Text style={styles.coutText}>Coût total employeur (charges patronales comprises)</Text>
+        <Text style={styles.coutText}>{m(Number(ligne.coutEmployeurUSD))}</Text>
+      </View>
+      {Number(ligne.transportUSD) > 0 && (
+        <Text style={styles.legende}>
+          Dont frais de transport (non imposable, non cotisable, versé au net) : {m(Number(ligne.transportUSD))}
+          {devise !== "CDF" ? ` (≈ ${formatCDF(Number(ligne.transportUSD) * tauxChange)} FC)` : ""}.
+        </Text>
+      )}
 
       {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + mode de paiement
           (uniquement une fois le bulletin payé). La boîte n'est rendue que si l'une des deux existe. */}

@@ -10,6 +10,7 @@ import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
 import { BulletinViewerButton } from "./bulletin-viewer";
+import { ContratViewerButton } from "./contrat-viewer";
 import { Avatar } from "@/components/avatar";
 import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
@@ -675,6 +676,13 @@ export default async function FicheEmployePage({
                   <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
                     CDF
                   </TelechargerLien>
+                  {" · "}
+                  <ContratViewerButton
+                    href={`/employes/${employee.id}/attestation-paie/${l.id}`}
+                    titre={`Attestation de paie — ${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
+                    libelle="Attestation"
+                    className="text-primary underline"
+                  />
                 </td>
               </tr>
             ))}
@@ -696,7 +704,7 @@ export default async function FicheEmployePage({
             <PrimeForm
               action={ajouterPrime.bind(null, employee.id)}
               types={TYPES_PRIME}
-              salaireBase={Number(employee.salaireMensuel)}
+              salaireBase={baseFinContratUSD}
               tauxAnciennete={tauxPrimeAnciennete(anciennete / 12)}
             />
             <form action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
@@ -819,6 +827,7 @@ export default async function FicheEmployePage({
         fichePosteFichierUrl={fichePoste?.fichierUrl ?? null}
         salaireMensuel={Number(employee.salaireMensuel)}
         salaireJournalier={salaireJournalierFinContrat}
+        salaireEstNet={parametres.salairesSaisisEnNet ?? false}
         soldeConges={soldeConges}
         joursPresence={joursPresenceP}
         ancienneteMois={anciennete}

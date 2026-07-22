@@ -274,6 +274,12 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
             parametres
           );
 
+    // Facteur de reconstitution brut/net appliqué à la base (1 hors brigade / flag inactif). Les
+    // composantes d'affichage dérivées du taux (jours payés non travaillés, HS, indemnité congés)
+    // sont stockées AU MÊME facteur que la base grossie, sinon la répartition ligne à ligne du
+    // bulletin devient incohérente avec `remuneration100` grossi (bug de répartition, 2026-07-22).
+    const facteur = ligne.facteurReconstitution ?? 1;
+
     lignes.push({
       employee,
       data: {
@@ -289,16 +295,16 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         remunerationJoursPayesUSD:
           estStage || employee.categorie !== "BRIGADE"
             ? 0
-            : Math.round(salaireJournalier * joursPayesNonTravailles * 100) / 100,
+            : Math.round(salaireJournalier * joursPayesNonTravailles * facteur * 100) / 100,
         remuneration2_3: ligne.remuneration2_3,
-        hsValorisee: estStage ? 0 : hs.hsValorisee,
+        hsValorisee: estStage ? 0 : Math.round(hs.hsValorisee * facteur * 100) / 100,
         heuresTravaillees: hs.heuresTotalesMois,
         heuresContractuelles,
         heuresSupp30: estStage ? 0 : hs.hs30,
         heuresSupp60: estStage ? 0 : hs.hs60,
         heuresSupp100: estStage ? 0 : hs.hs100,
         joursCongePris,
-        indemniteCongesUSD,
+        indemniteCongesUSD: Math.round(indemniteCongesUSD * facteur * 100) / 100,
         fraisMedicauxUSD,
         transportUSD,
         primesUSD: ligne.primesUSD,

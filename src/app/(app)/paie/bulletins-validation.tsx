@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { StatusActions } from "./status-actions";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { useLockBodyScroll } from "@/components/use-lock-body-scroll";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
 import type { PaieRow } from "./paie-bulk";
@@ -39,6 +41,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
   const filtres = rows.filter((r) => r.nom.toLowerCase().includes(recherche.trim().toLowerCase()));
   const sel = rows.find((r) => r.id === selId) ?? null;
   const src = sel ? `/paie/bulletin/${sel.id}?devise=${devise}` : "";
+  useLockBodyScroll(agrandi);
 
   if (rows.length === 0) {
     return (
@@ -237,36 +240,66 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
         )}
       </div>
 
-      {/* Plein écran */}
-      {agrandi && sel && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/70 p-4" onClick={() => setAgrandi(false)}>
-          <div className="mx-auto flex h-full w-full max-w-5xl flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between rounded-t-lg bg-card px-4 py-2">
-              <span className="text-sm font-semibold">Bulletin — {sel.nom}</span>
-              <div className="flex items-center gap-2">
-                <div className="flex overflow-hidden rounded-md border text-xs">
-                  {(["USD", "CDF"] as Devise[]).map((d) => (
-                    <button
-                      key={d}
-                      onClick={() => setDevise(d)}
-                      className={`px-2.5 py-1 ${devise === d ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                    >
-                      {d === "USD" ? "$" : "CDF"}
-                    </button>
-                  ))}
+      {/* Plein écran — rendue via portail DANS <body>, hors de la coquille `overflow-hidden` de
+          l'app (voir app-shell.tsx, même piège déjà rencontré pour le voile du tiroir mobile) :
+          sur iOS Safari/PWA, un descendant `position: fixed` d'un ancêtre `overflow: hidden` peut
+          être recadré aux bornes de cet ancêtre au lieu du viewport entier — d'où un aperçu réduit
+          à « une petite case » et le doigt piégé entre deux zones scrollables (page figée). */}
+      {agrandi &&
+        sel &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex flex-col overscroll-contain bg-black/70 p-2 sm:p-4"
+            onClick={() => setAgrandi(false)}
+          >
+            <div
+              className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-t-lg bg-card px-4 py-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">Bulletin — {sel.nom}</span>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <div className="flex overflow-hidden rounded-md border text-xs">
+                    {(["USD", "CDF"] as Devise[]).map((d) => (
+                      <button
+                        key={d}
+                        onClick={() => setDevise(d)}
+                        className={`px-2.5 py-1 ${devise === d ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                      >
+                        {d === "USD" ? "$" : "CDF"}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Repli visible : sur iOS, l'aperçu PDF en iframe se comporte parfois mal
+                      (rendu partiel, scroll capturé). Un onglet séparé utilise le vrai lecteur PDF
+                      du système, toujours fiable. */}
+                  <a
+                    href={src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
+                  >
+                    Nouvel onglet
+                  </a>
+                  <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                    Télécharger
+                  </TelechargerLien>
+                  <button onClick={() => setAgrandi(false)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                    Réduire ✕
+                  </button>
                 </div>
-                <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
-                  Télécharger
-                </TelechargerLien>
-                <button onClick={() => setAgrandi(false)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
-                  Réduire ✕
-                </button>
               </div>
+              <iframe
+                key={`big-${src}`}
+                src={src}
+                title={`Bulletin ${sel.nom} agrandi`}
+                className="h-full min-h-0 w-full flex-1 rounded-b-lg bg-white"
+              />
             </div>
-            <iframe key={`big-${src}`} src={src} title={`Bulletin ${sel.nom} agrandi`} className="w-full flex-1 rounded-b-lg bg-white" />
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
       </div>
     </>
   );
