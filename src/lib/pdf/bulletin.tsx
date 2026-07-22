@@ -339,7 +339,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           {totHS > 0 && (
             <Row designation="Heures supplémentaires" base={`${totHS} h`} montant={m(Number(ligne.hsValorisee))} />
           )}
-          <Row designation="Frais de transport" montant={m(Number(ligne.transportUSD))} />
+          <Row designation="Frais de transport (non imposable, non cotisable)" montant={m(Number(ligne.transportUSD))} />
           {/* Primes détaillées (une ligne par prime) UNIQUEMENT si leur somme correspond au montant
               de primes réellement inclus dans le brut calculé. Sinon (bulletin figé alors qu'une
               prime a été ajoutée après, ou calcul non rafraîchi) on affiche le total stocké pour

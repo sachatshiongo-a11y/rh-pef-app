@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { verifySession, estSalarie } from "@/lib/auth";
+import { verifySession, estSalarie, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { prisma } from "@/lib/prisma";
 import { chargerNotificationsSalarie } from "@/lib/notifications";
@@ -9,7 +9,8 @@ import { EspaceShell } from "./espace-shell";
 // doit être opérationnel (EMPLOYE/STOCK) relié à une fiche. Sinon → résolveur d'entrée.
 export default async function EspaceLayout({ children }: { children: React.ReactNode }) {
   const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user)) redirect("/entree");
+  const salarieActif = await espaceEmployeActif();
+  if (!salarieActif || !estSalarie(user)) redirect("/entree");
 
   const [compte, notifs] = await Promise.all([
     prisma.user.findUnique({
@@ -32,7 +33,7 @@ export default async function EspaceLayout({ children }: { children: React.React
   ];
 
   return (
-    <EspaceShell liens={liens} nom={emp?.nom ?? user.nom} matricule={emp?.matricule ?? null} photoUrl={emp?.photoUrl ?? null} notifs={notifs}>
+    <EspaceShell liens={liens} nom={emp?.nom ?? user.nom} matricule={emp?.matricule ?? null} photoUrl={emp?.photoUrl ?? null} notifs={notifs} autresEspaces={ciblesAutresEspaces(user, salarieActif, "salarie")}>
       {children}
     </EspaceShell>
   );

@@ -150,6 +150,7 @@ export function calculerPaieBrigade(
       primesUSD,
       acompteUSD: entrees.acompteUSD ?? 0,
       retenuePretUSD: entrees.retenuePretUSD ?? 0,
+      transportUSD: entrees.transportMoisUSD,
     },
     params
   );
@@ -182,6 +183,7 @@ export function calculerPaieBackoffice(
       primesUSD,
       acompteUSD: entrees.acompteUSD ?? 0,
       retenuePretUSD: entrees.retenuePretUSD ?? 0,
+      transportUSD: entrees.transportUSD,
     },
     params
   );
@@ -240,25 +242,32 @@ function finaliserLignePaie(
     primesUSD?: number;
     acompteUSD?: number;
     retenuePretUSD?: number;
+    transportUSD?: number; // indemnité de transport : exonérée d'IPR et non cotisable (CNSS/INPP/ONEM)
   },
   params: ParametresPaie
 ): LignePaie {
   const primesUSD = base.primesUSD ?? 0;
   const acompteUSD = base.acompteUSD ?? 0;
   const retenuePretUSD = base.retenuePretUSD ?? 0;
+  const transportUSD = base.transportUSD ?? 0;
   const taux = params.tauxChangeCDF;
+
+  // L'indemnité de transport représente un remboursement de frais : exonérée d'IPR et NON soumise
+  // aux cotisations. On la retire donc de la base cotisable/imposable (elle reste versée au net,
+  // comprise dans le salaire brut).
+  const baseCotisableUSD = Math.max(0, base.salBrutUSD - transportUSD);
 
   // Assiette CNSS, éventuellement plafonnée (plafond exprimé en CDF)
   const plafondUSD =
     params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
   const assietteCnssUSD =
-    plafondUSD === null ? base.salBrutUSD : Math.min(base.salBrutUSD, plafondUSD);
+    plafondUSD === null ? baseCotisableUSD : Math.min(baseCotisableUSD, plafondUSD);
 
   const cnssSalarieUSD = assietteCnssUSD * params.cnssSalarie;
 
-  // Base imposable IPR selon le choix configuré (1 = brut ; 2/3 = brut − CNSS)
+  // Base imposable IPR selon le choix configuré (1 = brut ; 2/3 = brut − CNSS) — hors transport.
   const baseImposableUSD =
-    params.iprBase === 1 ? base.salBrutUSD : base.salBrutUSD - cnssSalarieUSD;
+    params.iprBase === 1 ? baseCotisableUSD : baseCotisableUSD - cnssSalarieUSD;
 
   // IPR calculé en CDF (barème DGI), reconverti en USD pour l'affichage/stockage
   const iprCDF = calculerIprDGI(baseImposableUSD * taux, params, base.enfants);
@@ -282,8 +291,8 @@ function finaliserLignePaie(
   const cnssPatronalUSD =
     assietteCnssUSD *
     (params.cnssPatronalPensions + params.cnssPatronalRisques + params.cnssPatronalFamille);
-  const inppUSD = base.salBrutUSD * params.inppTaux;
-  const onemUSD = base.salBrutUSD * params.onemTaux;
+  const inppUSD = baseCotisableUSD * params.inppTaux;
+  const onemUSD = baseCotisableUSD * params.onemTaux;
   const coutEmployeurUSD = base.salBrutUSD + cnssPatronalUSD + inppUSD + onemUSD;
   const coutEmployeurCDF = coutEmployeurUSD * taux;
 

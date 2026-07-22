@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession, estRH } from "@/lib/auth";
+import { verifySession, estRH, ciblesAutresEspaces } from "@/lib/auth";
+import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { AppShell } from "./app-shell";
 
@@ -37,10 +38,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // vers le résolveur d'entrée, qui l'oriente vers son propre espace. Le cloisonnement ne
   // repose donc pas sur le seul masquage des liens.
   if (!estRH(user.role)) redirect("/entree");
-  const [badges, notif, moi] = await Promise.all([
+  const [badges, notif, moi, salarieActif] = await Promise.all([
     chargerBadges(),
     chargerNotifications("RH"), // cloche pour tous les utilisateurs RH
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { id: true, photoUrl: true } } } }),
+    espaceEmployeActif(),
   ]);
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const monEmployeId = moi?.employe?.id ?? null;
@@ -52,6 +54,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userRole={user.role}
       maPhoto={maPhoto}
       employeeId={monEmployeId}
+      autresEspaces={ciblesAutresEspaces(user, salarieActif, "rh")}
       notif={notif ? { items: notif.items, nonLues: notif.nonLues, cloture: notif.cloture } : null}
     >
       {children}

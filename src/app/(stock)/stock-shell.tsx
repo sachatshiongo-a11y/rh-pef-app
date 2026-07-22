@@ -59,7 +59,7 @@ export function StockShell({
   userNom,
   userRole,
   maPhoto,
-  doubleAcces,
+  autresEspaces = [],
   badges = {},
   notif,
   children,
@@ -67,7 +67,7 @@ export function StockShell({
   userNom: string;
   userRole: string;
   maPhoto: string | null;
-  doubleAcces: boolean;
+  autresEspaces?: { href: string; icone: string; label: string }[];
   badges?: Record<string, number>;
   notif: React.ComponentProps<typeof NotificationBell> | null;
   children: React.ReactNode;
@@ -142,11 +142,12 @@ export function StockShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
-          {doubleAcces && (
-            <Link href="/choix-espace" onClick={fermer} className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring">
-              <Icone nom="permuter" /> Changer d&apos;espace
+          {/* Saut DIRECT vers les autres espaces du compte — un clic, sans repasser par le sélecteur. */}
+          {autresEspaces.map((e) => (
+            <Link key={e.href} href={e.href} onClick={fermer} className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              <Icone nom={e.icone} /> {e.label}
             </Link>
-          )}
+          ))}
           <form action={logout}>
             <button type="submit" className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"><Icone nom="deconnexion" /> Déconnexion</button>
           </form>

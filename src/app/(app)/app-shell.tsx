@@ -54,6 +54,7 @@ export function AppShell({
   userRole,
   maPhoto,
   employeeId,
+  autresEspaces = [],
   notif,
   children,
 }: {
@@ -62,6 +63,7 @@ export function AppShell({
   userRole: string;
   maPhoto: string | null;
   employeeId: string | null;
+  autresEspaces?: { href: string; icone: string; label: string }[];
   notif: NotifData;
   children: React.ReactNode;
 }) {
@@ -174,15 +176,17 @@ export function AppShell({
           <div className="mt-1">
             <PushToggle />
           </div>
-          {userRole === "ADMIN" && (
+          {/* Saut DIRECT vers les autres espaces du compte — un clic, sans repasser par le sélecteur. */}
+          {autresEspaces.map((e) => (
             <Link
-              href="/choix-espace"
+              key={e.href}
+              href={e.href}
               onClick={fermer}
               className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Icone nom="permuter" /> Changer d&apos;espace
+              <Icone nom={e.icone} /> {e.label}
             </Link>
-          )}
+          ))}
           <form action={logout}>
             <button
               type="submit"

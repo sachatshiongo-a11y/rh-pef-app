@@ -21,6 +21,7 @@ export function EspaceShell({
   matricule,
   photoUrl,
   notifs,
+  autresEspaces = [],
   children,
 }: {
   liens: Lien[];
@@ -28,6 +29,7 @@ export function EspaceShell({
   matricule: string | null;
   photoUrl: string | null;
   notifs: { items: NotificationItem[]; nonLues: number };
+  autresEspaces?: { href: string; icone: string; label: string }[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -61,6 +63,17 @@ export function EspaceShell({
           {matricule && <p className="truncate font-mono text-[11px] text-muted-foreground">{matricule}</p>}
         </div>
       </div>
+      {/* Saut DIRECT vers les autres espaces du compte — un clic, sans repasser par le sélecteur. */}
+      {autresEspaces.map((e) => (
+        <Link
+          key={e.href}
+          href={e.href}
+          onClick={() => setTiroir(false)}
+          className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+        >
+          <Icone nom={e.icone} className="shrink-0" /> {e.label}
+        </Link>
+      ))}
       <ThemeToggle />
       <form action={logout}>
         <button className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent">

@@ -142,16 +142,22 @@ describe("calculerPaieBrigade — chaîne complète paramétrée", () => {
 });
 
 describe("calculerPaieBackoffice", () => {
-  it("salaire fixe + transport, mêmes règles CNSS/IPR/INPP/ONEM", () => {
+  it("le transport est NON IMPOSABLE et NON COTISABLE : versé au net, hors assiettes CNSS/IPR/INPP/ONEM", () => {
     const r = calculerPaieBackoffice(
       { salaireBaseUSD: 200, transportUSD: 20, enfants: 0 },
       params
     );
+    // Le brut versé inclut le transport…
     expect(r.salBrutUSD).toBeCloseTo(220, 6);
-    expect(r.cnssSalarieUSD).toBeCloseTo(11, 6);
-    expect(r.inppUSD).toBeCloseTo(6.6, 6);
-    expect(r.onemUSD).toBeCloseTo(0.44, 6);
-    expect(r.salNetUSD).toBeCloseTo(220 - 11 - r.iprCalculeUSD, 6);
+    // …mais toutes les assiettes sont calculées sur 200 (hors transport).
+    expect(r.cnssSalarieUSD).toBeCloseTo(200 * 0.05, 6);
+    expect(r.inppUSD).toBeCloseTo(200 * 0.03, 6);
+    expect(r.onemUSD).toBeCloseTo(200 * 0.002, 6);
+    // Et l'IPR est identique à celui d'un salaire de 200 SANS transport.
+    const sansTransport = calculerPaieBackoffice({ salaireBaseUSD: 200, transportUSD: 0, enfants: 0 }, params);
+    expect(r.iprCalculeUSD).toBeCloseTo(sansTransport.iprCalculeUSD, 6);
+    // Le net = net sans transport + 20 $ (le transport arrive intégralement au net).
+    expect(r.salNetUSD).toBeCloseTo(sansTransport.salNetUSD + 20, 6);
   });
 });
 

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession, estStock, espacesDe } from "@/lib/auth";
+import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { StockShell } from "./stock-shell";
@@ -38,7 +38,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
       userNom={user.nom}
       userRole={user.role}
       maPhoto={moi?.employe?.photoUrl ?? null}
-      doubleAcces={espacesDe(user, espaceSalarieActif).length > 1}
+      autresEspaces={ciblesAutresEspaces(user, espaceSalarieActif, "stock")}
       badges={{
         "/stock/a-valider": nbAValider,
         "/stock/commandes": nbAValider,

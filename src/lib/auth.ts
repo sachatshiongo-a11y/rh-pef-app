@@ -111,6 +111,23 @@ export function accueilEspace(espace: Espace): string {
   return espace === "rh" ? "/accueil" : espace === "stock" ? "/stock" : "/espace";
 }
 
+/** Liens DIRECTS vers les AUTRES espaces du compte (changement en un clic, sans repasser par le
+ *  sélecteur /choix-espace). Vide si le compte n'a qu'un seul espace. */
+export function ciblesAutresEspaces(
+  user: CurrentUser,
+  espaceSalarieActif: boolean,
+  courant: Espace
+): { href: string; icone: string; label: string }[] {
+  const infos: Record<Espace, { href: string; icone: string; label: string }> = {
+    salarie: { href: "/espace", icone: "employes", label: "Mon espace salarié" },
+    rh: { href: "/accueil", icone: "mallette", label: "Ressources humaines" },
+    stock: { href: "/stock", icone: "colis", label: "Stock & Achats" },
+  };
+  return espacesDe(user, espaceSalarieActif)
+    .filter((e) => e !== courant)
+    .map((e) => infos[e]);
+}
+
 /** À utiliser dans les Server Actions / Server Components pour exiger l'accès à un espace. */
 export function requireModule(user: CurrentUser, espace: Espace) {
   const ok = espace === "rh" ? estRH(user.role) : espace === "stock" ? estStock(user) : estSalarie(user);
