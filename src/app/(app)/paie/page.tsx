@@ -14,6 +14,12 @@ import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 
+// Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
+// bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
+// navigation client (surtout PWA, page préchargée/déjà montée), Next pouvait resservir une version
+// en cache sans relancer le rendu serveur — d'où l'impression de devoir recliquer « Calculer ».
+export const dynamic = "force-dynamic";
+
 export default async function PaiePage({
   searchParams,
 }: {
