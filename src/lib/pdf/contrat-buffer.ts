@@ -3,6 +3,8 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { ContratDocument, type ParamsContrat } from "@/lib/pdf/contrat";
 import { chargerEntreprise } from "@/lib/entreprise";
+import { chargerParametresPaie } from "@/lib/config";
+import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { lireFichier } from "@/lib/storage";
 
 /**
@@ -45,9 +47,17 @@ export async function genererContratPdf(
   };
   const salaireEstNet = val("salaires_saisis_en_net") === 1;
 
+  // Salaire brut reconstitué (affiché à côté du net sur le contrat, décision client 2026-07-22).
+  let salaireBrut: string | null = null;
+  if (salaireEstNet) {
+    const parametresPaie = await chargerParametresPaie();
+    const brut = reconstituerBrutDepuisNet(Number(contrat.salaireMensuel), parametresPaie, contrat.employee.enfants);
+    salaireBrut = `${brut.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`;
+  }
+
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
+    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
 }

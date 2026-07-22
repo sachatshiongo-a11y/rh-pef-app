@@ -51,7 +51,7 @@ export type ParamsContrat = { preavisDemission: number | null; preavisLicencieme
  * Contrat de travail (PDF, modèle RDC) auto-rempli depuis la fiche + les termes du contrat.
  * ⚠️ Modèle générique — à FAIRE VALIDER par un juriste avant usage réel (comme les barèmes de paie).
  */
-export function ContratDocument({ employee, contrat, params, salaireEstNet, accepteLe, fonctions, entreprise = entrepriseDefaut, logo, signature }: { employee: Employee; contrat: Contrat; params: ParamsContrat; salaireEstNet: boolean; accepteLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null }) {
+export function ContratDocument({ employee, contrat, params, salaireEstNet, salaireBrut, accepteLe, fonctions, entreprise = entrepriseDefaut, logo, signature }: { employee: Employee; contrat: Contrat; params: ParamsContrat; salaireEstNet: boolean; salaireBrut?: string | null; accepteLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null }) {
   // Signature de la Direction : téléversée (paramètres) si fournie, sinon celle groupée dans le projet.
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
@@ -131,7 +131,8 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, acce
         <Text style={styles.artTitre}>Article {artNo()} — Rémunération</Text>
         <Text style={styles.art}>
           En contrepartie de son travail, {femme ? "la Salariée" : "le Salarié"}{" "}percevra une rémunération mensuelle {salaireEstNet ? "nette" : "brute"} de{" "}
-          <Text style={styles.gras}>{salaire}</Text>, payable à terme échu, {salaireEstNet ? "après" : "sous"} déduction des cotisations et impôts légaux
+          <Text style={styles.gras}>{salaire}</Text>
+          {salaireEstNet && salaireBrut ? <>{" "}(salaire brut : <Text style={styles.gras}>{salaireBrut}</Text>)</> : null}, payable à terme échu, {salaireEstNet ? "après" : "sous"} déduction des cotisations et impôts légaux
           (CNSS, IPR). S&apos;y ajoutent, le cas échéant, les indemnités et primes prévues par la politique de l&apos;établissement
           (transport, allocations, heures supplémentaires) conformément à la réglementation.
         </Text>

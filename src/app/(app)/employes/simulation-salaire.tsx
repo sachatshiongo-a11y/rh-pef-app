@@ -142,14 +142,20 @@ export function SimulationSalaire({
         </p>
       )}
       <dl className="space-y-1 text-sm tabular-nums">
-        <Ligne label="Base + transport (brut)" val={usd(ligne.salBrutUSD)} gras />
+        <Ligne label="Salaire brut imposable (hors transport)" val={usd(ligne.salBrutUSD - transportUSD)} gras />
+        {transportUSD > 0 && (
+          <Ligne label="Frais de transport (non imposable)" val={`+ ${usd(transportUSD)}`} />
+        )}
         {ligne.cnssSalarieUSD > 0 && <Ligne label="CNSS salarié" val={`− ${usd(ligne.cnssSalarieUSD)}`} rouge />}
         {ligne.iprCalculeUSD > 0 && <Ligne label="IPR (impôt)" val={`− ${usd(ligne.iprCalculeUSD)}`} rouge />}
         {ligne.allocFamilialeUSD > 0 && (
           <Ligne label={`Allocations familiales (${v.enfants} enf.)`} val={`+ ${usd(ligne.allocFamilialeUSD)}`} vert />
         )}
         <div className="border-t pt-1">
-          <Ligne label="Net à payer" val={usd(ligne.salNetUSD)} gras vert />
+          <Ligne label="Net à payer (transport compris)" val={usd(ligne.salNetUSD)} gras vert />
+          {transportUSD > 0 && (
+            <p className="text-right text-[11px] text-muted-foreground">dont transport {usd(transportUSD)}</p>
+          )}
           <p className="text-right text-[11px] text-muted-foreground">≈ {cdf(ligne.salNetCDF)}</p>
         </div>
         <div className="border-t pt-1">

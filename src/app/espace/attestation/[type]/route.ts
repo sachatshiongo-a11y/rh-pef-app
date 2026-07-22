@@ -4,6 +4,8 @@ import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { AttestationDocument, type TypeAttestation } from "@/lib/pdf/attestation";
 import { chargerEntreprise } from "@/lib/entreprise";
+import { chargerParametresPaie } from "@/lib/config";
+import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { slugFichier } from "@/lib/texte";
 
 /** Attestation de travail / de salaire du salarié connecté (self-service, ses données uniquement). */
@@ -24,11 +26,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ type
     (await prisma.contrat.findFirst({ where: { employeeId: user.employeeId }, orderBy: { dateDebut: "desc" } }));
   if (!contrat) return new Response("Aucun contrat enregistré.", { status: 404 });
 
-  const flagNet = await prisma.parametreLegal.findFirst({ where: { cle: "salaires_saisis_en_net" }, select: { valeur: true } });
-  const salaireEstNet = Number(flagNet?.valeur ?? 0) === 1;
+  const parametresPaie = await chargerParametresPaie();
+  const salaireEstNet = parametresPaie.salairesSaisisEnNet ?? false;
+  const salaireBrut = salaireEstNet
+    ? `${reconstituerBrutDepuisNet(Number(contrat.salaireMensuel), parametresPaie, employee.enfants).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`
+    : null;
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(
-    AttestationDocument({ employee, contrat, type: type as TypeAttestation, salaireEstNet, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
+    AttestationDocument({ employee, contrat, type: type as TypeAttestation, salaireEstNet, salaireBrut, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   const nom = slugFichier(employee.nom);
   const telecharger = new URL(request.url).searchParams.get("dl") === "1";

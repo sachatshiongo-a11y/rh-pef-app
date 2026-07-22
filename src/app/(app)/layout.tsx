@@ -24,7 +24,13 @@ async function chargerBadges(): Promise<Record<string, number>> {
   ]);
   const echangesEnAttente = await prisma.echangeCreneau.count({ where: { statut: "EN_ATTENTE" } });
   const badges = {
-    "/a-valider": congesEnAttente + bulletinsPasValide + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente,
+    // NB (2026-07-22) : les bulletins brouillons (PAS_VALIDE) du mois en cours ne comptent PLUS dans
+    // le badge « Demandes de validation ». Ils sont (re)créés automatiquement à chaque recalcul (ex.
+    // dès qu'on saisit des présences), ce qui faisait gonfler le badge de ~24 sans qu'il s'agisse de
+    // vraies demandes — la validation/clôture de la paie se fait dans l'onglet Paie. Le badge ne
+    // compte donc que les demandes réelles (congés, acomptes, changements de shift) + les bulletins
+    // VALIDÉS restant à payer (qui, eux, n'apparaissent qu'après une validation délibérée).
+    "/a-valider": congesEnAttente + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente,
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
   };
