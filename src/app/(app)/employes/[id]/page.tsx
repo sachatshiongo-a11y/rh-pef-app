@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
+import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
@@ -247,6 +247,14 @@ export default async function FicheEmployePage({
     (Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6) * 52 / 12;
   const salaireHoraire = heuresMoisContrat > 0 ? Number(employee.salaireMensuel) / heuresMoisContrat : 0;
   const salaireJournalier = salaireHoraire * Number(employee.heuresParJour); // paie d'un jour travaillé
+  // Journalier BRUT pour l'aperçu du solde de tout compte (décision client 2026-07-22) : même base
+  // que le calcul serveur (dossier-actions.ts terminerContrat) = brut reconstitué ÷ jours ouvrables.
+  const baseFinContratUSD = parametres.salairesSaisisEnNet
+    ? reconstituerBrutDepuisNet(Number(employee.salaireMensuel), parametres, employee.enfants)
+    : Number(employee.salaireMensuel);
+  const salaireJournalierFinContrat =
+    parametres.joursOuvrablesMois > 0 ? baseFinContratUSD / parametres.joursOuvrablesMois : 0;
+  const suffixeNet = parametres.salairesSaisisEnNet ? " net" : "";
 
   // Transport du mois calculé comme en paie : brigade = tarif journalier × jours de présence P ;
   // backoffice = forfait mensuel fixe. (B3)
@@ -534,9 +542,9 @@ export default async function FicheEmployePage({
       {/* Détails salariaux */}
       <Section title="Détails salariaux">
         <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
-          <Info label="Salaire mensuel" value={formatMoney(Number(employee.salaireMensuel))} />
-          <Info label="Salaire journalier" value={formatMoney(salaireJournalier)} />
-          <Info label="Salaire horaire" value={formatMoney(salaireHoraire)} />
+          <Info label={`Salaire mensuel${suffixeNet}`} value={formatMoney(Number(employee.salaireMensuel))} />
+          <Info label={`Salaire journalier${suffixeNet}`} value={formatMoney(salaireJournalier)} />
+          <Info label={`Salaire horaire${suffixeNet}`} value={formatMoney(salaireHoraire)} />
           <Info
             label="Transport / jour"
             value={`${Number(employee.transportJourCDF).toLocaleString("fr-FR")} CDF`}
@@ -810,7 +818,7 @@ export default async function FicheEmployePage({
         fichePosteDescription={fichePoste?.description ?? null}
         fichePosteFichierUrl={fichePoste?.fichierUrl ?? null}
         salaireMensuel={Number(employee.salaireMensuel)}
-        salaireJournalier={salaireJournalier}
+        salaireJournalier={salaireJournalierFinContrat}
         soldeConges={soldeConges}
         joursPresence={joursPresenceP}
         ancienneteMois={anciennete}

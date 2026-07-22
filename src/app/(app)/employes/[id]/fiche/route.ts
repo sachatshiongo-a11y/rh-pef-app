@@ -78,9 +78,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         { label: "Heures / jour", value: String(employee.heuresParJour) },
       ],
       salaire: [
-        { label: "Salaire mensuel", value: usd(Number(employee.salaireMensuel)) },
-        { label: "Salaire journalier", value: usd(salaireJournalier) },
-        { label: "Salaire horaire", value: usd(salaireHoraire) },
+        { label: `Salaire mensuel${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(Number(employee.salaireMensuel)) },
+        { label: `Salaire journalier${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(salaireJournalier) },
+        { label: `Salaire horaire${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(salaireHoraire) },
         { label: "Transport / jour", value: `${Number(employee.transportJourCDF).toLocaleString("fr-FR")} CDF` },
         { label: "Heures hebdo", value: String(employee.heuresHebdomadaires) },
         { label: "CNSS", value: usd(Number(employee.cnssMontant)) },

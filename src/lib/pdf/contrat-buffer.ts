@@ -31,7 +31,7 @@ export async function genererContratPdf(
 
   // Préavis + droits congés depuis les paramètres légaux versionnés (À VALIDER par un comptable).
   const legaux = await prisma.parametreLegal.findMany({
-    where: { cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "droits_conges_annuel"] } },
+    where: { cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "droits_conges_annuel", "salaires_saisis_en_net"] } },
     select: { cle: true, valeur: true },
   });
   const val = (cle: string) => {
@@ -43,10 +43,11 @@ export async function genererContratPdf(
     preavisLicenciement: val("preavis_jours_licenciement"),
     droitsCongesAnnuel: val("droits_conges_annuel"),
   };
+  const salaireEstNet = val("salaires_saisis_en_net") === 1;
 
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
+    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
 }

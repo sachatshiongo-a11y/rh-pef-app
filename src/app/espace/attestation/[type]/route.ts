@@ -24,9 +24,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ type
     (await prisma.contrat.findFirst({ where: { employeeId: user.employeeId }, orderBy: { dateDebut: "desc" } }));
   if (!contrat) return new Response("Aucun contrat enregistré.", { status: 404 });
 
+  const flagNet = await prisma.parametreLegal.findFirst({ where: { cle: "salaires_saisis_en_net" }, select: { valeur: true } });
+  const salaireEstNet = Number(flagNet?.valeur ?? 0) === 1;
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(
-    AttestationDocument({ employee, contrat, type: type as TypeAttestation, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
+    AttestationDocument({ employee, contrat, type: type as TypeAttestation, salaireEstNet, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
   const nom = slugFichier(employee.nom);
   const telecharger = new URL(request.url).searchParams.get("dl") === "1";

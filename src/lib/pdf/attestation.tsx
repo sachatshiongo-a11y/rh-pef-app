@@ -32,9 +32,9 @@ const TITRE: Record<TypeAttestation, string> = { travail: "Attestation de travai
  * contrat courant. L'identité, le logo et la signature proviennent des Paramètres (ou des défauts).
  */
 export function AttestationDocument({
-  employee, contrat, type, entreprise = entrepriseDefaut, logo, signature,
+  employee, contrat, type, salaireEstNet, entreprise = entrepriseDefaut, logo, signature,
 }: {
-  employee: Employee; contrat: Contrat; type: TypeAttestation;
+  employee: Employee; contrat: Contrat; type: TypeAttestation; salaireEstNet: boolean;
   entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null;
 }) {
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
@@ -67,8 +67,8 @@ export function AttestationDocument({
 
           {type === "salaire" && (
             <Text style={styles.paragraphe}>
-              {femme ? "Elle" : "Il"}{" "}perçoit à ce titre une rémunération mensuelle brute de <Text style={styles.gras}>{salaire}</Text>,
-              sous déduction des cotisations et impôts légaux (CNSS, IPR).
+              {femme ? "Elle" : "Il"}{" "}perçoit à ce titre une rémunération mensuelle {salaireEstNet ? "nette" : "brute"} de <Text style={styles.gras}>{salaire}</Text>,
+              {salaireEstNet ? " après" : " sous"} déduction des cotisations et impôts légaux (CNSS, IPR).
             </Text>
           )}
 
