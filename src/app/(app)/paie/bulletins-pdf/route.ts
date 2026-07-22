@@ -2,7 +2,7 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { BulletinsDocument } from "@/lib/pdf/bulletin";
-import { chargerEntreprise } from "@/lib/entreprise";
+import { chargerDonneesBulletinsDuMois } from "@/lib/paie-bulletins";
 import type { Devise } from "@/lib/pdf/theme";
 
 /** Tous les bulletins du mois courant dans UN seul PDF (une page par employé). */
@@ -14,44 +14,12 @@ export async function GET(request: Request) {
   const mois = config.moisCourant;
   const annee = config.anneeCourante;
 
-  const run = await prisma.payrollRun.findUnique({
-    where: { mois_annee: { mois, annee } },
-    include: { lignes: { include: { employee: true }, orderBy: { employee: { nom: "asc" } } } },
-  });
-  if (!run || run.lignes.length === 0) {
+  const donnees = await chargerDonneesBulletinsDuMois(mois, annee);
+  if (!donnees) {
     return new Response("Aucune paie calculée pour ce mois", { status: 404 });
   }
+  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo } = donnees;
 
-  const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
-  const finMois = new Date(Date.UTC(annee, mois, 0));
-  const [conges, attendances, primes, feriesRows] = await Promise.all([
-    prisma.leaveRequest.findMany({
-      where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
-    }),
-    prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-    prisma.prime.findMany({ where: { mois, annee }, orderBy: { createdAt: "asc" } }),
-    prisma.jourFerie.findMany({ select: { date: true } }),
-  ]);
-  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
-  const congesParEmp = new Map<string, { dateDebut: Date; dateFin: Date }[]>();
-  for (const c of conges)
-    (congesParEmp.get(c.employeeId) ?? congesParEmp.set(c.employeeId, []).get(c.employeeId)!).push({
-      dateDebut: new Date(c.dateDebut),
-      dateFin: new Date(c.dateFin),
-    });
-  const codesParEmp = new Map<string, Record<number, string>>();
-  for (const a of attendances) {
-    const map = codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, {}).get(a.employeeId)!;
-    map[new Date(a.date).getUTCDate()] = a.code;
-  }
-  const primesParEmp = new Map<string, { nom: string; montantUSD: number }[]>();
-  for (const p of primes)
-    (primesParEmp.get(p.employeeId) ?? primesParEmp.set(p.employeeId, []).get(p.employeeId)!).push({
-      nom: p.nom,
-      montantUSD: Number(p.montantUSD),
-    });
-
-  const ent = await chargerEntreprise();
   const bulletins = run.lignes.map((l) => ({
     employee: l.employee,
     ligne: l,
@@ -60,8 +28,8 @@ export async function GET(request: Request) {
     primes: primesParEmp.get(l.employeeId) ?? [],
     codesParJour: codesParEmp.get(l.employeeId) ?? {},
     feries,
-    entreprise: ent.entreprise,
-    logo: ent.logo,
+    entreprise,
+    logo,
   }));
 
   const buffer = await renderPdfBuffer(BulletinsDocument({ bulletins, devise }));

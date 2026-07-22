@@ -4,6 +4,7 @@ import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { AttestationDocument, type TypeAttestation } from "@/lib/pdf/attestation";
 import { chargerEntreprise } from "@/lib/entreprise";
+import { slugFichier } from "@/lib/texte";
 
 /** Attestation de travail / de salaire du salarié connecté (self-service, ses données uniquement). */
 export async function GET(request: Request, { params }: { params: Promise<{ type: string }> }) {
@@ -27,7 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ type
   const buffer = await renderPdfBuffer(
     AttestationDocument({ employee, contrat, type: type as TypeAttestation, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
   );
-  const nom = employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
+  const nom = slugFichier(employee.nom);
   const telecharger = new URL(request.url).searchParams.get("dl") === "1";
   return new Response(new Uint8Array(buffer), {
     headers: {

@@ -30,7 +30,7 @@ export default async function AValiderPage() {
     ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } }
     : {};
 
-  const [conges, prepare, valide, acomptes] = await Promise.all([
+  const [conges, prepare, valide, acomptes, changements, echanges] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -51,20 +51,19 @@ export default async function AValiderPage() {
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { dateDemande: "asc" },
     }),
+    // Demandes de changement de shift en attente (avec noms de shifts).
+    prisma.demandeChangementShift.findMany({
+      where: { statut: "EN_ATTENTE" },
+      include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+      orderBy: { date: "asc" },
+    }),
+    // Échanges de créneau en attente (avec noms des deux salariés).
+    prisma.echangeCreneau.findMany({
+      where: { statut: "EN_ATTENTE" },
+      include: { demandeur: { select: { nom: true, photoUrl: true } }, collegue: { select: { nom: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
-
-  // Demandes de changement de shift en attente (avec noms de shifts).
-  const changements = await prisma.demandeChangementShift.findMany({
-    where: { statut: "EN_ATTENTE" },
-    include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
-    orderBy: { date: "asc" },
-  });
-  // Échanges de créneau en attente (avec noms des deux salariés).
-  const echanges = await prisma.echangeCreneau.findMany({
-    where: { statut: "EN_ATTENTE" },
-    include: { demandeur: { select: { nom: true, photoUrl: true } }, collegue: { select: { nom: true } } },
-    orderBy: { createdAt: "desc" },
-  });
   const shiftsMap = new Map(
     changements.length > 0 || echanges.length > 0
       ? (await prisma.shift.findMany({ select: { id: true, nom: true } })).map((sh) => [sh.id, sh.nom])

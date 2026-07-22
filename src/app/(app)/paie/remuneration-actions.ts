@@ -167,7 +167,11 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
   });
 }
 
-async function deciderAcompte(id: string, statut: "APPROUVE" | "REFUSE") {
+/** `recalculer` : recalcule le bulletin (déjà calculé, non figé) impacté par l'acompte approuvé.
+ * Par défaut à `true` (comportement inchangé de l'appel unitaire) ; les lots le mettent à `false`
+ * pour ne recalculer QU'UNE fois après la boucle, plutôt qu'à chaque acompte décidé. */
+async function deciderAcompte(id: string, statut: "APPROUVE" | "REFUSE", options?: { recalculer?: boolean }) {
+  const recalculer = options?.recalculer ?? true;
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const a = await prisma.acompteSalaire.findUnique({ where: { id } });
@@ -185,7 +189,7 @@ async function deciderAcompte(id: string, statut: "APPROUVE" | "REFUSE") {
   });
   await supprimerNotificationsPour(id);
   // Un acompte APPROUVÉ est déduit du net → recalculer le bulletin déjà calculé (non figé).
-  if (statut === "APPROUVE") await recalculerPaieSiCalculee();
+  if (statut === "APPROUVE" && recalculer) await recalculerPaieSiCalculee();
   revalidatePath("/a-valider");
   revalidatePath(`/employes/${a.employeeId}`);
   revalidatePath("/paie");
@@ -199,13 +203,15 @@ export async function refuserAcompte(id: string) {
   await deciderAcompte(id, "REFUSE");
 }
 
-/** Actions groupées sur les demandes d'acompte (mêmes règles que l'individuel). */
+/** Actions groupées sur les demandes d'acompte (mêmes règles que l'individuel). Le recalcul de la
+ * paie (coûteux) n'est fait QU'UNE fois après la boucle plutôt qu'à chaque acompte approuvé. */
 async function deciderAcomptesEnLot(ids: string[], statut: "APPROUVE" | "REFUSE"): Promise<number> {
   let n = 0;
   for (const id of ids) {
-    await deciderAcompte(id, statut);
+    await deciderAcompte(id, statut, { recalculer: false });
     n++;
   }
+  if (statut === "APPROUVE") await recalculerPaieSiCalculee();
   return n;
 }
 export async function approuverAcomptesEnLot(ids: string[]): Promise<number> {

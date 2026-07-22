@@ -8,12 +8,26 @@ import { prisma } from "@/lib/prisma";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-async function joursOuvrablesDuConge(dateDebut: Date, dateFin: Date): Promise<Date[]> {
-  const feries = await prisma.jourFerie.findMany({
-    where: { date: { gte: dateDebut, lte: dateFin } },
-    select: { date: true },
-  });
-  const feriesIso = new Set(feries.map((f) => iso(new Date(f.date))));
+/** Données rechargées une seule fois par appelant en boucle (rattrapage, lots) — évite le
+ * N+1 (jourFerie.findMany / typeConge.findUnique) répété à chaque congé traité. */
+export type PreloadConges = {
+  feriesIso: Set<string>;
+  tauxParType: Map<string, number | null>; // nom du type de congé -> tauxPct
+};
+
+/** Précharge la liste des jours fériés et la table des types de congé (nom -> tauxPct). */
+export async function chargerPreloadConges(): Promise<PreloadConges> {
+  const [feries, types] = await Promise.all([
+    prisma.jourFerie.findMany({ select: { date: true } }),
+    prisma.typeConge.findMany({ select: { nom: true, tauxPct: true } }),
+  ]);
+  return {
+    feriesIso: new Set(feries.map((f) => iso(new Date(f.date)))),
+    tauxParType: new Map(types.map((t) => [t.nom, t.tauxPct])),
+  };
+}
+
+function joursOuvrablesDuConge(dateDebut: Date, dateFin: Date, feriesIso: Set<string>): Date[] {
   const jours: Date[] = [];
   for (let d = new Date(dateDebut); d <= dateFin; d = new Date(d.getTime() + 86_400_000)) {
     if (d.getUTCDay() === 0 || feriesIso.has(iso(d))) continue;
@@ -22,11 +36,14 @@ async function joursOuvrablesDuConge(dateDebut: Date, dateFin: Date): Promise<Da
   return jours;
 }
 
-/** Pose les codes de congé sur la grille Présences pour un congé approuvé. */
-export async function poserCodesConge(employeeId: string, dateDebut: Date, dateFin: Date, typeNom: string): Promise<{ code: "C" | "S"; poses: number }> {
-  const type = await prisma.typeConge.findUnique({ where: { nom: typeNom }, select: { tauxPct: true } });
-  const code: "C" | "S" = type?.tauxPct === 0 ? "S" : "C";
-  const jours = await joursOuvrablesDuConge(new Date(dateDebut), new Date(dateFin));
+/** Pose les codes de congé sur la grille Présences pour un congé approuvé. `preload` est optionnel
+ * (chargé à la volée si absent, pour l'appel unitaire) — les appelants en boucle (lots, rattrapage)
+ * doivent le précharger une fois et le transmettre. */
+export async function poserCodesConge(employeeId: string, dateDebut: Date, dateFin: Date, typeNom: string, preload?: PreloadConges): Promise<{ code: "C" | "S"; poses: number }> {
+  const p = preload ?? (await chargerPreloadConges());
+  const tauxPct = p.tauxParType.get(typeNom);
+  const code: "C" | "S" = tauxPct === 0 ? "S" : "C";
+  const jours = joursOuvrablesDuConge(new Date(dateDebut), new Date(dateFin), p.feriesIso);
   for (const d of jours) {
     await prisma.attendance.upsert({
       where: { employeeId_date: { employeeId, date: d } },
@@ -52,17 +69,20 @@ export async function rattraperCodesConges(): Promise<number> {
   const conges = await prisma.leaveRequest.findMany({ where: { statut: "APPROUVE" } });
   if (conges.length === 0) return 0;
 
-  const runsValides = await prisma.payrollRun.findMany({
-    where: { statut: "VALIDE" },
-    select: { mois: true, annee: true },
-  });
+  const [runsValides, preload] = await Promise.all([
+    prisma.payrollRun.findMany({
+      where: { statut: "VALIDE" },
+      select: { mois: true, annee: true },
+    }),
+    chargerPreloadConges(),
+  ]);
   const moisFiges = new Set(runsValides.map((r) => `${r.annee}-${r.mois}`));
 
   let total = 0;
   for (const c of conges) {
-    const type = await prisma.typeConge.findUnique({ where: { nom: c.type }, select: { tauxPct: true } });
-    const code: "C" | "S" = type?.tauxPct === 0 ? "S" : "C";
-    const jours = await joursOuvrablesDuConge(new Date(c.dateDebut), new Date(c.dateFin));
+    const tauxPct = preload.tauxParType.get(c.type);
+    const code: "C" | "S" = tauxPct === 0 ? "S" : "C";
+    const jours = joursOuvrablesDuConge(new Date(c.dateDebut), new Date(c.dateFin), preload.feriesIso);
     const eligibles = jours.filter((d) => !moisFiges.has(`${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`));
     if (eligibles.length === 0) continue;
 

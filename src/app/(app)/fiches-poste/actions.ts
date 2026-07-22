@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { slugFichier } from "@/lib/texte";
 
 const BUCKET = "employes";
 const EXT_OK = ["pdf", "doc", "docx"];
@@ -16,7 +17,7 @@ async function televerserFiche(poste: string, file: File): Promise<string> {
   if (!EXT_OK.includes(ext)) throw new Error("Format non supporté (PDF ou Word uniquement).");
   if (file.size > 15 * 1024 * 1024) throw new Error("Fichier trop lourd (max 15 Mo).");
 
-  const slug = poste.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  const slug = slugFichier(poste, { separateur: "-", minuscule: true });
   const path = `fiches-poste/${slug || "poste"}-${Date.now()}.${ext}`;
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;

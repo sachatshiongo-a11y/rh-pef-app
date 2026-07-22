@@ -6,7 +6,7 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
-import { poserCodesConge, retirerCodesConge } from "@/lib/conges-presences";
+import { poserCodesConge, retirerCodesConge, chargerPreloadConges } from "@/lib/conges-presences";
 
 function revaliderConges() {
   revalidatePath("/conges");
@@ -171,15 +171,20 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
   requireRole(user, ["ADMIN"]);
   let n = 0;
   const echecs: string[] = [];
+  const [demandes, preload] = await Promise.all([
+    prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } }),
+    chargerPreloadConges(),
+  ]);
+  const demandeParId = new Map(demandes.map((d) => [d.id, d]));
   for (const id of ids) {
-    const d = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } });
+    const d = demandeParId.get(id);
     if (!d || d.statut !== "EN_ATTENTE") continue;
     try {
       await prisma.leaveRequest.update({
         where: { id },
         data: { statut: "APPROUVE", approuveParId: user.id },
       });
-      await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type);
+      await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type, preload);
       await journaliser(prisma, {
         entite: "LeaveRequest",
         entiteId: id,
@@ -204,8 +209,10 @@ export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConge
   requireRole(user, ["ADMIN"]);
   let n = 0;
   const echecs: string[] = [];
+  const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });
+  const demandeParId = new Map(demandes.map((d) => [d.id, d]));
   for (const id of ids) {
-    const d = await prisma.leaveRequest.findUnique({ where: { id }, include: { employee: { select: { nom: true } } } });
+    const d = demandeParId.get(id);
     if (!d || d.statut !== "EN_ATTENTE") continue;
     try {
       await prisma.leaveRequest.update({

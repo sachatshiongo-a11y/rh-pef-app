@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { AttestationStageDocument } from "@/lib/pdf/attestation-stage";
 import { chargerEntreprise } from "@/lib/entreprise";
+import { slugFichier } from "@/lib/texte";
 
 /** Attestation de fin de stage (PDF) — générée depuis la fiche employé (Direction / Manager). */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +23,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(AttestationStageDocument({ employee, contrat, entreprise: ent.entreprise, logo: ent.logo }));
-  const nom = employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
+  const nom = slugFichier(employee.nom);
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

@@ -10,6 +10,19 @@ export const normTexte = (s: string) => sansAccents(s).toLowerCase();
 /** Clé alphanumérique stricte (minuscule, sans accents, sans ponctuation ni espaces). */
 export const cleAlnum = (s: string) => normTexte(s).replace(/[^a-z0-9]/g, "");
 
+/**
+ * Nom de fichier sûr : sans accents, tout ce qui n'est pas alphanumérique remplacé par le
+ * séparateur (les séparateurs de bord retirés). Utilisé pour les PDF/exports téléchargés
+ * (bulletins, attestations, fiches de poste…) — remplace les variantes copiées-collées.
+ */
+export function slugFichier(s: string, options?: { separateur?: string; minuscule?: boolean }): string {
+  const sep = options?.separateur ?? "_";
+  const sepEchappe = sep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let out = sansAccents(s).replace(/[^a-zA-Z0-9]+/g, sep);
+  out = out.replace(new RegExp(`^${sepEchappe}+|${sepEchappe}+$`, "g"), "");
+  return options?.minuscule ? out.toLowerCase() : out;
+}
+
 /** Similarité de Jaccard entre deux ensembles de mots (0..1). */
 export function jaccard(a: string[], b: string[]): number {
   const A = new Set(a), B = new Set(b);

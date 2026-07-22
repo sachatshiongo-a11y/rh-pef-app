@@ -113,7 +113,6 @@ export default async function PaiePage({
   const brigade = rows.filter((r) => r.categorie === "BRIGADE");
   const backoffice = rows.filter((r) => r.categorie === "BACKOFFICE");
 
-  const taches = run ? await tachesBloquantesCloture(mois, annee) : [];
   const nbPasValide = rows.filter((r) => r.statutPaiement === "PAS_VALIDE").length;
 
   // Éléments de rémunération (détail par salarié), par type — toujours à jour (persisté ou aperçu).
@@ -148,12 +147,32 @@ export default async function PaiePage({
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
+
+  // Tâches bloquantes, prêts en cours et contrats du mois : indépendants, chargés en parallèle.
+  // Les prêts ne servent qu'à l'onglet Rémunération — non chargés pour les autres vues.
+  const [taches, pretsEnCours, contratsDuMois] = await Promise.all([
+    run ? tachesBloquantesCloture(mois, annee) : Promise.resolve([]),
+    vue === "remuneration"
+      ? prisma.pretPersonnel.findMany({
+          where: { statut: "EN_COURS" },
+          include: { employee: { select: { id: true, nom: true } }, retenues: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : Promise.resolve([]),
+    prisma.contrat.findMany({
+      where: {
+        statut: "ACTIF",
+        OR: [
+          { dateDebut: { gte: debutMois, lte: finMois } },
+          { dateFin: { gte: debutMois, lte: finMois } },
+          { finPeriodeEssai: { gte: debutMois, lte: finMois } },
+        ],
+      },
+      include: { employee: { select: { id: true, nom: true } } },
+      orderBy: { dateFin: "asc" },
+    }),
+  ]);
   // Prêts en cours : encours total + échéance retenue ce mois-ci (onglet Rémunération).
-  const pretsEnCours = await prisma.pretPersonnel.findMany({
-    where: { statut: "EN_COURS" },
-    include: { employee: { select: { id: true, nom: true } }, retenues: true },
-    orderBy: { createdAt: "desc" },
-  });
   const pretsRecap = pretsEnCours.map((p) => {
     const montant = Number(p.montantUSD);
     const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
@@ -173,18 +192,6 @@ export default async function PaiePage({
   const encoursTotal = pretsRecap.reduce((s, p) => s + p.solde, 0);
   const echeancesMois = pretsRecap.reduce((s, p) => s + p.echeanceMois, 0);
 
-  const contratsDuMois = await prisma.contrat.findMany({
-    where: {
-      statut: "ACTIF",
-      OR: [
-        { dateDebut: { gte: debutMois, lte: finMois } },
-        { dateFin: { gte: debutMois, lte: finMois } },
-        { finPeriodeEssai: { gte: debutMois, lte: finMois } },
-      ],
-    },
-    include: { employee: { select: { id: true, nom: true } } },
-    orderBy: { dateFin: "asc" },
-  });
   const contratRows: ContratRow[] = contratsDuMois.map((c) => ({
     id: c.id,
     employeeId: c.employee.id,
