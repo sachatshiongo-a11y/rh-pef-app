@@ -7,6 +7,7 @@ import {
   calculerPaieBackoffice,
   calculerPaieBrigade,
   calculerCongesAcquis,
+  ancienneteEnMois,
   congeDeductibleDuSolde,
   tauxPrimeAnciennete,
   resumerPresences,
@@ -260,6 +261,46 @@ describe("resumerPresences", () => {
   });
 });
 
+// #3 — ancienneteEnMois : mois RÉVOLUS (compare aussi le jour du mois, pas seulement année/mois).
+// Régression : avant le correctif, un employé était crédité d'un mois ~4 semaines trop tôt
+// (dès le 1er du mois suivant l'embauche, sans attendre son anniversaire mensuel), ce qui
+// gonflait à tort les congés acquis via calculerCongesAcquis.
+describe("ancienneteEnMois — mois révolus (#3, régression)", () => {
+  const j = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+  it("embauche 2026-06-25, référence 2026-07-01 : 0 mois révolu (pas encore le 25 juillet)", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-01"))).toBe(0);
+  });
+
+  it("référence EXACTEMENT à l'anniversaire mensuel : le mois est compté", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-25"))).toBe(1);
+  });
+
+  it("référence 1 jour AVANT l'anniversaire mensuel : le mois n'est pas encore compté", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-24"))).toBe(0);
+  });
+
+  it("référence 1 jour APRÈS l'anniversaire mensuel : le mois est compté", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-26"))).toBe(1);
+  });
+
+  it("12 mois exactement révolus (embauche le 15, réf. un an plus tard le 15)", () => {
+    expect(ancienneteEnMois(j("2025-07-15"), j("2026-07-15"))).toBe(12);
+  });
+
+  it("11 mois et 29 jours : pas encore 12 mois révolus", () => {
+    expect(ancienneteEnMois(j("2025-07-15"), j("2026-07-14"))).toBe(11);
+  });
+
+  it("toujours ≥ 0, même si la référence est ANTÉRIEURE à l'embauche", () => {
+    expect(ancienneteEnMois(j("2026-07-15"), j("2026-01-01"))).toBe(0);
+  });
+
+  it("embauche et référence le même jour du mois : 0 mois révolu à J+0", () => {
+    expect(ancienneteEnMois(j("2026-07-15"), j("2026-07-15"))).toBe(0);
+  });
+});
+
 describe("calculerCongesAcquis", () => {
   it("prorata sous 12 mois, droits complets au-delà", () => {
     expect(calculerCongesAcquis(3, 18)).toBeCloseTo(4.5, 5);
@@ -274,6 +315,24 @@ describe("calculerCongesAcquis", () => {
     expect(calculerCongesAcquis(11, 18)).toBeCloseTo(16.5, 5);
     // Le mois en cours n'est PAS crédité : l'appelant passe des mois révolus (décision produit).
     expect(calculerCongesAcquis(0, 18)).toBe(0);
+  });
+
+  // #3, régression combinée : avec la valeur CORRIGÉE d'ancienneteEnMois, un employé embauché
+  // le 25 du mois n'a PAS son droit annuel complet dès le 1er du 13e mois calendaire (l'ancien
+  // bug le lui aurait accordé ~4 semaines trop tôt) — il faut attendre le 25, 12 mois plus tard.
+  it("n'accorde PAS le droit annuel complet avant 12 mois VRAIMENT révolus (ancienneteEnMois corrigé)", () => {
+    const embauche = new Date("2025-07-25T00:00:00Z");
+    // 1er juillet 2026 : calendairement "12 mois" au sens année/mois, mais le 25e jour n'est
+    // pas encore atteint → 11 mois révolus seulement.
+    const anciennete1erJuillet = ancienneteEnMois(embauche, new Date("2026-07-01T00:00:00Z"));
+    expect(anciennete1erJuillet).toBe(11);
+    expect(calculerCongesAcquis(anciennete1erJuillet, 18)).toBeCloseTo(16.5, 5);
+    expect(calculerCongesAcquis(anciennete1erJuillet, 18)).toBeLessThan(18);
+
+    // Le 25 juillet 2026 (anniversaire) : 12 mois révolus → droit annuel complet.
+    const anciennete25Juillet = ancienneteEnMois(embauche, new Date("2026-07-25T00:00:00Z"));
+    expect(anciennete25Juillet).toBe(12);
+    expect(calculerCongesAcquis(anciennete25Juillet, 18)).toBe(18);
   });
 });
 
