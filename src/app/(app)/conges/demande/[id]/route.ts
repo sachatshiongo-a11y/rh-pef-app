@@ -2,7 +2,7 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
-import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
+import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
 import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
@@ -26,11 +26,7 @@ export async function GET(
   const mois = config?.moisCourant ?? new Date().getMonth() + 1;
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
 
-  const ancienneteMois =
-    (new Date(annee, mois - 1, 1).getFullYear() -
-      new Date(demande.employee.dateEmbauche).getFullYear()) *
-      12 +
-    (new Date(annee, mois - 1, 1).getMonth() - new Date(demande.employee.dateEmbauche).getMonth());
+  const ancienneteMois = ancienneteEnMois(new Date(demande.employee.dateEmbauche), new Date(annee, mois - 1, 1));
   const parametres = await chargerParametresPaie();
   const congesAcquis = typeSansConges(demande.employee.contrat) ? 0 : calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
 

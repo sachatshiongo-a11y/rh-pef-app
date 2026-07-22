@@ -357,6 +357,11 @@ export default async function PaiePage({
                     (traiter)
                   </Link>
                 )}
+                {t.type === "JOUR_P_SANS_HEURES" && (
+                  <Link href="/heures-supp" className="text-xs underline">
+                    (corriger)
+                  </Link>
+                )}
               </li>
             ))}
           </ul>

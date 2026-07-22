@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
+import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
@@ -50,13 +50,6 @@ const TYPES_PRIME = [
   "Indemnité de vie chère",
   "Gratification exceptionnelle",
 ];
-
-function ancienneteEnMois(dateEmbauche: Date, reference: Date) {
-  return (
-    (reference.getFullYear() - dateEmbauche.getFullYear()) * 12 +
-    (reference.getMonth() - dateEmbauche.getMonth())
-  );
-}
 
 export default async function FicheEmployePage({
   params,
@@ -452,6 +445,11 @@ export default async function FicheEmployePage({
             compteActif={compteSalarie?.actif ?? false}
             accesStock={compteSalarie?.accesStock ?? false}
           />
+        </div>
+      )}
+      {tab === "apercu" && !apercuBulletin && employee.contrat === "INTERIM" && (
+        <div className="mb-5 rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          Employé intérimaire : salarié de l&apos;agence d&apos;intérim, payé par elle — aucun bulletin n&apos;est généré ici.
         </div>
       )}
       {apercuBulletin && (

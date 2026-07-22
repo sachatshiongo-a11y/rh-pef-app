@@ -8,6 +8,7 @@ import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, roleRequisPour } from "@/lib/paie-etats";
 import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
+import { calculerEcheancePret } from "@/lib/prets";
 import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 
@@ -107,20 +108,34 @@ async function appliquerTransitionPaie(
     if (Number(ligne.retenuePretUSD) > 0) {
       const prets = await tx.pretPersonnel.findMany({ where: { employeeId: ligne.employeeId, statut: "EN_COURS" }, include: { retenues: true } });
       for (const p of prets) {
-        const dejaHorsMois = p.retenues
-          .filter((r) => !(r.mois === ligne.payrollRun.mois && r.annee === ligne.payrollRun.annee))
-          .reduce((s, r) => s + Number(r.montantUSD), 0);
-        const soldeAvant = Number(p.montantUSD) - dejaHorsMois;
-        if (soldeAvant <= 0) continue;
-        const echeance = Math.min(Number(p.retenueMensuelleUSD), soldeAvant);
-        if (echeance <= 0) continue;
+        const { echeanceUSD, soldeAvantUSD } = calculerEcheancePret(
+          Number(p.montantUSD),
+          Number(p.retenueMensuelleUSD),
+          p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+          ligne.payrollRun.mois,
+          ligne.payrollRun.annee
+        );
+        if (echeanceUSD <= 0) continue;
         await tx.retenuePret.upsert({
           where: { pretId_mois_annee: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee } },
-          create: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee, montantUSD: echeance },
-          update: { montantUSD: echeance },
+          create: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee, montantUSD: echeanceUSD },
+          update: { montantUSD: echeanceUSD },
         });
-        if (soldeAvant - echeance <= 0.001) await tx.pretPersonnel.update({ where: { id: p.id }, data: { statut: "SOLDE" } });
+        if (soldeAvantUSD - echeanceUSD <= 0.001) await tx.pretPersonnel.update({ where: { id: p.id }, data: { statut: "SOLDE" } });
       }
+    }
+
+    // Frais médicaux (bug #1, corrigé 2026-07-22) : le solde « saisie manuelle du mois » de la
+    // fiche employé (Employee.fraisMedicauxMoisCourant) est capturé dans CETTE ligne figée
+    // (ligne.fraisMedicauxUSD, déjà persisté ci-dessus) — on le remet à zéro SEULEMENT maintenant,
+    // au moment où le bulletin est réellement validé (jamais sur un simple rafraîchissement de
+    // brouillon), pour ne pas le réappliquer par erreur le mois suivant (double comptage). La table
+    // durable `FraisMedical` (avec certificat, scopée mois/année) n'est pas concernée.
+    if (Number(ligne.employee.fraisMedicauxMoisCourant) !== 0) {
+      await tx.employee.update({
+        where: { id: ligne.employeeId },
+        data: { fraisMedicauxMoisCourant: 0 },
+      });
     }
   }
 

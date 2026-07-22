@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
+import { ancienneteEnMois, calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
 import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
@@ -41,10 +41,6 @@ function styleType(t: string) {
 function isoJour(d: Date) {
   return d.toISOString().slice(0, 10);
 }
-function moisEntre(debut: Date, fin: Date): number {
-  return Math.max(0, (fin.getFullYear() - debut.getFullYear()) * 12 + (fin.getMonth() - debut.getMonth()));
-}
-
 export type SPCalendrier = { mois?: string; annee?: string; type?: string; emp?: string; cal?: string; debut?: string };
 
 export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
@@ -312,7 +308,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
           </thead>
           <tbody>
             {employeesAff.map((e) => {
-              const anciennete = moisEntre(new Date(e.dateEmbauche), maintenant);
+              const anciennete = ancienneteEnMois(new Date(e.dateEmbauche), maintenant);
               const droits = typeSansConges(e.contrat) ? 0 : calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
               const pris = congesAnnuelsParEmp.get(e.id) ?? 0;
               const solde = droits - pris;

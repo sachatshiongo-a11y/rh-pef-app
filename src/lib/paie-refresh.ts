@@ -44,12 +44,22 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
   const employeeIdsFiges = new Set(lignesFigees.map((l) => l.employeeId));
 
   // Calcul en mémoire de tous les actifs (logique partagée avec l'aperçu temps réel de la page).
-  const { lignes, employesFraisMedicaux: fraisTous } = await calculerLignesPaie(mois, annee);
+  const { lignes } = await calculerLignesPaie(mois, annee);
   const nouvellesLignes = lignes
     .filter((l) => !employeeIdsFiges.has(l.employee.id))
     .map((l) => ({ payrollRunId: runId, employeeId: l.employee.id, ...l.data }));
-  // On ne remet à zéro le solde « frais médicaux » que des lignes réellement (ré)écrites.
-  const employesFraisMedicaux = fraisTous.filter((id) => !employeeIdsFiges.has(id));
+
+  // NOTE (corrigé 2026-07-22, bug #1) : le solde « frais médicaux du mois » saisi sur la fiche
+  // employé (Employee.fraisMedicauxMoisCourant) N'EST PLUS remis à zéro ici. Ce rafraîchissement
+  // recalcule des lignes NON FIGÉES (brouillons) — qu'il soit déclenché par le bouton « Calculer »
+  // (audité) ou SILENCIEUSEMENT à chaque ouverture de /paie (creerRun: false, sans audit). Remettre
+  // le champ à zéro à cette étape faisait disparaître un montant saisi sur la fiche AVANT même que
+  // la ligne ne soit validée, dès la prochaine ouverture de la page — perte d'argent silencieuse et
+  // non tracée. La remise à zéro est désormais effectuée UNE SEULE FOIS, au moment où la ligne est
+  // réellement finalisée (transition vers VALIDE, action délibérée et auditée) — voir
+  // `appliquerTransitionPaie` dans `src/app/(app)/paie/actions.ts`. La table durable `FraisMedical`
+  // (avec certificat, scopée par mois/année) n'est pas concernée : elle n'est jamais remise à zéro,
+  // ses montants sont naturellement bornés au mois pour lequel ils ont été saisis.
 
   // Écriture en masse dans une transaction (remplace ~100 requêtes par ~4).
   await prisma.$transaction(
@@ -58,10 +68,6 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
       where: { payrollRunId: runId, statutPaiement: { notIn: STATUTS_FIGES } },
     }),
     prisma.payrollLine.createMany({ data: nouvellesLignes }),
-    prisma.employee.updateMany({
-      where: { id: { in: employesFraisMedicaux } },
-      data: { fraisMedicauxMoisCourant: 0 },
-    }),
     // Journalisé uniquement quand l'action vient d'un utilisateur (bouton) — le rafraîchissement
     // automatique à l'affichage ne pollue pas le journal d'audit.
     ...(opts.userId

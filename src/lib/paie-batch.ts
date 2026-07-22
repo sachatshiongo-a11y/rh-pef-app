@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
+import { calculerEcheancePret } from "@/lib/prets";
 import {
   calculerHeuresSupp,
   calculerJoursOuvrables,
@@ -61,8 +62,6 @@ export type LigneCalculee = {
 
 export type ResultatBatch = {
   lignes: LigneCalculee[];
-  /** Employés dont le solde « frais médicaux du mois » doit être remis à zéro à la persistance. */
-  employesFraisMedicaux: string[];
 };
 
 /**
@@ -77,6 +76,24 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
+  // BUG CONNU documenté le 2026-07-22 (Tier 2, #4 — NON corrigé, montants impactés) : `overtimeEntries`
+  // est filtré STRICTEMENT par mois calendaire. `calculerHeuresSupp` (payroll.ts) regroupe pourtant les
+  // heures par VRAIES semaines lundi→dimanche (`numeroSemaineDuMois`, déjà correct EN INTRA-mois). Une
+  // semaine à cheval sur deux mois est donc scindée : le seuil hebdomadaire contractuel qui déclenche
+  // les heures supp. (30 %/60 %) repart de zéro de CHAQUE côté de la coupure → sous-évaluation possible
+  // des heures supp. sur ces semaines-charnières (ex. semaine du 27 juin au 3 juillet : les heures du
+  // 27-30 juin ne « comptent » pas pour le seuil de la semaine côté juillet, et inversement).
+  // Piste de correction recommandée (NON implémentée ici — risquée sans tests dédiés) : élargir la
+  // fenêtre de chargement de `overtimeEntries`/`attendances` aux semaines complètes qui chevauchent le
+  // mois (du lundi de la semaine du 1er au dimanche de la semaine du dernier jour — cf. `lundiDe` dans
+  // `src/lib/dates-fr.ts`), puis faire évoluer `calculerHeuresSupp` pour qu'il attribue les heures supp.
+  // JOUR PAR JOUR (cumul chronologique dans la semaine) au lieu d'un agrégat hebdomadaire, afin de ne
+  // compter dans `heuresTotalesMois`/`hs30`/`hs60`/`hsValorisee` QUE les jours du mois en cours (les
+  // jours « hors mois » ne servant qu'à positionner correctement le seuil, sans être payés deux fois —
+  // ils sont déjà couverts par le mois voisin, y compris s'il est déjà VALIDE/PAYE et donc figé). C'est
+  // un changement de signature/algorithme du moteur central (`calculerHeuresSupp`), couvert par
+  // `payroll.test.ts` et `payroll-reference.test.ts` : à faire dans un lot dédié avec de nouveaux tests
+  // de semaines-charnières, plutôt qu'un correctif partiel ici.
   const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours] =
     await Promise.all([
       prisma.employee.findMany({ where: { actif: true } }),
@@ -95,13 +112,14 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   // la retenue du mois courant du solde → le recalcul de la paie du mois est idempotent.
   const pretParEmp = new Map<string, number>();
   for (const p of pretsEnCours) {
-    const dejaRembourse = p.retenues
-      .filter((r) => !(r.mois === mois && r.annee === annee))
-      .reduce((s, r) => s + Number(r.montantUSD), 0);
-    const soldeAvant = Number(p.montantUSD) - dejaRembourse;
-    if (soldeAvant <= 0) continue;
-    const echeance = Math.min(Number(p.retenueMensuelleUSD), soldeAvant);
-    if (echeance > 0) pretParEmp.set(p.employeeId, (pretParEmp.get(p.employeeId) ?? 0) + echeance);
+    const { echeanceUSD } = calculerEcheancePret(
+      Number(p.montantUSD),
+      Number(p.retenueMensuelleUSD),
+      p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+      mois,
+      annee
+    );
+    if (echeanceUSD > 0) pretParEmp.set(p.employeeId, (pretParEmp.get(p.employeeId) ?? 0) + echeanceUSD);
   }
 
   // Régime de paie par employé : type du contrat ACTIF le plus récent, sinon le type de la fiche.
@@ -156,7 +174,6 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   }
 
   const lignes: LigneCalculee[] = [];
-  const employesFraisMedicaux: string[] = [];
 
   for (const employee of employees) {
     const typeContrat = typeContratParEmp.get(employee.id) ?? employee.contrat;
@@ -179,13 +196,24 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
     }
     const salaireHoraire = sommeH > 0 ? sommeHT / sommeH : tauxDefaut;
     const salaireJournalier = salaireHoraire * Number(employee.heuresParJour);
+    // Frais médicaux : solde « saisie manuelle du mois » (employee.fraisMedicauxMoisCourant) +
+    // entrées durables de la table FraisMedical (avec certificat) pour ce mois. La saisie manuelle
+    // n'est remise à zéro qu'au moment où la ligne est VALIDÉE (voir appliquerTransitionPaie dans
+    // paie/actions.ts) — jamais ici, qui sert aussi à un simple aperçu/rafraîchissement de brouillon
+    // (bug corrigé le 2026-07-22 : le montant disparaissait silencieusement avant validation).
     const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant) + (fraisMedParEmp.get(employee.id) ?? 0);
-    if (fraisMedicauxUSD !== 0) employesFraisMedicaux.push(employee.id);
 
     const hs = calculerHeuresSupp({
       jours: heuresParEmp.get(employee.id) ?? [],
       heuresParJourContrat: Number(employee.heuresParJour),
       heuresHebdoContrat: Number(employee.heuresHebdomadaires),
+      // Majorations HS sur le taux PAR DÉFAUT (inchangées) ; seule la base multi-rôles varie
+      // (Option A, ci-dessus). DÉCISION (à faire confirmer par le client, 2026-07-22) : la PRIME
+      // d'heures supp. est donc valorisée sur le taux horaire CONTRACTUEL par défaut de l'employé,
+      // pas sur le taux pondéré du rôle réellement tenu le jour concerné — cohérent avec « prime
+      // calculée sur la base contractuelle », mais à valider explicitement pour un employé
+      // multi-rôles qui ferait ses heures supp. sur un rôle mieux (ou moins bien) rémunéré que son
+      // rôle par défaut. Même décision documentée dans bulletin-live.ts.
       salaireHoraire: tauxDefaut,
       joursFeries,
       params: parametres,
@@ -292,5 +320,5 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
     });
   }
 
-  return { lignes, employesFraisMedicaux };
+  return { lignes };
 }

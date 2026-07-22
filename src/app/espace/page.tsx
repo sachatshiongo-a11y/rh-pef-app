@@ -2,14 +2,10 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "./garde";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
+import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 import { lundiDe } from "@/lib/dates-fr";
 import { Icone } from "@/components/icones";
-
-function ancienneteEnMois(dateEmbauche: Date, ref: Date) {
-  return Math.max(0, (ref.getFullYear() - dateEmbauche.getFullYear()) * 12 + (ref.getMonth() - dateEmbauche.getMonth()));
-}
 
 export default async function EspaceAccueil() {
   const s = await chargerSalarie();

@@ -461,6 +461,24 @@ export function resumerPresences(codes: CodePresence[]): ResumePresence {
 }
 
 /**
+ * Ancienneté en MOIS RÉVOLUS entre une date d'embauche et une date de référence — compare aussi
+ * le JOUR du mois (pas seulement année/mois) : un mois n'est compté que s'il est effectivement
+ * terminé. Ex. embauche le 15 mars, référence le 1er avril → 0 mois révolu (pas encore le 15 avril).
+ * Sans cette correction, un employé était crédité d'un mois ~4 semaines trop tôt (jusqu'à son
+ * anniversaire mensuel), ce qui gonflait à tort les congés acquis via `calculerCongesAcquis`
+ * (ex. 12 mois → 18 j de congés alors qu'il en manquait encore quelques jours). Toujours ≥ 0.
+ * Helper UNIQUE (remplace 4 implémentations dupliquées et incorrectes) — fiche employé, espace
+ * salarié, PDF de demande de congé, calendrier des absences.
+ */
+export function ancienneteEnMois(dateEmbauche: Date, dateRef: Date): number {
+  let mois =
+    (dateRef.getFullYear() - dateEmbauche.getFullYear()) * 12 +
+    (dateRef.getMonth() - dateEmbauche.getMonth());
+  if (dateRef.getDate() < dateEmbauche.getDate()) mois -= 1;
+  return Math.max(0, mois);
+}
+
+/**
  * Congés acquis : droits annuels complets dès 12 mois d'ancienneté.
  * En-dessous d'un an de service, prorata classique (ancienneté en mois × droits annuels / 12).
  */
