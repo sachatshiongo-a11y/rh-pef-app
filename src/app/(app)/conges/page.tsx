@@ -7,6 +7,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
+import { ChampsDatesConge } from "@/components/champs-dates-conge";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -34,7 +35,7 @@ export default async function CongesPage({
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const peutApprouver = user.role === "ADMIN";
 
-  const [employees, demandesAll, typesConge] = await Promise.all([
+  const [employees, demandesAll, typesConge, feriesRows] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
     prisma.leaveRequest.findMany({
       include: { employee: true, approuvePar: true },
@@ -42,7 +43,9 @@ export default async function CongesPage({
       take: 300,
     }),
     prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
+  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
   const TYPES_CONGE = typesConge.map((t) => t.nom);
 
   const typesPresents = [...new Set(demandesAll.map((d) => d.type))].sort();
@@ -127,30 +130,8 @@ export default async function CongesPage({
                 ))}
               </select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="dateDebut" className="text-sm font-medium">
-                Date début
-              </label>
-              <input
-                id="dateDebut"
-                name="dateDebut"
-                type="date"
-                required
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="dateFin" className="text-sm font-medium">
-                Date fin
-              </label>
-              <input
-                id="dateFin"
-                name="dateFin"
-                type="date"
-                required
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
+            {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
+            <ChampsDatesConge feries={feries} inputClassName="rounded-md border border-input bg-background px-3 py-2 text-sm" />
             <div className="flex flex-col gap-1.5">
               <label htmlFor="remplacantId" className="text-sm font-medium">
                 Remplaçant(e)

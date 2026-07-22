@@ -5,6 +5,7 @@ import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { typeSansConges } from "@/lib/regles-contrats";
 import { demanderMonConge } from "../actions";
 import { Icone } from "@/components/icones";
+import { ChampsDatesConge } from "@/components/champs-dates-conge";
 
 const BADGE: Record<string, { label: string; classe: string }> = {
   EN_ATTENTE: { label: "En attente", classe: "bg-amber-100 text-amber-800" },
@@ -19,12 +20,14 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const params = await chargerParametresPaie();
 
-  const [emp, demandes, typesConges] = await Promise.all([
+  const [emp, demandes, typesConges, feriesRows] = await Promise.all([
     prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { contrat: true, dateEmbauche: true } }),
     prisma.leaveRequest.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" }, take: 60 }),
     prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true, tauxPct: true } }),
+    prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
   const tauxParType = new Map(typesConges.map((t) => [t.nom, t.tauxPct]));
+  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
   const now = new Date();
   const anciennete = Math.max(0, (now.getFullYear() - new Date(emp.dateEmbauche).getFullYear()) * 12 + (now.getMonth() - new Date(emp.dateEmbauche).getMonth()));
@@ -75,12 +78,8 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
             </select>
           </label>
           <div className="hidden sm:block" />
-          <label className="flex flex-col gap-1 text-sm">Du
-            <input type="date" name="dateDebut" required min={auj()} className={inputCls} />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">Au
-            <input type="date" name="dateFin" required min={auj()} className={inputCls} />
-          </label>
+          {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
+          <ChampsDatesConge feries={feries} min={auj()} labelDebut="Du" labelFin="Au" inputClassName={inputCls} />
           <label className="flex flex-col gap-1 text-sm sm:col-span-2">Motif (facultatif)
             <input type="text" name="motif" placeholder="ex. raison familiale" className={inputCls} />
           </label>
