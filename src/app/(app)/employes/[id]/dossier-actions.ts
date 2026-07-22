@@ -38,6 +38,19 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
       prisma.employee.findUniqueOrThrow({ where: { id: employeeId } }),
       chargerParametresPaie(),
     ]);
+    // ⚠️ MÉLANGE NET/BRUT REPÉRÉ (2026-07-22, NON corrigé ici — hors périmètre T4, ambigu sans
+    // arbitrage comptable/juridique) : ce calcul de solde de tout compte divise directement
+    // `employee.salaireMensuel` par les jours ouvrables SANS repasser par le moteur de paie
+    // (`calculerPaieBrigade`/`calculerPaieBackoffice`, ni `reconstituerBrutDepuisNet`) — donc SANS
+    // aucune CNSS ni IPR appliquée sur le prorata/indemnités de fin de contrat, que le flag
+    // `params.salairesSaisisEnNet` soit actif ou non. Si ce flag est actif, `salaireJournalier` est
+    // un journalier NET (cohérent avec le fait qu'aucune cotisation n'est déduite ensuite — le solde
+    // ressort donc bien "en net", comme avant), MAIS si le flag est inactif ce même journalier est un
+    // BRUT versé sans aucune retenue, ce qui est un solde de tout compte plus généreux qu'un bulletin
+    // normal. Ce comportement (absence totale de cotisations sur le solde de tout compte) est
+    // ANTÉRIEUR à ce lot et n'est pas spécifique au net/brut — mais son interprétation en découle
+    // directement. À FAIRE VALIDER PAR UN COMPTABLE/JURISTE : le solde de tout compte doit-il subir
+    // CNSS/IPR comme un bulletin normal, et si oui à partir de quel montant (brut reconstitué) ?
     const salaireJournalier = r2(Number(employee.salaireMensuel) / parametres.joursOuvrablesMois);
     const salaireProrataUSD = r2(salaireJournalier * joursTravaillesMois);
     const indemniteCongesUSD = r2(salaireJournalier * joursCongesNonPris);

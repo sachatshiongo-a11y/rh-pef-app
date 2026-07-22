@@ -113,6 +113,7 @@ export function EmployeeForm({
         heuresHebdoInit={employee?.heuresHebdomadaires?.toString() ?? "48"}
         heuresParJourInit={employee?.heuresParJour?.toString() ?? "8"}
         joursOuvrablesMois={joursOuvrablesMois}
+        salaireEstNet={parametres?.salairesSaisisEnNet ?? false}
       />
       <Field
         label="ID pointeuse IVMS (optionnel)"
@@ -241,11 +242,15 @@ function SalaireHoraire({
   heuresHebdoInit,
   heuresParJourInit,
   joursOuvrablesMois,
+  salaireEstNet,
 }: {
   salaireMensuelInit: string;
   heuresHebdoInit: string;
   heuresParJourInit: string;
   joursOuvrablesMois: number;
+  /** true si les salaires saisis sont interprétés comme des NETS (flag `salaires_saisis_en_net`) :
+      les libellés le reflètent alors, sinon on garde les libellés historiques (montant = brut). */
+  salaireEstNet: boolean;
 }) {
   const round2 = (n: number) => (Math.round(n * 100) / 100).toString();
   const round4 = (n: number) => (Math.round(n * 10000) / 10000).toString();
@@ -288,7 +293,7 @@ function SalaireHoraire({
   return (
     <>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="salaireMensuel" className="text-sm font-medium">Salaire mensuel $</label>
+        <label htmlFor="salaireMensuel" className="text-sm font-medium">{salaireEstNet ? "Salaire NET mensuel $" : "Salaire mensuel $"}</label>
         <input id="salaireMensuel" name="salaireMensuel" type="number" step="0.01" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -300,7 +305,7 @@ function SalaireHoraire({
         <input id="heuresMois" type="number" step="1" value={heuresMois} onChange={(e) => onHeuresMois(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="tauxHoraire" className="text-sm font-medium">Taux horaire $/h (modifiable)</label>
+        <label htmlFor="tauxHoraire" className="text-sm font-medium">{salaireEstNet ? "Taux horaire NET $/h (modifiable)" : "Taux horaire $/h (modifiable)"}</label>
         <input id="tauxHoraire" type="number" step="0.0001" value={taux} onChange={(e) => onTaux(e.target.value)} className={champCls} />
       </div>
       <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" type="number" step="any" min="0" inputMode="decimal" defaultValue={heuresParJourInit} />
@@ -308,6 +313,15 @@ function SalaireHoraire({
         Heures/mois = heures/semaine × 52/12 (≈ 4,33 semaines). Taux horaire = salaire mensuel ÷
         heures/mois. « Heures/jour » sert de seuil quotidien d&apos;heures supplémentaires. Enregistrés :
         salaire mensuel, heures/semaine, heures/jour.
+        {salaireEstNet && (
+          <>
+            <br />
+            <b>Salaire NET</b> : le montant saisi ici est le NET réellement versé au salarié (à
+            valider par un comptable) — le moteur de paie reconstitue automatiquement le brut de base
+            (CNSS + IPR à sa charge) pour produire le bulletin. Le taux horaire ci-dessus est donc
+            lui aussi un taux NET, dérivé du même montant.
+          </>
+        )}
       </p>
     </>
   );

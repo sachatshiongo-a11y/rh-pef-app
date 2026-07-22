@@ -42,6 +42,16 @@ export type ParametresPaie = {
   allocFamilialeParEnfantUSD: number;
   joursOuvrablesMois: number;
   droitsCongesAnnuel: number;
+
+  // Interprétation des salaires saisis sur la fiche employé (Employee.salaireMensuel) — 2026-07-22.
+  // false (défaut) = valeur saisie interprétée comme un BRUT (comportement historique, inchangé).
+  // true = valeur saisie interprétée comme un NET cible ; le moteur reconstitue le brut de base via
+  // `reconstituerBrutDepuisNet` avant tout calcul de cotisations/impôt (voir calculerPaieBrigade /
+  // calculerPaieBackoffice). Optionnel (et non `?? false` en dur ici) pour que les paramètres de
+  // test existants (littéraux `ParametresPaie` dans payroll.test.ts / payroll-reference.test.ts, non
+  // mis à jour ici — le testeur s'en charge) restent valides sans le champ ; `undefined` se comporte
+  // comme `false` partout où le flag est consulté.
+  salairesSaisisEnNet?: boolean;
 };
 
 /**
@@ -88,6 +98,64 @@ export function calculerIprDGI(
   return impot;
 }
 
+/**
+ * Net de base obtenu à partir d'un brut G candidat, en appliquant EXACTEMENT les mêmes règles que
+ * `finaliserLignePaie` pour la CNSS salariale et l'IPR — mais sur G seul (pas de transport, pas de
+ * primes, pas d'allocations/frais médicaux/acompte/prêt : ceux-ci s'ajoutent en dehors du salaire de
+ * base reconstitué, voir `reconstituerBrutDepuisNet`). Fonction interne à la dichotomie.
+ */
+function netBaseDepuisBrut(G: number, params: ParametresPaie, personnesACharge: number): number {
+  const taux = params.tauxChangeCDF;
+  const plafondUSD = params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
+  const assietteCnssUSD = plafondUSD === null ? G : Math.min(G, plafondUSD);
+  const cnssSalarieUSD = assietteCnssUSD * params.cnssSalarie;
+  const baseImposableUSD = params.iprBase === 1 ? G : G - cnssSalarieUSD;
+  const iprCDF = calculerIprDGI(baseImposableUSD * taux, params, personnesACharge);
+  const iprUSD = iprCDF / taux;
+  return G - cnssSalarieUSD - iprUSD;
+}
+
+/**
+ * Reconstitue le salaire BRUT de base G tel que `netBaseDepuisBrut(G) === netCibleUSD` (CNSS
+ * salariale + IPR à la charge du salarié, cf. `finaliserLignePaie`) — inverse le moteur pour les
+ * salaires saisis comme des NETS (`params.salairesSaisisEnNet`, voir ce flag et son branchement dans
+ * `calculerPaieBrigade`/`calculerPaieBackoffice`). Périmètre = salaire de base seul ; primes/transport
+ * s'ajoutent par-dessus après reconstitution, pas avant (voir appelants).
+ *
+ * Méthode : dichotomie (bisection). `netBaseDepuisBrut` est strictement croissante et continue en G
+ * (CNSS proportionnelle plafonnée, IPR par tranches marginales croissantes, plancher/plafond IPR
+ * monotones) → une seule racine, la bisection converge sans ambiguïté.
+ *
+ * Convention : renvoie la borne HAUTE de l'intervalle final (`net(hi) ≥ netCibleUSD`), jamais la
+ * basse → on ne SOUS-paie jamais le salarié de quelques centimes par arrondi de la dichotomie.
+ *
+ * À VALIDER PAR UN COMPTABLE (2026-07-22) : pour les très bas salaires proches du plancher IPR
+ * mensuel (`iprPlancherMensuelCDF`, qui s'applique dès que la base imposable est positive, cf.
+ * `calculerIprDGI`), la fonction net(G) présente une discontinuité/à-plat autour du plancher — la
+ * dichotomie converge quand même vers le plus petit G tel que net(G) ≥ cible, ce qui est le
+ * comportement le plus prudent (jamais sous-payer), mais le comptable doit confirmer que cette zone
+ * ne produit pas un écart net anormal pour les bas salaires.
+ */
+export function reconstituerBrutDepuisNet(
+  netCibleUSD: number,
+  params: ParametresPaie,
+  personnesACharge: number
+): number {
+  if (netCibleUSD <= 0) return 0;
+
+  let hi = Math.max(netCibleUSD, 1);
+  while (netBaseDepuisBrut(hi, params, personnesACharge) < netCibleUSD) hi *= 2;
+  let lo = 0;
+
+  for (let i = 0; i < 60 && hi - lo >= 0.005; i++) {
+    const mid = (lo + hi) / 2;
+    if (netBaseDepuisBrut(mid, params, personnesACharge) < netCibleUSD) lo = mid;
+    else hi = mid;
+  }
+
+  return hi;
+}
+
 export type EntreesPaieBrigade = {
   salaireJournalier: number;
   salaireHoraire: number;
@@ -131,14 +199,43 @@ export function calculerPaieBrigade(
   // Base = heures NORMALES au taux horaire (les heures supp/dimanche/férié sont payées à part,
   // en totalité, dans hsValorisee) + jours payés NON travaillés (absences justifiées / congés /
   // fériés non travaillés) valorisés à la journée (100%).
-  const remuneration100 =
+  // Ces montants sont calculés en amont (paie-batch.ts/bulletin-live.ts) à partir de
+  // `employee.salaireMensuel` — donc au NET si `params.salairesSaisisEnNet` est actif (2026-07-22).
+  const remuneration100Net =
     entrees.salaireHoraire * entrees.heuresNormales +
     entrees.salaireJournalier * entrees.joursPayesNonTravailles;
-  const remuneration2_3 = entrees.salaireJournalier * entrees.joursPayes2_3 * (2 / 3);
+  const remuneration2_3Net = entrees.salaireJournalier * entrees.joursPayes2_3 * (2 / 3);
   const primesUSD = entrees.primesUSD ?? 0;
 
+  // Reconstitution du brut de base (2026-07-22) : les salaires saisis sur la fiche employé sont des
+  // NETS cibles (take-home) ; on reconstitue ici le brut de base G tel que
+  // G − CNSS_salariale(G) − IPR(baseImposable(G)) = netBaseCible, PUIS on recompose remuneration100/
+  // remuneration2_3 et la prime d'heures supp. à partir de G (au lieu des composantes nettes), afin
+  // que `finaliserLignePaie` reçoive le VRAI brut et calcule les cotisations/impôt dessus (jamais sur
+  // le net). Périmètre = salaire de base seul (remuneration100 + remuneration2_3) ; transport et
+  // primes NE sont PAS grossis, ils s'ajoutent tels quels par-dessus (gains déjà exprimés en clair,
+  // hors périmètre de l'inversion). Interrupteur d'INTERPRÉTATION de la donnée d'entrée — appliqué
+  // une seule fois par appel, jamais cumulatif (G n'est jamais réinjecté dans un nouvel appel : il
+  // est toujours recalculé depuis les montants nets fournis par l'appelant, eux-mêmes dérivés de la
+  // valeur stockée en base, inchangée).
+  const netBaseCible = remuneration100Net + remuneration2_3Net;
+  const brutBase = params.salairesSaisisEnNet
+    ? reconstituerBrutDepuisNet(netBaseCible, params, entrees.enfants)
+    : netBaseCible;
+  // Ratio brut/net appliqué UNIFORMÉMENT à remuneration100/remuneration2_3 (préserve leur proportion
+  // relative) et à la prime d'heures supplémentaires (décision client 2026-07-22) : la prime HS est
+  // donc valorisée au taux brut reconstitué, par approximation LINÉAIRE (même ratio que le salaire de
+  // base). Ce n'est qu'une approximation : à cause de la progressivité de l'IPR par tranches, le net
+  // HS réellement perçu n'est pas garanti être EXACTEMENT celui visé — à valider par un comptable,
+  // en particulier pour un salarié dont les heures supp. représentent une part importante du mois
+  // (l'écart théorique reste faible en pratique car HS reste généralement minoritaire face à la base).
+  const rho = netBaseCible > 0 ? brutBase / netBaseCible : 1;
+  const remuneration100 = remuneration100Net * rho;
+  const remuneration2_3 = remuneration2_3Net * rho;
+  const hsValorisee = entrees.hsValorisee * rho;
+
   const salBrutUSD =
-    remuneration100 + remuneration2_3 + entrees.hsValorisee + entrees.transportMoisUSD + primesUSD;
+    remuneration100 + remuneration2_3 + hsValorisee + entrees.transportMoisUSD + primesUSD;
 
   return finaliserLignePaie(
     {
@@ -171,7 +268,15 @@ export function calculerPaieBackoffice(
   params: ParametresPaie
 ): LignePaie {
   const primesUSD = entrees.primesUSD ?? 0;
-  const salBrutUSD = entrees.salaireBaseUSD + entrees.transportUSD + primesUSD;
+  // Reconstitution du brut de base (2026-07-22) — même principe que calculerPaieBrigade : le
+  // salaire mensuel saisi est interprété comme un NET cible si `params.salairesSaisisEnNet`, et le
+  // brut de base est reconstitué avant d'ajouter transport/primes (hors périmètre de l'inversion).
+  // Pas d'heures supplémentaires en back-office (EntreesPaieBackoffice n'en porte pas) : rien d'autre
+  // à grossir ici.
+  const salaireBaseUSD = params.salairesSaisisEnNet
+    ? reconstituerBrutDepuisNet(entrees.salaireBaseUSD, params, entrees.enfants)
+    : entrees.salaireBaseUSD;
+  const salBrutUSD = salaireBaseUSD + entrees.transportUSD + primesUSD;
 
   return finaliserLignePaie(
     {

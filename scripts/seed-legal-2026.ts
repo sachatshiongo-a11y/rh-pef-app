@@ -50,6 +50,23 @@ const PARAMS: {
   { cle: "alloc_familiale_par_enfant_usd", valeur: 1.5, unite: "USD", libelle: "Allocation familiale par enfant (règle interne, ajoutée au net)", commentaire: "Héritée du fichier Excel PEF — les prestations familiales CNSS étant patronales, ce complément interne est À VALIDER" },
   { cle: "jours_ouvrables_mois", valeur: 26, unite: "jours", libelle: "Jours ouvrables par mois (base salaire journalier)" },
   { cle: "droits_conges_annuel", valeur: 18, unite: "jours", libelle: "Droits de congés annuels (jours ouvrables)" },
+
+  // --- Interprétation des salaires saisis (2026-07-22) ---
+  {
+    cle: "salaires_saisis_en_net",
+    valeur: 1,
+    unite: "booléen (0/1)",
+    libelle: "Salaires saisis interprétés comme des NETS (reconstitution automatique du brut)",
+    commentaire:
+      "À VALIDER — quand actif (1), les salaires saisis sur la fiche employé (salaire mensuel) sont " +
+      "interprétés comme des NETS cibles (take-home) et le brut de base est reconstitué par le moteur " +
+      "de paie (CNSS salariale + IPR à la charge du salarié) avant tout calcul de cotisations/impôt. " +
+      "Quand inactif (0) ou absent, comportement historique inchangé : la valeur saisie est un BRUT. " +
+      "NOTE : le chargement des paramètres (chargerParametresPaie) applique un défaut OFF si cette " +
+      "clé est absente de l'exercice — ce seed la fixe à 1 pour les NOUVELLES installations ; une " +
+      "base de prod existante n'est jamais basculée automatiquement (upsert `update: {}` ne réécrit " +
+      "jamais une valeur déjà présente).",
+  },
 ];
 
 // Barème IPR DGI — tranches ANNUELLES en CDF.

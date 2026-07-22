@@ -1,8 +1,10 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { chargerEntreprise } from "@/lib/entreprise";
+import { chargerParametresPaie } from "@/lib/config";
 import type { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import type { ImagePdf } from "@/lib/entreprise";
+import type { ParametresPaie } from "@/lib/payroll";
 
 export type DonneesBulletinsDuMois = {
   run: NonNullable<Awaited<ReturnType<typeof chargerRun>>>;
@@ -12,6 +14,8 @@ export type DonneesBulletinsDuMois = {
   primesParEmp: Map<string, { nom: string; montantUSD: number }[]>;
   entreprise: typeof entrepriseDefaut;
   logo: ImagePdf;
+  /** Paramètres de paie (2026-07-22) — pour reconstituer le brut affiché sur le bulletin PDF. */
+  parametres: ParametresPaie;
 };
 
 function chargerRun(mois: number, annee: number) {
@@ -32,7 +36,7 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
 
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const [conges, attendances, primes, feriesRows, ent] = await Promise.all([
+  const [conges, attendances, primes, feriesRows, ent, parametres] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } },
     }),
@@ -40,6 +44,7 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
     prisma.prime.findMany({ where: { mois, annee }, orderBy: { createdAt: "asc" } }),
     prisma.jourFerie.findMany({ select: { date: true } }),
     chargerEntreprise(),
+    chargerParametresPaie(),
   ]);
 
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
@@ -64,5 +69,5 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
       montantUSD: Number(p.montantUSD),
     });
 
-  return { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise: ent.entreprise, logo: ent.logo };
+  return { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise: ent.entreprise, logo: ent.logo, parametres };
 }

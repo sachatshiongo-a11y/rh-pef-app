@@ -4,6 +4,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfSignatureBox } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
+import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
 
 registerPdfFonts();
 
@@ -211,10 +212,15 @@ type BulletinProps = {
   /** Identité de l'entreprise (Paramètres) ; par défaut les valeurs de theme.ts. */
   entreprise?: typeof entrepriseDefaut;
   logo?: ImageSrc;
+  /** Paramètres de paie (2026-07-22) — sert UNIQUEMENT à reconstituer le brut du « Salaire de
+   * base » affiché si `salairesSaisisEnNet` est actif (voir plus bas) ; optionnel pour ne pas
+   * casser un appelant qui ne les chargerait pas encore — dans ce cas le montant stocké est
+   * affiché tel quel (comportement historique). */
+  params?: ParametresPaie;
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params }: BulletinProps) {
   const feriesSet = new Set(feries);
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
@@ -247,7 +253,26 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   const totHS = hs30 + hs60 + hs100;
   const heuresNormales = heuresTravaillees - totHS;
   const heuresContractuelles = Number(ligne.heuresContractuelles);
-  const tauxHoraire = heuresContractuelles > 0 ? Number(employee.salaireMensuel) / heuresContractuelles : 0;
+
+  // Salaire de base affiché en BRUT (2026-07-22, décision client), cohérent avec « Salaire brut
+  // imposable » plus bas. `employee.salaireMensuel` est la valeur SAISIE sur la fiche — un NET
+  // cible si `params.salairesSaisisEnNet` est actif (sinon, comportement historique : c'est déjà
+  // un brut, rien ne change). On reconstitue ici le brut de référence de CE montant contractuel
+  // (indépendant des heures/absences du mois, comme l'était déjà cette case avant ce changement) ;
+  // ce n'est PAS le même calcul que `ligne.remuneration100` (qui, lui, dépend des heures/absences
+  // réellement enregistrées ce mois). Si `params` n'est pas fourni par l'appelant (rétrocompat.),
+  // le montant stocké est affiché tel quel (pas de reconstitution possible sans les paramètres).
+  const salaireBaseAffiche =
+    params?.salairesSaisisEnNet
+      ? reconstituerBrutDepuisNet(Number(employee.salaireMensuel), params, employee.enfants)
+      : Number(employee.salaireMensuel);
+
+  // Taux horaire dérivé du MÊME montant brut que « Salaire de base » ci-dessus (cohérence interne
+  // de la case récap : Salaire de base ÷ Heures/mois = Taux horaire). Avant ce changement, ce taux
+  // était déjà dérivé de `employee.salaireMensuel` (implicitement net si le flag est actif) — on le
+  // dérive maintenant du même brut reconstitué pour rester un vrai « taux horaire brut », plutôt
+  // que d'introduire un second libellé « taux net » à côté d'un « Salaire de base » en brut.
+  const tauxHoraire = heuresContractuelles > 0 ? salaireBaseAffiche / heuresContractuelles : 0;
 
   const totalRetenuesSal =
     Number(ligne.cnssSalarieUSD) + Number(ligne.iprCalculeUSD) + Number(ligne.acompteUSD) + Number(ligne.retenuePretUSD ?? 0);
@@ -290,7 +315,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
       {/* Récapitulatif */}
       <View style={styles.recap}>
         <Recap label="Catégorie" value={employee.categorie === "BRIGADE" ? "Brigade" : "Back-office"} />
-        <Recap label="Salaire de base" value={m(Number(employee.salaireMensuel))} />
+        <Recap label="Salaire de base" value={m(salaireBaseAffiche)} />
         <Recap label="Taux horaire" value={m(tauxHoraire)} />
         <Recap label="Heures / mois" value={`${heuresContractuelles} h`} />
         <View style={[styles.recapCell, { borderRight: "0" }]}>

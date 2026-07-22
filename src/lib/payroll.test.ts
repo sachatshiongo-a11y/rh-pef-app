@@ -6,11 +6,13 @@ import {
   calculerIprDGI,
   calculerPaieBackoffice,
   calculerPaieBrigade,
+  calculerPaieStage,
   calculerCongesAcquis,
   ancienneteEnMois,
   congeDeductibleDuSolde,
   tauxPrimeAnciennete,
   resumerPresences,
+  reconstituerBrutDepuisNet,
   type ParametresPaie,
 } from "./payroll";
 
@@ -405,5 +407,82 @@ describe("calculerJoursOuvrables — dimanches et jours fériés exclus", () => 
   });
   it("un férié tombant un dimanche n'est pas déduit deux fois", () => {
     expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"), [new Date("2026-07-05")])).toBe(6);
+  });
+});
+
+describe("reconstituerBrutDepuisNet — inversion net→brut (salaires saisis en net, 2026-07-22)", () => {
+  // Flag actif : le salaire de base saisi est un NET cible, le moteur reconstitue le brut.
+  const paramsNet: ParametresPaie = { ...params, salairesSaisisEnNet: true };
+
+  it("net ≤ 0 → brut 0", () => {
+    expect(reconstituerBrutDepuisNet(0, params, 0)).toBe(0);
+    expect(reconstituerBrutDepuisNet(-50, params, 0)).toBe(0);
+  });
+
+  it("gross-up positif : le brut reconstitué dépasse le net cible", () => {
+    for (const net of [100, 200, 500, 900]) {
+      expect(reconstituerBrutDepuisNet(net, params, 0)).toBeGreaterThan(net);
+    }
+  });
+
+  it("strictement croissant avec le net cible", () => {
+    const g100 = reconstituerBrutDepuisNet(100, params, 0);
+    const g200 = reconstituerBrutDepuisNet(200, params, 0);
+    const g500 = reconstituerBrutDepuisNet(500, params, 0);
+    expect(g100).toBeLessThan(g200);
+    expect(g200).toBeLessThan(g500);
+  });
+
+  it("round-trip net→brut→net ≈ identité (back-office, sans transport/prime/HS)", () => {
+    // Le net perçu revient exactement au net cible (+ allocation familiale ajoutée après impôt),
+    // avec un brut imposable strictement supérieur. Balayage de nets et de personnes à charge.
+    for (const net of [80, 150, 250, 400, 750, 1200]) {
+      for (const enfants of [0, 3]) {
+        const r = calculerPaieBackoffice({ salaireBaseUSD: net, transportUSD: 0, enfants }, paramsNet);
+        expect(r.salNetUSD).toBeCloseTo(net + enfants * params.allocFamilialeParEnfantUSD, 2);
+        expect(r.salBrutUSD).toBeGreaterThan(net);
+      }
+    }
+  });
+
+  it("round-trip tenu même avec plafond CNSS défini", () => {
+    const avecPlafond: ParametresPaie = { ...paramsNet, plafondCnssMensuelCDF: 230_000 }; // = 100 $
+    const r = calculerPaieBackoffice({ salaireBaseUSD: 300, transportUSD: 0, enfants: 0 }, avecPlafond);
+    expect(r.salNetUSD).toBeCloseTo(300, 2);
+    expect(r.cnssSalarieUSD).toBeCloseTo(100 * 0.05, 2); // CNSS plafonnée à 100 $ × 5%
+  });
+
+  it("iprBase=1 (brut) exige un brut plus élevé que iprBase=2 (brut − CNSS) pour le même net", () => {
+    const gBase1 = reconstituerBrutDepuisNet(300, { ...params, iprBase: 1 }, 0);
+    const gBase2 = reconstituerBrutDepuisNet(300, { ...params, iprBase: 2 }, 0);
+    expect(gBase1).toBeGreaterThan(gBase2);
+  });
+
+  it("flag OFF (défaut) : aucune reconstitution, le brut = le montant saisi (non-régression)", () => {
+    const rBack = calculerPaieBackoffice({ salaireBaseUSD: 200, transportUSD: 0, enfants: 0 }, params);
+    expect(rBack.salBrutUSD).toBeCloseTo(200, 6);
+    const rBrig = calculerPaieBrigade(
+      { salaireJournalier: 10, salaireHoraire: 1.25, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: 0, enfants: 0 },
+      params
+    );
+    expect(rBrig.salBrutUSD).toBeCloseTo(260, 6);
+  });
+
+  it("brigade : la prime d'heures supp. est grossie par le même ratio ρ que la base", () => {
+    const base = { salaireJournalier: 10, salaireHoraire: 1.25, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, transportMoisUSD: 0, enfants: 0 };
+    const sansHS = calculerPaieBrigade({ ...base, hsValorisee: 0 }, paramsNet);
+    const avecHS = calculerPaieBrigade({ ...base, hsValorisee: 20 }, paramsNet);
+    const netBaseCible = 1.25 * 208; // 260 $
+    const rho = reconstituerBrutDepuisNet(netBaseCible, paramsNet, 0) / netBaseCible;
+    // Seule la part HS diffère entre les deux : 20 × ρ dans le brut.
+    expect(avecHS.salBrutUSD - sansHS.salBrutUSD).toBeCloseTo(20 * rho, 4);
+  });
+
+  it("STAGE : aucune reconstitution (net = brut, sans cotisations) même flag actif", () => {
+    const r = calculerPaieStage({ indemniteUSD: 150, transportUSD: 0 }, paramsNet);
+    expect(r.salBrutUSD).toBeCloseTo(150, 6);
+    expect(r.salNetUSD).toBeCloseTo(150, 6);
+    expect(r.cnssSalarieUSD).toBe(0);
+    expect(r.iprCalculeUSD).toBe(0);
   });
 });

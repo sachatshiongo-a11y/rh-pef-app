@@ -75,5 +75,14 @@ export async function chargerParametresPaie(): Promise<ParametresPaie> {
     allocFamilialeParEnfantUSD: requis("alloc_familiale_par_enfant_usd"),
     joursOuvrablesMois: requis("jours_ouvrables_mois"),
     droitsCongesAnnuel: requis("droits_conges_annuel"),
+
+    // Interruteur d'interprétation des salaires saisis (2026-07-22, voir ParametresPaie dans
+    // payroll.ts). IMPORTANT — défaut OFF (false) si le paramètre est ABSENT de l'exercice actif :
+    // sur la base de prod existante (exercice 2026 seedé AVANT l'introduction de cette clé), aucun
+    // gross-up ne doit s'appliquer tant que le directeur ne l'active pas explicitement dans
+    // Paramètres. `optionnel()` renvoie `null` si la clé n'existe pas → traité comme `false` ici
+    // (jamais `requis()`, qui lèverait une erreur bloquant toute la paie sur les bases n'ayant pas
+    // encore ce paramètre seedé).
+    salairesSaisisEnNet: optionnel("salaires_saisis_en_net") === 1,
   };
 }

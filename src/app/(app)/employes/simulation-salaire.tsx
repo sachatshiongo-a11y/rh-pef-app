@@ -133,6 +133,14 @@ export function SimulationSalaire({
   return (
     <Panneau titre="Simulation du bulletin (mois type)">
       <p className="mb-2 text-[11px] text-muted-foreground">{mode}</p>
+      {parametres.salairesSaisisEnNet && v.contrat !== "STAGE" && (
+        <p className="mb-2 rounded-md bg-muted/40 p-2 text-[11px] text-muted-foreground">
+          Salaire saisi interprété comme un <b>NET cible</b> : le brut de base ci-dessous est
+          reconstitué automatiquement (CNSS + IPR à la charge du salarié) pour que le net obtenu
+          corresponde au montant saisi (à valider par un comptable, notamment pour les très bas
+          salaires — voir <code>reconstituerBrutDepuisNet</code>).
+        </p>
+      )}
       <dl className="space-y-1 text-sm tabular-nums">
         <Ligne label="Base + transport (brut)" val={usd(ligne.salBrutUSD)} gras />
         {ligne.cnssSalarieUSD > 0 && <Ligne label="CNSS salarié" val={`− ${usd(ligne.cnssSalarieUSD)}`} rouge />}

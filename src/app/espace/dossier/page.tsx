@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { chargerParametresPaie } from "@/lib/config";
 import { chargerSalarie } from "../garde";
 
 const d = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
@@ -9,12 +10,13 @@ const TYPE_CONTRAT: Record<string, string> = {
 
 export default async function EspaceDossier() {
   const s = await chargerSalarie();
-  const [emp, contrat] = await Promise.all([
+  const [emp, contrat, parametres] = await Promise.all([
     prisma.employee.findUniqueOrThrow({
       where: { id: s.employeeId },
       select: { nom: true, matricule: true, poste: true, categorie: true, dateEmbauche: true, telephone: true, email: true, salaireMensuel: true, heuresHebdomadaires: true },
     }),
     prisma.contrat.findFirst({ where: { employeeId: s.employeeId, statut: "ACTIF" }, orderBy: { dateDebut: "desc" } }),
+    chargerParametresPaie(),
   ]);
 
   return (
@@ -47,7 +49,7 @@ export default async function EspaceDossier() {
       </Bloc>
 
       <Bloc titre="Rémunération">
-        <Champ label="Salaire brut" valeur={`${Number(emp.salaireMensuel).toLocaleString("fr-FR")} $ / mois`} />
+        <Champ label={parametres.salairesSaisisEnNet ? "Salaire net" : "Salaire brut"} valeur={`${Number(emp.salaireMensuel).toLocaleString("fr-FR")} $ / mois`} />
         <Champ label="Heures / semaine" valeur={`${Number(emp.heuresHebdomadaires).toLocaleString("fr-FR")} h`} />
       </Bloc>
 

@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   if (!donnees) {
     return new Response("Aucune paie calculée pour ce mois", { status: 404 });
   }
-  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo } = donnees;
+  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo, parametres } = donnees;
 
   const bulletins = run.lignes.map((l) => ({
     employee: l.employee,
@@ -30,6 +30,7 @@ export async function GET(request: Request) {
     feries,
     entreprise,
     logo,
+    params: parametres,
   }));
 
   const buffer = await renderPdfBuffer(BulletinsDocument({ bulletins, devise }));
