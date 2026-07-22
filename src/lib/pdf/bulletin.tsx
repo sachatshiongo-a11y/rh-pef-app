@@ -280,6 +280,11 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   const totalGains =
     Number(ligne.salBrutUSD) + Number(ligne.allocFamilialeUSD) + Number(ligne.fraisMedicauxUSD);
 
+  // Base imposable/cotisable = brut SANS le transport (exonéré d'IPR et non cotisable). C'est sur
+  // ce montant que CNSS/IPR/INPP/ONEM sont calculés ; l'afficher évite de laisser croire que le
+  // transport entre dans l'assiette imposable (2026-07-22).
+  const baseImposable = Number(ligne.salBrutUSD) - Number(ligne.transportUSD);
+
   const nbJours = new Date(Date.UTC(run.annee, run.mois, 0)).getUTCDate();
   const joursCal = Array.from({ length: nbJours }, (_, i) => {
     const jour = i + 1;
@@ -376,9 +381,9 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             : Number(ligne.primesUSD) > 0 && (
                 <Row designation="Primes" montant={m(Number(ligne.primesUSD))} />
               )}
-          <Row designation="Salaire brut imposable" montant={m(Number(ligne.salBrutUSD))} section />
+          <Row designation="Salaire brut imposable (hors transport)" montant={m(baseImposable)} section />
 
-          <Row designation="CNSS" base={m(Number(ligne.salBrutUSD))} partSal={m(Number(ligne.cnssSalarieUSD))} partEmp={m(Number(ligne.cnssPatronalUSD))} />
+          <Row designation="CNSS" base={m(baseImposable)} partSal={m(Number(ligne.cnssSalarieUSD))} partEmp={m(Number(ligne.cnssPatronalUSD))} />
           <Row designation="INPP" partEmp={m(Number(ligne.inppUSD))} />
           <Row designation="ONEM" partEmp={m(Number(ligne.onemUSD))} />
           <Row designation="IPR (impôt sur le revenu)" base={m(Number(ligne.netImposableUSD))} partSal={m(Number(ligne.iprCalculeUSD))} />

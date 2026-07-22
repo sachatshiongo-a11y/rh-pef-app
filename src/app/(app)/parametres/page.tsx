@@ -3,6 +3,7 @@ import { verifySession } from "@/lib/auth";
 import {
   mettreAJourConfig,
   basculerEspaceEmploye,
+  basculerSalairesEnNet,
   mettreAJourParametreLegal,
   mettreAJourTrancheIprCDF,
   ajouterJourFerie,
@@ -63,6 +64,12 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
   const nbAValider =
     (exercice?.parametres.filter((p) => p.statutValidation === "A_VALIDER").length ?? 0) +
     (exercice?.tranchesIpr.filter((t) => t.statutValidation === "A_VALIDER").length ?? 0);
+
+  // Flag « salaires en net » : géré par un interrupteur DÉDIÉ (ci-dessous), donc retiré de la liste
+  // brute des paramètres légaux pour éviter toute remise à 0 accidentelle par saisie d'un champ.
+  const salairesEnNetActif =
+    Number(exercice?.parametres.find((p) => p.cle === "salaires_saisis_en_net")?.valeur ?? 0) === 1;
+  const parametresLegaux = (exercice?.parametres ?? []).filter((p) => p.cle !== "salaires_saisis_en_net");
 
   return (
     <div className="max-w-5xl">
@@ -201,6 +208,24 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
         </form>
       </Section>
 
+      <Section title="Salaires saisis en net">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Quand c&apos;est activé, les salaires saisis sur les fiches sont considérés comme des
+          montants <b>nets</b> à verser : le moteur reconstitue automatiquement le brut (CNSS + IPR
+          à la charge du salarié) pour les bulletins. Les bulletins déjà validés/payés ne changent
+          pas ; rouvrez la paie du mois pour recalculer les brouillons. À valider par un comptable.
+        </p>
+        <form action={basculerSalairesEnNet} className="flex flex-wrap items-center gap-3">
+          <input type="hidden" name="actif" value={salairesEnNetActif ? "0" : "1"} />
+          <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${salairesEnNetActif ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
+            {salairesEnNetActif ? "● Activé (salaires en net)" : "○ Désactivé (salaires en brut)"}
+          </span>
+          <button type="submit" className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent">
+            {salairesEnNetActif ? "Désactiver" : "Activer les salaires en net"}
+          </button>
+        </form>
+      </Section>
+
       <Section
         title={`Paramètres légaux — exercice ${exercice?.annee ?? "?"}`}
         badge={
@@ -226,7 +251,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           </p>
         )}
         <div className="space-y-1">
-          {exercice?.parametres.map((p) => (
+          {parametresLegaux.map((p) => (
             <form
               key={p.id}
               action={mettreAJourParametreLegal.bind(null, p.id)}

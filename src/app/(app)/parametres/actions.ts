@@ -95,6 +95,32 @@ export async function basculerEspaceEmploye(formData: FormData) {
 }
 
 /**
+ * Bascule « salaires saisis en net » (ADMIN). Interrupteur DÉDIÉ (et non un champ numérique perdu
+ * dans la liste des paramètres légaux, où il pouvait être remis à 0 par erreur) : quand actif, le
+ * moteur reconstitue le brut à partir du salaire net saisi. Upsert sur l'exercice fiscal actif.
+ */
+export async function basculerSalairesEnNet(formData: FormData) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const actif = String(formData.get("actif")) === "1";
+  const exercice = await prisma.exerciceFiscal.findFirstOrThrow({ where: { actif: true } });
+  await prisma.parametreLegal.upsert({
+    where: { exerciceId_cle: { exerciceId: exercice.id, cle: "salaires_saisis_en_net" } },
+    update: { valeur: actif ? 1 : 0 },
+    create: {
+      exerciceId: exercice.id,
+      cle: "salaires_saisis_en_net",
+      valeur: actif ? 1 : 0,
+      unite: "choix",
+      libelle: "Salaires saisis interprétés comme des NETS (reconstitution du brut)",
+      commentaire: "Basculer via l'interrupteur dédié. À valider par un comptable.",
+    },
+  });
+  revalidatePath("/parametres");
+  revalidatePath("/", "layout");
+}
+
+/**
  * Paramètres légaux versionnés — modification réservée à l'ADMIN (le directeur).
  * Toute modification remet le statut à « À VALIDER » sauf validation explicite.
  */
