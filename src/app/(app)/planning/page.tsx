@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
+import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { PlanningMensuel, type CreneauJour } from "./planning-mensuel";
 import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
@@ -133,7 +134,7 @@ export default async function PlanningPage({
       prisma.employee.findMany({
         where: { actif: true },
         orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-        select: { id: true, nom: true, photoUrl: true, salaireMensuel: true, heuresParJour: true, heuresHebdomadaires: true },
+        select: { id: true, nom: true, photoUrl: true, salaireMensuel: true, heuresParJour: true, heuresHebdomadaires: true, enfants: true },
       }),
       prisma.planningModele.findMany(),
       chargerParametresPaie(),
@@ -141,10 +142,17 @@ export default async function PlanningPage({
     const modeleMap: Record<string, string> = {};
     for (const m of modeles) modeleMap[`${m.employeeId}_${m.jour}_${m.semaine}`] = m.shiftId;
     // Taux horaire par défaut = salaire mensuel ÷ (heures/semaine × 52/12) — précis.
+    // Salaires en net (2026-07-22) : si le flag est actif, salaireMensuel est un NET → on grossit
+    // par ρ (brut/net) pour afficher un taux BRUT cohérent avec le bulletin (approximation nominale).
     const tauxDefautParEmp: Record<string, number> = {};
     for (const e of employees) {
+      const salaireMensuelNet = Number(e.salaireMensuel);
+      const rho =
+        params.salairesSaisisEnNet && salaireMensuelNet > 0
+          ? reconstituerBrutDepuisNet(salaireMensuelNet, params, e.enfants) / salaireMensuelNet
+          : 1;
       const denom = ((Number(e.heuresHebdomadaires) || Number(e.heuresParJour) * 6) * 52) / 12;
-      tauxDefautParEmp[e.id] = denom > 0 ? Number(e.salaireMensuel) / denom : 0;
+      tauxDefautParEmp[e.id] = denom > 0 ? (salaireMensuelNet * rho) / denom : 0;
     }
 
     return (

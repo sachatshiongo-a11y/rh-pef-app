@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerHeuresSupp, numeroSemaineDuMois, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
+import { calculerHeuresSupp, numeroSemaineDuMois, reconstituerBrutDepuisNet, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
 import { pariteSemaine } from "../planning/creneaux";
 import { JourMobileProvider } from "@/components/jour-mobile";
@@ -117,7 +117,16 @@ export default async function PresencesPage() {
   // Détail hebdomadaire (HS par semaine) — calculé côté serveur pour le tableau replié.
   const semainesParEmploye: Record<string, DetailSemaineHS[]> = {};
   const toRow = (e: (typeof employees)[number]): EmployeeRow => {
-    const salaireJournalier = Number(e.salaireMensuel) / parametres.joursOuvrablesMois;
+    // Salaires saisis en net (2026-07-22) : le taux horaire dérivé de salaireMensuel est un taux
+    // NET ; on le grossit par le ratio ρ (brut/net) de l'employé pour que les « HS valorisées »
+    // affichées ici soient au taux BRUT reconstitué, cohérentes avec le bulletin. Approximation
+    // (ρ calculé sur le salaire mensuel nominal, pas sur la base horaire du mois — à valider comptable).
+    const salaireMensuelNet = Number(e.salaireMensuel);
+    const rho =
+      parametres.salairesSaisisEnNet && salaireMensuelNet > 0
+        ? reconstituerBrutDepuisNet(salaireMensuelNet, parametres, e.enfants) / salaireMensuelNet
+        : 1;
+    const salaireJournalier = (salaireMensuelNet / parametres.joursOuvrablesMois) * rho;
     const salaireHoraire = salaireJournalier / Number(e.heuresParJour);
     return {
       id: e.id,

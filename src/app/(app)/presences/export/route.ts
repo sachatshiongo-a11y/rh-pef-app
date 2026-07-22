@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerHeuresSupp, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { calculerHeuresSupp, reconstituerBrutDepuisNet, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { classeurExcel } from "@/lib/export-excel";
 
 /**
@@ -87,7 +87,14 @@ export async function GET() {
   const lignesSemaines: (string | number)[][] = [];
 
   for (const e of employees) {
-    const salaireJournalier = Number(e.salaireMensuel) / parametres.joursOuvrablesMois;
+    // Salaires en net (2026-07-22) : grossir le taux horaire par ρ (brut/net) si le flag est actif,
+    // pour que les HS valorisées exportées soient au taux brut reconstitué (cohérent avec le bulletin).
+    const salaireMensuelNet = Number(e.salaireMensuel);
+    const rho =
+      parametres.salairesSaisisEnNet && salaireMensuelNet > 0
+        ? reconstituerBrutDepuisNet(salaireMensuelNet, parametres, e.enfants) / salaireMensuelNet
+        : 1;
+    const salaireJournalier = (salaireMensuelNet / parametres.joursOuvrablesMois) * rho;
     const salaireHoraire = salaireJournalier / Number(e.heuresParJour);
     const hs = calculerHeuresSupp({
       jours: joursParEmploye[e.id] ?? [],
