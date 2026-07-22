@@ -37,7 +37,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr" className="h-full antialiased" suppressHydrationWarning>
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-dvh flex flex-col">
         {/* Applique le thème (sombre/tamisé) avant le rendu pour éviter tout clignotement. */}
         <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('theme');if(t==='dark'||t==='tamise')document.documentElement.classList.add(t);}catch(e){}` }} />
         {children}
