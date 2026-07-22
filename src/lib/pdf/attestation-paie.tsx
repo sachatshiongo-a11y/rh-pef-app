@@ -61,11 +61,14 @@ export function AttestationPaieDocument({
   const periode = moisAnnee(run.mois, run.annee);
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
 
-  const salBrut = Number(ligne.salBrutUSD);
-  const cnss = Number(ligne.cnssSalarieUSD);
-  const ipr = Number(ligne.iprCalculeUSD);
   const salNetUSD = Number(ligne.salNetUSD);
   const salNetCDF = Number(ligne.salNetCDF);
+  const taux = Number(run.tauxChangeUtilise) || 1;
+  const transportUSD = Number(ligne.transportUSD);
+  // Le net perçu inclut le transport : on isole le net « salaire seul » pour l'afficher à côté du
+  // transport, sans double compter (2026-07-22, demande client : « juste le net et le transport »).
+  const salaireNetHorsTransportUSD = salNetUSD - transportUSD;
+  const avecTransport = transportUSD > 0;
 
   return (
     <Document title={`Attestation de paie — ${employee.nom} — ${periode}`}>
@@ -84,27 +87,26 @@ export function AttestationPaieDocument({
             {employee.matricule ? <>, matricule <Text style={styles.gras}>{employee.matricule}</Text></> : null},
             {" "}en qualité de <Text style={styles.gras}>{employee.poste}</Text> au sein de notre établissement,
             a perçu, au titre du mois de <Text style={styles.gras}>{periode}</Text>, un salaire{" "}
-            <Text style={styles.gras}>net</Text> de <Text style={styles.gras}>{usd(salNetUSD)}</Text> (soit {cdf(salNetCDF)}),
-            après déduction des cotisations et impôts légaux (CNSS, IPR), selon les éléments de paie
-            arrêtés par l&apos;entreprise pour cette période.
+            <Text style={styles.gras}>net</Text> de <Text style={styles.gras}>{usd(salaireNetHorsTransportUSD)}</Text>
+            {avecTransport ? <>, ainsi qu&apos;une indemnité de transport de <Text style={styles.gras}>{usd(transportUSD)}</Text> (soit {cdf(transportUSD * taux)})</> : null},
+            {avecTransport ? <>{" "}soit un montant net total de <Text style={styles.gras}>{usd(salNetUSD)}</Text> ({cdf(salNetCDF)}),</> : <>{" "}(soit {cdf(salNetCDF)}),</>}
+            {" "}selon les éléments de paie arrêtés par l&apos;entreprise pour cette période.
           </Text>
 
           <View style={styles.recap}>
-            <Text style={styles.recapTitre}>Résumé de la paie du mois</Text>
+            <Text style={styles.recapTitre}>Détail perçu — {periode}</Text>
             <View style={styles.recapLigne}>
-              <Text style={styles.recapLabel}>Salaire brut</Text>
-              <Text style={styles.recapValeur}>{usd(salBrut)}</Text>
+              <Text style={styles.recapLabel}>Salaire net (hors transport)</Text>
+              <Text style={styles.recapValeur}>{usd(salaireNetHorsTransportUSD)}</Text>
             </View>
-            <View style={styles.recapLigne}>
-              <Text style={styles.recapLabel}>Cotisation CNSS (salarié)</Text>
-              <Text style={styles.recapValeur}>- {usd(cnss)}</Text>
-            </View>
-            <View style={styles.recapLigne}>
-              <Text style={styles.recapLabel}>Impôt professionnel sur la rémunération (IPR)</Text>
-              <Text style={styles.recapValeur}>- {usd(ipr)}</Text>
-            </View>
+            {avecTransport && (
+              <View style={styles.recapLigne}>
+                <Text style={styles.recapLabel}>Frais de transport</Text>
+                <Text style={styles.recapValeur}>{usd(transportUSD)} ({cdf(transportUSD * taux)})</Text>
+              </View>
+            )}
             <View style={styles.recapLigneNet}>
-              <Text style={styles.recapLabel}>Salaire net perçu</Text>
+              <Text style={styles.recapLabel}>Total net perçu</Text>
               <Text style={styles.recapValeur}>{usd(salNetUSD)} ({cdf(salNetCDF)})</Text>
             </View>
           </View>
