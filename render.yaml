@@ -25,8 +25,9 @@ services:
     # DÉPLOIEMENT À LA DEMANDE (décision du 2026-08-03) — surtout PAS `autoDeploy: true`.
     #
     # Chaque build reconstruit tout (npm ci + prisma generate + migrate deploy + durcissement +
-    # next build) : 5 à 8 minutes de pipeline. En juillet 2026, 516 commits répartis sur les quatre
-    # applications Render ont produit autant de builds, soit de l'ordre de 3 000 minutes — le quota
+    # next build) : 5 à 8 minutes de pipeline. En juillet 2026, les trois applications réellement
+    # déployées depuis GitHub ont reçu 696 commits sur leur branche déployée (RH PEF 375, Atelier
+    # 180, Bolimo 141) — donc autant de builds, de l'ordre de 3 500 à 5 500 minutes. Le quota
     # mensuel a sauté et Render a cessé de déployer.
     #
     # Le travail n'était pas en cause, le RYTHME l'était : sur une session, quinze pushes
