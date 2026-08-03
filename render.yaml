@@ -22,7 +22,21 @@ services:
     buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
     startCommand: npm start
     healthCheckPath: /login
-    autoDeploy: true
+    # DÉPLOIEMENT À LA DEMANDE (décision du 2026-08-03) — surtout PAS `autoDeploy: true`.
+    #
+    # Chaque build reconstruit tout (npm ci + prisma generate + migrate deploy + durcissement +
+    # next build) : 5 à 8 minutes de pipeline. En juillet 2026, 516 commits répartis sur les quatre
+    # applications Render ont produit autant de builds, soit de l'ordre de 3 000 minutes — le quota
+    # mensuel a sauté et Render a cessé de déployer.
+    #
+    # Le travail n'était pas en cause, le RYTHME l'était : sur une session, quinze pushes
+    # déclenchaient quinze builds là où le dernier seul comptait. On pousse donc autant qu'on veut,
+    # et la production ne se reconstruit que sur demande explicite :
+    #
+    #     npm run deployer
+    #
+    # (appelle le Deploy Hook Render — voir scripts/deployer.mjs).
+    autoDeploy: false
     envVars:
       - key: NODE_ENV
         value: production
