@@ -54,6 +54,23 @@ if (!hook) {
   process.exit(1);
 }
 
+// L'URL D'EXEMPLE, recopiée telle quelle. Cas réel du 2026-08-03 : le fichier .env.local contenait
+// « srv-xxxx?key=yyyy », et Render répondait un 404 nu — impossible de comprendre pourquoi sans
+// aller lire la clé. Mieux vaut le dire ici, avant l'appel réseau.
+if (/srv-xxxx|key=yyyy/.test(hook)) {
+  console.error(
+    [
+      "✗ RENDER_DEPLOY_HOOK contient encore l'URL D'EXEMPLE, pas la vraie.",
+      "",
+      "  Dans .env.local, remplacez la ligne par l'URL réelle de VOTRE service :",
+      "  Render → le service → Settings → Deploy Hook → « Copy ».",
+      "  Elle ressemble à https://api.render.com/deploy/srv-d1abc2de3fgh4ijk?key=AbCdEf123456",
+      "  (srv-… et key=… sont propres à votre service, ils ne s'inventent pas).",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+
 if (!/^https:\/\/api\.render\.com\/deploy\//.test(hook)) {
   // Garde-fou : une URL qui n'est pas celle de Render enverrait la clé ailleurs.
   console.error("✗ RENDER_DEPLOY_HOOK ne ressemble pas à un Deploy Hook Render (https://api.render.com/deploy/…). Rien n'a été envoyé.");
