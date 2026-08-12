@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["public", "stock"]
+  schemas  = ["public", "stock", "exploitation"]
 }
 
 enum Role {
@@ -13,6 +13,7 @@ enum Role {
   VIEWER
   STOCK
   EMPLOYE // espace salarié en lecture seule (+ ses propres congés) — activable par déploiement
+  COMPTA
 
   @@schema("public")
 }
@@ -1531,4 +1532,122 @@ model PolyvalencePoste {
 
   @@unique([posteSource, posteCible])
   @@schema("public")
+}
+
+// ─── Exploitation : trésorerie / caisse ──────────────────────────────────────
+
+enum Devise {
+  USD
+  CDF
+
+  @@schema("exploitation")
+}
+
+enum SensEcriture {
+  RECETTE
+  DEPENSE
+  NEUTRE
+
+  @@schema("exploitation")
+}
+
+enum NatureCharge {
+  CHARGES_VARIABLES
+  CHARGES_FIXES
+  CHARGES_EXPLOITATION
+  CHARGES_EXCEPTIONNELLES
+
+  @@schema("exploitation")
+}
+
+model CompteTresorerie {
+  id              Int      @id @default(autoincrement())
+  nom             String
+  ordre           Int      @default(0)
+  actif           Boolean  @default(true)
+  soldeInitialUSD Decimal  @default(0) @db.Decimal(14, 2)
+  ecritures             EcritureCaisse[] @relation("compteEcriture")
+  ecrituresContrepartie EcritureCaisse[] @relation("contrepartieEcriture")
+  creeLe          DateTime @default(now())
+  majLe           DateTime @updatedAt
+  @@schema("exploitation")
+}
+
+model Rubrique {
+  id         Int          @id @default(autoincrement())
+  nom        String       @unique
+  sens       SensEcriture
+  ordre      Int          @default(0)
+  actif      Boolean      @default(true)
+  ratioIdeal       Decimal? @db.Decimal(5, 4)
+  ratioMax         Decimal? @db.Decimal(5, 4)
+  ratioIdealAnnuel Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,25)
+  ratioMaxAnnuel   Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,30)
+  categories Categorie[]
+  ecritures  EcritureCaisse[]
+  @@schema("exploitation")
+}
+
+model Categorie {
+  id                Int           @id @default(autoincrement())
+  nom               String        @unique
+  rubriqueId        Int
+  rubrique          Rubrique      @relation(fields: [rubriqueId], references: [id])
+  natureChargeDefaut NatureCharge?
+  ordre             Int           @default(0)
+  actif             Boolean       @default(true)
+  ecritures         EcritureCaisse[]
+  denominations     DenominationFrequente[]
+  @@schema("exploitation")
+}
+
+model DenominationFrequente {
+  id          Int        @id @default(autoincrement())
+  libelle     String
+  categorieId Int?
+  categorie   Categorie? @relation(fields: [categorieId], references: [id])
+  actif       Boolean    @default(true)
+  @@schema("exploitation")
+}
+
+model EcritureCaisse {
+  id                Int           @id @default(autoincrement())
+  date              DateTime      @db.Date
+  sens              SensEcriture
+  natureCharge      NatureCharge?
+  rubriqueId        Int
+  rubrique          Rubrique      @relation(fields: [rubriqueId], references: [id])
+  categorieId       Int
+  categorie         Categorie     @relation(fields: [categorieId], references: [id])
+  denomination      String
+  compteId          Int
+  compte            CompteTresorerie @relation("compteEcriture", fields: [compteId], references: [id])
+  compteContrepartieId Int?         // requis SI sens = NEUTRE (transfert) : compte destination ; source = compteId
+  compteContrepartie   CompteTresorerie? @relation("contrepartieEcriture", fields: [compteContrepartieId], references: [id])
+  montantOrigine    Decimal       @db.Decimal(14, 2)
+  devise            Devise
+  tauxChangeUtilise Decimal       @db.Decimal(14, 4)
+  montantUSD        Decimal       @db.Decimal(14, 2)
+  fournisseur       String?       // référence souple (pas de FK cross-schéma) ; autocomplétion depuis stock.Fournisseur
+  fournisseurStockId String?      // id (UUID) du Fournisseur du Stock si choisi (non relationnel) — stock.Fournisseur.id = String @default(uuid())
+  note              String?
+  creePar           String?
+  creeLe            DateTime      @default(now())
+  majLe             DateTime      @updatedAt
+  @@index([date])
+  @@index([rubriqueId])
+  @@index([compteId])
+  @@schema("exploitation")
+}
+
+model ActiviteJour {
+  id                 Int      @id @default(autoincrement())
+  date               DateTime @unique @db.Date
+  nbCouverts         Int?
+  nbCouvertsSurPlace Int?
+  nbCommandesEmporter Int?
+  note               String?
+  creeLe             DateTime @default(now())
+  majLe              DateTime @updatedAt
+  @@schema("exploitation")
 }
