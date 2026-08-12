@@ -77,7 +77,7 @@ export function requireRole(user: CurrentUser, allowed: Role[]) {
 //   2. l'ESPACE SALARIÉ (self-service) appartient à tout compte OPÉRATIONNEL relié à une fiche
 //      employé (rôle EMPLOYE ou STOCK) — indépendamment de l'accès stock. Ainsi un magasinier
 //      (STOCK) relié à sa fiche a À LA FOIS l'espace Stock ET son espace salarié, sans être Direction.
-export type Espace = "rh" | "stock" | "salarie";
+export type Espace = "rh" | "stock" | "salarie" | "exploitation";
 
 export function estRH(role: Role): boolean {
   return role === "ADMIN" || role === "MANAGER" || role === "VIEWER";
@@ -86,6 +86,12 @@ export function estRH(role: Role): boolean {
 /** Accès à l'espace Stock : rôles Stock/Direction, OU un salarié à qui l'accès stock a été accordé. */
 export function estStock(user: { role: Role; accesStock?: boolean }): boolean {
   return user.role === "ADMIN" || user.role === "STOCK" || (user.role === "EMPLOYE" && !!user.accesStock);
+}
+
+/** Accès à l'espace Exploitation (finance : journal de caisse, comptes de trésorerie, plan comptable) :
+ *  Direction ou rôle Compta dédié. */
+export function estExploitation(user: { role: Role }): boolean {
+  return user.role === "ADMIN" || user.role === "COMPTA";
 }
 
 /** A un espace salarié : TOUT compte relié à une fiche employé, quel que soit son rôle.
@@ -103,12 +109,13 @@ export function espacesDe(user: CurrentUser, espaceSalarieActif: boolean): Espac
   if (espaceSalarieActif && estSalarie(user)) espaces.push("salarie");
   if (estRH(user.role)) espaces.push("rh");
   if (estStock(user)) espaces.push("stock");
+  if (estExploitation(user)) espaces.push("exploitation");
   return espaces;
 }
 
 /** URL d'accueil d'un espace. */
 export function accueilEspace(espace: Espace): string {
-  return espace === "rh" ? "/accueil" : espace === "stock" ? "/stock" : "/espace";
+  return espace === "rh" ? "/accueil" : espace === "stock" ? "/stock" : espace === "exploitation" ? "/exploitation" : "/espace";
 }
 
 /** Liens DIRECTS vers les AUTRES espaces du compte (changement en un clic, sans repasser par le
@@ -122,6 +129,7 @@ export function ciblesAutresEspaces(
     salarie: { href: "/espace", icone: "employes", label: "Mon espace salarié" },
     rh: { href: "/accueil", icone: "mallette", label: "Ressources humaines" },
     stock: { href: "/stock", icone: "colis", label: "Stock & Achats" },
+    exploitation: { href: "/exploitation", icone: "balance", label: "Exploitation" },
   };
   return espacesDe(user, espaceSalarieActif)
     .filter((e) => e !== courant)
@@ -130,6 +138,9 @@ export function ciblesAutresEspaces(
 
 /** À utiliser dans les Server Actions / Server Components pour exiger l'accès à un espace. */
 export function requireModule(user: CurrentUser, espace: Espace) {
-  const ok = espace === "rh" ? estRH(user.role) : espace === "stock" ? estStock(user) : estSalarie(user);
+  const ok = espace === "rh" ? estRH(user.role)
+    : espace === "stock" ? estStock(user)
+    : espace === "exploitation" ? estExploitation(user)
+    : estSalarie(user);
   if (!ok) throw new Error("Accès refusé : module non autorisé.");
 }

@@ -33,6 +33,9 @@ export default async function ChoixEspacePage() {
         {espaces.includes("stock") && (
           <EspaceCard href="/stock" icone="colis" titre="Stock & Achats" sous="Catalogue, fournisseurs, bons de commande" dernier={dernier === "stock"} />
         )}
+        {espaces.includes("exploitation") && (
+          <EspaceCard href="/exploitation" icone="balance" titre="Exploitation" sous="Journal de caisse, comptes, plan comptable" dernier={dernier === "exploitation"} />
+        )}
       </div>
 
       <form action={logout}>
