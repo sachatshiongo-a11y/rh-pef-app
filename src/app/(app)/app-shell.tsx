@@ -6,7 +6,6 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
@@ -200,7 +199,6 @@ export function AppShell({
                 <Icone nom="deconnexion" /> Déconnexion
               </button>
             </form>
-            <div className="mt-2 px-2"><ThemeToggle /></div>
           </div>
         </aside>
 

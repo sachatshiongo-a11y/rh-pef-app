@@ -6,7 +6,6 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
@@ -151,7 +150,6 @@ export function StockShell({
           <form action={logout}>
             <button type="submit" className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"><Icone nom="deconnexion" /> Déconnexion</button>
           </form>
-          <div className="mt-2 px-2"><ThemeToggle /></div>
         </div>
       </aside>
 

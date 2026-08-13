@@ -6,7 +6,6 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Icone } from "@/components/icones";
 import { Avatar } from "@/components/avatar";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { PushToggle } from "@/app/(app)/push-toggle";
 import { ClocheSalarie } from "./cloche-salarie";
 import { logout } from "@/app/login/actions";
@@ -55,7 +54,7 @@ export function EspaceShell({
   );
 
   const bas = (
-    <div className="mt-auto space-y-3 border-t pt-3">
+    <div className="mt-auto border-t pt-3">
       <div className="flex items-center gap-2.5">
         <Avatar nom={nom} taille={34} photoUrl={photoUrl} />
         <div className="min-w-0">
@@ -69,15 +68,17 @@ export function EspaceShell({
           key={e.href}
           href={e.href}
           onClick={() => setTiroir(false)}
-          className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Icone nom={e.icone} className="shrink-0" /> {e.label}
         </Link>
       ))}
-      <ThemeToggle />
       <form action={logout}>
-        <button className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent">
-          <Icone nom="deconnexion" /> Se déconnecter
+        <button
+          type="submit"
+          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Icone nom="deconnexion" /> Déconnexion
         </button>
       </form>
     </div>
