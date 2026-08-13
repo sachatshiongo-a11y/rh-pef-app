@@ -1,8 +1,10 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
-import { chargerExploitation } from "@/app/(exploitation)/exploitation/_data/charger-periode";
-import type { RatioResultat } from "@/lib/exploitation/calcul";
+import { chargerExploitation, chargerEcrituresRapport, type LigneEcritureRapport } from "@/app/(exploitation)/exploitation/_data/charger-periode";
+import type { RatioResultat, ResultatExploitation } from "@/lib/exploitation/calcul";
+
+export type { LigneEcritureRapport };
 
 export const TYPES_RAPPORT = {
   FACTURES: "Factures fournisseurs",
@@ -301,5 +303,83 @@ export async function genererRapportExploitation(type: TypeRapportExploitation, 
       largeurs: ["40%", "20%", "20%", "20%"],
       droite: [1, 2, 3],
     },
+  };
+}
+
+// ─── Rapport « visuel » (Task 12) ────────────────────────────────────────────────────────────
+// Second mapping du même moteur (`chargerExploitation`), à côté de `genererRapportExploitation`
+// ci-dessus : celui-ci alimente la présentation calquée sur le modèle papier de la Direction
+// (cartes KPI, soldes des comptes, tableaux Recettes/Dépenses ligne à ligne) — écran
+// (`ApercuRapport`) ET PDF (`RapportExploitationDocument`), pour rester rigoureusement identiques
+// (« cohérence écran/PDF » demandée par le brief). L'export Excel, lui, continue d'utiliser
+// `genererRapportExploitation`/`DonneesRapport` (structure tabulaire générique, inchangée).
+// AUCUN chiffre n'est recalculé ici : les totaux viennent tels quels de `ResultatExploitation`
+// (Task 6/8) ; seules les lignes Recettes/Dépenses sont un LISTING (déjà lu ci-dessus,
+// `chargerEcrituresRapport`) — leur somme coïncide avec les totaux du moteur car un sens
+// RECETTE/DEPENSE n'existe que sur les rubriques de ce même sens (cf. seed-exploitation.ts).
+
+const MOIS_LONG = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const JOURS_LONG = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const jourLong = (d: Date) => `${d.getUTCDate()} ${MOIS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+
+/** Texte de période affiché en gras dans l'entête (« Jeudi 16 juillet 2026 », « Semaine du 13 au
+ *  19 juillet 2026», « Juillet 2026», « Année 2026 ») — un format par type de rapport. */
+export function libellePeriodeRapport(type: TypeRapportExploitation, debut: Date, fin: Date): string {
+  if (type === "JOURNALIER") return `${cap(JOURS_LONG[debut.getUTCDay()])} ${jourLong(debut)}`;
+  if (type === "HEBDO") return `Semaine du ${jourLong(debut)} au ${jourLong(fin)}`;
+  if (type === "MENSUEL") return `${cap(MOIS_LONG[debut.getUTCMonth()])} ${debut.getUTCFullYear()}`;
+  return `Année ${debut.getUTCFullYear()}`;
+}
+
+export type DonneesRapportVisuel = {
+  type: TypeRapportExploitation;
+  titre: string; // « Rapport journalier »... (TYPES_RAPPORT_EXPLOITATION)
+  periodeTexte: string; // libellePeriodeRapport ci-dessus
+  resultat: ResultatExploitation;
+  totalCouverts: number;
+  recettes: LigneEcritureRapport[];
+  depenses: LigneEcritureRapport[];
+};
+
+/**
+ * Version « visuelle » du rapport Exploitation (écran + PDF, Task 12) : mêmes bornes/horizon que
+ * `genererRapportExploitation`, mais renvoie le `ResultatExploitation` tel quel (pas aplati en
+ * lignes Poste/Montant) + les écritures Recettes/Dépenses de la période, triées pour que les
+ * tableaux « ressemblent » au regroupement du compte d'exploitation même s'ils listent des
+ * écritures individuelles : dépenses dans le même ordre rubrique (montant décroissant — même tri
+ * que `compte-exploitation.tsx`, `parRubrique` n'étant PAS ordonné en sortie du moteur, cf.
+ * calcul.ts) puis catégorie (Task 10, `categories` déjà trié par montant décroissant, lui) ;
+ * recettes par rubrique puis catégorie alphabétique (le moteur n'a pas d'équivalent `parRubrique`
+ * côté recettes).
+ */
+export async function genererRapportExploitationVisuel(type: TypeRapportExploitation, debut: Date, fin: Date): Promise<DonneesRapportVisuel> {
+  const horizon = type === "ANNUEL" ? "annuel" : "mensuel";
+  const [{ resultat, totalCouverts }, { recettes, depenses }] = await Promise.all([
+    chargerExploitation(jourIso(debut), jourIso(fin), horizon),
+    chargerEcrituresRapport(jourIso(debut), jourIso(fin)),
+  ]);
+
+  const rubriquesTriees = resultat.parRubrique.slice().sort((a, b) => b.montant - a.montant);
+  const ordreRubrique = new Map(rubriquesTriees.map((d, i) => [d.rubrique, i]));
+  const ordreCategorie = new Map<string, number>();
+  for (const d of rubriquesTriees) d.categories.forEach((c, i) => ordreCategorie.set(`${d.rubrique}··${c.categorie}`, i));
+
+  const depensesTriees = depenses.slice().sort((a, b) => {
+    const ra = ordreRubrique.get(a.rubrique) ?? 999, rb = ordreRubrique.get(b.rubrique) ?? 999;
+    if (ra !== rb) return ra - rb;
+    const ca = ordreCategorie.get(`${a.rubrique}··${a.categorie}`) ?? 999, cb = ordreCategorie.get(`${b.rubrique}··${b.categorie}`) ?? 999;
+    return ca - cb;
+  });
+  const recettesTriees = recettes.slice().sort((a, b) => a.rubrique.localeCompare(b.rubrique, "fr") || a.categorie.localeCompare(b.categorie, "fr"));
+
+  return {
+    type,
+    titre: TYPES_RAPPORT_EXPLOITATION[type],
+    periodeTexte: libellePeriodeRapport(type, debut, fin),
+    resultat,
+    totalCouverts,
+    recettes: recettesTriees,
+    depenses: depensesTriees,
   };
 }
