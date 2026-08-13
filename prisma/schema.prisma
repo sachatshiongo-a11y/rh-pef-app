@@ -1562,7 +1562,7 @@ enum NatureCharge {
 
 model CompteTresorerie {
   id              Int      @id @default(autoincrement())
-  nom             String
+  nom             String   @unique
   ordre           Int      @default(0)
   actif           Boolean  @default(true)
   soldeInitialUSD Decimal  @default(0) @db.Decimal(14, 2)
@@ -1603,7 +1603,7 @@ model Categorie {
 
 model DenominationFrequente {
   id          Int        @id @default(autoincrement())
-  libelle     String
+  libelle     String     @unique
   categorieId Int?
   categorie   Categorie? @relation(fields: [categorieId], references: [id])
   actif       Boolean    @default(true)
