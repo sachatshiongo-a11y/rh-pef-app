@@ -257,6 +257,11 @@ export async function genererRapportExploitation(type: TypeRapportExploitation, 
   ];
   for (const d of r.parRubrique.slice().sort((a, b) => b.montant - a.montant)) {
     lignes.push([d.rubrique, arr(d.montant)]);
+    // Détail par catégorie sous la rubrique (Task 10, demande Direction) — additif, même liste
+    // que le moteur (déjà triée par montant décroissant), indentée sous sa rubrique.
+    for (const c of d.categories) {
+      lignes.push([`    — ${c.categorie}`, arr(c.montant)]);
+    }
   }
   lignes.push(
     ["  dont Loyers & charges locatives", arr(r.loyers.montant)],
