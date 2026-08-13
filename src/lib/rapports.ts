@@ -2,6 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
 import { chargerExploitation, chargerEcrituresRapport, type LigneEcritureRapport } from "@/app/(exploitation)/exploitation/_data/charger-periode";
+import { chargerAnnee } from "@/app/(exploitation)/exploitation/_data/charger-annee";
+import { construireMatriceAnnuelle, type LigneMatriceAnnuelle } from "@/lib/exploitation/matrice-annuelle";
 import type { RatioResultat, ResultatExploitation } from "@/lib/exploitation/calcul";
 
 export type { LigneEcritureRapport };
@@ -219,7 +221,7 @@ export type TypeRapportExploitation = keyof typeof TYPES_RAPPORT_EXPLOITATION;
 
 // Mêmes clés/ordre/libellés que le tableau de bord (`exploitation/page.tsx`, RATIO_ORDRE) — ne
 // pas laisser dériver les deux listes.
-const RATIO_LABEL_EXPLOITATION: Record<string, string> = {
+export const RATIO_LABEL_EXPLOITATION: Record<string, string> = {
   matieres: "Coûts matières premières",
   salaires: "Salaires et charges",
   loyers: "Loyers & charges locatives",
@@ -381,5 +383,46 @@ export async function genererRapportExploitationVisuel(type: TypeRapportExploita
     totalCouverts,
     recettes: recettesTriees,
     depenses: depensesTriees,
+  };
+}
+
+// ─── Rapport ANNUEL « visuel » — matrice (Task 11) ──────────────────────────────────────────────
+// Contrairement aux 3 autres types (journalier/hebdo/mensuel, mappés par `genererRapportExploitation
+// Visuel` ci-dessus vers UN `ResultatExploitation`), l'annuel est une MATRICE 12 mois + TOTAL —
+// c'est le sens même de l'onglet Excel « Tableau de bord 2026 » de la Direction (Task 11). Elle
+// alimente l'écran (`annuel/tableau-annuel.tsx`) ET les exports PDF/Excel dédiés, via la même
+// construction pure `construireMatriceAnnuelle` (aucun chiffre recalculé deux fois).
+
+export type DonneesRapportAnnuelVisuel = {
+  annee: number;
+  matrice: LigneMatriceAnnuelle[];
+  ratiosOrdonnes: RatioResultat[]; // matieres/salaires/loyers/depensesCA, cibles annuelles
+  totalRecettes: number;
+  totalDepenses: number;
+  resultat: number;
+  margeBrute: number;
+  nbMoisAvecActivite: number; // dénominateur des moyennes mensuelles (e)
+};
+
+/** Charge une année Exploitation (Task 11, `chargerAnnee`) et construit la version « visuelle »
+ *  (matrice + ratios + totaux) pour l'export PDF/Excel — même construction que l'écran. */
+export async function genererRapportAnnuelVisuel(annee: number): Promise<DonneesRapportAnnuelVisuel> {
+  const donnees = await chargerAnnee(annee);
+  const matrice = construireMatriceAnnuelle(donnees);
+  const ratiosOrdonnes = RATIO_ORDRE_EXPLOITATION
+    .map((cle) => donnees.annuel.ratios.find((x) => x.cle === cle))
+    .filter((x): x is RatioResultat => Boolean(x));
+  const nbMoisAvecActivite =
+    donnees.mensuel.filter((m) => m.resultat.totalRecettes !== 0 || m.resultat.totalDepenses !== 0).length || 12;
+
+  return {
+    annee,
+    matrice,
+    ratiosOrdonnes,
+    totalRecettes: donnees.annuel.totalRecettes,
+    totalDepenses: donnees.annuel.totalDepenses,
+    resultat: donnees.annuel.resultat,
+    margeBrute: donnees.annuel.margeBrute,
+    nbMoisAvecActivite,
   };
 }
