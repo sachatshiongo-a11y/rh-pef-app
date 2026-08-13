@@ -162,6 +162,28 @@
   --sidebar-ring: #d9a75c;
 }
 
+/* ---- Palette des graphiques Exploitation (Task Graphiques) ----
+   Couleurs CATÉGORIELLES fixes (identité d'une série = sa couleur ET son libellé/pointillé —
+   jamais la couleur seule, cf. légende obligatoire). Overrides en mode sombre pour rester lisibles
+   sur fond foncé (bleu/orange/aqua éclaircis) ; vert/rouge/doré inchangés (déjà assez lumineux). */
+:root {
+  --chart-vert: #2d7c31;
+  --chart-rouge: #c0392b;
+  --chart-dore: #a0522d;
+  --chart-bleu: #2a78d6;
+  --chart-orange: #eb6834;
+  --chart-aqua: #1baf7a;
+}
+.dark,
+.tamise {
+  --chart-vert: #2d7c31;
+  --chart-rouge: #c0392b;
+  --chart-dore: #a0522d;
+  --chart-bleu: #3987e5;
+  --chart-orange: #d95926;
+  --chart-aqua: #199e70;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
