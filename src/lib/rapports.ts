@@ -1,6 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { chargerExploitation } from "@/app/(exploitation)/exploitation/_data/charger-periode";
+import type { RatioResultat } from "@/lib/exploitation/calcul";
 
 export const TYPES_RAPPORT = {
   FACTURES: "Factures fournisseurs",
@@ -195,6 +197,104 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
       entete: ["Date", "Légume", "Unité", "Quantité", "Prix U. USD", "Total USD", "Total CDF"],
       lignes: detail,
       largeurs: ["12%", "26%", "11%", "13%", "13%", "13%", "12%"], droite: [3, 4, 5, 6], sommables: [5, 6],
+    },
+  };
+}
+
+// ─── Rapports Exploitation (Task 8) ──────────────────────────────────────────────────────────
+// Même pattern que `genererDonneesRapport` ci-dessus, mais consommant le moteur Exploitation
+// (Task 6/7) au lieu de requêter Prisma directement : `chargerExploitation` a déjà tout requêté
+// (une seule fenêtre d'écritures + soldes + ratios) — on se contente de MAPPER son résultat vers
+// `DonneesRapport`, sans re-requêter le moteur à la main.
+
+export const TYPES_RAPPORT_EXPLOITATION = {
+  JOURNALIER: "Rapport journalier",
+  HEBDO: "Rapport hebdomadaire",
+  MENSUEL: "Rapport mensuel",
+  ANNUEL: "Rapport annuel",
+} as const;
+export type TypeRapportExploitation = keyof typeof TYPES_RAPPORT_EXPLOITATION;
+
+// Mêmes clés/ordre/libellés que le tableau de bord (`exploitation/page.tsx`, RATIO_ORDRE) — ne
+// pas laisser dériver les deux listes.
+const RATIO_LABEL_EXPLOITATION: Record<string, string> = {
+  matieres: "Coûts matières premières",
+  salaires: "Salaires et charges",
+  loyers: "Loyers & charges locatives",
+  depensesCA: "Dépenses / CA",
+};
+const RATIO_ORDRE_EXPLOITATION = ["matieres", "salaires", "loyers", "depensesCA"];
+const pct = (n: number | null) => (n === null ? "—" : `${(n * 100).toFixed(1)} %`);
+const jourIso = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * Rapport Exploitation jour/hebdo/mensuel/annuel — mappe `ResultatExploitation` (moteur Task 6,
+ * via le chargeur `chargerExploitation` Task 7) vers `DonneesRapport`. `ANNUEL` bascule l'horizon
+ * du moteur sur `"annuel"` (cibles de ratio annuelles, ex. matières 0,25/0,30 au lieu de
+ * 0,30/0,35) ; les 3 autres types restent sur l'horizon `"mensuel"` (mêmes cibles, seule la
+ * fenêtre [debut, fin] change — jour, semaine ou mois selon l'appelant).
+ *
+ * Table 1 (recettes/ventilation/dépenses par rubrique/résultat/marge/seuil) : PAS de colonne
+ * `sommables` — les lignes mélangent des postes de nature différente (recette, dépense,
+ * résultat...) : une somme automatique en pied de tableau additionnerait CA + dépenses + résultat
+ * et produirait un nombre trompeur. Chaque sous-total utile (TOTAL RECETTES, TOTAL DÉPENSES,
+ * RÉSULTAT...) est déjà une ligne calculée par le moteur, affichée explicitement.
+ * Table 2 (ratios cibles + métriques) : même raison, pas de `sommables` (pourcentages/compteurs
+ * non additionnables entre eux).
+ */
+export async function genererRapportExploitation(type: TypeRapportExploitation, debut: Date, fin: Date): Promise<DonneesRapport> {
+  const horizon = type === "ANNUEL" ? "annuel" : "mensuel";
+  const { resultat: r, totalCouverts } = await chargerExploitation(jourIso(debut), jourIso(fin), horizon);
+  const titre = TYPES_RAPPORT_EXPLOITATION[type];
+
+  const lignes: (string | number)[][] = [
+    ["Chiffre d'affaires (Recettes restaurant)", arr(r.caTotal)],
+    ["Entrées autres", arr(r.entreesAutres)],
+    ["TOTAL RECETTES", arr(r.totalRecettes)],
+    ["  dont Espèces", arr(r.ventilation.especes)],
+    ["  dont Carte", arr(r.ventilation.carte)],
+    ["  dont Mobile", arr(r.ventilation.mobile)],
+  ];
+  for (const d of r.parRubrique.slice().sort((a, b) => b.montant - a.montant)) {
+    lignes.push([d.rubrique, arr(d.montant)]);
+  }
+  lignes.push(
+    ["  dont Loyers & charges locatives", arr(r.loyers.montant)],
+    ["TOTAL DÉPENSES", arr(r.totalDepenses)],
+    ["RÉSULTAT", arr(r.resultat)],
+    ["Marge brute", arr(r.margeBrute)],
+    ["Seuil de rentabilité", r.seuilRentabilite === null ? "—" : arr(r.seuilRentabilite)],
+    ["Écart au point mort", r.ecartPointMort === null ? "—" : arr(r.ecartPointMort)],
+  );
+
+  const ratiosOrdonnes = RATIO_ORDRE_EXPLOITATION
+    .map((cle) => r.ratios.find((x) => x.cle === cle))
+    .filter((x): x is RatioResultat => Boolean(x));
+  const lignesTable2: (string | number)[][] = ratiosOrdonnes.map((ratio) => [
+    RATIO_LABEL_EXPLOITATION[ratio.cle] ?? ratio.cle,
+    pct(ratio.valeur),
+    pct(ratio.ideal),
+    pct(ratio.max),
+  ]);
+  lignesTable2.push(
+    ["Jours ouvrés", r.nbJoursOuvres, "—", "—"],
+    ["Recette journalière moyenne (USD)", r.recetteJournaliereMoyenne === null ? "—" : arr(r.recetteJournaliereMoyenne), "—", "—"],
+    ["Ticket moyen (USD)", r.ticketMoyen === null ? "—" : arr(r.ticketMoyen), "—", "—"],
+    ["Couverts (période)", totalCouverts, "—", "—"],
+  );
+
+  return {
+    titre,
+    entete: ["Poste", "Montant USD"],
+    lignes,
+    largeurs: ["64%", "36%"],
+    droite: [1],
+    table2: {
+      titre: "Ratios & indicateurs",
+      entete: ["Indicateur", "Valeur", "Idéal", "Max"],
+      lignes: lignesTable2,
+      largeurs: ["40%", "20%", "20%", "20%"],
+      droite: [1, 2, 3],
     },
   };
 }
