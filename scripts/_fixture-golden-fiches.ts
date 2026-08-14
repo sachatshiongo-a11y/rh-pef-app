@@ -23,7 +23,16 @@ import * as XLSX from "xlsx";
  * AUCUN ACCÈS BASE ici : ce module lit un fichier et écrit un JSON, rien d'autre.
  */
 
-export const CHEMIN_CLASSEUR_REEL = "/Users/sachatshiongo/Downloads/Tableurs/Fiche technique plats crash test.xlsx";
+/** Emplacement du classeur sur la machine de Sacha — un défaut, pas une fatalité. */
+const CHEMIN_PAR_DEFAUT = "/Users/sachatshiongo/Downloads/Tableurs/Fiche technique plats crash test.xlsx";
+
+/**
+ * Chemin du classeur réel, SURCHARGEABLE par `CLASSEUR_FICHES_PLATS`. Sans cette échappatoire, le
+ * contrôle de parité (et `EXIGER_CLASSEUR_REEL=1`) serait impossible à satisfaire dès que le
+ * classeur est ailleurs — sur une autre machine, il l'est toujours.
+ *   CLASSEUR_FICHES_PLATS="/chemin/vers/classeur.xlsx" npx vitest run src/lib/fiches/golden.integration.test.ts
+ */
+export const CHEMIN_CLASSEUR_REEL = process.env.CLASSEUR_FICHES_PLATS ?? CHEMIN_PAR_DEFAUT;
 
 /**
  * Emplacement de la fixture, résolu depuis la racine du dépôt (le script se lance de là).

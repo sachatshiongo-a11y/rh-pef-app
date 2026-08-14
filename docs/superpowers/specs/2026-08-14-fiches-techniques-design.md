@@ -185,7 +185,7 @@ Ces points corrigent/précisent les sections ci-dessus après vérification cell
 8. **Comptes corrigés** : **24 plats + 5 sous-recettes = 29 fiches** (pas « 29 plats ») ; **114 lignes d'articles remplies, 109 vrais articles** (pas ~1000).
 9. **Sous-recette** = pas de prix de vente/marge exigé (`estSousRecette` : la marge n'a de sens que sur un plat final).
 
-**Cas de test golden (précision pleine, arrondi centime final)** : T1 article+conversion `0,2 kg × 8,07 = 1,614 $` ; T2 sous-recette au gramme `56,8237 $ / 4600 g × 200 g = 2,4706 $` ; T3 golden plat `Bolognaise = 2,54 $` (exact) ; T4 marge `revient 2,53, coef 8, TVA 0,16 → PV HT 20,24 ; marge brute 17,71 ; PV TTC 23,48 ; taux marque 87,5 % ; ratio matière 12,5 %`.
+**Cas de test golden (précision pleine, arrondi centime final)** : T1 article+conversion `0,2 kg × 8,07 = 1,614 $` ; T2 sous-recette au gramme `56,8237 $ / 4600 g × 200 g = 2,4706 $` ; T3 golden plat `Bolognaise = 2,54 $` (exact) ; T4 marge `revient 2,53` **(valeur du classeur reprise telle quelle comme ENTRÉE du calcul de marge — surtout pas la valeur cible du golden, qui est 2,54 : cf. §12.2)**`, coef 8, TVA 0,16 → PV HT 20,24 ; marge brute 17,71 ; PV TTC 23,48 ; taux marque 87,5 % ; ratio matière 12,5 %`.
 
 ---
 

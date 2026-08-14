@@ -89,6 +89,11 @@ beforeAll(async () => {
   const parId = new Map(articles.map((a) => [a.id, a]));
   const contexte = construireContexte(vues, parId);
   for (const v of vues) couts.set(v.nom, calculerCout(contexte.fiches.get(v.id)!, contexte));
+  // Index par NOM : une homonymie future écraserait une entrée en silence et ferait échouer, plus
+  // loin, un décompte incompréhensible. On veut que la VRAIE cause s'affiche ici.
+  if (couts.size !== vues.length) {
+    throw new Error(`Noms de fiches en double après import : ${vues.length} fiches, ${couts.size} noms distincts`);
+  }
 }, 240_000);
 
 afterAll(async () => {
@@ -112,14 +117,18 @@ describe("chaîne complète : classeur → import → base → chargement", () =
     expect(res.nonRattaches).toEqual([]); // aucun ingrédient orphelin : tout est chiffrable ou dit
   });
 
-  it("les lectures d'écran retrouvent les 29 fiches et les articles qu'elles utilisent", () => {
+  it("les lectures d'écran retrouvent les 29 fiches et les 51 articles qu'elles utilisent", () => {
     expect(vues).toHaveLength(29);
+    expect(couts.size).toBe(29); // aucun nom de fiche en double : l'index par nom reste fidèle
     expect(vues.filter((v) => v.estSousRecette).map((v) => v.nom).sort()).toEqual([
       "Bisque de cossas", "Béchamel", "Coulis de tomate", "Jus de cuisson", "Sauce bolognaise",
     ]);
-    // Les articles chargés sont exactement ceux cités par une fiche (aucun catalogue entier tiré).
-    expect(articles.length).toBeGreaterThan(0);
-    expect(articles.length).toBeLessThan(rapport.articlesCrees);
+    // Les articles chargés sont exactement ceux cités par une fiche : 51 sur les 108 du catalogue.
+    // Valeur FIGÉE, pas encadrée : un `chargerArticlesDesFiches` devenu trop large (catalogue
+    // entier) ou trop étroit (articles désactivés perdus) ne se verrait sinon qu'indirectement,
+    // le jour où un coût bouge.
+    expect(articles).toHaveLength(51);
+    expect(rapport.articlesCrees).toBe(108);
   });
 });
 
@@ -196,7 +205,7 @@ describe("Sauce bolognaise — la sous-recette (56,82 $ pour 23 portions)", () =
 
 // ─── 3. Le décompte complètes / incomplètes, avec ses motifs ─────────────────
 
-/** Une ligne par fiche incomplète : « nom : motif | motif ». Verrouillé nommément. */
+/** Une ligne par fiche incomplète : « nom : ingrédient manquant ». Verrouillé nommément. */
 const INCOMPLETES_ATTENDUES = [
   // Manque propagé depuis une sous-recette : le chemin est conservé (« mère › ligne »).
   "Arrabbiata : Coulis de tomate › Basilic séché 170g",
@@ -215,21 +224,65 @@ const INCOMPLETES_ATTENDUES = [
   "Sauté de blanc de poulet aux champignons, lait de coco et de curry : Curry",
 ];
 
+/**
+ * Le MOTIF TECHNIQUE de chaque ligne non valorisée, fiche par fiche — et pas seulement le nom de
+ * l'ingrédient. C'est lui qui dit à la Direction QUOI FAIRE, et ce sont trois gestes différents :
+ *   • PRIX_ABSENT ............ renseigner un prix d'achat au catalogue ;
+ *   • PRIX_NUL ............... corriger un 0 saisi à tort (ce n'est pas « gratuit ») ;
+ *   • UNITE_INCONVERTIBLE .... corriger l'unité (recette ↔ achat incompatibles) ;
+ *   • QUANTITE_ABSENTE ....... saisir la quantité oubliée dans le classeur ;
+ *   • RENDEMENT_ABSENT ....... donner le rendement de la sous-recette.
+ * `ingredientsSansPrix` (liste ci-dessus) ne porte QUE des libellés : un motif renommé, ou remplacé
+ * par un autre, y resterait totalement invisible. On verrouille donc `lignes[].motif`.
+ * `PARTIEL` = la ligne EST valorisée, mais depuis une sous-recette elle-même incomplète : le
+ * chiffre est un minorant, et la cause se lit dans l'entrée de la sous-recette.
+ */
+const MOTIFS_ATTENDUS = [
+  "Arrabbiata : Coulis de tomate[PARTIEL]",
+  "Bisque de cossas : Maizena blanc[QUANTITE_ABSENTE]",
+  "Coulis de tomate : Basilic séché 170g[PRIX_ABSENT]",
+  "Gratiné de cossas de Mayombe au beurre de corail : Bisque de cossas[RENDEMENT_ABSENT]",
+  "Hamburger de pâtes : 15 SPAGHETTI 24 X 500G[UNITE_INCONVERTIBLE]",
+  "Jus de cuisson : Crème balsamique[PRIX_ABSENT] | Vinaigre Bamsamique[PRIX_ABSENT]",
+  "Lasagne de capitaine aux épinards : Béchamel[RENDEMENT_ABSENT]",
+  "Moelleux au chocolat : Sucre Glace 500gr Daddy Icing[PRIX_ABSENT]",
+  "Pièce de bœuf de Goma : Jus de cuisson[RENDEMENT_ABSENT]",
+  "Poêlée de cossas comme au bon vieux temps : Bisque de cossas[RENDEMENT_ABSENT]",
+  "Sauté de blanc de poulet aux champignons, lait de coco et de curry : Curry[PRIX_ABSENT]",
+];
+
 describe("état de chiffrage des 29 fiches (18 complètes / 11 incomplètes)", () => {
-  const resume = () =>
+  const parFiche = (rendu: (r: ResultatCout) => string) =>
     [...couts.entries()]
       .filter(([, r]) => r.incomplet)
-      .map(([nom, r]) => `${nom} : ${r.ingredientsSansPrix.join(" | ")}`)
+      .map(([nom, r]) => `${nom} : ${rendu(r)}`)
       .sort((a, b) => a.localeCompare(b, "fr"));
+
+  const resume = () => parFiche((r) => r.ingredientsSansPrix.join(" | "));
+
+  const motifs = () =>
+    parFiche((r) =>
+      r.lignes
+        .filter((l) => l.motif !== null || l.partiel)
+        .map((l) => `${l.label}[${l.motif ?? "PARTIEL"}]`)
+        .join(" | "),
+    );
 
   it("18 fiches sont chiffrées de bout en bout", () => {
     expect([...couts.values()].filter((r) => !r.incomplet)).toHaveLength(18);
   });
 
-  it("11 fiches restent incomplètes, NOMMÉMENT et pour le motif attendu", () => {
+  it("11 fiches restent incomplètes, et l'on sait NOMMÉMENT quel ingrédient manque", () => {
     // Le décompte seul ne suffirait pas : une fiche qui deviendrait silencieusement « complète »
     // pendant qu'une autre casse laisserait le total inchangé. On verrouille donc la LISTE.
     expect(resume()).toEqual(INCOMPLETES_ATTENDUES);
+  });
+
+  it("et POURQUOI il manque : le motif technique de chaque ligne est verrouillé", () => {
+    // Sans ceci, un motif changé (« prix saisi à 0 » là où il faut lire « aucun prix au
+    // catalogue ») passe inaperçu : les libellés, eux, ne bougent pas. Or ce sont deux
+    // corrections différentes pour la Direction.
+    expect(motifs()).toEqual(MOTIFS_ATTENDUS);
   });
 
   it("aucune fiche incomplète n'est présentée comme un prix arrêté (prix conseillé = minorant)", () => {
