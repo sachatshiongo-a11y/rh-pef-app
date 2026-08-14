@@ -23,14 +23,29 @@ export async function GET(req: Request) {
     const r = calculerCout(contexte.fiches.get(v.id)!, contexte);
     const coutConnu = r.lignes.some((l) => l.cout !== null);
     const partiel = r.ingredientsSansPrix.length > 0 || r.cycle;
+    // Fiche sans aucune ligne : son coût n'est pas 0, il est INCONNU. Troisième motif
+    // d'incomplétude, à ne confondre ni avec « coût partiel » ni avec « portions inexploitables ».
+    const aucunIngredient = v.lignes.length === 0;
 
     // ⚠️ Dans un tableur, une colonne se copie, se trie, s'imprime et se recolle SANS le reste de sa
     // ligne : une mention rangée dans une autre colonne ne protège rien. Chaque chiffre issu d'un
     // coût incomplet porte donc sa qualification DANS SA PROPRE CELLULE — il devient du texte, et
     // c'est exactement le but : un montant non fiable ne doit pas pouvoir être additionné en
     // silence. Les chiffres sûrs, eux, restent des nombres.
-    const qualifie = (v: number | null, minorant = false) =>
-      v === null ? "" : r.incomplet ? `${minorant ? "≥ " : ""}${v} (coût partiel)` : v;
+    //
+    // Le MÊME raisonnement vaut pour un prix SUGGÉRÉ : son origine (« Origine du prix ») vit dans
+    // une autre colonne, qui ne voyage pas avec la cellule. Un prix conseillé recollé seul dans un
+    // tableau de tarifs deviendrait un prix arrêté. Il porte donc « conseillé » dans sa cellule,
+    // même quand le coût est complet.
+    const noteCout = !r.incomplet ? null : aucunIngredient ? "coût inconnu" : "coût partiel";
+    const qualifie = (
+      n: number | null,
+      { minorant = false, conseille = false }: { minorant?: boolean; conseille?: boolean } = {},
+    ) => {
+      if (n === null) return "";
+      const notes = [conseille ? "conseillé" : null, noteCout].filter(Boolean);
+      return notes.length === 0 ? n : `${minorant ? "≥ " : ""}${n} (${notes.join(", ")})`;
+    };
 
     return [
       v.nom,
@@ -42,21 +57,28 @@ export async function GET(req: Request) {
       // Le coût, lui, est un minorant certain : ce qui manque ne peut qu'ajouter.
       coutConnu ? (partiel ? `≥ ${arrondirCentime(r.coutTotal)} (coût partiel)` : arrondirCentime(r.coutTotal)) : "",
       coutConnu ? (partiel ? `≥ ${arrondirCentime(r.coutParPortion)} (coût partiel)` : arrondirCentime(r.coutParPortion)) : "",
-      partiel ? `OUI — ${r.ingredientsSansPrix.length} ingrédient(s)` : r.incomplet ? "OUI — portions inexploitables" : "Non",
+      partiel
+        ? `OUI — ${r.ingredientsSansPrix.length} ingrédient(s)`
+        : aucunIngredient
+          ? "OUI — aucun ingrédient saisi"
+          : r.incomplet
+            ? "OUI — portions inexploitables"
+            : "Non",
       r.ingredientsSansPrix.join(" ; "),
       r.prixEstConseille ? "Conseillé (coefficient)" : r.prixVenteHT === null ? "—" : "Décidé (prix TTC saisi)",
-      qualifie(r.prixVenteHT),
-      qualifie(r.prixVenteTTC),
-      qualifie(r.margeBrute),
+      qualifie(r.prixVenteHT, { conseille: r.prixEstConseille }),
+      qualifie(r.prixVenteTTC, { conseille: r.prixEstConseille }),
+      qualifie(r.margeBrute, { conseille: r.prixEstConseille }),
       // Coefficient, taux de marque et ratio matière sont des RATIOS, pas des montants : on les met
       // en forme ici (comme `coef()`/`pct()` à l'écran). Aucun montant n'est arrondi ailleurs que
       // par `arrondirCentime` du moteur. Ils sont qualifiés comme les autres : dérivés d'un coût
       // incomplet, ils ne valent pas plus que lui.
-      qualifie(r.coefficient === null ? null : Number(r.coefficient.toFixed(2))),
-      qualifie(r.tauxMarque === null ? null : Number((r.tauxMarque * 100).toFixed(1))),
-      qualifie(r.ratioMatiere === null ? null : Number((r.ratioMatiere * 100).toFixed(1))),
+      qualifie(r.coefficient === null ? null : Number(r.coefficient.toFixed(2)), { conseille: r.prixEstConseille }),
+      qualifie(r.tauxMarque === null ? null : Number((r.tauxMarque * 100).toFixed(1)), { conseille: r.prixEstConseille }),
+      qualifie(r.ratioMatiere === null ? null : Number((r.ratioMatiere * 100).toFixed(1)), { conseille: r.prixEstConseille }),
       // Le drapeau `minorant` vient du moteur : un prix conseillé sur coût partiel est un plancher.
-      r.prixConseille === null ? "" : qualifie(r.prixConseille.ht, r.prixConseille.minorant),
+      // `conseille: true` sans condition : cette colonne n'est JAMAIS un prix arrêté, par nature.
+      r.prixConseille === null ? "" : qualifie(r.prixConseille.ht, { minorant: r.prixConseille.minorant, conseille: true }),
       v.actif ? "Active" : "Inactive",
     ];
   });
