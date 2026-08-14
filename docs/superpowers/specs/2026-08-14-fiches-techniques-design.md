@@ -148,4 +148,22 @@ fabrication) ; recette en texte riche / photos ; menus/combinaisons ; historique
 
 ---
 
+## 12. Corrections brigade cuisine (Yukihira + Nakiri, 2026-08-14) — PRIORITAIRES
+
+Ces points corrigent/précisent les sections ci-dessus après vérification cellule par cellule du classeur. **Ils priment.**
+
+1. **« cl » d'une sous-recette = GRAMME (densité 1), pas du volume.** Rendement Sauce bolognaise = 4,6 kg = **4600 g** ; coût/unité = 56,82/4600 = 0,0123 $/g ; la Bolognaise en consomme **200 g** (écrit « 200 cl »). **INTERDIT** de convertir le « cl » d'une sous-recette en volume (×100) → sinon coût ×10. À l'import, stocker `rendementUnite = "g"` (jamais « cl »), consommation en g. Le garde-fou conversion volume ne s'applique **jamais** à un `sousFicheId`.
+2. **Golden Bolognaise = 2,54 $** (pas 2,53). Le 2,53 vient d'un coût de sauce tronqué à 0,0123 ; en Decimal plein (0,012353 × 200 + 0,07) = **2,54 $**. Règle : **Decimal pleine précision, arrondi UNIQUE au centime en sortie**, test golden en **égalité exacte (tolérance 0)** — ne pas reproduire le bug d'arrondi du tableur.
+3. **`tauxMarge` (spec §6) → renommer `tauxMarque`** = margeBrute/prixVenteHT (= 87,5 % ex.). Ajouter le **`ratioMatiere`** = coût/prixVenteHT (= 12,5 %). Réserver l'expression « taux de marge » au ratio marge/coût (= coefficient − 1, 700 % dans le classeur) si on l'affiche. **Un nom = une formule** partout.
+4. **Mode par défaut = COEFFICIENT-driven** : la Direction saisit le **coefficient** → PV HT = coût × coef → PV TTC = PV HT × (1+TVA). Le sens « saisir TTC → dériver coef » reste offert (les deux, décision 4), mais le coefficient est le mode réel de saisie.
+5. **`PRIX à l'unité` (col V) = source de vérité.** Le prix carton (col W) est **dérivé** (`=V×U` sur 48 lignes) — NE PAS dériver l'unitaire depuis le carton. `uniteParCarton` (U) ne sert qu'à parser les **unités-emballage** (« 500 GR », « 1 KG » → le prixU est le prix du paquet, l'unité porte le poids → parser 0,5 kg/pièce).
+6. **Rendement dans le NOM d'onglet** (« Sauce bolognaise 4.6 kg »), aucune cellule dédiée → parser depuis le nom. `nbPortions` (23) est décoratif ; c'est le **rendement en grammes** qui pilote la consommation.
+7. **Import** : ancrer sur les **libellés col B** (le bloc bas glisse selon le nb d'ingrédients), rattacher sur **désignation normalisée col S** (NFKD, minuscule, trim ; espaces parasites), **jamais** sur coordonnée fixe ni plage de formule. Signaler à la Direction les **3 lignes** où `prixU × uniteParCarton ≠ prixCarton` (erreurs de saisie, ex. penne 0,35 vs 3,50) — sans corriger d'office.
+8. **Comptes corrigés** : **24 plats + 5 sous-recettes = 29 fiches** (pas « 29 plats ») ; **114 lignes d'articles remplies, 109 vrais articles** (pas ~1000).
+9. **Sous-recette** = pas de prix de vente/marge exigé (`estSousRecette` : la marge n'a de sens que sur un plat final).
+
+**Cas de test golden (précision pleine, arrondi centime final)** : T1 article+conversion `0,2 kg × 8,07 = 1,614 $` ; T2 sous-recette au gramme `56,8237 $ / 4600 g × 200 g = 2,4706 $` ; T3 golden plat `Bolognaise = 2,54 $` (exact) ; T4 marge `revient 2,53, coef 8, TVA 0,16 → PV HT 20,24 ; marge brute 17,71 ; PV TTC 23,48 ; taux marque 87,5 % ; ratio matière 12,5 %`.
+
+---
+
 *Module suivant : fiches du bar (cocktails/boissons) — même modèle, `type = BAR`.*
