@@ -1039,8 +1039,17 @@ export function formaterRapport(
   const visibles = ecartsFiches.filter((e) => e.ecart.abs().greaterThanOrEqualTo("0.0001"));
   const negligeables = ecartsFiches.length - nuls.length - visibles.length;
   const pire = visibles[0];
-  out.push(`  • Fiches dont le coût est déterminable et donc comparable : ${ecartsFiches.length} sur ${simulation.length}`);
-  out.push(`    (les ${simulation.length - ecartsFiches.length} autres sont à coût indéterminé, cf. section « SIMULATION »).`);
+  // « Comparable » (ce bloc) et « complet » (bloc SIMULATION) mesurent deux choses différentes.
+  // Écrire « déterminable » ici laissait lire une contradiction avec « 11 fiches à coût incomplet »
+  // deux blocs plus loin. Le lien est donc dit explicitement, chiffres à l'appui.
+  const nomsComparables = new Set(ecartsFiches.map((e) => e.nom));
+  const incompletesComparables = simulation.filter((s) => s.incomplet && nomsComparables.has(s.nom)).length;
+  out.push(`  • Fiches COMPARABLES d'une passe à l'autre : ${ecartsFiches.length} sur ${simulation.length}`);
+  out.push(`    (les ${simulation.length - ecartsFiches.length} autres ne portent aucun montant, même partiel : rien à comparer).`);
+  out.push(`    « Comparable » ne veut PAS dire « complet » : une fiche à coût partiel porte bien un`);
+  out.push("    montant chiffré (un minorant), donc un écart d'arrondi mesurable. C'est pourquoi");
+  out.push(`    ${incompletesComparables} des fiches comptées ici sont aussi comptées « à coût incomplet » dans la section`);
+  out.push("    « SIMULATION » plus bas : les deux nombres se complètent, ils ne se contredisent pas.");
   out.push(`  • Écart EXACTEMENT NUL ................ ${nuls.length} fiche(s)`);
   out.push(`  • Écart sous le dixième de centime .... ${negligeables} fiche(s)`);
   out.push(`  • Écart visible au dixième de centime . ${visibles.length} fiche(s), détaillées ci-dessous`);
@@ -1378,15 +1387,23 @@ export async function ecrireEnBase(
         // Reste une citation venant d'une fiche HORS lot : on ne casse pas une fiche qu'on n'a
         // pas le droit de toucher pour faire de la place.
         const bloqueurs = citations.filter((c) => !idsLot.has(c.ficheId));
+        // `...rapport` et NON `...vide` : des fiches ont pu être DÉTRUITES aux vagues précédentes
+        // (dont des fiches divergentes autorisées à la main par --supprimer). Repartir de `vide`
+        // renvoyait `fichesSupprimees: []` et l'opérateur n'avait aucune liste de ce qui venait
+        // d'être détruit — une destruction sans trace, dans le rapport même censé la tracer.
         return {
-          ...vide,
+          ...rapport,
           statut: "ABANDON",
           fichesProtegees: restants.map((f) => f.nom),
           message:
             `ABANDON : ${restants.length} sous-recette(s) (${restants.map((f) => `« ${f.nom} »`).join(", ")}) sont ` +
             `encore citées comme ingrédient par ${bloqueurs.length} ligne(s) de fiches HORS classeur. Les supprimer ` +
-            "violerait `IngredientFiche.sousFicheId` (onDelete: Restrict). Rien de plus n'a été écrit — " +
-            "détache ces lignes, ou autorise la suppression des fiches qui les portent.",
+            "violerait `IngredientFiche.sousFicheId` (onDelete: Restrict). " +
+            (rapport.fichesSupprimees.length > 0
+              ? `${rapport.fichesSupprimees.length} fiche(s) ONT DÉJÀ ÉTÉ SUPPRIMÉE(S) avant ce blocage et n'ont PAS été réécrites ` +
+                `(${rapport.fichesSupprimees.map((n) => `« ${n} »`).join(", ")}) : elles sont à réimporter. `
+              : "Rien de plus n'a été écrit. ") +
+            "Détache ces lignes, ou autorise la suppression des fiches qui les portent.",
         };
       }
       await prisma.ficheTechnique.deleteMany({ where: { id: { in: supprimables.map((f) => f.id) } } });
@@ -1564,7 +1581,13 @@ async function main() {
     const r = await ecrireEnBase(prisma as unknown as ClientEcriture, res, { force, supprimerNommement, conserverPrixExistants });
     console.log(`\n${r.statut} — ${r.message}`);
     if (r.fichesSupprimees.length > 0) {
-      console.log(`Fiches remplacées (contenu identique au classeur, suppression neutre) : ${r.fichesSupprimees.join(", ")}`);
+      // Un ABANDON peut survenir APRÈS des suppressions : elles ne sont alors pas « neutres »,
+      // rien ne les a réécrites. On ne réutilise pas la phrase du cas nominal.
+      console.log(
+        r.statut === "ABANDON"
+          ? `\n/!\\ ${r.fichesSupprimees.length} fiche(s) SUPPRIMÉE(S) avant l'abandon, et NON réécrites : ${r.fichesSupprimees.join(", ")}`
+          : `Fiches remplacées (contenu identique au classeur, ou destruction autorisée par --supprimer) : ${r.fichesSupprimees.join(", ")}`
+      );
     }
     if (r.ecrasementsPrix.length > 0) {
       console.log(

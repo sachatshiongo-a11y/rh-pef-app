@@ -222,6 +222,14 @@ describe("une fiche HORS classeur qui cite une sous-recette bloque proprement", 
     expect(r.fichesProtegees).toEqual(["Sauce bolognaise"]);
     // La fiche maison et sa ligne sont intactes.
     expect(await prisma.ingredientFiche.count({ where: { ficheId: maison.id } })).toBe(1);
+
+    // L'abandon survient APRÈS une vague de suppression : « Bolognaise » a bel et bien été
+    // détruite. Le rapport doit la NOMMER — sinon l'opérateur n'a aucune liste de ce qui vient
+    // de disparaître, y compris une fiche qu'il aurait autorisée à la main par --supprimer.
+    expect(r.fichesSupprimees).toEqual(["Bolognaise"]);
+    expect(await prisma.ficheTechnique.count({ where: { nom: "Bolognaise" } })).toBe(0);
+    expect(r.message).toContain("« Bolognaise »");
+    expect(r.message).toContain("DÉJÀ ÉTÉ SUPPRIMÉE");
   });
 });
 
