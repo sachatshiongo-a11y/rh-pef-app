@@ -129,7 +129,7 @@ describe("coût d'un ingrédient article", () => {
     );
     expect(r.coutParPortion.toFixed(4)).toBe("3.3333");
     expect(r.prixVenteHT).toBe(26.67);
-    expect(r.prixConseille).toEqual({ ht: 26.67, ttc: 30.93 }); // 26,66666… × 1,16 = 30,9333…
+    expect(r.prixConseille).toEqual({ ht: 26.67, ttc: 30.93, minorant: false }); // 26,66666… × 1,16 = 30,9333…
   });
 });
 
@@ -221,6 +221,47 @@ describe("coût d'un ingrédient sous-recette", () => {
     const r = calculerCout(fiche([{ quantite: 0.2, unite: "kg", sousFicheId: sauceKg.id }]), mapAvec(sauceKg));
     expect(r.incomplet).toBe(false);
     expect(r.coutTotal.toFixed(4)).toBe("2.4706"); // 56,8237 / 4,6 kg × 0,2 kg
+  });
+
+  it("rendement en portions consommé en grammes : incommensurable, jamais divisé en silence", () => {
+    // « portion » est une valeur légitime de rendementUnite (spec §4), mais diviser des grammes
+    // par des portions ne veut rien dire : c'est une incommensurabilité, pas un facteur d'échelle.
+    const base = ficheSousRecette({
+      nom: "Base",
+      rendementQuantite: 12,
+      rendementUnite: "portion",
+      ingredients: [{ nom: "Viande", quantite: 2, unite: "kg", article: { prixUnitaireUSD: 12, unite: "kg" } }],
+    });
+    const plat = fiche([{ nom: "Base", quantite: 200, unite: "g", sousFicheId: base.id }]);
+    const r = calculerCout(plat, mapAvec(base));
+    expect(r.lignes[0]!.motif).toBe("UNITE_RENDEMENT_INCOHERENTE");
+    expect(r.lignes[0]!.cout).toBeNull();
+    expect(r.incomplet).toBe(true);
+    expect(r.coutTotal.toNumber()).toBe(0);
+  });
+
+  it("rendement en portions consommé en portions : cas légitime, calcul normal", () => {
+    const base = ficheSousRecette({
+      nom: "Base",
+      rendementQuantite: 12,
+      rendementUnite: "portion",
+      ingredients: [{ nom: "Viande", quantite: 2, unite: "kg", article: { prixUnitaireUSD: 12, unite: "kg" } }],
+    });
+    const plat = fiche([{ nom: "Base", quantite: 2, unite: "Portion", sousFicheId: base.id }]);
+    const r = calculerCout(plat, mapAvec(base));
+    expect(r.incomplet).toBe(false); // la casse ne doit pas faire échouer la comparaison
+    expect(r.coutTotal.toString()).toBe("4"); // 24 $ / 12 portions × 2 portions
+  });
+
+  it("rendement en pièces consommé en grammes : incommensurable aussi", () => {
+    const base = ficheSousRecette({
+      nom: "Base",
+      rendementQuantite: 10,
+      rendementUnite: "pièce",
+      ingredients: [{ nom: "Viande", quantite: 2, unite: "kg", article: { prixUnitaireUSD: 12, unite: "kg" } }],
+    });
+    const plat = fiche([{ nom: "Base", quantite: 200, unite: "g", sousFicheId: base.id }]);
+    expect(calculerCout(plat, mapAvec(base)).lignes[0]!.motif).toBe("UNITE_RENDEMENT_INCOHERENTE");
   });
 
   it("sous-recette dont aucune ligne n'est valorisée : coût indéterminé, pas « 0,00 $ »", () => {
@@ -326,7 +367,7 @@ describe("marge et prix", () => {
     expect(r.tauxMarque).toBeCloseTo(0.875, 3);
     expect(r.ratioMatiere).toBeCloseTo(0.125, 3);
     expect(r.coefficient).toBeCloseTo(8, 6);
-    expect(r.prixConseille).toEqual({ ht: 20.24, ttc: 23.48 });
+    expect(r.prixConseille).toEqual({ ht: 20.24, ttc: 23.48, minorant: false });
     // Aucun prix n'a été décidé : ce 20,24 est une CIBLE, l'écran doit le dire.
     expect(r.prixEstConseille).toBe(true);
   });
@@ -400,6 +441,20 @@ describe("coût incomplet annoncé", () => {
     expect(r.lignes[0]!.motif).toBe("PRIX_NUL");
     expect(r.lignes[0]!.cout).toBeNull();
     expect(r.coutTotal.toString()).toBe("0.07"); // coût partiel, ANNONCÉ comme tel
+    // Le prix conseillé qui en découle n'est PAS un prix : c'est un plancher. Avec le bœuf à
+    // 6 $/kg, le coût réel serait 6,07 $ et le prix conseillé 48,56 $ — facteur 87.
+    expect(r.prixConseille).toEqual({ ht: 0.56, ttc: 0.65, minorant: true });
+  });
+
+  it("le prix conseillé d'un coût complet n'est pas un minorant", () => {
+    const r = calculerCout(
+      fiche([{ nom: "Bœuf", quantite: 1, unite: "kg", article: { prixUnitaireUSD: 6, unite: "kg" } }], {
+        coefficientMargeCible: 8,
+      }),
+      CTX_VIDE,
+    );
+    expect(r.incomplet).toBe(false);
+    expect(r.prixConseille).toEqual({ ht: 48, ttc: 55.68, minorant: false });
   });
 
   it("prix négatif en base : traité comme non renseigné", () => {
@@ -506,6 +561,37 @@ describe("détection de cycle", () => {
       expect(r!.lignes[0]!.motif).toBe("CYCLE");
     },
     2000, // si la récursion bouclait sans déborder, le test échouerait par timeout
+  );
+
+  it(
+    "un cycle PARTIELLEMENT valorisé reste indéterminé (pas un minorant)",
+    () => {
+      // La sous-recette S a un vrai coût (tomate 1 $) ET un retour vers le plat parent.
+      // Un coût qui dépend de lui-même n'est pas un minorant : c'est une valeur non définie.
+      // On ne compte donc PAS le 1 $ dans le total du plat.
+      const plat: FicheCalc = fiche([], { nom: "Plat", rendementQuantite: 1000, rendementUnite: "g" });
+      const S: FicheCalc = ficheSousRecette({
+        nom: "S",
+        rendementQuantite: 1000,
+        ingredients: [
+          { nom: "Tomate", quantite: 1, unite: "kg", article: { prixUnitaireUSD: 1, unite: "kg" } },
+          { nom: "Plat (retour)", quantite: 100, unite: "g", sousFicheId: plat.id },
+        ],
+      });
+      plat.ingredients = [{ nom: "S", quantite: 500, unite: "g", sousFicheId: S.id }];
+
+      let r: ReturnType<typeof calculerCout> | undefined;
+      expect(() => {
+        r = calculerCout(plat, mapAvec(plat, S));
+      }).not.toThrow();
+      expect(r!.cycle).toBe(true);
+      expect(r!.incomplet).toBe(true);
+      expect(r!.lignes[0]!.cout).toBeNull();
+      expect(r!.lignes[0]!.motif).toBe("CYCLE");
+      expect(r!.coutTotal.toNumber()).toBe(0); // surtout pas 0,50 $ « au moins »
+      expect(r!.ingredientsSansPrix).toEqual(["S › Plat (retour)"]);
+    },
+    2000,
   );
 
   it(

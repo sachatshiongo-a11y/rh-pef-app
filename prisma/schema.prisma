@@ -1517,7 +1517,10 @@ model FicheTechnique {
   coefficientMargeCible Decimal?  @db.Decimal(8, 4)
   estSousRecette        Boolean   @default(false)
   rendementQuantite     Decimal?  @db.Decimal(14, 3) // en unité de base (g pour une sauce)
-  rendementUnite        String? // "g", "L", "portion"…
+  // Unité de BASE : "g", "ml" — ou une unité de comptage ("portion"), qui doit alors être aussi
+  // l'unité de consommation. JAMAIS "kg"/"L" : le coût d'une sous-recette se calcule sans aucune
+  // conversion, le moteur (src/lib/fiches/cout.ts) refuse ces cas au lieu d'un coût ×1000.
+  rendementUnite        String?
   recette               String?   @db.Text
   actif                 Boolean   @default(true)
   creeLe                DateTime  @default(now())

@@ -46,7 +46,9 @@ model FicheTechnique {
   coefficientMargeCible Decimal? @db.Decimal(8,4)
   estSousRecette Boolean  @default(false)
   rendementQuantite Decimal? @db.Decimal(14,3) // en unité de base (g pour une sauce)
-  rendementUnite    String?  // "g", "L", "portion"…
+  rendementUnite    String?  // unité de BASE : "g", "ml" — ou une unité de comptage ("portion",
+                             // consommée en portions). JAMAIS "kg"/"L" : le moteur ne convertit
+                             // rien sur une sous-fiche et les refuse (UNITE_RENDEMENT_INCOHERENTE).
   recette       String?  @db.Text
   actif         Boolean  @default(true)
   creeLe        DateTime @default(now())

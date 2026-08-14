@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { facteur, poidsEmballage } from "@/lib/fiches/conversion";
+import { facteur, normaliserUnite, poidsEmballage } from "@/lib/fiches/conversion";
 
 // Moteur de coût de revient des fiches techniques : PUR (aucun accès Prisma, aucune base,
 // aucun React). Il consomme des données déjà dénormalisées et ne fait que du calcul.
@@ -104,7 +104,14 @@ export type ResultatCout = {
   prixVenteHT: number | null;
   prixVenteTTC: number | null;
   margeBrute: number | null;
-  prixConseille: { ht: number; ttc: number } | null;
+  /**
+   * Prix conseillé depuis le coefficient cible. `minorant = true` quand il repose sur un coût
+   * incomplet : ce n'est alors PAS un prix, c'est un plancher (un ingrédient non valorisé peut le
+   * multiplier par dix). Le drapeau voyage avec le chiffre pour que ni l'écran ni l'export ne
+   * puissent l'afficher sans le dire — la règle ne doit pas être ré-implémentée par chaque
+   * consommateur, l'un des deux l'oublierait.
+   */
+  prixConseille: { ht: number; ttc: number; minorant: boolean } | null;
   /**
    * Vrai quand `prixVenteHT`/`prixVenteTTC` (et donc `margeBrute`/`tauxMarque`) ne viennent PAS
    * d'un prix décidé mais du coefficient cible : ce sont des valeurs SUGGÉRÉES, pas constatées.
@@ -171,34 +178,39 @@ function prixParUniteDeConsommation(
 }
 
 /**
- * Une unité est « de base » si elle est l'unité de référence de sa grandeur (g pour la masse,
- * ml pour le volume) — ou si elle n'appartient à aucune grandeur convertible (« portion »,
- * « pièce »… : il n'y a alors rien à comparer).
+ * Facteur d'une unité vers l'unité de base de SA grandeur (g pour la masse, ml pour le volume).
+ * `null` quand l'unité n'appartient à aucune grandeur convertible : unité de comptage
+ * (pièce, paquet…) ou orthographe inconnue du référentiel (« portion », texte libre…).
  */
-function estUniteDeBase(unite: string): boolean {
-  const versG = facteur(unite, "g");
-  if (versG !== null) return versG.equals(1);
-  const versMl = facteur(unite, "ml");
-  if (versMl !== null) return versMl.equals(1);
-  return true;
+function versUniteDeBase(unite: string): Decimal | null {
+  return facteur(unite, "g") ?? facteur(unite, "ml");
 }
 
 /**
  * Le coût d'une sous-recette se calcule SANS conversion : la consommation et le rendement
- * doivent donc être exprimés dans la même unité de base. Renvoie `true` quand ce n'est
- * manifestement pas le cas :
- *  - les deux unités sont comparables mais leur facteur vaut ≠ 1 (« g » contre « kg ») ;
- *  - elles ne sont pas comparables et le rendement n'est pas dans une unité de base
- *    (« cl » consommé contre un rendement en « kg »).
- * La règle « cl d'une sous-recette = gramme » n'est PAS touchée : `facteur("cl","g")` vaut
- * `null` et le rendement « g » est une unité de base → rien ne se déclenche.
+ * doivent donc désigner la même unité. Renvoie `true` quand ce n'est manifestement pas le cas :
+ *  - **rendement en unité de comptage ou inconnue** (« portion », « pièce »…) : incommensurable
+ *    avec toute autre unité — seule l'unité identique est acceptable. Diviser des grammes par des
+ *    portions ne veut rien dire, et « 12 portions » consommé « 200 g » ne doit pas passer ;
+ *  - **rendement dans une grandeur convertible** : soit les deux unités sont comparables et leur
+ *    facteur doit valoir 1 (« g » contre « kg » = ×1000 silencieux), soit elles ne le sont pas et
+ *    le rendement doit alors être dans l'unité de base de sa grandeur (« cl » consommé contre un
+ *    rendement en « kg » = le même ×1000, écrit autrement).
+ * La règle « cl d'une sous-recette = gramme » n'est PAS touchée : `facteur("cl","g")` vaut `null`
+ * et « g » est l'unité de base de la masse → rien ne se déclenche.
  */
 function uniteRendementIncoherente(uniteConsommee: string, rendementUnite?: string | null): boolean {
   const rendement = rendementUnite?.trim();
   if (!rendement) return false; // rendement sans unité : rien à vérifier
+
+  const rendementVersBase = versUniteDeBase(rendement);
+  if (rendementVersBase === null) {
+    return normaliserUnite(uniteConsommee) !== normaliserUnite(rendement);
+  }
+
   const f = facteur(uniteConsommee, rendement);
   if (f !== null) return !f.equals(1);
-  return !estUniteDeBase(rendement);
+  return !rendementVersBase.equals(1);
 }
 
 type ResultatInterne = {
@@ -354,19 +366,27 @@ export function calculerCout(
 
   const margeD = htD === null ? null : htD.minus(coutParPortion);
   const htExploitable = htD !== null && htD.greaterThan(0);
+  const incomplet = sansPrix.length > 0 || cycle || portionsInvalides;
 
+  // Le prix conseillé assis sur un coût incomplet n'est pas un prix : c'est un PLANCHER. Le
+  // drapeau part avec le chiffre pour qu'aucun consommateur (écran, export, PDF) ne puisse
+  // l'afficher comme un montant arrêté.
   const prixConseille =
     coefCible !== null && coutExploitable
       ? (() => {
           const ht = coutParPortion.times(coefCible);
-          return { ht: arrondirCentime(ht), ttc: arrondirCentime(ht.times(unPlusTva)) };
+          return {
+            ht: arrondirCentime(ht),
+            ttc: arrondirCentime(ht.times(unPlusTva)),
+            minorant: incomplet,
+          };
         })()
       : null;
 
   return {
     coutTotal,
     coutParPortion,
-    incomplet: sansPrix.length > 0 || cycle || portionsInvalides,
+    incomplet,
     ingredientsSansPrix: sansPrix,
     lignes,
     coefficient: htD !== null && coutExploitable ? htD.div(coutParPortion).toNumber() : null,

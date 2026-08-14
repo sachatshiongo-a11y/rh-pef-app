@@ -53,9 +53,17 @@ nouvelle table (patron `rls_tables_restantes`), tests Vitest + Postgres éphém�
 - **Prix & marge** (au moins l'un, les deux permis) : `prixVenteTTC?` (Decimal), `coefficientMargeCible?`
   (Decimal). Voir §6 pour ce qu'on calcule dans chaque cas.
 - **Rendement (pour servir de sous-recette)** : `rendementQuantite?` (Decimal) + `rendementUnite?`
-  (texte, ex. « kg », « L », « portion »). Une fiche consommée dans une autre l'est au **rendement**
-  (ex. Sauce bolognaise : 4,6 kg → coût au cl/g dérivé). Une fiche « plat final » n'a pas besoin de
-  rendement (elle se vend à la portion) ; une sous-recette en a un.
+  (texte). Une fiche consommée dans une autre l'est au **rendement** (ex. Sauce bolognaise :
+  4,6 kg → **stockée `rendementQuantite = 4600`, `rendementUnite = "g"`**). Une fiche « plat final »
+  n'a pas besoin de rendement (elle se vend à la portion) ; une sous-recette en a un.
+  > ⚠️ **Le rendement se saisit dans une UNITÉ DE BASE** (cf. §12.1 et le moteur) : `g` pour une
+  > masse, `ml` pour un volume. Le coût d'une sous-recette se calcule **sans aucune conversion** :
+  > un rendement en **« kg » ou « L » sera refusé comme incohérent** (motif
+  > `UNITE_RENDEMENT_INCOHERENTE`, coût indéterminé annoncé) dès que la consommation est écrite en
+  > g/cl — c'est voulu, c'est le garde-fou contre un coût 1000 fois trop élevé.
+  > Une unité de **comptage** (« portion », « pièce ») reste possible, mais la consommation doit
+  > alors être écrite **dans la même unité** (« 12 portions » se consomme en portions, jamais en
+  > grammes : on ne divise pas des grammes par des portions).
 - `recette` (texte, préparation), timestamps, audit.
 
 ### 4.2 `IngredientFiche` (ligne d'une fiche)
@@ -86,12 +94,20 @@ Utilitaire pur de conversion :
 
 ## 6. Coût de revient (moteur pur `src/lib/fiches/cout.ts`, calculé, jamais stocké)
 
-Fonction **récursive** `calculerCoutFiche(fiche, contexte)` :
+Fonction **récursive** `calculerCout(fiche, contexte)` (implémentée dans `src/lib/fiches/cout.ts`) :
 - Coût d'un ingrédient **article** = `quantité × prixConverti` (§5), prix HT depuis `ArticleStock`.
-- Coût d'un ingrédient **sous-fiche** = `quantité × (coûtTotalSousFiche / rendementSousFiche converti à l'unité de conso)`.
+- Coût d'un ingrédient **sous-fiche** = `quantité × (coûtTotalSousFiche / rendementQuantite)`.
+  > ⚠️ **AUCUNE conversion d'unité — corrigé le 2026-08-14 (Task 3).** Cette ligne disait
+  > « rendement converti à l'unité de conso » : **c'est faux**, et c'est très exactement la phrase
+  > qui a produit le défaut d'origine (le « cl » d'une sous-recette est un **gramme**, cf. §12.1 —
+  > convertir multiplie le coût par 10). Le rendement et la consommation sont déjà dans la même
+  > unité de base ; le moteur ne convertit rien ici et **refuse** (coût indéterminé annoncé, motif
+  > `UNITE_RENDEMENT_INCOHERENTE`) les cas où les deux unités ne désignent manifestement pas la
+  > même chose : « g » contre « kg », « cl » contre « kg », « g » contre « portion ».
 - **Coût total HT** = Σ ingrédients. **Coût par portion** = total / `nbPortions`.
 - **Marge** : `prixVenteHT = prixVenteTTC / (1 + tauxTVA)` ; `coefficient = prixVenteHT / coûtParPortion` ;
-  `tauxMarge = (prixVenteHT − coûtParPortion) / prixVenteHT` ; `margeBrute = prixVenteHT − coûtParPortion`.
+  `tauxMarque = (prixVenteHT − coûtParPortion) / prixVenteHT` (cf. §12.3) ;
+  `margeBrute = prixVenteHT − coûtParPortion`.
 - **Prix conseillé** (depuis `coefficientMargeCible`) = `coûtParPortion × coefficientMargeCible` (HT),
   puis ×(1+TVA) pour le TTC conseillé.
 - ⚠️ **Détection de cycle** : une fiche ne peut pas se contenir (directement ou via ses sous-recettes)
