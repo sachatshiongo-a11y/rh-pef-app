@@ -3,9 +3,11 @@ import { existsSync } from "node:fs";
 import * as XLSX from "xlsx";
 import Decimal from "decimal.js";
 import { calculerCout, type FicheCalc } from "@/lib/fiches/cout";
+import { classeurSynthetique, feuille, LISTE_ARTICLES } from "./_fixture-classeur-fiches";
 import {
   analyserClasseur,
   detecterEcartsPrix,
+  detecterPrixInvraisemblables,
   extraireRendement,
   lireFiche,
   localiserColonnesArticles,
@@ -17,100 +19,17 @@ import {
 // Tests du PARSEUR en marche à vide : aucune base, aucune écriture, aucun accès Prisma.
 //
 // Deux niveaux :
-//  1. un classeur SYNTHÉTIQUE reconstruit ici, volontairement DÉCALÉ d'un onglet à l'autre —
-//     il prouve l'ancrage sur les libellés de la colonne B (une coordonnée codée en dur
-//     échouerait) et il tourne partout, y compris sans le fichier de la Direction ;
+//  1. le classeur SYNTHÉTIQUE de `_fixture-classeur-fiches.ts`, volontairement DÉCALÉ d'un onglet
+//     à l'autre — il prouve l'ancrage sur les libellés de la colonne B (une coordonnée codée en
+//     dur échouerait) et il tourne partout, y compris sans le fichier de la Direction ;
 //  2. le classeur RÉEL de la Direction quand il est présent sur la machine — il verrouille les
 //     chiffres remontés dans le rapport (29 onglets, 121 ingrédients, 0 non rattaché…).
-
+//
+// Le chemin du classeur réel dépend de la machine. Son absence NE DOIT PAS passer inaperçue :
+// elle est écrite dans le NOM du bloc de tests (donc dans le rapport de vitest), et
+// `EXIGER_CLASSEUR_REEL=1` la transforme en échec — levier à activer sur une machine censée
+// disposer du fichier (poste du contrôleur, CI qui monterait le classeur).
 const CHEMIN_REEL = "/Users/sachatshiongo/Downloads/Tableurs/Fiche technique plats crash test.xlsx";
-
-// ─── Fabrique de classeur synthétique ────────────────────────────────────────
-
-function feuille(cellules: Record<string, string | number>): XLSX.WorkSheet {
-  const ws: XLSX.WorkSheet = {};
-  for (const [adresse, v] of Object.entries(cellules)) {
-    ws[adresse] = { t: typeof v === "number" ? "n" : "s", v };
-  }
-  const coords = Object.keys(cellules).map((a) => XLSX.utils.decode_cell(a));
-  ws["!ref"] = XLSX.utils.encode_range({
-    s: { r: Math.min(...coords.map((c) => c.r)), c: Math.min(...coords.map((c) => c.c)) },
-    e: { r: Math.max(...coords.map((c) => c.r)), c: Math.max(...coords.map((c) => c.c)) },
-  });
-  return ws;
-}
-
-/** Sous-recette « Sauce bolognaise 4.6 kg » : mise en page A (tableau à partir de la ligne 25). */
-const SAUCE_BOLOGNAISE = feuille({
-  B9: "FICHE TECHNIQUE",
-  B11: "Pâtes classiques",
-  B13: "Sauce bolognaise 4.6 kg ",
-  B15: "Nombre de portions :", C15: 23,
-  B17: "Prix de vente TTC :", C17: 10.030610997460869,
-  B18: "Taux TVA :", C18: 0.16,
-  B25: "Article", C25: "Unité ", D25: "Unités nécessaires", E25: "Coût d'achat HT à l'unité", F25: "Prix de revient HT",
-  B26: "Viande Hachée", C26: "Kg", D26: 2.2,
-  B27: "Tomates pêlées 240g ", C27: "Pièce", D27: 5,
-  B28: "Tomates concentrées", C28: "Pièce", D28: 3,
-  B29: "Vin rouge", C29: "Bouteille", D29: 3,
-  B30: "LAIT ELLE & VIRE ENTIER RED 1LTR", C30: "L", D30: 1.25,
-  B31: "Huile 1L régina", C31: "L", D31: 0.13333,
-  B32: "Carottes", C32: "kg", D32: 0.28,
-  C33: 0, E33: 0, F33: 0, // lignes de remplissage du classeur : ignorées
-  C34: 0, E34: 0, F34: 0,
-  B37: "Total prix de revient HT", F37: 56.82365836,
-  B40: "Coefficient de marge", F40: 3.5,
-  B45: "Recette ",
-});
-
-/**
- * Plat « Bolognaise » : mise en page B, DÉCALÉE de 3 lignes par rapport à la sous-recette.
- * C'est exactement le piège du classeur réel (tableau ligne 21 sur une fiche, ligne 31 sur une
- * autre) : un import ancré sur « C15 »/« B26 » lirait ici des cellules vides.
- */
-const BOLOGNAISE = feuille({
-  B12: "FICHE TECHNIQUE",
-  B14: "Pâtes classiques",
-  B16: "Bolognaise ",
-  B18: "Nombre de portions :", C18: 1,
-  B20: "Prix de vente TTC :", C20: 23.478399999999997,
-  B21: "Taux TVA :", C21: 0.16,
-  B28: "Article", C28: "Unité ", D28: "Unités nécessaires",
-  B29: "Sauce bolognaise ", C29: "cl ", D29: 200,
-  B30: "20 PENNE RIGATE LM CHEF 12 X 1KG", C30: "Kg", D30: 0.2,
-  C31: 0, E31: 0, F31: 0,
-  B34: "Total prix de revient HT", F34: 2.53,
-  B37: "Coefficient de marge", F37: 8,
-});
-
-/** Liste des articles : entête DÉCALÉE en ligne 17, et « Fournisseur » présent des deux côtés. */
-const LISTE_ARTICLES = feuille({
-  B15: "LISTE DES FOURNISSEURS", R15: "LISTE DES ARTICLES",
-  B17: "Fournisseur", C17: "Produits", D17: "Téléphone",
-  R17: "BARCODE", S17: "Désignation ", T17: "Unité", U17: "Quantité par paquet ",
-  V17: "PRIX à l'unité ", W17: "PRIX CRT", X17: "FOURNISSEUR",
-  B18: "SO GOOD", S18: "20 PENNE RIGATE LM CHEF 12 X 1KG", T18: "Kg", U18: 12, V18: 0.35, W18: 42, X18: "SO GOOD",
-  B19: "REGAL", S19: "LAIT ELLE & VIRE ENTIER RED 1LTR", T19: "L", U19: 24, V19: 2.5, W19: 60, X19: "REGAL",
-  S20: "Viande Hachée", T20: "Kg", U20: "Viande -Volaille-Poisson-Crustacé", V20: 8.07,
-  S21: "Tomates pêlées 240g ", T21: "Pièce", V21: 1.34,
-  S22: "Tomates concentrées", T22: "Pièce", V22: 0.21,
-  S23: "Vin rouge", T23: "Bouteille", V23: 9,
-  S24: "Huile 1L régina", T24: "L", V24: 2.492,
-  S25: "Carottes", T25: "kg", V25: 4.58, W25: 0,
-  // « Fausse ligne » : la Direction recopie ses sous-recettes dans la liste des articles.
-  S26: "Sauce bolognaise ", T26: "cl ", V26: 0.0123, W26: 0,
-});
-
-function classeurSynthetique(): XLSX.WorkBook {
-  return {
-    SheetNames: ["Sauce bolognaise", "Bolognaise", "Liste des articles"],
-    Sheets: {
-      "Sauce bolognaise": SAUCE_BOLOGNAISE,
-      Bolognaise: BOLOGNAISE,
-      "Liste des articles": LISTE_ARTICLES,
-    },
-  };
-}
 
 // ─── 1. Fonctions pures ──────────────────────────────────────────────────────
 
@@ -224,6 +143,53 @@ describe("detecterEcartsPrix — signale, ne corrige pas", () => {
   });
 });
 
+describe("detecterPrixInvraisemblables — la famille que « V×U ≠ W » ne peut PAS voir", () => {
+  const art = (designation: string, unite: string, prix: number, ligne = 1): LigneArticle => ({
+    ligne, designation, cle: normaliserDesignation(designation), codeBarresBrut: null, unite,
+    uniteParCarton: null, uniteParCartonBrut: null, prixUnitaireUSD: prix, prixCartonUSD: null, fournisseur: null,
+  });
+
+  // Cas réel : « Sucre Blanc » à 0,00142 $ sous une unité « kg » (1,42 $ la tonne) alors que son
+  // jumeau « Sucre Brun » est à 0,00138 $ le GRAMME. Une seule colonne de prix est en cause :
+  // aucun rapprochement prix unitaire / prix carton ne peut le détecter.
+  const catalogue = [
+    art("Carottes", "kg", 4.58), art("Oignons", "kg", 2.26), art("Ail", "kg", 4.29),
+    art("Tomates", "Kg", 4.22), art("Pommes", "kg", 2.2), art("MOZZARELLA", "Kg", 9.78),
+    art("Sucre Brun", "g", 0.00138), art("Farine Fromant", "g", 0.001568),
+  ];
+
+  it("repère un prix mille fois trop bas pour l'unité déclarée", () => {
+    const suspects = detecterPrixInvraisemblables([...catalogue, art("Sucre Blanc", "kg", 0.00142, 83)]);
+    expect(suspects.map((s) => s.designation)).toEqual(["Sucre Blanc"]);
+    expect(suspects[0]!.grandeur).toBe("kg");
+    expect(suspects[0]!.prixRamene).toBe(0.00142);
+    expect(suspects[0]!.rapport).toBeLessThan(0.01);
+  });
+
+  it("ne signale RIEN sur un catalogue cohérent, même mélangeant g et kg", () => {
+    expect(detecterPrixInvraisemblables(catalogue)).toEqual([]);
+  });
+
+  it("ne compare pas les unités de comptage entre elles (deux « pièces » ne le sont pas)", () => {
+    const suspects = detecterPrixInvraisemblables([
+      ...catalogue,
+      art("Tomates concentrées", "Pièce", 0.21),
+      art("CAILLES", "Pièce", 3),
+      art("Vin rouge", "Bouteille", 9),
+    ]);
+    expect(suspects).toEqual([]);
+  });
+
+  it("ramène un prix au paquet (« 500 GR ») au kilo avant de comparer", () => {
+    const suspects = detecterPrixInvraisemblables([
+      ...catalogue,
+      art("15 SPAGHETTI 24 X 500G", "500 GR", 1.75), // 3,50 $/kg : normal
+      art("621 COUS COUS 12 X 500G", "500 GR", 0.004, 46), // 0,008 $/kg : prix au gramme
+    ]);
+    expect(suspects.map((s) => s.designation)).toEqual(["621 COUS COUS 12 X 500G"]);
+  });
+});
+
 // ─── 2. Classeur synthétique : ancrage sur les libellés ──────────────────────
 
 describe("ancrage sur les LIBELLÉS de la colonne B (classeur synthétique décalé)", () => {
@@ -296,6 +262,31 @@ describe("ancrage sur les LIBELLÉS de la colonne B (classeur synthétique déca
     expect(res.sousRecettes).toHaveLength(0); // plus personne ne cite la sauce : elle n'est plus sous-recette
   });
 
+  it("lève une anomalie si une note s'insère dans le bloc de titre (le nom deviendrait la note)", () => {
+    const wb = classeurSynthetique();
+    wb.Sheets["Bolognaise"] = feuille({
+      B12: "FICHE TECHNIQUE",
+      B14: "Pâtes classiques",
+      B15: "Bolognaise ",
+      B16: "Recette revue par le chef en août", // note glissée SOUS le titre
+      B18: "Nombre de portions :", C18: 1,
+      B28: "Article", C28: "Unité ",
+      B29: "20 PENNE RIGATE LM CHEF 12 X 1KG", C29: "Kg", D29: 0.2,
+      B34: "Total prix de revient HT",
+    });
+    const res = analyserClasseur(wb);
+    const anomalie = res.anomalies.find((a) => a.onglet === "Bolognaise");
+    expect(anomalie?.raison).toContain("3 textes libres");
+    // La règle « dernier texte » reste appliquée telle quelle — mais elle n'est plus silencieuse.
+    expect(res.fiches.find((f) => f.onglet === "Bolognaise")!.textesEntete).toHaveLength(3);
+  });
+
+  it("n'invente aucune anomalie sur les blocs de titre normaux (1 ou 2 textes)", () => {
+    const res = analyserClasseur(classeurSynthetique());
+    expect(res.anomalies).toEqual([]);
+    expect(res.fiches.map((f) => f.textesEntete.length).sort()).toEqual([2, 2]);
+  });
+
   it("signale l'écart de prix des pennes sans toucher au prix à l'unité importé", () => {
     const res = analyserClasseur(classeurSynthetique());
     expect(res.ecartsPrix).toHaveLength(1);
@@ -319,9 +310,22 @@ describe("ancrage sur les LIBELLÉS de la colonne B (classeur synthétique déca
 // ─── 3. Classeur RÉEL de la Direction (si présent sur la machine) ────────────
 
 const classeurReelPresent = existsSync(CHEMIN_REEL);
-if (!classeurReelPresent) {
-  console.warn(`[import-fiches-plats.test] Classeur réel absent (${CHEMIN_REEL}) : bloc de vérification ignoré.`);
-}
+
+// L'état est porté par le NOM des tests, pas par un console.warn qui se perd dans le flot : le
+// rapport de vitest dit lui-même si les chiffres réels ont été vérifiés ou non.
+describe("chiffres du classeur RÉEL de la Direction", () => {
+  it(
+    classeurReelPresent
+      ? "classeur présent : chiffres réels VÉRIFIÉS (voir le bloc suivant)"
+      : "classeur ABSENT de cette machine : CHIFFRES RÉELS NON VÉRIFIÉS (109/108/5, 29 onglets, 121 ingrédients) — poser EXIGER_CLASSEUR_REEL=1 pour en faire un échec",
+    () => {
+      if (process.env.EXIGER_CLASSEUR_REEL === "1") {
+        expect(classeurReelPresent, `Classeur réel introuvable : ${CHEMIN_REEL}`).toBe(true);
+      }
+      expect(typeof classeurReelPresent).toBe("boolean");
+    },
+  );
+});
 
 describe.skipIf(!classeurReelPresent)("classeur RÉEL « Fiche technique plats crash test.xlsx »", () => {
   const wb = classeurReelPresent
@@ -386,5 +390,41 @@ describe.skipIf(!classeurReelPresent)("classeur RÉEL « Fiche technique plats c
     expect(lignes).toHaveLength(1);
     expect(res.unitesInconvertibles[0]!.uniteConsommation.trim()).toBe("500 GR");
     expect(res.unitesInconvertibles[0]!.article).toBe("15 SPAGHETTI 24 X 500G");
+  });
+
+  it("attrape le « Sucre Blanc » au gramme sous une unité kg, invisible pour le contrôle V×U", () => {
+    const sucre = res.prixInvraisemblables.find((p) => p.designation.trim() === "Sucre Blanc");
+    expect(sucre).toBeDefined();
+    expect(sucre!.unite).toBe("kg");
+    expect(sucre!.prixUnitaire).toBeCloseTo(0.00142, 6);
+    expect(sucre!.rapport).toBeLessThan(0.01); // des ordres de grandeur sous la médiane des pairs
+    // Et il n'est PAS dans les écarts V×U : la cellule « quantité par paquet » contient du texte.
+    expect(res.ecartsPrix.some((e) => e.designation.trim() === "Sucre Blanc")).toBe(false);
+  });
+
+  it("la « Maizena blanc » sans quantité empêche désormais la Bisque de passer pour chiffrée", () => {
+    const bisque = simulerCouts(res).find((s) => s.nom === "Bisque de cossas")!;
+    expect(bisque.incomplet).toBe(true);
+    expect(bisque.motifs).toContain("Maizena blanc");
+    expect(res.quantitesAbsentes.map((l) => l.ingredient.designation)).toEqual(["Maizena blanc"]);
+  });
+
+  it("les arrondis de schéma ne déplacent aucune fiche de plus d'un centime et demi", () => {
+    const brut = simulerCouts(res);
+    const arrondi = simulerCouts(res, { arrondiSchema: true });
+    const ecarts = brut
+      .map((b) => {
+        const a = arrondi.find((x) => x.nom === b.nom);
+        return b.coutTotal && a?.coutTotal ? a.coutTotal.minus(b.coutTotal).abs() : null;
+      })
+      .filter((d): d is Decimal => d !== null);
+    expect(ecarts.length).toBeGreaterThan(0);
+    const pire = ecarts.reduce((m, d) => (d.greaterThan(m) ? d : m));
+    expect(pire.lessThan(0.015)).toBe(true); // c'est ce qui justifie de NE PAS migrer le schéma
+  });
+
+  it("aucun bloc de titre du classeur réel ne dépasse 2 textes libres", () => {
+    expect(res.fiches.every((f) => f.textesEntete.length <= 2)).toBe(true);
+    expect(res.anomalies.filter((a) => a.raison.includes("textes libres"))).toEqual([]);
   });
 });

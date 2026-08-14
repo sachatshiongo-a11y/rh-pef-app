@@ -25,15 +25,29 @@
  *     Le prix de vérité est le prix à l'unité (le prix carton est dérivé et n'est pas utilisé par
  *     le moteur de coût).
  *
- * IDEMPOTENCE : `ArticleStock` n'a pas de champ « note ». Le marqueur est donc la CLÉ NATURELLE :
- * l'import se considère déjà fait dès qu'une `FicheTechnique` porte l'un des noms lus dans le
- * classeur. `--force` supprime d'abord CES fiches-là (leurs ingrédients suivent en cascade) puis
- * réimporte ; les fiches saisies à la main hors classeur ne sont jamais touchées. Les articles
- * sont upsertés par désignation normalisée — naturellement idempotents, jamais supprimés.
+ * IDEMPOTENCE ET SÉCURITÉ DE `--force` : ni `ArticleStock` ni `FicheTechnique` n'ont de champ
+ * « note », et `FicheTechnique.nom` n'a AUCUNE contrainte d'unicité. Le marqueur est donc la clé
+ * naturelle (les noms du classeur) DOUBLÉE d'une empreinte de contenu :
+ *   - « import déjà fait » exige que les fiches du classeur soient TOUTES en base ET toutes
+ *     conformes — sinon une seule « Carbonara » saisie à la main ferait afficher « déjà importé »
+ *     et n'importerait rien du tout, en silence ;
+ *   - `--force` ne supprime que les fiches dont le contenu est IDENTIQUE à ce que l'import
+ *     écrirait (suppression alors strictement neutre). Toute fiche homonyme divergente — donc
+ *     potentiellement saisie ou corrigée à la main — bloque l'import et doit être autorisée
+ *     nommément par `--supprimer "<nom>"`. Les noms du classeur sont des noms de carte ordinaires
+ *     (Carbonara, Bolognaise, Crème brûlée) qu'un cuisinier ressaisira spontanément ;
+ *   - la suppression se fait en ordre de dépendance (plats puis sous-recettes) :
+ *     `IngredientFiche.sousFicheId` est en `onDelete: Restrict`, non déférable en PostgreSQL.
+ *
+ * ATTENTION — LES ARTICLES SONT ÉCRASÉS PAR LE CLASSEUR. Ils sont upsertés par désignation
+ * normalisée (jamais supprimés), mais un prix corrigé DANS L'APPLICATION est ramené à la valeur
+ * du classeur. Chaque valeur écrasée est listée avant/après en fin d'exécution ;
+ * `--conserver-prix-existants` préserve les prix déjà en base.
  *
  * Usage :
  *   npx tsx scripts/import-fiches-plats.ts --dry-run                  (rapport seul, AUCUNE base)
- *   npx tsx scripts/import-fiches-plats.ts "postgresql://..." [--force] ["/chemin/classeur.xlsx"]
+ *   npx tsx scripts/import-fiches-plats.ts "postgresql://..." ["/chemin/classeur.xlsx"]
+ *        [--force] [--supprimer "<nom de fiche>"]… [--conserver-prix-existants]
  *   (ou IMPORT_DATABASE_URL=postgresql://... npx tsx scripts/import-fiches-plats.ts)
  *
  * JAMAIS de défaut vers la prod : hors `--dry-run`, la DATABASE_URL doit être fournie
@@ -169,6 +183,21 @@ export type EcartPrix = {
   rapportEgalePoidsPaquet: boolean;
 };
 
+export type PrixInvraisemblable = {
+  ligne: number;
+  designation: string;
+  unite: string;
+  prixUnitaire: number;
+  /** Grandeur de comparaison : « kg » (masse) ou « L » (volume). */
+  grandeur: "kg" | "L";
+  /** Prix ramené à l'unité de comparaison — c'est lui qui est aberrant. */
+  prixRamene: number;
+  /** Médiane des pairs de la même grandeur. */
+  mediane: number;
+  /** prixRamene / mediane : ~1/1000 = prix saisi au gramme sous une unité kg. */
+  rapport: number;
+};
+
 export type IngredientParse = {
   ligne: number;
   designation: string;
@@ -186,6 +215,8 @@ export type FicheParsee = {
   nomBrut: string;
   /** Clés sous lesquelles une autre fiche peut la citer : nom d'onglet ET nom nettoyé. */
   cles: string[];
+  /** Tous les textes libres du bloc de titre, dans l'ordre — permet de relire l'interprétation. */
+  textesEntete: string[];
   categorie: string | null;
   nbPortions: number | null;
   prixVenteTTC: number | null;
@@ -231,6 +262,7 @@ export type ResultatParse = {
   faussesLignesArticles: LigneArticle[];
   collisionsArticles: { cle: string; designations: string[] }[];
   ecartsPrix: EcartPrix[];
+  prixInvraisemblables: PrixInvraisemblable[];
   fiches: FicheParsee[];
   sousRecettes: FicheParsee[];
   plats: FicheParsee[];
@@ -432,6 +464,72 @@ export function detecterEcartsPrix(lignes: LigneArticle[]): EcartPrix[] {
   return ecarts;
 }
 
+/**
+ * Prix ramené à l'unité de comparaison de sa grandeur (le kg pour une masse, le litre pour un
+ * volume). `null` pour les unités de comptage (pièce, boîte, bouteille…) : deux « pièces » ne sont
+ * pas comparables entre elles, on ne prétend pas le contraire.
+ */
+function prixRamene(a: LigneArticle): { grandeur: "kg" | "L"; valeur: Decimal } | null {
+  if (a.unite === null || a.prixUnitaireUSD === null || !(a.prixUnitaireUSD > 0)) return null;
+  const prix = new Decimal(a.prixUnitaireUSD);
+
+  const versKg = facteur(a.unite, "kg") ?? poidsEmballage(a.unite);
+  if (versKg !== null && versKg.greaterThan(0)) return { grandeur: "kg", valeur: prix.div(versKg) };
+
+  const versL = facteur(a.unite, "l");
+  if (versL !== null && versL.greaterThan(0)) return { grandeur: "L", valeur: prix.div(versL) };
+
+  return null;
+}
+
+function mediane(valeurs: Decimal[]): Decimal | null {
+  if (valeurs.length === 0) return null;
+  const tri = [...valeurs].sort((x, y) => x.comparedTo(y));
+  const milieu = Math.floor(tri.length / 2);
+  return tri.length % 2 === 1 ? tri[milieu]! : tri[milieu - 1]!.plus(tri[milieu]!).div(2);
+}
+
+/** Au-delà de ce rapport à la médiane des pairs, le prix n'est plus une variation de marché. */
+const SEUIL_INVRAISEMBLANCE = 100;
+
+/**
+ * Vraisemblance du prix ramené à l'unité : repère les prix saisis dans une unité qui n'est pas
+ * celle déclarée (« Sucre Blanc » à 0,00142 $ sous une unité « kg », soit 1,42 $ la tonne, alors
+ * que son jumeau « Sucre Brun » est au gramme). Le contrôle `V×U ≠ W` ne peut PAS attraper cette
+ * famille : elle ne met en jeu qu'une seule colonne de prix, et la quantité par paquet est souvent
+ * du texte. SIGNALE, ne corrige pas : la médiane des pairs est un indice, pas une vérité.
+ */
+export function detecterPrixInvraisemblables(articles: LigneArticle[]): PrixInvraisemblable[] {
+  const ramenes = articles
+    .map((a) => ({ a, r: prixRamene(a) }))
+    .filter((x): x is { a: LigneArticle; r: { grandeur: "kg" | "L"; valeur: Decimal } } => x.r !== null);
+
+  const medianes = new Map<"kg" | "L", Decimal | null>([
+    ["kg", mediane(ramenes.filter((x) => x.r.grandeur === "kg").map((x) => x.r.valeur))],
+    ["L", mediane(ramenes.filter((x) => x.r.grandeur === "L").map((x) => x.r.valeur))],
+  ]);
+
+  const suspects: PrixInvraisemblable[] = [];
+  for (const { a, r } of ramenes) {
+    const med = medianes.get(r.grandeur);
+    if (med === null || med === undefined || !med.greaterThan(0)) continue;
+    const rapport = r.valeur.div(med);
+    if (rapport.greaterThanOrEqualTo(SEUIL_INVRAISEMBLANCE) || rapport.lessThanOrEqualTo(new Decimal(1).div(SEUIL_INVRAISEMBLANCE))) {
+      suspects.push({
+        ligne: a.ligne,
+        designation: a.designation,
+        unite: a.unite!,
+        prixUnitaire: a.prixUnitaireUSD!,
+        grandeur: r.grandeur,
+        prixRamene: r.valeur.toDecimalPlaces(6).toNumber(),
+        mediane: med.toDecimalPlaces(4).toNumber(),
+        rapport: rapport.toSignificantDigits(3).toNumber(),
+      });
+    }
+  }
+  return suspects.sort((x, y) => x.rapport - y.rapport);
+}
+
 // ─── Onglets de fiches ───────────────────────────────────────────────────────
 
 /** Index des libellés de structure de la colonne B → n° de ligne (1ʳᵉ occurrence). */
@@ -491,6 +589,19 @@ export function lireFiche(wb: XLSX.WorkBook, onglet: string): { fiche: FichePars
   }
   const nomBrut = entete[entete.length - 1]!;
   const categorie = entete.length >= 2 ? entete[entete.length - 2]! : null;
+  // Le bloc de titre du classeur contient 1 texte (nom seul) ou 2 (catégorie + nom). Au-delà, la
+  // règle « le dernier texte est le nom » n'est plus garantie : une note ajoutée SOUS le titre
+  // deviendrait le nom de la fiche, sans que rien ne le dise. On refuse le silence.
+  if (entete.length > 2) {
+    anomalies.push({
+      onglet,
+      ligne: lFiche,
+      raison:
+        `${entete.length} textes libres dans le bloc de titre : « ${nomBrut} » retenu comme nom, ` +
+        `« ${categorie} » comme catégorie, ignoré(s) : ${entete.slice(0, -2).map((t) => `« ${t} »`).join(", ")}. ` +
+        "À vérifier — une ligne de note insérée sous le titre serait prise pour le nom.",
+    });
+  }
 
   const rendement = extraireRendement(nomBrut);
 
@@ -547,6 +658,7 @@ export function lireFiche(wb: XLSX.WorkBook, onglet: string): { fiche: FichePars
       nom: rendement.nom || nomBrut,
       nomBrut,
       cles: [...new Set([normaliserDesignation(onglet), normaliserDesignation(rendement.nom || nomBrut), normaliserDesignation(nomBrut)])],
+      textesEntete: entete,
       categorie,
       nbPortions,
       prixVenteTTC: lTTC === undefined ? null : nombre(valeur(ws, COL_C, lTTC)),
@@ -622,6 +734,7 @@ export function analyserClasseur(wb: XLSX.WorkBook): ResultatParse {
   }
 
   const ecartsPrix = detecterEcartsPrix(articles);
+  const prixInvraisemblables = detecterPrixInvraisemblables(articles);
 
   // 3. Rattachement des ingrédients : sous-recette d'abord, puis article. Jamais « au plus proche ».
   const parCleFiche = new Map<string, FicheParsee>();
@@ -683,6 +796,7 @@ export function analyserClasseur(wb: XLSX.WorkBook): ResultatParse {
     faussesLignesArticles,
     collisionsArticles: [...collisions].map(([cle, designations]) => ({ cle, designations })),
     ecartsPrix,
+    prixInvraisemblables,
     fiches,
     sousRecettes,
     plats,
@@ -699,26 +813,40 @@ export function analyserClasseur(wb: XLSX.WorkBook): ResultatParse {
 
 // ─── Simulation du moteur de coût (lecture seule, aucun accès base) ──────────
 
-export type SimulationFiche = { nom: string; incomplet: boolean; motifs: string[]; coutParPortion: string | null };
+export type SimulationFiche = {
+  nom: string;
+  incomplet: boolean;
+  motifs: string[];
+  coutParPortion: string | null;
+  /** Coût total HT de la fiche entière, pleine précision (`null` si indéterminé). */
+  coutTotal: Decimal | null;
+  nbPortions: number;
+};
 
 /**
  * Passe le résultat du parsing dans le VRAI moteur (`calculerCout`) pour chiffrer, avant tout
  * import, combien de fiches sortiront en coût incomplet et pourquoi. Le moteur n'est pas modifié.
+ *
+ * `arrondiSchema = true` rejoue le même calcul avec les valeurs TELLES QU'ELLES SERONT ÉCRITES
+ * (prix à 4 décimales, quantités à 3). Comparer les deux passes donne l'effet réel des arrondis
+ * de schéma EN DOLLARS — la seule unité dans laquelle la Direction peut trancher.
  */
-export function simulerCouts(res: ResultatParse): SimulationFiche[] {
+export function simulerCouts(res: ResultatParse, options: { arrondiSchema?: boolean } = {}): SimulationFiche[] {
   const fichesCalc = new Map<string, FicheCalc>();
   const idDe = (f: FicheParsee) => f.onglet;
+  const q = (v: number) => (options.arrondiSchema ? arrondir(v, DECIMALES_QUANTITE).toString() : v);
+  const p = (v: number | null) => (v === null ? null : options.arrondiSchema ? arrondir(v, DECIMALES_PRIX).toString() : v);
 
   for (const f of res.fiches) {
     const ingredients: IngredientCalc[] = res.lignes
       .filter((l) => l.fiche === f)
       .map((l) => {
-        const base = { nom: l.ingredient.designation, unite: l.ingredient.unite, quantite: l.ingredient.quantite ?? 0 };
+        const base = { nom: l.ingredient.designation, unite: l.ingredient.unite, quantite: q(l.ingredient.quantite ?? 0) };
         if (l.rattachement.type === "ARTICLE") {
           return {
             ...base,
             article: {
-              prixUnitaireUSD: l.rattachement.article.prixUnitaireUSD,
+              prixUnitaireUSD: p(l.rattachement.article.prixUnitaireUSD),
               unite: l.rattachement.article.unite ?? "",
             },
           };
@@ -744,18 +872,25 @@ export function simulerCouts(res: ResultatParse): SimulationFiche[] {
   const contexte = { fiches: fichesCalc };
   return res.fiches.map((f) => {
     const r = calculerCout(fichesCalc.get(idDe(f))!, contexte);
+    const indetermine = r.incomplet && r.coutParPortion.isZero();
     return {
       nom: f.nom,
       incomplet: r.incomplet,
       motifs: r.ingredientsSansPrix,
-      coutParPortion: r.incomplet && r.coutParPortion.isZero() ? null : r.coutParPortion.toDecimalPlaces(4).toString(),
+      coutParPortion: indetermine ? null : r.coutParPortion.toDecimalPlaces(4).toString(),
+      coutTotal: indetermine ? null : r.coutTotal,
+      nbPortions: f.nbPortions ?? 1,
     };
   });
 }
 
 // ─── Rapport ─────────────────────────────────────────────────────────────────
 
-export function formaterRapport(res: ResultatParse, simulation: SimulationFiche[]): string {
+export function formaterRapport(
+  res: ResultatParse,
+  simulation: SimulationFiche[],
+  simulationArrondie: SimulationFiche[],
+): string {
   const out: string[] = [];
   let numero = 0;
   const bloc = (titre: string) => {
@@ -820,6 +955,32 @@ export function formaterRapport(res: ResultatParse, simulation: SimulationFiche[
   }
   out.push("  Le prix à l'unité est importé TEL QUEL (c'est lui qui fait foi pour le coût de revient) ;");
   out.push("  le prix carton est importé tel quel lui aussi et n'entre dans aucun calcul.");
+  out.push("  /!\\ CE CONTRÔLE N'EST PAS EXHAUSTIF : il compare deux colonnes de prix entre elles et ne");
+  out.push("  voit donc RIEN quand une seule est en cause (prix saisi dans une autre unité que celle");
+  out.push("  déclarée), ni quand la quantité par paquet contient du texte. Cette famille-là est");
+  out.push("  couverte par le contrôle de vraisemblance ci-dessous, à lire avec celui-ci.");
+
+  out.push(bloc("PRIX INVRAISEMBLABLES À L'UNITÉ (ce que le contrôle précédent ne peut PAS voir)"));
+  out.push(`  Méthode : prix ramené au kg (ou au litre) et comparé à la MÉDIANE des articles de la même`);
+  out.push(`  grandeur. Au-delà d'un rapport de ${SEUIL_INVRAISEMBLANCE}, ce n'est plus une variation de marché.`);
+  out.push("  Les unités de comptage (pièce, boîte, bouteille…) sont hors comparaison : deux « pièces »");
+  out.push("  ne sont pas commensurables, on ne prétend pas le contraire.");
+  if (res.prixInvraisemblables.length === 0) out.push("  Aucun prix aberrant détecté.");
+  for (const p of res.prixInvraisemblables) {
+    const cle = normaliserDesignation(p.designation);
+    const fichesTouchees = [...new Set(
+      res.lignes.filter((l) => l.rattachement.type === "ARTICLE" && l.rattachement.article.cle === cle).map((l) => l.fiche.nom)
+    )];
+    const sens = p.rapport < 1 ? `${Math.round(1 / p.rapport)} fois TROP BAS` : `${Math.round(p.rapport)} fois trop haut`;
+    out.push(`  • L${p.ligne} ${p.designation} — ${p.prixUnitaire} $ / « ${p.unite} »`);
+    out.push(`      soit ${p.prixRamene} $/${p.grandeur} contre une médiane de ${p.mediane} $/${p.grandeur} : ${sens}.`);
+    if (fichesTouchees.length > 0) {
+      out.push(`      Coût sous-évalué dans ${fichesTouchees.length} fiche(s) : ${fichesTouchees.join(", ")}`);
+    } else {
+      out.push("      Aucune fiche ne l'utilise pour l'instant.");
+    }
+  }
+  out.push("  SIGNALÉ, NON CORRIGÉ : la médiane est un indice, pas une vérité. La Direction tranche.");
 
   out.push(bloc("UNITÉS RENCONTRÉES QUI NE SE CONVERTISSENT PAS (→ coût partiel)"));
   const lignesInconvertibles = res.unitesInconvertibles.reduce((n, u) => n + u.occurrences.length, 0);
@@ -834,25 +995,70 @@ export function formaterRapport(res: ResultatParse, simulation: SimulationFiche[
   out.push("    a) saisir la consommation en g/kg → la conversion par poids d'emballage prend le relais ;");
   out.push("    b) déclarer l'unité d'achat « paquet » + un prix au paquet → conversion de comptage.");
 
-  out.push(bloc("QUANTITÉS ABSENTES DU CLASSEUR"));
+  out.push(bloc("QUANTITÉS ABSENTES DU CLASSEUR (fiches qui NE PEUVENT PAS être chiffrées)"));
   if (res.quantitesAbsentes.length === 0) out.push("  Aucune.");
   for (const l of res.quantitesAbsentes) {
-    out.push(`  • ${l.fiche.nom} (L${l.ingredient.ligne}) : « ${l.ingredient.designation} » — colonne « Unités nécessaires » vide`);
+    const article = l.rattachement.type === "ARTICLE" ? l.rattachement.article : null;
+    out.push(`  • FICHE « ${l.fiche.nom} » (L${l.ingredient.ligne}) : « ${l.ingredient.designation} » — colonne « Unités nécessaires » vide`);
+    if (article?.prixUnitaireUSD) {
+      out.push(`      L'article vaut ${article.prixUnitaireUSD} $ / « ${article.unite} » : chaque unité oubliée coûte ce montant à la fiche.`);
+    }
   }
   if (res.quantitesAbsentes.length > 0) {
-    out.push("  Importées à 0 (le schéma n'accepte pas d'inconnue) : la ligne existe dans la recette,");
-    out.push("  sa quantité est à saisir. Le classeur les comptait déjà 0.");
+    out.push("  Importées à 0 — le schéma n'accepte pas d'inconnue — mais le moteur lève désormais");
+    out.push("  « QUANTITE_ABSENTE » sur toute quantité à 0 : la fiche sort en COÛT INCOMPLET et");
+    out.push("  n'est jamais présentée comme chiffrée. C'est la correction du piège suivant : comptée");
+    out.push("  0, la ligne se faisait passer pour une quantité connue et la fiche pour complète.");
+    out.push("  Ces fiches restent donc À CHIFFRER tant que la Direction n'a pas donné la quantité.");
   }
 
-  out.push(bloc("ARRONDIS IMPOSÉS PAR LE SCHÉMA (> 0,1 % d'écart)"));
-  if (res.arrondis.length === 0) out.push("  Aucun.");
-  for (const a of res.arrondis) {
-    out.push(`  • ${a.quoi} : ${a.valeurClasseur} → ${a.valeurBase} (${(a.ecartRelatif * 100).toFixed(2)} %)`);
+  out.push(bloc("ARRONDIS IMPOSÉS PAR LE SCHÉMA — EFFET RÉEL, EN DOLLARS"));
+  out.push("  Les colonnes de la base ont une précision finie (prix 4 décimales, quantités 3). La");
+  out.push("  question n'est pas « de combien de % une valeur bouge » — un % sur un prix au gramme ne");
+  out.push("  veut rien dire — mais « de combien de dollars le coût d'une fiche bouge ». Réponse :");
+  const ecartsFiches = simulation
+    .map((brut) => {
+      const arr = simulationArrondie.find((s) => s.nom === brut.nom);
+      if (!arr || brut.coutTotal === null || arr.coutTotal === null) return null;
+      const ecart = arr.coutTotal.minus(brut.coutTotal);
+      return { nom: brut.nom, ecart, parPortion: ecart.div(brut.nbPortions || 1) };
+    })
+    .filter((x): x is { nom: string; ecart: Decimal; parPortion: Decimal } => x !== null)
+    .sort((a, b) => b.ecart.abs().comparedTo(a.ecart.abs()));
+  const nuls = ecartsFiches.filter((e) => e.ecart.isZero());
+  const visibles = ecartsFiches.filter((e) => e.ecart.abs().greaterThanOrEqualTo("0.0001"));
+  const negligeables = ecartsFiches.length - nuls.length - visibles.length;
+  const pire = visibles[0];
+  out.push(`  • Fiches dont le coût est déterminable et donc comparable : ${ecartsFiches.length} sur ${simulation.length}`);
+  out.push(`    (les ${simulation.length - ecartsFiches.length} autres sont à coût indéterminé, cf. section « SIMULATION »).`);
+  out.push(`  • Écart EXACTEMENT NUL ................ ${nuls.length} fiche(s)`);
+  out.push(`  • Écart sous le dixième de centime .... ${negligeables} fiche(s)`);
+  out.push(`  • Écart visible au dixième de centime . ${visibles.length} fiche(s), détaillées ci-dessous`);
+  if (pire) {
+    out.push(`  • PIRE ÉCART : ${pire.nom} — ${pire.ecart.toDecimalPlaces(4).toString()} $ sur la fiche entière,`);
+    out.push(`    soit ${pire.parPortion.toDecimalPlaces(4).toString()} $ par portion. Un centime et demi sur une fiche ENTIÈRE.`);
   }
-  if (res.arrondis.length > 0) {
-    out.push(`  Prix : ${DECIMALES_PRIX} décimales (Decimal(12,4)) — les articles tarifés « au gramme » touchent ce plancher.`);
-    out.push(`  Quantités : ${DECIMALES_QUANTITE} décimales (Decimal(14,3)).`);
+  for (const e of visibles) {
+    out.push(`      ${e.nom.padEnd(52)} ${e.ecart.toDecimalPlaces(4).toString().padStart(9)} $   (${e.parPortion.toDecimalPlaces(4).toString()} $/portion)`);
   }
+  out.push("  CONCLUSION : aucune migration n'est justifiée. À titre de comparaison, l'écart entre le");
+  out.push("  classeur et le moteur (arrondis intermédiaires du classeur) vaut 0,01 $ sur la seule");
+  out.push("  Bolognaise — soit davantage que le pire arrondi de schéma ci-dessus.");
+  out.push(`  (${res.arrondis.length} valeur(s) individuelle(s) sont effectivement arrondies à l'écriture ; c'est leur`);
+  out.push("  effet cumulé, chiffré ci-dessus, qui décide — pas le pourcentage de chacune.)");
+
+  out.push(bloc("INTERPRÉTATION DU BLOC DE TITRE (nom / catégorie retenus, à relire)"));
+  out.push("  Le nom est le DERNIER texte libre avant « Nombre de portions : », la catégorie celui");
+  out.push("  d'avant. Règle exacte sur ce classeur, mais une note insérée sous le titre deviendrait");
+  out.push("  le nom : les 3+ textes lèvent une anomalie, et le tableau ci-dessous se relit à l'œil.");
+  out.push(`  ${"Onglet".padEnd(32)} ${"Nom retenu".padEnd(46)} Catégorie`);
+  for (const f of res.fiches) {
+    const divergent = normaliserDesignation(f.nom) !== normaliserDesignation(f.onglet) ? " ≠" : "  ";
+    out.push(`  ${(f.onglet + divergent).padEnd(32)} ${f.nom.padEnd(46)} ${f.categorie ?? "—"}`);
+  }
+  out.push("  « ≠ » = le nom retenu diffère du nom d'onglet. Normal quand l'onglet est abrégé");
+  out.push("  (« Filet de saumon » / « Filet de saumon au beurre blanc aux câpres ») — c'est B13 qui");
+  out.push("  fait foi, l'onglet est tronqué par Excel. À relire tout de même.");
 
   out.push(bloc("SIMULATION DU MOTEUR DE COÛT (src/lib/fiches/cout.ts, non modifié)"));
   const incompletes = simulation.filter((s) => s.incomplet);
@@ -889,129 +1095,406 @@ export function formaterRapport(res: ResultatParse, simulation: SimulationFiche[
 
 // ─── Écriture en base ────────────────────────────────────────────────────────
 
-async function ecrireEnBase(res: ResultatParse, databaseUrl: string, force: boolean): Promise<void> {
-  const { PrismaClient } = await import("@prisma/client");
-  const { PrismaPg } = await import("@prisma/adapter-pg");
-  const adapter = new PrismaPg({ connectionString: databaseUrl });
-  const prisma = new PrismaClient({ adapter });
+/**
+ * Client Prisma minimal dont l'écriture a besoin. Déclaré structurellement plutôt qu'importé :
+ * le parseur et le rapport restent utilisables sans `@prisma/client`, et le test d'intégration
+ * injecte son propre client branché sur un Postgres jetable.
+ */
+export type ClientEcriture = {
+  ficheTechnique: {
+    findMany(args: unknown): Promise<FicheEnBase[]>;
+    deleteMany(args: unknown): Promise<{ count: number }>;
+  };
+  ingredientFiche: { findMany(args: unknown): Promise<{ ficheId: string; sousFicheId: string | null }[]> };
+  articleStock: { findMany(args: unknown): Promise<ArticleEnBase[]> };
+  $transaction<T>(fn: (tx: TxEcriture) => Promise<T>, options?: unknown): Promise<T>;
+};
 
-  try {
-    // ── Idempotence : marqueur = clé naturelle (les noms de fiches du classeur).
-    const nomsClasseur = res.fiches.map((f) => f.nom);
-    const dejaLa = await prisma.ficheTechnique.findMany({ where: { nom: { in: nomsClasseur } }, select: { id: true, nom: true } });
-    if (dejaLa.length > 0) {
-      if (!force) {
-        console.log(
-          `\nImport déjà effectué : ${dejaLa.length} fiche(s) du classeur existent déjà en base ` +
-            `(${dejaLa.slice(0, 3).map((f) => f.nom).join(", ")}…). Aucune 2ᵉ importation ` +
-            "(relance avec --force pour les supprimer puis réimporter)."
-        );
-        return;
-      }
-      console.log(`\n--force : suppression des ${dejaLa.length} fiche(s) déjà importée(s) (ingrédients en cascade)…`);
-      await prisma.ficheTechnique.deleteMany({ where: { id: { in: dejaLa.map((f) => f.id) } } });
+type TxEcriture = {
+  articleStock: {
+    update(args: unknown): Promise<unknown>;
+    create(args: { data: Record<string, unknown> }): Promise<{ id: string }>;
+  };
+  ficheTechnique: { create(args: { data: Record<string, unknown>; select: unknown }): Promise<{ id: string }> };
+  ingredientFiche: { createMany(args: { data: unknown[] }): Promise<unknown> };
+};
+
+type Dec = { toString(): string };
+
+type FicheEnBase = {
+  id: string;
+  nom: string;
+  categorie: string | null;
+  nbPortions: number;
+  tauxTVA: Dec;
+  prixVenteTTC: Dec | null;
+  coefficientMargeCible: Dec | null;
+  estSousRecette: boolean;
+  rendementQuantite: Dec | null;
+  rendementUnite: string | null;
+  recette: string | null;
+  ingredients: {
+    unite: string;
+    quantite: Dec;
+    ordre: number;
+    article: { designation: string } | null;
+    sousFiche: { nom: string } | null;
+  }[];
+};
+
+type ArticleEnBase = {
+  id: string;
+  designation: string;
+  domaine: string;
+  unite: string | null;
+  uniteParCarton: Dec | null;
+  prixUnitaireUSD: Dec | null;
+  prixCartonUSD: Dec | null;
+};
+
+/** Sélection Prisma correspondant exactement à `FicheEnBase` (empreinte de contenu). */
+export const SELECT_FICHE_SIGNATURE = {
+  id: true, nom: true, categorie: true, nbPortions: true, tauxTVA: true, prixVenteTTC: true,
+  coefficientMargeCible: true, estSousRecette: true, rendementQuantite: true, rendementUnite: true,
+  recette: true,
+  ingredients: {
+    orderBy: { ordre: "asc" },
+    select: {
+      unite: true, quantite: true, ordre: true,
+      article: { select: { designation: true } },
+      sousFiche: { select: { nom: true } },
+    },
+  },
+} as const;
+
+const texteDec = (v: Dec | null | undefined): string =>
+  v === null || v === undefined ? "—" : new Decimal(v.toString()).toString();
+
+/**
+ * Empreinte du contenu d'une fiche. Deux empreintes identiques ⇒ supprimer puis recréer la fiche
+ * est STRICTEMENT NEUTRE. C'est ce qui autorise `--force` à supprimer sans rien détruire : dès
+ * qu'une valeur diffère (un prix retouché, une ligne ajoutée), l'empreinte change et la fiche est
+ * protégée. Indispensable, car `FicheTechnique.nom` n'a AUCUNE contrainte d'unicité et les noms du
+ * classeur sont des noms de carte ordinaires (Carbonara, Bolognaise, Crème brûlée…) qu'un cuisinier
+ * ressaisira spontanément.
+ */
+function empreinteBase(f: FicheEnBase): string {
+  const lignes = f.ingredients.map((i, index) => [
+    normaliserDesignation(i.article?.designation ?? i.sousFiche?.nom ?? "?"),
+    normaliserUnite(i.unite),
+    texteDec(i.quantite),
+    index,
+  ].join("~"));
+  return [
+    f.nom.trim(), f.categorie?.trim() ?? "—", f.nbPortions, texteDec(f.tauxTVA), texteDec(f.prixVenteTTC),
+    texteDec(f.coefficientMargeCible), f.estSousRecette, texteDec(f.rendementQuantite), f.rendementUnite ?? "—",
+    f.recette ?? "—", ...lignes,
+  ].join("|");
+}
+
+/** La même empreinte, calculée sur ce que l'import ÉCRIRAIT (mêmes arrondis, même ordre). */
+function empreinteClasseur(f: FicheParsee, res: ResultatParse): string {
+  const lignes = res.lignes
+    .filter((l) => l.fiche === f && l.rattachement.type !== "AUCUN")
+    .map((l, index) => [
+      normaliserDesignation(
+        l.rattachement.type === "ARTICLE" ? l.rattachement.article.designation
+          : l.rattachement.type === "SOUS_RECETTE" ? l.rattachement.fiche.nom : "?"
+      ),
+      normaliserUnite(l.ingredient.unite),
+      arrondir(l.ingredient.quantite ?? 0, DECIMALES_QUANTITE).toString(),
+      index,
+    ].join("~"));
+  return [
+    f.nom.trim(), f.categorie?.trim() ?? "—",
+    f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
+    f.tauxTVA === null ? "0.16" : arrondir(f.tauxTVA, 4).toString(),
+    f.prixVenteTTC === null ? "—" : arrondir(f.prixVenteTTC, DECIMALES_PRIX).toString(),
+    f.coefficientMargeCible === null ? "—" : arrondir(f.coefficientMargeCible, 4).toString(),
+    f.estSousRecette,
+    f.rendementQuantiteG === null ? "—" : arrondir(f.rendementQuantiteG, 3).toString(),
+    f.rendementQuantiteG === null ? "—" : "g",
+    f.recette ?? "—", ...lignes,
+  ].join("|");
+}
+
+export type OptionsEcriture = {
+  force: boolean;
+  /** Noms de fiches divergentes dont la suppression est autorisée NOMMÉMENT (`--supprimer`). */
+  supprimerNommement?: string[];
+  /** Ne réécrit pas les prix d'un article déjà en base (préserve les corrections de la Direction). */
+  conserverPrixExistants?: boolean;
+};
+
+export type EcrasementPrix = {
+  designation: string;
+  champ: "prix à l'unité" | "prix carton" | "unité" | "quantité par paquet";
+  avant: string;
+  apres: string;
+};
+
+export type RapportEcriture = {
+  statut: "IMPORTE" | "DEJA_FAIT" | "ABANDON";
+  message: string;
+  fichesSupprimees: string[];
+  /** Fiches homonymes divergentes : elles ont bloqué l'import, ou attendent `--supprimer`. */
+  fichesProtegees: string[];
+  articlesCrees: number;
+  articlesMisAJour: number;
+  fichesCreees: number;
+  ingredientsCrees: number;
+  ecrasementsPrix: EcrasementPrix[];
+};
+
+/**
+ * Écrit le classeur en base. `prisma` est INJECTÉ : `main()` lui passe un client branché sur l'URL
+ * fournie explicitement, le test d'intégration un client branché sur un Postgres jetable.
+ * Aucune écriture n'a lieu quand le statut renvoyé est « DEJA_FAIT » ou « ABANDON ».
+ */
+export async function ecrireEnBase(
+  prisma: ClientEcriture,
+  res: ResultatParse,
+  options: OptionsEcriture,
+): Promise<RapportEcriture> {
+  const vide = {
+    fichesSupprimees: [] as string[], fichesProtegees: [] as string[],
+    articlesCrees: 0, articlesMisAJour: 0, fichesCreees: 0, ingredientsCrees: 0,
+    ecrasementsPrix: [] as EcrasementPrix[],
+  };
+  const autorisees = new Set((options.supprimerNommement ?? []).map((n) => n.trim()));
+
+  // ── Idempotence. Le marqueur est la clé naturelle (les noms du classeur), MAIS « une fiche
+  //    homonyme existe » ne veut pas dire « import déjà fait » : il faut qu'elles y soient TOUTES
+  //    et qu'elles soient toutes conformes. Sinon une seule « Carbonara » saisie à la main ferait
+  //    afficher « déjà importé » et n'importerait rien du tout — ni fiche, ni article — en silence.
+  const parNom = new Map(res.fiches.map((f) => [f.nom, f]));
+  const existantes = await prisma.ficheTechnique.findMany({
+    where: { nom: { in: [...parNom.keys()] } },
+    select: SELECT_FICHE_SIGNATURE,
+  });
+
+  const conformes: FicheEnBase[] = [];
+  const divergentes: FicheEnBase[] = [];
+  for (const e of existantes) {
+    const duClasseur = parNom.get(e.nom);
+    (duClasseur && empreinteBase(e) === empreinteClasseur(duClasseur, res) ? conformes : divergentes).push(e);
+  }
+  const toutesLa = conformes.length === parNom.size && divergentes.length === 0;
+
+  if (!options.force) {
+    if (toutesLa) {
+      return {
+        ...vide,
+        statut: "DEJA_FAIT",
+        message: `Import déjà effectué : les ${conformes.length} fiches du classeur sont en base, à l'identique. Rien à faire.`,
+      };
     }
-
-    // ── 1. Articles : upsert par désignation normalisée.
-    const existants = await prisma.articleStock.findMany({ select: { id: true, designation: true, domaine: true } });
-    const idParCle = new Map<string, string>();
-    const domaineParCle = new Map<string, string>();
-    for (const a of existants) {
-      const cle = normaliserDesignation(a.designation);
-      if (!idParCle.has(cle)) { idParCle.set(cle, a.id); domaineParCle.set(cle, a.domaine); }
+    if (existantes.length > 0) {
+      return {
+        ...vide,
+        statut: "ABANDON",
+        fichesProtegees: divergentes.map((f) => f.nom),
+        message:
+          `ABANDON : ${existantes.length} fiche(s) sur ${parNom.size} portent déjà un nom du classeur, ` +
+          `dont ${divergentes.length} dont le CONTENU DIFFÈRE` +
+          (divergentes.length > 0 ? ` (${divergentes.map((f) => `« ${f.nom} »`).join(", ")})` : "") +
+          ". Rien n'a été écrit — ni fiche, ni article. Ces fiches ont pu être saisies à la main : " +
+          "`FicheTechnique.nom` n'est pas unique, et « Carbonara » ou « Bolognaise » sont des noms de " +
+          "carte ordinaires. Relance avec --force pour remplacer les fiches CONFORMES, et " +
+          '--supprimer "<nom>" pour autoriser nommément la destruction de chaque fiche divergente.',
+      };
     }
+  }
 
-    let crees = 0;
-    let majs = 0;
-    await prisma.$transaction(async (tx) => {
-      for (const a of res.articles) {
-        const donnees = {
-          unite: a.unite,
-          uniteParCarton: a.uniteParCarton === null ? null : arrondir(a.uniteParCarton, 2).toString(),
-          prixUnitaireUSD: a.prixUnitaireUSD === null ? null : arrondir(a.prixUnitaireUSD, DECIMALES_PRIX).toString(),
-          prixCartonUSD: a.prixCartonUSD === null ? null : arrondir(a.prixCartonUSD, DECIMALES_PRIX).toString(),
+  const aSupprimer = [...conformes, ...divergentes.filter((f) => autorisees.has(f.nom))];
+  const refusees = divergentes.filter((f) => !autorisees.has(f.nom));
+  if (options.force && refusees.length > 0) {
+    return {
+      ...vide,
+      statut: "ABANDON",
+      fichesProtegees: refusees.map((f) => f.nom),
+      message:
+        `ABANDON : ${refusees.length} fiche(s) portent un nom du classeur mais un contenu DIFFÉRENT. ` +
+        "--force ne les détruit pas de lui-même : elles ont pu être saisies ou corrigées à la main. " +
+        "Ce qui serait détruit : " +
+        refusees.map((f) => `« ${f.nom} » (${f.ingredients.length} ingrédient(s))`).join(", ") +
+        ". Pour l'autoriser, ajoute : " + refusees.map((f) => `--supprimer "${f.nom}"`).join(" ") +
+        ". Rien n'a été écrit.",
+    };
+  }
+
+  const rapport: RapportEcriture = { ...vide, statut: "IMPORTE", message: "" };
+
+  // ── Suppression en ORDRE DE DÉPENDANCE. `IngredientFiche.sousFicheId` est en `onDelete:
+  //    Restrict`, non déférable en PostgreSQL : supprimer une sous-recette encore citée échoue
+  //    immédiatement. On retire donc par vagues ce que plus personne ne cite (les plats d'abord,
+  //    les sous-recettes ensuite), quelle que soit la profondeur d'imbrication.
+  if (aSupprimer.length > 0) {
+    let restants = aSupprimer.map((f) => ({ id: f.id, nom: f.nom }));
+    const idsLot = new Set(restants.map((f) => f.id));
+    while (restants.length > 0) {
+      const citations = await prisma.ingredientFiche.findMany({
+        where: { sousFicheId: { in: restants.map((f) => f.id) } },
+        select: { ficheId: true, sousFicheId: true },
+      });
+      const citees = new Set(citations.map((c) => c.sousFicheId));
+      const supprimables = restants.filter((f) => !citees.has(f.id));
+
+      if (supprimables.length === 0) {
+        // Reste une citation venant d'une fiche HORS lot : on ne casse pas une fiche qu'on n'a
+        // pas le droit de toucher pour faire de la place.
+        const bloqueurs = citations.filter((c) => !idsLot.has(c.ficheId));
+        return {
+          ...vide,
+          statut: "ABANDON",
+          fichesProtegees: restants.map((f) => f.nom),
+          message:
+            `ABANDON : ${restants.length} sous-recette(s) (${restants.map((f) => `« ${f.nom} »`).join(", ")}) sont ` +
+            `encore citées comme ingrédient par ${bloqueurs.length} ligne(s) de fiches HORS classeur. Les supprimer ` +
+            "violerait `IngredientFiche.sousFicheId` (onDelete: Restrict). Rien de plus n'a été écrit — " +
+            "détache ces lignes, ou autorise la suppression des fiches qui les portent.",
         };
-        const id = idParCle.get(a.cle);
-        if (id) {
-          // `domaine` n'est JAMAIS réécrit : un article déjà classé BOISSON ne doit pas devenir
-          // NOURRITURE parce qu'il figure aussi dans ce classeur.
-          const domaine = domaineParCle.get(a.cle);
-          if (domaine && domaine !== "NOURRITURE") {
-            console.log(`  (i) « ${a.designation} » existe en domaine ${domaine} : domaine conservé.`);
-          }
-          await tx.articleStock.update({ where: { id }, data: donnees });
-          majs++;
-        } else {
-          const cree = await tx.articleStock.create({ data: { designation: a.designation, domaine: "NOURRITURE", ...donnees } });
-          idParCle.set(a.cle, cree.id);
-          crees++;
+      }
+      await prisma.ficheTechnique.deleteMany({ where: { id: { in: supprimables.map((f) => f.id) } } });
+      rapport.fichesSupprimees.push(...supprimables.map((f) => f.nom));
+      const supprimes = new Set(supprimables.map((f) => f.id));
+      restants = restants.filter((f) => !supprimes.has(f.id));
+    }
+  }
+
+  // ── 1. Articles : upsert par désignation normalisée.
+  const existants = await prisma.articleStock.findMany({
+    select: {
+      id: true, designation: true, domaine: true, unite: true,
+      uniteParCarton: true, prixUnitaireUSD: true, prixCartonUSD: true,
+    },
+  });
+  const parCleBase = new Map<string, ArticleEnBase>();
+  for (const a of existants) {
+    const cle = normaliserDesignation(a.designation);
+    if (!parCleBase.has(cle)) parCleBase.set(cle, a);
+  }
+  const idParCle = new Map([...parCleBase].map(([cle, a]) => [cle, a.id]));
+
+  await prisma.$transaction(async (tx) => {
+    for (const a of res.articles) {
+      const nouveau = {
+        unite: a.unite,
+        uniteParCarton: a.uniteParCarton === null ? null : arrondir(a.uniteParCarton, 2).toString(),
+        prixUnitaireUSD: a.prixUnitaireUSD === null ? null : arrondir(a.prixUnitaireUSD, DECIMALES_PRIX).toString(),
+        prixCartonUSD: a.prixCartonUSD === null ? null : arrondir(a.prixCartonUSD, DECIMALES_PRIX).toString(),
+      };
+      const ancien = parCleBase.get(a.cle);
+
+      if (!ancien) {
+        // `domaine` n'est posé qu'à la création : un article déjà classé BOISSON ne doit pas
+        // devenir NOURRITURE parce qu'il figure aussi dans ce classeur.
+        const cree = await tx.articleStock.create({ data: { designation: a.designation, domaine: "NOURRITURE", ...nouveau } });
+        idParCle.set(a.cle, cree.id);
+        rapport.articlesCrees++;
+        continue;
+      }
+
+      // Le classeur écrase le catalogue : si la Direction a corrigé un prix DANS L'APPLICATION,
+      // le réimporter le remet à la valeur (fausse) du classeur. Tout ce qui bouge est listé.
+      const compare: [EcrasementPrix["champ"], string, string][] = [
+        ["prix à l'unité", texteDec(ancien.prixUnitaireUSD), nouveau.prixUnitaireUSD ?? "—"],
+        ["prix carton", texteDec(ancien.prixCartonUSD), nouveau.prixCartonUSD ?? "—"],
+        ["unité", ancien.unite ?? "—", nouveau.unite ?? "—"],
+        ["quantité par paquet", texteDec(ancien.uniteParCarton), nouveau.uniteParCarton ?? "—"],
+      ];
+      for (const [champ, avant, apres] of compare) {
+        const prixConserve = options.conserverPrixExistants && (champ === "prix à l'unité" || champ === "prix carton");
+        if (avant !== apres && !prixConserve) {
+          rapport.ecrasementsPrix.push({ designation: a.designation, champ, avant, apres });
         }
       }
-    }, { timeout: 120_000 });
-    console.log(`Articles : ${crees} créé(s), ${majs} mis à jour.`);
 
-    // ── 2. Fiches : les SOUS-RECETTES d'abord (un plat peut en citer une), les plats ensuite.
-    const idFiche = new Map<FicheParsee, string>();
-    const ordreCreation = [...res.sousRecettes, ...res.plats];
+      const donnees = options.conserverPrixExistants
+        ? { unite: nouveau.unite, uniteParCarton: nouveau.uniteParCarton } // prix laissés intacts
+        : nouveau;
+      await tx.articleStock.update({ where: { id: ancien.id }, data: donnees });
+      rapport.articlesMisAJour++;
+    }
+  }, { timeout: 120_000 });
 
-    await prisma.$transaction(async (tx) => {
-      for (const f of ordreCreation) {
-        const cree = await tx.ficheTechnique.create({
-          data: {
-            nom: f.nom,
-            categorie: f.categorie,
-            type: "PLAT",
-            nbPortions: f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
-            tauxTVA: f.tauxTVA === null ? undefined : arrondir(f.tauxTVA, 4).toString(),
-            prixVenteTTC: f.prixVenteTTC === null ? null : arrondir(f.prixVenteTTC, DECIMALES_PRIX).toString(),
-            coefficientMargeCible: f.coefficientMargeCible === null ? null : arrondir(f.coefficientMargeCible, 4).toString(),
-            estSousRecette: f.estSousRecette,
-            // TOUJOURS en grammes : « 4.6 kg » a été converti en 4600 g au parsing.
-            rendementQuantite: f.rendementQuantiteG === null ? null : arrondir(f.rendementQuantiteG, 3).toString(),
-            rendementUnite: f.rendementQuantiteG === null ? null : "g",
-            recette: f.recette,
-            actif: true,
-          },
-          select: { id: true },
-        });
-        idFiche.set(f, cree.id);
-      }
+  // ── 2. Fiches : les SOUS-RECETTES d'abord (un plat peut en citer une), les plats ensuite.
+  const idFiche = new Map<FicheParsee, string>();
+  const ordreCreation = [...res.sousRecettes, ...res.plats];
 
-      // ── 3. Ingrédients (lots) : jamais de rattachement deviné — les non rattachés sont écartés.
-      const aInserer = res.lignes
-        .filter((l) => l.rattachement.type !== "AUCUN")
-        .map((l) => ({
-          ficheId: idFiche.get(l.fiche)!,
-          articleId: l.rattachement.type === "ARTICLE" ? idParCle.get(l.rattachement.article.cle)! : null,
-          sousFicheId: l.rattachement.type === "SOUS_RECETTE" ? idFiche.get(l.rattachement.fiche)! : null,
-          unite: l.ingredient.unite,
-          quantite: arrondir(l.ingredient.quantite ?? 0, DECIMALES_QUANTITE).toString(),
-          ordre: l.ingredient.ordre,
-        }));
+  await prisma.$transaction(async (tx) => {
+    for (const f of ordreCreation) {
+      const cree = await tx.ficheTechnique.create({
+        data: {
+          nom: f.nom,
+          categorie: f.categorie,
+          type: "PLAT",
+          nbPortions: f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
+          tauxTVA: f.tauxTVA === null ? undefined : arrondir(f.tauxTVA, 4).toString(),
+          prixVenteTTC: f.prixVenteTTC === null ? null : arrondir(f.prixVenteTTC, DECIMALES_PRIX).toString(),
+          coefficientMargeCible: f.coefficientMargeCible === null ? null : arrondir(f.coefficientMargeCible, 4).toString(),
+          estSousRecette: f.estSousRecette,
+          // TOUJOURS en grammes : « 4.6 kg » a été converti en 4600 g au parsing.
+          rendementQuantite: f.rendementQuantiteG === null ? null : arrondir(f.rendementQuantiteG, 3).toString(),
+          rendementUnite: f.rendementQuantiteG === null ? null : "g",
+          recette: f.recette,
+          actif: true,
+        },
+        select: { id: true },
+      });
+      idFiche.set(f, cree.id);
+    }
+    rapport.fichesCreees = ordreCreation.length;
 
-      const TAILLE_LOT = 500;
-      for (let i = 0; i < aInserer.length; i += TAILLE_LOT) {
-        await tx.ingredientFiche.createMany({ data: aInserer.slice(i, i + TAILLE_LOT) });
-      }
-      console.log(`Fiches : ${ordreCreation.length} créée(s) — Ingrédients : ${aInserer.length} créé(s).`);
-      if (res.nonRattaches.length > 0) {
-        console.log(`/!\\ ${res.nonRattaches.length} ingrédient(s) NON créé(s) faute de rattachement sûr (cf. §3 du rapport).`);
-      }
-    }, { timeout: 120_000 });
-  } finally {
-    await prisma.$disconnect();
-  }
+    // ── 3. Ingrédients (lots) : jamais de rattachement deviné — les non rattachés sont écartés.
+    const aInserer = res.lignes
+      .filter((l) => l.rattachement.type !== "AUCUN")
+      .map((l) => ({
+        ficheId: idFiche.get(l.fiche)!,
+        articleId: l.rattachement.type === "ARTICLE" ? idParCle.get(l.rattachement.article.cle)! : null,
+        sousFicheId: l.rattachement.type === "SOUS_RECETTE" ? idFiche.get(l.rattachement.fiche)! : null,
+        unite: l.ingredient.unite,
+        quantite: arrondir(l.ingredient.quantite ?? 0, DECIMALES_QUANTITE).toString(),
+        ordre: l.ingredient.ordre,
+      }));
+
+    const TAILLE_LOT = 500;
+    for (let i = 0; i < aInserer.length; i += TAILLE_LOT) {
+      await tx.ingredientFiche.createMany({ data: aInserer.slice(i, i + TAILLE_LOT) });
+    }
+    rapport.ingredientsCrees = aInserer.length;
+  }, { timeout: 120_000 });
+
+  rapport.message =
+    `Import terminé : ${rapport.articlesCrees} article(s) créé(s), ${rapport.articlesMisAJour} mis à jour, ` +
+    `${rapport.fichesCreees} fiche(s) et ${rapport.ingredientsCrees} ingrédient(s) créés` +
+    (rapport.fichesSupprimees.length > 0 ? `, ${rapport.fichesSupprimees.length} fiche(s) remplacée(s)` : "") + ".";
+  return rapport;
 }
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
+
+/** Valeurs de `--supprimer "<nom>"` (répétable), séparées de l'URL et du chemin de fichier. */
+function lireSupprimer(args: string[]): string[] {
+  const noms: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--supprimer" && args[i + 1] !== undefined) noms.push(args[++i]!);
+    else if (args[i]!.startsWith("--supprimer=")) noms.push(args[i]!.slice("--supprimer=".length));
+  }
+  return noms;
+}
 
 async function main() {
   const args = process.argv.slice(2);
   const force = args.includes("--force");
   const dryRun = args.includes("--dry-run");
-  const positionnels = args.filter((a) => !a.startsWith("--"));
+  const conserverPrixExistants = args.includes("--conserver-prix-existants");
+  const supprimerNommement = lireSupprimer(args);
+
   // Une URL de base commence par « postgres… » : tout autre positionnel est un chemin de fichier.
   // Ainsi `--dry-run "/chemin/classeur.xlsx"` fonctionne sans jamais mentionner de base.
+  const valeursDOptions = new Set(supprimerNommement);
+  const positionnels = args.filter((a) => !a.startsWith("--") && !valeursDOptions.has(a));
   const urls = positionnels.filter((p) => /^postgres(ql)?:\/\//i.test(p));
   const chemins = positionnels.filter((p) => !/^postgres(ql)?:\/\//i.test(p));
   const databaseUrl = urls[0] ?? process.env.IMPORT_DATABASE_URL;
@@ -1022,7 +1505,7 @@ async function main() {
 
   const wb = XLSX.readFile(cheminFichier, { cellFormula: false, cellHTML: false, cellStyles: false, bookDeps: false });
   const res = analyserClasseur(wb);
-  console.log(formaterRapport(res, simulerCouts(res)));
+  console.log(formaterRapport(res, simulerCouts(res), simulerCouts(res, { arrondiSchema: true })));
 
   if (dryRun) return;
 
@@ -1034,7 +1517,32 @@ async function main() {
     );
   }
   console.log(`\nBase cible : ${databaseUrl.replace(/:[^:@/]+@/, ":***@")}`); // mot de passe masqué
-  await ecrireEnBase(res, databaseUrl, force);
+
+  const { PrismaClient } = await import("@prisma/client");
+  const { PrismaPg } = await import("@prisma/adapter-pg");
+  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+
+  try {
+    const r = await ecrireEnBase(prisma as unknown as ClientEcriture, res, { force, supprimerNommement, conserverPrixExistants });
+    console.log(`\n${r.statut} — ${r.message}`);
+    if (r.fichesSupprimees.length > 0) {
+      console.log(`Fiches remplacées (contenu identique au classeur, suppression neutre) : ${r.fichesSupprimees.join(", ")}`);
+    }
+    if (r.ecrasementsPrix.length > 0) {
+      console.log(
+        `\n/!\\ ${r.ecrasementsPrix.length} valeur(s) d'article ÉCRASÉE(S) par le classeur. Si la Direction a corrigé ` +
+          "un prix dans l'application, il vient d'être ramené à la valeur du classeur.\n" +
+          "    Relance avec --conserver-prix-existants pour préserver les prix déjà en base."
+      );
+      for (const e of r.ecrasementsPrix) console.log(`    - ${e.designation} — ${e.champ} : ${e.avant} → ${e.apres}`);
+    }
+    if (res.nonRattaches.length > 0) {
+      console.log(`\n/!\\ ${res.nonRattaches.length} ingrédient(s) NON créé(s) faute de rattachement sûr (cf. §3 du rapport).`);
+    }
+    if (r.statut === "ABANDON") process.exitCode = 1;
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 // Exécution directe uniquement (jamais lors d'un import par les tests du parseur).

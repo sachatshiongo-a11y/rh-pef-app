@@ -66,6 +66,7 @@ export type MotifSansPrix =
   | "PRIX_NUL" // l'article porte un prix à 0 (ou négatif) : renseigné à tort, pas gratuit
   | "UNITE_INCONVERTIBLE" // unité d'achat ↔ unité de consommation incompatibles ou inconnues
   | "QUANTITE_INVALIDE" // quantité absente, non numérique ou négative
+  | "QUANTITE_ABSENTE" // quantité à 0 : non renseignée, surtout pas « ne coûte rien »
   | "SANS_SOURCE" // ni article ni sous-fiche
   | "SOUS_FICHE_INTROUVABLE" // référence de sous-recette absente du contexte
   | "RENDEMENT_ABSENT" // sous-recette sans rendement exploitable
@@ -240,6 +241,17 @@ function calculerInterne(
     const quantite = versDecimal(ingredient.quantite);
     if (quantite === null || quantite.isNegative()) {
       lignes.push({ label, cout: null, motif: "QUANTITE_INVALIDE", partiel: false });
+      sansPrix.push(label);
+      return;
+    }
+
+    // Une quantité à 0 n'est pas « ne coûte rien » : c'est une quantité NON RENSEIGNÉE. La
+    // valoriser à 0 ferait passer la fiche pour complète alors qu'il lui manque un ingrédient —
+    // exactement le « coût compté zéro » que ce moteur refuse. Aucun cas légitime n'est cassé :
+    // la saisie de l'app interdit déjà toute quantité <= 0 (stock/fiches/actions.ts::validerLigne),
+    // un 0 en base ne peut venir que d'un import de classeur incomplet.
+    if (quantite.isZero()) {
+      lignes.push({ label, cout: null, motif: "QUANTITE_ABSENTE", partiel: false });
       sansPrix.push(label);
       return;
     }

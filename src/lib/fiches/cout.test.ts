@@ -501,6 +501,35 @@ describe("coût incomplet annoncé", () => {
     expect(r.lignes.map((l) => l.motif)).toEqual(["QUANTITE_INVALIDE", "QUANTITE_INVALIDE"]);
   });
 
+  it("quantité à 0 : NON RENSEIGNÉE, pas « ne coûte rien » — la fiche ne peut pas passer complète", () => {
+    // Cas réel du classeur de la Direction : « Maizena blanc » dans la Bisque de cossas, colonne
+    // « Unités nécessaires » vide. Comptée 0, elle sous-évaluait la fiche de 4,56 $ (+8,53 %)
+    // SANS que rien ne le dise. La saisie de l'app interdit déjà toute quantité <= 0.
+    const r = calculerCout(
+      fiche([
+        { nom: "Penne", quantite: 0.2, unite: "kg", article: { prixUnitaireUSD: 0.35, unite: "kg" } },
+        { nom: "Maizena blanc", quantite: 0, unite: "Paquet", article: { prixUnitaireUSD: 4.56, unite: "Paquet" } },
+      ]),
+      CTX_VIDE,
+    );
+    expect(r.incomplet).toBe(true);
+    expect(r.ingredientsSansPrix).toEqual(["Maizena blanc"]);
+    expect(r.lignes.map((l) => l.motif)).toEqual([null, "QUANTITE_ABSENTE"]);
+    expect(r.lignes[1]!.cout).toBeNull(); // jamais 0,00 $ affiché comme un montant
+    expect(r.coutTotal.toNumber()).toBe(0.07); // les autres lignes restent valorisées
+  });
+
+  it("une sous-recette à quantité 0 est indéterminée elle aussi (pas de coût 0 hérité)", () => {
+    const sauce: FicheCalc = {
+      id: "sauce", nom: "Sauce", nbPortions: 1, tauxTVA: 0.16, estSousRecette: true,
+      rendementQuantite: 4600, rendementUnite: "g",
+      ingredients: [{ nom: "Viande", quantite: 2.2, unite: "kg", article: { prixUnitaireUSD: 8.07, unite: "kg" } }],
+    };
+    const r = calculerCout(fiche([{ nom: "Sauce", quantite: 0, unite: "cl", sousFicheId: "sauce" }]), mapAvec(sauce));
+    expect(r.incomplet).toBe(true);
+    expect(r.lignes[0]!.motif).toBe("QUANTITE_ABSENTE");
+  });
+
   it("ingrédient sans article ni sous-fiche : sans prix", () => {
     const r = calculerCout(fiche([{ nom: "Ligne vide", quantite: 1, unite: "kg" }]), CTX_VIDE);
     expect(r.incomplet).toBe(true);
