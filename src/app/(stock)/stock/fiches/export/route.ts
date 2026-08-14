@@ -40,6 +40,9 @@ export async function GET(req: Request) {
       r.prixVenteHT ?? "",
       r.prixVenteTTC ?? "",
       r.margeBrute ?? "",
+      // Coefficient, taux de marque et ratio matière sont des RATIOS, pas des montants : on les
+      // met en forme ici (comme `coef()`/`pct()` à l'écran). Aucun montant n'est arrondi ailleurs
+      // que par `arrondirCentime` du moteur.
       r.coefficient === null ? "" : Number(r.coefficient.toFixed(2)),
       r.tauxMarque === null ? "" : Number((r.tauxMarque * 100).toFixed(1)),
       r.ratioMatiere === null ? "" : Number((r.ratioMatiere * 100).toFixed(1)),
