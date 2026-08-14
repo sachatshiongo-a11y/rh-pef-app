@@ -1149,11 +1149,12 @@ model ArticleStock {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  stock          Stock?
-  mouvements     MouvementStock[]
-  lignesBC       LigneBonDeCommande[]
-  lignesFacture  LigneFacture[]
-  commandesResto CommandeResto[]
+  stock            Stock?
+  mouvements       MouvementStock[]
+  lignesBC         LigneBonDeCommande[]
+  lignesFacture    LigneFacture[]
+  commandesResto   CommandeResto[]
+  fichesIngredient IngredientFiche[]
 
   @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
   @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
@@ -1494,6 +1495,55 @@ model Rapport {
   createdAt    DateTime  @default(now())
 
   @@index([type, createdAt])
+  @@schema("stock")
+}
+
+// ─── Fiches techniques (recettes → coût de revient) ──────────────────────────
+enum TypeFiche {
+  PLAT
+  BAR
+
+  @@schema("stock")
+}
+
+model FicheTechnique {
+  id                    String    @id @default(uuid())
+  nom                   String
+  categorie             String?
+  type                  TypeFiche @default(PLAT)
+  nbPortions            Int       @default(1)
+  tauxTVA               Decimal   @default(0.16) @db.Decimal(5, 4)
+  prixVenteTTC          Decimal?  @db.Decimal(12, 4)
+  coefficientMargeCible Decimal?  @db.Decimal(8, 4)
+  estSousRecette        Boolean   @default(false)
+  rendementQuantite     Decimal?  @db.Decimal(14, 3) // en unité de base (g pour une sauce)
+  rendementUnite        String? // "g", "L", "portion"…
+  recette               String?   @db.Text
+  actif                 Boolean   @default(true)
+  creeLe                DateTime  @default(now())
+  majLe                 DateTime  @updatedAt
+
+  ingredients  IngredientFiche[] @relation("FicheIngredients")
+  utiliseeDans IngredientFiche[] @relation("SousRecette")
+
+  @@schema("stock")
+}
+
+model IngredientFiche {
+  id          String          @id @default(uuid())
+  ficheId     String
+  fiche       FicheTechnique  @relation("FicheIngredients", fields: [ficheId], references: [id], onDelete: Cascade)
+  articleId   String?
+  article     ArticleStock?   @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  sousFicheId String?
+  sousFiche   FicheTechnique? @relation("SousRecette", fields: [sousFicheId], references: [id], onDelete: Restrict)
+  unite       String // unité de consommation
+  quantite    Decimal         @db.Decimal(14, 3)
+  ordre       Int             @default(0)
+
+  @@index([ficheId])
+  @@index([articleId])
+  @@index([sousFicheId])
   @@schema("stock")
 }
 
