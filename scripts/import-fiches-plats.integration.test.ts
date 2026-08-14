@@ -152,6 +152,57 @@ describe("protection des fiches saisies à la main (FicheTechnique.nom n'est PAS
   });
 });
 
+describe("l'homonymie se détecte par DÉSIGNATION NORMALISÉE (comme les articles), pas au caractère près", () => {
+  beforeAll(vider);
+
+  it("une « BOLOGNAISE » (majuscules) saisie à la main bloque l'import au lieu de créer un doublon en silence", async () => {
+    await prisma.ficheTechnique.create({ data: { nom: "BOLOGNAISE", nbPortions: 6, categorie: "Ma carte" } });
+    const r = await ecrireEnBase(client(), res, { force: false });
+    expect(r.statut).toBe("ABANDON");
+    expect(r.fichesProtegees).toEqual(["BOLOGNAISE"]);
+    // Un seul « bolognaise », sous quelque casse que ce soit : pas de doublon créé en silence
+    // (c'était le bug : `where: nom: in [...]` exact ne trouvait pas « BOLOGNAISE » et laissait
+    // passer l'import, qui créait alors une seconde fiche « Bolognaise »).
+    const toutes = await prisma.ficheTechnique.findMany({
+      where: { nom: { contains: "olognaise", mode: "insensitive" } },
+    });
+    expect(toutes).toHaveLength(1);
+  });
+
+  it("--force ne la détruit pas non plus : le contenu diffère (nom et portions), l'empreinte le voit", async () => {
+    const r = await ecrireEnBase(client(), res, { force: true });
+    expect(r.statut).toBe("ABANDON");
+    expect(r.message).toContain('--supprimer "BOLOGNAISE"');
+    const survivante = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "BOLOGNAISE" } });
+    expect(survivante.nbPortions).toBe(6); // intacte
+  });
+});
+
+describe("l'empreinte est sensible à `type` et `actif` (angles morts corrigés)", () => {
+  beforeAll(async () => {
+    await vider();
+    await ecrireEnBase(client(), res, { force: false });
+  });
+
+  it("une fiche typée BAR mais au contenu par ailleurs identique n'est PAS conforme — --force ABANDONNE, ne détruit pas", async () => {
+    await prisma.ficheTechnique.updateMany({ where: { nom: "Bolognaise" }, data: { type: "BAR" } });
+    const r = await ecrireEnBase(client(), res, { force: true });
+    expect(r.statut).toBe("ABANDON");
+    expect(r.fichesProtegees).toEqual(["Bolognaise"]);
+    const survivante = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Bolognaise" } });
+    expect(survivante.type).toBe("BAR"); // intacte : pas ramenée à PLAT en silence
+  });
+
+  it("une fiche DÉSACTIVÉE mais au contenu par ailleurs identique n'est pas non plus conforme", async () => {
+    await prisma.ficheTechnique.updateMany({ where: { nom: "Bolognaise" }, data: { type: "PLAT", actif: false } });
+    const r = await ecrireEnBase(client(), res, { force: true });
+    expect(r.statut).toBe("ABANDON");
+    expect(r.fichesProtegees).toEqual(["Bolognaise"]);
+    const survivante = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Bolognaise" } });
+    expect(survivante.actif).toBe(false); // intacte : pas réactivée en silence
+  });
+});
+
 describe("une fiche HORS classeur qui cite une sous-recette bloque proprement", () => {
   beforeAll(async () => {
     await vider();
@@ -194,14 +245,19 @@ describe("écrasement des prix d'articles par le classeur", () => {
     expect(penne.prixUnitaireUSD?.toString()).toBe("0.35");
   });
 
-  it("--conserver-prix-existants préserve la correction de la Direction", async () => {
+  it("--conserver-prix-existants préserve la correction de la Direction ET LE DIT (pas de silence)", async () => {
     await prisma.articleStock.updateMany({
       where: { designation: { startsWith: "20 PENNE" } },
       data: { prixUnitaireUSD: "3.5" },
     });
     const r = await ecrireEnBase(client(), res, { force: true, conserverPrixExistants: true });
     expect(r.statut).toBe("IMPORTE");
+    // Le prix n'est plus écrasé...
     expect(r.ecrasementsPrix.filter((e) => e.champ === "prix à l'unité")).toEqual([]);
+    // ...mais l'écart base ≠ classeur n'est pas pour autant passé sous silence : il est listé
+    // ailleurs, sous un intitulé distinct.
+    const conserve = r.prixConserves.find((p) => p.designation.startsWith("20 PENNE") && p.champ === "prix à l'unité");
+    expect(conserve).toMatchObject({ base: "3.5", classeur: "0.35" });
     const penne = await prisma.articleStock.findFirstOrThrow({ where: { designation: { startsWith: "20 PENNE" } } });
     expect(penne.prixUnitaireUSD?.toString()).toBe("3.5");
   });

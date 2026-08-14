@@ -301,6 +301,16 @@ function arrondir(v: number, decimales: number): Decimal {
   return new Decimal(v).toDecimalPlaces(decimales, Decimal.ROUND_HALF_UP);
 }
 
+/**
+ * Formate un prix flottant pour un rapport LU PAR UN HUMAIN, sans les artefacts de virgule
+ * flottante JS (0.35 × 12 / 500 = « 0.0014199999999999998 » alors que la valeur voulue est
+ * 0,00142). Purement cosmétique : n'arrondit rien qui parte en base (`arrondir` fait ça, à
+ * DECIMALES_PRIX) ; ici on garde 6 décimales pour ne pas écraser un prix réellement au gramme.
+ */
+function formatPrixRapport(v: number): string {
+  return new Decimal(v).toDecimalPlaces(6).toString();
+}
+
 /** Signale un arrondi de schéma qui déplace la valeur de plus de 0,1 % (jamais silencieux). */
 function noterArrondi(liste: ArrondiSignale[], quoi: string, brut: number, decimales: number): Decimal {
   const arrondi = arrondir(brut, decimales);
@@ -972,7 +982,7 @@ export function formaterRapport(
       res.lignes.filter((l) => l.rattachement.type === "ARTICLE" && l.rattachement.article.cle === cle).map((l) => l.fiche.nom)
     )];
     const sens = p.rapport < 1 ? `${Math.round(1 / p.rapport)} fois TROP BAS` : `${Math.round(p.rapport)} fois trop haut`;
-    out.push(`  • L${p.ligne} ${p.designation} — ${p.prixUnitaire} $ / « ${p.unite} »`);
+    out.push(`  • L${p.ligne} ${p.designation} — ${formatPrixRapport(p.prixUnitaire)} $ / « ${p.unite} »`);
     out.push(`      soit ${p.prixRamene} $/${p.grandeur} contre une médiane de ${p.mediane} $/${p.grandeur} : ${sens}.`);
     if (fichesTouchees.length > 0) {
       out.push(`      Coût sous-évalué dans ${fichesTouchees.length} fiche(s) : ${fichesTouchees.join(", ")}`);
@@ -1125,6 +1135,7 @@ type FicheEnBase = {
   id: string;
   nom: string;
   categorie: string | null;
+  type: string;
   nbPortions: number;
   tauxTVA: Dec;
   prixVenteTTC: Dec | null;
@@ -1133,6 +1144,7 @@ type FicheEnBase = {
   rendementQuantite: Dec | null;
   rendementUnite: string | null;
   recette: string | null;
+  actif: boolean;
   ingredients: {
     unite: string;
     quantite: Dec;
@@ -1154,9 +1166,9 @@ type ArticleEnBase = {
 
 /** Sélection Prisma correspondant exactement à `FicheEnBase` (empreinte de contenu). */
 export const SELECT_FICHE_SIGNATURE = {
-  id: true, nom: true, categorie: true, nbPortions: true, tauxTVA: true, prixVenteTTC: true,
+  id: true, nom: true, categorie: true, type: true, nbPortions: true, tauxTVA: true, prixVenteTTC: true,
   coefficientMargeCible: true, estSousRecette: true, rendementQuantite: true, rendementUnite: true,
-  recette: true,
+  recette: true, actif: true,
   ingredients: {
     orderBy: { ordre: "asc" },
     select: {
@@ -1186,9 +1198,9 @@ function empreinteBase(f: FicheEnBase): string {
     index,
   ].join("~"));
   return [
-    f.nom.trim(), f.categorie?.trim() ?? "—", f.nbPortions, texteDec(f.tauxTVA), texteDec(f.prixVenteTTC),
+    f.nom.trim(), f.categorie?.trim() ?? "—", f.type, f.nbPortions, texteDec(f.tauxTVA), texteDec(f.prixVenteTTC),
     texteDec(f.coefficientMargeCible), f.estSousRecette, texteDec(f.rendementQuantite), f.rendementUnite ?? "—",
-    f.recette ?? "—", ...lignes,
+    f.recette ?? "—", f.actif, ...lignes,
   ].join("|");
 }
 
@@ -1206,7 +1218,10 @@ function empreinteClasseur(f: FicheParsee, res: ResultatParse): string {
       index,
     ].join("~"));
   return [
-    f.nom.trim(), f.categorie?.trim() ?? "—",
+    // `type` et `actif` n'existent pas dans le classeur : l'import écrit TOUJOURS "PLAT" / true
+    // (cf. la création plus bas). Une fiche manuelle identique mais typée BAR, ou désactivée, doit
+    // donc être jugée DIVERGENTE — sinon --force la supprimerait et la recréerait en PLAT/actif.
+    f.nom.trim(), f.categorie?.trim() ?? "—", "PLAT",
     f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
     f.tauxTVA === null ? "0.16" : arrondir(f.tauxTVA, 4).toString(),
     f.prixVenteTTC === null ? "—" : arrondir(f.prixVenteTTC, DECIMALES_PRIX).toString(),
@@ -1214,7 +1229,7 @@ function empreinteClasseur(f: FicheParsee, res: ResultatParse): string {
     f.estSousRecette,
     f.rendementQuantiteG === null ? "—" : arrondir(f.rendementQuantiteG, 3).toString(),
     f.rendementQuantiteG === null ? "—" : "g",
-    f.recette ?? "—", ...lignes,
+    f.recette ?? "—", true, ...lignes,
   ].join("|");
 }
 
@@ -1233,6 +1248,20 @@ export type EcrasementPrix = {
   apres: string;
 };
 
+/**
+ * `--conserver-prix-existants` garde la valeur de base (le bon comportement), mais taire l'écart
+ * ne l'est pas : si le classeur donne un prix différent de celui conservé, c'est listé ici sous un
+ * intitulé distinct plutôt que noyé (ou disparu) dans `ecrasementsPrix`.
+ */
+export type PrixConserve = {
+  designation: string;
+  champ: "prix à l'unité" | "prix carton";
+  /** Valeur restée en base (celle que l'import a préservée). */
+  base: string;
+  /** Valeur du classeur, NON appliquée : base et classeur divergent. */
+  classeur: string;
+};
+
 export type RapportEcriture = {
   statut: "IMPORTE" | "DEJA_FAIT" | "ABANDON";
   message: string;
@@ -1244,6 +1273,8 @@ export type RapportEcriture = {
   fichesCreees: number;
   ingredientsCrees: number;
   ecrasementsPrix: EcrasementPrix[];
+  /** Prix conservés (--conserver-prix-existants) alors que le classeur donne une autre valeur. */
+  prixConserves: PrixConserve[];
 };
 
 /**
@@ -1259,24 +1290,27 @@ export async function ecrireEnBase(
   const vide = {
     fichesSupprimees: [] as string[], fichesProtegees: [] as string[],
     articlesCrees: 0, articlesMisAJour: 0, fichesCreees: 0, ingredientsCrees: 0,
-    ecrasementsPrix: [] as EcrasementPrix[],
+    ecrasementsPrix: [] as EcrasementPrix[], prixConserves: [] as PrixConserve[],
   };
   const autorisees = new Set((options.supprimerNommement ?? []).map((n) => n.trim()));
 
-  // ── Idempotence. Le marqueur est la clé naturelle (les noms du classeur), MAIS « une fiche
-  //    homonyme existe » ne veut pas dire « import déjà fait » : il faut qu'elles y soient TOUTES
-  //    et qu'elles soient toutes conformes. Sinon une seule « Carbonara » saisie à la main ferait
-  //    afficher « déjà importé » et n'importerait rien du tout — ni fiche, ni article — en silence.
+  // ── Idempotence. Le marqueur est la clé naturelle (les noms du classeur), rapprochée par
+  //    DÉSIGNATION NORMALISÉE — comme les articles et les ingrédients — et non au caractère près :
+  //    une « bolognaise » en minuscule ou une « Bolognaise » avec une espace finale, saisie à la
+  //    main, doit être détectée comme homonyme (et donc jugée divergente, cf. empreinteClasseur),
+  //    pas ignorée par un `where nom: in [...]` exact qui laisserait créer un DOUBLON en base.
+  //    MAIS « une fiche homonyme existe » ne veut pas dire « import déjà fait » : il faut qu'elles y
+  //    soient TOUTES et qu'elles soient toutes conformes. Sinon une seule « Carbonara » saisie à la
+  //    main ferait afficher « déjà importé » et n'importerait rien du tout — en silence.
   const parNom = new Map(res.fiches.map((f) => [f.nom, f]));
-  const existantes = await prisma.ficheTechnique.findMany({
-    where: { nom: { in: [...parNom.keys()] } },
-    select: SELECT_FICHE_SIGNATURE,
-  });
+  const parCleNom = new Map(res.fiches.map((f) => [normaliserDesignation(f.nom), f]));
+  const toutesFiches = await prisma.ficheTechnique.findMany({ select: SELECT_FICHE_SIGNATURE });
+  const existantes = toutesFiches.filter((e) => parCleNom.has(normaliserDesignation(e.nom)));
 
   const conformes: FicheEnBase[] = [];
   const divergentes: FicheEnBase[] = [];
   for (const e of existantes) {
-    const duClasseur = parNom.get(e.nom);
+    const duClasseur = parCleNom.get(normaliserDesignation(e.nom));
     (duClasseur && empreinteBase(e) === empreinteClasseur(duClasseur, res) ? conformes : divergentes).push(e);
   }
   const toutesLa = conformes.length === parNom.size && divergentes.length === 0;
@@ -1405,7 +1439,11 @@ export async function ecrireEnBase(
       ];
       for (const [champ, avant, apres] of compare) {
         const prixConserve = options.conserverPrixExistants && (champ === "prix à l'unité" || champ === "prix carton");
-        if (avant !== apres && !prixConserve) {
+        if (avant === apres) continue;
+        if (prixConserve) {
+          // Conserver la valeur est le bon comportement ; se taire sur l'écart ne l'est pas.
+          rapport.prixConserves.push({ designation: a.designation, champ, base: avant, classeur: apres });
+        } else {
           rapport.ecrasementsPrix.push({ designation: a.designation, champ, avant, apres });
         }
       }
@@ -1535,6 +1573,15 @@ async function main() {
           "    Relance avec --conserver-prix-existants pour préserver les prix déjà en base."
       );
       for (const e of r.ecrasementsPrix) console.log(`    - ${e.designation} — ${e.champ} : ${e.avant} → ${e.apres}`);
+    }
+    if (r.prixConserves.length > 0) {
+      console.log(
+        `\n/!\\ ${r.prixConserves.length} prix conservé(s) (--conserver-prix-existants) alors que le classeur ` +
+          "donne une AUTRE valeur : base et classeur divergent, à vérifier."
+      );
+      for (const p of r.prixConserves) {
+        console.log(`    - ${p.designation} — ${p.champ} conservé (base ≠ classeur) : base ${p.base}, classeur ${p.classeur}`);
+      }
     }
     if (res.nonRattaches.length > 0) {
       console.log(`\n/!\\ ${res.nonRattaches.length} ingrédient(s) NON créé(s) faute de rattachement sûr (cf. §3 du rapport).`);
