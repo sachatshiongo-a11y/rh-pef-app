@@ -231,6 +231,17 @@ const RATIO_ORDRE_EXPLOITATION = ["matieres", "salaires", "loyers", "depensesCA"
 const pct = (n: number | null) => (n === null ? "—" : `${(n * 100).toFixed(1)} %`);
 const jourIso = (d: Date) => d.toISOString().slice(0, 10);
 
+/** Libellé textuel du point mort (Direction, demande du 2026-08-14) pour la ligne « Point mort »
+ *  du rapport Excel (colonne Montant : cellule textuelle, comme les autres lignes numériques
+ *  n'ont pas d'équivalent — cf. `genererRapportExploitation` ci-dessous). Réutilise `MOIS` (déjà
+ *  défini plus haut, noms complets français). */
+function libellePointMortRapport(pointMortDate: string | null, pointMortAtteint: boolean): string {
+  if (pointMortDate === null) return "—";
+  if (!pointMortAtteint) return "Non atteint sur la période";
+  const [annee, mois, jour] = pointMortDate.split("-").map(Number);
+  return `Atteint le ${jour} ${MOIS[mois - 1].toLowerCase()} ${annee}`;
+}
+
 /**
  * Rapport Exploitation jour/hebdo/mensuel/annuel — mappe `ResultatExploitation` (moteur Task 6,
  * via le chargeur `chargerExploitation` Task 7) vers `DonneesRapport`. `ANNUEL` bascule l'horizon
@@ -273,6 +284,7 @@ export async function genererRapportExploitation(type: TypeRapportExploitation, 
     ["RÉSULTAT", arr(r.resultat)],
     ["Marge brute", arr(r.margeBrute)],
     ["Seuil de rentabilité", r.seuilRentabilite === null ? "—" : arr(r.seuilRentabilite)],
+    ["Point mort", libellePointMortRapport(r.pointMortDate, r.pointMortAtteint)],
     ["Écart au point mort", r.ecartPointMort === null ? "—" : arr(r.ecartPointMort)],
   );
 
