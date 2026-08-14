@@ -30,6 +30,10 @@ export default async function FichesPage() {
       coutPortion: arrondirCentime(r.coutParPortion),
       // Aucune ligne valorisée = pas un coût de 0, un coût inconnu. On n'affiche alors aucun chiffre.
       coutConnu: r.lignes.some((l) => l.cout !== null),
+      // Coût minoré par des ingrédients non valorisés : c'est CE cas qui justifie le « ≥ » devant le
+      // montant. `incomplet` couvre en plus un nombre de portions inexploitable, où le coût total
+      // reste exact — on ne mélange pas les deux.
+      coutPartiel: r.ingredientsSansPrix.length > 0 || r.cycle,
       incomplet: r.incomplet,
       nbIndetermines: r.ingredientsSansPrix.length,
       prixVenteHT: r.prixVenteHT,

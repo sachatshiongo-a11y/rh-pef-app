@@ -8,10 +8,10 @@ import { estErreur } from "@/lib/action-lisible";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
 import { usd, qte } from "@/lib/stock";
 import {
-  MOTIF_LABEL, coef, nomLigne, pct, versFicheCalc,
+  MOTIF_LABEL, coef, pct, versFicheCalc,
   type ArticleOption, type FicheVue, type LigneFiche,
 } from "../_data/fiche-calc";
-import { ajouterIngredient, dupliquerFiches, modifierFiche, modifierIngredient, supprimerFiches, supprimerIngredients } from "../actions";
+import { ajouterIngredient, dupliquerFiches, modifierFiche, remplacerIngredients, supprimerFiches, supprimerIngredients } from "../actions";
 
 type AutreFiche = { id: string; nom: string; estSousRecette: boolean };
 
@@ -85,26 +85,14 @@ export function EditerFiche({
   const majLigne = (id: string, patch: Partial<LigneFiche>) =>
     setLignes((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
-  // Les lignes modifiées partent une par une : chacune est validée par l'action (XOR article /
-  // sous-recette, anti-cycle direct, quantité). En cas de refus, on s'arrête en nommant la ligne.
-  const enregistrerIngredients = () => {
-    setErreur(null);
-    start(async () => {
-      for (const l of modifiees) {
-        const fd = new FormData();
-        fd.set("articleId", l.articleId ?? "");
-        fd.set("sousFicheId", l.sousFicheId ?? "");
-        fd.set("unite", l.unite);
-        fd.set("quantite", l.quantite);
-        const r = await modifierIngredient(l.id, fd);
-        if (estErreur(r)) {
-          setErreur(`${nomLigne(l, lignes.indexOf(l), mapArticles, mapNoms)} : ${r.erreur}`);
-          return;
-        }
-      }
-      router.refresh();
-    });
-  };
+  // Le tableau part EN UN SEUL APPEL transactionnel : le serveur valide TOUTES les lignes avant la
+  // moindre écriture. Un refus n'écrit rien du tout — la fiche ne peut pas rester à moitié ancienne,
+  // à moitié nouvelle, avec un coût recalculé sur ce mélange.
+  const enregistrerIngredients = () =>
+    run(
+      () => remplacerIngredients(vue.id, lignes.map(({ id, articleId, sousFicheId, unite, quantite }) => ({ id, articleId, sousFicheId, unite, quantite }))),
+      () => router.refresh(),
+    );
 
   const ajouter = (fd: FormData) => {
     const { articleId, sousFicheId } = decoderSource(String(fd.get("source") ?? ""));

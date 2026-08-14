@@ -18,7 +18,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule: () => {}, requireRole: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-const { creerFiche, modifierFiche, supprimerFiches, dupliquerFiches, ajouterIngredient, supprimerIngredients } = await import("./actions");
+const { creerFiche, modifierFiche, supprimerFiches, dupliquerFiches, ajouterIngredient, remplacerIngredients, supprimerIngredients } = await import("./actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -132,6 +132,60 @@ describe("actions fiches techniques", () => {
     expect(copie.ingredients).toHaveLength(1);
     expect(copie.ingredients[0].articleId).toBe(art.id);
     expect(Number(copie.ingredients[0].quantite)).toBe(150);
+  }, 60_000);
+
+  it("remplacerIngredients : un lot dont UNE ligne est invalide n'écrit RIEN", async () => {
+    const f = ok(await creerFiche(fd({ nom: "Tout ou rien", nbPortions: "1" })));
+    const art = await prisma.articleStock.create({ data: { designation: "Tomate", domaine: "NOURRITURE", unite: "kg", prixUnitaireUSD: "2" } });
+    ok(await ajouterIngredient(f.id, fd({ articleId: art.id, unite: "g", quantite: "100" })));
+    const avant = await prisma.ingredientFiche.findFirstOrThrow({ where: { ficheId: f.id } });
+
+    // Ligne 1 valide (modifiée), ligne 2 invalide (quantité nulle), ligne 3 valide (création).
+    const refus = erreurDe(await remplacerIngredients(f.id, [
+      { id: avant.id, articleId: art.id, sousFicheId: null, unite: "g", quantite: "250" },
+      { articleId: art.id, sousFicheId: null, unite: "g", quantite: "0" },
+      { articleId: art.id, sousFicheId: null, unite: "g", quantite: "50" },
+    ]));
+    expect(refus).toContain("Ligne 2");
+    expect(refus).toContain("quantité");
+
+    // Rien n'a bougé : ni la modification de la ligne 1, ni la création de la ligne 3.
+    const apres = await prisma.ingredientFiche.findMany({ where: { ficheId: f.id } });
+    expect(apres).toHaveLength(1);
+    expect(Number(apres[0].quantite)).toBe(100);
+  }, 60_000);
+
+  it("remplacerIngredients : met à jour, crée et retire en une seule transaction", async () => {
+    const f = ok(await creerFiche(fd({ nom: "Lot complet", nbPortions: "1" })));
+    const art = await prisma.articleStock.create({ data: { designation: "Oignon", domaine: "NOURRITURE", unite: "kg", prixUnitaireUSD: "1.5" } });
+    ok(await ajouterIngredient(f.id, fd({ articleId: art.id, unite: "g", quantite: "100" })));
+    ok(await ajouterIngredient(f.id, fd({ articleId: art.id, unite: "g", quantite: "200" })));
+    const [l1, l2] = await prisma.ingredientFiche.findMany({ where: { ficheId: f.id }, orderBy: { ordre: "asc" } });
+
+    ok(await remplacerIngredients(f.id, [
+      { id: l1.id, articleId: art.id, sousFicheId: null, unite: "g", quantite: "150" }, // modifiée
+      { articleId: art.id, sousFicheId: null, unite: "g", quantite: "300" },            // créée
+    ])); // l2 absente du lot → retirée
+
+    const apres = await prisma.ingredientFiche.findMany({ where: { ficheId: f.id }, orderBy: { ordre: "asc" } });
+    expect(apres).toHaveLength(2);
+    expect(apres[0].id).toBe(l1.id); // l'identifiant de la ligne conservée ne change pas
+    expect(Number(apres[0].quantite)).toBe(150);
+    expect(Number(apres[1].quantite)).toBe(300);
+    expect(apres.some((l) => l.id === l2.id)).toBe(false);
+  }, 60_000);
+
+  it("remplacerIngredients : refuse une ligne appartenant à une autre fiche", async () => {
+    const f1 = ok(await creerFiche(fd({ nom: "Chez moi", nbPortions: "1" })));
+    const f2 = ok(await creerFiche(fd({ nom: "Chez le voisin", nbPortions: "1" })));
+    const art = await prisma.articleStock.create({ data: { designation: "Ail", domaine: "NOURRITURE", unite: "kg", prixUnitaireUSD: "3" } });
+    ok(await ajouterIngredient(f2.id, fd({ articleId: art.id, unite: "g", quantite: "10" })));
+    const chezLeVoisin = await prisma.ingredientFiche.findFirstOrThrow({ where: { ficheId: f2.id } });
+
+    expect(erreurDe(await remplacerIngredients(f1.id, [
+      { id: chezLeVoisin.id, articleId: art.id, sousFicheId: null, unite: "g", quantite: "99" },
+    ]))).toContain("n'appartient pas à cette fiche");
+    expect(Number((await prisma.ingredientFiche.findUniqueOrThrow({ where: { id: chezLeVoisin.id } })).quantite)).toBe(10);
   }, 60_000);
 
   it("supprime des ingrédients en lot, et seulement ceux de la fiche visée", async () => {

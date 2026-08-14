@@ -22,6 +22,9 @@ export type FicheRow = {
   nbIngredients: number;
   coutPortion: number;
   coutConnu: boolean;
+  /** Le coût est minoré par des ingrédients non valorisés (≥). */
+  coutPartiel: boolean;
+  /** `coutPartiel` OU un nombre de portions inexploitable. */
   incomplet: boolean;
   nbIndetermines: number;
   prixVenteHT: number | null;
@@ -163,17 +166,25 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
                 </div>
               </div>
 
+              {/* Un coût partiel n'est JAMAIS affiché en chiffre nu : le « ≥ » ET le badge vivent
+                  dans la MÊME cellule que le montant, donc à toute largeur d'écran. L'app est
+                  installée en PWA sur téléphone : une colonne masquée sous 640 px emporterait la
+                  mention et laisserait le chiffre tout seul. */}
               <div className="shrink-0 text-right">
-                {/* Un coût partiel n'est JAMAIS affiché en chiffre nu : le badge part avec lui. */}
-                <div className="font-semibold tabular-nums">{f.coutConnu ? usd(f.coutPortion) : "—"}</div>
+                <div className="font-semibold tabular-nums">
+                  {f.coutConnu ? `${f.coutPartiel ? "≥ " : ""}${usd(f.coutPortion)}` : "—"}
+                </div>
                 <div className="text-[11px] text-muted-foreground">coût / portion</div>
+                {f.incomplet && (
+                  <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                    {f.coutPartiel ? `Coût partiel — ${f.nbIndetermines} ingrédient(s)` : "Portions inexploitables"}
+                  </span>
+                )}
               </div>
 
               <div className="hidden w-40 shrink-0 text-right sm:block">
                 {f.incomplet ? (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                    Coût partiel — {f.nbIndetermines} ingrédient(s)
-                  </span>
+                  <span className="text-[11px] text-muted-foreground">Prix et marge non fiables : coût partiel</span>
                 ) : f.estSousRecette ? (
                   <span className="text-[11px] text-muted-foreground">Sous-recette : pas de marge</span>
                 ) : (

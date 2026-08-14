@@ -197,35 +197,58 @@ export const dupliquerFiches = actionLisible(async (ids: string[]) => {
 
 // ─── Ingrédients ─────────────────────────────────────────────────────────────
 
-/**
- * Un ingrédient est un article du stock OU une sous-recette — jamais les deux, jamais aucun.
- * Une fiche ne peut pas se contenir elle-même (le moteur détecte les boucles indirectes ; celle-ci
- * est évidente, on la refuse à la saisie).
- */
-async function lireSource(formData: FormData, ficheId: string) {
-  const articleId = txtOuNull(formData, "articleId");
-  const sousFicheId = txtOuNull(formData, "sousFicheId");
+/** Une ligne d'ingrédient telle qu'elle arrive de l'écran (valeurs en texte). */
+export type LigneSaisie = {
+  /** Identifiant existant, ou absent pour une ligne à créer. */
+  id?: string | null;
+  articleId: string | null;
+  sousFicheId: string | null;
+  unite: string;
+  quantite: string;
+};
 
-  if (articleId && sousFicheId) throw new Error("Un ingrédient est soit un article du stock, soit une sous-recette — jamais les deux.");
-  if (!articleId && !sousFicheId) throw new Error("Choisissez un article du stock ou une sous-recette.");
-  if (sousFicheId === ficheId) throw new Error("Une fiche ne peut pas se contenir elle-même.");
+type LigneValidee = { id: string | null; articleId: string | null; sousFicheId: string | null; unite: string; quantite: number };
+
+/**
+ * RÈGLE UNIQUE de validation d'une ligne, quel que soit le chemin d'écriture : un ingrédient est un
+ * article du stock OU une sous-recette — jamais les deux, jamais aucun ; une fiche ne peut pas se
+ * contenir elle-même (le moteur détecte les boucles indirectes, celle-ci est évidente et se refuse
+ * à la saisie) ; unité obligatoire, quantité strictement positive.
+ * `rang` sert à nommer la ligne fautive dans un lot.
+ */
+async function validerLigne(l: LigneSaisie, ficheId: string, rang?: number): Promise<LigneValidee> {
+  const ou = rang === undefined ? "" : `Ligne ${rang + 1} : `;
+  const articleId = l.articleId?.trim() || null;
+  const sousFicheId = l.sousFicheId?.trim() || null;
+
+  if (articleId && sousFicheId) throw new Error(`${ou}Un ingrédient est soit un article du stock, soit une sous-recette — jamais les deux.`);
+  if (!articleId && !sousFicheId) throw new Error(`${ou}Choisissez un article du stock ou une sous-recette.`);
+  if (sousFicheId === ficheId) throw new Error(`${ou}Une fiche ne peut pas se contenir elle-même.`);
 
   if (articleId) {
     const art = await prisma.articleStock.findUnique({ where: { id: articleId }, select: { id: true } });
-    if (!art) throw new Error("Article introuvable au catalogue.");
+    if (!art) throw new Error(`${ou}Article introuvable au catalogue.`);
   } else if (sousFicheId) {
     const sf = await prisma.ficheTechnique.findUnique({ where: { id: sousFicheId }, select: { id: true } });
-    if (!sf) throw new Error("Sous-recette introuvable.");
+    if (!sf) throw new Error(`${ou}Sous-recette introuvable.`);
   }
 
-  const unite = txt(formData, "unite");
-  if (!unite) throw new Error("L'unité de consommation est requise (« g », « cl », « pièce »…).");
+  const unite = l.unite.trim();
+  if (!unite) throw new Error(`${ou}L'unité de consommation est requise (« g », « cl », « pièce »…).`);
 
-  const quantite = dec(formData.get("quantite"));
-  if (quantite <= 0) throw new Error("La quantité doit être supérieure à 0.");
+  const quantite = dec(l.quantite);
+  if (quantite <= 0) throw new Error(`${ou}La quantité doit être supérieure à 0.`);
 
-  return { articleId, sousFicheId, unite, quantite };
+  return { id: l.id?.trim() || null, articleId, sousFicheId, unite, quantite };
 }
+
+/** Adaptateur formulaire → `LigneSaisie` (la règle, elle, ne vit qu'une fois : `validerLigne`). */
+const ligneDuFormulaire = (formData: FormData): LigneSaisie => ({
+  articleId: txtOuNull(formData, "articleId"),
+  sousFicheId: txtOuNull(formData, "sousFicheId"),
+  unite: txt(formData, "unite"),
+  quantite: txt(formData, "quantite"),
+});
 
 /** Ajoute une ligne d'ingrédient à une fiche. */
 export const ajouterIngredient = actionLisible(async (ficheId: string, formData: FormData) => {
@@ -233,7 +256,7 @@ export const ajouterIngredient = actionLisible(async (ficheId: string, formData:
   const fiche = await prisma.ficheTechnique.findUnique({ where: { id: ficheId }, select: { id: true } });
   if (!fiche) throw new Error("Fiche introuvable.");
 
-  const { articleId, sousFicheId, unite, quantite } = await lireSource(formData, ficheId);
+  const { articleId, sousFicheId, unite, quantite } = await validerLigne(ligneDuFormulaire(formData), ficheId);
   const dernier = await prisma.ingredientFiche.findFirst({ where: { ficheId }, orderBy: { ordre: "desc" }, select: { ordre: true } });
 
   const ligne = await prisma.ingredientFiche.create({
@@ -244,31 +267,50 @@ export const ajouterIngredient = actionLisible(async (ficheId: string, formData:
   rafraichir(ficheId);
 });
 
-/** Modifie une ligne d'ingrédient (source, unité, quantité). */
-export const modifierIngredient = actionLisible(async (ingredientId: string, formData: FormData) => {
+/**
+ * Enregistre EN UNE FOIS le tableau d'ingrédients d'une fiche.
+ *
+ * Tout est validé d'abord, écrit ensuite, dans une seule transaction : un lot dont une ligne est
+ * refusée n'écrit RIEN. Sans ça, un refus au milieu laissait la fiche à moitié ancienne, à moitié
+ * nouvelle — et le coût recalculé portait ce mélange sans que personne puisse le savoir.
+ *
+ * Les identifiants existants sont conservés (mise à jour), les lignes absentes du lot sont retirées,
+ * celles sans identifiant sont créées. L'ordre d'affichage suit l'ordre reçu.
+ */
+export const remplacerIngredients = actionLisible(async (ficheId: string, lignes: LigneSaisie[]) => {
   const user = await garde();
-  const avant = await prisma.ingredientFiche.findUnique({
-    where: { id: ingredientId },
-    select: { ficheId: true, unite: true, quantite: true },
-  });
-  if (!avant) throw new Error("Ingrédient introuvable.");
+  const fiche = await prisma.ficheTechnique.findUnique({ where: { id: ficheId }, select: { id: true } });
+  if (!fiche) throw new Error("Fiche introuvable.");
 
-  const { articleId, sousFicheId, unite, quantite } = await lireSource(formData, avant.ficheId);
+  // 1. Validation intégrale — aucune écriture tant qu'une seule ligne peut être refusée.
+  const valides: LigneValidee[] = [];
+  for (const [i, l] of lignes.entries()) valides.push(await validerLigne(l, ficheId, i));
 
-  await prisma.ingredientFiche.update({
-    where: { id: ingredientId },
-    data: { articleId, sousFicheId, unite, quantite },
-  });
+  const existantes = await prisma.ingredientFiche.findMany({ where: { ficheId }, select: { id: true } });
+  const connus = new Set(existantes.map((l) => l.id));
+  for (const l of valides) {
+    if (l.id && !connus.has(l.id)) throw new Error("Une ligne n'appartient pas à cette fiche : rechargez la page.");
+  }
+  const gardes = new Set(valides.map((l) => l.id).filter(Boolean) as string[]);
+  const aRetirer = existantes.filter((l) => !gardes.has(l.id)).map((l) => l.id);
 
-  await journaliser(prisma, {
-    entite: ENTITE_LIGNE,
-    entiteId: ingredientId,
-    champ: "modification",
-    ancienneValeur: `${avant.quantite.toString()} ${avant.unite}`,
-    nouvelleValeur: `${quantite} ${unite}`,
-    userId: user.id,
-  });
-  rafraichir(avant.ficheId);
+  // 2. Écriture : une seule transaction, tout ou rien.
+  await prisma.$transaction([
+    ...(aRetirer.length ? [prisma.ingredientFiche.deleteMany({ where: { id: { in: aRetirer }, ficheId } })] : []),
+    ...valides.map((l, i) =>
+      l.id
+        ? prisma.ingredientFiche.update({
+            where: { id: l.id },
+            data: { articleId: l.articleId, sousFicheId: l.sousFicheId, unite: l.unite, quantite: l.quantite, ordre: i + 1 },
+          })
+        : prisma.ingredientFiche.create({
+            data: { ficheId, articleId: l.articleId, sousFicheId: l.sousFicheId, unite: l.unite, quantite: l.quantite, ordre: i + 1 },
+          }),
+    ),
+  ]);
+
+  await journaliser(prisma, { entite: ENTITE_LIGNE, entiteId: ficheId, champ: "ingredients_enregistres", nouvelleValeur: `${valides.length} ligne(s)`, userId: user.id });
+  rafraichir(ficheId);
 });
 
 /** Supprime des lignes d'ingrédient en lot (une seule ligne = un lot de un). */
