@@ -35,6 +35,21 @@ export type FicheRow = {
 const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
 
 /**
+ * `incomplet` a TROIS causes, pas deux — et elles n'appellent pas la même correction :
+ *   1. des ingrédients non valorisés (le coût affiché est un minorant, d'où le « ≥ ») ;
+ *   2. AUCUN ingrédient saisi (fiche vide : le coût n'est pas 0, il est inconnu) ;
+ *   3. un nombre de portions inexploitable (le coût total, lui, reste exact).
+ * Sans la 2e, une fiche vide s'annonçait « Portions inexploitables » — un motif faux qui envoie
+ * corriger l'entête alors qu'il manque toute la recette. Quand une fiche vide a EN PLUS des
+ * portions invalides, on nomme le manque d'ingrédients : c'est la correction à faire d'abord.
+ */
+function motifIncomplet(f: FicheRow): { badge: string; cause: string } {
+  if (f.coutPartiel) return { badge: `Coût partiel — ${f.nbIndetermines} ingrédient(s)`, cause: "coût partiel" };
+  if (f.nbIngredients === 0) return { badge: "Aucun ingrédient saisi", cause: "aucun ingrédient saisi" };
+  return { badge: "Portions inexploitables", cause: "portions inexploitables" };
+}
+
+/**
  * Liste des fiches techniques : navigation (le nom mène à la fiche, où se fait l'édition) +
  * actions groupées (supprimer / dupliquer / exporter) sur la sélection.
  */
@@ -177,14 +192,14 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
                 <div className="text-[11px] text-muted-foreground">coût / portion</div>
                 {f.incomplet && (
                   <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                    {f.coutPartiel ? `Coût partiel — ${f.nbIndetermines} ingrédient(s)` : "Portions inexploitables"}
+                    {motifIncomplet(f).badge}
                   </span>
                 )}
               </div>
 
               <div className="hidden w-40 shrink-0 text-right sm:block">
                 {f.incomplet ? (
-                  <span className="text-[11px] text-muted-foreground">Prix et marge non fiables : coût partiel</span>
+                  <span className="text-[11px] text-muted-foreground">Prix et marge non fiables : {motifIncomplet(f).cause}</span>
                 ) : f.estSousRecette ? (
                   <span className="text-[11px] text-muted-foreground">Sous-recette : pas de marge</span>
                 ) : (

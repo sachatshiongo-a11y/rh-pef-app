@@ -92,7 +92,11 @@ export type ResultatCout = {
   coutTotal: Decimal;
   /** Coût HT par portion, pleine précision. */
   coutParPortion: Decimal;
-  /** Vrai dès qu'une ligne est indéterminée, qu'un cycle existe ou que les portions sont invalides. */
+  /**
+   * Vrai dès qu'une ligne est indéterminée, qu'un cycle existe, que les portions sont invalides,
+   * ou qu'AUCUNE ligne n'est valorisée — fiche vide comprise : zéro ingrédient n'est pas un coût
+   * de zéro, c'est un coût inconnu, et les marges qui en découlent ne valent rien.
+   */
   incomplet: boolean;
   /** Libellés des ingrédients dont le coût est indéterminé (préfixés du chemin de sous-recette). */
   ingredientsSansPrix: string[];
@@ -378,7 +382,14 @@ export function calculerCout(
 
   const margeD = htD === null ? null : htD.minus(coutParPortion);
   const htExploitable = htD !== null && htD.greaterThan(0);
-  const incomplet = sansPrix.length > 0 || cycle || portionsInvalides;
+  // Une fiche dont AUCUNE ligne n'est valorisée n'a pas un coût de 0 : elle a un coût INCONNU.
+  // `every` vaut `true` sur un tableau vide : le même test couvre la fiche dont rien n'est
+  // valorisé ET la fiche SANS AUCUNE LIGNE — celle que « + Nouvelle fiche » vient de créer, et
+  // dont on renseigne l'entête (prix TTC, coefficient) avant de saisir les ingrédients. Sans lui,
+  // elle sortait `incomplet: false`, coût 0, marge 100 % : le « coût inconnu compté zéro » que ce
+  // moteur existe pour empêcher.
+  const aucuneLigneValorisee = lignes.every((l) => l.cout === null);
+  const incomplet = sansPrix.length > 0 || cycle || portionsInvalides || aucuneLigneValorisee;
 
   // Le prix conseillé assis sur un coût incomplet n'est pas un prix : c'est un PLANCHER. Le
   // drapeau part avec le chiffre pour qu'aucun consommateur (écran, export, PDF) ne puisse

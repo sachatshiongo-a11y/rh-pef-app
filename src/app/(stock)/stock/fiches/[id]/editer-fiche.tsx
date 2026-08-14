@@ -60,11 +60,16 @@ export function EditerFiche({
     fiches: new Map(contexte.map((f) => [f.id, f])),
   });
   const coutConnu = resultat.lignes.some((l) => l.cout !== null);
-  // `incomplet` couvre deux causes distinctes : des ingrédients non valorisés (le coût est alors un
-  // minorant : ce qui manque ne peut qu'ajouter) et un nombre de portions inexploitable (le coût
-  // total, lui, reste juste). On les distingue pour ne pas écrire « ≥ » sur un chiffre exact.
+  // `incomplet` couvre TROIS causes distinctes : des ingrédients non valorisés (le coût est alors
+  // un minorant : ce qui manque ne peut qu'ajouter), une fiche sans aucun ingrédient (coût
+  // inconnu, pas nul) et un nombre de portions inexploitable (le coût total, lui, reste juste).
+  // On les distingue pour ne pas écrire « ≥ » sur un chiffre exact, ni un motif faux.
   const coutPartiel = resultat.ingredientsSansPrix.length > 0 || resultat.cycle;
   const portionsInvalides = !Number.isFinite(ent.nbPortions) || ent.nbPortions <= 0;
+  // Troisième cause d'incomplétude, distincte des deux autres : la fiche n'a AUCUN ingrédient.
+  // Son coût n'est pas 0, il est inconnu — et aucun ingrédient n'est là pour être nommé.
+  const aucunIngredient = lignes.length === 0;
+  const noteCout = !resultat.incomplet ? null : aucunIngredient ? "sur coût inconnu" : "sur coût partiel";
 
   const initiales = new Map(vue.lignes.map((l) => [l.id, l]));
   const ligneModifiee = (l: LigneFiche) => {
@@ -297,9 +302,11 @@ export function EditerFiche({
           {ent.estSousRecette && <Kpi label="Rendement" valeur={ent.rendementQuantite ? `${qte(ent.rendementQuantite)} ${ent.rendementUnite || "?"}` : "—"} accent={ent.rendementQuantite ? undefined : "amber"} />}
         </div>
 
-        {!coutConnu && lignes.length > 0 && (
+        {!coutConnu && (
           <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            Aucun ingrédient n&apos;est valorisé : cette fiche n&apos;a pas de coût connu (et surtout pas un coût de 0).
+            {aucunIngredient
+              ? "Aucun ingrédient saisi : cette fiche n'a pas de coût connu (et surtout pas un coût de 0). Tant qu'elle est vide, le prix et la marge ci-dessous ne veulent rien dire."
+              : "Aucun ingrédient n'est valorisé : cette fiche n'a pas de coût connu (et surtout pas un coût de 0)."}
           </p>
         )}
       </section>
@@ -323,19 +330,23 @@ export function EditerFiche({
               peut être surestimée ou sous-estimée. */}
           {resultat.incomplet && (
             <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              ⚠ Ces montants reposent sur un <strong>coût partiel</strong>
-              {coutPartiel ? ` (${resultat.ingredientsSansPrix.length} ingrédient(s) non valorisé(s))` : " (nombre de portions inexploitable)"} :
+              ⚠ Ces montants reposent sur un <strong>coût {aucunIngredient ? "inconnu" : "partiel"}</strong>
+              {coutPartiel
+                ? ` (${resultat.ingredientsSansPrix.length} ingrédient(s) non valorisé(s))`
+                : aucunIngredient
+                  ? " (aucun ingrédient saisi : le coût de revient n'est pas 0, il est inconnu)"
+                  : " (nombre de portions inexploitable)"} :
               ils ne sont <strong>pas fiables</strong>. N&apos;arrêtez pas un prix de vente là-dessus.
             </p>
           )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Kpi label={etiquette("Prix de vente HT", resultat.prixEstConseille, resultat.incomplet)} valeur={usd(resultat.prixVenteHT)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Prix de vente TTC", resultat.prixEstConseille, resultat.incomplet)} valeur={usd(resultat.prixVenteTTC)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Marge brute", resultat.prixEstConseille, resultat.incomplet)} valeur={usd(resultat.margeBrute)} accent={resultat.incomplet ? "amber" : "green"} />
-            <Kpi label={etiquette("Coefficient", resultat.prixEstConseille, resultat.incomplet)} valeur={coef(resultat.coefficient)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Taux de marque", resultat.prixEstConseille, resultat.incomplet)} valeur={pct(resultat.tauxMarque)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Ratio matière", resultat.prixEstConseille, resultat.incomplet)} valeur={pct(resultat.ratioMatiere)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Kpi label={etiquette("Prix de vente HT", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteHT)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Kpi label={etiquette("Prix de vente TTC", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteTTC)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Kpi label={etiquette("Marge brute", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.margeBrute)} accent={resultat.incomplet ? "amber" : "green"} />
+            <Kpi label={etiquette("Coefficient", resultat.prixEstConseille, noteCout)} valeur={coef(resultat.coefficient)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Kpi label={etiquette("Taux de marque", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarque)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Kpi label={etiquette("Ratio matière", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.ratioMatiere)} accent={resultat.incomplet ? "amber" : undefined} />
             {resultat.prixConseille && (
               <div className="col-span-2 rounded-lg border p-3">
                 <p className="text-xs text-muted-foreground">Prix conseillé (coefficient cible)</p>
@@ -361,11 +372,13 @@ export function EditerFiche({
 
 /**
  * Étiquette d'un indicateur de prix : dit son ORIGINE (conseillé depuis le coefficient cible, ou
- * dérivé d'un prix décidé) et sa COMPLÉTUDE (assis ou non sur un coût partiel). Deux questions
- * différentes, deux mentions — c'est ce qui empêche de lire un prix arrêté là où il n'y a qu'une cible.
+ * dérivé d'un prix décidé) et sa COMPLÉTUDE (`note` : « sur coût partiel », « sur coût inconnu »,
+ * ou rien). Deux questions différentes, deux mentions — c'est ce qui empêche de lire un prix
+ * arrêté là où il n'y a qu'une cible. La note est passée par l'appelant : lui seul sait laquelle
+ * des trois causes d'incomplétude s'applique.
  */
-function etiquette(base: string, conseille: boolean, incomplet: boolean): string {
-  const notes = [conseille ? "conseillé" : null, incomplet ? "sur coût partiel" : null].filter(Boolean);
+function etiquette(base: string, conseille: boolean, note: string | null): string {
+  const notes = [conseille ? "conseillé" : null, note].filter(Boolean);
   return notes.length ? `${base} (${notes.join(", ")})` : base;
 }
 

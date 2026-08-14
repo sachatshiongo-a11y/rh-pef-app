@@ -665,12 +665,38 @@ describe("robustesse", () => {
     expect(r.coutParPortion.toString()).toBe("10"); // 1 portion par défaut, incomplétude signalée
   });
 
-  it("fiche sans ingrédient : coût 0, complet, aucune marge", () => {
+  it("fiche sans ingrédient : coût INCONNU (jamais 0 « complet »), aucune marge", () => {
     const r = calculerCout(fiche([]), CTX_VIDE);
     expect(r.coutTotal.toNumber()).toBe(0);
-    expect(r.incomplet).toBe(false);
+    // Zéro ligne n'est pas un coût de zéro : la fiche est annoncée incomplète (aucun ingrédient
+    // à nommer, donc `ingredientsSansPrix` reste vide — c'est le drapeau qui parle).
+    expect(r.incomplet).toBe(true);
     expect(r.ingredientsSansPrix).toEqual([]);
     expect(r.prixVenteHT).toBeNull();
+  });
+
+  it("fiche VIDE avec un prix de vente saisi : marge annoncée NON fiable, jamais 100 % en silence", () => {
+    // Le geste naturel après « + Nouvelle fiche » : renseigner l'entête (prix TTC, coefficient)
+    // AVANT de saisir les ingrédients. Sans le garde-fou, la fiche sortait « coût 0, marge
+    // 20,24 $, taux de marque 100 % » sans la moindre mention — le plat le plus rentable de la
+    // carte. Les chiffres restent calculés (l'écran doit pouvoir les montrer), mais `incomplet`
+    // les qualifie, et c'est lui que lisent la liste, la fiche et l'export.
+    const r = calculerCout(fiche([], { prixVenteTTC: 23.48, coefficientMargeCible: 8 }), CTX_VIDE);
+    expect(r.incomplet).toBe(true);
+    expect(r.lignes).toEqual([]);
+    expect(r.prixVenteHT).toBe(20.24);
+    expect(r.tauxMarque).toBe(1);
+    // Aucun coût exploitable → pas de prix conseillé inventé depuis un coût de 0.
+    expect(r.prixConseille).toBeNull();
+  });
+
+  it("fiche dont AUCUNE ligne n'est valorisée : incomplète, comme la fiche vide", () => {
+    const r = calculerCout(
+      fiche([{ nom: "Truffe", quantite: 0.01, unite: "kg", article: { prixUnitaireUSD: null, unite: "kg" } }]),
+      CTX_VIDE,
+    );
+    expect(r.incomplet).toBe(true);
+    expect(r.ingredientsSansPrix).toEqual(["Truffe"]);
   });
 
   it("le contexte est facultatif (sous-fiches en ligne uniquement)", () => {

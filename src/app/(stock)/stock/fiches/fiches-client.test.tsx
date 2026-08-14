@@ -53,6 +53,23 @@ describe("liste des fiches — le coût partiel ne s'affiche jamais en chiffre n
     expect(visible).not.toContain("≥");
   });
 
+  it("une fiche VIDE dit « Aucun ingrédient saisi », jamais « Portions inexploitables »", () => {
+    // Cas de « + Nouvelle fiche » : l'entête est renseignée avant les ingrédients. Le moteur la
+    // dit incomplète ; le motif affiché doit envoyer saisir la recette, pas corriger les portions.
+    const vide: FicheRow = {
+      ...base, nbIngredients: 0, coutConnu: false, coutPortion: 0,
+      coutPartiel: false, incomplet: true, nbIndetermines: 0,
+    };
+    const markup = renderToStaticMarkup(<FichesClient fiches={[vide]} />);
+    const visible = partieVisibleSurTelephone(markup);
+    expect(visible).toContain("Aucun ingrédient saisi");
+    expect(visible).not.toContain("Portions inexploitables");
+    expect(visible).not.toContain("≥");
+    // La marge de 100 % ne doit nulle part s'afficher comme un chiffre acquis.
+    expect(markup).not.toContain("taux de marque");
+    expect(markup).toContain("Prix et marge non fiables : aucun ingrédient saisi");
+  });
+
   it("une fiche dont aucun ingrédient n'est valorisé affiche « — », jamais « 0,00 $ »", () => {
     const muette: FicheRow = { ...base, coutConnu: false, coutPortion: 0, coutPartiel: true, incomplet: true, nbIndetermines: 2 };
     const visible = partieVisibleSurTelephone(renderToStaticMarkup(<FichesClient fiches={[muette]} />));
