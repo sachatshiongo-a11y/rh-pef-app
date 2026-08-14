@@ -96,8 +96,8 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
 /**
  * Fusionne plusieurs articles en un seul. `keepId` = article à CONSERVER (choisi par l'utilisateur) ;
  * s'il est absent/invalide, on garde par défaut celui qui a une catégorie, sinon le plus fourni.
- * Les mouvements, lignes de BC et lignes de facture des doublons sont rattachés à l'article conservé,
- * leur stock cumulé, puis ils sont supprimés.
+ * Les mouvements, lignes de BC, lignes de facture et ingrédients de fiche technique des doublons
+ * sont rattachés à l'article conservé, leur stock cumulé, puis ils sont supprimés.
  */
 export const fusionnerArticles = actionLisible(async (articleIds: string[], keepId?: string) => {
   const user = await garde();
@@ -117,6 +117,13 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
       await tx.mouvementStock.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneBonDeCommande.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       await tx.ligneFacture.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
+      // Fiches techniques : `IngredientFiche.articleId` est en `onDelete: Restrict`. Sans ce
+      // rebranchement, fusionner un doublon utilisé dans une recette échouait sur une violation
+      // de contrainte brute et annulait TOUTE la transaction — alors que la fusion est justement
+      // le remède aux doublons (« CAILLES » / « Cailles »). Deux lignes d'une même fiche peuvent
+      // se retrouver sur l'article conservé : elles restent DEUX consommations distinctes, leurs
+      // quantités s'additionnent au coût — on ne fusionne pas des lignes de recette à l'aveugle.
+      await tx.ingredientFiche.updateMany({ where: { articleId: l.id }, data: { articleId: keep.id } });
       if (l.stock) await tx.stock.update({ where: { articleId: keep.id }, data: { quantite: { increment: Number(l.stock.quantite) } } });
       await tx.articleStock.delete({ where: { id: l.id } });
     }
@@ -211,12 +218,16 @@ export async function supprimerArticle(id: string) {
     requireRole(user, ["ADMIN"]);
 
     const a = await prisma.articleStock.findUniqueOrThrow({ where: { id }, select: { designation: true } });
-    const [mvts, lFac, lBC, cResto, cComptage] = await Promise.all([
+    const [mvts, lFac, lBC, cResto, cComptage, ingredients] = await Promise.all([
       prisma.mouvementStock.count({ where: { articleId: id } }),
       prisma.ligneFacture.count({ where: { articleId: id } }),
       prisma.ligneBonDeCommande.count({ where: { articleId: id } }),
       prisma.commandeResto.count({ where: { articleId: id } }),
       prisma.ligneComptage.count({ where: { articleId: id } }),
+      // `IngredientFiche.articleId` est en `onDelete: Restrict` : sans ce contrôle, un article
+      // sans aucun autre historique passait le garde-fou, puis la suppression échouait sur une
+      // violation de contrainte Postgres — message brut, en anglais, illisible pour la Direction.
+      prisma.ingredientFiche.findMany({ where: { articleId: id }, select: { fiche: { select: { nom: true } } } }),
     ]);
     const attaches: string[] = [];
     if (mvts) attaches.push(`${mvts} mouvement(s)`);
@@ -224,9 +235,14 @@ export async function supprimerArticle(id: string) {
     if (lBC) attaches.push(`${lBC} ligne(s) de bon de commande`);
     if (cResto) attaches.push(`${cResto} commande(s) resto`);
     if (cComptage) attaches.push(`${cComptage} comptage(s)`);
+    if (ingredients.length) {
+      // On NOMME les fiches : c'est là qu'il faut aller retirer l'ingrédient pour débloquer.
+      const noms = [...new Set(ingredients.map((i) => i.fiche.nom))];
+      attaches.push(`${ingredients.length} ligne(s) de fiche technique (${noms.map((n) => `« ${n} »`).join(", ")})`);
+    }
     if (attaches.length > 0) {
       throw new Error(
-        `« ${a.designation} » a un historique (${attaches.join(", ")}) : il ne peut pas être supprimé. Désactivez-le (il disparaît des listes) ou fusionnez-le avec un doublon.`
+        `« ${a.designation} » a un historique (${attaches.join(", ")}) : il ne peut pas être supprimé. Désactivez-le (il disparaît des listes), retirez-le des fiches techniques qui l'utilisent, ou fusionnez-le avec un doublon.`
       );
     }
 

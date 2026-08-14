@@ -224,6 +224,28 @@ export async function annulerImport(batchId: string): Promise<void> {
       else if (o.entite === "FactureFournisseur") await tx.factureFournisseur.deleteMany({ where: { id: o.entiteId } });
     }
     // 2) Puis les entités « parentes » créées par l'import.
+    //    Un article créé par l'import a pu être mis dans une FICHE TECHNIQUE entre-temps :
+    //    `IngredientFiche.articleId` est en `onDelete: Restrict`, la suppression échouerait alors
+    //    sur une violation de contrainte brute (message Postgres en anglais) et annulerait toute
+    //    l'annulation. On le dit d'abord, en nommant l'article ET la fiche : l'opérateur sait quoi
+    //    détacher. Refus ENTIER plutôt qu'annulation partielle — un import à moitié annulé, marqué
+    //    « ANNULE », serait pire que pas d'annulation du tout.
+    const idsArticlesCrees = creations.filter((o) => o.entite === "ArticleStock").map((o) => o.entiteId);
+    if (idsArticlesCrees.length > 0) {
+      const utilises = await tx.ingredientFiche.findMany({
+        where: { articleId: { in: idsArticlesCrees } },
+        select: { article: { select: { designation: true } }, fiche: { select: { nom: true } } },
+      });
+      if (utilises.length > 0) {
+        const details = [
+          ...new Set(utilises.map((u) => `« ${u.article?.designation ?? "?"} » (fiche « ${u.fiche.nom} »)`)),
+        ];
+        throw new Error(
+          `Annulation impossible : ${details.length} article(s) créé(s) par cet import sont utilisés dans une fiche technique — ` +
+            `${details.join(", ")}. Retirez-les de ces fiches, puis relancez l'annulation. Rien n'a été annulé.`
+        );
+      }
+    }
     for (const o of creations) if (o.entite === "ArticleStock") await tx.articleStock.deleteMany({ where: { id: o.entiteId } });
     for (const o of creations) if (o.entite === "Fournisseur") {
       // Ne supprime un fournisseur créé que s'il n'est plus référencé (sécurité).

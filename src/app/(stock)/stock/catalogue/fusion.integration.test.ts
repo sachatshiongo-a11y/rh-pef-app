@@ -53,4 +53,23 @@ describe("fusionnerArticles — choix de l'article à conserver", () => {
     const mvts = await prisma.mouvementStock.findMany({ where: { articleId: garder.id } });
     expect(mvts).toHaveLength(1);
   }, 60_000);
+
+  it("rattache aussi les ingrédients de FICHE TECHNIQUE (sinon la fusion échoue en bloc)", async () => {
+    // `IngredientFiche.articleId` est en `onDelete: Restrict` : sans rebranchement, supprimer le
+    // doublon violait la contrainte et annulait TOUTE la transaction — or la fusion est justement
+    // le remède aux doublons signalés par l'import (« CAILLES » / « Cailles »).
+    const garder = await prisma.articleStock.create({ data: { designation: "Cailles", domaine: "NOURRITURE", unite: "pièce" } });
+    const doublon = await prisma.articleStock.create({ data: { designation: "CAILLES", domaine: "NOURRITURE", unite: "pièce" } });
+    const fiche = await prisma.ficheTechnique.create({ data: { nom: "Cailles rôties", nbPortions: 2 } });
+    await prisma.ingredientFiche.create({ data: { ficheId: fiche.id, articleId: doublon.id, unite: "pièce", quantite: 2 } });
+
+    await fusionnerArticles([garder.id, doublon.id], garder.id);
+
+    expect(await prisma.articleStock.findUnique({ where: { id: doublon.id } })).toBeNull();
+    // La recette n'a pas perdu sa ligne : elle pointe désormais l'article conservé.
+    const lignes = await prisma.ingredientFiche.findMany({ where: { ficheId: fiche.id } });
+    expect(lignes).toHaveLength(1);
+    expect(lignes[0]!.articleId).toBe(garder.id);
+    expect(Number(lignes[0]!.quantite)).toBe(2); // quantité intacte
+  }, 60_000);
 });

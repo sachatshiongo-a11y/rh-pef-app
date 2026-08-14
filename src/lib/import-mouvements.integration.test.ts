@@ -76,6 +76,34 @@ describe("appliquerMouvements — import CSV + annulation réversible", () => {
   }, 60_000);
 });
 
+describe("annulerImport — un article créé puis mis dans une fiche technique", () => {
+  it("refuse l'annulation en nommant l'article ET la fiche, sans rien annuler à moitié", async () => {
+    // `IngredientFiche.articleId` est en `onDelete: Restrict` : supprimer l'article créé par
+    // l'import violerait la contrainte (message Postgres brut) et ferait échouer TOUTE
+    // l'annulation. On l'annonce d'abord, en français, et on ne touche à rien.
+    const cree = await prisma.articleStock.create({ data: { designation: "Câpres au vinaigre", domaine: "NOURRITURE" } });
+    const batch = await prisma.importBatch.create({ data: { type: "INVENTAIRE", libelle: "Inventaire test" } });
+    await prisma.importOperation.create({
+      data: { batchId: batch.id, entite: "ArticleStock", entiteId: cree.id, action: "CREATE" },
+    });
+    const fiche = await prisma.ficheTechnique.create({ data: { nom: "Filet de saumon au beurre blanc", nbPortions: 4 } });
+    const ingredient = await prisma.ingredientFiche.create({
+      data: { ficheId: fiche.id, articleId: cree.id, unite: "g", quantite: 15 },
+    });
+
+    await expect(annulerImport(batch.id)).rejects.toThrow(/Câpres au vinaigre[\s\S]*Filet de saumon au beurre blanc/);
+    // Rien n'a bougé : l'article est toujours là, l'import n'est PAS marqué annulé.
+    expect(await prisma.articleStock.findUnique({ where: { id: cree.id } })).not.toBeNull();
+    expect((await prisma.importBatch.findUniqueOrThrow({ where: { id: batch.id } })).statut).toBe("APPLIQUE");
+
+    // La ligne de fiche retirée, l'annulation redevient possible et supprime bien l'article.
+    await prisma.ingredientFiche.delete({ where: { id: ingredient.id } });
+    await annulerImport(batch.id);
+    expect(await prisma.articleStock.findUnique({ where: { id: cree.id } })).toBeNull();
+    expect((await prisma.importBatch.findUniqueOrThrow({ where: { id: batch.id } })).statut).toBe("ANNULE");
+  }, 60_000);
+});
+
 describe("analyserMouvements — la désignation prime, codes en collision départagés", () => {
   const entete = "Date,Code article,Désignation,Entrées,Sorties\n";
 
