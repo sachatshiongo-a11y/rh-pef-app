@@ -6,6 +6,14 @@ export const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "
 export const MOIS_FR_MAJ = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 export const MOIS_FR_COURT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
+/** Décale une valeur "AAAA-MM" (input type="month") de `delta` mois (UTC) — passage d'année géré
+ *  par `Date.UTC` (un mois hors [0,11] se reporte tout seul sur l'année adjacente). */
+export function moisAdjacent(moisValue: string, delta: number): string {
+  const [a, m] = moisValue.split("-").map(Number);
+  const d = new Date(Date.UTC(a, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 /** Lundi (UTC) de la semaine contenant `d`. */
 export function lundiDe(d: Date): Date {
   const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
