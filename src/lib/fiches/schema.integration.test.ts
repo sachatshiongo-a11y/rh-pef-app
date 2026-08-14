@@ -4,7 +4,7 @@ import { creerBaseTest } from "@/lib/test/db";
 describe("schéma fiches techniques", () => {
   let ctx: Awaited<ReturnType<typeof creerBaseTest>>;
   beforeAll(async () => { ctx = await creerBaseTest(); });
-  afterAll(async () => { await ctx.fermer(); });
+  afterAll(async () => { await ctx?.fermer(); });
 
   it("crée un article, une fiche technique, un ingrédient article et un ingrédient sous-fiche", async () => {
     const { prisma } = ctx;
