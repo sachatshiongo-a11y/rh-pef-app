@@ -145,8 +145,12 @@ Script d'import idempotent (comme l'import finance) :
   cycle.
 - **Intégration** (Postgres éphémère) : création fiche → ingrédients (article + sous-fiche) → coût ;
   cloisonnement Stock ; RLS.
-- **Golden** : reproduire un coût connu du classeur, ex. **Bolognaise = 2,53 $ HT** (Sauce bolognaise
-  au cl + penne), et **Sauce bolognaise = 2,47 $/portion** (23 portions, total 56,82 $).
+- **Golden** : reproduire un coût connu du classeur, ex. **Bolognaise = 2,54 $ HT** (Sauce bolognaise
+  au cl + penne), et **Sauce bolognaise = 2,47 $/portion** (23 portions, total 56,82 $). En **égalité
+  exacte**, jamais à ±0,01. ⚠️ La cellule F34 du classeur affiche 2,53 $ : c'est un artefact d'arrondi
+  intermédiaire de la Direction (coût de sauce **tronqué** à 0,0123 $/g), **pas** la valeur attendue —
+  cf. **§12.2**, qui prime, et `src/lib/fiches/golden.integration.test.ts`, qui verrouille le 2,54 $
+  de bout en bout.
 
 ## 10. Hors périmètre v1 (YAGNI)
 
