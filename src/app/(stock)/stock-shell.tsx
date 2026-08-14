@@ -32,6 +32,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     titre: "Restaurant",
     items: [
       { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts" },
+      { href: "/stock/fiches", label: "Fiches techniques", icone: "document" },
       { href: "/stock/legumes", label: "Achats légumes frais", icone: "feuille" },
       { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours" },
     ],
