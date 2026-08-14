@@ -63,11 +63,14 @@ export type ContexteCout = { fiches: Map<string, FicheCalc> };
 /** Pourquoi le coût d'une ligne est indéterminé (jamais « 0 »). */
 export type MotifSansPrix =
   | "PRIX_ABSENT" // l'article n'a pas de prix unitaire
+  | "PRIX_NUL" // l'article porte un prix à 0 (ou négatif) : renseigné à tort, pas gratuit
   | "UNITE_INCONVERTIBLE" // unité d'achat ↔ unité de consommation incompatibles ou inconnues
   | "QUANTITE_INVALIDE" // quantité absente, non numérique ou négative
   | "SANS_SOURCE" // ni article ni sous-fiche
   | "SOUS_FICHE_INTROUVABLE" // référence de sous-recette absente du contexte
   | "RENDEMENT_ABSENT" // sous-recette sans rendement exploitable
+  | "UNITE_RENDEMENT_INCOHERENTE" // rendement et consommation pas dans la même unité de base
+  | "COUT_INDETERMINE" // sous-recette dont aucune ligne n'est valorisée
   | "CYCLE"; // la sous-recette se contient (directement ou non)
 
 /** Détail d'une ligne, pour l'affichage (« Prix de revient HT » du classeur). */
@@ -102,6 +105,13 @@ export type ResultatCout = {
   prixVenteTTC: number | null;
   margeBrute: number | null;
   prixConseille: { ht: number; ttc: number } | null;
+  /**
+   * Vrai quand `prixVenteHT`/`prixVenteTTC` (et donc `margeBrute`/`tauxMarque`) ne viennent PAS
+   * d'un prix décidé mais du coefficient cible : ce sont des valeurs SUGGÉRÉES, pas constatées.
+   * L'écran doit les présenter comme telles (« prix conseillé »), sinon la Direction lira un prix
+   * arrêté là où il n'y a qu'une cible.
+   */
+  prixEstConseille: boolean;
   cycle: boolean;
 };
 
@@ -141,6 +151,9 @@ function prixParUniteDeConsommation(
 ): { prix: Decimal } | { motif: MotifSansPrix } {
   const prixAchat = versDecimal(article.prixUnitaireUSD);
   if (prixAchat === null) return { motif: "PRIX_ABSENT" };
+  // Un prix à 0 en base n'est pas « gratuit », c'est un prix non renseigné. Le valoriser ferait
+  // passer un plat non documenté pour le plus rentable du catalogue.
+  if (prixAchat.lessThanOrEqualTo(0)) return { motif: "PRIX_NUL" };
 
   const direct = facteur(uniteConsommee, article.unite);
   if (direct !== null) return { prix: prixAchat.times(direct) };
@@ -155,6 +168,37 @@ function prixParUniteDeConsommation(
 
   // Unité inconnue ou incompatible : on ne suppose JAMAIS un facteur.
   return { motif: "UNITE_INCONVERTIBLE" };
+}
+
+/**
+ * Une unité est « de base » si elle est l'unité de référence de sa grandeur (g pour la masse,
+ * ml pour le volume) — ou si elle n'appartient à aucune grandeur convertible (« portion »,
+ * « pièce »… : il n'y a alors rien à comparer).
+ */
+function estUniteDeBase(unite: string): boolean {
+  const versG = facteur(unite, "g");
+  if (versG !== null) return versG.equals(1);
+  const versMl = facteur(unite, "ml");
+  if (versMl !== null) return versMl.equals(1);
+  return true;
+}
+
+/**
+ * Le coût d'une sous-recette se calcule SANS conversion : la consommation et le rendement
+ * doivent donc être exprimés dans la même unité de base. Renvoie `true` quand ce n'est
+ * manifestement pas le cas :
+ *  - les deux unités sont comparables mais leur facteur vaut ≠ 1 (« g » contre « kg ») ;
+ *  - elles ne sont pas comparables et le rendement n'est pas dans une unité de base
+ *    (« cl » consommé contre un rendement en « kg »).
+ * La règle « cl d'une sous-recette = gramme » n'est PAS touchée : `facteur("cl","g")` vaut
+ * `null` et le rendement « g » est une unité de base → rien ne se déclenche.
+ */
+function uniteRendementIncoherente(uniteConsommee: string, rendementUnite?: string | null): boolean {
+  const rendement = rendementUnite?.trim();
+  if (!rendement) return false; // rendement sans unité : rien à vérifier
+  const f = facteur(uniteConsommee, rendement);
+  if (f !== null) return !f.equals(1);
+  return !estUniteDeBase(rendement);
 }
 
 type ResultatInterne = {
@@ -229,15 +273,41 @@ function calculerInterne(
       return;
     }
 
+    // Le rendement et la consommation DOIVENT être dans la même unité de base, puisqu'on ne
+    // convertit rien ici. Un rendement saisi « 4,6 / kg » consommé en « g » donnerait un coût
+    // 1000 fois trop élevé, sans que rien ne le signale : on refuse plutôt que de deviner.
+    if (uniteRendementIncoherente(ingredient.unite, sousFiche.rendementUnite)) {
+      lignes.push({ label, cout: null, motif: "UNITE_RENDEMENT_INCOHERENTE", partiel: false });
+      sansPrix.push(label);
+      return;
+    }
+
     const interne = calculerInterne(sousFiche, contexte, suivant);
     if (interne.cycle) cycle = true;
     for (const enfant of interne.sansPrix) sansPrix.push(`${label} › ${enfant}`);
+
+    // Une sous-recette prise dans un cycle, ou dont aucune ligne n'est valorisée, n'a pas un
+    // coût de 0 : elle a un coût INDÉTERMINÉ. Le total du parent ne bouge pas (on n'ajoute
+    // rien), mais la ligne ne doit pas s'afficher « 0,00 $ » comme si c'était un montant.
+    const aucuneLigneValorisee = interne.lignes.every((l) => l.cout === null);
+    if (interne.cycle || aucuneLigneValorisee) {
+      lignes.push({
+        label,
+        cout: null,
+        motif: interne.cycle ? "CYCLE" : "COUT_INDETERMINE",
+        partiel: false,
+      });
+      // Garantit que l'incomplétude est annoncée même quand la sous-recette est vide
+      // (aucun manque à remonter depuis l'enfant).
+      if (interne.sansPrix.length === 0) sansPrix.push(label);
+      return;
+    }
 
     // AUCUNE conversion d'unité ici : rendement et consommation sont déjà dans la même unité
     // de base (le « cl » d'une sous-recette est un GRAMME, densité 1 — convertir multiplierait
     // le coût par 10).
     const cout = quantite.times(interne.coutTotal.div(rendement));
-    lignes.push({ label, cout, motif: null, partiel: interne.sansPrix.length > 0 || interne.cycle });
+    lignes.push({ label, cout, motif: null, partiel: interne.sansPrix.length > 0 });
     coutTotal = coutTotal.plus(cout);
   });
 
@@ -272,12 +342,14 @@ export function calculerCout(
   // COEFFICIENT-driven (PV HT = coût × coefficient), cf. spec §12.4.
   let htD: Decimal | null = null;
   let ttcD: Decimal | null = null;
+  let prixEstConseille = false;
   if (ttcSaisi !== null) {
     ttcD = ttcSaisi;
     htD = ttcSaisi.div(unPlusTva);
   } else if (coefCible !== null && coutExploitable) {
     htD = coutParPortion.times(coefCible);
     ttcD = htD.times(unPlusTva);
+    prixEstConseille = true; // prix SUGGÉRÉ, pas décidé : marge et taux qui en découlent aussi
   }
 
   const margeD = htD === null ? null : htD.minus(coutParPortion);
@@ -304,6 +376,7 @@ export function calculerCout(
     prixVenteTTC: ttcD === null ? null : arrondirCentime(ttcD),
     margeBrute: margeD === null ? null : arrondirCentime(margeD),
     prixConseille,
+    prixEstConseille,
     cycle,
   };
 }

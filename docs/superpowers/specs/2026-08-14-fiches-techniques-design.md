@@ -74,8 +74,11 @@ nouvelle table (patron `rls_tables_restantes`), tests Vitest + Postgres éphém�
 Le Stock price à l'**unité d'achat** (kg, L, pièce…), la recette consomme en **g, cl, ml, pièce…**.
 Utilitaire pur de conversion :
 - **Masse** : kg ↔ g (×1000). **Volume** : L ↔ cl (×100) ↔ ml (×1000). **Pièce/unité** : telle quelle.
-- Coût d'un ingrédient-article = `quantité × (prixUnitaireArticle ajusté du facteur unitéAchat→unitéConso)`.
-  Ex. article à 8 $/kg consommé en 200 g → `0,2 kg × 8 = 1,60 $`.
+- Coût d'un ingrédient-article = `quantité × (prixUnitaireArticle × facteur(unitéConso → unitéAchat))`.
+  Ex. article à 8 $/kg consommé en 200 g → `200 g × (8 × 0,001) = 1,60 $`.
+  > ⚠️ **Sens du facteur — corrigé le 2026-08-14 (Task 3).** Le prix est exprimé **par unité
+  > d'achat** : c'est la quantité consommée qu'on convertit vers l'unité d'achat, jamais l'inverse.
+  > 3 000 g d'un article à 2,99 $/kg = **8,97 $** ; le sens inverse donnerait **8 970 000 $**.
 - La **« quantité par paquet »** du catalogue sert quand un article est vendu au carton (prix carton
   → prix pièce). Le prix de vérité reste le prix unitaire de `ArticleStock`.
 - **Incompatibilité** (ex. consommer un article « pièce » en « g ») → **signalée**, coût de cet

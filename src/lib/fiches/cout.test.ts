@@ -179,6 +179,75 @@ describe("coût d'un ingrédient sous-recette", () => {
     expect(r.coutTotal.toNumber()).toBe(0);
   });
 
+  it("rendement en kg consommé en g : incohérent, jamais un coût 1000 fois trop élevé", () => {
+    // Saisir « 4,6 / kg » pour une sauce de 4,6 kg est naturel. Sans garde-fou, 200 g de cette
+    // sauce coûteraient 200 × (35,875 / 4,6) = 1 559,78 $ sans que rien ne le signale.
+    const sauce = ficheSousRecette({
+      nom: "Sauce",
+      rendementQuantite: 4.6,
+      rendementUnite: "kg",
+      ingredients: [{ nom: "Viande", quantite: 2.5, unite: "kg", article: { prixUnitaireUSD: 14.35, unite: "kg" } }],
+    });
+    const plat = fiche([{ nom: "Sauce", quantite: 200, unite: "g", sousFicheId: sauce.id }]);
+    const r = calculerCout(plat, mapAvec(sauce));
+    expect(r.incomplet).toBe(true);
+    expect(r.coutTotal.toNumber()).toBe(0);
+    expect(r.ingredientsSansPrix).toEqual(["Sauce"]);
+    expect(r.lignes[0]!.motif).toBe("UNITE_RENDEMENT_INCOHERENTE");
+    expect(r.lignes[0]!.cout).toBeNull();
+  });
+
+  it("rendement en kg consommé en « cl » : incohérent aussi (rendement hors unité de base)", () => {
+    const sauce = ficheSousRecette({
+      nom: "Sauce",
+      rendementQuantite: 4.6,
+      rendementUnite: "kg",
+      ingredients: [{ nom: "Viande", quantite: 2.5, unite: "kg", article: { prixUnitaireUSD: 14.35, unite: "kg" } }],
+    });
+    const plat = fiche([{ nom: "Sauce", quantite: 200, unite: "cl", sousFicheId: sauce.id }]);
+    const r = calculerCout(plat, mapAvec(sauce));
+    expect(r.lignes[0]!.motif).toBe("UNITE_RENDEMENT_INCOHERENTE");
+    expect(r.incomplet).toBe(true);
+  });
+
+  it("le garde-fou de rendement ne casse ni « cl = gramme » ni les unités identiques", () => {
+    const sauce = ficheSousRecette({ rendementQuantite: 4600, rendementUnite: "g", ingredients: INGREDIENTS_SAUCE });
+    // « cl » face à un rendement en g : grandeurs non comparables → densité 1, aucun blocage.
+    expect(
+      calculerCout(fiche([{ quantite: 200, unite: "cl", sousFicheId: sauce.id }]), mapAvec(sauce)).incomplet,
+    ).toBe(false);
+    // kg face à un rendement en kg : même unité, facteur 1 → aucun blocage, calcul correct.
+    const sauceKg = ficheSousRecette({ rendementQuantite: 4.6, rendementUnite: "kg", ingredients: INGREDIENTS_SAUCE });
+    const r = calculerCout(fiche([{ quantite: 0.2, unite: "kg", sousFicheId: sauceKg.id }]), mapAvec(sauceKg));
+    expect(r.incomplet).toBe(false);
+    expect(r.coutTotal.toFixed(4)).toBe("2.4706"); // 56,8237 / 4,6 kg × 0,2 kg
+  });
+
+  it("sous-recette dont aucune ligne n'est valorisée : coût indéterminé, pas « 0,00 $ »", () => {
+    const muette = ficheSousRecette({ nom: "Sauce muette", rendementQuantite: 1000, ingredients: [] });
+    const plat = fiche([{ nom: "Sauce muette", quantite: 200, unite: "g", sousFicheId: muette.id }]);
+    const r = calculerCout(plat, mapAvec(muette));
+    expect(r.lignes[0]!.cout).toBeNull();
+    expect(r.lignes[0]!.motif).toBe("COUT_INDETERMINE");
+    expect(r.incomplet).toBe(true);
+    expect(r.ingredientsSansPrix).toEqual(["Sauce muette"]);
+    expect(r.coutTotal.toNumber()).toBe(0);
+  });
+
+  it("sous-recette dont tous les ingrédients sont sans prix : coût indéterminé", () => {
+    const sauce = ficheSousRecette({
+      nom: "Sauce",
+      rendementQuantite: 1000,
+      ingredients: [{ nom: "Tomate", quantite: 1, unite: "kg", article: { prixUnitaireUSD: null, unite: "kg" } }],
+    });
+    const plat = fiche([{ nom: "Sauce", quantite: 200, unite: "g", sousFicheId: sauce.id }]);
+    const r = calculerCout(plat, mapAvec(sauce));
+    expect(r.lignes[0]!.cout).toBeNull();
+    expect(r.lignes[0]!.motif).toBe("COUT_INDETERMINE");
+    expect(r.ingredientsSansPrix).toEqual(["Sauce › Tomate"]);
+    expect(r.incomplet).toBe(true);
+  });
+
   it("sous-fiche introuvable dans le contexte : coût indéterminé, pas d'exception", () => {
     const plat = fiche([{ nom: "Sauce fantôme", quantite: 200, unite: "g", sousFicheId: "inconnue" }]);
     const r = calculerCout(plat, CTX_VIDE);
@@ -258,6 +327,8 @@ describe("marge et prix", () => {
     expect(r.ratioMatiere).toBeCloseTo(0.125, 3);
     expect(r.coefficient).toBeCloseTo(8, 6);
     expect(r.prixConseille).toEqual({ ht: 20.24, ttc: 23.48 });
+    // Aucun prix n'a été décidé : ce 20,24 est une CIBLE, l'écran doit le dire.
+    expect(r.prixEstConseille).toBe(true);
   });
 
   it("prix de vente TTC saisi : le HT en est dérivé (TVA 16 %)", () => {
@@ -266,6 +337,7 @@ describe("marge et prix", () => {
     expect(r.prixVenteHT).toBe(20.24); // 23,48 / 1,16 = 20,2413…
     expect(r.margeBrute).toBe(17.71);
     expect(r.coefficient).toBeCloseTo(8.0005, 3); // 8,00054518… (le TTC arrondi ne retombe pas pile sur 8)
+    expect(r.prixEstConseille).toBe(false); // prix DÉCIDÉ : marge constatée, pas cible
   });
 
   it("sans prix ni coefficient : aucune marge inventée", () => {
@@ -280,6 +352,7 @@ describe("marge et prix", () => {
     expect(r.ratioMatiere).toBeNull();
     expect(r.margeBrute).toBeNull();
     expect(r.prixConseille).toBeNull();
+    expect(r.prixEstConseille).toBe(false);
   });
 
   it("coût par portion nul : ni coefficient ni prix conseillé (pas de division par zéro)", () => {
@@ -306,6 +379,36 @@ describe("coût incomplet annoncé", () => {
     );
     expect(r.incomplet).toBe(true);
     expect(r.ingredientsSansPrix.length).toBe(1);
+    expect(r.coutTotal.toNumber()).toBe(0);
+  });
+
+  it("prix à 0 en base : traité comme non renseigné, jamais comme gratuit", () => {
+    // Le zéro discret : sans ce garde-fou, un plat non renseigné passe pour le plus rentable
+    // du catalogue (coût 0,07 $, marge maximale, prix conseillé 0,56 $).
+    const r = calculerCout(
+      fiche(
+        [
+          { nom: "Bœuf", quantite: 1, unite: "kg", article: { prixUnitaireUSD: 0, unite: "kg" } },
+          { nom: "Penne", quantite: 0.2, unite: "kg", article: { prixUnitaireUSD: 0.35, unite: "kg" } },
+        ],
+        { coefficientMargeCible: 8 },
+      ),
+      CTX_VIDE,
+    );
+    expect(r.incomplet).toBe(true);
+    expect(r.ingredientsSansPrix).toEqual(["Bœuf"]);
+    expect(r.lignes[0]!.motif).toBe("PRIX_NUL");
+    expect(r.lignes[0]!.cout).toBeNull();
+    expect(r.coutTotal.toString()).toBe("0.07"); // coût partiel, ANNONCÉ comme tel
+  });
+
+  it("prix négatif en base : traité comme non renseigné", () => {
+    const r = calculerCout(
+      fiche([{ nom: "Bœuf", quantite: 1, unite: "kg", article: { prixUnitaireUSD: -3, unite: "kg" } }]),
+      CTX_VIDE,
+    );
+    expect(r.incomplet).toBe(true);
+    expect(r.lignes[0]!.motif).toBe("PRIX_NUL");
     expect(r.coutTotal.toNumber()).toBe(0);
   });
 
@@ -398,6 +501,9 @@ describe("détection de cycle", () => {
       expect(r!.cycle).toBe(true);
       expect(r!.incomplet).toBe(true);
       expect(r!.coutTotal.toNumber()).toBe(0);
+      // La ligne ne doit pas s'afficher « 0,00 $ » : son coût est INDÉTERMINÉ.
+      expect(r!.lignes[0]!.cout).toBeNull();
+      expect(r!.lignes[0]!.motif).toBe("CYCLE");
     },
     2000, // si la récursion bouclait sans déborder, le test échouerait par timeout
   );
