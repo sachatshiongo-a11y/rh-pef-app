@@ -13,6 +13,10 @@ import {
   compresserImage,
   formaterRapport,
   importeeParCeScript,
+  validerArbitragesPhotos,
+  chargerArbitragesPhotos,
+  CHEMIN_ARBITRAGES_PHOTOS,
+  type ArbitragePhoto,
   type FicheBase,
   type ImageEmbarquee,
 } from "./import-photos-fiches";
@@ -195,6 +199,158 @@ describe("calculerRattachements", () => {
     const base = [ficheBase("f1", "Sauté de blanc de poulet aux champignons")];
     const r = calculerRattachements(images, classeur, base);
     expect(r[0]).toMatchObject({ statut: "RATTACHEE", fiche: { id: "f1" } });
+  });
+});
+
+// ─── Arbitrage des images partagées (Direction) ────────────────────────────────────────────────
+
+const unArbitrage = (image: string, fiche: string, ecartees: string[], motif = "motif de test."): ArbitragePhoto => ({
+  image,
+  fiche,
+  ecartees,
+  motif,
+});
+
+describe("calculerRattachements — arbitrage d'une image partagée", () => {
+  it("sans arbitrage, une image partagée reste refusée (comportement par défaut inchangé)", () => {
+    const media = "xl/media/image2.jpg";
+    const images = new Map([
+      ["Bolognaise", [img(media)]],
+      ["Sauce bolognaise", [img(media)]],
+    ]);
+    const classeur = [ficheParsee("Bolognaise", "Bolognaise"), ficheParsee("Sauce bolognaise", "Sauce bolognaise")];
+    const base = [ficheBase("f1", "Bolognaise"), ficheBase("f2", "Sauce bolognaise")];
+
+    const r = calculerRattachements(images, classeur, base);
+    expect(r.every((x) => x.statut === "NON_RATTACHEE")).toBe(true);
+  });
+
+  it("avec arbitrage, la fiche désignée reçoit la photo ; l'autre onglet est explicitement écarté", () => {
+    const media = "xl/media/image2.jpg";
+    const images = new Map([
+      ["Bolognaise", [img(media)]],
+      ["Sauce bolognaise", [img(media)]],
+    ]);
+    const classeur = [ficheParsee("Bolognaise", "Bolognaise"), ficheParsee("Sauce bolognaise", "Sauce bolognaise")];
+    const base = [ficheBase("f1", "Bolognaise"), ficheBase("f2", "Sauce bolognaise")];
+    const arbitrages = [unArbitrage("image2.jpg", "Bolognaise", ["Sauce bolognaise"], "la sauce n'a pas de photo de dressage.")];
+
+    const r = calculerRattachements(images, classeur, base, arbitrages);
+    const gagnant = r.find((x) => x.onglet === "Bolognaise")!;
+    const ecarte = r.find((x) => x.onglet === "Sauce bolognaise")!;
+    expect(gagnant).toMatchObject({ statut: "RATTACHEE", fiche: { id: "f1" } });
+    expect((gagnant as { arbitrage: ArbitragePhoto }).arbitrage?.motif).toContain("dressage");
+    expect(ecarte.statut).toBe("NON_RATTACHEE");
+    expect((ecarte as { raison: string }).raison).toContain("arbitrage Direction");
+  });
+
+  it("un arbitrage dont l'image n'existe pas dans ce classeur fait ÉCHOUER le calcul, en la nommant", () => {
+    const images = new Map([["Bolognaise", [img("xl/media/image2.jpg")]]]);
+    const classeur = [ficheParsee("Bolognaise", "Bolognaise")];
+    const base = [ficheBase("f1", "Bolognaise")];
+    const arbitrages = [unArbitrage("image99.jpg", "Bolognaise", ["Sauce bolognaise"])];
+
+    expect(() => calculerRattachements(images, classeur, base, arbitrages)).toThrow(
+      /« image99\.jpg ».*image inconnue/,
+    );
+  });
+
+  it("un arbitrage dont la fiche cible n'existe pas en base fait ÉCHOUER le calcul, en la nommant", () => {
+    const media = "xl/media/image2.jpg";
+    const images = new Map([
+      ["Bolognaise", [img(media)]],
+      ["Sauce bolognaise", [img(media)]],
+    ]);
+    const classeur = [ficheParsee("Bolognaise", "Bolognaise"), ficheParsee("Sauce bolognaise", "Sauce bolognaise")];
+    const base = [ficheBase("f2", "Sauce bolognaise")]; // « Bolognaise » n'existe pas en base
+    const arbitrages = [unArbitrage("image2.jpg", "Bolognaise", ["Sauce bolognaise"])];
+
+    expect(() => calculerRattachements(images, classeur, base, arbitrages)).toThrow(
+      /« Bolognaise ».*introuvable en base/,
+    );
+  });
+
+  it("un arbitrage dont AUCUN onglet porteur ne correspond à la fiche cible fait ÉCHOUER le calcul (arbitrage mort)", () => {
+    const media = "xl/media/image2.jpg";
+    const images = new Map([
+      ["Carbonara", [img(media)]],
+      ["Tiramisu", [img(media)]],
+    ]);
+    const classeur = [ficheParsee("Carbonara", "Carbonara"), ficheParsee("Tiramisu", "Tiramisu")];
+    const base = [ficheBase("f1", "Carbonara"), ficheBase("f2", "Tiramisu"), ficheBase("f3", "Bolognaise")];
+    // La fiche cible existe en base, mais aucun des DEUX onglets qui portent réellement l'image
+    // ne s'appelle « Bolognaise » : arbitrage mort, pas une devinette silencieuse.
+    const arbitrages = [unArbitrage("image2.jpg", "Bolognaise", ["Sauce bolognaise"])];
+
+    expect(() => calculerRattachements(images, classeur, base, arbitrages)).toThrow(/arbitrage mort/);
+  });
+
+  it("une image devenue non partagée sur ce classeur : l'arbitrage n'a plus d'objet, ce n'est PAS une erreur", () => {
+    const images = new Map([["Bolognaise", [img("xl/media/image2.jpg")]]]);
+    const classeur = [ficheParsee("Bolognaise", "Bolognaise")];
+    const base = [ficheBase("f1", "Bolognaise")];
+    const arbitrages = [unArbitrage("image2.jpg", "Bolognaise", ["Sauce bolognaise"])];
+
+    const r = calculerRattachements(images, classeur, base, arbitrages);
+    expect(r[0]).toMatchObject({ statut: "RATTACHEE", fiche: { id: "f1" } });
+  });
+});
+
+describe("validerArbitragesPhotos — validation, refus de tout ce qui est mal formé ou contradictoire", () => {
+  it("accepte une table bien formée et rend les entrées nettoyées", () => {
+    const entrees = validerArbitragesPhotos(
+      { arbitrages: [{ image: " image2.jpg ", fiche: " Bolognaise ", ecartees: [" Sauce bolognaise "], motif: " motif. " }] },
+      "test",
+    );
+    expect(entrees).toEqual([{ image: "image2.jpg", fiche: "Bolognaise", ecartees: ["Sauce bolognaise"], motif: "motif." }]);
+  });
+
+  it("refuse une racine qui n'est pas un objet avec un tableau « arbitrages »", () => {
+    expect(() => validerArbitragesPhotos([], "test")).toThrow(/tableau « arbitrages »/);
+    expect(() => validerArbitragesPhotos(null, "test")).toThrow(/tableau « arbitrages »/);
+  });
+
+  it("refuse une entrée sans motif", () => {
+    expect(() =>
+      validerArbitragesPhotos({ arbitrages: [{ image: "image2.jpg", fiche: "Bolognaise", ecartees: ["Sauce bolognaise"] }] }, "test"),
+    ).toThrow(/motif/);
+  });
+
+  it("refuse une entrée sans « ecartees » NON VIDE — une image arbitrée est par construction partagée", () => {
+    expect(() =>
+      validerArbitragesPhotos({ arbitrages: [{ image: "image2.jpg", fiche: "Bolognaise", ecartees: [], motif: "m." }] }, "test"),
+    ).toThrow(/ecartees/);
+  });
+
+  it("refuse une fiche qui figure aussi dans ses propres « ecartees »", () => {
+    expect(() =>
+      validerArbitragesPhotos(
+        { arbitrages: [{ image: "image2.jpg", fiche: "Bolognaise", ecartees: ["Bolognaise"], motif: "m." }] },
+        "test",
+      ),
+    ).toThrow(/contradiction/);
+  });
+
+  it("refuse DEUX entrées pour la MÊME image : on ne tranche pas à la place de la Direction", () => {
+    expect(() =>
+      validerArbitragesPhotos(
+        {
+          arbitrages: [
+            { image: "image2.jpg", fiche: "Bolognaise", ecartees: ["Sauce bolognaise"], motif: "m1." },
+            { image: "image2.jpg", fiche: "Autre plat", ecartees: ["Sauce bolognaise"], motif: "m2." },
+          ],
+        },
+        "test",
+      ),
+    ).toThrow(/DEUX FOIS/);
+  });
+
+  it("le FICHIER VERSIONNÉ du dépôt est valide, et porte les 2 arbitrages de la Direction", () => {
+    const entrees = chargerArbitragesPhotos();
+    expect(entrees).toHaveLength(2);
+    expect(entrees.find((e) => e.image === "image2.jpg")).toMatchObject({ fiche: "Bolognaise", ecartees: ["Sauce bolognaise"] });
+    expect(entrees.find((e) => e.image === "image6.jpg")).toMatchObject({ fiche: "Lasagne classique", ecartees: ["Lasagne jambon"] });
+    expect(CHEMIN_ARBITRAGES_PHOTOS).toContain("arbitrages-photos-partagees.json");
   });
 });
 

@@ -1,0 +1,39 @@
+{
+  "commentaire": [
+    "ARBITRAGE DE PHOTOS PARTAGÉES — tranché par la Direction, versionné, relu à la main.",
+    "",
+    "Dans le classeur des fiches techniques, certaines photos de plats sont RÉFÉRENCÉES PAR PLUSIEURS",
+    "ONGLETS À LA FOIS (le même fichier `xl/media/imageN.ext`, avec une relation de dessin sur chacun",
+    "des onglets concernés). `import-photos-fiches.ts` ne DEVINE JAMAIS laquelle de ces fiches doit",
+    "recevoir la photo : par défaut, une image partagée est refusée et signalée, pour TOUS les onglets",
+    "qui la portent — ce fichier est la SEULE façon de lever ce refus, entrée par entrée.",
+    "",
+    "Chaque entrée dit : « cette image partagée va à CETTE fiche (« fiche »), pas aux autres",
+    "(« ecartees »), et voici pourquoi (« motif ») ». Elle ne redirige rien d'autre — ni le classeur,",
+    "ni le catalogue d'articles, ni aucune autre fiche que celle nommée.",
+    "",
+    "L'image `image1.png` (un logo d'en-tête, partagé par les 29 onglets qui portent un dessin) N'A",
+    "DÉLIBÉRÉMENT AUCUNE ENTRÉE ICI : un logo n'est la photo d'aucun plat, donc rien à arbitrer — elle",
+    "reste refusée par le comportement PAR DÉFAUT du script (pas d'entrée = pas d'arbitrage = toujours",
+    "signalée, jamais attribuée au hasard).",
+    "",
+    "Si une entrée ne résout PAS — image introuvable dans le classeur relu, fiche cible introuvable ou",
+    "ambiguë (homonymes) en base, ou aucun des onglets qui portent réellement l'image ne correspond à",
+    "la fiche cible désignée — le script REFUSE DE CONTINUER en la nommant. Un arbitrage mort qui",
+    "passerait inaperçu laisserait une photo sans destination sûre, sans que personne ne s'en aperçoive."
+  ],
+  "arbitrages": [
+    {
+      "image": "image2.jpg",
+      "fiche": "Bolognaise",
+      "ecartees": ["Sauce bolognaise"],
+      "motif": "« Sauce bolognaise » est une sous-recette de « Bolognaise » : une sauce n'a pas de photo de dressage, la photo embarquée est celle du plat fini — elle revient au plat principal, pas à la sous-recette."
+    },
+    {
+      "image": "image6.jpg",
+      "fiche": "Lasagne classique",
+      "ecartees": ["Lasagne jambon"],
+      "motif": "Entre les deux variantes qui partagent cette photo, « Lasagne classique » est le plat principal retenu par la Direction — la photo lui revient, pas à la variante « Lasagne jambon »."
+    }
+  ]
+}

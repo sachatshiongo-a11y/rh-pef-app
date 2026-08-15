@@ -25,6 +25,17 @@
  * rattachée automatiquement à qui que ce soit (deux photos du classeur réel se partagent aussi
  * entre exactement 2 onglets chacune — même traitement, même prudence).
  *
+ * ─── ARBITRAGE DES IMAGES PARTAGÉES (scripts/arbitrages-photos-partagees.json) ─────────────────
+ *
+ * Le refus ci-dessus peut être levé, entrée par entrée, par un fichier de données VERSIONNÉ et
+ * relu à la main (même esprit que `correspondances-articles-fiches.json` côté articles) :
+ * `« cette image partagée va à CETTE fiche, pas aux autres, et voici pourquoi »`. Aucune devinette
+ * codée en dur : une image partagée SANS entrée d'arbitrage reste refusée, comme avant. Une entrée
+ * d'arbitrage qui ne résout PAS (image absente du classeur relu, fiche cible introuvable ou
+ * ambiguë en base, ou aucun onglet porteur ne correspond à la fiche cible) fait REFUSER LE SCRIPT
+ * en la nommant — cf. `chargerArbitragesPhotos` et la vérification en tête de
+ * `calculerRattachements`.
+ *
  * ─── RATTACHEMENT ONGLET → FICHE EN BASE ────────────────────────────────────────────────────────
  *
  * Le nom retenu d'une fiche (colonne B13, nettoyé de son suffixe de rendement par
@@ -75,6 +86,7 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
 import sharp from "sharp";
 import * as XLSX from "xlsx";
@@ -186,25 +198,140 @@ function dexmlDecode(s: string): string {
   return s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 }
 
+// ─── Arbitrage des images partagées (fichier de données VERSIONNÉ, relisible) ───────────────────
+
+/**
+ * Un arbitrage ARBITRÉ PAR LA DIRECTION : « cette image, partagée par plusieurs onglets, va à
+ * CETTE fiche (« fiche »), pas aux autres (« ecartees »), et voici pourquoi (« motif ») ».
+ *
+ * Même esprit que `Correspondance` (import-fiches-plats.ts) : un fichier JSON versionné à côté du
+ * script, jamais une constante enfouie dans le code. Ne redirige RIEN d'autre qu'UNE image vers
+ * UNE fiche — ni le classeur, ni le catalogue d'articles, ni aucune autre fiche que celle nommée.
+ */
+export type ArbitragePhoto = {
+  /** Nom du fichier média, tel qu'il apparaît dans `xl/media/` (ex. « image2.jpg »). */
+  image: string;
+  /** Désignation de la fiche DÉJÀ en base qui reçoit la photo. */
+  fiche: string;
+  /** Fiches (ou onglets) qui portent la même image mais ne la reçoivent PAS — documentation. */
+  ecartees: string[];
+  /** Pourquoi cette fiche et pas les autres. Une phrase, relue par la Direction. */
+  motif: string;
+};
+
+/** Emplacement du fichier de données. Versionné à côté du script, JAMAIS noyé dans le code. */
+export const CHEMIN_ARBITRAGES_PHOTOS = fileURLToPath(
+  new URL("./arbitrages-photos-partagees.json", import.meta.url),
+);
+
+function estTexteNonVideP(v: unknown): v is string {
+  return typeof v === "string" && v.trim() !== "";
+}
+
+/**
+ * Valide la table d'arbitrages et REFUSE tout ce qui est mal formé ou contradictoire, plutôt que
+ * de l'interpréter : entrée mal formée, motif absent, « ecartees » vide (une image qu'on arbitre
+ * est par construction partagée avec au moins un autre porteur — le documenter n'est pas
+ * optionnel), fiche qui figure aussi dans ses propres « ecartees », ou deux entrées pour LA MÊME
+ * image (laquelle ferait foi ?).
+ */
+export function validerArbitragesPhotos(brut: unknown, source: string): ArbitragePhoto[] {
+  const racine = brut as { arbitrages?: unknown } | null;
+  if (racine === null || typeof racine !== "object" || !Array.isArray(racine.arbitrages)) {
+    throw new Error(
+      `Table d'arbitrages de photos (${source}) : il faut un objet JSON avec un tableau ` +
+        "« arbitrages ». Rien n'a été lu.",
+    );
+  }
+
+  const entrees: ArbitragePhoto[] = [];
+  racine.arbitrages.forEach((e, index) => {
+    const rang = `entrée n°${index + 1}`;
+    if (e === null || typeof e !== "object") {
+      throw new Error(`Table d'arbitrages de photos (${source}) : ${rang} n'est pas un objet.`);
+    }
+    const { image, fiche, ecartees, motif } = e as Record<string, unknown>;
+    if (!estTexteNonVideP(image) || !estTexteNonVideP(fiche)) {
+      throw new Error(
+        `Table d'arbitrages de photos (${source}) : ${rang} doit porter « image » et « fiche », deux textes non vides.`,
+      );
+    }
+    if (!estTexteNonVideP(motif)) {
+      throw new Error(
+        `Table d'arbitrages de photos (${source}) : ${rang} (« ${image} » → « ${fiche} ») n'a pas de « motif ». ` +
+          "Un arbitrage sans raison écrite n'est pas relisible par la Direction : refusé.",
+      );
+    }
+    if (!Array.isArray(ecartees) || ecartees.length === 0 || !ecartees.every(estTexteNonVideP)) {
+      throw new Error(
+        `Table d'arbitrages de photos (${source}) : ${rang} (« ${image} » → « ${fiche} ») doit porter ` +
+          "« ecartees », un tableau NON VIDE de textes — les fiches qui portent la même image sans la recevoir.",
+      );
+    }
+    if (ecartees.some((x) => normaliserDesignation(x) === normaliserDesignation(fiche))) {
+      throw new Error(
+        `Table d'arbitrages de photos (${source}) : ${rang} — « ${fiche} » figure à la fois comme fiche ` +
+          "receveuse et dans « ecartees » : contradiction, refusée.",
+      );
+    }
+    entrees.push({ image: image.trim(), fiche: fiche.trim(), ecartees: ecartees.map((x) => x.trim()), motif: motif.trim() });
+  });
+
+  const parImage = new Map<string, ArbitragePhoto>();
+  for (const e of entrees) {
+    const deja = parImage.get(e.image);
+    if (deja) {
+      throw new Error(
+        `Table d'arbitrages de photos (${source}) : « ${e.image} » figure DEUX FOIS, vers « ${deja.fiche} » puis ` +
+          `vers « ${e.fiche} ». Laquelle fait foi ? On ne tranche pas à la place de la Direction.`,
+      );
+    }
+    parImage.set(e.image, e);
+  }
+
+  return entrees;
+}
+
+/** Lit et valide le fichier de données versionné. Toute anomalie ARRÊTE tout, avant la moindre lecture de base. */
+export function chargerArbitragesPhotos(chemin: string = CHEMIN_ARBITRAGES_PHOTOS): ArbitragePhoto[] {
+  let brut: unknown;
+  try {
+    brut = JSON.parse(readFileSync(chemin, "utf8"));
+  } catch (e) {
+    throw new Error(
+      `Table d'arbitrages de photos : impossible de lire « ${chemin} » (${e instanceof Error ? e.message : String(e)}).`,
+    );
+  }
+  return validerArbitragesPhotos(brut, chemin);
+}
+
 // ─── Rattachement onglet/image → fiche en base ──────────────────────────────────────────────────
 
 export type FicheBase = { id: string; nom: string; photoUrl: string | null };
 
 export type Rattachement =
-  | { statut: "RATTACHEE"; onglet: string; mediaPath: string; extension: string; octetsOriginaux: number; fiche: FicheBase }
-  | { statut: "NON_RATTACHEE"; onglet: string; mediaPath: string; extension: string; octetsOriginaux: number; raison: string };
+  | { statut: "RATTACHEE"; onglet: string; mediaPath: string; extension: string; octetsOriginaux: number; fiche: FicheBase; arbitrage?: ArbitragePhoto | null }
+  | { statut: "NON_RATTACHEE"; onglet: string; mediaPath: string; extension: string; octetsOriginaux: number; raison: string; arbitrage?: ArbitragePhoto | null };
 
 /**
  * Calcule, pour chaque image de chaque onglet, si elle se rattache SANS AMBIGUÏTÉ à une fiche déjà
  * en base. Pure (aucune E/S) : entièrement testable sur des données construites à la main.
+ *
+ * `arbitrages` (optionnel, défaut aucun) lève le refus d'une image PARTAGÉE, entrée par entrée —
+ * cf. `ArbitragePhoto` et `scripts/arbitrages-photos-partagees.json`. Toute entrée qui ne résout
+ * PAS sur ce classeur / cette base fait ÉCHOUER l'appel entier, avant qu'aucun rattachement ne
+ * soit calculé : un arbitrage mort qui passerait inaperçu laisserait une photo sans destination
+ * sûre, sans que personne ne s'en aperçoive.
  */
 export function calculerRattachements(
   images: Map<string, ImageEmbarquee[]>,
   fichesClasseur: FicheParsee[],
   fichesBase: FicheBase[],
+  arbitrages: ArbitragePhoto[] = [],
 ): Rattachement[] {
   // Portée de chaque image : sur combien d'onglets DISTINCTS apparaît-elle ? > 1 = partagée
-  // (logo, motif générique…) — jamais rattachée automatiquement, quel que soit l'onglet.
+  // (logo, motif générique…) — jamais rattachée automatiquement, quel que soit l'onglet, SAUF
+  // arbitrage explicite (ci-dessous).
   const ongletsParMedia = new Map<string, Set<string>>();
   for (const [onglet, liste] of images) {
     for (const img of liste) {
@@ -224,7 +351,62 @@ export function calculerRattachements(
   }
   const clesHomonymes = new Set([...occurrencesCle].filter(([, n]) => n > 1).map(([cle]) => cle));
 
-  type Provisoire = { onglet: string; mediaPath: string; extension: string; octetsOriginaux: number; fiche: FicheBase | null; raison: string | null };
+  // ── Arbitrages : vérifiés AVANT tout calcul de rattachement. Chaque entrée doit résoudre sur
+  // CE classeur ET cette base, sans quoi elle est refusée nommément — jamais silencieusement.
+  const basenamesConnus = new Map<string, string>(); // basename → mediaPath (un seul par basename dans un .xlsx)
+  for (const mediaPath of ongletsParMedia.keys()) basenamesConnus.set(path.posix.basename(mediaPath), mediaPath);
+
+  const arbitragesParImage = new Map(arbitrages.map((a) => [a.image, a]));
+  const gagnantParImage = new Map<string, string>(); // basename → onglet qui reçoit effectivement la photo
+  const problemesArbitrages: string[] = [];
+
+  for (const arb of arbitrages) {
+    const mediaPath = basenamesConnus.get(arb.image);
+    if (!mediaPath) {
+      problemesArbitrages.push(
+        `« ${arb.image} » (arbitrage → « ${arb.fiche} ») : image inconnue de ce classeur — aucune image nommée ainsi n'y est embarquée.`,
+      );
+      continue;
+    }
+
+    const cleCible = normaliserDesignation(arb.fiche);
+    if (clesHomonymes.has(cleCible)) {
+      problemesArbitrages.push(
+        `« ${arb.image} » → fiche cible « ${arb.fiche} » : ambiguë, plusieurs fiches en base portent ce nom normalisé — refusé.`,
+      );
+      continue;
+    }
+    if (!baseParCle.has(cleCible)) {
+      problemesArbitrages.push(`« ${arb.image} » → fiche cible « ${arb.fiche} » : introuvable en base.`);
+      continue;
+    }
+
+    const porteurs = ongletsParMedia.get(mediaPath)!;
+    if (porteurs.size <= 1) continue; // image plus partagée dans ce classeur : arbitrage sans objet ici, pas une erreur.
+
+    const ongletGagnant = [...porteurs]
+      .sort()
+      .find((o) => ficheClasseurParOnglet.get(o)?.cles.includes(cleCible));
+    if (!ongletGagnant) {
+      problemesArbitrages.push(
+        `« ${arb.image} » est partagée par ${porteurs.size} onglets (${[...porteurs].sort().join(", ")}) mais ` +
+          `AUCUN ne correspond à la fiche cible « ${arb.fiche} » — arbitrage mort, à corriger.`,
+      );
+      continue;
+    }
+    gagnantParImage.set(arb.image, ongletGagnant);
+  }
+
+  if (problemesArbitrages.length > 0) {
+    throw new Error(
+      `ABANDON : ${problemesArbitrages.length} arbitrage(s) de photos partagées ne résolvent pas ` +
+        `(scripts/arbitrages-photos-partagees.json) :\n` +
+        problemesArbitrages.map((p) => `  • ${p}`).join("\n") +
+        "\nRien n'a été rattaché. Corrige le fichier d'arbitrage (ou le classeur), puis relance.",
+    );
+  }
+
+  type Provisoire = { onglet: string; mediaPath: string; extension: string; octetsOriginaux: number; fiche: FicheBase | null; raison: string | null; arbitrage: ArbitragePhoto | null };
   const provisoires: Provisoire[] = [];
 
   for (const [onglet, liste] of images) {
@@ -233,20 +415,39 @@ export function calculerRattachements(
       const base = { onglet, mediaPath: img.mediaPath, extension: img.extension, octetsOriginaux: img.octets.length };
 
       if (porteurs.size > 1) {
+        const arb = arbitragesParImage.get(path.posix.basename(img.mediaPath));
+        if (arb) {
+          const ongletGagnant = gagnantParImage.get(arb.image)!; // garanti présent : la vérification ci-dessus a réussi
+          if (onglet === ongletGagnant) {
+            const fiche = baseParCle.get(normaliserDesignation(arb.fiche))!; // garanti présent, même vérification
+            provisoires.push({ ...base, fiche, raison: null, arbitrage: arb });
+          } else {
+            provisoires.push({
+              ...base,
+              fiche: null,
+              raison:
+                `image partagée par ${porteurs.size} onglets (${[...porteurs].sort().join(", ")}) — arbitrage Direction : ` +
+                `attribuée à « ${arb.fiche} » (onglet « ${ongletGagnant} »), pas à cet onglet. Motif : ${arb.motif}`,
+              arbitrage: arb,
+            });
+          }
+          continue;
+        }
         provisoires.push({
           ...base,
           fiche: null,
           raison: `image partagée par ${porteurs.size} onglets (${[...porteurs].sort().join(", ")}) — probablement un logo ou un motif générique, aucun rattachement automatique.`,
+          arbitrage: null,
         });
         continue;
       }
       if (onglet === ONGLET_ARTICLES) {
-        provisoires.push({ ...base, fiche: null, raison: `onglet « ${ONGLET_ARTICLES} » : ce n'est pas une fiche technique.` });
+        provisoires.push({ ...base, fiche: null, raison: `onglet « ${ONGLET_ARTICLES} » : ce n'est pas une fiche technique.`, arbitrage: null });
         continue;
       }
       const ficheClasseur = ficheClasseurParOnglet.get(onglet);
       if (!ficheClasseur) {
-        provisoires.push({ ...base, fiche: null, raison: "l'onglet ne se lit pas comme une fiche technique (cf. anomalies du parseur d'import-fiches-plats)." });
+        provisoires.push({ ...base, fiche: null, raison: "l'onglet ne se lit pas comme une fiche technique (cf. anomalies du parseur d'import-fiches-plats).", arbitrage: null });
         continue;
       }
 
@@ -260,12 +461,12 @@ export function calculerRattachements(
         const f = baseParCle.get(cle);
         if (f) { trouvee = f; break; }
       }
-      if (raisonHomonyme) { provisoires.push({ ...base, fiche: null, raison: raisonHomonyme }); continue; }
+      if (raisonHomonyme) { provisoires.push({ ...base, fiche: null, raison: raisonHomonyme, arbitrage: null }); continue; }
       if (!trouvee) {
-        provisoires.push({ ...base, fiche: null, raison: `aucune fiche en base ne correspond (recherché sous : ${ficheClasseur.cles.join(", ")}).` });
+        provisoires.push({ ...base, fiche: null, raison: `aucune fiche en base ne correspond (recherché sous : ${ficheClasseur.cles.join(", ")}).`, arbitrage: null });
         continue;
       }
-      provisoires.push({ ...base, fiche: trouvee, raison: null });
+      provisoires.push({ ...base, fiche: trouvee, raison: null, arbitrage: null });
     }
   }
 
@@ -289,8 +490,8 @@ export function calculerRattachements(
 
   return provisoires.map((p) =>
     p.fiche
-      ? { statut: "RATTACHEE", onglet: p.onglet, mediaPath: p.mediaPath, extension: p.extension, octetsOriginaux: p.octetsOriginaux, fiche: p.fiche }
-      : { statut: "NON_RATTACHEE", onglet: p.onglet, mediaPath: p.mediaPath, extension: p.extension, octetsOriginaux: p.octetsOriginaux, raison: p.raison! },
+      ? { statut: "RATTACHEE", onglet: p.onglet, mediaPath: p.mediaPath, extension: p.extension, octetsOriginaux: p.octetsOriginaux, fiche: p.fiche, arbitrage: p.arbitrage }
+      : { statut: "NON_RATTACHEE", onglet: p.onglet, mediaPath: p.mediaPath, extension: p.extension, octetsOriginaux: p.octetsOriginaux, raison: p.raison!, arbitrage: p.arbitrage },
   );
 }
 
@@ -341,7 +542,10 @@ export function formaterRapport(
     const c = compressions.get(r.mediaPath);
     const poids = c ? `${octetsLisibles(r.octetsOriginaux)} → ${octetsLisibles(c.octetsApres)} (${c.largeur}×${c.hauteur})` : octetsLisibles(r.octetsOriginaux);
     const dejaPresente = r.fiche.photoUrl ? " [fiche déjà pourvue d'une photo — ignorée sauf --remplacer]" : "";
-    out.push(`  onglet « ${r.onglet} » → fiche « ${r.fiche.nom} » (${r.fiche.id}) — ${poids}${dejaPresente}`);
+    const arbitrageNote = r.arbitrage
+      ? ` [arbitrage Direction : ${r.arbitrage.motif} — écartée(s) : ${r.arbitrage.ecartees.join(", ")}]`
+      : "";
+    out.push(`  onglet « ${r.onglet} » → fiche « ${r.fiche.nom} » (${r.fiche.id}) — ${poids}${dejaPresente}${arbitrageNote}`);
   }
 
   out.push(`\n─── NON rattachées (${nonRattachees.length}) — signalées, jamais devinées ───`);
@@ -447,6 +651,11 @@ async function main() {
   const images = await extraireImagesParOnglet(zip);
   const res = analyserClasseur(wb);
 
+  // La table d'arbitrages est chargée et VALIDÉE avant tout le reste : un fichier illisible doit
+  // arrêter le script, pas se manifester en cours d'exécution.
+  const arbitrages = chargerArbitragesPhotos();
+  console.log(`Arbitrages de photos partagées chargés : ${arbitrages.length} (${CHEMIN_ARBITRAGES_PHOTOS}).`);
+
   const { PrismaClient } = await import("@prisma/client");
   const { PrismaPg } = await import("@prisma/adapter-pg");
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
@@ -456,7 +665,7 @@ async function main() {
       ? await chargerFichesBaseEnLectureSeule(prisma)
       : await prisma.ficheTechnique.findMany({ select: { id: true, nom: true, photoUrl: true } });
 
-    const rattachements = calculerRattachements(images, res.fiches, fichesBase);
+    const rattachements = calculerRattachements(images, res.fiches, fichesBase, arbitrages);
 
     // Compression : une fois par média DISTINCT (jamais deux fois la même image partagée).
     const compressions = new Map<string, ImageCompressee>();
