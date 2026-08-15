@@ -113,6 +113,8 @@
  * `--fiches-seules --dry-run`, qui se connecte réellement. Le `.env` du dépôt pointe la
  * PRODUCTION et n'est volontairement pas lu ici.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import * as XLSX from "xlsx";
 import Decimal from "decimal.js";
 import { facteur, normaliserUnite, poidsEmballage } from "../src/lib/fiches/conversion";
@@ -1685,6 +1687,56 @@ export type ArticleManquant = {
   /** Fiches qui le réclament (dédoublonnées). */
   fiches: string[];
   sosie: Sosie | null;
+  /**
+   * Ligne de la « Liste des articles » du classeur portant cette désignation, ou `null` s'il n'y
+   * figure pas. C'est la SEULE source de valeurs pour `--creer-articles-manquants` : sans elle, on
+   * ne crée rien (on ne devine ni une unité, ni un prix).
+   */
+  valeursClasseur: LigneArticle | null;
+  /** Unités de consommation lues dans les recettes — utile pour juger l'unité à donner à l'article. */
+  unitesRecette: string[];
+};
+
+/** Une correspondance qui a effectivement redirigé au moins un ingrédient vers le catalogue. */
+export type CorrespondanceAppliquee = {
+  entree: Correspondance;
+  /** L'article du catalogue, tel qu'il est en base : c'est LUI qui fait foi (unité, prix). */
+  article: ArticleCatalogue;
+  occurrences: number;
+  fiches: string[];
+  /** Unités de consommation des lignes de recette ainsi redirigées. */
+  unitesRecette: string[];
+};
+
+/**
+ * Correspondance dont la désignation de classeur n'apparaît dans AUCUNE fiche de ce classeur.
+ * Non bloquante (elle ne peut créer aucun doublon), mais SIGNALÉE : une table qui pourrit en
+ * silence finit par mentir.
+ */
+export type CorrespondanceInutilisee = {
+  entree: Correspondance;
+  /** La cible existe-t-elle malgré tout au catalogue ? Non ⇒ entrée doublement suspecte. */
+  cibleAuCatalogue: boolean;
+};
+
+/**
+ * Ingrédient rattaché à un article dont l'unité d'achat NE SE CONVERTIT PAS avec l'unité de
+ * consommation de la recette : le coût sortira PARTIEL (motif `UNITE_INCONVERTIBLE` du moteur).
+ * SIGNALÉ, jamais corrigé — aucune conversion n'est devinée.
+ */
+export type UniteNonConvertible = {
+  /** Désignation telle qu'écrite au classeur. */
+  designationClasseur: string;
+  /** Article du catalogue effectivement rattaché. */
+  articleCatalogue: string;
+  uniteRecette: string;
+  uniteCatalogue: string | null;
+  /** Le rattachement passe-t-il par une correspondance arbitrée ? */
+  parCorrespondance: boolean;
+  /** L'article vient-il d'être créé par `--creer-articles-manquants` ? */
+  articleCree: boolean;
+  occurrences: number;
+  fiches: string[];
 };
 
 export type PlanFichesSeules = {
@@ -1698,6 +1750,23 @@ export type PlanFichesSeules = {
   /** Deux articles du catalogue cible portant la MÊME désignation normalisée : rattachement ambigu. */
   ambiguitesCatalogue: { cle: string; designations: string[] }[];
   nbArticlesCatalogue: number;
+  /** Correspondances arbitrées qui ont effectivement redirigé un rattachement. */
+  correspondancesAppliquees: CorrespondanceAppliquee[];
+  /** Correspondances dont la désignation de classeur ne figure dans aucune fiche : à relire. */
+  correspondancesInutilisees: CorrespondanceInutilisee[];
+  /** Rattachements dont l'unité ne se convertira pas : coût PARTIEL annoncé, jamais deviné. */
+  unitesNonConvertibles: UniteNonConvertible[];
+};
+
+/** Options de planification. Aucune n'écrit quoi que ce soit : `planifierFichesSeules` reste PUR. */
+export type OptionsPlan = {
+  /** Table arbitrée par la Direction (fichier versionné). Absente = comportement d'origine. */
+  correspondances?: Correspondance[];
+  /**
+   * Clés d'articles qui viennent d'être CRÉÉS (ou le seraient) par `--creer-articles-manquants` :
+   * sert uniquement à les marquer comme tels dans les signalements d'unité.
+   */
+  clesArticlesCrees?: Set<string>;
 };
 
 // ─── Sosies : distance de chaîne, pour SUGGÉRER, jamais pour rattacher ───────
@@ -1759,6 +1828,138 @@ function chercherSosie(cle: string, catalogue: Map<string, ArticleCatalogue>): S
   };
 }
 
+// ─── Correspondances arbitrées (fichier de données VERSIONNÉ, relisible) ─────
+
+/**
+ * Une correspondance ARBITRÉE PAR LA DIRECTION : « cette désignation du classeur et cet article
+ * DÉJÀ au catalogue sont le même produit ».
+ *
+ * Elle n'écrit RIEN : elle redirige un rattachement, un point c'est tout. L'article du catalogue
+ * FAIT FOI — c'est SON unité et SON prix qui servent au calcul. Le conditionnement lu dans le nom
+ * du classeur (« 1KG », « 240g ») ne devient pas une donnée d'article : il vit dans l'unité et la
+ * quantité de la ligne d'ingrédient.
+ */
+export type Correspondance = {
+  /** Désignation TELLE QU'ÉCRITE dans le classeur (colonne « Article » d'une fiche). */
+  classeur: string;
+  /** Désignation de l'article DÉJÀ présent au catalogue `ArticleStock`. */
+  catalogue: string;
+  /** Pourquoi ces deux désignations sont le même produit. Une phrase, relue par la Direction. */
+  motif: string;
+};
+
+/** Emplacement du fichier de données. Versionné à côté du script, JAMAIS noyé dans le code. */
+export const CHEMIN_CORRESPONDANCES = fileURLToPath(
+  new URL("./correspondances-articles-fiches.json", import.meta.url),
+);
+
+function estTexteNonVide(v: unknown): v is string {
+  return typeof v === "string" && v.trim() !== "";
+}
+
+/**
+ * Valide la table de correspondances et REFUSE tout ce qui est ambigu, plutôt que de l'interpréter :
+ * entrée mal formée, motif absent (une correspondance sans raison écrite n'est pas relisible),
+ * correspondance vers elle-même, deux entrées pour la MÊME désignation de classeur, ou chaînage
+ * (A → B et B → C : on ne résout jamais transitivement, cela masquerait une erreur d'arbitrage).
+ */
+export function validerCorrespondances(brut: unknown, source: string): Correspondance[] {
+  const racine = brut as { correspondances?: unknown } | null;
+  if (racine === null || typeof racine !== "object" || !Array.isArray(racine.correspondances)) {
+    throw new Error(
+      `Table de correspondances illisible (${source}) : il faut un objet JSON avec un tableau ` +
+        "« correspondances ». Rien n'a été lu, rien n'a été écrit.",
+    );
+  }
+
+  const entrees: Correspondance[] = [];
+  racine.correspondances.forEach((e, index) => {
+    const rang = `entrée n°${index + 1}`;
+    if (e === null || typeof e !== "object") {
+      throw new Error(`Table de correspondances (${source}) : ${rang} n'est pas un objet.`);
+    }
+    const { classeur, catalogue, motif } = e as Record<string, unknown>;
+    if (!estTexteNonVide(classeur) || !estTexteNonVide(catalogue)) {
+      throw new Error(
+        `Table de correspondances (${source}) : ${rang} doit porter « classeur » et « catalogue », ` +
+          "deux textes non vides.",
+      );
+    }
+    if (!estTexteNonVide(motif)) {
+      throw new Error(
+        `Table de correspondances (${source}) : ${rang} (« ${classeur} » → « ${catalogue} ») n'a pas de ` +
+          "« motif ». Une correspondance sans raison écrite n'est pas relisible par la Direction : refusée.",
+      );
+    }
+    if (normaliserDesignation(classeur) === normaliserDesignation(catalogue)) {
+      throw new Error(
+        `Table de correspondances (${source}) : ${rang} pointe « ${classeur} » sur lui-même — sans effet, ` +
+          "donc probablement une erreur de saisie. Refusée plutôt qu'ignorée en silence.",
+      );
+    }
+    entrees.push({ classeur: classeur.trim(), catalogue: catalogue.trim(), motif: motif.trim() });
+  });
+
+  const parCle = new Map<string, Correspondance>();
+  for (const e of entrees) {
+    const cle = normaliserDesignation(e.classeur);
+    const deja = parCle.get(cle);
+    if (deja) {
+      throw new Error(
+        `Table de correspondances (${source}) : « ${e.classeur} » figure DEUX FOIS, vers « ${deja.catalogue} » ` +
+          `puis vers « ${e.catalogue} ». Laquelle fait foi ? On ne tranche pas à la place de la Direction.`,
+      );
+    }
+    parCle.set(cle, e);
+  }
+
+  for (const e of entrees) {
+    const suite = parCle.get(normaliserDesignation(e.catalogue));
+    if (suite) {
+      throw new Error(
+        `Table de correspondances (${source}) : « ${e.classeur} » pointe sur « ${e.catalogue} », qui est ` +
+          `lui-même redirigé vers « ${suite.catalogue} ». Les correspondances ne se résolvent JAMAIS en ` +
+          "chaîne — un chaînage cache toujours un arbitrage à refaire.",
+      );
+    }
+  }
+
+  return entrees;
+}
+
+/** Index des correspondances par désignation NORMALISÉE du classeur (la clé de rapprochement). */
+export function indexerCorrespondances(entrees: Correspondance[]): Map<string, Correspondance> {
+  return new Map(entrees.map((e) => [normaliserDesignation(e.classeur), e]));
+}
+
+/** Lit et valide le fichier de données versionné. Toute anomalie ARRÊTE tout, avant la moindre lecture de base. */
+export function chargerCorrespondances(chemin: string = CHEMIN_CORRESPONDANCES): Correspondance[] {
+  let brut: unknown;
+  try {
+    brut = JSON.parse(readFileSync(chemin, "utf8"));
+  } catch (e) {
+    throw new Error(
+      `Table de correspondances : impossible de lire « ${chemin} » (${e instanceof Error ? e.message : String(e)}). ` +
+        "Rien n'a été écrit.",
+    );
+  }
+  return validerCorrespondances(brut, chemin);
+}
+
+/**
+ * L'unité de consommation de la recette se convertit-elle avec l'unité d'achat de l'article ?
+ *
+ * Reproduit à l'identique la règle de `prixParUniteDeConsommation` (src/lib/fiches/cout.ts, NON
+ * modifié) : conversion directe, sinon unité-emballage (« 500 GR ») ramenée au kilo. Sert
+ * UNIQUEMENT À SIGNALER — aucune conversion n'est devinée, aucune unité n'est corrigée.
+ */
+export function uniteSeConvertit(uniteRecette: string, uniteArticle: string | null): boolean {
+  if (uniteArticle === null || uniteArticle.trim() === "") return false;
+  if (facteur(uniteRecette, uniteArticle) !== null) return true;
+  const poids = poidsEmballage(uniteArticle);
+  return poids !== null && poids.greaterThan(0) && facteur(uniteRecette, "kg") !== null;
+}
+
 // ─── Plan (PUR : aucune base, aucun effet) ───────────────────────────────────
 
 /**
@@ -1768,8 +1969,16 @@ function chercherSosie(cle: string, catalogue: Map<string, ArticleCatalogue>): S
  * `IngredientFiche` n'a aucun champ de libellé — une ligne sans article ni sous-fiche serait
  * invisible à l'écran, et la fiche présenterait un coût amputé sous l'apparence d'un coût complet.
  * Le refus se propage : une fiche qui cite une sous-recette refusée est refusée à son tour.
+ *
+ * Les CORRESPONDANCES arbitrées (option) redirigent une désignation du classeur vers un article
+ * DÉJÀ au catalogue. Elles ne modifient jamais cet article : il fait foi tel qu'il est. Une
+ * correspondance UTILISÉE dont la cible est absente du catalogue LÈVE — cf. `options`.
  */
-export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCatalogue[]): PlanFichesSeules {
+export function planifierFichesSeules(
+  res: ResultatParse,
+  catalogue: ArticleCatalogue[],
+  options: OptionsPlan = {},
+): PlanFichesSeules {
   // Index du catalogue CIBLE par désignation normalisée — la même clé que partout ailleurs.
   const parCle = new Map<string, ArticleCatalogue>();
   const ambigus = new Map<string, string[]>();
@@ -1792,20 +2001,77 @@ export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCata
   const parCleFiche = new Map<string, FicheParsee>();
   for (const f of res.fiches) for (const c of f.cles) if (!parCleFiche.has(c)) parCleFiche.set(c, f);
 
+  // ── Correspondances arbitrées : « cette désignation du classeur EST cet article du catalogue ».
+  // La cible est cherchée par la MÊME clé de rapprochement que partout ailleurs.
+  const correspondances = options.correspondances ?? [];
+  const parCleCorrespondance = indexerCorrespondances(correspondances);
+  // Clés RÉELLEMENT arbitrables : celles des lignes d'ingrédient qui ne désignent pas déjà une
+  // sous-recette (la sous-recette garde la priorité, comme avant — rien n'est changé de ce côté).
+  const clesConsommees = new Set(
+    res.fiches.flatMap((f) =>
+      f.ingredients.filter((i) => (parCleFiche.get(i.cle) ?? f) === f).map((i) => i.cle),
+    ),
+  );
+
+  // Une correspondance UTILISÉE dont la cible n'existe pas dans la base visée est MORTE : sans ce
+  // refus, l'ingrédient retomberait dans les « manquants » et --creer-articles-manquants créerait
+  // un DOUBLON du produit que la Direction voulait justement rapprocher.
+  const mortes = correspondances.filter(
+    (e) =>
+      clesConsommees.has(normaliserDesignation(e.classeur)) &&
+      !parCle.has(normaliserDesignation(e.catalogue)),
+  );
+  if (mortes.length > 0) {
+    throw new Error(
+      `ABANDON : ${mortes.length} correspondance(s) arbitrée(s) ne résolvent PAS sur ce catalogue — leur ` +
+        "article cible n'y existe pas :\n" +
+        mortes
+          .map((e) => `  • « ${e.classeur} » → « ${e.catalogue} » (INTROUVABLE au catalogue) — motif : ${e.motif}`)
+          .join("\n") +
+        "\nRien n'a été écrit. Corrige la désignation cible dans scripts/correspondances-articles-fiches.json " +
+        "(ou fais créer l'article au catalogue), puis relance. Une correspondance morte qui passerait " +
+        "inaperçue ferait créer un DOUBLON.",
+    );
+  }
+
   // Rattachement : sous-recette d'abord (elles ne dépendent pas du catalogue pour exister),
-  // puis article DU CATALOGUE CIBLE. Jamais « au plus proche ».
+  // puis article DU CATALOGUE CIBLE — directement, ou via la correspondance arbitrée. Jamais
+  // « au plus proche ».
+  const appliquees = new Map<string, CorrespondanceAppliquee>();
   const lignes: LigneFichesSeules[] = [];
   for (const f of res.fiches) {
     for (const i of f.ingredients) {
       const sous = parCleFiche.get(i.cle);
-      const article = parCle.get(i.cle);
+      if (sous && sous !== f) {
+        lignes.push({ fiche: f, ingredient: i, rattachement: { type: "SOUS_RECETTE", fiche: sous } });
+        continue;
+      }
+
+      const direct = parCle.get(i.cle);
+      const entree = direct ? undefined : parCleCorrespondance.get(i.cle);
+      const article = direct ?? (entree ? parCle.get(normaliserDesignation(entree.catalogue)) : undefined);
+
+      if (article && entree) {
+        const vue = appliquees.get(i.cle);
+        if (vue) {
+          vue.occurrences++;
+          if (!vue.fiches.includes(f.nom)) vue.fiches.push(f.nom);
+          if (!vue.unitesRecette.includes(i.unite)) vue.unitesRecette.push(i.unite);
+        } else {
+          appliquees.set(i.cle, {
+            entree,
+            article,
+            occurrences: 1,
+            fiches: [f.nom],
+            unitesRecette: [i.unite],
+          });
+        }
+      }
+
       lignes.push({
         fiche: f,
         ingredient: i,
-        rattachement:
-          sous && sous !== f ? { type: "SOUS_RECETTE", fiche: sous }
-          : article ? { type: "ARTICLE", article }
-          : { type: "AUCUN" },
+        rattachement: article ? { type: "ARTICLE", article } : { type: "AUCUN" },
       });
     }
   }
@@ -1861,6 +2127,9 @@ export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCata
 
   // Liste de travail pour la Direction : articles introuvables DÉDOUBLONNÉS, du plus utilisé au
   // moins utilisé, avec le sosie le plus proche en SUGGESTION.
+  const parCleClasseur = new Map<string, LigneArticle>();
+  for (const a of res.articles) if (!parCleClasseur.has(a.cle)) parCleClasseur.set(a.cle, a);
+
   const manquants = new Map<string, ArticleManquant>();
   for (const l of lignes) {
     if (l.rattachement.type !== "AUCUN") continue;
@@ -1868,6 +2137,7 @@ export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCata
     if (existant) {
       existant.occurrences++;
       if (!existant.fiches.includes(l.fiche.nom)) existant.fiches.push(l.fiche.nom);
+      if (!existant.unitesRecette.includes(l.ingredient.unite)) existant.unitesRecette.push(l.ingredient.unite);
       continue;
     }
     manquants.set(l.ingredient.cle, {
@@ -1876,6 +2146,38 @@ export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCata
       occurrences: 1,
       fiches: [l.fiche.nom],
       sosie: chercherSosie(l.ingredient.cle, parCle),
+      // Seule source de valeurs pour une création : la « Liste des articles » du classeur.
+      // Absente ⇒ on ne crée rien pour cet article (on ne devine ni unité, ni prix).
+      valeursClasseur: parCleClasseur.get(l.ingredient.cle) ?? null,
+      unitesRecette: [l.ingredient.unite],
+    });
+  }
+
+  // Unités qui ne se convertiront pas : le coût sera PARTIEL, on l'annonce ligne par ligne. C'est
+  // la conséquence directe de « l'article du catalogue fait foi » — son unité peut ne pas parler
+  // la même langue que l'unité de consommation de la recette.
+  const clesCrees = options.clesArticlesCrees ?? new Set<string>();
+  const inconvertibles = new Map<string, UniteNonConvertible>();
+  for (const l of lignes) {
+    if (l.rattachement.type !== "ARTICLE") continue;
+    const uniteArticle = l.rattachement.article.unite;
+    if (uniteSeConvertit(l.ingredient.unite, uniteArticle)) continue;
+    const cle = `${l.ingredient.cle}~${normaliserUnite(l.ingredient.unite)}`;
+    const vue = inconvertibles.get(cle);
+    if (vue) {
+      vue.occurrences++;
+      if (!vue.fiches.includes(l.fiche.nom)) vue.fiches.push(l.fiche.nom);
+      continue;
+    }
+    inconvertibles.set(cle, {
+      designationClasseur: l.ingredient.designation,
+      articleCatalogue: l.rattachement.article.designation,
+      uniteRecette: l.ingredient.unite,
+      uniteCatalogue: uniteArticle,
+      parCorrespondance: appliquees.has(l.ingredient.cle),
+      articleCree: clesCrees.has(normaliserDesignation(l.rattachement.article.designation)),
+      occurrences: 1,
+      fiches: [l.fiche.nom],
     });
   }
 
@@ -1888,7 +2190,93 @@ export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCata
     ),
     ambiguitesCatalogue: [...ambigus].map(([cle, designations]) => ({ cle, designations })),
     nbArticlesCatalogue: catalogue.length,
+    correspondancesAppliquees: [...appliquees.values()].sort(
+      (a, b) => b.occurrences - a.occurrences || a.entree.classeur.localeCompare(b.entree.classeur),
+    ),
+    correspondancesInutilisees: correspondances
+      .filter((e) => !appliquees.has(normaliserDesignation(e.classeur)))
+      .map((e) => ({ entree: e, cibleAuCatalogue: parCle.has(normaliserDesignation(e.catalogue)) })),
+    unitesNonConvertibles: [...inconvertibles.values()].sort(
+      (a, b) => b.occurrences - a.occurrences || a.designationClasseur.localeCompare(b.designationClasseur),
+    ),
   };
+}
+
+// ─── Création CIBLÉE des articles absents (`--creer-articles-manquants`) ─────
+
+/**
+ * Article que `--creer-articles-manquants` créerait, avec ses valeurs LUES AU CLASSEUR, déjà
+ * arrondies comme le schéma l'exige. Ni catégorie, ni fournisseur : le classeur n'en donne pas de
+ * fiable, et on n'invente rien — la Direction complétera.
+ */
+export type ArticleACreer = {
+  designation: string;
+  cle: string;
+  domaine: "NOURRITURE";
+  unite: string | null;
+  uniteParCarton: string | null;
+  prixUnitaireUSD: string | null;
+  prixCartonUSD: string | null;
+  /** Nombre de lignes de recette qui le réclament, et fiches concernées. */
+  occurrences: number;
+  fiches: string[];
+  /** Unités de consommation des recettes : à confronter à `unite` avant de valider. */
+  unitesRecette: string[];
+};
+
+/**
+ * Ce que `--creer-articles-manquants` créerait sur ce plan, et ce qu'il ne peut PAS créer.
+ *
+ * Un article introuvable qui ne figure pas non plus dans la « Liste des articles » du classeur n'a
+ * AUCUNE valeur connue : ni unité, ni prix. On ne le crée pas — sa fiche reste refusée et il est
+ * signalé. Deviner une unité reviendrait à fabriquer un coût.
+ */
+export function articlesACreer(plan: PlanFichesSeules): {
+  aCreer: ArticleACreer[];
+  sansValeurs: ArticleManquant[];
+} {
+  const aCreer: ArticleACreer[] = [];
+  const sansValeurs: ArticleManquant[] = [];
+
+  for (const m of plan.articlesManquants) {
+    const v = m.valeursClasseur;
+    if (v === null) {
+      sansValeurs.push(m);
+      continue;
+    }
+    aCreer.push({
+      // La désignation écrite est celle de la LISTE DES ARTICLES du classeur (source des valeurs),
+      // et non celle de la ligne de recette : les deux ont la même clé de rapprochement.
+      designation: v.designation,
+      cle: m.cle,
+      domaine: "NOURRITURE",
+      unite: v.unite,
+      uniteParCarton: v.uniteParCarton === null ? null : arrondir(v.uniteParCarton, 2).toString(),
+      prixUnitaireUSD: v.prixUnitaireUSD === null ? null : arrondir(v.prixUnitaireUSD, DECIMALES_PRIX).toString(),
+      prixCartonUSD: v.prixCartonUSD === null ? null : arrondir(v.prixCartonUSD, DECIMALES_PRIX).toString(),
+      occurrences: m.occurrences,
+      fiches: m.fiches,
+      unitesRecette: m.unitesRecette,
+    });
+  }
+
+  return { aCreer, sansValeurs };
+}
+
+/**
+ * Catalogue tel qu'il SERAIT après création — pour la SIMULATION uniquement (les identifiants sont
+ * factices et le disent). Rien n'est écrit : c'est une projection en mémoire.
+ */
+export function projeterCatalogue(catalogue: ArticleCatalogue[], aCreer: ArticleACreer[]): ArticleCatalogue[] {
+  return [
+    ...catalogue,
+    ...aCreer.map((a) => ({
+      id: `(à créer) ${a.cle}`,
+      designation: a.designation,
+      unite: a.unite,
+      prixUnitaireUSD: a.prixUnitaireUSD === null ? null : new Decimal(a.prixUnitaireUSD),
+    })),
+  ];
 }
 
 /** L'empreinte de contenu, calculée sur ce que le mode fiches seules écrirait pour cette fiche. */
@@ -1989,21 +2377,57 @@ export type ClientFichesSeules = {
   $transaction<T>(fn: (tx: TxFichesSeules) => Promise<T>, options?: unknown): Promise<T>;
 };
 
-/** Transaction de création : AUCUNE propriété `articleStock`, donc aucun accès possible. */
+/** Transaction de création DES FICHES : AUCUNE propriété `articleStock`, donc aucun accès possible. */
 type TxFichesSeules = {
   ficheTechnique: { create(args: { data: Record<string, unknown>; select: unknown }): Promise<{ id: string }> };
   ingredientFiche: { createMany(args: { data: unknown[] }): Promise<unknown> };
+};
+
+/**
+ * `articleStock` du mode `--creer-articles-manquants` : `findMany` + `create`, et RIEN D'AUTRE.
+ *
+ * C'est la garantie centrale de ce drapeau. Ni `update`, ni `upsert`, ni `updateMany`, ni
+ * `createMany` (qui contournerait le comptage), ni `delete` : ces méthodes N'EXISTENT PAS dans ce
+ * type. Aucune ligne de code de ce mode ne peut donc MODIFIER un article existant, même par erreur
+ * de frappe — l'inspection avait montré qu'une mise à jour effacerait 5 prix et triplerait celui du
+ * Lard Fumé.
+ */
+export type ArticleStockCreationSeule = {
+  findMany(args: unknown): Promise<ArticleCatalogue[]>;
+  create(args: { data: Record<string, unknown> }): Promise<{ id: string; designation: string }>;
+};
+
+/** Client du mode fiches seules AVEC création ciblée. Seul `articleStock` change, et il ne GAGNE que `create`. */
+export type ClientFichesSeulesCreation = Omit<ClientFichesSeules, "articleStock"> & {
+  articleStock: ArticleStockCreationSeule;
 };
 
 export type OptionsFichesSeules = {
   force: boolean;
   /** Noms de fiches divergentes dont la suppression est autorisée NOMMÉMENT (`--supprimer`). */
   supprimerNommement?: string[];
+  /** Table arbitrée par la Direction (fichier versionné). Absente = comportement d'origine. */
+  correspondances?: Correspondance[];
+  /** Sans le drapeau, AUCUNE création : les articles manquants le restent, les fiches sont refusées. */
+  creerArticlesManquants?: false;
 };
 
+/** Les mêmes options, avec la création CIBLÉE ouverte — et le client qui va avec, exigé par le type. */
+export type OptionsFichesSeulesCreation = Omit<OptionsFichesSeules, "creerArticlesManquants"> & {
+  creerArticlesManquants: true;
+};
+
+/** Un article effectivement créé par `--creer-articles-manquants` (jamais une mise à jour). */
+export type ArticleCree = ArticleACreer & { id: string };
+
 /**
- * Rapport du mode fiches seules. Aucun champ « articles créés / mis à jour » : il n'y a rien à y
- * compter, et un champ à 0 laisserait croire qu'une écriture d'article était seulement possible.
+ * Rapport du mode fiches seules.
+ *
+ * Il n'y a PAS et il n'y aura JAMAIS de champ « articles mis à jour » : aucune mise à jour n'est
+ * exprimable dans ce mode (cf. `ArticleStockCreationSeule`, qui ne déclare que `findMany` et
+ * `create`). Un champ à 0 laisserait croire que la mise à jour était seulement possible.
+ * `articlesCrees` n'existe que parce que `--creer-articles-manquants` crée réellement — et il liste
+ * ce qui a été créé, valeur par valeur.
  */
 export type RapportFichesSeules = {
   statut: "IMPORTE" | "DEJA_FAIT" | "ABANDON";
@@ -2016,24 +2440,87 @@ export type RapportFichesSeules = {
   fichesRefusees: FicheRefusee[];
   /** Liste de travail : articles introuvables dédoublonnés, du plus utilisé au moins utilisé. */
   articlesManquants: ArticleManquant[];
+  /** Articles CRÉÉS (jamais mis à jour) par `--creer-articles-manquants`. Vide sans ce drapeau. */
+  articlesCrees: ArticleCree[];
+  /** Articles introuvables qu'on a REFUSÉ de créer : le classeur ne leur donne aucune valeur. */
+  articlesSansValeurs: ArticleManquant[];
   plan: PlanFichesSeules;
 };
 
 /**
- * Crée les fiches SANS TOUCHER AU CATALOGUE. `ArticleStock` est LU (pour rattacher) et rien
- * d'autre : aucune création, aucune mise à jour, aucun upsert — cf. `ClientFichesSeules`.
+ * Crée les fiches SANS METTRE À JOUR LE CATALOGUE.
+ *
+ * Par défaut, `ArticleStock` est LU (pour rattacher) et RIEN d'autre — cf. `ClientFichesSeules`.
+ * Avec `creerArticlesManquants`, le client doit être un `ClientFichesSeulesCreation` : `create`
+ * s'ajoute, et rien d'autre. Aucune mise à jour d'article n'est exprimable, dans aucun des deux cas.
  */
 export async function ecrireFichesSeules(
   prisma: ClientFichesSeules,
   res: ResultatParse,
   options: OptionsFichesSeules,
+): Promise<RapportFichesSeules>;
+export async function ecrireFichesSeules(
+  prisma: ClientFichesSeulesCreation,
+  res: ResultatParse,
+  options: OptionsFichesSeulesCreation,
+): Promise<RapportFichesSeules>;
+export async function ecrireFichesSeules(
+  prisma: ClientFichesSeules | ClientFichesSeulesCreation,
+  res: ResultatParse,
+  options: OptionsFichesSeules | OptionsFichesSeulesCreation,
 ): Promise<RapportFichesSeules> {
-  // LECTURE du catalogue cible (aucune écriture n'est même exprimable sur ce client).
-  const catalogue = await prisma.articleStock.findMany({
-    select: { id: true, designation: true, unite: true, prixUnitaireUSD: true },
-    orderBy: [{ designation: "asc" }, { id: "asc" }],
-  });
-  const plan = planifierFichesSeules(res, catalogue);
+  const creationDemandee = options.creerArticlesManquants === true;
+
+  /**
+   * SEUL point d'écriture d'article de tout ce mode, et il ne sait faire qu'une chose : CRÉER.
+   * `update` / `upsert` / `updateMany` ne sont pas seulement inutilisés — ils n'existent pas dans
+   * `ArticleStockCreationSeule`, donc aucune ligne d'ici ne peut les appeler.
+   */
+  const creerArticle = async (data: Record<string, unknown>): Promise<{ id: string; designation: string }> => {
+    const cible = prisma.articleStock as Partial<ArticleStockCreationSeule>;
+    if (typeof cible.create !== "function") {
+      // Le type l'exige déjà (surcharge) ; ce contrôle protège les appels traversant un `as`.
+      throw new Error(
+        "ABANDON : --creer-articles-manquants a été demandé, mais le client fourni n'expose pas " +
+          "`articleStock.create`. Rien n'a été écrit.",
+      );
+    }
+    return cible.create({ data });
+  };
+  if (creationDemandee) {
+    const cible = prisma.articleStock as Partial<ArticleStockCreationSeule>;
+    if (typeof cible.create !== "function") {
+      throw new Error(
+        "ABANDON : --creer-articles-manquants a été demandé, mais le client fourni n'expose pas " +
+          "`articleStock.create`. Rien n'a été écrit.",
+      );
+    }
+  }
+
+  // LECTURE du catalogue cible (aucune MISE À JOUR n'est exprimable sur ce client).
+  const lireCatalogue = () =>
+    prisma.articleStock.findMany({
+      select: { id: true, designation: true, unite: true, prixUnitaireUSD: true },
+      orderBy: [{ designation: "asc" }, { id: "asc" }],
+    });
+
+  const catalogue = await lireCatalogue();
+  const correspondances = options.correspondances;
+
+  // Plan SUR LE CATALOGUE TEL QU'IL EST. Lève si une correspondance arbitrée ne résout pas.
+  const planInitial = planifierFichesSeules(res, catalogue, { correspondances });
+  const { aCreer, sansValeurs } = articlesACreer(planInitial);
+
+  // Les créations n'ont lieu qu'APRÈS tous les contrôles d'abandon : on raisonne d'abord sur le
+  // catalogue PROJETÉ (identifiants factices, désignations réelles — l'empreinte ne dépend que des
+  // désignations). Rien n'est créé pour un import qui va s'arrêter de toute façon.
+  const clesCreees = creationDemandee ? new Set(aCreer.map((a) => a.cle)) : new Set<string>();
+  const plan = creationDemandee
+    ? planifierFichesSeules(res, projeterCatalogue(catalogue, aCreer), {
+        correspondances,
+        clesArticlesCrees: clesCreees,
+      })
+    : planInitial;
 
   const vide = {
     fichesSupprimees: [] as string[],
@@ -2042,6 +2529,8 @@ export async function ecrireFichesSeules(
     ingredientsCrees: 0,
     fichesRefusees: plan.refusees,
     articlesManquants: plan.articlesManquants,
+    articlesCrees: [] as ArticleCree[],
+    articlesSansValeurs: creationDemandee ? sansValeurs : [],
     plan,
   };
 
@@ -2052,8 +2541,11 @@ export async function ecrireFichesSeules(
       message:
         `ABANDON : aucune des ${res.fiches.length} fiche(s) du classeur n'est créable sur ce catalogue — ` +
         `${plan.articlesManquants.length} article(s) distinct(s) y sont introuvables. Rien n'a été écrit, ` +
-        "ni fiche, ni article (ce mode n'écrit JAMAIS dans le catalogue). " +
-        "Fais créer ou renommer les articles manquants, puis relance.",
+        "ni fiche, ni article (aucun article n'a été créé, et aucun article existant n'a pu être modifié : " +
+        "ce mode ne sait pas le faire). " +
+        (creationDemandee
+          ? "Les articles restants n'ont AUCUNE valeur dans le classeur : rien n'est deviné. "
+          : "Fais créer ou renommer les articles manquants (ou relance avec --creer-articles-manquants), puis relance."),
     };
   }
 
@@ -2126,12 +2618,78 @@ export async function ecrireFichesSeules(
     if (!r.ok) return { ...rapport, statut: "ABANDON", fichesProtegees: r.protegees, message: r.message };
   }
 
+  // ── Création CIBLÉE des articles absents (`--creer-articles-manquants`), et RIEN d'autre.
+  //
+  // Trois garanties, dans cet ordre :
+  //   1. la liste `aCreer` sort du plan calculé sur le catalogue TEL QU'IL EST : elle ne contient,
+  //      par construction, que des désignations qui n'y sont pas (correspondances déjà appliquées) ;
+  //   2. seule `create` est appelée — `update` / `upsert` / `updateMany` n'existent pas dans le type ;
+  //   3. un dernier contrôle relit le catalogue et REFUSE de créer une désignation qui y serait
+  //      apparue entre-temps : mieux vaut abandonner que fabriquer un doublon.
+  let planFinal = plan;
+  if (creationDemandee && aCreer.length > 0) {
+    const catalogueFrais = await lireCatalogue();
+    const clesEnBase = new Set(catalogueFrais.map((a) => normaliserDesignation(a.designation)));
+    const collisions = aCreer.filter((a) => clesEnBase.has(a.cle));
+    if (collisions.length > 0) {
+      return {
+        ...rapport,
+        statut: "ABANDON",
+        message:
+          `ABANDON : ${collisions.length} article(s) à créer existent MAINTENANT au catalogue ` +
+          `(${collisions.map((a) => `« ${a.designation} »`).join(", ")}) alors qu'ils en étaient absents au ` +
+          "début de cet import. Le catalogue a bougé sous nos pieds : on ne crée pas de doublon, on " +
+          "s'arrête. Relance — aucun article n'a été créé, aucun n'a été modifié." +
+          (rapport.fichesSupprimees.length > 0
+            ? ` /!\\ ${rapport.fichesSupprimees.length} fiche(s) avaient déjà été supprimées et n'ont PAS été réécrites.`
+            : ""),
+      };
+    }
+
+    for (const a of aCreer) {
+      const cree = await creerArticle({
+        designation: a.designation,
+        domaine: a.domaine,
+        unite: a.unite,
+        uniteParCarton: a.uniteParCarton,
+        prixUnitaireUSD: a.prixUnitaireUSD,
+        prixCartonUSD: a.prixCartonUSD,
+        // Ni catégorie, ni fournisseur : le classeur n'en donne pas de fiable et on n'invente
+        // rien. La Direction complétera — le rapport le dit.
+      });
+      rapport.articlesCrees.push({ ...a, id: cree.id });
+    }
+
+    // Re-planification sur le catalogue RÉEL : les identifiants factices de la projection ne
+    // doivent JAMAIS atteindre `IngredientFiche.articleId`.
+    planFinal = planifierFichesSeules(res, await lireCatalogue(), {
+      correspondances,
+      clesArticlesCrees: clesCreees,
+    });
+
+    // Garde-fou : la projection et la réalité doivent décider la même chose. Sinon on lève plutôt
+    // que d'écrire des fiches qui ne sont pas celles que les contrôles d'abandon ont examinées.
+    const memeListe =
+      planFinal.creables.length === plan.creables.length &&
+      planFinal.creables.every((f, i) => f === plan.creables[i]);
+    if (!memeListe) {
+      throw new Error(
+        "Incohérence interne : après création des articles, la liste des fiches créables diffère de " +
+          "celle qui a été projetée et contrôlée. Aucune fiche n'a été créée ; les articles créés, eux, " +
+          `sont en base (${rapport.articlesCrees.length}) et ne gênent rien — relance.`,
+      );
+    }
+    rapport.fichesRefusees = planFinal.refusees;
+    rapport.articlesManquants = planFinal.articlesManquants;
+    rapport.plan = planFinal;
+  }
+
   // Création : sous-recettes d'abord, plats ensuite (ordre INCHANGÉ). Les ingrédients ne sont
   // insérés qu'une fois TOUTES les fiches créées : le lien de sous-recette est alors toujours
   // résoluble, quel que soit l'ordre.
   const idFiche = new Map<FicheParsee, string>();
   await prisma.$transaction(async (tx) => {
-    for (const f of plan.creables) {
+    for (const f of planFinal.creables) {
       const cree = await tx.ficheTechnique.create({
         data: {
           nom: f.nom,
@@ -2153,10 +2711,10 @@ export async function ecrireFichesSeules(
       });
       idFiche.set(f, cree.id);
     }
-    rapport.fichesCreees = plan.creables.length;
+    rapport.fichesCreees = planFinal.creables.length;
 
-    const creables = new Set(plan.creables);
-    const aInserer = plan.lignes
+    const creables = new Set(planFinal.creables);
+    const aInserer = planFinal.lignes
       .filter((l) => creables.has(l.fiche))
       .map((l) => {
         // Invariant du mode : une fiche créable a TOUTES ses lignes rattachées. Si cet invariant
@@ -2185,11 +2743,12 @@ export async function ecrireFichesSeules(
   }, { timeout: 120_000 });
 
   rapport.message =
-    `Import terminé (FICHES SEULES — catalogue NON modifié) : ${rapport.fichesCreees} fiche(s) et ` +
-    `${rapport.ingredientsCrees} ingrédient(s) créés` +
+    "Import terminé (FICHES SEULES — aucun article existant modifié" +
+    (creationDemandee ? `, ${rapport.articlesCrees.length} article(s) CRÉÉ(S)` : ", catalogue NON modifié") +
+    `) : ${rapport.fichesCreees} fiche(s) et ${rapport.ingredientsCrees} ingrédient(s) créés` +
     (rapport.fichesSupprimees.length > 0 ? `, ${rapport.fichesSupprimees.length} fiche(s) remplacée(s)` : "") +
-    (plan.refusees.length > 0
-      ? `. ${plan.refusees.length} fiche(s) NON importée(s) faute d'ingrédient rattachable (cf. liste).`
+    (planFinal.refusees.length > 0
+      ? `. ${planFinal.refusees.length} fiche(s) NON importée(s) faute d'ingrédient rattachable (cf. liste).`
       : ".");
   return rapport;
 }
@@ -2234,7 +2793,19 @@ export type SimulationFichesSeules = {
   /** PID du backend PostgreSQL, quand la protection de niveau 2 a dû le vérifier. */
   backendPid: string | null;
   nbArticlesCatalogue: number;
+  /**
+   * Plan RETENU pour les chiffres et les coûts : celui d'APRÈS création quand
+   * `--creer-articles-manquants` est simulé, celui du catalogue tel quel sinon.
+   */
   plan: PlanFichesSeules;
+  /** Plan sur le catalogue TEL QU'IL EST : correspondances appliquées, aucun article créé. */
+  planAvantCreation: PlanFichesSeules;
+  /** La création a-t-elle été simulée ? Sinon, `plan` et `planAvantCreation` sont le même objet. */
+  creationSimulee: boolean;
+  /** Articles qui SERAIENT créés, valeurs comprises. Aucun n'est écrit : c'est une simulation. */
+  articlesQuiSeraientCrees: ArticleACreer[];
+  /** Articles introuvables qu'on REFUSERAIT de créer : le classeur ne leur donne aucune valeur. */
+  articlesSansValeurs: ArticleManquant[];
   couts: SimulationFiche[];
   /** Fiches DÉJÀ en base portant le nom d'une fiche créable : l'import les refuserait sans --force. */
   homonymesEnBase: string[];
@@ -2253,6 +2824,10 @@ export type OptionsSimulation = {
   timeoutMs?: number;
   /** Journal (par défaut `console.log`) : la simulation ANNONCE ce qu'elle tente et ce qu'elle obtient. */
   journal?: (message: string) => void;
+  /** Table arbitrée par la Direction. Une correspondance qui ne résout pas ARRÊTE la simulation. */
+  correspondances?: Correspondance[];
+  /** Simule `--creer-articles-manquants` : le catalogue est PROJETÉ en mémoire, jamais écrit. */
+  creerArticlesManquants?: boolean;
 };
 
 /** Délais généreux par défaut, surchargeables par variable d'environnement (cf. `main()`). */
@@ -2452,7 +3027,22 @@ export async function simulerFichesSeules(
     }
   }
 
-  const plan = planifierFichesSeules(res, lecture.catalogue);
+  // Plan sur le catalogue TEL QU'IL EST : c'est lui qui dit combien de fiches sont créables
+  // aujourd'hui, et quels articles manquent. Une correspondance morte LÈVE ici.
+  const correspondances = options.correspondances;
+  const planAvantCreation = planifierFichesSeules(res, lecture.catalogue, { correspondances });
+  const { aCreer, sansValeurs } = articlesACreer(planAvantCreation);
+
+  // Création SIMULÉE : le catalogue est PROJETÉ en mémoire (identifiants factices, préfixés
+  // « (à créer) » pour qu'aucun lecteur ne les prenne pour de vrais identifiants). Rien n'est écrit.
+  const creationSimulee = options.creerArticlesManquants === true;
+  const plan = creationSimulee
+    ? planifierFichesSeules(res, projeterCatalogue(lecture.catalogue, aCreer), {
+        correspondances,
+        clesArticlesCrees: new Set(aCreer.map((a) => a.cle)),
+      })
+    : planAvantCreation;
+
   const clesCreables = new Set(plan.creables.map((f) => normaliserDesignation(f.nom)));
   return {
     lectureSeuleVerifiee: true, // sinon on ne serait pas ici : toute autre issue lève
@@ -2461,6 +3051,10 @@ export async function simulerFichesSeules(
     backendPid: pid,
     nbArticlesCatalogue: lecture.catalogue.length,
     plan,
+    planAvantCreation,
+    creationSimulee,
+    articlesQuiSeraientCrees: creationSimulee ? aCreer : [],
+    articlesSansValeurs: creationSimulee ? sansValeurs : [],
     couts: simulerCoutsFichesSeules(plan),
     homonymesEnBase: lecture.fichesEnBase
       .filter((f) => clesCreables.has(normaliserDesignation(f.nom)))
@@ -2481,6 +3075,16 @@ export function formaterRapportFichesSeules(
     protection?: ProtectionLecture;
     motifRepli?: string | null;
     backendPid?: string | null;
+    /** Plan sur le catalogue TEL QU'IL EST — pour dire ce que la création change vraiment. */
+    planAvantCreation?: PlanFichesSeules;
+    /** `--creer-articles-manquants` est-il demandé ? Change le sens des sections « articles ». */
+    creationDemandee?: boolean;
+    /** Articles qui SERAIENT créés (simulation). */
+    articlesQuiSeraientCrees?: ArticleACreer[];
+    /** Articles RÉELLEMENT créés (import). */
+    articlesCrees?: ArticleCree[];
+    /** Articles introuvables qu'on refuse de créer, faute de valeurs au classeur. */
+    articlesSansValeurs?: ArticleManquant[];
   },
 ): string {
   const out: string[] = [];
@@ -2489,14 +3093,21 @@ export function formaterRapportFichesSeules(
   out.push(`\n${trait}`);
   out.push("MODE FICHES SEULES — LE CATALOGUE `ArticleStock` N'EST PAS TOUCHÉ");
   out.push(trait);
-  out.push("Ni création, ni mise à jour, ni écrasement de prix : ce mode LIT le catalogue pour");
-  out.push("rattacher les ingrédients, et n'y écrit rien.");
+  if (contexte.creationDemandee) {
+    out.push("--creer-articles-manquants : les articles ABSENTS du catalogue sont CRÉÉS. Aucun article");
+    out.push("EXISTANT n'est touché — ni prix, ni unité, ni quantité par carton, RIEN.");
+  } else {
+    out.push("Ni création, ni mise à jour, ni écrasement de prix : ce mode LIT le catalogue pour");
+    out.push("rattacher les ingrédients, et n'y écrit rien.");
+  }
   out.push("");
   out.push("GARANTIE DE FOND (active dans TOUS les cas, simulation comme import) : le verrou de");
-  out.push("TYPE. `ClientFichesSeules` ne déclare que `articleStock.findMany` — ni create, ni");
-  out.push("update, ni upsert — et la transaction de création n'a aucune propriété `articleStock`.");
-  out.push("Aucune écriture d'article n'est seulement exprimable dans ce mode. La lecture seule");
-  out.push("côté base, ci-dessous, n'en est que la CEINTURE.");
+  out.push("TYPE. Sans --creer-articles-manquants, `ClientFichesSeules` ne déclare que");
+  out.push("`articleStock.findMany`. Avec le drapeau, `ArticleStockCreationSeule` ajoute `create` et");
+  out.push("RIEN d'autre : ni update, ni upsert, ni updateMany — ces méthodes N'EXISTENT PAS dans le");
+  out.push("type, donc aucune MISE À JOUR d'article n'est seulement exprimable. Et la transaction qui");
+  out.push("crée les fiches n'a, elle, aucune propriété `articleStock`.");
+  out.push("La lecture seule côté base, ci-dessous, n'en est que la CEINTURE.");
   if (contexte.lectureSeuleVerifiee !== undefined) {
     out.push("");
     if (!contexte.lectureSeuleVerifiee) {
@@ -2532,6 +3143,13 @@ export function formaterRapportFichesSeules(
   out.push(`Fiches du classeur ................. ${res.fiches.length}  (${res.sousRecettes.length} sous-recettes + ${res.plats.length} plats)`);
   out.push(`Fiches CRÉABLES .................... ${plan.creables.length}  (${nbSousRecettes} sous-recette(s) + ${plan.creables.length - nbSousRecettes} plat(s))`);
   out.push(`Fiches REFUSÉES .................... ${plan.refusees.length}  (au moins un ingrédient non rattachable)`);
+  if (contexte.planAvantCreation && contexte.planAvantCreation !== plan) {
+    const avant = contexte.planAvantCreation;
+    out.push(
+      `  dont, AVANT création d'articles ... ${avant.creables.length} créable(s) / ${avant.refusees.length} refusée(s)` +
+        ` → la création en fait passer ${plan.creables.length - avant.creables.length} de refusée(s) à créable(s).`,
+    );
+  }
   const creablesSet = new Set(plan.creables);
   const nbIngredients = plan.lignes.filter((l) => creablesSet.has(l.fiche)).length;
   out.push(`Ingrédients rattachés .............. ${nbIngredients}`);
@@ -2558,9 +3176,48 @@ export function formaterRapportFichesSeules(
     }
   }
 
-  out.push(`\n${"─".repeat(78)}\n3. ARTICLES À CRÉER OU À RENOMMER (liste de travail pour la Direction)\n${"─".repeat(78)}`);
-  out.push("Dédoublonnés, DU PLUS UTILISÉ AU MOINS UTILISÉ. Le « sosie » est une SUGGESTION à");
-  out.push("vérifier à l'œil, JAMAIS une décision : rien n'est rattaché sur cette base.");
+  out.push(`\n${"─".repeat(78)}\n3. CORRESPONDANCES ARBITRÉES (scripts/correspondances-articles-fiches.json)\n${"─".repeat(78)}`);
+  out.push("« Cette désignation du classeur EST cet article déjà au catalogue. » L'ARTICLE DU");
+  out.push("CATALOGUE FAIT FOI : c'est SON unité et SON prix qui servent au calcul, jamais ceux du");
+  out.push("classeur. Le conditionnement lu dans le nom (« 1KG », « 240g ») ne devient pas une donnée");
+  out.push("d'article : il vit dans l'unité et la quantité de la ligne d'ingrédient. AUCUNE de ces");
+  out.push("entrées n'écrit quoi que ce soit dans `ArticleStock`.");
+  if (plan.correspondancesAppliquees.length === 0 && plan.correspondancesInutilisees.length === 0) {
+    out.push("  Aucune correspondance chargée.");
+  }
+  out.push(`  Appliquées : ${plan.correspondancesAppliquees.length}`);
+  for (const c of plan.correspondancesAppliquees) {
+    out.push(
+      `  • « ${c.entree.classeur} » → « ${c.article.designation} » — ${c.occurrences} ligne(s), ` +
+        `${c.fiches.length} fiche(s)`,
+    );
+    out.push(`      motif : ${c.entree.motif}`);
+    out.push(
+      `      le catalogue fait foi : unité « ${c.article.unite ?? "—"} », prix ` +
+        `${c.article.prixUnitaireUSD === null ? "— (ABSENT)" : `${c.article.prixUnitaireUSD.toString()} $`}` +
+        ` ; recette consommée en ${c.unitesRecette.map((u) => `« ${u} »`).join(", ")}`,
+    );
+  }
+  const inutilisees = plan.correspondancesInutilisees;
+  if (inutilisees.length > 0) {
+    out.push("");
+    out.push(`  /!\\ ${inutilisees.length} correspondance(s) N'ONT SERVI À RIEN sur ce classeur :`);
+    for (const c of inutilisees) {
+      out.push(
+        `      - « ${c.entree.classeur} » → « ${c.entree.catalogue} »` +
+          (c.cibleAuCatalogue
+            ? " (la cible existe bien au catalogue ; c'est la désignation de CLASSEUR qui ne figure"
+              + " dans aucune fiche — ou elle se rattache déjà directement)"
+            : " (et sa cible est ABSENTE du catalogue : entrée doublement suspecte, à relire)"),
+      );
+    }
+    out.push("      Une table qui pourrit en silence finit par mentir : à relire, pas à ignorer.");
+  }
+
+  out.push(`\n${"─".repeat(78)}\n4. ARTICLES INTROUVABLES AU CATALOGUE (liste de travail pour la Direction)\n${"─".repeat(78)}`);
+  out.push("Après application des correspondances. Dédoublonnés, DU PLUS UTILISÉ AU MOINS UTILISÉ.");
+  out.push("Le « sosie » est une SUGGESTION à vérifier à l'œil, JAMAIS une décision : rien n'est");
+  out.push("rattaché sur cette base.");
   out.push("/!\\ ATTENTION AUX CONDITIONNEMENTS. « Huile 1L régina » et « Huile 5L régina » ne");
   out.push("    diffèrent que d'un caractère et ne sont PAS le même article. Une ressemblance de");
   out.push("    lettres n'est pas une identité de produit : c'est un humain qui tranche.");
@@ -2580,18 +3237,81 @@ export function formaterRapportFichesSeules(
     }
   }
 
-  out.push(`\n${"─".repeat(78)}\n4. COÛT DES FICHES CRÉABLES (moteur src/lib/fiches/cout.ts, non modifié)\n${"─".repeat(78)}`);
+  const crees = contexte.articlesCrees ?? [];
+  const aCreer = contexte.articlesQuiSeraientCrees ?? [];
+  const sansValeurs = contexte.articlesSansValeurs ?? [];
+  if (contexte.creationDemandee) {
+    const liste: ArticleACreer[] = crees.length > 0 ? crees : aCreer;
+    const verbe = crees.length > 0 ? "CRÉÉS" : "QUI SERAIENT CRÉÉS";
+    out.push(`\n${"─".repeat(78)}\n5. ARTICLES ${verbe} (--creer-articles-manquants)\n${"─".repeat(78)}`);
+    out.push("CRÉATION SEULE. Aucun article EXISTANT n'est touché : ni prix, ni unité, ni quantité par");
+    out.push("carton — la méthode `update` n'existe pas dans le type de client de ce mode.");
+    out.push("Valeurs reprises TELLES QUELLES de la « Liste des articles » du classeur, arrondies à la");
+    out.push("précision du schéma. SANS catégorie ni fournisseur : le classeur n'en donne pas de");
+    out.push("fiable, on n'invente rien — LA DIRECTION DEVRA LES COMPLÉTER.");
+    if (liste.length === 0) out.push("  Aucun : chaque ingrédient a trouvé son article au catalogue.");
+    for (const a of liste) {
+      out.push(`  • « ${a.designation} » — ${a.occurrences} ligne(s), ${a.fiches.length} fiche(s) : ${a.fiches.join(", ")}`);
+      out.push(
+        `      unité « ${a.unite ?? "—"} » | prix unitaire ${a.prixUnitaireUSD ?? "— (ABSENT)"} $ | ` +
+          `qté/carton ${a.uniteParCarton ?? "—"} | prix carton ${a.prixCartonUSD ?? "—"} $ | domaine NOURRITURE`,
+      );
+      out.push(`      unité(s) de consommation en recette : ${a.unitesRecette.map((u) => `« ${u} »`).join(", ")}`);
+      if (a.prixUnitaireUSD === null) {
+        out.push("      /!\\ AUCUN PRIX au classeur : la fiche qui le consomme sortira en COÛT PARTIEL.");
+      } else if (new Decimal(a.prixUnitaireUSD).lessThanOrEqualTo(0)) {
+        out.push("      /!\\ PRIX À ZÉRO au classeur : le moteur le traite comme NON RENSEIGNÉ (coût partiel).");
+      }
+    }
+    if (sansValeurs.length > 0) {
+      out.push("");
+      out.push(`  /!\\ ${sansValeurs.length} article(s) NON créé(s) : ils ne figurent pas non plus dans la`);
+      out.push("      « Liste des articles » du classeur, donc aucune unité ni aucun prix n'est connu.");
+      out.push("      On ne devine ni l'un ni l'autre. Leurs fiches restent refusées.");
+      for (const a of sansValeurs) {
+        out.push(`      - « ${a.designation} » — ${a.occurrences} ligne(s) : ${a.fiches.join(", ")}`);
+      }
+    }
+  }
+
+  out.push(`\n${"─".repeat(78)}\n6. UNITÉS QUI NE SE CONVERTIRONT PAS (coût PARTIEL annoncé)\n${"─".repeat(78)}`);
+  out.push("L'unité d'ACHAT de l'article (celle du catalogue, qui fait foi) ne se convertit pas avec");
+  out.push("l'unité de CONSOMMATION de la recette. Le moteur refusera de supposer un facteur : la");
+  out.push("ligne sortira en `UNITE_INCONVERTIBLE` et la fiche en coût PARTIEL.");
+  out.push("SIGNALÉ, JAMAIS CORRIGÉ : aucune conversion n'est devinée ici.");
+  if (plan.unitesNonConvertibles.length === 0) {
+    out.push("  Aucune : toutes les unités rattachées se convertissent.");
+  }
+  for (const u of plan.unitesNonConvertibles) {
+    out.push(
+      `  • « ${u.designationClasseur} » → article « ${u.articleCatalogue} » : recette en « ${u.uniteRecette} », ` +
+        `catalogue en « ${u.uniteCatalogue ?? "(unité absente)"} »`,
+    );
+    out.push(
+      `      ${u.occurrences} ligne(s), fiche(s) : ${u.fiches.join(", ")}` +
+        (u.parCorrespondance ? " — RATTACHEMENT PAR CORRESPONDANCE ARBITRÉE" : "") +
+        (u.articleCree ? " — article créé par --creer-articles-manquants" : ""),
+    );
+  }
+
+  out.push(`\n${"─".repeat(78)}\n7. COÛT DES FICHES CRÉABLES (moteur src/lib/fiches/cout.ts, non modifié)\n${"─".repeat(78)}`);
   const incompletes = couts.filter((s) => s.incomplet);
   out.push(`  Coût COMPLET ................ ${couts.length - incompletes.length} / ${couts.length}`);
   out.push(`  Coût PARTIEL ou indéterminé . ${incompletes.length}`);
   out.push("  (Prix et unités lus DANS LE CATALOGUE CIBLE, pas dans le classeur : c'est bien le coût");
   out.push("   que l'application affichera après import.)");
-  for (const s of incompletes) {
-    out.push(`  • ${s.nom} : ${s.motifs.join(" | ") || "aucune ligne valorisée"}`);
+  out.push("");
+  for (const c of couts) {
+    const parPortion = c.coutParPortion === null ? "indéterminé" : `${c.coutParPortion} $`;
+    out.push(
+      `  ${c.incomplet ? "PARTIEL" : "COMPLET"} — ${c.nom} : ${parPortion} / portion ` +
+        `(${c.nbPortions} portion(s))`,
+    );
+    if (c.incomplet) out.push(`      motif : ${c.motifs.join(" | ") || "aucune ligne valorisée"}`);
   }
 
   if (plan.ambiguitesCatalogue.length > 0) {
-    out.push(`\n${"─".repeat(78)}\n5. AMBIGUÏTÉS DU CATALOGUE CIBLE (rattachement au 1ᵉʳ, signalé)\n${"─".repeat(78)}`);
+    out.push(`\n${"─".repeat(78)}\n8. AMBIGUÏTÉS DU CATALOGUE CIBLE (rattachement au 1ᵉʳ, signalé)\n${"─".repeat(78)}`);
     out.push("  Deux articles du catalogue portent la même désignation normalisée. Le rattachement");
     out.push("  retient le premier dans un ordre déterministe (désignation puis id) — à dédoublonner");
     out.push("  côté application, sinon le coût dépend de celui des deux qui porte le bon prix.");
@@ -2633,8 +3353,20 @@ async function main() {
   const force = args.includes("--force");
   const dryRun = args.includes("--dry-run");
   const fichesSeules = args.includes("--fiches-seules");
+  const creerArticlesManquants = args.includes("--creer-articles-manquants");
   const conserverPrixExistants = args.includes("--conserver-prix-existants");
   const supprimerNommement = lireSupprimer(args);
+
+  // `--creer-articles-manquants` n'a de sens QUE dans le mode fiches seules : c'est lui qui refuse
+  // toute mise à jour d'article. En import complet, le catalogue est déjà écrasé par le classeur —
+  // laisser croire que ce drapeau y change quelque chose serait mensonger.
+  if (creerArticlesManquants && !fichesSeules) {
+    throw new Error(
+      "--creer-articles-manquants ne s'utilise QU'AVEC --fiches-seules. En import complet, le catalogue " +
+        "est de toute façon créé ET mis à jour depuis le classeur : ce drapeau n'y voudrait rien dire. " +
+        "Rien n'a été lu, rien n'a été écrit.",
+    );
+  }
 
   // Une URL de base commence par « postgres… » : tout autre positionnel est un chemin de fichier.
   // Ainsi `--dry-run "/chemin/classeur.xlsx"` fonctionne sans jamais mentionner de base.
@@ -2645,15 +3377,28 @@ async function main() {
   const databaseUrl = urls[0] ?? process.env.IMPORT_DATABASE_URL;
   const cheminFichier = chemins[0] ?? CHEMIN_PAR_DEFAUT;
 
+  const suffixeCreation = creerArticlesManquants
+    ? " + CRÉATION CIBLÉE des articles absents (aucun article existant modifié)"
+    : "";
   const libelleMode = fichesSeules
     ? dryRun
-      ? "FICHES SEULES — SIMULATION EN LECTURE SEULE (connexion réelle, transaction READ ONLY)"
-      : "FICHES SEULES — import des fiches, catalogue NON modifié"
+      ? `FICHES SEULES — SIMULATION EN LECTURE SEULE (connexion réelle, transaction READ ONLY)${suffixeCreation}`
+      : `FICHES SEULES — import des fiches${creerArticlesManquants ? "" : ", catalogue NON modifié"}${suffixeCreation}`
     : dryRun
       ? "MARCHE À VIDE (aucune écriture, aucune connexion)"
       : "IMPORT";
   console.log(`Fichier source : ${cheminFichier}`);
   console.log(`Mode : ${libelleMode}`);
+
+  // La table de correspondances est lue et VALIDÉE avant tout le reste : une table illisible doit
+  // arrêter le script avant la moindre connexion, et à plus forte raison avant la moindre écriture.
+  const correspondances = fichesSeules ? chargerCorrespondances() : [];
+  if (fichesSeules) {
+    console.log(
+      `Correspondances arbitrées chargées : ${correspondances.length} (${CHEMIN_CORRESPONDANCES}). ` +
+        "Elles REDIRIGENT un rattachement ; elles n'écrivent rien dans le catalogue.",
+    );
+  }
   if (fichesSeules && conserverPrixExistants) {
     console.log(
       "Note : --conserver-prix-existants est SANS OBJET en mode fiches seules — aucun prix d'article " +
@@ -2700,6 +3445,8 @@ async function main() {
     try {
       if (dryRun) {
         const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res, {
+          correspondances,
+          creerArticlesManquants,
           maxWaitMs: entierEnv("IMPORT_TX_MAX_WAIT_MS", SIMULATION_MAX_WAIT_MS),
           timeoutMs: entierEnv("IMPORT_TX_TIMEOUT_MS", SIMULATION_TIMEOUT_MS),
           // Repli de niveau 2 : une connexion physique UNIQUE (pool de taille 1, jamais recyclée
@@ -2723,6 +3470,10 @@ async function main() {
             protection: sim.protection,
             motifRepli: sim.motifRepli,
             backendPid: sim.backendPid,
+            planAvantCreation: sim.planAvantCreation,
+            creationDemandee: sim.creationSimulee,
+            articlesQuiSeraientCrees: sim.articlesQuiSeraientCrees,
+            articlesSansValeurs: sim.articlesSansValeurs,
           }),
         );
         console.log(
@@ -2733,10 +3484,27 @@ async function main() {
         return;
       }
 
-      const r = await ecrireFichesSeules(prisma as unknown as ClientFichesSeules, res, { force, supprimerNommement });
+      // Deux appels distincts, et non un objet d'options « à drapeau » : c'est la SURCHARGE de
+      // `ecrireFichesSeules` qui impose le bon client. Sans le drapeau, le client fourni n'expose
+      // même pas `articleStock.create`.
+      const r = creerArticlesManquants
+        ? await ecrireFichesSeules(prisma as unknown as ClientFichesSeulesCreation, res, {
+            force,
+            supprimerNommement,
+            correspondances,
+            creerArticlesManquants: true,
+          })
+        : await ecrireFichesSeules(prisma as unknown as ClientFichesSeules, res, {
+            force,
+            supprimerNommement,
+            correspondances,
+          });
       console.log(
         formaterRapportFichesSeules(res, r.plan, simulerCoutsFichesSeules(r.plan), {
           nbArticlesCatalogue: r.plan.nbArticlesCatalogue,
+          creationDemandee: creerArticlesManquants,
+          articlesCrees: r.articlesCrees,
+          articlesSansValeurs: r.articlesSansValeurs,
         }),
       );
       console.log(`\n${r.statut} — ${r.message}`);
@@ -2747,10 +3515,17 @@ async function main() {
             : `Fiches remplacées (contenu identique au classeur, ou destruction autorisée par --supprimer) : ${r.fichesSupprimees.join(", ")}`
         );
       }
+      if (r.articlesCrees.length > 0) {
+        console.log(
+          `\n${r.articlesCrees.length} article(s) CRÉÉ(S) au catalogue (cf. §5) — SANS catégorie ni ` +
+            "fournisseur, à compléter par la Direction. Aucun article existant n'a été modifié : ce mode " +
+            "n'expose aucune méthode de mise à jour."
+        );
+      }
       if (r.fichesRefusees.length > 0) {
         console.log(
           `\n/!\\ ${r.fichesRefusees.length} fiche(s) NON importée(s) : il leur manque au moins un article au ` +
-            "catalogue (cf. §2 et §3 ci-dessus). Aucune fiche amputée n'a été créée."
+            "catalogue (cf. §2 et §4 ci-dessus). Aucune fiche amputée n'a été créée."
         );
       }
       if (r.statut === "ABANDON") process.exitCode = 1;

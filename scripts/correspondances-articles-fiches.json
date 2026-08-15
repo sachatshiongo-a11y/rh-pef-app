@@ -1,0 +1,107 @@
+{
+  "commentaire": [
+    "TABLE DE CORRESPONDANCES — arbitrée par la Direction, relue à la main, versionnée.",
+    "",
+    "Chaque entrée dit : « la désignation ÉCRITE DANS LE CLASSEUR des fiches techniques et cet",
+    "article DÉJÀ PRÉSENT au catalogue ArticleStock sont le MÊME produit ».",
+    "",
+    "RÈGLE CARDINALE (Direction, 2026-08-15) : « dans mon catalogue il n'y a pas de précision du",
+    "conditionnement, à toi de le mettre dans la conception des fiches ». Autrement dit :",
+    "  - l'ARTICLE DU CATALOGUE FAIT FOI : c'est SON unité et SON prix qui servent au calcul du",
+    "    coût, JAMAIS ceux du classeur ;",
+    "  - le conditionnement lu dans le nom du classeur (« 1KG », « 240g », « 350g ») ne devient",
+    "    PAS une donnée d'article : il vit dans l'UNITÉ et la QUANTITÉ de la ligne d'ingrédient ;",
+    "  - AUCUNE de ces entrées n'écrit quoi que ce soit dans ArticleStock — ni prix, ni unité, ni",
+    "    quantité par carton. Elles ne font que REDIRIGER un rattachement.",
+    "",
+    "Le rapprochement se fait des DEUX CÔTÉS par normaliserDesignation() (NFKD, sans diacritiques,",
+    "minuscules, espaces réduits) : la casse et les accents n'ont donc pas d'importance ici.",
+    "",
+    "Si la désignation « catalogue » d'une entrée UTILISÉE par le classeur n'existe pas dans la",
+    "base visée, le script REFUSE DE CONTINUER en nommant l'entrée : une correspondance morte qui",
+    "passerait inaperçue ferait retomber l'ingrédient dans les « manquants » et, en mode",
+    "--creer-articles-manquants, créerait un DOUBLON au catalogue.",
+    "",
+    "CONSÉQUENCE À SURVEILLER : si l'unité du catalogue ne se convertit pas avec l'unité de",
+    "consommation de la recette (catalogue en « Pièce » contre recette en « g », par exemple),",
+    "l'ingrédient sortira en COÛT PARTIEL. Le rapport le signale, entrée par entrée. Aucune",
+    "conversion n'est devinée, aucune unité n'est corrigée."
+  ],
+  "correspondances": [
+    {
+      "classeur": "Vinaigre Bamsamique",
+      "catalogue": "Vinaigre Balsamique",
+      "motif": "Faute de frappe du classeur : « Bamsamique » pour « Balsamique ». Même produit."
+    },
+    {
+      "classeur": "20 PENNE RIGATE LM CHEF 12 X 1KG",
+      "catalogue": "Penne Rigate Lm Chef 12 X 1KG",
+      "motif": "Code article « 20 » en préfixe dans le classeur ; le catalogue ne porte pas ce code."
+    },
+    {
+      "classeur": "66 FARFALLE RIGATE 24 X 500G",
+      "catalogue": "Farfalle Rigate 24 X 500G",
+      "motif": "Code article « 66 » en préfixe dans le classeur ; le catalogue ne porte pas ce code."
+    },
+    {
+      "classeur": "219 LASAGNE SEMOLA 12 X 500G",
+      "catalogue": "Lasagne Semola 12 X 500G",
+      "motif": "Code article « 219 » en préfixe dans le classeur ; le catalogue ne porte pas ce code."
+    },
+    {
+      "classeur": "Everyday Champignon de paris coupes choix ( 240gr)",
+      "catalogue": "Champignon de paris coupes choix ( 240gr)",
+      "motif": "Marque « Everyday » en préfixe dans le classeur, absente du catalogue. Même produit."
+    },
+    {
+      "classeur": "FILET DE CAPITAINE 1KG",
+      "catalogue": "Filet de Capitaine",
+      "motif": "Conditionnement « 1KG » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "FILET DE MOSOMBO 1KG",
+      "catalogue": "Filet de Mosombo",
+      "motif": "Conditionnement « 1KG » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "CARRÉ D'AGNEAU 1KG",
+      "catalogue": "Carré D'agneau",
+      "motif": "Conditionnement « 1KG » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "SAUMON FRAIS 1KG",
+      "catalogue": "Saumon Frais",
+      "motif": "Conditionnement « 1KG » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "GRANA PADANO 1KG",
+      "catalogue": "Grana Padano",
+      "motif": "Conditionnement « 1KG » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "LARD FUMÉ 1KG",
+      "catalogue": "Lard Fumé",
+      "motif": "Conditionnement « 1KG » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "Tomates pêlées 240g",
+      "catalogue": "Tomates pêlées",
+      "motif": "Conditionnement « 240g » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "Beurre Lurpak 250g",
+      "catalogue": "Beurre Lurpak",
+      "motif": "Conditionnement « 250g » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "Côte de porc 350g",
+      "catalogue": "Côte de porc",
+      "motif": "Conditionnement « 350g » précisé dans le classeur ; le catalogue ne précise pas le conditionnement, qui vit désormais dans l'unité et la quantité de la ligne d'ingrédient."
+    },
+    {
+      "classeur": "JAMBON CUIT 1KG",
+      "catalogue": "Jambon Cuit Épaule",
+      "motif": "Conditionnement « 1KG » dans le classeur ; le catalogue nomme en outre la pièce (« Épaule »). Même produit — rapprochement arbitré par la Direction."
+    }
+  ]
+}

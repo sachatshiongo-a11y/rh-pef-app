@@ -3,10 +3,16 @@ import Decimal from "decimal.js";
 import * as XLSX from "xlsx";
 import {
   analyserClasseur,
+  articlesACreer,
+  chargerCorrespondances,
   distanceChaine,
+  indexerCorrespondances,
   planifierFichesSeules,
+  projeterCatalogue,
   simulerCoutsFichesSeules,
   simulerFichesSeules,
+  uniteSeConvertit,
+  validerCorrespondances,
   type ArticleCatalogue,
   type ClientLectureSeule,
   type SessionLectureSeule,
@@ -460,5 +466,264 @@ describe("repli de niveau 2 — la session dédiée est vérifiée, pas supposé
       }),
     ).rejects.toThrow(/REFUS/);
     expect(fermee).toBe(1); // rien ne survit à la simulation, pas même une session refusée
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CORRESPONDANCES ARBITRÉES + CRÉATION CIBLÉE — tests PURS (aucune base)
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("table de correspondances — validation, et refus de tout ce qui est ambigu", () => {
+  const une = (classeur: string, catalogue: string) => ({ classeur, catalogue, motif: "parce que." });
+
+  it("accepte une table bien formée et rend les entrées nettoyées", () => {
+    const entrees = validerCorrespondances(
+      { correspondances: [{ classeur: "  A  ", catalogue: " B ", motif: " parce que. " }] },
+      "test",
+    );
+    expect(entrees).toEqual([{ classeur: "A", catalogue: "B", motif: "parce que." }]);
+  });
+
+  it("refuse une racine qui n'est pas un objet avec un tableau « correspondances »", () => {
+    expect(() => validerCorrespondances([], "test")).toThrow(/tableau « correspondances »/);
+    expect(() => validerCorrespondances(null, "test")).toThrow(/tableau « correspondances »/);
+    expect(() => validerCorrespondances({ correspondances: {} }, "test")).toThrow(/tableau/);
+  });
+
+  it("refuse une entrée sans motif : une correspondance sans raison écrite n'est pas relisible", () => {
+    expect(() =>
+      validerCorrespondances({ correspondances: [{ classeur: "A", catalogue: "B" }] }, "test"),
+    ).toThrow(/n'a pas de « motif »/);
+    expect(() =>
+      validerCorrespondances({ correspondances: [{ classeur: "A", catalogue: "B", motif: "   " }] }, "test"),
+    ).toThrow(/motif/);
+  });
+
+  it("refuse une entrée incomplète, en la SITUANT", () => {
+    expect(() =>
+      validerCorrespondances({ correspondances: [une("A", "B"), { classeur: "C" }] }, "test"),
+    ).toThrow(/entrée n°2/);
+  });
+
+  it("refuse une correspondance vers elle-même (sans effet, donc probablement une faute)", () => {
+    expect(() => validerCorrespondances({ correspondances: [une("Lard Fumé", "LARD FUME")] }, "test")).toThrow(
+      /pointe « Lard Fumé » sur lui-même/,
+    );
+  });
+
+  it("refuse DEUX entrées pour la même désignation de classeur : on ne tranche pas à la place de la Direction", () => {
+    expect(() =>
+      validerCorrespondances({ correspondances: [une("A", "B"), une("a", "C")] }, "test"),
+    ).toThrow(/figure DEUX FOIS/);
+  });
+
+  it("refuse un chaînage A → B → C : les correspondances ne se résolvent jamais en chaîne", () => {
+    expect(() =>
+      validerCorrespondances({ correspondances: [une("A", "B"), une("B", "C")] }, "test"),
+    ).toThrow(/JAMAIS en\s+chaîne|jamais en chaîne|chaîne/);
+  });
+
+  it("le FICHIER VERSIONNÉ du dépôt est valide, et porte les 15 arbitrages de la Direction", () => {
+    // Il est relu par la Direction : ce test le protège d'une faute de saisie qui passerait
+    // inaperçue jusqu'à l'import.
+    const entrees = chargerCorrespondances();
+    expect(entrees).toHaveLength(15);
+    expect(entrees.every((e) => e.motif.length > 10)).toBe(true);
+    const parClasseur = new Map(entrees.map((e) => [e.classeur, e.catalogue]));
+    expect(parClasseur.get("Vinaigre Bamsamique")).toBe("Vinaigre Balsamique");
+    expect(parClasseur.get("JAMBON CUIT 1KG")).toBe("Jambon Cuit Épaule");
+    expect(parClasseur.get("Tomates pêlées 240g")).toBe("Tomates pêlées");
+    // Aucune des cibles ne réintroduit un conditionnement que la Direction a explicitement retiré.
+    expect(parClasseur.get("FILET DE CAPITAINE 1KG")).toBe("Filet de Capitaine");
+  });
+
+  it("indexerCorrespondances rapproche par désignation NORMALISÉE (accents et casse indifférents)", () => {
+    const index = indexerCorrespondances([une("LARD FUMÉ 1KG", "Lard Fumé")]);
+    expect(index.get("lard fume 1kg")?.catalogue).toBe("Lard Fumé");
+  });
+});
+
+describe("correspondances appliquées au rattachement — l'ARTICLE DU CATALOGUE fait foi", () => {
+  /** Le catalogue de la base : pas de conditionnement dans les noms, et des prix à lui. */
+  const CATALOGUE_SANS_CONDITIONNEMENT: ArticleCatalogue[] = [
+    ...sans("Tomates pêlées 240g", "20 PENNE RIGATE LM CHEF 12 X 1KG"),
+    { id: "b1", designation: "Tomates pêlées", unite: "Pièce", prixUnitaireUSD: new Decimal("1.9") },
+    { id: "b2", designation: "Penne Rigate Lm Chef 12 X 1KG", unite: "Kg", prixUnitaireUSD: new Decimal("3.5") },
+  ];
+
+  const ARBITRAGES = [
+    { classeur: "Tomates pêlées 240g", catalogue: "Tomates pêlées", motif: "conditionnement précisé au classeur." },
+    {
+      classeur: "20 PENNE RIGATE LM CHEF 12 X 1KG",
+      catalogue: "Penne Rigate Lm Chef 12 X 1KG",
+      motif: "code article en préfixe.",
+    },
+  ];
+
+  it("l'ingrédient pointe l'article EXISTANT, avec SON unité et SON prix", () => {
+    const plan = planifierFichesSeules(res(), CATALOGUE_SANS_CONDITIONNEMENT, { correspondances: ARBITRAGES });
+    expect(plan.creables.map((f) => f.nom)).toEqual(["Sauce bolognaise", "Bolognaise"]);
+    expect(plan.articlesManquants).toEqual([]);
+
+    const ligne = plan.lignes.find((l) => l.ingredient.designation.startsWith("Tomates pêlées"))!;
+    expect(ligne.rattachement.type).toBe("ARTICLE");
+    const article = ligne.rattachement.type === "ARTICLE" ? ligne.rattachement.article : null;
+    expect(article?.designation).toBe("Tomates pêlées"); // celui de la BASE, pas celui du classeur
+    expect(article?.prixUnitaireUSD?.toString()).toBe("1.9"); // le prix de la BASE fait foi
+    expect(article?.id).toBe("b1");
+  });
+
+  it("le rapport dit QUELLE correspondance a servi, combien de fois, et pourquoi", () => {
+    const plan = planifierFichesSeules(res(), CATALOGUE_SANS_CONDITIONNEMENT, { correspondances: ARBITRAGES });
+    const penne = plan.correspondancesAppliquees.find((c) => c.entree.classeur.startsWith("20 PENNE"))!;
+    expect(penne.article.designation).toBe("Penne Rigate Lm Chef 12 X 1KG");
+    expect(penne.occurrences).toBe(1);
+    expect(penne.entree.motif).toBe("code article en préfixe.");
+    expect(penne.unitesRecette).toEqual(["Kg"]);
+  });
+
+  it("une correspondance dont la CIBLE N'EXISTE PAS fait ÉCHOUER le plan, en la nommant", () => {
+    // C'est la protection contre le doublon : sans elle, l'ingrédient retomberait dans les
+    // « manquants » et --creer-articles-manquants créerait un second « Tomates pêlées ».
+    expect(() =>
+      planifierFichesSeules(res(), sans("Tomates pêlées 240g"), {
+        correspondances: [
+          { classeur: "Tomates pêlées 240g", catalogue: "Tomates pêlées", motif: "conditionnement." },
+        ],
+      }),
+    ).toThrow(/« Tomates pêlées 240g » → « Tomates pêlées » \(INTROUVABLE au catalogue\)/);
+  });
+
+  it("une correspondance INUTILISÉE ne bloque rien, mais elle est SIGNALÉE", () => {
+    const plan = planifierFichesSeules(res(), CATALOGUE_COMPLET, {
+      correspondances: [{ classeur: "Ceci n'est dans aucune fiche", catalogue: "Carottes", motif: "test." }],
+    });
+    expect(plan.creables).toHaveLength(2);
+    expect(plan.correspondancesInutilisees).toEqual([
+      {
+        entree: { classeur: "Ceci n'est dans aucune fiche", catalogue: "Carottes", motif: "test." },
+        cibleAuCatalogue: true,
+      },
+    ]);
+  });
+
+  it("une correspondance dont la cible est absente ET la source inutilisée : signalée, pas fatale", () => {
+    const plan = planifierFichesSeules(res(), CATALOGUE_COMPLET, {
+      correspondances: [{ classeur: "Inexistant au classeur", catalogue: "Inexistant en base", motif: "test." }],
+    });
+    expect(plan.correspondancesInutilisees[0]!.cibleAuCatalogue).toBe(false);
+  });
+
+  it("la sous-recette garde la PRIORITÉ : une correspondance ne la détourne pas", () => {
+    const plan = planifierFichesSeules(res(), CATALOGUE_COMPLET, {
+      correspondances: [{ classeur: "Sauce bolognaise", catalogue: "Carottes", motif: "piège." }],
+    });
+    const ligne = plan.lignes.find((l) => l.ingredient.cle === "sauce bolognaise")!;
+    expect(ligne.rattachement.type).toBe("SOUS_RECETTE");
+    expect(plan.correspondancesInutilisees).toHaveLength(1); // et l'entrée est signalée comme inerte
+  });
+});
+
+describe("unités qui ne se convertiront pas — SIGNALÉES, jamais devinées", () => {
+  it("catalogue en « Pièce » contre recette en « g » : coût partiel annoncé, motif nommé", () => {
+    // Exactement le risque de la règle « le conditionnement disparaît du nom » : « Tomates pêlées
+    // 240g » consommé à la pièce, mais un catalogue qui compterait en grammes (ou l'inverse).
+    const catalogue = CATALOGUE_COMPLET.map((a) =>
+      a.designation === "Carottes" ? { ...a, unite: "Pièce" } : a,
+    );
+    const plan = planifierFichesSeules(res(), catalogue);
+    expect(plan.unitesNonConvertibles).toHaveLength(1);
+    expect(plan.unitesNonConvertibles[0]).toMatchObject({
+      designationClasseur: "Carottes",
+      uniteRecette: "kg",
+      uniteCatalogue: "Pièce",
+      parCorrespondance: false,
+      occurrences: 1,
+    });
+
+    // Et le moteur de coût, lui aussi, refuse de supposer un facteur.
+    const sauce = simulerCoutsFichesSeules(plan).find((c) => c.nom === "Sauce bolognaise")!;
+    expect(sauce.incomplet).toBe(true);
+    expect(sauce.motifs.join(" ")).toContain("Carottes");
+  });
+
+  it("le signalement dit quand le rattachement vient d'une CORRESPONDANCE arbitrée", () => {
+    const catalogue = [
+      ...sans("Tomates pêlées 240g"),
+      { id: "b1", designation: "Tomates pêlées", unite: "kg", prixUnitaireUSD: new Decimal("2") },
+    ];
+    const plan = planifierFichesSeules(res(), catalogue, {
+      correspondances: [{ classeur: "Tomates pêlées 240g", catalogue: "Tomates pêlées", motif: "cond." }],
+    });
+    const alerte = plan.unitesNonConvertibles.find((u) => u.designationClasseur === "Tomates pêlées 240g")!;
+    expect(alerte.uniteRecette).toBe("Pièce"); // la recette compte à la pièce
+    expect(alerte.uniteCatalogue).toBe("kg"); // le catalogue vend au kilo
+    expect(alerte.parCorrespondance).toBe(true);
+  });
+
+  it("aucune alerte quand l'unité se convertit — y compris par unité-emballage (« 500 GR » → kg)", () => {
+    expect(uniteSeConvertit("g", "kg")).toBe(true);
+    expect(uniteSeConvertit("kg", "500 GR")).toBe(true); // emballage ramené au kilo
+    expect(uniteSeConvertit("Pièce", "Pièce")).toBe(true);
+    expect(uniteSeConvertit("Pièce", "kg")).toBe(false);
+    expect(uniteSeConvertit("cl", "L")).toBe(true);
+    expect(uniteSeConvertit("500 GR", "500 GR")).toBe(false); // ni masse, ni volume, ni comptage
+    expect(uniteSeConvertit("g", null)).toBe(false);
+    expect(uniteSeConvertit("g", "  ")).toBe(false);
+  });
+});
+
+describe("articlesACreer — valeurs DU CLASSEUR, et rien d'inventé", () => {
+  it("reprend unité, prix et conditionnement du classeur, en NOURRITURE, sans catégorie ni fournisseur", () => {
+    const plan = planifierFichesSeules(res(), sans("Carottes", "Vin rouge"));
+    const { aCreer, sansValeurs } = articlesACreer(plan);
+    expect(sansValeurs).toEqual([]);
+    expect(aCreer.map((a) => a.designation).sort()).toEqual(["Carottes", "Vin rouge"]);
+
+    const carottes = aCreer.find((a) => a.designation === "Carottes")!;
+    expect(carottes).toMatchObject({
+      domaine: "NOURRITURE",
+      unite: "kg",
+      prixUnitaireUSD: "4.58",
+      prixCartonUSD: "0",
+      uniteParCarton: null,
+      unitesRecette: ["kg"],
+    });
+    // Aucun champ « categorie » ni « fournisseur » : la Direction complètera.
+    expect(Object.keys(carottes).sort()).toEqual(
+      ["cle", "designation", "domaine", "fiches", "occurrences", "prixCartonUSD", "prixUnitaireUSD", "unite", "uniteParCarton", "unitesRecette"],
+    );
+  });
+
+  it("un article introuvable ABSENT AUSSI de la liste du classeur n'est PAS créé : rien n'est deviné", () => {
+    const INVENTE = feuille({
+      B9: "FICHE TECHNIQUE",
+      B13: "Plat mystère",
+      B15: "Nombre de portions :", C15: 2,
+      B20: "Article", C20: "Unité", D20: "Unités nécessaires",
+      B21: "Poudre de perlimpinpin", C21: "g", D21: 10,
+      B24: "Total prix de revient HT", F24: 0,
+    });
+    const r = analyserClasseur({
+      SheetNames: ["Plat mystère", "Liste des articles"],
+      Sheets: { "Plat mystère": INVENTE, "Liste des articles": LISTE_ARTICLES },
+    } as XLSX.WorkBook);
+    const { aCreer, sansValeurs } = articlesACreer(planifierFichesSeules(r, CATALOGUE_COMPLET));
+    expect(aCreer).toEqual([]);
+    expect(sansValeurs.map((a) => a.designation)).toEqual(["Poudre de perlimpinpin"]);
+  });
+
+  it("projeterCatalogue rend le catalogue TEL QU'IL SERAIT, avec des identifiants qui se disent factices", () => {
+    const plan = planifierFichesSeules(res(), sans("Carottes"));
+    const { aCreer } = articlesACreer(plan);
+    const projete = projeterCatalogue(sans("Carottes"), aCreer);
+    expect(projete).toHaveLength(8);
+    const ajoute = projete.find((a) => a.designation === "Carottes")!;
+    expect(ajoute.id).toBe("(à créer) carottes");
+    expect(ajoute.prixUnitaireUSD?.toString()).toBe("4.58");
+
+    // Et sur ce catalogue projeté, la fiche redevient créable.
+    const apres = planifierFichesSeules(res(), projete);
+    expect(apres.creables.map((f) => f.nom)).toEqual(["Sauce bolognaise", "Bolognaise"]);
   });
 });

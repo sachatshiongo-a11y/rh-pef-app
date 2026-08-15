@@ -8,6 +8,7 @@ import {
   ecrireFichesSeules,
   simulerFichesSeules,
   type ClientFichesSeules,
+  type ClientFichesSeulesCreation,
   type ClientLectureSeule,
   type ResultatParse,
   type SessionLectureSeule,
@@ -441,5 +442,314 @@ describe("repli de niveau 2 sur un VRAI PostgreSQL — session dédiée en lectu
     };
     await simulerFichesSeules(espion, res, { journal: () => {}, maxWaitMs: 45_000, timeoutMs: 90_000 });
     expect(vus[0]).toMatchObject({ maxWait: 45_000, timeout: 90_000 });
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CORRESPONDANCES ARBITRÉES + CRÉATION CIBLÉE (`--creer-articles-manquants`)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Client de la création CIBLÉE : `articleStock` répond à `findMany` ET à `create`, et lève sur
+ * TOUT le reste — `update`, `upsert`, `updateMany`, `createMany`, `delete`, `deleteMany`. C'est la
+ * garantie centrale du drapeau, vérifiée À L'EXÉCUTION et pas seulement au type : si un chemin de
+ * code tentait un jour de METTRE À JOUR un article, ce client le ferait échouer bruyamment.
+ */
+function clientVerrouilleCreation(): ClientFichesSeulesCreation {
+  const articleStockCreationSeule = new Proxy({} as Record<string, unknown>, {
+    get(_cible, prop) {
+      if (prop === "findMany") return (args: unknown) => prisma.articleStock.findMany(args as never);
+      if (prop === "create") return (args: unknown) => prisma.articleStock.create(args as never);
+      if (typeof prop === "symbol" || prop === "then") return undefined;
+      throw new Error(`Le mode fiches seules a tenté « articleStock.${String(prop)} » : MISE À JOUR INTERDITE.`);
+    },
+  });
+
+  return {
+    ficheTechnique: {
+      findMany: (args: unknown) => prisma.ficheTechnique.findMany(args as never),
+      deleteMany: (args: unknown) => prisma.ficheTechnique.deleteMany(args as never),
+    },
+    ingredientFiche: { findMany: (args: unknown) => prisma.ingredientFiche.findMany(args as never) },
+    articleStock: articleStockCreationSeule,
+    $transaction: (fn: (tx: TxAutorisee) => Promise<unknown>, options?: unknown) =>
+      prisma.$transaction((tx) => fn(gardeTransaction(tx)), options as never),
+  } as unknown as ClientFichesSeulesCreation;
+}
+
+/** Le catalogue tel qu'il est en PRODUCTION : sans conditionnement dans les désignations. */
+const CATALOGUE_SANS_CONDITIONNEMENT = [
+  { designation: "Penne Rigate Lm Chef 12 X 1KG", unite: "Kg", prixUnitaireUSD: "3.5" },
+  { designation: "Tomates pêlées", unite: "Pièce", prixUnitaireUSD: "1.9" },
+  { designation: "LAIT ELLE & VIRE ENTIER RED 1LTR", unite: "L", prixUnitaireUSD: "2.5" },
+  { designation: "Viande Hachée", unite: "Kg", prixUnitaireUSD: "8.07" },
+  { designation: "Tomates concentrées", unite: "Pièce", prixUnitaireUSD: "0.21" },
+  { designation: "Vin rouge", unite: "Bouteille", prixUnitaireUSD: "9" },
+  { designation: "Huile 1L régina", unite: "L", prixUnitaireUSD: "2.492" },
+  { designation: "Carottes", unite: "kg", prixUnitaireUSD: "4.58" },
+];
+
+const ARBITRAGES = [
+  {
+    classeur: "20 PENNE RIGATE LM CHEF 12 X 1KG",
+    catalogue: "Penne Rigate Lm Chef 12 X 1KG",
+    motif: "Code article « 20 » en préfixe dans le classeur.",
+  },
+  {
+    classeur: "Tomates pêlées 240g",
+    catalogue: "Tomates pêlées",
+    motif: "Conditionnement « 240g » précisé dans le classeur ; le catalogue ne le porte pas.",
+  },
+];
+
+async function semerCatalogueProd(sauf: string[] = []) {
+  for (const a of CATALOGUE_SANS_CONDITIONNEMENT) {
+    if (sauf.includes(a.designation)) continue;
+    await prisma.articleStock.create({ data: { ...a, domaine: "NOURRITURE" } });
+  }
+}
+
+describe("une correspondance rattache à l'article EXISTANT, sans en bouger une seule colonne", () => {
+  beforeAll(async () => {
+    await vider();
+    await semerCatalogueProd();
+  });
+
+  it("le verrou de test MORD : seuls findMany et create passent, toute mise à jour lève", () => {
+    const client = clientVerrouilleCreation() as unknown as Record<string, Record<string, unknown>>;
+    for (const methode of ["update", "updateMany", "upsert", "createMany", "delete", "deleteMany"]) {
+      expect(() => client.articleStock![methode]).toThrow(/MISE À JOUR INTERDITE/);
+    }
+    expect(typeof client.articleStock!.findMany).toBe("function");
+    expect(typeof client.articleStock!.create).toBe("function");
+  });
+
+  it("les fiches sont créées, et le catalogue est IDENTIQUE champ par champ (updatedAt compris)", async () => {
+    const avant = await photoCatalogue();
+    expect(avant).toHaveLength(8);
+
+    const r = await ecrireFichesSeules(clientVerrouille(), res, { force: false, correspondances: ARBITRAGES });
+    expect(r.statut).toBe("IMPORTE");
+    expect(r.fichesCreees).toBe(2);
+    expect(r.articlesCrees).toEqual([]); // sans le drapeau, aucune création n'est même possible
+
+    // Rien, absolument rien, n'a bougé : ni le prix, ni l'unité, ni updatedAt.
+    expect(await photoCatalogue()).toEqual(avant);
+  });
+
+  it("l'ingrédient pointe bien l'article du CATALOGUE, dont le prix fait foi", async () => {
+    const lignes = await prisma.ingredientFiche.findMany({
+      where: { fiche: { nom: "Bolognaise" } },
+      orderBy: { ordre: "asc" },
+      include: { article: true },
+    });
+    expect(lignes[1]!.article?.designation).toBe("Penne Rigate Lm Chef 12 X 1KG");
+    expect(lignes[1]!.article?.prixUnitaireUSD?.toString()).toBe("3.5"); // celui de la base, pas 0,35 $
+    expect(lignes[1]!.unite).toBe("Kg"); // le conditionnement vit ICI, dans la ligne d'ingrédient
+
+    const sauce = await prisma.ingredientFiche.findMany({
+      where: { fiche: { nom: "Sauce bolognaise" }, article: { designation: "Tomates pêlées" } },
+    });
+    expect(sauce).toHaveLength(1);
+    expect(sauce[0]!.unite).toBe("Pièce");
+    expect(sauce[0]!.quantite.toString()).toBe("5");
+  });
+
+  it("SANS correspondance, les mêmes fiches sont REFUSÉES : c'est bien elle qui les débloque", async () => {
+    await vider();
+    await semerCatalogueProd();
+    const r = await ecrireFichesSeules(clientVerrouille(), res, { force: false });
+    expect(r.statut).toBe("ABANDON");
+    expect(await etat()).toEqual({ articles: 8, fiches: 0, ingredients: 0 });
+    expect(r.articlesManquants.map((a) => a.designation).sort()).toEqual([
+      "20 PENNE RIGATE LM CHEF 12 X 1KG",
+      "Tomates pêlées 240g",
+    ]);
+  });
+});
+
+describe("une correspondance dont la cible n'existe pas fait ÉCHOUER le script, en la nommant", () => {
+  beforeAll(async () => {
+    await vider();
+    await semerCatalogueProd(["Tomates pêlées"]); // la cible arbitrée a disparu du catalogue
+  });
+
+  it("l'import lève, nomme l'entrée fautive, et n'écrit RIEN", async () => {
+    const avant = await photoCatalogue();
+    await expect(
+      ecrireFichesSeules(clientVerrouille(), res, { force: false, correspondances: ARBITRAGES }),
+    ).rejects.toThrow(/« Tomates pêlées 240g » → « Tomates pêlées » \(INTROUVABLE au catalogue\)/);
+
+    expect(await etat()).toEqual({ articles: 7, fiches: 0, ingredients: 0 });
+    expect(await photoCatalogue()).toEqual(avant);
+  });
+
+  it("même avec --creer-articles-manquants : on refuse AVANT de créer le doublon", async () => {
+    // C'est tout l'objet du refus : sans lui, « Tomates pêlées 240g » serait créé en double.
+    const avant = await photoCatalogue();
+    await expect(
+      ecrireFichesSeules(clientVerrouilleCreation(), res, {
+        force: false,
+        correspondances: ARBITRAGES,
+        creerArticlesManquants: true,
+      }),
+    ).rejects.toThrow(/INTROUVABLE au catalogue/);
+    expect(await photoCatalogue()).toEqual(avant);
+    expect(await prisma.articleStock.count({ where: { designation: "Tomates pêlées 240g" } })).toBe(0);
+  });
+});
+
+describe("--creer-articles-manquants : SEULS les absents sont créés, AUCUN existant n'est modifié", () => {
+  beforeAll(async () => {
+    await vider();
+    // Deux articles absents du catalogue : ils seront créés. Les six autres ne doivent PAS bouger.
+    await semerCatalogueProd(["Carottes", "Vin rouge"]);
+  });
+
+  it("crée exactement les 2 absents, avec les valeurs DU CLASSEUR, sans catégorie ni fournisseur", async () => {
+    const avant = await photoCatalogue();
+    expect(avant).toHaveLength(6);
+
+    const r = await ecrireFichesSeules(clientVerrouilleCreation(), res, {
+      force: false,
+      correspondances: ARBITRAGES,
+      creerArticlesManquants: true,
+    });
+
+    expect(r.statut).toBe("IMPORTE");
+    expect(r.articlesCrees.map((a) => a.designation).sort()).toEqual(["Carottes", "Vin rouge"]);
+    expect(await prisma.articleStock.count()).toBe(8);
+
+    const carottes = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Carottes" } });
+    expect(carottes.domaine).toBe("NOURRITURE");
+    expect(carottes.unite).toBe("kg");
+    expect(carottes.prixUnitaireUSD?.toString()).toBe("4.58"); // valeur du classeur
+    expect(carottes.categorieId).toBeNull(); // rien n'est inventé : la Direction complétera
+    expect(carottes.fournisseurId).toBeNull();
+  });
+
+  it("les SIX articles préexistants sont INTACTS, champ par champ (updatedAt compris)", async () => {
+    const nouvelles = new Set(["Carottes", "Vin rouge"]);
+    const apres = (await photoCatalogue()).filter((a) => !nouvelles.has(a.designation as string));
+    // On recompose la photo d'avant : les six anciens, dans le même ordre.
+    const attendu = CATALOGUE_SANS_CONDITIONNEMENT.filter((a) => !nouvelles.has(a.designation)).map((a) => a.designation);
+    expect(apres.map((a) => a.designation).sort()).toEqual(attendu.sort());
+
+    // Aucun prix ramené à la valeur du classeur : « Penne » vaut 3,50 $ en base contre 0,35 $ au
+    // classeur, et c'est la base qui gagne — la mise à jour n'est même pas exprimable.
+    const penne = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Penne Rigate Lm Chef 12 X 1KG" } });
+    expect(penne.prixUnitaireUSD?.toString()).toBe("3.5");
+    expect(penne.unite).toBe("Kg");
+    const tomates = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Tomates pêlées" } });
+    expect(tomates.prixUnitaireUSD?.toString()).toBe("1.9");
+  });
+
+  it("les fiches deviennent créables et sont créées avec TOUS leurs ingrédients", async () => {
+    expect(await etat()).toEqual({ articles: 8, fiches: 2, ingredients: 9 });
+    const sauce = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Sauce bolognaise" } });
+    expect(await prisma.ingredientFiche.count({ where: { ficheId: sauce.id } })).toBe(7);
+    expect(await prisma.ingredientFiche.count({ where: { articleId: null, sousFicheId: null } })).toBe(0);
+
+    // Les lignes pointent les articles FRAÎCHEMENT CRÉÉS, avec de vrais identifiants (jamais les
+    // identifiants factices « (à créer) … » de la projection).
+    const carotte = await prisma.ingredientFiche.findFirstOrThrow({
+      where: { article: { designation: "Carottes" } },
+      include: { article: true },
+    });
+    expect(carotte.article!.id).not.toContain("à créer");
+  });
+
+  it("relancer ne crée RIEN de plus : la création est idempotente", async () => {
+    const avant = await photoCatalogue();
+    const r = await ecrireFichesSeules(clientVerrouilleCreation(), res, {
+      force: false,
+      correspondances: ARBITRAGES,
+      creerArticlesManquants: true,
+    });
+    expect(r.statut).toBe("DEJA_FAIT");
+    expect(r.articlesCrees).toEqual([]);
+    expect(await photoCatalogue()).toEqual(avant);
+  });
+});
+
+describe("SANS le drapeau : rien n'est créé, et les fiches concernées restent refusées", () => {
+  beforeAll(async () => {
+    await vider();
+    await semerCatalogueProd(["Carottes"]);
+  });
+
+  it("le catalogue est intact et les deux fiches tombent (cascade sur la sous-recette)", async () => {
+    const avant = await photoCatalogue();
+    const r = await ecrireFichesSeules(clientVerrouille(), res, { force: false, correspondances: ARBITRAGES });
+
+    expect(r.statut).toBe("ABANDON");
+    expect(r.articlesCrees).toEqual([]);
+    expect(r.articlesManquants.map((a) => a.designation)).toEqual(["Carottes"]);
+    expect(r.fichesRefusees.map((f) => f.nom).sort()).toEqual(["Bolognaise", "Sauce bolognaise"]);
+    expect(await etat()).toEqual({ articles: 7, fiches: 0, ingredients: 0 });
+    expect(await photoCatalogue()).toEqual(avant);
+  });
+
+  it("le même appel AVEC le drapeau, lui, débloque tout — la différence ne tient qu'à lui", async () => {
+    const r = await ecrireFichesSeules(clientVerrouilleCreation(), res, {
+      force: false,
+      correspondances: ARBITRAGES,
+      creerArticlesManquants: true,
+    });
+    expect(r.statut).toBe("IMPORTE");
+    expect(r.articlesCrees.map((a) => a.designation)).toEqual(["Carottes"]);
+    expect(await etat()).toEqual({ articles: 8, fiches: 2, ingredients: 9 });
+  });
+});
+
+describe("simulation EN LECTURE SEULE de la création (--dry-run --creer-articles-manquants)", () => {
+  beforeAll(async () => {
+    await vider();
+    await semerCatalogueProd(["Carottes", "Vin rouge"]);
+  });
+
+  it("dit combien de correspondances résolvent, ce qui serait créé, et ce que ça débloque — sans rien écrire", async () => {
+    const avant = await photoCatalogue();
+    const etatAvant = await etat();
+
+    const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res, {
+      correspondances: ARBITRAGES,
+      creerArticlesManquants: true,
+    });
+
+    expect(sim.lectureSeuleVerifiee).toBe(true);
+    expect(sim.creationSimulee).toBe(true);
+    expect(sim.plan.correspondancesAppliquees).toHaveLength(2);
+    expect(sim.articlesQuiSeraientCrees.map((a) => a.designation).sort()).toEqual(["Carottes", "Vin rouge"]);
+    expect(sim.articlesSansValeurs).toEqual([]);
+
+    // Avant création : aucune fiche créable. Après : les deux.
+    expect(sim.planAvantCreation.creables).toEqual([]);
+    expect(sim.plan.creables.map((f) => f.nom)).toEqual(["Sauce bolognaise", "Bolognaise"]);
+    expect(sim.couts).toHaveLength(2);
+    expect(sim.couts.every((c) => !c.incomplet)).toBe(true);
+
+    // Et absolument rien n'a été écrit.
+    expect(await etat()).toEqual(etatAvant);
+    expect(await photoCatalogue()).toEqual(avant);
+  });
+
+  it("sans le drapeau, la simulation ne projette aucune création", async () => {
+    const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res, {
+      correspondances: ARBITRAGES,
+    });
+    expect(sim.creationSimulee).toBe(false);
+    expect(sim.articlesQuiSeraientCrees).toEqual([]);
+    expect(sim.plan).toBe(sim.planAvantCreation);
+    expect(sim.plan.creables).toEqual([]);
+  });
+
+  it("une correspondance morte arrête AUSSI la simulation, en la nommant", async () => {
+    await expect(
+      simulerFichesSeules(prisma as unknown as ClientLectureSeule, res, {
+        correspondances: [{ classeur: "Huile 1L régina", catalogue: "Huile 5L régina", motif: "test." }],
+        creerArticlesManquants: true,
+      }),
+    ).rejects.toThrow(/« Huile 1L régina » → « Huile 5L régina » \(INTROUVABLE au catalogue\)/);
   });
 });
