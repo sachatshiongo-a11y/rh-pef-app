@@ -1,7 +1,13 @@
 /**
  * Sauvegarde logique de secours SANS pg_dump : exporte toutes les tables (Prisma) en JSON.
  * Filet de sécurité immédiat tant que pg_dump/libpq n'est pas installé.
- * ⚠️ Contient TOUTES les données de paie (PII, salaires) — à conserver chiffré, hors cloud public.
+ *
+ * ⚠️⚠️ SECRET DE PREMIÈRE CATÉGORIE ⚠️⚠️ Ce fichier contient TOUTES les données de paie (PII,
+ * salaires) ET, depuis l'ajout du schéma `auth`, les MOTS DE PASSE CHIFFRÉS des comptes de
+ * connexion (`auth.users.encrypted_password`). Quiconque obtient ce fichier peut, avec un peu de
+ * travail hors-ligne, tenter de casser ces mots de passe. Ne JAMAIS le déposer sur un cloud
+ * public, un dossier synchronisé (iCloud/Dropbox/OneDrive), ou le transmettre par messagerie/mail
+ * en clair. À conserver uniquement en local, hors de tout dossier synchronisé.
  *
  * Résilience : le schéma LOCAL (celui du dépôt) peut être en avance sur la base CIBLE pendant
  * toute la durée d'un développement (migration écrite mais pas encore déployée) — c'est
@@ -9,7 +15,9 @@
  * (P2021) ou une colonne absente (P2022) est donc IGNORÉE et CONSIGNÉE, jamais fatale : le
  * script continue avec les autres tables et écrit quand même le fichier. Toute autre erreur
  * (connexion perdue, authentification refusée...) reste fatale — on n'écrit RIEN plutôt que
- * d'écrire un fichier tronqué en silence.
+ * d'écrire un fichier tronqué en silence. La même règle s'applique au schéma `auth` : sur un
+ * PostgreSQL ordinaire (tous nos tests, toute base hors Supabase) ce schéma n'existe pas — ce
+ * n'est PAS fatal, c'est consigné dans `meta.tablesIgnorees` comme les autres.
  */
 import "dotenv/config";
 import { mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from "fs";
@@ -65,6 +73,77 @@ export async function collecterTables(
     }
   }
   return { out, tablesIgnorees, totalRows };
+}
+
+/** Colonnes exactement celles réinjectées par `restaurer-depuis-backup.ts` (rien de plus) : pas
+ *  de sur-collecte de colonnes GoTrue internes qu'on ne sait pas restaurer. Les colonnes « jeton »
+ *  (confirmation_token, recovery_token...) ne sont volontairement PAS exportées : la restauration
+ *  les remet à '' de toute façon (cf. restaurer-depuis-backup.ts) et elles ne portent aucune
+ *  information utile hors GoTrue lui-même. */
+const COLONNES_AUTH_USERS = [
+  "id", "email", "encrypted_password", "email_confirmed_at", "created_at", "updated_at",
+  "raw_app_meta_data", "raw_user_meta_data", "aud", "role",
+];
+const COLONNES_AUTH_IDENTITIES = [
+  "id", "provider_id", "user_id", "identity_data", "provider", "last_sign_in_at", "created_at", "updated_at",
+];
+
+export type AuthDump = { users: Record<string, unknown>[]; identities: Record<string, unknown>[] };
+
+/** Le schéma `auth` (Supabase/GoTrue) n'existe pas sur un PostgreSQL ordinaire — c'est le cas de
+ *  TOUS nos tests et de toute base hors Supabase. Une requête sur `auth.users`/`auth.identities`
+ *  y échoue en `P2010` (requête brute) avec une cause `TableDoesNotExist` (SQLSTATE 42P01) : ce
+ *  n'est pas une panne, c'est l'absence attendue du schéma — jamais fatal, jamais silencieux. */
+function estSchemaAuthAbsent(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2010") return false;
+  const cause = (e.meta as { driverAdapterError?: { cause?: { kind?: string; originalCode?: string } } } | undefined)
+    ?.driverAdapterError?.cause;
+  return cause?.kind === "TableDoesNotExist" || cause?.originalCode === "42P01";
+}
+
+/**
+ * Exporte `auth.users` et `auth.identities` par SQL brut (Prisma ne modélise pas le schéma
+ * `auth` de Supabase). Ce sont les comptes de connexion : sans eux, une restauration rend les
+ * données mais personne ne peut se connecter. Résilience identique à `collecterTables` : schéma
+ * `auth` absent → ignoré et consigné, jamais fatal.
+ */
+export async function collecterAuth(
+  prisma: PrismaClient
+): Promise<{ auth: AuthDump; tablesIgnorees: TableIgnoree[] }> {
+  const tablesIgnorees: TableIgnoree[] = [];
+  const auth: AuthDump = { users: [], identities: [] };
+
+  try {
+    auth.users = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+      `SELECT ${COLONNES_AUTH_USERS.map((c) => `"${c}"`).join(", ")} FROM auth.users`
+    );
+    console.log(`  auth.users: ${auth.users.length}`);
+  } catch (e) {
+    if (!estSchemaAuthAbsent(e)) throw e; // erreur globale (connexion, auth...) — fatale
+    tablesIgnorees.push({
+      table: "auth.users",
+      code: "42P01",
+      raison: "schéma auth absent de la base cible (PostgreSQL hors Supabase, ex. base de test)",
+    });
+    console.warn(`  auth.users: IGNORÉE — schéma auth absent`);
+  }
+
+  try {
+    auth.identities = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+      `SELECT ${COLONNES_AUTH_IDENTITIES.map((c) => `"${c}"`).join(", ")} FROM auth.identities`
+    );
+    console.log(`  auth.identities: ${auth.identities.length}`);
+  } catch (e) {
+    if (!estSchemaAuthAbsent(e)) throw e;
+    tablesIgnorees.push({
+      table: "auth.identities",
+      code: "42P01",
+      raison: "schéma auth absent de la base cible (PostgreSQL hors Supabase, ex. base de test)",
+    });
+    console.warn(`  auth.identities: IGNORÉE — schéma auth absent`);
+  }
+
+  return { auth, tablesIgnorees };
 }
 
 export type SauvegardePrecedente = { fichier: string; date: Date; totalRows: number };
@@ -158,7 +237,13 @@ export async function executerSauvegarde(
   const avertissementAge = avertissementAgeSauvegarde(derniere, maintenant);
   if (avertissementAge) console.warn(`\n/!\\ ${avertissementAge}\n`);
 
-  const { out, tablesIgnorees, totalRows } = await collecterTables(prisma, models);
+  const { out, tablesIgnorees: tablesIgnoreesModeles, totalRows: totalRowsModeles } = await collecterTables(
+    prisma,
+    models
+  );
+  const { auth, tablesIgnorees: tablesIgnoreesAuth } = await collecterAuth(prisma);
+  const tablesIgnorees = [...tablesIgnoreesModeles, ...tablesIgnoreesAuth];
+  const totalRows = totalRowsModeles + auth.users.length + auth.identities.length;
 
   const stamp = maintenant.toISOString().slice(0, 16).replace(/[:T]/g, "-");
   const file = join(dir, `rh-pef_${stamp}.json`);
@@ -166,12 +251,19 @@ export async function executerSauvegarde(
     exportedAt: maintenant.toISOString(),
     meta: { totalRows, tablesIgnorees },
     models: out,
+    // Clé DISTINCTE des modèles Prisma : ce sont les comptes de connexion (auth.users/identities
+    // du schéma Supabase), jamais mélangés aux données métier — cf. l'avertissement en tête de
+    // fichier, ce sont désormais des secrets de première catégorie (mots de passe chiffrés).
+    auth,
   };
   writeFileSync(file, JSON.stringify(payload, replacer, 0));
   const { size } = statSync(file);
 
   console.log(
-    `\n✓ ${models.length - tablesIgnorees.length}/${models.length} tables, ${totalRows} lignes → ${file} (${(size / 1024 / 1024).toFixed(1)} Mo)`
+    `\n✓ ${models.length - tablesIgnoreesModeles.length}/${models.length} tables, ${totalRows} lignes (dont ${auth.users.length} compte(s) de connexion) → ${file} (${(size / 1024 / 1024).toFixed(1)} Mo)`
+  );
+  console.warn(
+    `\n/!\\ Ce fichier contient désormais des mots de passe CHIFFRÉS (auth.users) en plus de la paie — ne jamais le déposer sur un cloud public ni le transmettre.`
   );
   if (tablesIgnorees.length > 0) {
     console.warn(

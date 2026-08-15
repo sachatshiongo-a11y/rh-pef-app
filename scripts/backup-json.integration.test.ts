@@ -8,6 +8,7 @@ import { creerBaseTest } from "@/lib/test/db";
 import {
   executerSauvegarde,
   collecterTables,
+  collecterAuth,
   trouverDerniereSauvegarde,
   avertissementAgeSauvegarde,
   avertissementVolumeSauvegarde,
@@ -66,17 +67,84 @@ describe("executerSauvegarde — le fichier est écrit MALGRÉ la table manquant
     const resultat = await executerSauvegarde(prisma, dir, new Date("2026-08-15T21:00:00.000Z"), models);
 
     expect(fs.existsSync(resultat.file)).toBe(true); // AVANT le correctif : aucun fichier
-    expect(resultat.tablesIgnorees.map((t) => t.table)).toEqual(["JourFerie"]);
+    // Sur ce Postgres éphémère (jamais de schéma `auth`), auth.users/auth.identities sont
+    // ELLES AUSSI ignorées et nommées — même mécanisme de résilience que JourFerie.
+    expect(resultat.tablesIgnorees.map((t) => t.table).sort()).toEqual(
+      ["JourFerie", "auth.identities", "auth.users"].sort()
+    );
 
     const contenu = JSON.parse(fs.readFileSync(resultat.file, "utf-8"));
     // La lacune est visible DANS le fichier lui-même, pas seulement dans le journal de la nuit.
-    expect(contenu.meta.tablesIgnorees).toEqual([
-      expect.objectContaining({ table: "JourFerie", code: "P2021" }),
-    ]);
+    expect(contenu.meta.tablesIgnorees).toEqual(
+      expect.arrayContaining([expect.objectContaining({ table: "JourFerie", code: "P2021" })])
+    );
     expect(contenu.models).not.toHaveProperty("JourFerie");
     // D'autres tables, elles, sont bien présentes et complètes.
     expect(Object.keys(contenu.models).length).toBeGreaterThan(50);
     expect(contenu.models).toHaveProperty("Config");
+    // Les comptes de connexion sont sous une clé DISTINCTE des modèles, jamais mélangés.
+    expect(contenu).toHaveProperty("auth");
+    expect(contenu.models).not.toHaveProperty("auth.users");
+    expect(contenu.auth).toEqual({ users: [], identities: [] });
+  });
+});
+
+describe("collecterAuth — le schéma `auth` (Supabase) est absent d'un PostgreSQL ordinaire", () => {
+  it("ignore proprement auth.users/auth.identities sans lever d'erreur fatale", async () => {
+    const { auth, tablesIgnorees } = await collecterAuth(prisma);
+    expect(auth).toEqual({ users: [], identities: [] });
+    expect(tablesIgnorees.map((t) => t.table).sort()).toEqual(["auth.identities", "auth.users"]);
+    expect(tablesIgnorees.every((t) => t.code === "42P01")).toBe(true);
+  });
+
+  it("collecte réellement les comptes quand le schéma auth existe (minimal, façon Supabase)", async () => {
+    await prisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS auth`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS auth.users (
+        id uuid PRIMARY KEY,
+        email text,
+        encrypted_password text,
+        email_confirmed_at timestamptz,
+        created_at timestamptz,
+        updated_at timestamptz,
+        raw_app_meta_data jsonb,
+        raw_user_meta_data jsonb,
+        aud text,
+        role text
+      )
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS auth.identities (
+        id uuid PRIMARY KEY,
+        provider_id text,
+        user_id uuid,
+        identity_data jsonb,
+        provider text,
+        last_sign_in_at timestamptz,
+        created_at timestamptz,
+        updated_at timestamptz
+      )
+    `);
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO auth.users (id, email, encrypted_password, aud, role)
+      VALUES ('11111111-1111-1111-1111-111111111111', 'test@example.com', '$2a$hash', 'authenticated', 'authenticated')
+      ON CONFLICT DO NOTHING
+    `);
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO auth.identities (id, provider_id, user_id, identity_data, provider)
+      VALUES ('22222222-2222-2222-2222-222222222222', '11111111-1111-1111-1111-111111111111',
+        '11111111-1111-1111-1111-111111111111', '{"sub":"11111111-1111-1111-1111-111111111111"}'::jsonb, 'email')
+      ON CONFLICT DO NOTHING
+    `);
+
+    const { auth, tablesIgnorees } = await collecterAuth(prisma);
+    expect(tablesIgnorees).toEqual([]);
+    expect(auth.users).toHaveLength(1);
+    expect(auth.users[0]).toMatchObject({ email: "test@example.com", encrypted_password: "$2a$hash" });
+    expect(auth.identities).toHaveLength(1);
+    expect(auth.identities[0]).toMatchObject({ provider: "email" });
+
+    await prisma.$executeRawUnsafe(`DROP SCHEMA auth CASCADE`);
   });
 });
 
