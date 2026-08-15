@@ -10,8 +10,11 @@ import { PrismaPg } from "@prisma/adapter-pg";
  * Démarre un Postgres ÉPHÉMÈRE en local (aucun Docker, aucun contact avec Supabase/prod),
  * applique le schéma Prisma (public + stock) via `prisma db push`, et renvoie un client Prisma
  * branché dessus. Tout est jeté par `fermer()`. Réservé aux tests d'intégration.
+ *
+ * `url` est également renvoyée : certains tests ont besoin d'ouvrir LEUR PROPRE connexion sur la
+ * même base (connexion dédiée, options de pool particulières) sans passer par `prisma`.
  */
-export async function creerBaseTest(): Promise<{ prisma: PrismaClient; fermer: () => Promise<void> }> {
+export async function creerBaseTest(): Promise<{ prisma: PrismaClient; url: string; fermer: () => Promise<void> }> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pef-test-"));
   const port = 55000 + Math.floor(Math.random() * 4000); // évite les collisions entre fichiers de test
   const pg = new EmbeddedPostgres({ databaseDir: dir, user: "postgres", password: "postgres", port, persistent: false });
@@ -26,7 +29,7 @@ export async function creerBaseTest(): Promise<{ prisma: PrismaClient; fermer: (
     await pg.stop();
     fs.rmSync(dir, { recursive: true, force: true });
   };
-  return { prisma, fermer };
+  return { prisma, url, fermer };
 }
 
 /**

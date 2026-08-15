@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { creerBaseTest } from "@/lib/test/db";
 import { classeurSynthetique } from "./_fixture-classeur-fiches";
 import {
@@ -9,6 +10,7 @@ import {
   type ClientFichesSeules,
   type ClientLectureSeule,
   type ResultatParse,
+  type SessionLectureSeule,
 } from "./import-fiches-plats";
 
 /**
@@ -23,11 +25,12 @@ import {
  */
 
 let prisma: PrismaClient;
+let url: string;
 let fermer: () => Promise<void>;
 let res: ResultatParse;
 
 beforeAll(async () => {
-  ({ prisma, fermer } = await creerBaseTest());
+  ({ prisma, url, fermer } = await creerBaseTest());
   res = analyserClasseur(classeurSynthetique());
 }, 240_000);
 
@@ -331,5 +334,112 @@ describe("simulation EN LECTURE SEULE (--fiches-seules --dry-run)", () => {
       }),
     ).rejects.toThrow();
     expect(await prisma.articleStock.count({ where: { designation: "NE DOIT PAS EXISTER" } })).toBe(0);
+  });
+});
+
+describe("repli de niveau 2 sur un VRAI PostgreSQL — session dédiée en lecture seule", () => {
+  /**
+   * Session dédiée telle que `main()` la fabrique : UNE seule connexion physique (pool de taille
+   * 1, jamais recyclée sur inactivité), pour que l'état « read only » survive d'une requête à
+   * l'autre. `pg_backend_pid()` le vérifie ensuite — le pool ne fait pas foi à lui seul.
+   */
+  const sessionDediee = async () => {
+    const dedie = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: url, max: 1, idleTimeoutMillis: 0 }),
+    });
+    return { session: dedie as unknown as SessionLectureSeule, fermer: () => dedie.$disconnect() };
+  };
+
+  /** Client dont la transaction interactive est refusée, comme le pooler Supabase le fait (P2028). */
+  const poolerSansTransaction = (): ClientLectureSeule => ({
+    $transaction: () =>
+      Promise.reject(
+        Object.assign(new Error("Transaction API error: Unable to start a transaction in the given time."), {
+          code: "P2028",
+        }),
+      ),
+  });
+
+  beforeAll(async () => {
+    await vider();
+    await semerCatalogue(["Carottes"]);
+  });
+
+  it("quand la transaction interactive est refusée, la simulation aboutit QUAND MÊME, en session dédiée", async () => {
+    const avant = await photoCatalogue();
+    const journal: string[] = [];
+
+    const sim = await simulerFichesSeules(poolerSansTransaction(), res, {
+      journal: (m) => journal.push(m),
+      sessionDediee,
+    });
+
+    // C'est le chiffre qui manquait à la Direction : combien de fiches sont réellement créables.
+    expect(sim.protection).toBe("SESSION_READ_ONLY");
+    expect(sim.lectureSeuleVerifiee).toBe(true);
+    expect(sim.backendPid).toMatch(/^[0-9]+$/); // un vrai backend PostgreSQL, relevé et comparé
+    expect(sim.motifRepli).toContain("Unable to start a transaction");
+    expect(sim.nbArticlesCatalogue).toBe(7);
+    expect(sim.plan.articlesManquants.map((a) => a.designation)).toEqual(["Carottes"]);
+    expect(sim.plan.refusees.map((f) => f.nom).sort()).toEqual(["Bolognaise", "Sauce bolognaise"]);
+
+    // Le journal DIT laquelle des deux protections a joué (le lecteur doit le savoir).
+    expect(journal.join("\n")).toContain("SESSION DÉDIÉE");
+    expect(journal.join("\n")).toContain("backend PostgreSQL");
+
+    // Et rien n'a bougé.
+    expect(await photoCatalogue()).toEqual(avant);
+    expect(await etat()).toEqual({ articles: 7, fiches: 0, ingredients: 0 });
+  });
+
+  it("la lecture seule de SESSION mord vraiment : PostgreSQL refuse l'écriture après le SET", async () => {
+    // Sans cette preuve, « SHOW transaction_read_only = on » ne serait qu'une chaîne de caractères.
+    const { session, fermer: fermerSession } = await sessionDediee();
+    const dedie = session as unknown as PrismaClient;
+    try {
+      await dedie.$executeRawUnsafe("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY");
+      const drapeau = await dedie.$queryRawUnsafe<{ transaction_read_only: string }[]>(
+        "SHOW transaction_read_only",
+      );
+      expect(drapeau[0]!.transaction_read_only).toBe("on");
+      await expect(
+        dedie.articleStock.create({ data: { designation: "NE DOIT PAS EXISTER", domaine: "NOURRITURE" } }),
+      ).rejects.toThrow();
+    } finally {
+      await fermerSession();
+    }
+    expect(await prisma.articleStock.count({ where: { designation: "NE DOIT PAS EXISTER" } })).toBe(0);
+  });
+
+  it("la session dédiée est jetée : son « read only » ne contamine pas la connexion ordinaire", async () => {
+    await simulerFichesSeules(poolerSansTransaction(), res, { journal: () => {}, sessionDediee });
+    // La connexion de travail doit rester parfaitement écrivable après la simulation.
+    const temoin = await prisma.articleStock.create({ data: { designation: "Témoin", domaine: "NOURRITURE" } });
+    await prisma.articleStock.delete({ where: { id: temoin.id } });
+    expect(await etat()).toEqual({ articles: 7, fiches: 0, ingredients: 0 });
+  });
+
+  it("niveau 1 quand il est disponible : c'est la TRANSACTION qui protège, et elle est annoncée", async () => {
+    const journal: string[] = [];
+    const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res, {
+      journal: (m) => journal.push(m),
+      sessionDediee,
+    });
+    expect(sim.protection).toBe("TRANSACTION_READ_ONLY");
+    expect(sim.motifRepli).toBeNull();
+    expect(sim.backendPid).toBeNull(); // pas nécessaire : la transaction épingle déjà la connexion
+    expect(journal.join("\n")).toContain("transaction READ ONLY vérifiée");
+  });
+
+  it("les délais de la transaction sont surchargeables (c'est eux que le P2028 met en cause)", async () => {
+    const vus: { maxWait?: number; timeout?: number }[] = [];
+    const espion: ClientLectureSeule = {
+      $transaction: (fn, options) => {
+        vus.push(options as { maxWait?: number; timeout?: number });
+        return prisma.$transaction((tx) => fn(tx as never), options as never);
+      },
+    };
+    await simulerFichesSeules(espion, res, { journal: () => {}, maxWaitMs: 45_000, timeoutMs: 90_000 });
+    expect(vus[0]).toMatchObject({ maxWait: 45_000, timeout: 90_000 });
   });
 });

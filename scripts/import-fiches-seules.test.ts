@@ -6,7 +6,10 @@ import {
   distanceChaine,
   planifierFichesSeules,
   simulerCoutsFichesSeules,
+  simulerFichesSeules,
   type ArticleCatalogue,
+  type ClientLectureSeule,
+  type SessionLectureSeule,
 } from "./import-fiches-plats";
 import { BOLOGNAISE, feuille, LISTE_ARTICLES, SAUCE_BOLOGNAISE } from "./_fixture-classeur-fiches";
 
@@ -242,5 +245,220 @@ describe("coût des fiches créables, chiffré par le VRAI moteur sur le catalog
     const enBase = simulerCoutsFichesSeules(planifierFichesSeules(res(), cher))
       .find((c) => c.nom === "Bolognaise")!;
     expect(new Decimal(enBase.coutParPortion!).greaterThan(auClasseur.coutParPortion!)).toBe(true);
+  });
+});
+
+// ─── La vérification de lecture seule doit MORDRE ────────────────────────────
+//
+// Ces tests-là ne touchent aucune base : ils remplacent PostgreSQL par des doublures qui MENTENT
+// (le `SET` ne fait rien, le `SHOW` répond « off », la session change de backend d'une requête à
+// l'autre). Sans eux, la garantie de lecture seule ne vaudrait rien : on ne saurait pas que la
+// vérification refuse — seulement qu'elle passe quand tout va bien.
+
+type TxLecture = Parameters<Parameters<ClientLectureSeule["$transaction"]>[0]>[0];
+
+/** Transaction menteuse : le `SET TRANSACTION READ ONLY` n'a aucun effet, `SHOW` l'avoue. */
+function clientTransaction(drapeau: string, lectures: string[]): ClientLectureSeule {
+  const tx = {
+    $executeRawUnsafe: async () => 0, // le SET ne fait RIEN
+    $queryRawUnsafe: async (sql: string) =>
+      sql.includes("transaction_read_only") ? [{ transaction_read_only: drapeau }] : [{ pid: "4242" }],
+    articleStock: {
+      findMany: async () => {
+        lectures.push("articleStock");
+        return [];
+      },
+    },
+    ficheTechnique: {
+      findMany: async () => {
+        lectures.push("ficheTechnique");
+        return [];
+      },
+    },
+  } as unknown as TxLecture;
+  return { $transaction: async (fn) => fn(tx) as never };
+}
+
+/** Session menteuse : drapeau paramétrable, et backend PID paramétrable requête après requête. */
+function sessionStub(options: { drapeaux: string[]; pids: string[]; lectures: string[] }): SessionLectureSeule {
+  let iDrapeau = 0;
+  let iPid = 0;
+  const suivant = (liste: string[], i: number) => liste[Math.min(i, liste.length - 1)]!;
+  return {
+    $executeRawUnsafe: async () => 0,
+    $queryRawUnsafe: (async (sql: string) =>
+      sql.includes("transaction_read_only")
+        ? [{ transaction_read_only: suivant(options.drapeaux, iDrapeau++) }]
+        : [{ pid: suivant(options.pids, iPid++) }]) as SessionLectureSeule["$queryRawUnsafe"],
+    articleStock: {
+      findMany: async () => {
+        options.lectures.push("articleStock");
+        return [];
+      },
+    },
+    ficheTechnique: {
+      findMany: async () => {
+        options.lectures.push("ficheTechnique");
+        return [];
+      },
+    },
+  };
+}
+
+const silence = () => {};
+
+/** Renvoie le message du refus attendu — et échoue si la simulation NE refuse PAS. */
+async function messageDeRefus(promesse: Promise<unknown>): Promise<string> {
+  try {
+    await promesse;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+  throw new Error("La simulation aurait dû REFUSER de tourner, elle a abouti.");
+}
+
+describe("la vérification du drapeau de lecture seule REFUSE de continuer", () => {
+  it("niveau 1 : « SHOW transaction_read_only » ≠ on ⇒ refus, AVANT la moindre lecture", async () => {
+    const lectures: string[] = [];
+    const refus = await messageDeRefus(
+      simulerFichesSeules(clientTransaction("off", lectures), res(), { journal: silence }),
+    );
+    expect(refus).toContain("REFUS :");
+    expect(refus).toContain("« SHOW transaction_read_only » vaut « off »");
+    expect(lectures).toEqual([]); // rien n'a été lu : on s'arrête avant
+  });
+
+  it("un REFUS de la base n'ouvre AUCUN repli — on ne contourne pas un « non »", async () => {
+    const lectures: string[] = [];
+    let repliTente = false;
+    await expect(
+      simulerFichesSeules(clientTransaction("off", lectures), res(), {
+        journal: silence,
+        sessionDediee: async () => {
+          repliTente = true;
+          throw new Error("le repli n'aurait jamais dû être tenté");
+        },
+      }),
+    ).rejects.toThrow(/REFUS/);
+    expect(repliTente).toBe(false);
+    expect(lectures).toEqual([]);
+  });
+
+  it("niveau 1 indisponible et AUCUNE session dédiée fournie ⇒ refus, pas de lecture nue", async () => {
+    const client: ClientLectureSeule = { $transaction: () => Promise.reject(new Error("P2028 pooler")) };
+    const refus = await messageDeRefus(simulerFichesSeules(client, res(), { journal: silence }));
+    expect(refus).toContain("aucune session dédiée n'est disponible");
+    expect(refus).toContain("On ne lit pas sans garantie de lecture seule");
+  });
+});
+
+describe("repli de niveau 2 — la session dédiée est vérifiée, pas supposée", () => {
+  /** Client dont la transaction interactive est refusée par le pooler, comme en production. */
+  const poolerSansTransaction = (): ClientLectureSeule => ({
+    $transaction: () =>
+      Promise.reject(
+        Object.assign(new Error("Transaction API error: Unable to start a transaction in the given time."), {
+          code: "P2028",
+        }),
+      ),
+  });
+
+  it("session bien en lecture seule et backend STABLE : la simulation aboutit, et le dit", async () => {
+    const lectures: string[] = [];
+    const journal: string[] = [];
+    const sim = await simulerFichesSeules(poolerSansTransaction(), res(), {
+      journal: (m) => journal.push(m),
+      sessionDediee: async () => ({
+        session: sessionStub({ drapeaux: ["on"], pids: ["7777"], lectures }),
+        fermer: async () => {},
+      }),
+    });
+    expect(sim.protection).toBe("SESSION_READ_ONLY");
+    expect(sim.backendPid).toBe("7777");
+    expect(sim.motifRepli).toContain("Unable to start a transaction");
+    expect(lectures).toEqual(["articleStock", "ficheTechnique"]);
+    expect(journal.join("\n")).toContain("SESSION DÉDIÉE");
+  });
+
+  it("le `SET SESSION` n'a pas pris (drapeau « off ») ⇒ refus, AVANT la moindre lecture", async () => {
+    const lectures: string[] = [];
+    const refus = await messageDeRefus(
+      simulerFichesSeules(poolerSansTransaction(), res(), {
+        journal: silence,
+        sessionDediee: async () => ({
+          session: sessionStub({ drapeaux: ["off"], pids: ["7777"], lectures }),
+          fermer: async () => {},
+        }),
+      }),
+    );
+    expect(refus).toContain("REFUS :");
+    expect(refus).toContain("session dédiée");
+    expect(refus).toContain("vaut « off »");
+    expect(lectures).toEqual([]);
+  });
+
+  it("le backend CHANGE entre le SET et la vérification (pooler en mode transaction) ⇒ refus", async () => {
+    // C'est le piège annoncé : le SET s'applique à une session, les lectures à une autre. Le
+    // « SHOW » dirait « on » et ne prouverait pourtant RIEN. Le PID, lui, le trahit.
+    const lectures: string[] = [];
+    const refus = await messageDeRefus(
+      simulerFichesSeules(poolerSansTransaction(), res(), {
+        journal: silence,
+        sessionDediee: async () => ({
+          session: sessionStub({ drapeaux: ["on"], pids: ["1000", "2000"], lectures }),
+          fermer: async () => {},
+        }),
+      }),
+    );
+    expect(refus).toContain("REFUS :");
+    expect(refus).toContain("CHANGÉ de session serveur");
+    expect(refus).toContain("backend 1000 puis 2000");
+    expect(lectures).toEqual([]); // refus AVANT de lire
+  });
+
+  it("le backend change PENDANT les lectures ⇒ refus (aucun rapport sur une protection discontinue)", async () => {
+    const lectures: string[] = [];
+    const refus = await messageDeRefus(
+      simulerFichesSeules(poolerSansTransaction(), res(), {
+        journal: silence,
+        sessionDediee: async () => ({
+          session: sessionStub({ drapeaux: ["on"], pids: ["1000", "1000", "3000"], lectures }),
+          fermer: async () => {},
+        }),
+      }),
+    );
+    expect(refus).toContain("REFUS :");
+    expect(refus).toContain("PENDANT les lectures");
+  });
+
+  it("le drapeau retombe APRÈS les lectures ⇒ refus (il devait tenir de bout en bout)", async () => {
+    const lectures: string[] = [];
+    const refus = await messageDeRefus(
+      simulerFichesSeules(poolerSansTransaction(), res(), {
+        journal: silence,
+        sessionDediee: async () => ({
+          session: sessionStub({ drapeaux: ["on", "off"], pids: ["1000"], lectures }),
+          fermer: async () => {},
+        }),
+      }),
+    );
+    expect(refus).toContain("REFUS :");
+    expect(refus).toContain("contrôle final");
+  });
+
+  it("la session dédiée est TOUJOURS fermée, même quand la vérification refuse", async () => {
+    let fermee = 0;
+    await expect(
+      simulerFichesSeules(poolerSansTransaction(), res(), {
+        journal: silence,
+        sessionDediee: async () => ({
+          session: sessionStub({ drapeaux: ["off"], pids: ["1"], lectures: [] }),
+          fermer: async () => {
+            fermee++;
+          },
+        }),
+      }),
+    ).rejects.toThrow(/REFUS/);
+    expect(fermee).toBe(1); // rien ne survit à la simulation, pas même une session refusée
   });
 });

@@ -70,9 +70,29 @@
  *     reste protégé par l'empreinte de contenu, qui refuse de détruire une fiche saisie à la main).
  *
  * `--fiches-seules --dry-run` est une SIMULATION QUI SE CONNECTE : contrairement au `--dry-run`
- * ordinaire (qui n'ouvre aucune connexion et ne peut donc rien dire d'un vrai catalogue), elle
- * ouvre une transaction `READ ONLY` — VÉRIFIÉE par `SHOW transaction_read_only`, abandon si le
- * drapeau n'est pas « on » — puis ROLLBACK. Elle rapporte : fiches créables / refusées, articles
+ * ordinaire (qui n'ouvre aucune connexion et ne peut donc rien dire d'un vrai catalogue), elle lit
+ * le catalogue réel sous une protection de lecture seule VÉRIFIÉE, à deux niveaux :
+ *
+ *   NIVEAU 1 — transaction interactive `SET TRANSACTION READ ONLY`, vérifiée par
+ *     `SHOW transaction_read_only` avant ET après les lectures, terminée par un ROLLBACK.
+ *     Délais généreux (`maxWait` 30 s, `timeout` 120 s), surchargeables par
+ *     `IMPORT_TX_MAX_WAIT_MS` / `IMPORT_TX_TIMEOUT_MS`.
+ *   NIVEAU 2 — repli si le pooler n'accorde PAS de transaction interactive (Supabase Supavisor :
+ *     `P2028 Unable to start a transaction in the given time`) : une SESSION DÉDIÉE — une seule
+ *     connexion physique — placée en `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`,
+ *     vérifiée elle aussi par `SHOW transaction_read_only` AVANT la moindre lecture.
+ *     Piège du pooler traité de front : en mode transaction, deux requêtes successives peuvent
+ *     atterrir sur deux sessions serveur différentes — le `SET` s'appliquerait alors à l'une et
+ *     les lectures à l'autre, et la vérification ne prouverait RIEN. `pg_backend_pid()` est donc
+ *     relevé avant le `SET`, après la vérification et après les lectures : au moindre changement,
+ *     la simulation REFUSE. Jamais de dégradation silencieuse.
+ *
+ * Un drapeau qui répond autre chose que « on » est un REFUS de la base, pas une indisponibilité :
+ * il n'ouvre aucun repli, il arrête tout. Et quelle que soit la protection obtenue, la garantie de
+ * FOND reste le verrou de TYPE (`ClientFichesSeules` ne déclare que `findMany`) : la lecture seule
+ * côté base n'en est que la ceinture. La sortie dit laquelle des deux protections est active.
+ *
+ * Elle rapporte : fiches créables / refusées, articles
  * introuvables dédoublonnés du plus utilisé au moins utilisé (la liste de travail à remettre à la
  * Direction), le SOSIE le plus proche de chacun (SUGGESTION à vérifier, jamais une décision :
  * « Huile 1L régina » et « Huile 5L régina » sont des CONDITIONNEMENTS DIFFÉRENTS), et le coût
@@ -2188,15 +2208,56 @@ type TxLectureSeule = {
   ficheTechnique: { findMany(args: unknown): Promise<{ nom: string }[]> };
 };
 
+/**
+ * Session DÉDIÉE : une connexion et une seule, sur laquelle l'état de session survit d'une
+ * requête à l'autre. C'est ce que le repli de niveau 2 exige — et que `pg_backend_pid()` VÉRIFIE
+ * plutôt que de le supposer (derrière un pooler en mode transaction, deux requêtes successives
+ * peuvent atterrir sur deux sessions serveur différentes).
+ */
+export type SessionLectureSeule = {
+  $executeRawUnsafe(sql: string): Promise<number>;
+  $queryRawUnsafe<T = unknown>(sql: string): Promise<T>;
+  articleStock: { findMany(args: unknown): Promise<ArticleCatalogue[]> };
+  ficheTechnique: { findMany(args: unknown): Promise<{ nom: string }[]> };
+};
+
+/** Laquelle des deux protections de base de données a effectivement été obtenue, et vérifiée. */
+export type ProtectionLecture = "TRANSACTION_READ_ONLY" | "SESSION_READ_ONLY";
+
 export type SimulationFichesSeules = {
   /** Vrai UNIQUEMENT si PostgreSQL a confirmé `transaction_read_only = on`. Jamais supposé. */
   lectureSeuleVerifiee: boolean;
+  /** Ce qui a réellement protégé la lecture — à AFFICHER, pour que le lecteur sache. */
+  protection: ProtectionLecture;
+  /** Pourquoi on a dû se replier en niveau 2, le cas échéant (message d'origine du refus). */
+  motifRepli: string | null;
+  /** PID du backend PostgreSQL, quand la protection de niveau 2 a dû le vérifier. */
+  backendPid: string | null;
   nbArticlesCatalogue: number;
   plan: PlanFichesSeules;
   couts: SimulationFiche[];
   /** Fiches DÉJÀ en base portant le nom d'une fiche créable : l'import les refuserait sans --force. */
   homonymesEnBase: string[];
 };
+
+export type OptionsSimulation = {
+  /**
+   * Ouvre une SESSION DÉDIÉE (une seule connexion physique) pour le repli de niveau 2. Injectée :
+   * `main()` en fabrique une sur l'URL fournie, le test d'intégration sur son Postgres jetable.
+   * Absente, le repli n'est pas tenté — on préfère refuser plutôt que lire sans protection.
+   */
+  sessionDediee?: () => Promise<{ session: SessionLectureSeule; fermer: () => Promise<void> }>;
+  /** Attente maximale pour OBTENIR la transaction interactive (P2028 = ce délai est trop court). */
+  maxWaitMs?: number;
+  /** Durée maximale de la transaction une fois obtenue. */
+  timeoutMs?: number;
+  /** Journal (par défaut `console.log`) : la simulation ANNONCE ce qu'elle tente et ce qu'elle obtient. */
+  journal?: (message: string) => void;
+};
+
+/** Délais généreux par défaut, surchargeables par variable d'environnement (cf. `main()`). */
+export const SIMULATION_MAX_WAIT_MS = 30_000;
+export const SIMULATION_TIMEOUT_MS = 120_000;
 
 /** Sentinelle : provoque le ROLLBACK de la transaction de simulation. Jamais une vraie erreur. */
 class FinDeSimulation extends Error {
@@ -2206,57 +2267,205 @@ class FinDeSimulation extends Error {
   }
 }
 
+/** Ce que les deux niveaux de protection produisent en commun : la lecture du catalogue. */
+type LectureCatalogue = { catalogue: ArticleCatalogue[]; fichesEnBase: { nom: string }[] };
+
+const SELECT_CATALOGUE = {
+  select: { id: true, designation: true, unite: true, prixUnitaireUSD: true },
+  orderBy: [{ designation: "asc" }, { id: "asc" }],
+} as const;
+
 /**
- * Simulation QUI SE CONNECTE, en LECTURE SEULE. Le `--dry-run` ordinaire n'ouvre aucune connexion
- * et ne peut donc rien dire d'un catalogue réel ; celui-ci lit le vrai catalogue et rapporte ce
- * qui se passerait, sans qu'aucune écriture ne soit possible :
- *   - `SET TRANSACTION READ ONLY` place la transaction en lecture seule ;
- *   - `SHOW transaction_read_only` le VÉRIFIE — si le drapeau n'est pas « on », on abandonne
- *     plutôt que de simuler sur une connexion capable d'écrire ;
- *   - la transaction se termine par un ROLLBACK (sentinelle), jamais par un commit.
+ * Lit `SHOW transaction_read_only` et EXIGE « on ». Le seul point où l'on décide que la base nous
+ * protège — ailleurs, on ne le suppose jamais.
+ */
+async function exigerDrapeauLectureSeule(
+  q: { $queryRawUnsafe<T = unknown>(sql: string): Promise<T> },
+  ou: string,
+): Promise<void> {
+  const drapeau = await q.$queryRawUnsafe<{ transaction_read_only: string }[]>("SHOW transaction_read_only");
+  const valeur = drapeau?.[0]?.transaction_read_only;
+  if (valeur !== "on") {
+    throw new Error(
+      `REFUS : ${ou} — « SHOW transaction_read_only » vaut « ${valeur ?? "(rien)"} » et non « on ». ` +
+        "La base ne garantit donc PAS la lecture seule sur cette connexion, et on ne lit pas sans cette " +
+        "garantie. Aucune dégradation silencieuse : la simulation s'arrête ici.",
+    );
+  }
+}
+
+/** PID du backend PostgreSQL qui a servi la requête — sert à prouver qu'on ne change pas de session. */
+async function backendPid(q: { $queryRawUnsafe<T = unknown>(sql: string): Promise<T> }): Promise<string> {
+  const r = await q.$queryRawUnsafe<{ pid: string }[]>("SELECT pg_backend_pid()::text AS pid");
+  const pid = r?.[0]?.pid;
+  if (pid === undefined || pid === null) {
+    throw new Error("REFUS : impossible de lire `pg_backend_pid()` — sans lui, rien ne prouve que le SET " +
+      "de session et les lectures ont eu lieu sur la MÊME connexion.");
+  }
+  return String(pid);
+}
+
+/**
+ * NIVEAU 1 — transaction interactive : `BEGIN` (Prisma) + `SET TRANSACTION READ ONLY`, vérifié,
+ * puis ROLLBACK. C'est la protection la plus forte : la transaction épingle la connexion, et
+ * PostgreSQL refuse physiquement toute écriture pendant sa durée.
+ */
+async function lireEnTransactionLectureSeule(
+  prisma: ClientLectureSeule,
+  maxWaitMs: number,
+  timeoutMs: number,
+): Promise<LectureCatalogue> {
+  let capture: LectureCatalogue | undefined;
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+        await exigerDrapeauLectureSeule(tx, "transaction interactive");
+        const catalogue = await tx.articleStock.findMany(SELECT_CATALOGUE);
+        const fichesEnBase = await tx.ficheTechnique.findMany({ select: { nom: true } });
+        // Re-vérifié APRÈS les lectures : le drapeau doit avoir tenu du début à la fin.
+        await exigerDrapeauLectureSeule(tx, "transaction interactive (contrôle final)");
+        capture = { catalogue, fichesEnBase };
+        throw new FinDeSimulation(); // ROLLBACK : une simulation ne valide rien, même en lecture.
+      },
+      { maxWait: maxWaitMs, timeout: timeoutMs },
+    );
+  } catch (e) {
+    if (!(e instanceof FinDeSimulation)) throw e;
+  }
+  if (capture === undefined) throw new Error("Transaction de simulation terminée sans lecture : rien n'est rapporté.");
+  return capture;
+}
+
+/**
+ * NIVEAU 2 — session dédiée : `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`, vérifié par
+ * `SHOW transaction_read_only`, sur UNE SEULE connexion physique.
+ *
+ * Le piège du pooler est traité de front : en mode transaction, un pooler peut router deux
+ * requêtes successives vers deux sessions serveur différentes — le `SET` s'appliquerait alors à
+ * une session, et les lectures à une autre, si bien que la vérification ne prouverait RIEN. On
+ * relève donc `pg_backend_pid()` avant le `SET`, après la vérification, et après les lectures :
+ * si le PID bouge, on REFUSE. Et le drapeau est revérifié à la fin, pour qu'il ait tenu de bout
+ * en bout.
+ */
+async function lireEnSessionLectureSeule(session: SessionLectureSeule): Promise<LectureCatalogue & { pid: string }> {
+  const pidAvant = await backendPid(session);
+  await session.$executeRawUnsafe("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY");
+  await exigerDrapeauLectureSeule(session, "session dédiée");
+
+  const pidApresSet = await backendPid(session);
+  if (pidApresSet !== pidAvant) {
+    throw new Error(
+      `REFUS : la connexion a CHANGÉ de session serveur entre deux requêtes (backend ${pidAvant} puis ` +
+        `${pidApresSet}). C'est le comportement d'un pooler en mode transaction : le « SET SESSION » ne ` +
+        "s'applique alors pas aux lectures, et sa vérification ne prouve rien. On refuse plutôt que de " +
+        "lire sous une protection imaginaire. Utilise une connexion directe (ou le pooler en mode SESSION).",
+    );
+  }
+
+  const catalogue = await session.articleStock.findMany(SELECT_CATALOGUE);
+  const fichesEnBase = await session.ficheTechnique.findMany({ select: { nom: true } });
+
+  // Contrôle final : même session, et drapeau toujours à « on ». Si l'un des deux a bougé, les
+  // lectures qui précèdent n'étaient pas protégées — on ne publie pas un rapport là-dessus.
+  const pidApresLectures = await backendPid(session);
+  if (pidApresLectures !== pidAvant) {
+    throw new Error(
+      `REFUS : la connexion a changé de session serveur PENDANT les lectures (backend ${pidAvant} puis ` +
+        `${pidApresLectures}) : la protection de lecture seule n'était donc pas continue. Rapport abandonné.`,
+    );
+  }
+  await exigerDrapeauLectureSeule(session, "session dédiée (contrôle final)");
+
+  return { catalogue, fichesEnBase, pid: pidAvant };
+}
+
+/**
+ * Simulation QUI SE CONNECTE, en LECTURE SEULE — le `--dry-run` ordinaire n'ouvre aucune connexion
+ * et ne peut donc rien dire d'un catalogue réel.
+ *
+ * DEUX PROTECTIONS, dans cet ordre, chacune ANNONCÉE :
+ *   1. transaction interactive `READ ONLY` (délais généreux, surchargeables) ;
+ *   2. si le pooler refuse la transaction interactive (P2028 « unable to start a transaction »),
+ *      repli sur une SESSION DÉDIÉE en `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`,
+ *      vérifiée par `SHOW transaction_read_only` ET par l'identité du backend PostgreSQL.
+ *
+ * Dans les deux cas, le drapeau doit valoir « on » AVANT la moindre lecture, sinon la simulation
+ * REFUSE de tourner. Et dans les deux cas, le verrou de fond reste le TYPE `ClientFichesSeules`
+ * (qui ne déclare que `findMany`) : la lecture seule côté base n'en est que la ceinture.
  */
 export async function simulerFichesSeules(
   prisma: ClientLectureSeule,
   res: ResultatParse,
+  options: OptionsSimulation = {},
 ): Promise<SimulationFichesSeules> {
-  let capture: SimulationFichesSeules | undefined;
+  const journal = options.journal ?? ((m: string) => console.log(m));
+  const maxWait = options.maxWaitMs ?? SIMULATION_MAX_WAIT_MS;
+  const timeout = options.timeoutMs ?? SIMULATION_TIMEOUT_MS;
+
+  let lecture: LectureCatalogue;
+  let protection: ProtectionLecture;
+  let motifRepli: string | null = null;
+  let pid: string | null = null;
+
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
-      const drapeau = await tx.$queryRawUnsafe<{ transaction_read_only: string }[]>("SHOW transaction_read_only");
-      const lectureSeule = drapeau?.[0]?.transaction_read_only === "on";
-      if (!lectureSeule) {
-        throw new Error(
-          "La transaction n'a PAS pu être placée en LECTURE SEULE (« SHOW transaction_read_only » ≠ « on ») : " +
-            "simulation abandonnée. On ne simule pas sur une connexion capable d'écrire.",
-        );
-      }
-
-      const catalogue = await tx.articleStock.findMany({
-        select: { id: true, designation: true, unite: true, prixUnitaireUSD: true },
-        orderBy: [{ designation: "asc" }, { id: "asc" }],
-      });
-      const fichesEnBase = await tx.ficheTechnique.findMany({ select: { nom: true } });
-
-      const plan = planifierFichesSeules(res, catalogue);
-      const clesCreables = new Set(plan.creables.map((f) => normaliserDesignation(f.nom)));
-      capture = {
-        lectureSeuleVerifiee: true,
-        nbArticlesCatalogue: catalogue.length,
-        plan,
-        couts: simulerCoutsFichesSeules(plan),
-        homonymesEnBase: fichesEnBase.filter((f) => clesCreables.has(normaliserDesignation(f.nom))).map((f) => f.nom),
-      };
-      throw new FinDeSimulation(); // ROLLBACK : une simulation ne valide rien, même en lecture.
-    }, { timeout: 120_000 });
+    journal(
+      `Protection tentée (niveau 1) : TRANSACTION READ ONLY — attente max ${maxWait} ms, durée max ${timeout} ms.`,
+    );
+    lecture = await lireEnTransactionLectureSeule(prisma, maxWait, timeout);
+    protection = "TRANSACTION_READ_ONLY";
+    journal("Protection ACTIVE : transaction READ ONLY vérifiée (SHOW transaction_read_only = on), ROLLBACK final.");
   } catch (e) {
-    if (!(e instanceof FinDeSimulation)) throw e;
+    // Un REFUS de vérification n'est PAS un motif de repli : le drapeau a répondu autre chose que
+    // « on », c'est un « non » de la base, pas une indisponibilité. On ne contourne pas un refus.
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.startsWith("REFUS :")) throw e;
+
+    if (!options.sessionDediee) {
+      throw new Error(
+        `La transaction interactive en lecture seule a échoué (${message}) et aucune session dédiée n'est ` +
+          "disponible pour le repli : simulation abandonnée. On ne lit pas sans garantie de lecture seule.",
+      );
+    }
+
+    motifRepli = message;
+    journal(
+      `\n/!\\ Niveau 1 REFUSÉ par la base : ${message}\n` +
+        "    (typiquement un pooler qui n'accorde pas de transaction interactive — P2028.)\n" +
+        "Protection tentée (niveau 2) : SESSION DÉDIÉE en SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY.",
+    );
+
+    const { session, fermer } = await options.sessionDediee();
+    try {
+      const r = await lireEnSessionLectureSeule(session);
+      lecture = { catalogue: r.catalogue, fichesEnBase: r.fichesEnBase };
+      pid = r.pid;
+      protection = "SESSION_READ_ONLY";
+      journal(
+        `Protection ACTIVE : session dédiée en lecture seule, vérifiée (SHOW transaction_read_only = on) ` +
+          `et confinée à UNE SEULE session serveur (backend PostgreSQL ${pid}, identique de bout en bout).`,
+      );
+    } finally {
+      // La session dédiée est JETÉE : son état « read only » ne doit contaminer aucune autre
+      // connexion, et rien ne doit survivre à la simulation.
+      await fermer();
+    }
   }
 
-  if (capture === undefined) {
-    throw new Error("Simulation interrompue avant d'avoir pu lire le catalogue : rien n'est rapporté.");
-  }
-  return capture;
+  const plan = planifierFichesSeules(res, lecture.catalogue);
+  const clesCreables = new Set(plan.creables.map((f) => normaliserDesignation(f.nom)));
+  return {
+    lectureSeuleVerifiee: true, // sinon on ne serait pas ici : toute autre issue lève
+    protection,
+    motifRepli,
+    backendPid: pid,
+    nbArticlesCatalogue: lecture.catalogue.length,
+    plan,
+    couts: simulerCoutsFichesSeules(plan),
+    homonymesEnBase: lecture.fichesEnBase
+      .filter((f) => clesCreables.has(normaliserDesignation(f.nom)))
+      .map((f) => f.nom),
+  };
 }
 
 // ─── Rapport du mode fiches seules ───────────────────────────────────────────
@@ -2265,7 +2474,14 @@ export function formaterRapportFichesSeules(
   res: ResultatParse,
   plan: PlanFichesSeules,
   couts: SimulationFiche[],
-  contexte: { nbArticlesCatalogue: number; homonymesEnBase?: string[]; lectureSeuleVerifiee?: boolean },
+  contexte: {
+    nbArticlesCatalogue: number;
+    homonymesEnBase?: string[];
+    lectureSeuleVerifiee?: boolean;
+    protection?: ProtectionLecture;
+    motifRepli?: string | null;
+    backendPid?: string | null;
+  },
 ): string {
   const out: string[] = [];
   const trait = "═".repeat(78);
@@ -2274,14 +2490,37 @@ export function formaterRapportFichesSeules(
   out.push("MODE FICHES SEULES — LE CATALOGUE `ArticleStock` N'EST PAS TOUCHÉ");
   out.push(trait);
   out.push("Ni création, ni mise à jour, ni écrasement de prix : ce mode LIT le catalogue pour");
-  out.push("rattacher les ingrédients, et n'y écrit rien (garanti par construction, cf. en-tête).");
+  out.push("rattacher les ingrédients, et n'y écrit rien.");
+  out.push("");
+  out.push("GARANTIE DE FOND (active dans TOUS les cas, simulation comme import) : le verrou de");
+  out.push("TYPE. `ClientFichesSeules` ne déclare que `articleStock.findMany` — ni create, ni");
+  out.push("update, ni upsert — et la transaction de création n'a aucune propriété `articleStock`.");
+  out.push("Aucune écriture d'article n'est seulement exprimable dans ce mode. La lecture seule");
+  out.push("côté base, ci-dessous, n'en est que la CEINTURE.");
   if (contexte.lectureSeuleVerifiee !== undefined) {
-    out.push(
-      contexte.lectureSeuleVerifiee
-        ? "Connexion ouverte en TRANSACTION READ ONLY, vérifiée par « SHOW transaction_read_only » = on,"
-          + "\npuis ROLLBACK : aucune écriture n'était possible pendant cette lecture."
-        : "/!\\ Lecture seule NON vérifiée — ce rapport ne devrait pas exister.",
-    );
+    out.push("");
+    if (!contexte.lectureSeuleVerifiee) {
+      out.push("/!\\ Lecture seule NON vérifiée — ce rapport ne devrait pas exister.");
+    } else if (contexte.protection === "SESSION_READ_ONLY") {
+      out.push("CEINTURE ACTIVE : protection de niveau 2 — SESSION DÉDIÉE en lecture seule.");
+      out.push("  `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`, VÉRIFIÉ par");
+      out.push("  « SHOW transaction_read_only » = on avant la moindre lecture, et confiné à UNE");
+      out.push(`  SEULE session serveur${contexte.backendPid ? ` (backend PostgreSQL ${contexte.backendPid},` : " ("}`
+        + " identique avant le SET, après la vérification et après les lectures).");
+      out.push("  Ce contrôle du backend est ce qui empêche un pooler en mode transaction de router");
+      out.push("  le SET et les lectures vers deux sessions différentes — auquel cas la vérification");
+      out.push("  ne prouverait rien, et la simulation REFUSERAIT de tourner.");
+      if (contexte.motifRepli) {
+        out.push(`  Repli motivé par : ${contexte.motifRepli}`);
+        out.push("  (la transaction interactive n'a pas été accordée — comportement de pooler, pas un refus");
+        out.push("   de la base : la protection de niveau 2 la remplace, elle n'est pas une dégradation muette).");
+      }
+    } else {
+      out.push("CEINTURE ACTIVE : protection de niveau 1 — TRANSACTION READ ONLY.");
+      out.push("  `SET TRANSACTION READ ONLY` dans une transaction interactive, VÉRIFIÉ par");
+      out.push("  « SHOW transaction_read_only » = on avant et après les lectures, puis ROLLBACK :");
+      out.push("  PostgreSQL refusait physiquement toute écriture pendant cette lecture.");
+    }
   }
 
   // « Créable » et non « créé » : ce bloc décrit le PÉRIMÈTRE calculé sur ce catalogue. Ce qui a
@@ -2364,6 +2603,21 @@ export function formaterRapportFichesSeules(
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
 
+/**
+ * Entier positif lu dans l'environnement, sinon la valeur par défaut. Une valeur illisible est
+ * SIGNALÉE plutôt qu'appliquée de travers : un délai à zéro relancerait le P2028 sans rien dire.
+ */
+function entierEnv(cle: string, defaut: number): number {
+  const brut = process.env[cle];
+  if (brut === undefined || brut.trim() === "") return defaut;
+  const n = Number(brut);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.log(`Note : ${cle}="${brut}" n'est pas un entier positif — valeur par défaut (${defaut} ms) conservée.`);
+    return defaut;
+  }
+  return Math.round(n);
+}
+
 /** Valeurs de `--supprimer "<nom>"` (répétable), séparées de l'URL et du chemin de fichier. */
 function lireSupprimer(args: string[]): string[] {
   const noms: string[] = [];
@@ -2445,15 +2699,37 @@ async function main() {
   if (fichesSeules) {
     try {
       if (dryRun) {
-        const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res);
+        const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res, {
+          maxWaitMs: entierEnv("IMPORT_TX_MAX_WAIT_MS", SIMULATION_MAX_WAIT_MS),
+          timeoutMs: entierEnv("IMPORT_TX_TIMEOUT_MS", SIMULATION_TIMEOUT_MS),
+          // Repli de niveau 2 : une connexion physique UNIQUE (pool de taille 1, jamais recyclée
+          // sur inactivité), pour que l'état « read only » de la session survive d'une requête à
+          // l'autre. `pg_backend_pid()` le VÉRIFIE ensuite — le pool ne fait pas foi à lui seul.
+          sessionDediee: async () => {
+            const dedie = new PrismaClient({
+              adapter: new PrismaPg({ connectionString: databaseUrl, max: 1, idleTimeoutMillis: 0 }),
+            });
+            return {
+              session: dedie as unknown as SessionLectureSeule,
+              fermer: () => dedie.$disconnect(),
+            };
+          },
+        });
         console.log(
           formaterRapportFichesSeules(res, sim.plan, sim.couts, {
             nbArticlesCatalogue: sim.nbArticlesCatalogue,
             homonymesEnBase: sim.homonymesEnBase,
             lectureSeuleVerifiee: sim.lectureSeuleVerifiee,
+            protection: sim.protection,
+            motifRepli: sim.motifRepli,
+            backendPid: sim.backendPid,
           }),
         );
-        console.log("\nSIMULATION — transaction annulée (ROLLBACK). Aucune écriture, nulle part.");
+        console.log(
+          sim.protection === "TRANSACTION_READ_ONLY"
+            ? "\nSIMULATION — transaction annulée (ROLLBACK). Aucune écriture, nulle part."
+            : "\nSIMULATION — session dédiée en lecture seule, fermée et jetée. Aucune écriture, nulle part.",
+        );
         return;
       }
 
