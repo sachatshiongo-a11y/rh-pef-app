@@ -12,9 +12,5 @@ export default defineConfig({
       "server-only": path.resolve(__dirname, "src/lib/test/server-only-stub.ts"),
       "@": path.resolve(__dirname, "src"),
     },
-    // Vite préfère `.js` à `.ts` par défaut. Seule collision du dépôt : `scripts/backup-json.js`
-    // (vieux script CommonJS mort) coexiste avec `scripts/backup-json.ts` (le vrai, testé) — un
-    // import extensionless de ce dernier résolvait silencieusement vers le mauvais fichier.
-    extensions: [".mts", ".ts", ".tsx", ".mjs", ".js", ".jsx", ".json"],
   },
 });
