@@ -44,14 +44,53 @@
  * du classeur. Chaque valeur écrasée est listée avant/après en fin d'exécution ;
  * `--conserver-prix-existants` préserve les prix déjà en base.
  *
+ * ─── MODE `--fiches-seules` (ADDITION, le mode ci-dessus est inchangé) ───────────────────────
+ *
+ * « On veut les fiches, on ne touche pas au catalogue » (décision de la Direction, août 2026 :
+ * l'import complet effacerait 5 prix, en triplerait un, et créerait 63 articles dont 49 sont des
+ * quasi-doublons d'articles existants nommés autrement). Ce mode :
+ *
+ *   - N'ÉCRIT RIEN DANS `ArticleStock` — ni création, ni mise à jour, ni upsert. Garanti PAR
+ *     CONSTRUCTION et non par un `if` : l'écriture passe par `ecrireFichesSeules`, dont le client
+ *     (`ClientFichesSeules`) n'expose que `articleStock.findMany` (lecture), et dont la
+ *     transaction (`TxFichesSeules`) N'A PAS DE `articleStock` DU TOUT. Aucun chemin de code de ce
+ *     mode ne mentionne `articleStock.create` ni `articleStock.update`, et son rapport
+ *     (`RapportFichesSeules`) n'a même pas de champ où compter un article écrit.
+ *   - rattache chaque ingrédient à un `ArticleStock` DÉJÀ PRÉSENT dans la base cible, par
+ *     `normaliserDesignation` — jamais « au plus proche », jamais deviné ;
+ *   - RÈGLE CARDINALE : une fiche dont AU MOINS UN ingrédient ne se rattache pas n'est PAS créée
+ *     du tout. Motif : `IngredientFiche` n'a aucun champ de libellé (cf. prisma/schema.prisma) —
+ *     une ligne sans article ni sous-fiche serait MUETTE à l'écran, et la fiche afficherait un
+ *     coût trop bas avec l'apparence d'un coût complet. Mieux vaut pas de fiche qu'une fiche
+ *     mensongère. Les fiches refusées sont nommées dans le rapport, avec les articles introuvables ;
+ *   - les sous-recettes sont créées normalement (elles ne dépendent pas du catalogue pour
+ *     exister), mais la même règle s'applique : une sous-recette refusée fait refuser, en cascade,
+ *     toute fiche qui la cite ;
+ *   - ordre de création inchangé (sous-recettes puis plats), idempotence inchangée (`--force`
+ *     reste protégé par l'empreinte de contenu, qui refuse de détruire une fiche saisie à la main).
+ *
+ * `--fiches-seules --dry-run` est une SIMULATION QUI SE CONNECTE : contrairement au `--dry-run`
+ * ordinaire (qui n'ouvre aucune connexion et ne peut donc rien dire d'un vrai catalogue), elle
+ * ouvre une transaction `READ ONLY` — VÉRIFIÉE par `SHOW transaction_read_only`, abandon si le
+ * drapeau n'est pas « on » — puis ROLLBACK. Elle rapporte : fiches créables / refusées, articles
+ * introuvables dédoublonnés du plus utilisé au moins utilisé (la liste de travail à remettre à la
+ * Direction), le SOSIE le plus proche de chacun (SUGGESTION à vérifier, jamais une décision :
+ * « Huile 1L régina » et « Huile 5L régina » sont des CONDITIONNEMENTS DIFFÉRENTS), et le coût
+ * complet / partiel des fiches créables via le vrai moteur (`calculerCout`, non modifié).
+ *
  * Usage :
  *   npx tsx scripts/import-fiches-plats.ts --dry-run                  (rapport seul, AUCUNE base)
  *   npx tsx scripts/import-fiches-plats.ts "postgresql://..." ["/chemin/classeur.xlsx"]
  *        [--force] [--supprimer "<nom de fiche>"]… [--conserver-prix-existants]
+ *   npx tsx scripts/import-fiches-plats.ts "postgresql://..." --fiches-seules --dry-run
+ *        (simulation EN LECTURE SEULE sur la base cible : aucune écriture, transaction READ ONLY)
+ *   npx tsx scripts/import-fiches-plats.ts "postgresql://..." --fiches-seules [--force]
+ *        [--supprimer "<nom de fiche>"]…   (crée les fiches, NE TOUCHE PAS au catalogue)
  *   (ou IMPORT_DATABASE_URL=postgresql://... npx tsx scripts/import-fiches-plats.ts)
  *
- * JAMAIS de défaut vers la prod : hors `--dry-run`, la DATABASE_URL doit être fournie
- * explicitement (argument positionnel ou IMPORT_DATABASE_URL). Le `.env` du dépôt pointe la
+ * JAMAIS de défaut vers la prod : hors `--dry-run` ordinaire, la DATABASE_URL doit être fournie
+ * explicitement (argument positionnel ou IMPORT_DATABASE_URL) — y compris pour
+ * `--fiches-seules --dry-run`, qui se connecte réellement. Le `.env` du dépôt pointe la
  * PRODUCTION et n'est volontairement pas lu ici.
  */
 import * as XLSX from "xlsx";
@@ -1213,19 +1252,22 @@ function empreinteBase(f: FicheEnBase): string {
   ].join("|");
 }
 
-/** La même empreinte, calculée sur ce que l'import ÉCRIRAIT (mêmes arrondis, même ordre). */
-function empreinteClasseur(f: FicheParsee, res: ResultatParse): string {
-  const lignes = res.lignes
-    .filter((l) => l.fiche === f && l.rattachement.type !== "AUCUN")
-    .map((l, index) => [
-      normaliserDesignation(
-        l.rattachement.type === "ARTICLE" ? l.rattachement.article.designation
-          : l.rattachement.type === "SOUS_RECETTE" ? l.rattachement.fiche.nom : "?"
-      ),
-      normaliserUnite(l.ingredient.unite),
-      arrondir(l.ingredient.quantite ?? 0, DECIMALES_QUANTITE).toString(),
-      index,
-    ].join("~"));
+/** Une ligne d'ingrédient réduite à ce qui entre dans l'empreinte (quel que soit le mode). */
+type LigneEmpreinte = { designation: string; unite: string; quantite: number | null };
+
+/**
+ * Cœur commun de l'empreinte « côté classeur », partagé par l'import complet et le mode
+ * `--fiches-seules` : les deux modes écrivent EXACTEMENT les mêmes colonnes de fiche, seule la
+ * liste des lignes retenues diffère (le mode fiches seules ne crée que des fiches dont TOUTES les
+ * lignes se rattachent). Un seul endroit où raisonner sur `type`, `actif` et les arrondis.
+ */
+function empreinteDepuisLignes(f: FicheParsee, lignesRetenues: LigneEmpreinte[]): string {
+  const lignes = lignesRetenues.map((l, index) => [
+    normaliserDesignation(l.designation),
+    normaliserUnite(l.unite),
+    arrondir(l.quantite ?? 0, DECIMALES_QUANTITE).toString(),
+    index,
+  ].join("~"));
   return [
     // `type` et `actif` n'existent pas dans le classeur : l'import écrit TOUJOURS "PLAT" / true
     // (cf. la création plus bas). Une fiche manuelle identique mais typée BAR, ou désactivée, doit
@@ -1240,6 +1282,22 @@ function empreinteClasseur(f: FicheParsee, res: ResultatParse): string {
     f.rendementQuantiteG === null ? "—" : "g",
     f.recette ?? "—", true, ...lignes,
   ].join("|");
+}
+
+/** La même empreinte, calculée sur ce que l'import COMPLET écrirait (mêmes arrondis, même ordre). */
+function empreinteClasseur(f: FicheParsee, res: ResultatParse): string {
+  return empreinteDepuisLignes(
+    f,
+    res.lignes
+      .filter((l) => l.fiche === f && l.rattachement.type !== "AUCUN")
+      .map((l) => ({
+        designation:
+          l.rattachement.type === "ARTICLE" ? l.rattachement.article.designation
+            : l.rattachement.type === "SOUS_RECETTE" ? l.rattachement.fiche.nom : "?",
+        unite: l.ingredient.unite,
+        quantite: l.ingredient.quantite,
+      })),
+  );
 }
 
 export type OptionsEcriture = {
@@ -1285,6 +1343,63 @@ export type RapportEcriture = {
   /** Prix conservés (--conserver-prix-existants) alors que le classeur donne une autre valeur. */
   prixConserves: PrixConserve[];
 };
+
+/** Client réduit à ce dont la suppression en ordre de dépendance a besoin (les deux modes). */
+type ClientSuppression = {
+  ficheTechnique: { deleteMany(args: unknown): Promise<{ count: number }> };
+  ingredientFiche: { findMany(args: unknown): Promise<{ ficheId: string; sousFicheId: string | null }[]> };
+};
+
+/**
+ * Suppression en ORDRE DE DÉPENDANCE. `IngredientFiche.sousFicheId` est en `onDelete: Restrict`,
+ * non déférable en PostgreSQL : supprimer une sous-recette encore citée échoue immédiatement. On
+ * retire donc par vagues ce que plus personne ne cite (les plats d'abord, les sous-recettes
+ * ensuite), quelle que soit la profondeur d'imbrication.
+ *
+ * `supprimees` est REMPLI AU FUR ET À MESURE (et non renvoyé seulement en cas de succès) : un
+ * blocage peut survenir APRÈS des suppressions, et l'opérateur doit alors avoir la liste exacte de
+ * ce qui vient d'être détruit — une destruction sans trace serait le pire des rapports.
+ */
+async function supprimerEnOrdreDeDependance(
+  prisma: ClientSuppression,
+  aSupprimer: { id: string; nom: string }[],
+  supprimees: string[],
+): Promise<{ ok: true } | { ok: false; protegees: string[]; message: string }> {
+  let restants = aSupprimer.map((f) => ({ id: f.id, nom: f.nom }));
+  const idsLot = new Set(restants.map((f) => f.id));
+  while (restants.length > 0) {
+    const citations = await prisma.ingredientFiche.findMany({
+      where: { sousFicheId: { in: restants.map((f) => f.id) } },
+      select: { ficheId: true, sousFicheId: true },
+    });
+    const citees = new Set(citations.map((c) => c.sousFicheId));
+    const supprimables = restants.filter((f) => !citees.has(f.id));
+
+    if (supprimables.length === 0) {
+      // Reste une citation venant d'une fiche HORS lot : on ne casse pas une fiche qu'on n'a
+      // pas le droit de toucher pour faire de la place.
+      const bloqueurs = citations.filter((c) => !idsLot.has(c.ficheId));
+      return {
+        ok: false,
+        protegees: restants.map((f) => f.nom),
+        message:
+          `ABANDON : ${restants.length} sous-recette(s) (${restants.map((f) => `« ${f.nom} »`).join(", ")}) sont ` +
+          `encore citées comme ingrédient par ${bloqueurs.length} ligne(s) de fiches HORS classeur. Les supprimer ` +
+          "violerait `IngredientFiche.sousFicheId` (onDelete: Restrict). " +
+          (supprimees.length > 0
+            ? `${supprimees.length} fiche(s) ONT DÉJÀ ÉTÉ SUPPRIMÉE(S) avant ce blocage et n'ont PAS été réécrites ` +
+              `(${supprimees.map((n) => `« ${n} »`).join(", ")}) : elles sont à réimporter. `
+            : "Rien de plus n'a été écrit. ") +
+          "Détache ces lignes, ou autorise la suppression des fiches qui les portent.",
+      };
+    }
+    await prisma.ficheTechnique.deleteMany({ where: { id: { in: supprimables.map((f) => f.id) } } });
+    supprimees.push(...supprimables.map((f) => f.nom));
+    const supprimes = new Set(supprimables.map((f) => f.id));
+    restants = restants.filter((f) => !supprimes.has(f.id));
+  }
+  return { ok: true };
+}
 
 /**
  * Écrit le classeur en base. `prisma` est INJECTÉ : `main()` lui passe un client branché sur l'URL
@@ -1368,49 +1483,9 @@ export async function ecrireEnBase(
 
   const rapport: RapportEcriture = { ...vide, statut: "IMPORTE", message: "" };
 
-  // ── Suppression en ORDRE DE DÉPENDANCE. `IngredientFiche.sousFicheId` est en `onDelete:
-  //    Restrict`, non déférable en PostgreSQL : supprimer une sous-recette encore citée échoue
-  //    immédiatement. On retire donc par vagues ce que plus personne ne cite (les plats d'abord,
-  //    les sous-recettes ensuite), quelle que soit la profondeur d'imbrication.
   if (aSupprimer.length > 0) {
-    let restants = aSupprimer.map((f) => ({ id: f.id, nom: f.nom }));
-    const idsLot = new Set(restants.map((f) => f.id));
-    while (restants.length > 0) {
-      const citations = await prisma.ingredientFiche.findMany({
-        where: { sousFicheId: { in: restants.map((f) => f.id) } },
-        select: { ficheId: true, sousFicheId: true },
-      });
-      const citees = new Set(citations.map((c) => c.sousFicheId));
-      const supprimables = restants.filter((f) => !citees.has(f.id));
-
-      if (supprimables.length === 0) {
-        // Reste une citation venant d'une fiche HORS lot : on ne casse pas une fiche qu'on n'a
-        // pas le droit de toucher pour faire de la place.
-        const bloqueurs = citations.filter((c) => !idsLot.has(c.ficheId));
-        // `...rapport` et NON `...vide` : des fiches ont pu être DÉTRUITES aux vagues précédentes
-        // (dont des fiches divergentes autorisées à la main par --supprimer). Repartir de `vide`
-        // renvoyait `fichesSupprimees: []` et l'opérateur n'avait aucune liste de ce qui venait
-        // d'être détruit — une destruction sans trace, dans le rapport même censé la tracer.
-        return {
-          ...rapport,
-          statut: "ABANDON",
-          fichesProtegees: restants.map((f) => f.nom),
-          message:
-            `ABANDON : ${restants.length} sous-recette(s) (${restants.map((f) => `« ${f.nom} »`).join(", ")}) sont ` +
-            `encore citées comme ingrédient par ${bloqueurs.length} ligne(s) de fiches HORS classeur. Les supprimer ` +
-            "violerait `IngredientFiche.sousFicheId` (onDelete: Restrict). " +
-            (rapport.fichesSupprimees.length > 0
-              ? `${rapport.fichesSupprimees.length} fiche(s) ONT DÉJÀ ÉTÉ SUPPRIMÉE(S) avant ce blocage et n'ont PAS été réécrites ` +
-                `(${rapport.fichesSupprimees.map((n) => `« ${n} »`).join(", ")}) : elles sont à réimporter. `
-              : "Rien de plus n'a été écrit. ") +
-            "Détache ces lignes, ou autorise la suppression des fiches qui les portent.",
-        };
-      }
-      await prisma.ficheTechnique.deleteMany({ where: { id: { in: supprimables.map((f) => f.id) } } });
-      rapport.fichesSupprimees.push(...supprimables.map((f) => f.nom));
-      const supprimes = new Set(supprimables.map((f) => f.id));
-      restants = restants.filter((f) => !supprimes.has(f.id));
-    }
+    const r = await supprimerEnOrdreDeDependance(prisma, aSupprimer, rapport.fichesSupprimees);
+    if (!r.ok) return { ...rapport, statut: "ABANDON", fichesProtegees: r.protegees, message: r.message };
   }
 
   // ── 1. Articles : upsert par désignation normalisée.
@@ -1527,6 +1602,766 @@ export async function ecrireEnBase(
   return rapport;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// MODE « FICHES SEULES » — on veut les fiches, on ne touche pas au catalogue
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Tout ce qui suit est une ADDITION : rien au-dessus n'est modifié, et RIEN ici n'écrit dans
+// `ArticleStock`. La garantie n'est pas un `if` que l'on pourrait oublier de prendre : les types
+// de client de ce mode n'exposent AUCUNE méthode d'écriture sur cette table, et la transaction de
+// création n'a même pas de propriété `articleStock`.
+
+/** Article du catalogue CIBLE (lu en base), réduit à ce dont ce mode a besoin. */
+export type ArticleCatalogue = {
+  id: string;
+  designation: string;
+  unite: string | null;
+  prixUnitaireUSD: Dec | null;
+};
+
+/** Rattachement d'un ingrédient dans ce mode : au catalogue CIBLE, jamais au classeur. */
+export type RattachementCible =
+  | { type: "ARTICLE"; article: ArticleCatalogue }
+  | { type: "SOUS_RECETTE"; fiche: FicheParsee }
+  | { type: "AUCUN" };
+
+export type LigneFichesSeules = {
+  fiche: FicheParsee;
+  ingredient: IngredientParse;
+  rattachement: RattachementCible;
+};
+
+export type FicheRefusee = {
+  nom: string;
+  onglet: string;
+  /** Désignations, TELLES QU'ÉCRITES AU CLASSEUR, des articles introuvables au catalogue cible. */
+  articlesManquants: string[];
+  /** Sous-recettes elles-mêmes refusées que cette fiche cite (refus par cascade). */
+  sousRecettesRefusees: string[];
+};
+
+/**
+ * Article du catalogue cible ressemblant à un article introuvable. C'est une SUGGESTION À
+ * VÉRIFIER par un humain, JAMAIS une décision : rien n'est rattaché sur cette base.
+ */
+export type Sosie = {
+  designation: string;
+  distance: number;
+  /** 1 = identique, 0 = rien en commun. Simple 1 − distance/longueur. */
+  similarite: number;
+  /**
+   * Les conditionnements lus dans les deux désignations DIFFÈRENT (« 1 L » contre « 5 L ») :
+   * ce ne sont alors PAS le même article, quelle que soit la ressemblance des lettres.
+   */
+  conditionnementDifferent: boolean;
+};
+
+export type ArticleManquant = {
+  /** Désignation telle qu'écrite au classeur (1ʳᵉ occurrence rencontrée). */
+  designation: string;
+  cle: string;
+  /** Nombre de lignes d'ingrédient qui le réclament — sert au tri « du plus utilisé au moins ». */
+  occurrences: number;
+  /** Fiches qui le réclament (dédoublonnées). */
+  fiches: string[];
+  sosie: Sosie | null;
+};
+
+export type PlanFichesSeules = {
+  /** Fiches créables, DANS L'ORDRE DE CRÉATION : sous-recettes d'abord, plats ensuite. */
+  creables: FicheParsee[];
+  refusees: FicheRefusee[];
+  /** Toutes les lignes du classeur, rattachées au catalogue CIBLE (fiches refusées comprises). */
+  lignes: LigneFichesSeules[];
+  /** Articles introuvables, DÉDOUBLONNÉS, du plus utilisé au moins utilisé. */
+  articlesManquants: ArticleManquant[];
+  /** Deux articles du catalogue cible portant la MÊME désignation normalisée : rattachement ambigu. */
+  ambiguitesCatalogue: { cle: string; designations: string[] }[];
+  nbArticlesCatalogue: number;
+};
+
+// ─── Sosies : distance de chaîne, pour SUGGÉRER, jamais pour rattacher ───────
+
+/**
+ * Distance de Levenshtein (insertion / suppression / substitution), en O(n·m) sur deux lignes.
+ * Sert UNIQUEMENT à proposer un sosie à l'œil humain dans le rapport de simulation.
+ */
+export function distanceChaine(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  let precedente = Array.from({ length: b.length + 1 }, (_, j) => j);
+  let courante = new Array<number>(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    courante[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cout = a[i - 1] === b[j - 1] ? 0 : 1;
+      courante[j] = Math.min(courante[j - 1]! + 1, precedente[j]! + 1, precedente[j - 1]! + cout);
+    }
+    [precedente, courante] = [courante, precedente];
+  }
+  return precedente[b.length]!;
+}
+
+/** Sous ce degré de ressemblance, on ne propose RIEN : une suggestion absurde ferait perdre du temps. */
+const SEUIL_SOSIE = 0.55;
+
+// « 1L », « 500 GR », « 12 X 1KG » : quantité COLLÉE à une unité de mesure. Deux désignations dont
+// ces couples diffèrent désignent des conditionnements différents — jamais le même article.
+const CONDITIONNEMENT_LU = /(\d+(?:[.,]\d+)?)\s*(kgs?|grammes?|gr|g|litres?|ltr|lt|l|cl|ml)\b/g;
+
+function conditionnements(cle: string): string {
+  return [...cle.matchAll(CONDITIONNEMENT_LU)]
+    .map((m) => `${m[1]!.replace(",", ".")}${m[2]!}`)
+    .sort()
+    .join("+");
+}
+
+/** Meilleur sosie d'une clé parmi le catalogue cible, ou `null` s'il n'y a rien de ressemblant. */
+function chercherSosie(cle: string, catalogue: Map<string, ArticleCatalogue>): Sosie | null {
+  let meilleur: { cle: string; distance: number } | null = null;
+  for (const candidat of catalogue.keys()) {
+    const distance = distanceChaine(cle, candidat);
+    if (meilleur === null || distance < meilleur.distance) meilleur = { cle: candidat, distance };
+  }
+  if (meilleur === null) return null;
+
+  const longueur = Math.max(cle.length, meilleur.cle.length, 1);
+  const similarite = 1 - meilleur.distance / longueur;
+  if (similarite < SEUIL_SOSIE) return null;
+
+  return {
+    designation: catalogue.get(meilleur.cle)!.designation,
+    distance: meilleur.distance,
+    similarite,
+    conditionnementDifferent: conditionnements(cle) !== conditionnements(meilleur.cle),
+  };
+}
+
+// ─── Plan (PUR : aucune base, aucun effet) ───────────────────────────────────
+
+/**
+ * Décide, SANS RIEN ÉCRIRE, ce que le mode fiches seules ferait face à ce catalogue-là.
+ *
+ * Règle cardinale : une fiche dont au moins un ingrédient ne se rattache pas n'est PAS créée.
+ * `IngredientFiche` n'a aucun champ de libellé — une ligne sans article ni sous-fiche serait
+ * invisible à l'écran, et la fiche présenterait un coût amputé sous l'apparence d'un coût complet.
+ * Le refus se propage : une fiche qui cite une sous-recette refusée est refusée à son tour.
+ */
+export function planifierFichesSeules(res: ResultatParse, catalogue: ArticleCatalogue[]): PlanFichesSeules {
+  // Index du catalogue CIBLE par désignation normalisée — la même clé que partout ailleurs.
+  const parCle = new Map<string, ArticleCatalogue>();
+  const ambigus = new Map<string, string[]>();
+  const tri = [...catalogue].sort((a, b) => a.designation.localeCompare(b.designation) || a.id.localeCompare(b.id));
+  for (const a of tri) {
+    const cle = normaliserDesignation(a.designation);
+    const deja = parCle.get(cle);
+    if (deja) {
+      // Deux articles du catalogue portent la même désignation normalisée : le rattachement est
+      // ambigu. On retient le premier dans un ordre DÉTERMINISTE (désignation puis id) et on le
+      // signale — jamais de fusion silencieuse, jamais de tirage au sort d'une exécution à l'autre.
+      const liste = ambigus.get(cle) ?? [deja.designation];
+      liste.push(a.designation);
+      ambigus.set(cle, liste);
+      continue;
+    }
+    parCle.set(cle, a);
+  }
+
+  const parCleFiche = new Map<string, FicheParsee>();
+  for (const f of res.fiches) for (const c of f.cles) if (!parCleFiche.has(c)) parCleFiche.set(c, f);
+
+  // Rattachement : sous-recette d'abord (elles ne dépendent pas du catalogue pour exister),
+  // puis article DU CATALOGUE CIBLE. Jamais « au plus proche ».
+  const lignes: LigneFichesSeules[] = [];
+  for (const f of res.fiches) {
+    for (const i of f.ingredients) {
+      const sous = parCleFiche.get(i.cle);
+      const article = parCle.get(i.cle);
+      lignes.push({
+        fiche: f,
+        ingredient: i,
+        rattachement:
+          sous && sous !== f ? { type: "SOUS_RECETTE", fiche: sous }
+          : article ? { type: "ARTICLE", article }
+          : { type: "AUCUN" },
+      });
+    }
+  }
+
+  const lignesDe = new Map<FicheParsee, LigneFichesSeules[]>();
+  for (const l of lignes) {
+    const liste = lignesDe.get(l.fiche) ?? [];
+    liste.push(l);
+    lignesDe.set(l.fiche, liste);
+  }
+
+  // 1ᵉʳ motif de refus : un article introuvable.
+  const refusees = new Set<FicheParsee>();
+  for (const f of res.fiches) {
+    if ((lignesDe.get(f) ?? []).some((l) => l.rattachement.type === "AUCUN")) refusees.add(f);
+  }
+
+  // 2ᵉ motif, par CASCADE : citer une fiche refusée. Point fixe — s'arrête forcément, chaque tour
+  // n'ajoute que des fiches (ensemble fini) et un cycle éventuel reste simplement créable.
+  for (let bouge = true; bouge; ) {
+    bouge = false;
+    for (const f of res.fiches) {
+      if (refusees.has(f)) continue;
+      const cite = (lignesDe.get(f) ?? []).some(
+        (l) => l.rattachement.type === "SOUS_RECETTE" && refusees.has(l.rattachement.fiche),
+      );
+      if (cite) {
+        refusees.add(f);
+        bouge = true;
+      }
+    }
+  }
+
+  // Ordre de création INCHANGÉ : sous-recettes d'abord, plats ensuite.
+  const creables = [...res.sousRecettes, ...res.plats].filter((f) => !refusees.has(f));
+
+  const listeRefusees: FicheRefusee[] = [...res.sousRecettes, ...res.plats]
+    .filter((f) => refusees.has(f))
+    .map((f) => ({
+      nom: f.nom,
+      onglet: f.onglet,
+      articlesManquants: (lignesDe.get(f) ?? [])
+        .filter((l) => l.rattachement.type === "AUCUN")
+        .map((l) => l.ingredient.designation),
+      sousRecettesRefusees: [
+        ...new Set(
+          (lignesDe.get(f) ?? [])
+            .filter((l) => l.rattachement.type === "SOUS_RECETTE" && refusees.has(l.rattachement.fiche))
+            .map((l) => (l.rattachement as { type: "SOUS_RECETTE"; fiche: FicheParsee }).fiche.nom),
+        ),
+      ],
+    }));
+
+  // Liste de travail pour la Direction : articles introuvables DÉDOUBLONNÉS, du plus utilisé au
+  // moins utilisé, avec le sosie le plus proche en SUGGESTION.
+  const manquants = new Map<string, ArticleManquant>();
+  for (const l of lignes) {
+    if (l.rattachement.type !== "AUCUN") continue;
+    const existant = manquants.get(l.ingredient.cle);
+    if (existant) {
+      existant.occurrences++;
+      if (!existant.fiches.includes(l.fiche.nom)) existant.fiches.push(l.fiche.nom);
+      continue;
+    }
+    manquants.set(l.ingredient.cle, {
+      designation: l.ingredient.designation,
+      cle: l.ingredient.cle,
+      occurrences: 1,
+      fiches: [l.fiche.nom],
+      sosie: chercherSosie(l.ingredient.cle, parCle),
+    });
+  }
+
+  return {
+    creables,
+    refusees: listeRefusees,
+    lignes,
+    articlesManquants: [...manquants.values()].sort(
+      (a, b) => b.occurrences - a.occurrences || a.designation.localeCompare(b.designation),
+    ),
+    ambiguitesCatalogue: [...ambigus].map(([cle, designations]) => ({ cle, designations })),
+    nbArticlesCatalogue: catalogue.length,
+  };
+}
+
+/** L'empreinte de contenu, calculée sur ce que le mode fiches seules écrirait pour cette fiche. */
+function empreinteFichesSeules(f: FicheParsee, plan: PlanFichesSeules): string {
+  return empreinteDepuisLignes(
+    f,
+    plan.lignes
+      .filter((l) => l.fiche === f)
+      .map((l) => ({
+        designation:
+          l.rattachement.type === "ARTICLE" ? l.rattachement.article.designation
+            : l.rattachement.type === "SOUS_RECETTE" ? l.rattachement.fiche.nom : "?",
+        unite: l.ingredient.unite,
+        quantite: l.ingredient.quantite,
+      })),
+  );
+}
+
+// ─── Simulation du coût sur le catalogue CIBLE ───────────────────────────────
+
+/**
+ * Chiffre les fiches CRÉABLES avec les prix et les unités DU CATALOGUE CIBLE (et non ceux du
+ * classeur, qui ne seront pas écrits ici), en passant par le VRAI moteur (`calculerCout`, non
+ * modifié). Les valeurs injectées sont celles TELLES QU'ELLES SERONT ÉCRITES (quantités à 3
+ * décimales, portions arrondies) : le rapport annonce le coût que l'application affichera.
+ */
+export function simulerCoutsFichesSeules(plan: PlanFichesSeules): SimulationFiche[] {
+  const idDe = (f: FicheParsee) => f.onglet;
+  const fichesCalc = new Map<string, FicheCalc>();
+
+  for (const f of plan.creables) {
+    const ingredients: IngredientCalc[] = plan.lignes
+      .filter((l) => l.fiche === f)
+      .map((l) => {
+        const base = {
+          nom: l.ingredient.designation,
+          unite: l.ingredient.unite,
+          quantite: arrondir(l.ingredient.quantite ?? 0, DECIMALES_QUANTITE).toString(),
+        };
+        if (l.rattachement.type === "ARTICLE") {
+          const a = l.rattachement.article;
+          return {
+            ...base,
+            article: {
+              prixUnitaireUSD: a.prixUnitaireUSD === null ? null : a.prixUnitaireUSD.toString(),
+              unite: a.unite ?? "",
+            },
+          };
+        }
+        if (l.rattachement.type === "SOUS_RECETTE") return { ...base, sousFicheId: idDe(l.rattachement.fiche) };
+        return base; // inatteignable pour une fiche créable : ses lignes sont TOUTES rattachées
+      });
+
+    fichesCalc.set(idDe(f), {
+      id: idDe(f),
+      nom: f.nom,
+      nbPortions: f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
+      tauxTVA: f.tauxTVA === null ? 0.16 : f.tauxTVA, // défaut du schéma, comme à l'écriture
+      prixVenteTTC: f.prixVenteTTC,
+      coefficientMargeCible: f.coefficientMargeCible,
+      estSousRecette: f.estSousRecette,
+      rendementQuantite: f.rendementQuantiteG,
+      rendementUnite: f.rendementQuantiteG === null ? null : "g",
+      ingredients,
+    });
+  }
+
+  const contexte = { fiches: fichesCalc };
+  return plan.creables.map((f) => {
+    const r = calculerCout(fichesCalc.get(idDe(f))!, contexte);
+    const indetermine = r.incomplet && r.coutParPortion.isZero();
+    return {
+      nom: f.nom,
+      incomplet: r.incomplet,
+      motifs: r.ingredientsSansPrix,
+      coutParPortion: indetermine ? null : r.coutParPortion.toDecimalPlaces(4).toString(),
+      coutTotal: indetermine ? null : r.coutTotal,
+      nbPortions: f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
+    };
+  });
+}
+
+// ─── Écriture (fiches uniquement) ────────────────────────────────────────────
+
+/**
+ * Client du mode fiches seules. `articleStock` n'expose QUE `findMany` : il n'existe aucun moyen,
+ * même par erreur de frappe, d'écrire dans le catalogue depuis ce type. C'est la garantie « par
+ * construction » exigée — et non un drapeau que l'on pourrait oublier de tester.
+ */
+export type ClientFichesSeules = {
+  ficheTechnique: {
+    findMany(args: unknown): Promise<FicheEnBase[]>;
+    deleteMany(args: unknown): Promise<{ count: number }>;
+  };
+  ingredientFiche: { findMany(args: unknown): Promise<{ ficheId: string; sousFicheId: string | null }[]> };
+  /** LECTURE SEULE — volontairement dépourvu de `create` / `update` / `upsert` / `deleteMany`. */
+  articleStock: { findMany(args: unknown): Promise<ArticleCatalogue[]> };
+  $transaction<T>(fn: (tx: TxFichesSeules) => Promise<T>, options?: unknown): Promise<T>;
+};
+
+/** Transaction de création : AUCUNE propriété `articleStock`, donc aucun accès possible. */
+type TxFichesSeules = {
+  ficheTechnique: { create(args: { data: Record<string, unknown>; select: unknown }): Promise<{ id: string }> };
+  ingredientFiche: { createMany(args: { data: unknown[] }): Promise<unknown> };
+};
+
+export type OptionsFichesSeules = {
+  force: boolean;
+  /** Noms de fiches divergentes dont la suppression est autorisée NOMMÉMENT (`--supprimer`). */
+  supprimerNommement?: string[];
+};
+
+/**
+ * Rapport du mode fiches seules. Aucun champ « articles créés / mis à jour » : il n'y a rien à y
+ * compter, et un champ à 0 laisserait croire qu'une écriture d'article était seulement possible.
+ */
+export type RapportFichesSeules = {
+  statut: "IMPORTE" | "DEJA_FAIT" | "ABANDON";
+  message: string;
+  fichesSupprimees: string[];
+  fichesProtegees: string[];
+  fichesCreees: number;
+  ingredientsCrees: number;
+  /** Fiches NON importées faute de rattachement — avec le nom exact des articles introuvables. */
+  fichesRefusees: FicheRefusee[];
+  /** Liste de travail : articles introuvables dédoublonnés, du plus utilisé au moins utilisé. */
+  articlesManquants: ArticleManquant[];
+  plan: PlanFichesSeules;
+};
+
+/**
+ * Crée les fiches SANS TOUCHER AU CATALOGUE. `ArticleStock` est LU (pour rattacher) et rien
+ * d'autre : aucune création, aucune mise à jour, aucun upsert — cf. `ClientFichesSeules`.
+ */
+export async function ecrireFichesSeules(
+  prisma: ClientFichesSeules,
+  res: ResultatParse,
+  options: OptionsFichesSeules,
+): Promise<RapportFichesSeules> {
+  // LECTURE du catalogue cible (aucune écriture n'est même exprimable sur ce client).
+  const catalogue = await prisma.articleStock.findMany({
+    select: { id: true, designation: true, unite: true, prixUnitaireUSD: true },
+    orderBy: [{ designation: "asc" }, { id: "asc" }],
+  });
+  const plan = planifierFichesSeules(res, catalogue);
+
+  const vide = {
+    fichesSupprimees: [] as string[],
+    fichesProtegees: [] as string[],
+    fichesCreees: 0,
+    ingredientsCrees: 0,
+    fichesRefusees: plan.refusees,
+    articlesManquants: plan.articlesManquants,
+    plan,
+  };
+
+  if (plan.creables.length === 0) {
+    return {
+      ...vide,
+      statut: "ABANDON",
+      message:
+        `ABANDON : aucune des ${res.fiches.length} fiche(s) du classeur n'est créable sur ce catalogue — ` +
+        `${plan.articlesManquants.length} article(s) distinct(s) y sont introuvables. Rien n'a été écrit, ` +
+        "ni fiche, ni article (ce mode n'écrit JAMAIS dans le catalogue). " +
+        "Fais créer ou renommer les articles manquants, puis relance.",
+    };
+  }
+
+  const autorisees = new Set((options.supprimerNommement ?? []).map((n) => n.trim()));
+
+  // Idempotence : même mécanique que l'import complet — clé naturelle (les noms du classeur)
+  // rapprochée par désignation normalisée, DOUBLÉE de l'empreinte de contenu. Le périmètre est
+  // ici celui des fiches CRÉABLES : une fiche refusée n'est pas attendue en base, et si une fiche
+  // homonyme y existe déjà, elle n'est ni comptée, ni touchée, ni supprimée.
+  const parCleNom = new Map(plan.creables.map((f) => [normaliserDesignation(f.nom), f]));
+  const toutesFiches = await prisma.ficheTechnique.findMany({ select: SELECT_FICHE_SIGNATURE });
+  const existantes = toutesFiches.filter((e) => parCleNom.has(normaliserDesignation(e.nom)));
+
+  const conformes: FicheEnBase[] = [];
+  const divergentes: FicheEnBase[] = [];
+  for (const e of existantes) {
+    const duClasseur = parCleNom.get(normaliserDesignation(e.nom));
+    (duClasseur && empreinteBase(e) === empreinteFichesSeules(duClasseur, plan) ? conformes : divergentes).push(e);
+  }
+  const toutesLa = conformes.length === plan.creables.length && divergentes.length === 0;
+
+  if (!options.force) {
+    if (toutesLa) {
+      return {
+        ...vide,
+        statut: "DEJA_FAIT",
+        message:
+          `Import déjà effectué : les ${conformes.length} fiche(s) créable(s) sont en base, à l'identique. ` +
+          `Rien à faire (${plan.refusees.length} fiche(s) restent non importées, cf. articles manquants).`,
+      };
+    }
+    if (existantes.length > 0) {
+      return {
+        ...vide,
+        statut: "ABANDON",
+        fichesProtegees: divergentes.map((f) => f.nom),
+        message:
+          `ABANDON : ${existantes.length} fiche(s) sur ${plan.creables.length} créable(s) portent déjà un nom du ` +
+          `classeur, dont ${divergentes.length} dont le CONTENU DIFFÈRE` +
+          (divergentes.length > 0 ? ` (${divergentes.map((f) => `« ${f.nom} »`).join(", ")})` : "") +
+          ". Rien n'a été écrit. Ces fiches ont pu être saisies à la main : `FicheTechnique.nom` n'est pas " +
+          "unique, et « Carbonara » ou « Bolognaise » sont des noms de carte ordinaires. Relance avec --force " +
+          'pour remplacer les fiches CONFORMES, et --supprimer "<nom>" pour autoriser nommément la ' +
+          "destruction de chaque fiche divergente.",
+      };
+    }
+  }
+
+  const aSupprimer = [...conformes, ...divergentes.filter((f) => autorisees.has(f.nom))];
+  const refusees = divergentes.filter((f) => !autorisees.has(f.nom));
+  if (options.force && refusees.length > 0) {
+    return {
+      ...vide,
+      statut: "ABANDON",
+      fichesProtegees: refusees.map((f) => f.nom),
+      message:
+        `ABANDON : ${refusees.length} fiche(s) portent un nom du classeur mais un contenu DIFFÉRENT. ` +
+        "--force ne les détruit pas de lui-même : elles ont pu être saisies ou corrigées à la main. " +
+        "Ce qui serait détruit : " +
+        refusees.map((f) => `« ${f.nom} » (${f.ingredients.length} ingrédient(s))`).join(", ") +
+        ". Pour l'autoriser, ajoute : " + refusees.map((f) => `--supprimer "${f.nom}"`).join(" ") +
+        ". Rien n'a été écrit.",
+    };
+  }
+
+  const rapport: RapportFichesSeules = { ...vide, statut: "IMPORTE", message: "" };
+
+  if (aSupprimer.length > 0) {
+    const r = await supprimerEnOrdreDeDependance(prisma, aSupprimer, rapport.fichesSupprimees);
+    if (!r.ok) return { ...rapport, statut: "ABANDON", fichesProtegees: r.protegees, message: r.message };
+  }
+
+  // Création : sous-recettes d'abord, plats ensuite (ordre INCHANGÉ). Les ingrédients ne sont
+  // insérés qu'une fois TOUTES les fiches créées : le lien de sous-recette est alors toujours
+  // résoluble, quel que soit l'ordre.
+  const idFiche = new Map<FicheParsee, string>();
+  await prisma.$transaction(async (tx) => {
+    for (const f of plan.creables) {
+      const cree = await tx.ficheTechnique.create({
+        data: {
+          nom: f.nom,
+          categorie: f.categorie,
+          type: "PLAT",
+          nbPortions: f.nbPortions !== null && f.nbPortions > 0 ? Math.round(f.nbPortions) : 1,
+          tauxTVA: f.tauxTVA === null ? undefined : arrondir(f.tauxTVA, 4).toString(),
+          prixVenteTTC: f.prixVenteTTC === null ? null : arrondir(f.prixVenteTTC, DECIMALES_PRIX).toString(),
+          coefficientMargeCible:
+            f.coefficientMargeCible === null ? null : arrondir(f.coefficientMargeCible, 4).toString(),
+          estSousRecette: f.estSousRecette,
+          // TOUJOURS en grammes : « 4.6 kg » a été converti en 4600 g au parsing.
+          rendementQuantite: f.rendementQuantiteG === null ? null : arrondir(f.rendementQuantiteG, 3).toString(),
+          rendementUnite: f.rendementQuantiteG === null ? null : "g",
+          recette: f.recette,
+          actif: true,
+        },
+        select: { id: true },
+      });
+      idFiche.set(f, cree.id);
+    }
+    rapport.fichesCreees = plan.creables.length;
+
+    const creables = new Set(plan.creables);
+    const aInserer = plan.lignes
+      .filter((l) => creables.has(l.fiche))
+      .map((l) => {
+        // Invariant du mode : une fiche créable a TOUTES ses lignes rattachées. Si cet invariant
+        // tombait, mieux vaut lever ici que créer une ligne muette (ni article, ni sous-fiche).
+        if (l.rattachement.type === "AUCUN") {
+          throw new Error(
+            `Incohérence interne : la fiche « ${l.fiche.nom} » est déclarée créable alors que ` +
+              `« ${l.ingredient.designation} » n'est rattaché à rien. Aucune fiche amputée n'est créée.`,
+          );
+        }
+        return {
+          ficheId: idFiche.get(l.fiche)!,
+          articleId: l.rattachement.type === "ARTICLE" ? l.rattachement.article.id : null,
+          sousFicheId: l.rattachement.type === "SOUS_RECETTE" ? idFiche.get(l.rattachement.fiche)! : null,
+          unite: l.ingredient.unite,
+          quantite: arrondir(l.ingredient.quantite ?? 0, DECIMALES_QUANTITE).toString(),
+          ordre: l.ingredient.ordre,
+        };
+      });
+
+    const TAILLE_LOT = 500;
+    for (let i = 0; i < aInserer.length; i += TAILLE_LOT) {
+      await tx.ingredientFiche.createMany({ data: aInserer.slice(i, i + TAILLE_LOT) });
+    }
+    rapport.ingredientsCrees = aInserer.length;
+  }, { timeout: 120_000 });
+
+  rapport.message =
+    `Import terminé (FICHES SEULES — catalogue NON modifié) : ${rapport.fichesCreees} fiche(s) et ` +
+    `${rapport.ingredientsCrees} ingrédient(s) créés` +
+    (rapport.fichesSupprimees.length > 0 ? `, ${rapport.fichesSupprimees.length} fiche(s) remplacée(s)` : "") +
+    (plan.refusees.length > 0
+      ? `. ${plan.refusees.length} fiche(s) NON importée(s) faute d'ingrédient rattachable (cf. liste).`
+      : ".");
+  return rapport;
+}
+
+// ─── Simulation QUI SE CONNECTE (transaction READ ONLY, vérifiée) ────────────
+
+/** Client de simulation : rien d'autre qu'une transaction, dans laquelle on ne fait que LIRE. */
+export type ClientLectureSeule = {
+  $transaction<T>(fn: (tx: TxLectureSeule) => Promise<T>, options?: unknown): Promise<T>;
+};
+
+type TxLectureSeule = {
+  $executeRawUnsafe(sql: string): Promise<number>;
+  $queryRawUnsafe<T = unknown>(sql: string): Promise<T>;
+  articleStock: { findMany(args: unknown): Promise<ArticleCatalogue[]> };
+  ficheTechnique: { findMany(args: unknown): Promise<{ nom: string }[]> };
+};
+
+export type SimulationFichesSeules = {
+  /** Vrai UNIQUEMENT si PostgreSQL a confirmé `transaction_read_only = on`. Jamais supposé. */
+  lectureSeuleVerifiee: boolean;
+  nbArticlesCatalogue: number;
+  plan: PlanFichesSeules;
+  couts: SimulationFiche[];
+  /** Fiches DÉJÀ en base portant le nom d'une fiche créable : l'import les refuserait sans --force. */
+  homonymesEnBase: string[];
+};
+
+/** Sentinelle : provoque le ROLLBACK de la transaction de simulation. Jamais une vraie erreur. */
+class FinDeSimulation extends Error {
+  constructor() {
+    super("Fin de simulation : ROLLBACK volontaire.");
+    this.name = "FinDeSimulation";
+  }
+}
+
+/**
+ * Simulation QUI SE CONNECTE, en LECTURE SEULE. Le `--dry-run` ordinaire n'ouvre aucune connexion
+ * et ne peut donc rien dire d'un catalogue réel ; celui-ci lit le vrai catalogue et rapporte ce
+ * qui se passerait, sans qu'aucune écriture ne soit possible :
+ *   - `SET TRANSACTION READ ONLY` place la transaction en lecture seule ;
+ *   - `SHOW transaction_read_only` le VÉRIFIE — si le drapeau n'est pas « on », on abandonne
+ *     plutôt que de simuler sur une connexion capable d'écrire ;
+ *   - la transaction se termine par un ROLLBACK (sentinelle), jamais par un commit.
+ */
+export async function simulerFichesSeules(
+  prisma: ClientLectureSeule,
+  res: ResultatParse,
+): Promise<SimulationFichesSeules> {
+  let capture: SimulationFichesSeules | undefined;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+      const drapeau = await tx.$queryRawUnsafe<{ transaction_read_only: string }[]>("SHOW transaction_read_only");
+      const lectureSeule = drapeau?.[0]?.transaction_read_only === "on";
+      if (!lectureSeule) {
+        throw new Error(
+          "La transaction n'a PAS pu être placée en LECTURE SEULE (« SHOW transaction_read_only » ≠ « on ») : " +
+            "simulation abandonnée. On ne simule pas sur une connexion capable d'écrire.",
+        );
+      }
+
+      const catalogue = await tx.articleStock.findMany({
+        select: { id: true, designation: true, unite: true, prixUnitaireUSD: true },
+        orderBy: [{ designation: "asc" }, { id: "asc" }],
+      });
+      const fichesEnBase = await tx.ficheTechnique.findMany({ select: { nom: true } });
+
+      const plan = planifierFichesSeules(res, catalogue);
+      const clesCreables = new Set(plan.creables.map((f) => normaliserDesignation(f.nom)));
+      capture = {
+        lectureSeuleVerifiee: true,
+        nbArticlesCatalogue: catalogue.length,
+        plan,
+        couts: simulerCoutsFichesSeules(plan),
+        homonymesEnBase: fichesEnBase.filter((f) => clesCreables.has(normaliserDesignation(f.nom))).map((f) => f.nom),
+      };
+      throw new FinDeSimulation(); // ROLLBACK : une simulation ne valide rien, même en lecture.
+    }, { timeout: 120_000 });
+  } catch (e) {
+    if (!(e instanceof FinDeSimulation)) throw e;
+  }
+
+  if (capture === undefined) {
+    throw new Error("Simulation interrompue avant d'avoir pu lire le catalogue : rien n'est rapporté.");
+  }
+  return capture;
+}
+
+// ─── Rapport du mode fiches seules ───────────────────────────────────────────
+
+export function formaterRapportFichesSeules(
+  res: ResultatParse,
+  plan: PlanFichesSeules,
+  couts: SimulationFiche[],
+  contexte: { nbArticlesCatalogue: number; homonymesEnBase?: string[]; lectureSeuleVerifiee?: boolean },
+): string {
+  const out: string[] = [];
+  const trait = "═".repeat(78);
+
+  out.push(`\n${trait}`);
+  out.push("MODE FICHES SEULES — LE CATALOGUE `ArticleStock` N'EST PAS TOUCHÉ");
+  out.push(trait);
+  out.push("Ni création, ni mise à jour, ni écrasement de prix : ce mode LIT le catalogue pour");
+  out.push("rattacher les ingrédients, et n'y écrit rien (garanti par construction, cf. en-tête).");
+  if (contexte.lectureSeuleVerifiee !== undefined) {
+    out.push(
+      contexte.lectureSeuleVerifiee
+        ? "Connexion ouverte en TRANSACTION READ ONLY, vérifiée par « SHOW transaction_read_only » = on,"
+          + "\npuis ROLLBACK : aucune écriture n'était possible pendant cette lecture."
+        : "/!\\ Lecture seule NON vérifiée — ce rapport ne devrait pas exister.",
+    );
+  }
+
+  // « Créable » et non « créé » : ce bloc décrit le PÉRIMÈTRE calculé sur ce catalogue. Ce qui a
+  // réellement été écrit (0 en cas d'abandon, 0 en simulation) est dit par le statut, plus bas —
+  // deux choses différentes, jamais annoncées sous le même mot.
+  out.push(`\n${"─".repeat(78)}\n1. PÉRIMÈTRE — CE QUI EST CRÉABLE SUR CE CATALOGUE\n${"─".repeat(78)}`);
+  const nbSousRecettes = plan.creables.filter((f) => f.estSousRecette).length;
+  out.push(`Articles au catalogue cible ........ ${contexte.nbArticlesCatalogue}`);
+  out.push(`Fiches du classeur ................. ${res.fiches.length}  (${res.sousRecettes.length} sous-recettes + ${res.plats.length} plats)`);
+  out.push(`Fiches CRÉABLES .................... ${plan.creables.length}  (${nbSousRecettes} sous-recette(s) + ${plan.creables.length - nbSousRecettes} plat(s))`);
+  out.push(`Fiches REFUSÉES .................... ${plan.refusees.length}  (au moins un ingrédient non rattachable)`);
+  const creablesSet = new Set(plan.creables);
+  const nbIngredients = plan.lignes.filter((l) => creablesSet.has(l.fiche)).length;
+  out.push(`Ingrédients rattachés .............. ${nbIngredients}`);
+  if (contexte.homonymesEnBase && contexte.homonymesEnBase.length > 0) {
+    out.push("");
+    out.push(`/!\\ ${contexte.homonymesEnBase.length} fiche(s) portent DÉJÀ un nom de fiche créable en base :`);
+    out.push(`    ${contexte.homonymesEnBase.join(", ")}`);
+    out.push("    L'import s'arrêtera sans --force (et --force reste protégé par l'empreinte de contenu).");
+  }
+
+  out.push(`\n${"─".repeat(78)}\n2. FICHES NON IMPORTÉES, ET POURQUOI\n${"─".repeat(78)}`);
+  out.push("Une fiche à laquelle il manque UN ingrédient n'est PAS créée du tout. `IngredientFiche`");
+  out.push("n'a aucun champ de libellé : une ligne sans article ni sous-fiche serait MUETTE à l'écran,");
+  out.push("et la fiche afficherait un coût amputé avec l'apparence d'un coût complet. Mieux vaut pas");
+  out.push("de fiche qu'une fiche mensongère.");
+  if (plan.refusees.length === 0) out.push("  Aucune : toutes les fiches du classeur sont créables sur ce catalogue.");
+  for (const f of plan.refusees) {
+    out.push(`  • « ${f.nom} » (onglet ${f.onglet})`);
+    if (f.articlesManquants.length > 0) {
+      out.push(`      articles introuvables : ${f.articlesManquants.map((a) => `« ${a} »`).join(", ")}`);
+    }
+    if (f.sousRecettesRefusees.length > 0) {
+      out.push(`      sous-recette(s) elles-mêmes non créées : ${f.sousRecettesRefusees.map((s) => `« ${s} »`).join(", ")}`);
+    }
+  }
+
+  out.push(`\n${"─".repeat(78)}\n3. ARTICLES À CRÉER OU À RENOMMER (liste de travail pour la Direction)\n${"─".repeat(78)}`);
+  out.push("Dédoublonnés, DU PLUS UTILISÉ AU MOINS UTILISÉ. Le « sosie » est une SUGGESTION à");
+  out.push("vérifier à l'œil, JAMAIS une décision : rien n'est rattaché sur cette base.");
+  out.push("/!\\ ATTENTION AUX CONDITIONNEMENTS. « Huile 1L régina » et « Huile 5L régina » ne");
+  out.push("    diffèrent que d'un caractère et ne sont PAS le même article. Une ressemblance de");
+  out.push("    lettres n'est pas une identité de produit : c'est un humain qui tranche.");
+  if (plan.articlesManquants.length === 0) out.push("  Aucun : chaque ingrédient a trouvé son article au catalogue.");
+  for (const a of plan.articlesManquants) {
+    out.push(`  • « ${a.designation} » — ${a.occurrences} ligne(s), ${a.fiches.length} fiche(s) : ${a.fiches.join(", ")}`);
+    if (a.sosie === null) {
+      out.push("      sosie : aucun article du catalogue ne lui ressemble assez pour être proposé.");
+    } else {
+      out.push(
+        `      SOSIE POSSIBLE (à vérifier) : « ${a.sosie.designation} » ` +
+          `— ${Math.round(a.sosie.similarite * 100)} % de ressemblance, ${a.sosie.distance} caractère(s) d'écart`,
+      );
+      if (a.sosie.conditionnementDifferent) {
+        out.push("      /!\\ LES CONDITIONNEMENTS LUS DIFFÈRENT : très probablement DEUX ARTICLES DISTINCTS.");
+      }
+    }
+  }
+
+  out.push(`\n${"─".repeat(78)}\n4. COÛT DES FICHES CRÉABLES (moteur src/lib/fiches/cout.ts, non modifié)\n${"─".repeat(78)}`);
+  const incompletes = couts.filter((s) => s.incomplet);
+  out.push(`  Coût COMPLET ................ ${couts.length - incompletes.length} / ${couts.length}`);
+  out.push(`  Coût PARTIEL ou indéterminé . ${incompletes.length}`);
+  out.push("  (Prix et unités lus DANS LE CATALOGUE CIBLE, pas dans le classeur : c'est bien le coût");
+  out.push("   que l'application affichera après import.)");
+  for (const s of incompletes) {
+    out.push(`  • ${s.nom} : ${s.motifs.join(" | ") || "aucune ligne valorisée"}`);
+  }
+
+  if (plan.ambiguitesCatalogue.length > 0) {
+    out.push(`\n${"─".repeat(78)}\n5. AMBIGUÏTÉS DU CATALOGUE CIBLE (rattachement au 1ᵉʳ, signalé)\n${"─".repeat(78)}`);
+    out.push("  Deux articles du catalogue portent la même désignation normalisée. Le rattachement");
+    out.push("  retient le premier dans un ordre déterministe (désignation puis id) — à dédoublonner");
+    out.push("  côté application, sinon le coût dépend de celui des deux qui porte le bon prix.");
+    for (const c of plan.ambiguitesCatalogue) out.push(`  • « ${c.cle} » ← ${c.designations.join(" / ")}`);
+  }
+
+  return out.join("\n");
+}
+
 // ─── Exécution ───────────────────────────────────────────────────────────────
 
 /** Valeurs de `--supprimer "<nom>"` (répétable), séparées de l'URL et du chemin de fichier. */
@@ -1543,6 +2378,7 @@ async function main() {
   const args = process.argv.slice(2);
   const force = args.includes("--force");
   const dryRun = args.includes("--dry-run");
+  const fichesSeules = args.includes("--fiches-seules");
   const conserverPrixExistants = args.includes("--conserver-prix-existants");
   const supprimerNommement = lireSupprimer(args);
 
@@ -1555,20 +2391,49 @@ async function main() {
   const databaseUrl = urls[0] ?? process.env.IMPORT_DATABASE_URL;
   const cheminFichier = chemins[0] ?? CHEMIN_PAR_DEFAUT;
 
+  const libelleMode = fichesSeules
+    ? dryRun
+      ? "FICHES SEULES — SIMULATION EN LECTURE SEULE (connexion réelle, transaction READ ONLY)"
+      : "FICHES SEULES — import des fiches, catalogue NON modifié"
+    : dryRun
+      ? "MARCHE À VIDE (aucune écriture, aucune connexion)"
+      : "IMPORT";
   console.log(`Fichier source : ${cheminFichier}`);
-  console.log(`Mode : ${dryRun ? "MARCHE À VIDE (aucune écriture, aucune connexion)" : "IMPORT"}`);
+  console.log(`Mode : ${libelleMode}`);
+  if (fichesSeules && conserverPrixExistants) {
+    console.log(
+      "Note : --conserver-prix-existants est SANS OBJET en mode fiches seules — aucun prix d'article " +
+        "n'est écrit de toute façon.",
+    );
+  }
 
   const wb = XLSX.readFile(cheminFichier, { cellFormula: false, cellHTML: false, cellStyles: false, bookDeps: false });
   const res = analyserClasseur(wb);
+
+  if (fichesSeules) {
+    // Le rapport ci-dessous analyse LE CLASSEUR : ses sections sur les articles (écarts de prix,
+    // prix invraisemblables, arrondis) décrivent ce que ferait l'import COMPLET. En mode fiches
+    // seules, RIEN de tout cela n'est écrit — elles restent affichées parce qu'elles documentent
+    // le classeur, pas parce qu'elles seraient appliquées.
+    console.log(
+      "\n/!\\ MODE FICHES SEULES : les sections « ÉCARTS DE PRIX », « PRIX INVRAISEMBLABLES » et\n" +
+        "    « ARRONDIS » du rapport ci-dessous décrivent l'import COMPLET. Ici, AUCUN article n'est\n" +
+        "    créé ni mis à jour : elles sont informatives sur le classeur, rien de plus.",
+    );
+  }
   console.log(formaterRapport(res, simulerCouts(res), simulerCouts(res, { arrondiSchema: true })));
 
-  if (dryRun) return;
+  if (dryRun && !fichesSeules) return;
 
   if (!databaseUrl) {
     throw new Error(
       'DATABASE_URL manquante : passe-la en 1er argument (npx tsx scripts/import-fiches-plats.ts "postgresql://...") ' +
         "ou via IMPORT_DATABASE_URL, ou lance --dry-run. Aucun défaut vers la prod n'est fourni volontairement " +
-        "(le .env du dépôt pointe la PRODUCTION)."
+        "(le .env du dépôt pointe la PRODUCTION)." +
+        (fichesSeules && dryRun
+          ? " La simulation --fiches-seules --dry-run SE CONNECTE (en lecture seule) : elle a besoin de l'URL, " +
+            "et ne se rabat pas non plus sur le .env."
+          : "")
     );
   }
   console.log(`\nBase cible : ${databaseUrl.replace(/:[^:@/]+@/, ":***@")}`); // mot de passe masqué
@@ -1576,6 +2441,48 @@ async function main() {
   const { PrismaClient } = await import("@prisma/client");
   const { PrismaPg } = await import("@prisma/adapter-pg");
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+
+  if (fichesSeules) {
+    try {
+      if (dryRun) {
+        const sim = await simulerFichesSeules(prisma as unknown as ClientLectureSeule, res);
+        console.log(
+          formaterRapportFichesSeules(res, sim.plan, sim.couts, {
+            nbArticlesCatalogue: sim.nbArticlesCatalogue,
+            homonymesEnBase: sim.homonymesEnBase,
+            lectureSeuleVerifiee: sim.lectureSeuleVerifiee,
+          }),
+        );
+        console.log("\nSIMULATION — transaction annulée (ROLLBACK). Aucune écriture, nulle part.");
+        return;
+      }
+
+      const r = await ecrireFichesSeules(prisma as unknown as ClientFichesSeules, res, { force, supprimerNommement });
+      console.log(
+        formaterRapportFichesSeules(res, r.plan, simulerCoutsFichesSeules(r.plan), {
+          nbArticlesCatalogue: r.plan.nbArticlesCatalogue,
+        }),
+      );
+      console.log(`\n${r.statut} — ${r.message}`);
+      if (r.fichesSupprimees.length > 0) {
+        console.log(
+          r.statut === "ABANDON"
+            ? `\n/!\\ ${r.fichesSupprimees.length} fiche(s) SUPPRIMÉE(S) avant l'abandon, et NON réécrites : ${r.fichesSupprimees.join(", ")}`
+            : `Fiches remplacées (contenu identique au classeur, ou destruction autorisée par --supprimer) : ${r.fichesSupprimees.join(", ")}`
+        );
+      }
+      if (r.fichesRefusees.length > 0) {
+        console.log(
+          `\n/!\\ ${r.fichesRefusees.length} fiche(s) NON importée(s) : il leur manque au moins un article au ` +
+            "catalogue (cf. §2 et §3 ci-dessus). Aucune fiche amputée n'a été créée."
+        );
+      }
+      if (r.statut === "ABANDON") process.exitCode = 1;
+    } finally {
+      await prisma.$disconnect();
+    }
+    return;
+  }
 
   try {
     const r = await ecrireEnBase(prisma as unknown as ClientEcriture, res, { force, supprimerNommement, conserverPrixExistants });
