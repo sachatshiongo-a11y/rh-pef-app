@@ -1523,6 +1523,9 @@ model FicheTechnique {
   rendementUnite        String?
   recette               String?   @db.Text
   actif                 Boolean   @default(true)
+  // URL PRIVÉE (jamais l'URL publique du bucket) : servie par /fichiers/[...chemin], session
+  // obligatoire — même patron que Employee.photoUrl (src/app/(app)/employes/photo-actions.ts).
+  photoUrl              String?
   creeLe                DateTime  @default(now())
   majLe                 DateTime  @updatedAt
 
