@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
+import { VignettePlat } from "@/components/vignette-plat";
 import { EtatVide } from "@/components/etat-vide";
 import { estErreur } from "@/lib/action-lisible";
 import { usd } from "@/lib/stock";
@@ -18,6 +19,8 @@ export type FicheRow = {
   type: string;
   estSousRecette: boolean;
   actif: boolean;
+  /** Photo du plat — pure affichage (référence de dressage), aucune incidence sur le coût. */
+  photoUrl: string | null;
   nbPortions: number;
   nbIngredients: number;
   coutPortion: number;
@@ -172,6 +175,11 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
           {visibles.map((f) => (
             <li key={f.id} className={`flex items-center gap-2 px-3 py-2 ${sel.has(f.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
               <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="shrink-0" aria-label={`Sélectionner ${f.nom}`} />
+              {/* Vignette : la photo si la fiche en a une, sinon un cadre neutre — carré à coins
+                  arrondis (jamais un cercle : un plat n'est pas un visage, voir vignette-plat.tsx). */}
+              <Link href={`/stock/fiches/${f.id}`} className="shrink-0" tabIndex={-1} aria-hidden>
+                <VignettePlat nom={f.nom} photoUrl={f.photoUrl} />
+              </Link>
               <div className="min-w-0 flex-1">
                 <Link href={`/stock/fiches/${f.id}`} className="font-medium text-primary hover:underline">{f.nom}</Link>
                 {f.estSousRecette && <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-800">Sous-recette</span>}

@@ -12,7 +12,7 @@ const art = (id: string, designation: string, unite: string, prix: string | null
 const fiche = (p: Partial<FicheVue> & { id: string; nom: string }): FicheVue => ({
   categorie: "", type: "PLAT", nbPortions: 1, tauxTVA: "0.16", prixVenteTTC: "",
   coefficientMargeCible: "", estSousRecette: false, rendementQuantite: "", rendementUnite: "",
-  recette: "", actif: true, lignes: [], ...p,
+  recette: "", actif: true, photoUrl: null, lignes: [], ...p,
 });
 
 describe("passerelle écran → moteur de coût", () => {

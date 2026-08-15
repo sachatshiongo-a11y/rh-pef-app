@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
+import { VignettePlat } from "@/components/vignette-plat";
 import { estErreur } from "@/lib/action-lisible";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
 import { usd, qte } from "@/lib/stock";
@@ -12,6 +13,8 @@ import {
   type ArticleOption, type FicheVue, type LigneFiche,
 } from "../_data/fiche-calc";
 import { ajouterIngredient, dupliquerFiches, modifierFiche, remplacerIngredients, supprimerFiches, supprimerIngredients } from "../actions";
+import { envoyerPhotoFiche, supprimerPhotoFiche } from "../photo-actions";
+import { dejaLeger, reduireImage } from "./reduire-photo";
 
 type AutreFiche = { id: string; nom: string; estSousRecette: boolean };
 
@@ -47,6 +50,8 @@ export function EditerFiche({
   const [ent, setEnt] = useState(vue);
   const [lignes, setLignes] = useState<LigneFiche[]>(vue.lignes);
   const [nouvelle, setNouvelle] = useState({ source: "", unite: "", quantite: "" });
+  const [photoFichier, setPhotoFichier] = useState<File | null>(null);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
 
   const mapArticles = new Map(articles.map((a) => [a.id, a]));
@@ -120,6 +125,47 @@ export function EditerFiche({
     });
   };
 
+  /**
+   * Une photo choisie à la main sur téléphone n'est pas allégée par l'action serveur : on la réduit
+   * ICI, avant tout envoi, et on le dit à l'écran plutôt que de laisser filer plusieurs Mo sur un
+   * réseau lent. Une photo déjà légère (import du classeur, ou déjà compressée) part telle quelle.
+   */
+  const choisirPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = ""; // permet de re-choisir le même fichier après une annulation
+    if (!f) return;
+    setErreur(null);
+    if (dejaLeger(f.size)) { setPhotoFichier(f); setPhotoNote(null); return; }
+    try {
+      const { fichier, note } = await reduireImage(f);
+      setPhotoFichier(fichier);
+      setPhotoNote(note);
+    } catch {
+      // Navigateur trop ancien pour le canvas de réduction : on ne bloque pas l'envoi en silence,
+      // mais on refuse d'emblée ce que le serveur refuserait de toute façon (> 5 Mo).
+      if (f.size > 5 * 1024 * 1024) {
+        setErreur("Photo trop lourde (max 5 Mo) et impossible à réduire automatiquement dans ce navigateur. Choisissez-en une plus légère.");
+        return;
+      }
+      setPhotoFichier(f);
+      setPhotoNote("Réduction automatique indisponible dans ce navigateur : envoi de la photo telle quelle.");
+    }
+  };
+
+  const annulerPhoto = () => { setPhotoFichier(null); setPhotoNote(null); };
+
+  const envoyerPhoto = () => {
+    if (!photoFichier) return;
+    const fd = new FormData();
+    fd.set("photo", photoFichier);
+    run(() => envoyerPhotoFiche(vue.id, fd), () => { setPhotoFichier(null); setPhotoNote(null); router.refresh(); });
+  };
+
+  const retirerPhoto = () => {
+    if (!confirm("Retirer la photo de cette fiche ?")) return;
+    run(() => supprimerPhotoFiche(vue.id), () => router.refresh());
+  };
+
   return (
     <div className="space-y-5">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
@@ -136,6 +182,19 @@ export function EditerFiche({
           <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>
         </div>
       </div>
+
+      {/* ── Photo du plat ────────────────────────────────────────────────── */}
+      <PhotoPlat
+        nom={ent.nom}
+        photoUrl={ent.photoUrl}
+        fichier={photoFichier}
+        note={photoNote}
+        isPending={isPending}
+        onChoisir={choisirPhoto}
+        onEnvoyer={envoyerPhoto}
+        onAnnuler={annulerPhoto}
+        onRetirer={retirerPhoto}
+      />
 
       {/* ── Entête ───────────────────────────────────────────────────────── */}
       <form action={(fd) => run(() => modifierFiche(vue.id, fd))} className="rounded-xl border p-4">
@@ -383,6 +442,69 @@ function etiquette(base: string, conseille: boolean, note: string | null): strin
 }
 
 // ─── Sous-composants ─────────────────────────────────────────────────────────
+
+/**
+ * Photo du plat : sert de référence de dressage pour la cuisine, en haut de la fiche — la même
+ * chose qu'on ouvre pour lire la recette est ce qu'on regarde pour vérifier l'assiette. Cadrée en
+ * paysage via `VignettePlat` (jamais en cercle comme `Avatar` : un plat n'est pas un visage, un
+ * cadrage rond rognerait le dressage) et propose d'emblée d'en ajouter une quand il n'y en a pas
+ * encore — jamais un trou vide.
+ */
+function PhotoPlat({
+  nom, photoUrl, fichier, note, isPending, onChoisir, onEnvoyer, onAnnuler, onRetirer,
+}: {
+  nom: string;
+  photoUrl: string | null;
+  fichier: File | null;
+  note: string | null;
+  isPending: boolean;
+  onChoisir: (e: ChangeEvent<HTMLInputElement>) => void;
+  onEnvoyer: () => void;
+  onAnnuler: () => void;
+  onRetirer: () => void;
+}) {
+  // Aperçu local de la sélection en cours (avant envoi) : révoqué à chaque changement pour ne pas
+  // accumuler d'URL objet en mémoire.
+  const apercu = useMemo(() => (fichier ? URL.createObjectURL(fichier) : null), [fichier]);
+  useEffect(() => () => { if (apercu) URL.revokeObjectURL(apercu); }, [apercu]);
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 sm:flex-row sm:items-center">
+      {/* Cadre paysage (3:2), pas un cercle : c'est tout le dressage dans l'assiette qui doit se
+          lire, jusqu'aux bords — voir vignette-plat.tsx. L'aperçu d'une sélection en cours prime
+          sur la photo déjà enregistrée. */}
+      <div className="w-full shrink-0 sm:w-72">
+        <VignettePlat nom={nom} photoUrl={apercu ?? photoUrl} taille="grande" />
+      </div>
+      <div className="min-w-[16rem] flex-1 space-y-1.5">
+        <p className="text-sm font-medium">Photo du plat</p>
+        <p className="text-xs text-muted-foreground">
+          {photoUrl
+            ? "Référence visuelle pour le dressage en cuisine."
+            : "Aucune photo pour l'instant — ajoutez-en une comme référence de dressage pour la cuisine."}
+        </p>
+        {note && <p className="text-xs text-amber-800">{note}</p>}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={onChoisir} className="text-xs" aria-label="Choisir une photo du plat" />
+          {fichier ? (
+            <>
+              <button onClick={onEnvoyer} disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
+                {photoUrl ? "Remplacer la photo" : "Envoyer la photo"}
+              </button>
+              <button onClick={onAnnuler} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50">Annuler</button>
+            </>
+          ) : (
+            photoUrl && (
+              <button onClick={onRetirer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">
+                Retirer la photo
+              </button>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function LigneIngredient({
   ligne, cout, article, sousFiche, articles, autresFiches, modifiee, selectionnee, onToggle, onChange,

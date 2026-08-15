@@ -25,6 +25,7 @@ const SELECT_FICHE = {
   rendementUnite: true,
   recette: true,
   actif: true,
+  photoUrl: true,
   ingredients: {
     orderBy: { ordre: "asc" },
     select: { id: true, articleId: true, sousFicheId: true, unite: true, quantite: true, ordre: true },
@@ -55,6 +56,7 @@ export async function chargerFichesVues(): Promise<FicheVue[]> {
     rendementUnite: s(f.rendementUnite),
     recette: s(f.recette),
     actif: f.actif,
+    photoUrl: f.photoUrl,
     lignes: f.ingredients.map((i) => ({
       id: i.id,
       articleId: i.articleId,

@@ -47,6 +47,8 @@ export type FicheVue = {
   rendementUnite: string;
   recette: string;
   actif: boolean;
+  /** Photo du plat (référence de dressage) — pure mise en forme, aucune incidence sur le coût. */
+  photoUrl: string | null;
   lignes: LigneFiche[];
 };
 

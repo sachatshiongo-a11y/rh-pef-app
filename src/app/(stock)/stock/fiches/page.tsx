@@ -24,6 +24,7 @@ export default async function FichesPage() {
       type: v.type,
       estSousRecette: v.estSousRecette,
       actif: v.actif,
+      photoUrl: v.photoUrl,
       nbPortions: v.nbPortions,
       nbIngredients: v.lignes.length,
       // Arrondi UNIQUE au centime, par le moteur : jamais de `.toFixed(2)` maison.

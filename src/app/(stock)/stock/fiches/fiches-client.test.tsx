@@ -19,7 +19,7 @@ type FicheRow = Parameters<typeof FichesClient>[0]["fiches"][number];
 
 const base: FicheRow = {
   id: "f1", nom: "Bolognaise", categorie: "Pâtes classiques", type: "PLAT",
-  estSousRecette: false, actif: true, nbPortions: 1, nbIngredients: 2,
+  estSousRecette: false, actif: true, photoUrl: null, nbPortions: 1, nbIngredients: 2,
   coutPortion: 1.61, coutConnu: true, coutPartiel: false, incomplet: false,
   nbIndetermines: 0, prixVenteHT: 20.24, prixEstConseille: true, tauxMarque: 0.875,
 };
