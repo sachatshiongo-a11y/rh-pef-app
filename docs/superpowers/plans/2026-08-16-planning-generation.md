@@ -1133,16 +1133,31 @@ describe("genererPlanning — passe complémentaire", () => {
     expect(r.rapport.depassements).toHaveLength(0);
   });
 
-  it("rapporte les salariés restés sous leurs heures", () => {
+  it("rapporte les salariés restés sous leurs heures, au prorata de la période", () => {
+    // Semaine complète (6 jours ouvrables → 48 h attendues), mais 2 jours de congé approuvé :
+    // seuls 4 jours sont planifiables, soit 32 h. Le manque est réel et doit être signalé.
     const r = genererPlanning(entreesBase({
-      debut: d("2026-07-06"), fin: d("2026-07-07"), // 2 jours seulement
+      debut: d("2026-07-06"), fin: d("2026-07-11"),
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 48 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      conges: [{ employeeId: "e1", dateDebut: d("2026-07-09"), dateFin: d("2026-07-10") }],
+      options: optionsCompleter,
+    }));
+    expect(r.rapport.sousHeures).toEqual([
+      { employeeId: "e1", heuresPlanifiees: 32, heuresContractuelles: 48 },
+    ]);
+  });
+
+  it("n'annonce AUCUN manque sur une période à cheval qui couvre bien une semaine de travail", () => {
+    // Le piège corrigé : mercredi → mardi touche DEUX lundis civils mais ne couvre qu'une seule
+    // semaine de travail. Compter deux fois l'horaire hebdomadaire inventait un manque de 48 h.
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-08"), fin: d("2026-07-14"), // mercredi → mardi
       employes: [{ ...employe("e1"), heuresHebdomadaires: 48 }],
       shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
       options: optionsCompleter,
     }));
-    expect(r.rapport.sousHeures).toEqual([
-      { employeeId: "e1", heuresPlanifiees: 16, heuresContractuelles: 48 },
-    ]);
+    expect(r.rapport.sousHeures).toEqual([]);
   });
 });
 ```
@@ -1187,7 +1202,13 @@ Dans `src/lib/planning-auto.ts`, après la boucle de couverture et avant le `ret
   }
 
   // Salariés restés sous leurs heures contractuelles sur la période.
-  const nbSemaines = Math.max(1, new Set(joursPeriode.map((j) => iso(lundiDeUTC(j)))).size);
+  //
+  // L'attendu se calcule AU PRORATA des jours réellement planifiables, pas du nombre de lundis
+  // touchés. Une période mercredi → mardi touche deux lundis sans couvrir deux semaines : compter
+  // deux fois l'horaire hebdomadaire annoncerait un manque qui n'existe pas, et pousserait à
+  // sur-planifier quelqu'un qui a déjà son compte.
+  const joursActifsParSemaine = Math.max(1, joursAutorises.size);
+  const proportionSemaines = joursPeriode.length / joursActifsParSemaine;
   const heuresTotales = new Map<string, number>();
   for (const c of creneaux) ajouter(heuresTotales, c.employeeId, dureeParShift.get(c.shiftId) ?? 0);
   if (!options.ecraser) {
@@ -1197,7 +1218,8 @@ Dans `src/lib/planning-auto.ts`, après la boucle de couverture et avant le `ret
     .map((e) => ({
       employeeId: e.id,
       heuresPlanifiees: heuresTotales.get(e.id) ?? 0,
-      heuresContractuelles: (e.heuresHebdomadaires || 48) * nbSemaines,
+      heuresContractuelles:
+        Math.round((e.heuresHebdomadaires || 48) * proportionSemaines * 100) / 100,
     }))
     .filter((x) => x.heuresPlanifiees < x.heuresContractuelles - 0.01);
 ```
