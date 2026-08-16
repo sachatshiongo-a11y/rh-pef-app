@@ -3,9 +3,40 @@ import Decimal from "decimal.js";
 // Utilitaire pur de conversion d'unités pour les fiches techniques : aucune dépendance
 // Prisma/base, uniquement des Decimal en pleine précision (jamais de flottant).
 
-/** Normalise une unité pour comparaison : minuscules, espaces superflus retirés. */
+// Variantes d'écriture courantes ramenées à l'unité canonique déjà connue du système.
+// Attention : ceci n'est QUE de l'orthographe — chaque entrée désigne exactement la même
+// unité physique que sa cible (« litre » = « l »), jamais une unité différente. N'ajouter
+// ici aucune équivalence entre grandeurs distinctes (ex. un poids d'emballage n'est pas un
+// alias d'unité de comptage : cela relève de poidsEmballage, pas de cette table).
+const ALIAS_UNITE: Record<string, string> = {
+  // Masse
+  gramme: "g",
+  grammes: "g",
+  gr: "g",
+  kilo: "kg",
+  kilos: "kg",
+  kilogramme: "kg",
+  kilogrammes: "kg",
+  // Volume
+  litre: "l",
+  litres: "l",
+  millilitre: "ml",
+  millilitres: "ml",
+  centilitre: "cl",
+  centilitres: "cl",
+  // Comptage : pluriels vers le singulier déjà reconnu
+  pièces: "pièce",
+  unités: "unité",
+  bouteilles: "bouteille",
+  boîtes: "boîte",
+  paquets: "paquet",
+};
+
+/** Normalise une unité pour comparaison : minuscules, espaces superflus retirés, variantes
+ * d'écriture courantes ramenées à l'unité canonique (ex. « Litres » → « l »). */
 export function normaliserUnite(unite: string): string {
-  return unite.trim().toLowerCase();
+  const brut = unite.trim().toLowerCase();
+  return ALIAS_UNITE[brut] ?? brut;
 }
 
 // Facteurs vers l'unité de référence de chaque grandeur (base = gramme pour la masse,
