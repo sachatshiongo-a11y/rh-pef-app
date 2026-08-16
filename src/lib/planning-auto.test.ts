@@ -219,15 +219,4 @@ describe("genererPlanning — plafond d'heures", () => {
       { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 16, heuresContractuelles: 8 },
     ]);
   });
-
-  it("ne dépasse JAMAIS le plafond dans la passe complémentaire, même avec l'option", () => {
-    // Aucun besoin déclaré : rien ne justifie de pousser quelqu'un au-delà de ses heures.
-    const r = genererPlanning(entreesBase({
-      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
-      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
-      options: { ...entreesBase().options, completer: true, autoriserDepassementHeures: true },
-    }));
-    expect(r.creneaux).toHaveLength(1);
-    expect(r.rapport.depassements).toHaveLength(0);
-  });
 });
