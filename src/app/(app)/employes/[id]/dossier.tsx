@@ -17,6 +17,9 @@ import {
 import { FinContratForm } from "./fin-contrat-form";
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
+import type { Echeancier } from "@/lib/prets";
+import { MOIS_FR } from "@/lib/dates-fr";
+import { PretForm } from "./pret-form";
 import { listeEnProse } from "@/lib/texte";
 import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
 import { Icone } from "@/components/icones";
@@ -146,6 +149,7 @@ export function DossierEmploye({
   joursModele = [],
   contrats,
   prets = [],
+  periodePaie,
   tachesOnboarding = [],
   historique,
   disciplinaire,
@@ -174,7 +178,9 @@ export function DossierEmploye({
   actif: boolean;
   joursModele?: number[]; // jours travaillés selon le modèle hebdo (0=dim … 6=sam)
   contrats: Contrat[];
-  prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number }[];
+  prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number; echeancier: Echeancier }[];
+  /** Période de paie en cours — sert à projeter le mois de solde d'un prêt à la saisie. */
+  periodePaie: { mois: number; annee: number };
   tachesOnboarding?: { id: string; libelle: string; fait: boolean; faitLe: Date | null }[];
   historique: HistoriqueSalaire[];
   disciplinaire: DossierDisciplinaire[];
@@ -609,13 +615,58 @@ export function DossierEmploye({
                           {p.statut === "SOLDE" ? "Soldé" : p.statut === "ANNULE" ? "Annulé" : "En cours"}
                         </span>
                       </p>
-                      <p className="text-xs text-muted-foreground">{p.motif ? `${p.motif} · ` : ""}accordé le {d(p.dateAccord)} · {p.nbRetenues} retenue(s)</p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.motif ? `${p.motif} · ` : ""}accordé le {d(p.dateAccord)} · {p.nbRetenues} retenue(s)
+                        {p.echeancier.dureeMois > 0 && <> · sur {p.echeancier.dureeMois} mois</>}
+                      </p>
                     </div>
                     <div className="min-w-[9rem] text-right">
                       <p className="text-sm font-semibold">Solde : {p.solde.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</p>
                       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></div>
+                      {p.echeancier.moisSolde && (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          {p.echeancier.soldePrevisionnel ? "Soldé prévu en" : "Soldé en"}{" "}
+                          {MOIS_FR[p.echeancier.moisSolde.mois - 1]} {p.echeancier.moisSolde.annee}
+                        </p>
+                      )}
                     </div>
                   </div>
+
+                  {p.echeancier.echeances.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                        Échéancier ({p.echeancier.echeances.length} échéance(s))
+                      </summary>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full min-w-[22rem] text-xs">
+                          <thead>
+                            <tr className="border-b text-muted-foreground">
+                              <th className="py-1 pr-3 text-left font-medium">Nº</th>
+                              <th className="py-1 pr-3 text-left font-medium">Mois</th>
+                              <th className="py-1 pr-3 text-right font-medium">Échéance</th>
+                              <th className="py-1 pr-3 text-right font-medium">Solde après</th>
+                              <th className="py-1 text-left font-medium">État</th>
+                            </tr>
+                          </thead>
+                          <tbody className="tabular-nums">
+                            {p.echeancier.echeances.map((e) => (
+                              <tr key={e.rang} className={`border-b last:border-0 ${e.reglee ? "" : "text-muted-foreground"}`}>
+                                <td className="py-1 pr-3">{e.rang}</td>
+                                <td className="py-1 pr-3">{MOIS_FR[e.mois - 1]} {e.annee}</td>
+                                <td className="py-1 pr-3 text-right">{e.montantUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
+                                <td className="py-1 pr-3 text-right">{e.soldeApresUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
+                                <td className="py-1">{e.reglee ? "Retenue" : "Prévue"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Les échéances « prévues » sont une projection de la retenue mensuelle : c&apos;est la paie
+                        de chaque mois qui fixe le montant réellement retenu.
+                      </p>
+                    </details>
+                  )}
                   {estAdmin && p.statut === "EN_COURS" && (
                     <form action={annulerPret.bind(null, employeeId, p.id)} className="mt-1">
                       <button className="text-xs text-destructive underline">Annuler le prêt (arrête les retenues futures)</button>
@@ -627,18 +678,7 @@ export function DossierEmploye({
           </ul>
         )}
         {peutModifier && (
-          <form action={creerPret.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 border-t pt-3 text-xs">
-            <label className="flex flex-col gap-0.5">Montant du prêt ($)
-              <input type="number" name="montantUSD" step="0.01" min="0" required className={inputCls} />
-            </label>
-            <label className="flex flex-col gap-0.5">Retenue mensuelle ($)
-              <input type="number" name="retenueMensuelleUSD" step="0.01" min="0" required className={inputCls} />
-            </label>
-            <label className="flex flex-col gap-0.5">Motif (optionnel)
-              <input type="text" name="motif" placeholder="ex. avance médicale" className={inputCls} />
-            </label>
-            <SubmitBtn>Accorder le prêt</SubmitBtn>
-          </form>
+          <PretForm action={creerPret.bind(null, employeeId)} periodeCourante={periodePaie} />
         )}
         <p className="mt-2 text-xs text-muted-foreground">La retenue est déduite automatiquement du salaire net chaque mois (ligne « Retenue prêt » sur le bulletin) jusqu&apos;au remboursement complet.</p>
       </Section>

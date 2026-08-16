@@ -25,6 +25,7 @@ import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
 import { formaterUSD } from "@/lib/montant";
 import { compterFamille, ecartCompositionFamiliale } from "@/lib/famille";
+import { construireEcheancier } from "@/lib/prets";
 import { ajouterMembreFamille, supprimerMembreFamille } from "../actions";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
@@ -85,8 +86,21 @@ export default async function FicheEmployePage({
     prisma.pretPersonnel.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, include: { retenues: { orderBy: [{ annee: "asc" }, { mois: "asc" }] } } }),
     prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
   ]);
+  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
+  const annee = config?.anneeCourante ?? new Date().getFullYear();
+
   const pretsView = prets.map((p) => {
     const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
+    // Échéancier = PROJECTION de la règle du moteur, pas une décision : rien n'est écrit, la
+    // retenue du mois reste calculée par `calculerEcheancePret` au moment de la paie.
+    const echeancier = construireEcheancier({
+      montantUSD: Number(p.montantUSD),
+      retenueMensuelleUSD: Number(p.retenueMensuelleUSD),
+      retenues: p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+      periodeCourante: { mois, annee },
+      actif: p.statut === "EN_COURS",
+    });
     return {
       id: p.id,
       montant: Number(p.montantUSD),
@@ -97,12 +111,9 @@ export default async function FicheEmployePage({
       rembourse,
       solde: Math.max(0, Number(p.montantUSD) - rembourse),
       nbRetenues: p.retenues.length,
+      echeancier,
     };
   });
-
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
@@ -963,6 +974,7 @@ export default async function FicheEmployePage({
         joursModele={joursModele}
         contrats={contrats}
         prets={pretsView}
+        periodePaie={{ mois, annee }}
         tachesOnboarding={tachesOnboarding.map((t) => ({ id: t.id, libelle: t.libelle, fait: t.fait, faitLe: t.faitLe }))}
         historique={historique}
         disciplinaire={disciplinaire}

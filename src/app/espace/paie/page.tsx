@@ -6,6 +6,7 @@ import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer"
 import { demanderMonAcompte } from "../actions";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { chargerPlafondAcompte } from "@/lib/acompte-plafond";
+import { construireEcheancier } from "@/lib/prets";
 import { formaterUSD } from "@/lib/montant";
 
 const BADGE: Record<string, { label: string; classe: string }> = {
@@ -49,6 +50,15 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
       retenueMensuelle: Number(p.retenueMensuelleUSD),
       solde: Math.max(0, montant - rembourse),
       pct: montant > 0 ? Math.min(100, Math.round((rembourse / montant) * 100)) : 0,
+      // Projection de la règle appliquée par la paie — ce que le salarié ne pouvait pas savoir
+      // jusqu'ici : quand son prêt sera soldé.
+      echeancier: construireEcheancier({
+        montantUSD: montant,
+        retenueMensuelleUSD: Number(p.retenueMensuelleUSD),
+        retenues: p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+        periodeCourante: { mois, annee },
+        actif: p.statut === "EN_COURS",
+      }),
     };
   });
 
@@ -98,21 +108,64 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
           <p className="mb-3 text-sm text-muted-foreground">Une retenue mensuelle est déduite de votre salaire net jusqu&apos;au remboursement complet.</p>
           <ul className="divide-y">
             {prets.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">
-                    Prêt de {usd(p.montant)}
-                    <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.statut === "SOLDE" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                      {p.statut === "SOLDE" ? "Soldé" : "En cours"}
-                    </span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">{p.motif ? `${p.motif} · ` : ""}retenue de {usd(p.retenueMensuelle)} par mois</p>
+              <li key={p.id} className="py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      Prêt de {usd(p.montant)}
+                      <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.statut === "SOLDE" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                        {p.statut === "SOLDE" ? "Soldé" : "En cours"}
+                      </span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">{p.motif ? `${p.motif} · ` : ""}retenue de {usd(p.retenueMensuelle)} par mois</p>
+                  </div>
+                  <div className="min-w-[10rem] text-right">
+                    <p className="text-sm font-semibold">Reste à rembourser : {usd(p.solde)}</p>
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${p.pct}%` }} /></div>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{usd(p.rembourse)} remboursés · {p.pct}%</p>
+                    {p.echeancier.moisSolde && (
+                      <p className="mt-0.5 text-[11px] font-medium">
+                        {p.echeancier.soldePrevisionnel ? "Solde prévu en" : "Soldé en"}{" "}
+                        {MOIS_FR[p.echeancier.moisSolde.mois - 1]} {p.echeancier.moisSolde.annee}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-[10rem] text-right">
-                  <p className="text-sm font-semibold">Reste à rembourser : {usd(p.solde)}</p>
-                  <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${p.pct}%` }} /></div>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{usd(p.rembourse)} remboursés · {p.pct}%</p>
-                </div>
+
+                {p.echeancier.echeances.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                      Voir l&apos;échéancier ({p.echeancier.echeances.length} échéance(s))
+                    </summary>
+                    <div className="mt-2 overflow-x-auto">
+                      <table className="w-full min-w-[20rem] text-xs">
+                        <thead>
+                          <tr className="border-b text-muted-foreground">
+                            <th className="py-1 pr-3 text-left font-medium">Nº</th>
+                            <th className="py-1 pr-3 text-left font-medium">Mois</th>
+                            <th className="py-1 pr-3 text-right font-medium">Retenue</th>
+                            <th className="py-1 pr-3 text-right font-medium">Reste après</th>
+                            <th className="py-1 text-left font-medium">État</th>
+                          </tr>
+                        </thead>
+                        <tbody className="tabular-nums">
+                          {p.echeancier.echeances.map((e) => (
+                            <tr key={e.rang} className={`border-b last:border-0 ${e.reglee ? "" : "text-muted-foreground"}`}>
+                              <td className="py-1 pr-3">{e.rang}</td>
+                              <td className="py-1 pr-3">{MOIS_FR[e.mois - 1]} {e.annee}</td>
+                              <td className="py-1 pr-3 text-right">{usd(e.montantUSD)}</td>
+                              <td className="py-1 pr-3 text-right">{usd(e.soldeApresUSD)}</td>
+                              <td className="py-1">{e.reglee ? "Prélevée" : "À venir"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Les échéances « à venir » sont une prévision au rythme actuel de la retenue.
+                    </p>
+                  </details>
+                )}
               </li>
             ))}
           </ul>
