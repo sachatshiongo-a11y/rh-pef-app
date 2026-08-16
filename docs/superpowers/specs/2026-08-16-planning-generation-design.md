@@ -65,8 +65,10 @@ EntreesGeneration  →  genererPlanning()  →  ResultatGeneration
 - créneaux existants sur la période : `{ employeeId, date, shiftId }`
 - **historique** : créneaux des 8 semaines précédant la période *(nouveau, cf. §6)*
 - options du formulaire : `{ shiftId?, jours[], nbParSemaine, inclureFeries, modeles, ecraser, completer, autoriserDepassementHeures }`
-- **`aujourdhui: Date`** — passé en paramètre, jamais `new Date()` dans le module, sinon les tests ne
-  sont pas reproductibles et le module cesse d'être pur.
+**Pas de paramètre `aujourdhui`** (corrigé au moment du plan) : vérification faite, rien dans
+l'algorithme actuel ne dépend de la date du jour — toutes les dates dérivent de `debut`/`fin` et des
+données. La règle se réduit donc à : **aucun `new Date()` sans argument** dans le module. Ajouter un
+paramètre inutilisé aurait été du zèle.
 
 Les `Decimal` Prisma deviennent des `number`, les dates restent des `Date` : la conversion est le
 travail de l'action, pas du moteur.
@@ -164,10 +166,16 @@ empêcher de couvrir un besoin.
 
 Critères, dans l'ordre :
 
-1. **Heures cumulées** (période + historique) — critère actuel, conservé, principal.
-2. **Dimanches et jours fériés déjà attribués** — pour faire tourner les jours pénibles.
-3. **Pour le choix du shift** dans la liste acceptable : celui que la personne a le moins eu
-   récemment, pour que matin et soir alternent.
+1. **Heures cumulées sur la période générée** — critère actuel, repris **à l'identique**.
+2. **Dimanches et jours fériés déjà attribués**, période **et historique** — pour faire tourner les
+   jours pénibles.
+3. **Pour le choix du shift** dans la liste acceptable : celui que la personne a le moins eu sur la
+   période et l'historique, pour que matin et soir alternent.
+
+**L'historique ne sert qu'aux critères 2 et 3** (corrigé au moment du plan). Le faire entrer aussi
+dans le critère 1 aurait modifié l'équilibrage des heures, qui ne fait pourtant l'objet d'aucune
+plainte : on aurait introduit une régression subtile dans le seul critère qui fonctionne
+aujourd'hui. Le critère 1 reste donc strictement inchangé.
 
 Les critères 2 et 3 ne veulent rien dire sur une génération d'une seule semaine : un seul dimanche,
 et pas la place d'alterner. D'où l'**historique de 8 semaines** en entrée du moteur — assez long
