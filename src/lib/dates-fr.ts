@@ -38,3 +38,14 @@ export function grouperParMois<T>(items: T[], getDate: (t: T) => Date | string |
   }
   return groupes;
 }
+
+const LUNDI_REF = Date.UTC(1970, 0, 5); // 5 janvier 1970 = un lundi
+
+/** Parité de la semaine d'une date : 1 = semaine A, 2 = semaine B (pour les modèles bi-hebdo). */
+export function pariteSemaine(d: Date): 1 | 2 {
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dow = date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() + (dow === 0 ? -6 : 1 - dow)); // lundi de la semaine
+  const semaines = Math.floor((date.getTime() - LUNDI_REF) / (7 * 86_400_000));
+  return semaines % 2 === 0 ? 1 : 2;
+}
