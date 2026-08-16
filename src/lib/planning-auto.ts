@@ -352,7 +352,13 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   }
 
   // Salariés restés sous leurs heures contractuelles sur la période.
-  const nbSemaines = Math.max(1, new Set(joursPeriode.map((j) => iso(lundiDeUTC(j)))).size);
+  //
+  // L'attendu se calcule AU PRORATA des jours réellement planifiables, pas du nombre de lundis
+  // touchés. Une période mercredi → mardi touche deux lundis sans couvrir deux semaines : compter
+  // deux fois l'horaire hebdomadaire annoncerait un manque qui n'existe pas, et pousserait à
+  // sur-planifier quelqu'un qui a déjà son compte.
+  const joursActifsParSemaine = Math.max(1, joursAutorises.size);
+  const proportionSemaines = joursPeriode.length / joursActifsParSemaine;
   const heuresTotales = new Map<string, number>();
   for (const c of creneaux) ajouter(heuresTotales, c.employeeId, dureeParShift.get(c.shiftId) ?? 0);
   if (!options.ecraser) {
@@ -362,7 +368,8 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     .map((e) => ({
       employeeId: e.id,
       heuresPlanifiees: heuresTotales.get(e.id) ?? 0,
-      heuresContractuelles: (e.heuresHebdomadaires || 48) * nbSemaines,
+      heuresContractuelles:
+        Math.round((e.heuresHebdomadaires || 48) * proportionSemaines * 100) / 100,
     }))
     .filter((x) => x.heuresPlanifiees < x.heuresContractuelles - 0.01);
 

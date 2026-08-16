@@ -269,15 +269,30 @@ describe("genererPlanning — passe complémentaire", () => {
     expect(r.rapport.depassements).toHaveLength(0);
   });
 
-  it("rapporte les salariés restés sous leurs heures", () => {
+  it("rapporte les salariés restés sous leurs heures, au prorata de la période", () => {
+    // Semaine complète (6 jours ouvrables → 48 h attendues), mais 2 jours de congé approuvé :
+    // seuls 4 jours sont planifiables, soit 32 h. Le manque est réel et doit être signalé.
     const r = genererPlanning(entreesBase({
-      debut: d("2026-07-06"), fin: d("2026-07-07"), // 2 jours seulement
+      debut: d("2026-07-06"), fin: d("2026-07-11"),
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 48 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      conges: [{ employeeId: "e1", dateDebut: d("2026-07-09"), dateFin: d("2026-07-10") }],
+      options: optionsCompleter,
+    }));
+    expect(r.rapport.sousHeures).toEqual([
+      { employeeId: "e1", heuresPlanifiees: 32, heuresContractuelles: 48 },
+    ]);
+  });
+
+  it("n'annonce AUCUN manque sur une période à cheval qui couvre bien une semaine de travail", () => {
+    // Le piège corrigé : mercredi → mardi touche DEUX lundis civils mais ne couvre qu'une seule
+    // semaine de travail. Compter deux fois l'horaire hebdomadaire inventait un manque de 48 h.
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-08"), fin: d("2026-07-14"), // mercredi → mardi
       employes: [{ ...employe("e1"), heuresHebdomadaires: 48 }],
       shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
       options: optionsCompleter,
     }));
-    expect(r.rapport.sousHeures).toEqual([
-      { employeeId: "e1", heuresPlanifiees: 16, heuresContractuelles: 48 },
-    ]);
+    expect(r.rapport.sousHeures).toEqual([]);
   });
 });
