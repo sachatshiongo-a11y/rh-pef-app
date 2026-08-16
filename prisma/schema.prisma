@@ -537,6 +537,7 @@ model Shift {
 
   creneaux PlanningCreneau[]
   besoins  BesoinShift[]
+  postes   ShiftPoste[]
 
   @@schema("public")
 }
@@ -553,6 +554,30 @@ model BesoinShift {
   updatedAt    DateTime @updatedAt
 
   @@unique([shiftId, poste, jourSemaine])
+  @@schema("public")
+}
+
+/// Shifts qu'un poste peut tenir, dans l'ordre de préférence. Remplace le repli par expression
+/// régulière sur le NOM du shift (`/caissi/`, `/cuisine/`, `/salle/`), qui changeait les
+/// affectations dès qu'un shift était renommé et envoyait tout poste non reconnu sur
+/// « Journée 8h-17h » sans le signaler.
+///
+/// Rattachement par la CHAÎNE `poste`, comme `BesoinShift` et `PolyvalencePoste` — mêmes voisins,
+/// même écran de configuration, même convention.
+///
+/// Sert à la passe complémentaire (remplir quelqu'un jusqu'à ses heures). Sans liste déclarée pour
+/// un poste, le moteur ne pose RIEN et le rapport nomme les salariés concernés : un trou visible
+/// vaut mieux qu'un shift faux posé en silence.
+model ShiftPoste {
+  id        String   @id @default(uuid())
+  poste     String // correspond à Employee.poste
+  shiftId   String
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  ordre     Int      @default(0) // 0 = essayé en premier
+  createdAt DateTime @default(now())
+
+  @@unique([poste, shiftId])
+  @@index([poste])
   @@schema("public")
 }
 
