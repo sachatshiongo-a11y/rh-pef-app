@@ -3,6 +3,15 @@
 import { useState, useTransition } from "react";
 import { genererPlanningAuto, type ResumeGeneration } from "./actions";
 
+const LIBELLE_RAISON: Record<ResumeGeneration["trous"][number]["raison"], string> = {
+  AUCUN_TITULAIRE: "personne à ce poste, ni en polyvalence",
+  EFFECTIF_INSUFFISANT: "tous les disponibles ont été posés, il en manquait encore",
+  TOUS_EN_CONGE: "tous en congé",
+  TOUS_DEJA_PRIS: "tous déjà pris ce jour-là",
+  TOUS_AU_REPOS: "tous au repos obligatoire",
+  TOUS_AU_PLAFOND: "tous au plafond d'heures — cochez « autoriser le dépassement » pour couvrir",
+};
+
 const JOURS = [
   { v: 1, l: "Lun" },
   { v: 2, l: "Mar" },
@@ -98,21 +107,53 @@ export function AutoPlanningForm({
               <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" name="ecraser" /> Écraser et régénérer toute la période
               </label>
+              <label className="flex items-start gap-2 text-xs">
+                <input type="checkbox" name="depassement" value="on" className="mt-0.5" />
+                <span>
+                  <span className="font-medium">Autoriser le dépassement d&apos;heures</span> — pour couvrir
+                  un besoin resté découvert faute de monde sous son plafond hebdomadaire. Engage des
+                  heures supplémentaires : chaque dépassement est listé dans le rapport.
+                </span>
+              </label>
 
               <button disabled={isPending} className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
                 {isPending ? "Génération…" : "Générer le planning"}
               </button>
               {resume && (
-                <div className={`space-y-1 rounded-md border p-2 text-xs ${resume.besoinsNonCouverts > 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
-                  <p className="font-semibold">{resume.crees} créneau(x) créé(s)</p>
-                  {resume.besoinsNonCouverts > 0 && (
-                    <>
-                      <p>{resume.besoinsNonCouverts} besoin(s) NON couvert(s) :</p>
-                      <ul className="list-inside list-disc">{resume.detailNonCouverts.map((l, i) => <li key={i}>{l}</li>)}</ul>
-                    </>
+                <div className={`space-y-1.5 rounded-md border p-2 text-xs ${resume.trous.length > 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+                  <p className="font-medium">{resume.crees} créneau(x) créé(s).</p>
+
+                  {resume.trous.length === 0 && resume.crees > 0 && <p>Tous les besoins sont couverts ✅</p>}
+
+                  {resume.trous.length > 0 && (
+                    <div>
+                      <p className="font-medium">{resume.trous.reduce((s, t) => s + t.manque, 0)} besoin(s) non couvert(s) :</p>
+                      <ul className="ml-3 list-disc">
+                        {resume.trous.slice(0, 6).map((t, i) => (
+                          <li key={i}>{t.libelle} : manque {t.manque} — {LIBELLE_RAISON[t.raison]}</li>
+                        ))}
+                      </ul>
+                      {resume.trous.length > 6 && <p className="italic">et {resume.trous.length - 6} autre(s).</p>}
+                    </div>
                   )}
+
+                  {resume.sansShiftPoste.length > 0 && (
+                    <p>
+                      {resume.sansShiftPoste.length} salarié(s) non planifié(s), faute de shift déclaré pour leur
+                      poste : {resume.sansShiftPoste.slice(0, 4).map((s) => `${s.nom} (${s.poste})`).join(", ")}
+                      {resume.sansShiftPoste.length > 4 ? "…" : ""}. À configurer dans « Shifts par poste ».
+                    </p>
+                  )}
+
+                  {resume.depassements.length > 0 && (
+                    <p className="font-medium">
+                      ⚠ Heures supplémentaires engagées pour {resume.depassements.length} salarié(s) :{" "}
+                      {resume.depassements.slice(0, 4).map((x) => `${x.nom} (${x.heuresPlanifiees} h au lieu de ${x.heuresContractuelles} h)`).join(", ")}
+                      {resume.depassements.length > 4 ? "…" : ""}.
+                    </p>
+                  )}
+
                   {resume.sousHeures > 0 && <p>{resume.sousHeures} salarié(s) sous leurs heures hebdo (congés compris).</p>}
-                  {resume.besoinsNonCouverts === 0 && resume.crees > 0 && <p>Tous les besoins sont couverts ✅</p>}
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground">

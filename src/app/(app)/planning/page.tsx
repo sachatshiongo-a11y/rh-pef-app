@@ -9,6 +9,7 @@ import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
 import { ShiftsManager } from "./shifts-manager";
 import { BesoinsManager } from "./besoins-manager";
 import { PolyvalenceManager } from "./polyvalence-manager";
+import { ShiftPosteManager } from "./shift-poste-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
 import { PlanningSemaine, type SemaineEmployee } from "./planning-semaine";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
@@ -62,10 +63,11 @@ export default async function PlanningPage({
   const shiftParId = new Map(shifts.map((s) => [s.id, s]));
 
   // Config des effectifs requis (shift × poste × jour) qui pilote la génération auto « couverture ».
-  const [postesRows, besoinsRows, polyvalences] = await Promise.all([
+  const [postesRows, besoinsRows, polyvalences, shiftsPosteRows] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, select: { poste: true }, distinct: ["poste"], orderBy: { poste: "asc" } }),
     prisma.besoinShift.findMany(),
     prisma.polyvalencePoste.findMany({ orderBy: [{ posteCible: "asc" }, { posteSource: "asc" }] }),
+    prisma.shiftPoste.findMany({ orderBy: [{ poste: "asc" }, { ordre: "asc" }] }),
   ]);
   const postesBesoin = postesRows.map((p) => p.poste).filter(Boolean);
   const shiftsBesoin = shifts.filter((s) => s.actif && !s.systeme).map((s) => ({ id: s.id, nom: s.nom }));
@@ -74,6 +76,11 @@ export default async function PlanningPage({
     <div className="space-y-2">
       <BesoinsManager shifts={shiftsBesoin} postes={postesBesoin} besoins={besoinsDTO} />
       <PolyvalenceManager postes={postesBesoin} polyvalences={polyvalences.map((p) => ({ id: p.id, posteSource: p.posteSource, posteCible: p.posteCible }))} />
+      <ShiftPosteManager
+        postes={postesBesoin}
+        shifts={shiftsBesoin}
+        shiftsPoste={shiftsPosteRows.map((s) => ({ id: s.id, poste: s.poste, shiftId: s.shiftId, ordre: s.ordre }))}
+      />
     </div>
   ) : null;
 

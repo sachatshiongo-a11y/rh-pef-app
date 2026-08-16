@@ -84,6 +84,23 @@ Les installateurs sont générés dans `dist-electron/`. On distribue le `.dmg` 
 | Lancer la coque bureau | `npm run electron` |
 | Construire les installateurs | `npm run electron:build` |
 
+## Étapes ponctuelles après déploiement
+
+### Lot « génération de planning » (2026-08)
+
+Après `prisma migrate deploy`, lancer **une fois** la reprise des correspondances poste → shift,
+sinon la première génération n'attribuera plus aucun shift dans la passe complémentaire :
+
+```bash
+npx tsx scripts/reprise-shifts-poste.ts
+```
+
+Puis vérifier dans Planning → « Shifts par poste » qu'aucun poste ne reste sans shift déclaré.
+
+**Attendu** : les plannings générés vont changer, à cause des règles de repos (1 jour par semaine,
+6 jours consécutifs au maximum) qui n'existaient pas. Ne pas régénérer un mois déjà validé sans
+l'avoir décidé.
+
 ## Ce qui reste à décider avec toi
 
 1. **Où héberger le serveur** (VPS Europe conseillé, ou serveur local restaurant). Nécessite tes
