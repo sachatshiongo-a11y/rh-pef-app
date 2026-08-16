@@ -104,6 +104,14 @@ export type ResultatCout = {
   /** Ratios : pleine précision (ce ne sont pas des montants). */
   coefficient: number | null;
   tauxMarque: number | null;
+  /**
+   * Taux de marge = margeBrute / coutParPortion (ce qu'on AJOUTE au coût d'achat) — à ne pas
+   * confondre avec le taux de marque ci-dessus (margeBrute / prixVenteHT, quelle part du prix de
+   * vente est de la marge). Vérifie toujours `tauxMarge === coefficient - 1`. `null` quand le
+   * coût par portion n'est pas exploitable (division par zéro) ou que la marge n'est pas connue —
+   * jamais un chiffre inventé.
+   */
+  tauxMarge: number | null;
   ratioMatiere: number | null;
   /** Montants : arrondis au centime. */
   prixVenteHT: number | null;
@@ -414,6 +422,7 @@ export function calculerCout(
     lignes,
     coefficient: htD !== null && coutExploitable ? htD.div(coutParPortion).toNumber() : null,
     tauxMarque: htExploitable && margeD !== null ? margeD.div(htD!).toNumber() : null,
+    tauxMarge: coutExploitable && margeD !== null ? margeD.div(coutParPortion).toNumber() : null,
     ratioMatiere: htExploitable ? coutParPortion.div(htD!).toNumber() : null,
     prixVenteHT: htD === null ? null : arrondirCentime(htD),
     prixVenteTTC: ttcD === null ? null : arrondirCentime(ttcD),

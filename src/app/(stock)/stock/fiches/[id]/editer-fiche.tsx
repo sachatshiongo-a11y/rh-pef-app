@@ -404,7 +404,8 @@ export function EditerFiche({
             <Kpi label={etiquette("Prix de vente TTC", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.prixVenteTTC)} accent={resultat.incomplet ? "amber" : undefined} />
             <Kpi label={etiquette("Marge brute", resultat.prixEstConseille, noteCout)} valeur={usd(resultat.margeBrute)} accent={resultat.incomplet ? "amber" : "green"} />
             <Kpi label={etiquette("Coefficient", resultat.prixEstConseille, noteCout)} valeur={coef(resultat.coefficient)} accent={resultat.incomplet ? "amber" : undefined} />
-            <Kpi label={etiquette("Taux de marque", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarque)} accent={resultat.incomplet ? "amber" : undefined} />
+            <Kpi label={etiquette("Taux de marque", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarque)} accent={resultat.incomplet ? "amber" : undefined} hint="part de mon prix de vente" />
+            <Kpi label={etiquette("Taux de marge", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.tauxMarge)} accent={resultat.incomplet ? "amber" : undefined} hint="ajouté à mon coût" />
             <Kpi label={etiquette("Ratio matière", resultat.prixEstConseille, noteCout)} valeur={pct(resultat.ratioMatiere)} accent={resultat.incomplet ? "amber" : undefined} />
             {resultat.prixConseille && (
               <div className="col-span-2 rounded-lg border p-3">
@@ -607,11 +608,14 @@ function BandeauPartiel({ resultat }: { resultat: ReturnType<typeof calculerCout
   );
 }
 
-function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?: "green" | "amber" | "red" }) {
+function Kpi({ label, valeur, accent, hint }: { label: string; valeur: string; accent?: "green" | "amber" | "red"; hint?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
   return (
-    <div className={`rounded-lg border p-3 ${cls}`}>
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className={`rounded-lg border p-3 ${cls}`} title={hint}>
+      <p className="text-xs text-muted-foreground">
+        {label}
+        {hint && <span className="ml-1 text-muted-foreground/70">({hint})</span>}
+      </p>
       <p className="mt-0.5 text-lg font-semibold tabular-nums">{valeur}</p>
     </div>
   );

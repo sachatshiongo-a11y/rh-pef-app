@@ -408,6 +408,41 @@ describe("marge et prix", () => {
     expect(r.prixConseille).toBeNull();
     expect(r.prixVenteHT).toBeNull();
   });
+
+  // Taux de marge (margeBrute / coutParPortion, « ce qu'on ajoute au coût ») ≠ taux de marque
+  // (margeBrute / prixVenteHT, « quelle part du prix de vente »). T4 : coût 2,53, coefficient 8,
+  // PV HT 20,24, marge 17,71 → taux de marge = 17,71 / 2,53 = 7 exactement (700 %).
+  it("taux de marge (T4) : distinct du taux de marque, vaut exactement 7", () => {
+    const r = calculerCout(ficheAvecPrix({ coutParPortion: 2.53, coefficient: 8, tauxTVA: 0.16 }), CTX_VIDE);
+    expect(r.margeBrute).toBe(17.71);
+    expect(r.tauxMarge).toBeCloseTo(7, 6);
+    expect(r.tauxMarque).toBeCloseTo(0.875, 3);
+    // Les deux taux ne doivent jamais coïncider — sinon l'un des deux est mal câblé.
+    expect(r.tauxMarge).not.toBeCloseTo(r.tauxMarque!, 3);
+  });
+
+  it("relation de cohérence : taux de marge = coefficient − 1", () => {
+    const r = calculerCout(ficheAvecPrix({ coutParPortion: 2.53, coefficient: 8, tauxTVA: 0.16 }), CTX_VIDE);
+    expect(r.tauxMarge).toBeCloseTo(r.coefficient! - 1, 9);
+  });
+
+  it("taux de marge : null quand le coût par portion n'est pas exploitable", () => {
+    const r = calculerCout(
+      fiche([{ nom: "Sans prix", quantite: 1, unite: "kg", article: { prixUnitaireUSD: null, unite: "kg" } }], {
+        coefficientMargeCible: 8,
+      }),
+      CTX_VIDE,
+    );
+    expect(r.tauxMarge).toBeNull();
+  });
+
+  it("taux de marge : null quand la marge n'est pas connue (aucun prix ni coefficient)", () => {
+    const r = calculerCout(
+      fiche([{ quantite: 1, unite: "kg", article: { prixUnitaireUSD: 2.53, unite: "kg" } }]),
+      CTX_VIDE,
+    );
+    expect(r.tauxMarge).toBeNull();
+  });
 });
 
 // ─── T5 : coût incomplet annoncé ─────────────────────────────────────────────

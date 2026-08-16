@@ -75,6 +75,7 @@ export async function GET(req: Request) {
       // incomplet, ils ne valent pas plus que lui.
       qualifie(r.coefficient === null ? null : Number(r.coefficient.toFixed(2)), { conseille: r.prixEstConseille }),
       qualifie(r.tauxMarque === null ? null : Number((r.tauxMarque * 100).toFixed(1)), { conseille: r.prixEstConseille }),
+      qualifie(r.tauxMarge === null ? null : Number((r.tauxMarge * 100).toFixed(1)), { conseille: r.prixEstConseille }),
       qualifie(r.ratioMatiere === null ? null : Number((r.ratioMatiere * 100).toFixed(1)), { conseille: r.prixEstConseille }),
       // Le drapeau `minorant` vient du moteur : un prix conseillé sur coût partiel est un plancher.
       // `conseille: true` sans condition : cette colonne n'est JAMAIS un prix arrêté, par nature.
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
         "Fiche", "Catégorie", "Type", "Nature", "Portions", "Ingrédients",
         "Coût total HT USD", "Coût / portion HT USD", "Coût partiel", "Ingrédients non valorisés",
         "Origine du prix", "PV HT USD", "PV TTC USD", "Marge brute USD",
-        "Coefficient", "Taux de marque %", "Ratio matière %", "Prix conseillé HT USD", "État",
+        "Coefficient", "Taux de marque %", "Taux de marge %", "Ratio matière %", "Prix conseillé HT USD", "État",
       ],
       lignes,
     }],
