@@ -14,7 +14,10 @@ const prisma = new PrismaClient({ adapter });
 
 async function main() {
   const [employes, shifts] = await Promise.all([
-    prisma.employee.findMany({ where: { actif: true }, select: { poste: true, secteur: true }, distinct: ["poste"] }),
+    // Pas de `distinct: ["poste"]` : on a besoin de TOUS les employés pour détecter, poste par
+    // poste, si leurs secteurs mèneraient à des shifts différents (cf. `shiftPourEmploye` dans
+    // `src/app/(app)/planning/actions.ts`, qui raisonne par employé, jamais par poste agrégé).
+    prisma.employee.findMany({ where: { actif: true }, select: { poste: true, secteur: true } }),
     prisma.shift.findMany({ where: { actif: true } }),
   ]);
 
@@ -24,23 +27,44 @@ async function main() {
   const salle = parNom(/matin\/midi salle/i);
   const journee = parNom(/journée 8h-17h/i) ?? shifts.find((s) => !s.systeme && !/admin|nuit/i.test(s.nom));
 
-  const lignes: { poste: string; shiftId: string; ordre: number }[] = [];
+  const shiftPourPosteSecteur = (poste: string, secteur: string) => {
+    const p = poste.toLowerCase();
+    const s = secteur.toLowerCase();
+    if (/caissi/.test(p)) return caisse ?? journee;
+    if (/cuisine/.test(s)) return cuisine ?? journee;
+    if (/salle/.test(s)) return salle ?? journee;
+    return journee;
+  };
+
+  const employesParPoste = new Map<string, { poste: string; secteur: string | null }[]>();
   for (const e of employes) {
     if (!e.poste) continue;
-    const poste = (e.poste ?? "").toLowerCase();
-    const secteur = (e.secteur ?? "").toLowerCase();
-    const shift = /caissi/.test(poste)
-      ? (caisse ?? journee)
-      : /cuisine/.test(secteur)
-        ? (cuisine ?? journee)
-        : /salle/.test(secteur)
-          ? (salle ?? journee)
-          : journee;
-    if (!shift) {
-      console.warn(`⚠ Aucun shift trouvé pour le poste « ${e.poste} » — à configurer à la main.`);
+    (employesParPoste.get(e.poste) ?? employesParPoste.set(e.poste, []).get(e.poste)!).push(e);
+  }
+
+  const lignes: { poste: string; shiftId: string; ordre: number }[] = [];
+  for (const [poste, liste] of employesParPoste) {
+    const secteursDistincts = [...new Set(liste.map((e) => e.secteur ?? ""))];
+    const shiftsResultants = [...secteursDistincts.map((secteur) => shiftPourPosteSecteur(poste, secteur))];
+    const shiftsDefinis = shiftsResultants.filter((s): s is NonNullable<typeof s> => s != null);
+    const idsDistincts = new Set(shiftsDefinis.map((s) => s.id));
+
+    if (idsDistincts.size === 0) {
+      console.warn(`⚠ Aucun shift trouvé pour le poste « ${poste} » — à configurer à la main.`);
       continue;
     }
-    lignes.push({ poste: e.poste, shiftId: shift.id, ordre: 0 });
+    // > 1 id distinct : secteurs qui mènent à des shifts différents. shiftsDefinis.length < nombre
+    // de secteurs : au moins un secteur ne mène à AUCUN shift pendant qu'un autre en trouve un — même
+    // ambiguïté (un secteur serait posé, l'autre pas), traitée à l'identique : on n'écrit rien.
+    if (idsDistincts.size > 1 || shiftsDefinis.length !== secteursDistincts.length) {
+      console.warn(
+        `⚠ Poste « ${poste} » : secteurs distincts (${secteursDistincts.join(", ") || "(aucun)"}) qui mèneraient à des shifts différents — à configurer à la main.`
+      );
+      continue;
+    }
+
+    const shift = shiftsDefinis[0];
+    lignes.push({ poste, shiftId: shift.id, ordre: 0 });
   }
 
   const res = await prisma.shiftPoste.createMany({ data: lignes, skipDuplicates: true });

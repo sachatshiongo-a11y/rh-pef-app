@@ -20,3 +20,9 @@ CREATE UNIQUE INDEX "ShiftPoste_poste_shiftId_key" ON "public"."ShiftPoste"("pos
 
 -- AddForeignKey
 ALTER TABLE "public"."ShiftPoste" ADD CONSTRAINT "ShiftPoste_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES "public"."Shift"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Défense en profondeur : RLS activée SANS policy, patron identique à 20260717090000_rls_tables_restantes,
+-- 20260812120100_exploitation_module et 20260814100000_fiches_techniques. Le rôle applicatif (postgres,
+-- BYPASSRLS) n'est pas affecté ; cela bloque tout accès direct via l'API Data Supabase (rôle
+-- anon/authenticated) faute de policy permissive.
+ALTER TABLE "public"."ShiftPoste" ENABLE ROW LEVEL SECURITY;
