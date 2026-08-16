@@ -191,3 +191,43 @@ describe("genererPlanning — couverture des besoins", () => {
     expect(r.rapport.trous[0].raison).toBe("TOUS_AU_REPOS");
   });
 });
+
+describe("genererPlanning — plafond d'heures", () => {
+  /** e1 : 8 h contractuelles/semaine → un seul shift de 8 h tient dans son plafond. */
+  const entreesPlafond = (autoriser: boolean) => entreesBase({
+    employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
+    besoins: [
+      { shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 1, nombreRequis: 1 },
+      { shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 2, nombreRequis: 1 },
+    ],
+    options: { ...entreesBase().options, autoriserDepassementHeures: autoriser },
+  });
+
+  it("sans l'option, laisse le besoin découvert et rapporte TOUS_AU_PLAFOND", () => {
+    const r = genererPlanning(entreesPlafond(false));
+    expect(r.creneaux).toHaveLength(1); // seul le lundi tient dans les 8 h
+    expect(r.rapport.trous).toHaveLength(1);
+    expect(r.rapport.trous[0].raison).toBe("TOUS_AU_PLAFOND");
+    expect(r.rapport.depassements).toHaveLength(0);
+  });
+
+  it("avec l'option, couvre le besoin ET liste le dépassement engagé", () => {
+    const r = genererPlanning(entreesPlafond(true));
+    expect(r.creneaux).toHaveLength(2);
+    expect(r.rapport.trous).toHaveLength(0);
+    expect(r.rapport.depassements).toEqual([
+      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 16, heuresContractuelles: 8 },
+    ]);
+  });
+
+  it("ne dépasse JAMAIS le plafond dans la passe complémentaire, même avec l'option", () => {
+    // Aucun besoin déclaré : rien ne justifie de pousser quelqu'un au-delà de ses heures.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      options: { ...entreesBase().options, completer: true, autoriserDepassementHeures: true },
+    }));
+    expect(r.creneaux).toHaveLength(1);
+    expect(r.rapport.depassements).toHaveLength(0);
+  });
+});

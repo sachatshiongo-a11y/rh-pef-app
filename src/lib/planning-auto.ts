@@ -177,6 +177,32 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     ajouter(heuresSemaine, `${empId}_${lundi}`, dureeParShift.get(shiftId) ?? 0);
   };
 
+  /**
+   * Contrainte SOUPLE : le plafond d'heures hebdomadaires. Séparée des contraintes dures parce
+   * qu'elle seule peut être levée — et uniquement sur décision explicite, pour couvrir un besoin.
+   * En mode « nombre de jours par semaine » forcé, le plafond s'exprime en jours.
+   */
+  const tientDansLesHeures = (e: EmployePlanning, d: Date, shiftId: string): boolean => {
+    const lundi = iso(lundiDeUTC(d));
+    if (options.nbParSemaine > 0) {
+      return (joursSemaine.get(`${e.id}_${lundi}`) ?? 0) < options.nbParSemaine;
+    }
+    const ds = dureeParShift.get(shiftId) ?? 0;
+    const cible = e.heuresHebdomadaires || 48;
+    // Tolérance d'un demi-shift : on accepte le shift qui RAPPROCHE le plus de la cible.
+    return (heuresSemaine.get(`${e.id}_${lundi}`) ?? 0) <= cible - ds / 2 + 0.01;
+  };
+
+  const depassements: DepassementHeures[] = [];
+  const noterDepassement = (e: EmployePlanning, d: Date) => {
+    const lundiD = lundiDeUTC(d);
+    const cle = `${e.id}_${iso(lundiD)}`;
+    const existant = depassements.find((x) => x.employeeId === e.id && x.lundi.getTime() === lundiD.getTime());
+    const heures = heuresSemaine.get(cle) ?? 0;
+    if (existant) existant.heuresPlanifiees = heures;
+    else depassements.push({ employeeId: e.id, lundi: lundiD, heuresPlanifiees: heures, heuresContractuelles: e.heuresHebdomadaires || 48 });
+  };
+
   // ── Étape 1 : modèles hebdomadaires (affectations fixes, prioritaires) ────────────────────
   if (options.utiliserModeles) {
     const modeleParEmp = new Map<string, Map<string, string>>();
@@ -229,20 +255,26 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
    * apparaîtraient « déjà pris », et un simple manque d'effectif serait rapporté comme un blocage.
    * Un lecteur chercherait alors qui bloque, au lieu de voir qu'il manque du monde.
    *
-   * `libresAvant` = les candidats qui, avant toute affectation de ce besoin, satisfaisaient les
-   * contraintes dures. S'il y en avait — ils ont donc tous été posés — et que le compte n'y est
-   * toujours pas, la cause est l'effectif, pas un blocage.
+   * `libresAvant` = les candidats qui, avant toute affectation de ce besoin, étaient RÉELLEMENT
+   * posables : ils satisfaisaient les contraintes dures ET tenaient dans leur plafond d'heures (ou
+   * le dépassement était autorisé). S'il y en avait — ils ont donc tous été posés — et que le
+   * compte n'y est toujours pas, la cause est l'effectif, pas un blocage. Un candidat seulement
+   * arrêté par le plafond (sans dépassement autorisé) n'est PAS « libre » au sens de ce diagnostic :
+   * c'est justement la cause TOUS_AU_PLAFOND qui doit s'exprimer plus bas.
    */
   const diagnostiquer = (
     candidats: EmployePlanning[],
     libresAvant: EmployePlanning[],
-    d: Date
+    d: Date,
+    shiftId: string
   ): RaisonNonCouverture => {
     if (candidats.length === 0) return "AUCUN_TITULAIRE";
     if (libresAvant.length > 0) return "EFFECTIF_INSUFFISANT";
     if (candidats.every((e) => estEnConge(e.id, d))) return "TOUS_EN_CONGE";
     const dispos = candidats.filter((e) => !estEnConge(e.id, d));
     if (dispos.every((e) => occupe.has(`${e.id}_${iso(d)}`))) return "TOUS_DEJA_PRIS";
+    const libres = dispos.filter((e) => respecteContraintesDures(e.id, d));
+    if (libres.length > 0 && libres.every((e) => !tientDansLesHeures(e, d, shiftId))) return "TOUS_AU_PLAFOND";
     return "TOUS_AU_REPOS";
   };
 
@@ -260,14 +292,22 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
       const candidats = [...titulaires, ...renforts];
 
       // Instantané AVANT toute affectation de ce besoin — sert au diagnostic (voir `diagnostiquer`).
-      const libresAvant = candidats.filter((e) => respecteContraintesDures(e.id, d));
+      // « Libre » ici veut dire réellement posable : contraintes dures respectées ET plafond
+      // d'heures tenu (ou dépassement autorisé) — sinon TOUS_AU_PLAFOND ne pourrait jamais
+      // s'exprimer, un candidat seulement arrêté par le plafond serait pris pour un manque d'effectif.
+      const libresAvant = candidats.filter(
+        (e) => respecteContraintesDures(e.id, d) && (tientDansLesHeures(e, d, b.shiftId) || options.autoriserDepassementHeures)
+      );
 
       for (const e of candidats) {
         if (acquis >= b.nombreRequis) break;
         if (!respecteContraintesDures(e.id, d)) continue;
+        const dansLesHeures = tientDansLesHeures(e, d, b.shiftId);
+        if (!dansLesHeures && !options.autoriserDepassementHeures) continue;
         affecter(e.id, d, b.shiftId);
         ajouter(couverture, cle, 1);
         acquis++;
+        if (!dansLesHeures) noterDepassement(e, d);
       }
 
       if (acquis < b.nombreRequis) {
@@ -276,7 +316,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
           shiftId: b.shiftId,
           poste: b.poste,
           manque: b.nombreRequis - acquis,
-          raison: diagnostiquer(candidats, libresAvant, d),
+          raison: diagnostiquer(candidats, libresAvant, d, b.shiftId),
         });
       }
     }
@@ -284,6 +324,6 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
 
   return {
     creneaux,
-    rapport: { crees: creneaux.length, trous, sansShiftPoste: [], depassements: [], sousHeures: [] },
+    rapport: { crees: creneaux.length, trous, sansShiftPoste: [], depassements, sousHeures: [] },
   };
 }
