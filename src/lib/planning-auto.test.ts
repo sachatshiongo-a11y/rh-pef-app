@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { genererPlanning, type EntreesGeneration, type EmployePlanning } from "@/lib/planning-auto";
 
 const d = (iso: string) => new Date(iso + "T00:00:00.000Z");
+const iso2 = (x: Date) => x.toISOString().slice(0, 10);
 
 const SHIFT_MATIN = { id: "sh-matin", nom: "Matin cuisine", dureeHeures: 8 };
 const SHIFT_SOIR = { id: "sh-soir", nom: "Soir cuisine", dureeHeures: 8 };
@@ -110,5 +111,69 @@ describe("genererPlanning — contraintes dures", () => {
     expect(r.creneaux.map((c) => c.date.toISOString().slice(0, 10))).toEqual([
       "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-10", "2026-07-11",
     ]);
+  });
+});
+
+describe("genererPlanning — couverture des besoins", () => {
+  const besoinLundiMatin = { shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 1, nombreRequis: 2 };
+
+  it("couvre un besoin avec les titulaires du poste", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1"), employe("e2"), employe("e3")],
+      besoins: [besoinLundiMatin],
+    }));
+    const lundi = r.creneaux.filter((c) => iso2(c.date) === "2026-07-06");
+    expect(lundi).toHaveLength(2);
+    expect(r.rapport.trous).toHaveLength(0);
+  });
+
+  it("complète avec la polyvalence quand les titulaires ne suffisent pas", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1"), employe("chef", "Chef de partie")],
+      besoins: [besoinLundiMatin],
+      polyvalences: [{ posteSource: "Chef de partie", posteCible: "Cuisinier" }],
+    }));
+    expect(r.creneaux.filter((c) => iso2(c.date) === "2026-07-06")).toHaveLength(2);
+    expect(r.rapport.trous).toHaveLength(0);
+  });
+
+  it("rapporte AUCUN_TITULAIRE quand personne ne tient le poste", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1", "Plongeur")],
+      besoins: [besoinLundiMatin],
+    }));
+    expect(r.rapport.trous).toEqual([
+      { date: d("2026-07-06"), shiftId: SHIFT_MATIN.id, poste: "Cuisinier", manque: 2, raison: "AUCUN_TITULAIRE" },
+    ]);
+  });
+
+  it("rapporte TOUS_EN_CONGE", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1")],
+      besoins: [{ ...besoinLundiMatin, nombreRequis: 1 }],
+      conges: [{ employeeId: "e1", dateDebut: d("2026-07-06"), dateFin: d("2026-07-06") }],
+    }));
+    expect(r.rapport.trous[0].raison).toBe("TOUS_EN_CONGE");
+  });
+
+  it("rapporte TOUS_DEJA_PRIS quand chacun a déjà un shift ce jour-là", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1")],
+      besoins: [{ ...besoinLundiMatin, nombreRequis: 1 }],
+      existants: [{ employeeId: "e1", date: d("2026-07-06"), shiftId: SHIFT_SOIR.id }],
+    }));
+    expect(r.rapport.trous[0].raison).toBe("TOUS_DEJA_PRIS");
+  });
+
+  it("rapporte TOUS_AU_REPOS quand la règle de repos bloque tout le monde", () => {
+    // e1 a déjà 6 jours posés dans la semaine : le 7e est interdit par le repos hebdomadaire.
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-12"), fin: d("2026-07-12"), // dimanche seul
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 100 }],
+      besoins: [{ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 0, nombreRequis: 1 }],
+      existants: ["2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10", "2026-07-11"]
+        .map((j) => ({ employeeId: "e1", date: d(j), shiftId: SHIFT_MATIN.id })),
+    }));
+    expect(r.rapport.trous[0].raison).toBe("TOUS_AU_REPOS");
   });
 });

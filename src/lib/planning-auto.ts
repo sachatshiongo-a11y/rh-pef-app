@@ -196,8 +196,79 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     }
   }
 
+  // ── Étape 2 : couverture des besoins ──────────────────────────────────────────────────────
+  const trous: TrouCouverture[] = [];
+  const empsParPoste = new Map<string, EmployePlanning[]>();
+  for (const e of entrees.employes) {
+    const l = empsParPoste.get(e.poste) ?? [];
+    l.push(e);
+    empsParPoste.set(e.poste, l);
+  }
+
+  // Couverture déjà acquise : modèles posés + créneaux existants conservés.
+  const posteDe = new Map(entrees.employes.map((e) => [e.id, e.poste]));
+  const couverture = new Map<string, number>(); // `${isoJour}_${shiftId}_${poste}`
+  const compterCouverture = (c: CreneauPlanning) => {
+    const p = posteDe.get(c.employeeId);
+    if (p) ajouter(couverture, `${iso(c.date)}_${c.shiftId}_${p}`, 1);
+  };
+  creneaux.forEach(compterCouverture);
+  if (!options.ecraser) entrees.existants.forEach(compterCouverture);
+
+  const besoinsParJour = new Map<number, BesoinPlanning[]>();
+  for (const b of entrees.besoins) {
+    const l = besoinsParJour.get(b.jourSemaine) ?? [];
+    l.push(b);
+    besoinsParJour.set(b.jourSemaine, l);
+  }
+
+  /**
+   * Pourquoi le vivier s'est vidé. On teste les causes dans l'ordre où le moteur élimine, et on
+   * renvoie la PREMIÈRE qui explique l'absence de candidat — c'est celle sur laquelle agir.
+   */
+  const diagnostiquer = (candidats: EmployePlanning[], d: Date): RaisonNonCouverture => {
+    if (candidats.length === 0) return "AUCUN_TITULAIRE";
+    if (candidats.every((e) => estEnConge(e.id, d))) return "TOUS_EN_CONGE";
+    const dispos = candidats.filter((e) => !estEnConge(e.id, d));
+    if (dispos.every((e) => occupe.has(`${e.id}_${iso(d)}`))) return "TOUS_DEJA_PRIS";
+    return "TOUS_AU_REPOS";
+  };
+
+  for (const d of joursPeriode) {
+    for (const b of besoinsParJour.get(d.getUTCDay()) ?? []) {
+      const cle = `${iso(d)}_${b.shiftId}_${b.poste}`;
+      let acquis = couverture.get(cle) ?? 0;
+      if (acquis >= b.nombreRequis) continue;
+
+      // Titulaires du poste, puis postes déclarés capables de le couvrir (polyvalence).
+      const titulaires = empsParPoste.get(b.poste) ?? [];
+      const renforts = entrees.polyvalences
+        .filter((p) => p.posteCible === b.poste)
+        .flatMap((p) => empsParPoste.get(p.posteSource) ?? []);
+      const candidats = [...titulaires, ...renforts];
+
+      for (const e of candidats) {
+        if (acquis >= b.nombreRequis) break;
+        if (!respecteContraintesDures(e.id, d)) continue;
+        affecter(e.id, d, b.shiftId);
+        ajouter(couverture, cle, 1);
+        acquis++;
+      }
+
+      if (acquis < b.nombreRequis) {
+        trous.push({
+          date: d,
+          shiftId: b.shiftId,
+          poste: b.poste,
+          manque: b.nombreRequis - acquis,
+          raison: diagnostiquer(candidats, d),
+        });
+      }
+    }
+  }
+
   return {
     creneaux,
-    rapport: { crees: creneaux.length, trous: [], sansShiftPoste: [], depassements: [], sousHeures: [] },
+    rapport: { crees: creneaux.length, trous, sansShiftPoste: [], depassements: [], sousHeures: [] },
   };
 }
