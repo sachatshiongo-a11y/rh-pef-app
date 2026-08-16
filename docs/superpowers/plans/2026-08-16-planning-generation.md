@@ -420,11 +420,14 @@ describe("genererPlanning — contraintes dures", () => {
     expect(r.creneaux.length).toBeLessThanOrEqual(6);
   });
 
-  it("ne dépasse jamais 6 jours consécutifs, y compris à cheval sur deux semaines", () => {
-    // Vendredi 3 et samedi 4 juillet déjà travaillés (semaine précédente, via l'historique) :
-    // lundi 6 → samedi 11 ferait 8 jours d'affilée si on ignorait la coupure du dimanche 5.
-    // Le dimanche 5 n'étant pas travaillé, la série repart : le test vérifie qu'on n'invente pas
-    // une contrainte là où il n'y en a pas, tout en la posant quand la série est vraiment continue.
+  it("compte les jours consécutifs à cheval sur deux semaines, et repart après un vrai repos", () => {
+    // Vendredi 3, samedi 4 et dimanche 5 juillet déjà travaillés (semaine précédente, via
+    // l'historique). La série continue donc au-delà de la frontière de semaine : lundi 6, mardi 7
+    // et mercredi 8 atteignent 6 jours d'affilée, et jeudi 9 est refusé.
+    //
+    // Jeudi 9 devient alors un VRAI jour de repos, ce qui relance légitimement le compteur :
+    // vendredi 10 et samedi 11 sont posés. Le résultat respecte les deux règles — jamais plus de
+    // 6 jours d'affilée, et au moins un repos dans la semaine du 6 (jeudi 9 et dimanche 12).
     const r = genererPlanning(entreesBase({
       employes: [{ ...employe("e1"), heuresHebdomadaires: 100 }],
       historique: [
@@ -434,9 +437,8 @@ describe("genererPlanning — contraintes dures", () => {
       ],
       modeles: [1, 2, 3, 4, 5, 6].map((j) => ({ employeeId: "e1", jour: j, semaine: 0, shiftId: SHIFT_MATIN.id })),
     }));
-    // Série continue depuis le 3 juillet : il ne reste que 3 jours avant d'atteindre 6 d'affilée.
     expect(r.creneaux.map((c) => c.date.toISOString().slice(0, 10))).toEqual([
-      "2026-07-06", "2026-07-07", "2026-07-08",
+      "2026-07-06", "2026-07-07", "2026-07-08", "2026-07-10", "2026-07-11",
     ]);
   });
 });
