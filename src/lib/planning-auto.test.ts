@@ -220,3 +220,64 @@ describe("genererPlanning — plafond d'heures", () => {
     ]);
   });
 });
+
+describe("genererPlanning — passe complémentaire", () => {
+  const optionsCompleter = { ...entreesBase().options, completer: true, jours: [1, 2, 3, 4, 5, 6] };
+
+  it("remplit jusqu'aux heures avec le premier shift acceptable du poste", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 24 }], // 3 shifts de 8 h
+      shiftsPoste: [
+        { poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 },
+        { poste: "Cuisinier", shiftId: SHIFT_SOIR.id, ordre: 1 },
+      ],
+      options: optionsCompleter,
+    }));
+    expect(r.creneaux).toHaveLength(3);
+    expect(r.creneaux.every((c) => c.shiftId === SHIFT_MATIN.id)).toBe(true);
+  });
+
+  it("respecte un shift imposé par l'utilisateur, en ignorant la liste du poste", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      options: { ...optionsCompleter, shiftId: SHIFT_SOIR.id },
+    }));
+    expect(r.creneaux[0].shiftId).toBe(SHIFT_SOIR.id);
+  });
+
+  it("ne pose RIEN et nomme le salarié quand son poste n'a aucun shift acceptable", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1", "Plongeur")],
+      shiftsPoste: [],
+      options: optionsCompleter,
+    }));
+    expect(r.creneaux).toHaveLength(0);
+    expect(r.rapport.sansShiftPoste).toEqual([{ employeeId: "e1", poste: "Plongeur" }]);
+  });
+
+  it("ne dépasse JAMAIS le plafond dans la passe complémentaire, même avec l'option", () => {
+    // Déplacé depuis la tâche 4 : il porte sur cette passe, il ne pouvait donc pas y être écrit
+    // sans être rouge. Aucun besoin déclaré ici — rien ne justifie de pousser quelqu'un au-delà
+    // de ses heures quand aucune couverture ne l'exige.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      options: { ...optionsCompleter, autoriserDepassementHeures: true },
+    }));
+    expect(r.creneaux).toHaveLength(1);
+    expect(r.rapport.depassements).toHaveLength(0);
+  });
+
+  it("rapporte les salariés restés sous leurs heures", () => {
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-06"), fin: d("2026-07-07"), // 2 jours seulement
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 48 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      options: optionsCompleter,
+    }));
+    expect(r.rapport.sousHeures).toEqual([
+      { employeeId: "e1", heuresPlanifiees: 16, heuresContractuelles: 48 },
+    ]);
+  });
+});

@@ -322,8 +322,52 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     }
   }
 
+  // ── Étape 3 : passe complémentaire ────────────────────────────────────────────────────────
+  // Remplir chacun jusqu'à ses heures, via la liste ordonnée des shifts que son poste peut tenir.
+  // JAMAIS de dépassement d'heures ici : sans besoin déclaré à couvrir, rien ne le justifierait.
+  const sansShiftPoste: { employeeId: string; poste: string }[] = [];
+
+  if (options.completer) {
+    const shiftsParPoste = new Map<string, string[]>();
+    for (const sp of [...entrees.shiftsPoste].sort((a, b) => a.ordre - b.ordre)) {
+      const l = shiftsParPoste.get(sp.poste) ?? [];
+      l.push(sp.shiftId);
+      shiftsParPoste.set(sp.poste, l);
+    }
+
+    for (const emp of entrees.employes) {
+      // Un shift imposé par l'utilisateur court-circuite la liste du poste.
+      const candidatsShift = options.shiftId ? [options.shiftId] : (shiftsParPoste.get(emp.poste) ?? []);
+      if (candidatsShift.length === 0) {
+        sansShiftPoste.push({ employeeId: emp.id, poste: emp.poste });
+        continue;
+      }
+      for (const d of joursPeriode) {
+        if (!respecteContraintesDures(emp.id, d)) continue;
+        const shiftId = candidatsShift.find((s) => tientDansLesHeures(emp, d, s));
+        if (!shiftId) continue;
+        affecter(emp.id, d, shiftId);
+      }
+    }
+  }
+
+  // Salariés restés sous leurs heures contractuelles sur la période.
+  const nbSemaines = Math.max(1, new Set(joursPeriode.map((j) => iso(lundiDeUTC(j)))).size);
+  const heuresTotales = new Map<string, number>();
+  for (const c of creneaux) ajouter(heuresTotales, c.employeeId, dureeParShift.get(c.shiftId) ?? 0);
+  if (!options.ecraser) {
+    for (const ex of entrees.existants) ajouter(heuresTotales, ex.employeeId, dureeParShift.get(ex.shiftId) ?? 0);
+  }
+  const sousHeures = entrees.employes
+    .map((e) => ({
+      employeeId: e.id,
+      heuresPlanifiees: heuresTotales.get(e.id) ?? 0,
+      heuresContractuelles: (e.heuresHebdomadaires || 48) * nbSemaines,
+    }))
+    .filter((x) => x.heuresPlanifiees < x.heuresContractuelles - 0.01);
+
   return {
     creneaux,
-    rapport: { crees: creneaux.length, trous, sansShiftPoste: [], depassements, sousHeures: [] },
+    rapport: { crees: creneaux.length, trous, sansShiftPoste, depassements, sousHeures },
   };
 }
