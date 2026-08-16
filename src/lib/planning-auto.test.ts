@@ -296,3 +296,46 @@ describe("genererPlanning — passe complémentaire", () => {
     expect(r.rapport.sousHeures).toEqual([]);
   });
 });
+
+describe("genererPlanning — équité", () => {
+  it("choisit d'abord celui qui a le moins d'heures sur la période", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("charge"), employe("leger")],
+      besoins: [{ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 1, nombreRequis: 1 }],
+      existants: [{ employeeId: "charge", date: d("2026-07-07"), shiftId: SHIFT_MATIN.id }],
+    }));
+    expect(r.creneaux.find((c) => iso2(c.date) === "2026-07-06")?.employeeId).toBe("leger");
+  });
+
+  it("fait tourner les dimanches d'après l'historique, à heures égales", () => {
+    // Les deux ont autant d'heures sur la période ; « habitue » a déjà pris 3 dimanches avant.
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-12"), fin: d("2026-07-12"), // dimanche
+      employes: [employe("habitue"), employe("repose")],
+      besoins: [{ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 0, nombreRequis: 1 }],
+      options: { ...entreesBase().options, jours: [0] },
+      historique: ["2026-06-21", "2026-06-28", "2026-07-05"].map((j) => ({
+        employeeId: "habitue", date: d(j), shiftId: SHIFT_MATIN.id,
+      })),
+    }));
+    expect(r.creneaux[0].employeeId).toBe("repose");
+  });
+
+  it("alterne les shifts acceptables d'une génération à l'autre, d'après l'historique", () => {
+    // e1 a déjà beaucoup fait « Matin » les semaines précédentes : « Soir » passe devant.
+    // L'ordre est figé pour toute la génération — on ne veut pas d'un cuisinier qui bascule
+    // matin/soir d'un jour sur l'autre.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
+      shiftsPoste: [
+        { poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 },
+        { poste: "Cuisinier", shiftId: SHIFT_SOIR.id, ordre: 1 },
+      ],
+      historique: ["2026-06-29", "2026-06-30", "2026-07-01"].map((j) => ({
+        employeeId: "e1", date: d(j), shiftId: SHIFT_MATIN.id,
+      })),
+      options: { ...entreesBase().options, completer: true },
+    }));
+    expect(r.creneaux[0].shiftId).toBe(SHIFT_SOIR.id);
+  });
+});

@@ -242,6 +242,35 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   creneaux.forEach(compterCouverture);
   if (!options.ecraser) entrees.existants.forEach(compterCouverture);
 
+  // ── Équité ────────────────────────────────────────────────────────────────────────────────
+  // Un DÉPARTAGE entre candidats disponibles, jamais un veto : l'équité ne peut pas empêcher de
+  // couvrir un besoin, elle choisit seulement qui le couvre.
+  //
+  // Critère 1 = heures sur la PÉRIODE seule (comportement actuel, strictement inchangé).
+  // Critères 2 et 3 = période + historique, sinon ils ne veulent rien dire sur une semaine isolée :
+  // un seul dimanche, et pas la place d'alterner matin et soir.
+  const heuresPeriode = new Map<string, number>();
+  const joursPenibles = new Map<string, number>(); // dimanches + fériés, période et historique
+  const shiftsPris = new Map<string, number>(); // `${empId}_${shiftId}` — période et historique
+
+  const estPenible = (d: Date) => d.getUTCDay() === 0 || feriesIso.has(iso(d));
+  const compterEquite = (c: CreneauPlanning, compteHeures: boolean) => {
+    if (compteHeures) ajouter(heuresPeriode, c.employeeId, dureeParShift.get(c.shiftId) ?? 0);
+    if (estPenible(c.date)) ajouter(joursPenibles, c.employeeId, 1);
+    ajouter(shiftsPris, `${c.employeeId}_${c.shiftId}`, 1);
+  };
+  for (const h of entrees.historique) compterEquite(h, false);
+  if (!options.ecraser) for (const ex of entrees.existants) compterEquite(ex, true);
+  for (const c of creneaux) compterEquite(c, true); // modèles déjà posés
+
+  const ordonnerCandidats = (candidats: EmployePlanning[], d: Date) =>
+    [...candidats].sort(
+      (a, b) =>
+        (heuresPeriode.get(a.id) ?? 0) - (heuresPeriode.get(b.id) ?? 0) ||
+        (estPenible(d) ? (joursPenibles.get(a.id) ?? 0) - (joursPenibles.get(b.id) ?? 0) : 0) ||
+        a.id.localeCompare(b.id), // départage stable : deux générations identiques donnent le même résultat
+    );
+
   const besoinsParJour = new Map<number, BesoinPlanning[]>();
   for (const b of entrees.besoins) {
     const l = besoinsParJour.get(b.jourSemaine) ?? [];
@@ -299,12 +328,13 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         (e) => respecteContraintesDures(e.id, d) && (tientDansLesHeures(e, d, b.shiftId) || options.autoriserDepassementHeures)
       );
 
-      for (const e of candidats) {
+      for (const e of ordonnerCandidats(candidats, d)) {
         if (acquis >= b.nombreRequis) break;
         if (!respecteContraintesDures(e.id, d)) continue;
         const dansLesHeures = tientDansLesHeures(e, d, b.shiftId);
         if (!dansLesHeures && !options.autoriserDepassementHeures) continue;
         affecter(e.id, d, b.shiftId);
+        compterEquite({ employeeId: e.id, date: d, shiftId: b.shiftId }, true);
         ajouter(couverture, cle, 1);
         acquis++;
         if (!dansLesHeures) noterDepassement(e, d);
@@ -335,6 +365,10 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
       shiftsParPoste.set(sp.poste, l);
     }
 
+    // Photo des shifts déjà pris (historique + existants + modèles + couverture) AVANT la passe.
+    // Fige l'ordre de préférence : on rééquilibre d'une génération à l'autre, jamais d'un jour à l'autre.
+    const shiftsPrisInitial = new Map(shiftsPris);
+
     for (const emp of entrees.employes) {
       // Un shift imposé par l'utilisateur court-circuite la liste du poste.
       const candidatsShift = options.shiftId ? [options.shiftId] : (shiftsParPoste.get(emp.poste) ?? []);
@@ -342,11 +376,16 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         sansShiftPoste.push({ employeeId: emp.id, poste: emp.poste });
         continue;
       }
+      const ordrePrefere = [...candidatsShift].sort(
+        (s1, s2) =>
+          (shiftsPrisInitial.get(`${emp.id}_${s1}`) ?? 0) - (shiftsPrisInitial.get(`${emp.id}_${s2}`) ?? 0),
+      );
       for (const d of joursPeriode) {
         if (!respecteContraintesDures(emp.id, d)) continue;
-        const shiftId = candidatsShift.find((s) => tientDansLesHeures(emp, d, s));
+        const shiftId = ordrePrefere.find((s) => tientDansLesHeures(emp, d, s));
         if (!shiftId) continue;
         affecter(emp.id, d, shiftId);
+        compterEquite({ employeeId: emp.id, date: d, shiftId }, true);
       }
     }
   }
