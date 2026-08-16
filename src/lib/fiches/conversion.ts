@@ -65,6 +65,15 @@ export function facteur(uniteSource: string, uniteCible: string): Decimal | null
   const source = normaliserUnite(uniteSource);
   const cible = normaliserUnite(uniteCible);
 
+  // Une unité rapportée à elle-même vaut toujours 1 — vrai par construction, que l'unité soit
+  // connue du système ou non (ex. « 500 GR » consommé en « 500 GR » : un conditionnement acheté
+  // et consommé à l'unité). Ce contrôle est volontairement placé AVANT les tables de grandeurs
+  // pour ne jamais pouvoir être court-circuité par elles. Il ne concerne QUE l'identité stricte :
+  // deux unités différentes, même inconnues toutes les deux, continuent de renvoyer null plus bas.
+  if (source === cible) {
+    return new Decimal(1);
+  }
+
   if (UNITES_COMPTAGE.has(source) || UNITES_COMPTAGE.has(cible)) {
     return source === cible ? new Decimal(1) : null;
   }

@@ -667,7 +667,9 @@ describe("unités qui ne se convertiront pas — SIGNALÉES, jamais devinées", 
     expect(uniteSeConvertit("Pièce", "Pièce")).toBe(true);
     expect(uniteSeConvertit("Pièce", "kg")).toBe(false);
     expect(uniteSeConvertit("cl", "L")).toBe(true);
-    expect(uniteSeConvertit("500 GR", "500 GR")).toBe(false); // ni masse, ni volume, ni comptage
+    // Deux unités STRICTEMENT IDENTIQUES valent toujours 1, même hors masse/volume/comptage
+    // (corrigé le 2026-08-16 dans conversion.ts — cf. golden.integration.test.ts).
+    expect(uniteSeConvertit("500 GR", "500 GR")).toBe(true);
     expect(uniteSeConvertit("g", null)).toBe(false);
     expect(uniteSeConvertit("g", "  ")).toBe(false);
   });

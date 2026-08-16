@@ -215,7 +215,11 @@ const INCOMPLETES_ATTENDUES = [
   // peuvent pas ramener le coût à la quantité consommée — la ligne entière est indéterminée,
   // le manque ne se propage donc pas ligne à ligne.
   "Gratiné de cossas de Mayombe au beurre de corail : Bisque de cossas",
-  "Hamburger de pâtes : 15 SPAGHETTI 24 X 500G", // « 500 GR » consommé à la pièce : inconvertible
+  // « Hamburger de pâtes » a QUITTÉ cette liste le 2026-08-16 : sa ligne « 15 SPAGHETTI 24 X
+  // 500G » consomme en « 500 GR », exactement l'unité du catalogue — même unité rapportée à
+  // elle-même, donc facteur 1 par construction (corrigé dans conversion.ts : `facteur` renvoyait
+  // à tort `null` sur deux unités strictement identiques dès qu'elles étaient inconnues du
+  // système). Le hamburger est désormais chiffré de bout en bout (18 → 19 complètes).
   "Jus de cuisson : Crème balsamique | Vinaigre Bamsamique",
   "Lasagne de capitaine aux épinards : Béchamel",
   "Moelleux au chocolat : Sucre Glace 500gr Daddy Icing",
@@ -242,7 +246,8 @@ const MOTIFS_ATTENDUS = [
   "Bisque de cossas : Maizena blanc[QUANTITE_ABSENTE]",
   "Coulis de tomate : Basilic séché 170g[PRIX_ABSENT]",
   "Gratiné de cossas de Mayombe au beurre de corail : Bisque de cossas[RENDEMENT_ABSENT]",
-  "Hamburger de pâtes : 15 SPAGHETTI 24 X 500G[UNITE_INCONVERTIBLE]",
+  // Motif « Hamburger de pâtes […][UNITE_INCONVERTIBLE] » retiré le 2026-08-16 pour la même
+  // raison que ci-dessus (voir le commentaire sur INCOMPLETES_ATTENDUES) : cf. conversion.ts.
   "Jus de cuisson : Crème balsamique[PRIX_ABSENT] | Vinaigre Bamsamique[PRIX_ABSENT]",
   "Lasagne de capitaine aux épinards : Béchamel[RENDEMENT_ABSENT]",
   "Moelleux au chocolat : Sucre Glace 500gr Daddy Icing[PRIX_ABSENT]",
@@ -251,7 +256,9 @@ const MOTIFS_ATTENDUS = [
   "Sauté de blanc de poulet aux champignons, lait de coco et de curry : Curry[PRIX_ABSENT]",
 ];
 
-describe("état de chiffrage des 29 fiches (18 complètes / 11 incomplètes)", () => {
+// 19/10 depuis le 2026-08-16 (était 18/11) : « Hamburger de pâtes » est devenu complet, cf. les
+// commentaires sur INCOMPLETES_ATTENDUES et MOTIFS_ATTENDUS ci-dessus.
+describe("état de chiffrage des 29 fiches (19 complètes / 10 incomplètes)", () => {
   const parFiche = (rendu: (r: ResultatCout) => string) =>
     [...couts.entries()]
       .filter(([, r]) => r.incomplet)
@@ -268,11 +275,11 @@ describe("état de chiffrage des 29 fiches (18 complètes / 11 incomplètes)", (
         .join(" | "),
     );
 
-  it("18 fiches sont chiffrées de bout en bout", () => {
-    expect([...couts.values()].filter((r) => !r.incomplet)).toHaveLength(18);
+  it("19 fiches sont chiffrées de bout en bout", () => {
+    expect([...couts.values()].filter((r) => !r.incomplet)).toHaveLength(19);
   });
 
-  it("11 fiches restent incomplètes, et l'on sait NOMMÉMENT quel ingrédient manque", () => {
+  it("10 fiches restent incomplètes, et l'on sait NOMMÉMENT quel ingrédient manque", () => {
     // Le décompte seul ne suffirait pas : une fiche qui deviendrait silencieusement « complète »
     // pendant qu'une autre casse laisserait le total inchangé. On verrouille donc la LISTE.
     expect(resume()).toEqual(INCOMPLETES_ATTENDUES);

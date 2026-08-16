@@ -61,6 +61,17 @@ describe("facteur — comptage", () => {
     expect(facteur("bouteilles", "bouteille")!.toString()).toBe("1"));
 });
 
+describe("facteur — même unité, cas de production (« 500 GR » consommé en « 500 GR »)", () => {
+  it("une unité de conditionnement inconnue rapportée à elle-même vaut 1 (500 GR → 500 GR)", () =>
+    expect(facteur("500 GR", "500 GR")!.toString()).toBe("1"));
+  it("insensible à la casse/aux espaces : même règle d'identité que pour toute autre unité", () =>
+    expect(facteur("  500 gr ", "500 GR")!.toString()).toBe("1"));
+  it("une unité totalement inconnue rapportée à elle-même vaut aussi 1 (truc-inconnu → truc-inconnu)", () =>
+    expect(facteur("truc-inconnu", "truc-inconnu")!.toString()).toBe("1"));
+  it("mais deux unités DIFFÉRENTES, même toutes deux inconnues, restent inconvertibles (500 GR → 250 GR)", () =>
+    expect(facteur("500 GR", "250 GR")).toBeNull());
+});
+
 describe("facteur — ligne rouge : jamais d'équivalence entre grandeurs différentes", () => {
   it("une unité de comptage élargie (pièces) ne se convertit toujours pas vers une masse (g) = null", () =>
     expect(facteur("pièces", "g")).toBeNull());

@@ -385,11 +385,14 @@ describe.skipIf(!classeurReelPresent)("classeur RÉEL « Fiche technique plats c
     expect(res.articles.find((a) => a.designation.startsWith("20 PENNE RIGATE LM CHEF"))!.prixUnitaireUSD).toBe(0.35);
   });
 
-  it("chiffre les unités inconvertibles (question « emballage consommé à la pièce »)", () => {
+  it("aucune unité inconvertible : « 500 GR » consommé en « 500 GR » est la MÊME unité (facteur 1)", () => {
+    // Avant le 2026-08-16, `facteur` renvoyait à tort `null` quand source et cible étaient
+    // strictement identiques mais inconnues du système (ex. « 500 GR »), et cette ligne — « 15
+    // SPAGHETTI 24 X 500G » consommé en « 500 GR » — était signalée ici comme inconvertible.
+    // C'était faux : une unité rapportée à elle-même vaut toujours 1, par construction. Corrigé
+    // dans conversion.ts ; la liste est donc désormais vide sur ce classeur.
     const lignes = res.unitesInconvertibles.flatMap((u) => u.occurrences);
-    expect(lignes).toHaveLength(1);
-    expect(res.unitesInconvertibles[0]!.uniteConsommation.trim()).toBe("500 GR");
-    expect(res.unitesInconvertibles[0]!.article).toBe("15 SPAGHETTI 24 X 500G");
+    expect(lignes).toHaveLength(0);
   });
 
   it("attrape le « Sucre Blanc » au gramme sous une unité kg, invisible pour le contrôle V×U", () => {
