@@ -970,18 +970,12 @@ describe("genererPlanning — plafond d'heures", () => {
     ]);
   });
 
-  it("ne dépasse JAMAIS le plafond dans la passe complémentaire, même avec l'option", () => {
-    // Aucun besoin déclaré : rien ne justifie de pousser quelqu'un au-delà de ses heures.
-    const r = genererPlanning(entreesBase({
-      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
-      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
-      options: { ...entreesBase().options, completer: true, autoriserDepassementHeures: true },
-    }));
-    expect(r.creneaux).toHaveLength(1);
-    expect(r.rapport.depassements).toHaveLength(0);
-  });
 });
 ```
+
+> Le test « ne dépasse jamais le plafond dans la passe complémentaire » n'est **pas** écrit ici : il
+> porte sur une passe qui n'existe qu'à la tâche 5. L'y écrire maintenant le rendrait rouge, ce qui
+> violerait la contrainte « la suite reste verte à chaque commit ». Il est donc écrit en tâche 5.
 
 - [ ] **Étape 2 : Lancer les tests pour vérifier qu'ils échouent**
 
@@ -1057,8 +1051,7 @@ Et le `return` final : `depassements` à la place du tableau vide.
 - [ ] **Étape 4 : Lancer les tests pour vérifier qu'ils passent**
 
 Lancer : `npx vitest run src/lib/planning-auto.test.ts`
-Attendu : 15 tests verts. Le 3ᵉ test du bloc « plafond » passe déjà car la passe complémentaire
-n'existe pas encore — T5 devra le garder vert.
+Attendu : 15 tests verts (13 des tâches précédentes + les 2 du bloc « plafond »).
 
 - [ ] **Étape 5 : Commit**
 
@@ -1125,6 +1118,19 @@ describe("genererPlanning — passe complémentaire", () => {
     }));
     expect(r.creneaux).toHaveLength(0);
     expect(r.rapport.sansShiftPoste).toEqual([{ employeeId: "e1", poste: "Plongeur" }]);
+  });
+
+  it("ne dépasse JAMAIS le plafond dans la passe complémentaire, même avec l'option", () => {
+    // Déplacé depuis la tâche 4 : il porte sur cette passe, il ne pouvait donc pas y être écrit
+    // sans être rouge. Aucun besoin déclaré ici — rien ne justifie de pousser quelqu'un au-delà
+    // de ses heures quand aucune couverture ne l'exige.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      options: { ...optionsCompleter, autoriserDepassementHeures: true },
+    }));
+    expect(r.creneaux).toHaveLength(1);
+    expect(r.rapport.depassements).toHaveLength(0);
   });
 
   it("rapporte les salariés restés sous leurs heures", () => {
