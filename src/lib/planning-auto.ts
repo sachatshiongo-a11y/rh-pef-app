@@ -60,6 +60,7 @@ export type EntreesGeneration = {
 
 export type RaisonNonCouverture =
   | "AUCUN_TITULAIRE"
+  | "EFFECTIF_INSUFFISANT" // des gens étaient libres, ils ont tous été posés, il en manquait encore
   | "TOUS_EN_CONGE"
   | "TOUS_DEJA_PRIS"
   | "TOUS_AU_REPOS"
@@ -223,11 +224,22 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   }
 
   /**
-   * Pourquoi le vivier s'est vidé. On teste les causes dans l'ordre où le moteur élimine, et on
-   * renvoie la PREMIÈRE qui explique l'absence de candidat — c'est celle sur laquelle agir.
+   * Pourquoi le besoin n'est pas couvert. Le diagnostic se fait sur un INSTANTANÉ pris AVANT la
+   * boucle d'affectation : sans lui, les candidats qu'on vient tout juste de poser pour ce besoin
+   * apparaîtraient « déjà pris », et un simple manque d'effectif serait rapporté comme un blocage.
+   * Un lecteur chercherait alors qui bloque, au lieu de voir qu'il manque du monde.
+   *
+   * `libresAvant` = les candidats qui, avant toute affectation de ce besoin, satisfaisaient les
+   * contraintes dures. S'il y en avait — ils ont donc tous été posés — et que le compte n'y est
+   * toujours pas, la cause est l'effectif, pas un blocage.
    */
-  const diagnostiquer = (candidats: EmployePlanning[], d: Date): RaisonNonCouverture => {
+  const diagnostiquer = (
+    candidats: EmployePlanning[],
+    libresAvant: EmployePlanning[],
+    d: Date
+  ): RaisonNonCouverture => {
     if (candidats.length === 0) return "AUCUN_TITULAIRE";
+    if (libresAvant.length > 0) return "EFFECTIF_INSUFFISANT";
     if (candidats.every((e) => estEnConge(e.id, d))) return "TOUS_EN_CONGE";
     const dispos = candidats.filter((e) => !estEnConge(e.id, d));
     if (dispos.every((e) => occupe.has(`${e.id}_${iso(d)}`))) return "TOUS_DEJA_PRIS";
@@ -247,6 +259,9 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         .flatMap((p) => empsParPoste.get(p.posteSource) ?? []);
       const candidats = [...titulaires, ...renforts];
 
+      // Instantané AVANT toute affectation de ce besoin — sert au diagnostic (voir `diagnostiquer`).
+      const libresAvant = candidats.filter((e) => respecteContraintesDures(e.id, d));
+
       for (const e of candidats) {
         if (acquis >= b.nombreRequis) break;
         if (!respecteContraintesDures(e.id, d)) continue;
@@ -261,7 +276,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
           shiftId: b.shiftId,
           poste: b.poste,
           manque: b.nombreRequis - acquis,
-          raison: diagnostiquer(candidats, d),
+          raison: diagnostiquer(candidats, libresAvant, d),
         });
       }
     }

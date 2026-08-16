@@ -147,6 +147,20 @@ describe("genererPlanning — couverture des besoins", () => {
     ]);
   });
 
+  it("rapporte EFFECTIF_INSUFFISANT quand tout le monde était libre mais en nombre insuffisant", () => {
+    // Le piège que ce test verrouille : les candidats posés pour CE besoin ne doivent pas être
+    // relus comme « déjà pris ». Ici les deux étaient libres, ils sont posés, il en manquait un
+    // troisième — la cause est l'effectif, pas un blocage.
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1"), employe("chef", "Chef de partie")],
+      besoins: [{ ...besoinLundiMatin, nombreRequis: 3 }],
+      polyvalences: [{ posteSource: "Chef de partie", posteCible: "Cuisinier" }],
+    }));
+    expect(r.creneaux.filter((c) => iso2(c.date) === "2026-07-06")).toHaveLength(2);
+    expect(r.rapport.trous[0].manque).toBe(1);
+    expect(r.rapport.trous[0].raison).toBe("EFFECTIF_INSUFFISANT");
+  });
+
   it("rapporte TOUS_EN_CONGE", () => {
     const r = genererPlanning(entreesBase({
       employes: [employe("e1")],
