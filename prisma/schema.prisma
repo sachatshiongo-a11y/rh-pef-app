@@ -32,6 +32,13 @@ enum EmployeeType {
   @@schema("public")
 }
 
+enum LienFamilial {
+  CONJOINT
+  ENFANT
+
+  @@schema("public")
+}
+
 enum AttendanceCode {
   P // Présence — payé 100%
   O // Repos — payé 100%
@@ -126,6 +133,11 @@ model Config {
   moisCourant   Int
   jourPaie      Int      @default(30) // jour du mois de la paie convenue (frise + alerte clôture)
   espaceEmployeActif Boolean @default(false) // ouvre l'espace salarié (self-service) — OFF par défaut
+  // Âge au-delà duquel un enfant cesse d'être compté à charge dans la composition familiale.
+  // 18 ans par défaut — À VALIDER par un comptable-juriste (des prolongations existent, notamment
+  // pour les enfants aux études). Ne sert QU'À SIGNALER un écart avec le compteur `Employee.enfants` ;
+  // ne modifie JAMAIS un calcul de paie (décision 2026-08-16).
+  ageLimiteEnfantACharge Int @default(18)
   updatedAt     DateTime @updatedAt
 
   @@schema("public")
@@ -285,7 +297,31 @@ model Employee {
   echangesDemandes     EchangeCreneau[]       @relation("EchangeDemandeur")
   echangesRecus        EchangeCreneau[]       @relation("EchangeCollegue")
   compte               User?                  @relation("CompteEmploye")
+  famille              MembreFamille[]
+  avantagesNature      AvantageNature[]
 
+  @@schema("public")
+}
+
+/// Composition familiale NOMINATIVE : conjoint et enfants, avec leurs dates de naissance.
+/// Sert de justificatif (réduction IPR pour charges de famille, allocation familiale) — un contrôle
+/// demande des noms et des dates, pas un compteur.
+///
+/// IMPORTANT : cette liste ne pilote AUCUN calcul de paie. La source du nombre d'enfants reste
+/// `Employee.enfants` (décision 2026-08-16) ; un écart entre les deux est SIGNALÉ à l'écran et
+/// tranché par la Direction, jamais appliqué en silence — changer la source modifierait des
+/// montants de paie existants sans que personne ne l'ait demandé.
+model MembreFamille {
+  id            String       @id @default(uuid())
+  employeeId    String
+  employee      Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lien          LienFamilial
+  nom           String
+  dateNaissance DateTime?    @db.Date // facultative : un dossier incomplet se saisit quand même, et se voit
+  createdAt     DateTime     @default(now())
+  creeParId     String?
+
+  @@index([employeeId])
   @@schema("public")
 }
 
@@ -341,8 +377,35 @@ model Prime {
   employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   nom        String // ex. "Prime de performance"
   montantUSD Decimal  @db.Decimal(12, 2)
+  // Majoration exprimée en POURCENTAGE du salaire de base : le taux saisi est conservé pour la
+  // traçabilité, mais c'est `montantUSD` qui fait foi — il est figé à la saisie et reste
+  // librement ajustable, comme la prime d'ancienneté. Rien n'est recalculé à la paie.
+  pourcentageBase Decimal? @db.Decimal(5, 2)
+  motif      String? // raison libre de la majoration (« remplacement du chef de partie »)
   mois       Int
   annee      Int
+  createdAt  DateTime @default(now())
+  creeParId  String?
+
+  @@index([employeeId, annee, mois])
+  @@schema("public")
+}
+
+/// Avantage en nature du mois (logement, nourriture, véhicule…).
+///
+/// PUREMENT INFORMATIF (décision 2026-08-16) : consigné et affiché sur le bulletin, mais EXCLU de
+/// tout calcul — ni assiette CNSS/INPP/ONEM, ni base IPR, ni net à payer. Un avantage en nature
+/// n'est pas versé en espèces ; son traitement fiscal en RDC reste À VALIDER par un comptable, et
+/// tant qu'il ne l'est pas le logiciel enregistre sans rien décider.
+model AvantageNature {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  nature     String // ex. "Logement", "Nourriture", "Véhicule"
+  montantUSD Decimal  @db.Decimal(12, 2) // valeur estimée de l'avantage sur le mois
+  mois       Int
+  annee      Int
+  motif      String?
   createdAt  DateTime @default(now())
   creeParId  String?
 
@@ -833,6 +896,9 @@ model PayrollLine {
   // Commun
   transportUSD      Decimal @default(0) @db.Decimal(12, 2)
   primesUSD         Decimal @default(0) @db.Decimal(12, 2)
+  // Avantages en nature du mois — SNAPSHOT INFORMATIF, hors de tout calcul (voir AvantageNature).
+  // Figé ici pour que le bulletin archivé reste fidèle même si la saisie change ensuite.
+  avantagesNatureUSD Decimal @default(0) @db.Decimal(12, 2)
   acompteUSD        Decimal @default(0) @db.Decimal(12, 2)
   retenuePretUSD    Decimal @default(0) @db.Decimal(12, 2) // échéance de prêt du personnel, déduite du net
   salBrutUSD        Decimal @db.Decimal(12, 2)

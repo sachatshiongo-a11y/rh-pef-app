@@ -5,6 +5,8 @@ import { ApercuBulletinCard } from "@/app/(app)/employes/[id]/apercu-bulletin";
 import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
 import { demanderMonAcompte } from "../actions";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { chargerPlafondAcompte } from "@/lib/acompte-plafond";
+import { formaterUSD } from "@/lib/montant";
 
 const BADGE: Record<string, { label: string; classe: string }> = {
   EN_ATTENTE: { label: "En attente", classe: "bg-amber-100 text-amber-800" },
@@ -24,7 +26,7 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
   const annee = config?.anneeCourante ?? new Date().getFullYear();
   const periode = `${MOIS_FR[mois - 1]} ${annee}`;
 
-  const [apercu, acomptes, ligneEnCours, pretsBruts] = await Promise.all([
+  const [apercu, acomptes, ligneEnCours, pretsBruts, plafondAcompte] = await Promise.all([
     calculerBulletinLive(s.employeeId, mois, annee),
     prisma.acompteSalaire.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDemande: "desc" }, take: 20 }),
     // Bulletin PDF de la période en cours S'IL est déjà calculé (quel que soit son statut).
@@ -35,6 +37,8 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
       orderBy: { createdAt: "desc" },
       include: { retenues: true },
     }),
+    // Plafond d'acompte : annoncé au salarié avant la saisie, pas opposé après coup.
+    chargerPlafondAcompte(prisma, { employeeId: s.employeeId, mois, annee }),
   ]);
   const totalHS = apercu ? apercu.hs30 + apercu.hs60 + apercu.hs100 : 0;
   const prets = pretsBruts.map((p) => {
@@ -118,14 +122,18 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
       {/* Demande d'acompte */}
       <div className="rounded-2xl border bg-card p-5">
         <h2 className="mb-1 text-base font-semibold">Demander un acompte</h2>
-        <p className="mb-3 text-sm text-muted-foreground">Un acompte approuvé est déduit de votre prochain salaire net.</p>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Un acompte approuvé est déduit de votre prochain salaire net. Vous pouvez demander jusqu&apos;à{" "}
+          {formaterUSD(plafondAcompte.disponibleUSD)} ce mois-ci
+          {plafondAcompte.dejaEngageUSD > 0 && <> ({formaterUSD(plafondAcompte.dejaEngageUSD)} déjà demandé)</>}.
+        </p>
 
         {sp.acompte && <p className="mb-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Votre demande d&apos;acompte a été envoyée à la Direction.</p>}
         {sp.erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
         <form action={demanderMonAcompte} className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm">Montant ($)
-            <input type="number" name="montantUSD" min="0" step="0.01" required placeholder="ex. 50" className={inputCls} />
+            <input type="number" name="montantUSD" min="0" step="0.01" max={plafondAcompte.disponibleUSD || undefined} required placeholder="ex. 50" className={inputCls} />
           </label>
           <label className="flex flex-col gap-1 text-sm">Motif (facultatif)
             <input type="text" name="motif" placeholder="ex. dépense imprévue" className={inputCls} />

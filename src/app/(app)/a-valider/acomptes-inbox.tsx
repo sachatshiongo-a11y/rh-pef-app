@@ -8,6 +8,7 @@ import {
   approuverAcomptesEnLot,
   refuserAcomptesEnLot,
 } from "../paie/remuneration-actions";
+import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
 import { Avatar } from "@/components/avatar";
 
 export type AcompteRow = {
@@ -24,6 +25,7 @@ export type AcompteRow = {
 export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutValider: boolean }) {
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [ouvert, setOuvert] = useState<string | null>(null);
+  const [avis, setAvis] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function toggle(id: string) {
@@ -33,17 +35,25 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
       return n;
     });
   }
-  function bulk(fn: (ids: string[]) => Promise<number>) {
+  function bulk(fn: (ids: string[]) => Promise<ResultatLotAcomptes>) {
     const ids = [...selection];
     if (ids.length === 0) return;
     startTransition(async () => {
-      await fn(ids);
+      const r = await fn(ids);
       setSelection(new Set());
+      // Un acompte hors plafond n'annule pas le lot : on dit combien sont passés et pourquoi les
+      // autres ne le sont pas, plutôt que de laisser l'écran se rafraîchir en silence.
+      setAvis(
+        r.bloques > 0
+          ? `${r.traites} acompte(s) traité(s), ${r.bloques} bloqué(s) par le plafond. ${r.message ?? ""}`.trim()
+          : null
+      );
     });
   }
-  function individuel(fn: (id: string) => Promise<unknown>, id: string) {
+  function individuel(fn: (id: string) => Promise<DecisionAcompte>, id: string) {
     startTransition(async () => {
-      await fn(id);
+      const r = await fn(id);
+      setAvis(r.ok ? null : r.message);
     });
   }
 
@@ -57,6 +67,7 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
 
   return (
     <div>
+      {avis && <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{avis}</p>}
       {peutValider && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">

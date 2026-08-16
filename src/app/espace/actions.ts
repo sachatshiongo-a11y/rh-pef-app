@@ -9,6 +9,7 @@ import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
 import { calculerJoursOuvrables } from "@/lib/payroll";
 import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
@@ -100,6 +101,12 @@ export async function demanderMonAcompte(formData: FormData) {
     const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
     const mois = config?.moisCourant ?? new Date().getMonth() + 1;
     const annee = config?.anneeCourante ?? new Date().getFullYear();
+
+    // Même plafond que côté Direction : le salarié ne peut pas demander plus que son net du mois
+    // précédent (à défaut, son salaire de fiche), cumul de ses demandes du mois compris.
+    const plafond = await chargerPlafondAcompte(prisma, { employeeId, mois, annee });
+    const verdict = verifierMontantAcompte(montantUSD, plafond);
+    if (!verdict.ok) throw new Error(verdict.message);
 
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
     const acompte = await prisma.acompteSalaire.create({

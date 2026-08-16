@@ -12,7 +12,7 @@ import { Timeline, type EvenementTimeline } from "./timeline";
 import { BulletinViewerButton } from "./bulletin-viewer";
 import { ContratViewerButton } from "./contrat-viewer";
 import { Avatar } from "@/components/avatar";
-import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical } from "../../paie/remuneration-actions";
+import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical, ajouterAvantageNature, supprimerAvantageNature } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
@@ -22,6 +22,10 @@ import { dureeShift, libelleShift } from "../../planning/creneaux";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
+import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
+import { formaterUSD } from "@/lib/montant";
+import { compterFamille, ecartCompositionFamiliale } from "@/lib/famille";
+import { ajouterMembreFamille, supprimerMembreFamille } from "../actions";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
@@ -102,6 +106,18 @@ export default async function FicheEmployePage({
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
+  // Plafond d'acompte de la période : affiché AVANT la saisie plutôt que refusé après coup.
+  const plafondAcompte = await chargerPlafondAcompte(prisma, { employeeId: id, mois, annee });
+
+  // Composition familiale : purement documentaire. Le comptage sert à SIGNALER un écart avec le
+  // champ `enfants` qui, lui, pilote la réduction IPR et l'allocation familiale — jamais à le corriger.
+  const famille = await prisma.membreFamille.findMany({
+    where: { employeeId: id },
+    orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }],
+  });
+  const ageLimiteEnfant = config?.ageLimiteEnfantACharge ?? 18;
+  const comptageFamille = compterFamille(famille, new Date(), ageLimiteEnfant);
+  const ecartFamille = ecartCompositionFamiliale(employee.enfants, comptageFamille);
 
   const [attendances, leaveRequests, payrollLines, tauxParType] = await Promise.all([
     prisma.attendance.findMany({
@@ -236,6 +252,10 @@ export default async function FicheEmployePage({
     return p?.valeur != null ? Number(p.valeur) : null;
   };
   const primesMoisCourant = primes.filter((p) => p.mois === mois && p.annee === annee);
+  const avantagesMoisCourant = await prisma.avantageNature.findMany({
+    where: { employeeId: id, mois, annee },
+    orderBy: { createdAt: "asc" },
+  });
   // Le bulletin live (plusieurs requêtes + calcul) n'est utile que dans l'onglet Aperçu.
   const apercuBulletin = tab === "apercu" ? await calculerBulletinLive(id, mois, annee) : null;
   const periodeLabel = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -566,6 +586,70 @@ export default async function FicheEmployePage({
         </dl>
       </Section>
 
+      {/* Composition familiale — justificatif nominatif, sans effet sur le calcul de paie */}
+      <Section title="Composition familiale">
+        {ecartFamille && (
+          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {ecartFamille.message}
+          </p>
+        )}
+
+        <dl className="mb-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
+          <Info label="Conjoint" value={comptageFamille.conjoint || "—"} />
+          <Info label="Enfants à charge retenus par la paie" value={String(employee.enfants)} />
+          <Info
+            label={`Enfants déduits des dates (< ${ageLimiteEnfant} ans)`}
+            value={`${comptageFamille.enfantsACharge} sur ${comptageFamille.enfantsTotal} saisi(s)`}
+          />
+        </dl>
+
+        {famille.length === 0 ? (
+          <p className="mb-3 text-sm text-muted-foreground">Aucun membre saisi.</p>
+        ) : (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {famille.map((m) => (
+              <span
+                key={m.id}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ${m.lien === "CONJOINT" ? "bg-violet-100 text-violet-800" : "bg-slate-100 text-slate-800"}`}
+              >
+                {m.lien === "CONJOINT" ? "Conjoint" : "Enfant"} · {m.nom}
+                {" · "}
+                {m.dateNaissance
+                  ? m.dateNaissance.toLocaleDateString("fr-FR", { timeZone: "UTC" })
+                  : "date inconnue"}
+                {peutModifier && (
+                  <form action={supprimerMembreFamille.bind(null, m.id)} className="inline">
+                    <button className="opacity-70 hover:opacity-100" title="Retirer">✕</button>
+                  </form>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {peutModifier && (
+          <form action={ajouterMembreFamille.bind(null, employee.id)} className="rounded-lg border p-3">
+            <p className="mb-2 text-sm font-medium">Ajouter un membre</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <select name="lien" defaultValue="ENFANT" className="rounded border border-input bg-background px-2 py-1 text-sm">
+                <option value="ENFANT">Enfant</option>
+                <option value="CONJOINT">Conjoint</option>
+              </select>
+              <input name="nom" placeholder="Nom et prénom" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
+              <label className="flex flex-col text-xs text-muted-foreground">
+                Date de naissance
+                <input name="dateNaissance" type="date" className="rounded border border-input bg-background px-2 py-1 text-sm" />
+              </label>
+              <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Ajouter</button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Justificatif de la réduction IPR pour charges de famille. Sans effet sur le calcul : la paie
+              retient le champ « enfants » de la fiche, modifiable dans le formulaire de l&apos;employé.
+            </p>
+          </form>
+        )}
+      </Section>
+
       {/* Coordonnées & informations de paiement */}
       <Section title="Coordonnées & paiement">
         <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
@@ -710,10 +794,14 @@ export default async function FicheEmployePage({
             <form action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
               <p className="mb-2 text-sm font-medium">Demander un acompte</p>
               <div className="flex flex-wrap items-end gap-2">
-                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input name="montantUSD" type="number" step="0.01" min="0" max={plafondAcompte.disponibleUSD || undefined} placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Demander</button>
               </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Plafond : {formaterUSD(plafondAcompte.plafondUSD)} ({libelleSourcePlafond(plafondAcompte.source)})
+                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
+              </p>
             </form>
             <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
               <p className="mb-2 text-sm font-medium">Ajouter un frais médical (avec certificat)</p>
@@ -725,7 +813,44 @@ export default async function FicheEmployePage({
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Remboursé sur le bulletin de la période (non imposable). PDF ou image.</p>
             </form>
+            <form action={ajouterAvantageNature.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
+              <p className="mb-2 text-sm font-medium">Consigner un avantage en nature</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <input name="nature" list="natures-avantage" placeholder="Logement, nourriture…" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                <datalist id="natures-avantage">
+                  <option value="Logement" />
+                  <option value="Nourriture" />
+                  <option value="Véhicule" />
+                  <option value="Téléphone" />
+                </datalist>
+                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Valeur $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input name="motif" placeholder="Précision (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Consigner</button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mentionné sur le bulletin, <strong>hors calcul</strong> : ni cotisations, ni IPR, ni net à payer
+                (un avantage en nature n&apos;est pas versé en espèces). Traitement fiscal à valider par un comptable.
+              </p>
+            </form>
           </div>
+        )}
+
+        {avantagesMoisCourant.length > 0 && (
+          <>
+            <p className="mb-2 mt-2 text-xs font-semibold uppercase text-muted-foreground">Avantages en nature (mois en cours) — informatif</p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {avantagesMoisCourant.map((a) => (
+                <span key={a.id} className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-800">
+                  {a.nature} : {formatMoney(Number(a.montantUSD))}{a.motif ? ` · ${a.motif}` : ""}
+                  {estAdmin && (
+                    <form action={supprimerAvantageNature.bind(null, a.id)} className="inline">
+                      <button className="text-amber-900/70 hover:text-amber-900" title="Supprimer">✕</button>
+                    </form>
+                  )}
+                </span>
+              ))}
+            </div>
+          </>
         )}
 
         {fraisMedMoisCourant.length > 0 && (

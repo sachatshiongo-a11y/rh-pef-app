@@ -242,6 +242,9 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   // Tant que le bulletin n'est pas au statut « Payé », la mention reste vide (pas de « Espèces »
   // par défaut sur un bulletin non validé/non payé).
   const estPaye = ligne.statutPaiement === "PAYE";
+  // Avantages en nature figés sur la ligne. `?? 0` couvre les bulletins archivés avant l'ajout de
+  // la colonne : ils s'affichent exactement comme avant, sans mention.
+  const avantagesNatureUSD = Number(ligne.avantagesNatureUSD ?? 0);
   const modePaiement = employee.banque
     ? `Virement — ${employee.banque}${employee.compteBancaire ? ` (${employee.compteBancaire})` : ""}`
     : employee.mobileMoney
@@ -448,9 +451,14 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         </Text>
       )}
 
-      {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + mode de paiement
-          (uniquement une fois le bulletin payé). La boîte n'est rendue que si l'une des deux existe. */}
-      {(congesPeriode.length > 0 || estPaye) && (
+      {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + avantages en nature
+          + mode de paiement (uniquement une fois le bulletin payé). La boîte n'est rendue que si
+          l'une des trois existe.
+          Les avantages en nature figurent ICI, hors du tableau gains/retenues, et JAMAIS dans une
+          addition : ils ne sont ni cotisables, ni imposables, ni versés en espèces (décision
+          2026-08-16, traitement fiscal à valider). Les placer dans le tableau laisserait croire
+          qu'ils entrent dans le net. */}
+      {(congesPeriode.length > 0 || estPaye || avantagesNatureUSD > 0) && (
         <View style={styles.mentions} wrap={false}>
           {congesPeriode.length > 0 && (
             <>
@@ -465,8 +473,15 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
               </Text>
             </>
           )}
-          {estPaye && (
+          {avantagesNatureUSD > 0 && (
             <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
+              <Text style={styles.mentionLabel}>Avantages en nature : </Text>
+              {m(avantagesNatureUSD)} — fournis en nature, non versés en espèces. Mention informative,
+              non comprise dans le salaire brut ni dans le net à payer.
+            </Text>
+          )}
+          {estPaye && (
+            <Text style={[styles.mentionLigne, congesPeriode.length > 0 || avantagesNatureUSD > 0 ? { marginTop: 3 } : {}]}>
               <Text style={styles.mentionLabel}>Mode de paiement : </Text>
               {modePaiement}
             </Text>

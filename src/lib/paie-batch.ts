@@ -38,6 +38,8 @@ export type DonneesLignePaie = {
   fraisMedicauxUSD: number;
   transportUSD: number;
   primesUSD: number;
+  /** Avantages en nature du mois — mention informative recopiée telle quelle, hors de tout calcul. */
+  avantagesNatureUSD: number;
   acompteUSD: number;
   retenuePretUSD: number;
   salBrutUSD: number;
@@ -94,7 +96,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   // un changement de signature/algorithme du moteur central (`calculerHeuresSupp`), couvert par
   // `payroll.test.ts` et `payroll-reference.test.ts` : à faire dans un lot dédié avec de nouveaux tests
   // de semaines-charnières, plutôt qu'un correctif partiel ici.
-  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours] =
+  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours, avantagesDuMois] =
     await Promise.all([
       prisma.employee.findMany({ where: { actif: true } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
@@ -106,7 +108,15 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
       prisma.fraisMedical.findMany({ where: { mois, annee } }),
       prisma.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: { dateDebut: "asc" }, select: { employeeId: true, type: true } }),
       prisma.pretPersonnel.findMany({ where: { statut: "EN_COURS" }, include: { retenues: true } }),
+      // Avantages en nature : lus UNIQUEMENT pour être recopiés sur le bulletin. Ils n'entrent dans
+      // aucun calcul (ni assiette, ni base imposable, ni net) — voir le modèle AvantageNature.
+      prisma.avantageNature.findMany({ where: { mois, annee } }),
     ]);
+
+  const avantagesParEmp = new Map<string, number>();
+  for (const a of avantagesDuMois) {
+    avantagesParEmp.set(a.employeeId, (avantagesParEmp.get(a.employeeId) ?? 0) + Number(a.montantUSD));
+  }
 
   // Échéance de prêt du mois par employé : min(retenue mensuelle, solde AVANT ce mois). On exclut
   // la retenue du mois courant du solde → le recalcul de la paie du mois est idempotent.
@@ -308,6 +318,8 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         fraisMedicauxUSD,
         transportUSD,
         primesUSD: ligne.primesUSD,
+        // Recopie brute, hors de toute formule : `ligne` (le moteur) ne le voit même pas.
+        avantagesNatureUSD: avantagesParEmp.get(employee.id) ?? 0,
         acompteUSD: ligne.acompteUSD,
         retenuePretUSD: ligne.retenuePretUSD,
         salBrutUSD: ligne.salBrutUSD,
