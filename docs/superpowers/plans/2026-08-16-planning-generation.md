@@ -516,6 +516,7 @@ export type EntreesGeneration = {
 
 export type RaisonNonCouverture =
   | "AUCUN_TITULAIRE"
+  | "EFFECTIF_INSUFFISANT" // des gens étaient libres, ils ont tous été posés, il en manquait encore
   | "TOUS_EN_CONGE"
   | "TOUS_DEJA_PRIS"
   | "TOUS_AU_REPOS"
@@ -742,6 +743,20 @@ describe("genererPlanning — couverture des besoins", () => {
     ]);
   });
 
+  it("rapporte EFFECTIF_INSUFFISANT quand tout le monde était libre mais en nombre insuffisant", () => {
+    // Le piège que ce test verrouille : les candidats posés pour CE besoin ne doivent pas être
+    // relus comme « déjà pris ». Ici les deux étaient libres, ils sont posés, il en manquait un
+    // troisième — la cause est l'effectif, pas un blocage.
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1"), employe("chef", "Chef de partie")],
+      besoins: [{ ...besoinLundiMatin, nombreRequis: 3 }],
+      polyvalences: [{ posteSource: "Chef de partie", posteCible: "Cuisinier" }],
+    }));
+    expect(r.creneaux.filter((c) => iso2(c.date) === "2026-07-06")).toHaveLength(2);
+    expect(r.rapport.trous[0].manque).toBe(1);
+    expect(r.rapport.trous[0].raison).toBe("EFFECTIF_INSUFFISANT");
+  });
+
   it("rapporte TOUS_EN_CONGE", () => {
     const r = genererPlanning(entreesBase({
       employes: [employe("e1")],
@@ -818,11 +833,22 @@ le `return`, insérer :
   }
 
   /**
-   * Pourquoi le vivier s'est vidé. On teste les causes dans l'ordre où le moteur élimine, et on
-   * renvoie la PREMIÈRE qui explique l'absence de candidat — c'est celle sur laquelle agir.
+   * Pourquoi le besoin n'est pas couvert. Le diagnostic se fait sur un INSTANTANÉ pris AVANT la
+   * boucle d'affectation : sans lui, les candidats qu'on vient tout juste de poser pour ce besoin
+   * apparaîtraient « déjà pris », et un simple manque d'effectif serait rapporté comme un blocage.
+   * Un lecteur chercherait alors qui bloque, au lieu de voir qu'il manque du monde.
+   *
+   * `libresAvant` = les candidats qui, avant toute affectation de ce besoin, satisfaisaient les
+   * contraintes dures. S'il y en avait — ils ont donc tous été posés — et que le compte n'y est
+   * toujours pas, la cause est l'effectif, pas un blocage.
    */
-  const diagnostiquer = (candidats: EmployePlanning[], d: Date): RaisonNonCouverture => {
+  const diagnostiquer = (
+    candidats: EmployePlanning[],
+    libresAvant: EmployePlanning[],
+    d: Date
+  ): RaisonNonCouverture => {
     if (candidats.length === 0) return "AUCUN_TITULAIRE";
+    if (libresAvant.length > 0) return "EFFECTIF_INSUFFISANT";
     if (candidats.every((e) => estEnConge(e.id, d))) return "TOUS_EN_CONGE";
     const dispos = candidats.filter((e) => !estEnConge(e.id, d));
     if (dispos.every((e) => occupe.has(`${e.id}_${iso(d)}`))) return "TOUS_DEJA_PRIS";
@@ -842,6 +868,9 @@ le `return`, insérer :
         .flatMap((p) => empsParPoste.get(p.posteSource) ?? []);
       const candidats = [...titulaires, ...renforts];
 
+      // Instantané AVANT toute affectation de ce besoin — sert au diagnostic (voir `diagnostiquer`).
+      const libresAvant = candidats.filter((e) => respecteContraintesDures(e.id, d));
+
       for (const e of candidats) {
         if (acquis >= b.nombreRequis) break;
         if (!respecteContraintesDures(e.id, d)) continue;
@@ -856,7 +885,7 @@ le `return`, insérer :
           shiftId: b.shiftId,
           poste: b.poste,
           manque: b.nombreRequis - acquis,
-          raison: diagnostiquer(candidats, d),
+          raison: diagnostiquer(candidats, libresAvant, d),
         });
       }
     }
@@ -1937,6 +1966,7 @@ Et ajouter en haut du fichier, sous les imports :
 ```tsx
 const LIBELLE_RAISON: Record<ResumeGeneration["trous"][number]["raison"], string> = {
   AUCUN_TITULAIRE: "personne à ce poste, ni en polyvalence",
+  EFFECTIF_INSUFFISANT: "tous les disponibles ont été posés, il en manquait encore",
   TOUS_EN_CONGE: "tous en congé",
   TOUS_DEJA_PRIS: "tous déjà pris ce jour-là",
   TOUS_AU_REPOS: "tous au repos obligatoire",
