@@ -74,7 +74,12 @@ describe("GOLDEN — brigade de référence, semaine du 6 juillet 2026", () => {
       crees: r.rapport.crees,
       trous: r.rapport.trous.map((t) => `${t.date.toISOString().slice(0, 10)} ${t.shiftId}×${t.poste} manque ${t.manque} (${t.raison})`),
       sansShiftPoste: r.rapport.sansShiftPoste,
-      depassements: r.rapport.depassements.length,
+      // Sérialise chaque dépassement (pas seulement leur nombre) : un glissement de CAUSE — par
+      // exemple une promotion TOLERANCE → OPTION suite à la correction de `noterDepassement` — doit
+      // se voir dans le diff du golden, pas rester invisible derrière un simple compteur.
+      depassements: r.rapport.depassements
+        .map((x) => `${x.employeeId} ${x.heuresPlanifiees}/${x.heuresContractuelles} (${x.cause})`)
+        .sort(),
       sousHeures: r.rapport.sousHeures.map((s) => s.employeeId),
     }).toMatchSnapshot();
   });

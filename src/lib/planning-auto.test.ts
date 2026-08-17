@@ -267,7 +267,6 @@ describe("genererPlanning — cause des dépassements, jamais silencieux", () =>
       options: { ...entreesBase().options, completer: true },
     }));
     expect(r.creneaux).toHaveLength(6); // le repos hebdomadaire plafonne à 6 jours
-    expect(r.creneaux.reduce((s) => s + 8, 0)).toBe(48);
     expect(r.rapport.depassements).toEqual([
       { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 48, heuresContractuelles: 45, cause: "TOLERANCE" },
     ]);
@@ -296,6 +295,52 @@ describe("genererPlanning — cause des dépassements, jamais silencieux", () =>
     }));
     expect(r.creneaux).toHaveLength(3); // 16 h de modèle + 8 h de complément = 24 h, pile
     expect(r.rapport.depassements).toEqual([]);
+  });
+});
+
+describe("genererPlanning — mode « nombre de jours par semaine » forcé, et priorité des causes", () => {
+  it("l'option ne déclare un dépassement QUE si les heures contractuelles sont réellement franchies (revue #1)", () => {
+    // Cas démontré en revue : contrat 48 h, nbParSemaine: 2, option cochée. Le 3e jour est bloqué
+    // par le plafond de JOURS (pas d'heures) et n'est posé que grâce à l'option — mais 3 × 8 h = 24 h
+    // reste largement SOUS les 48 h contractuelles : ce n'est pas un dépassement, l'écran ne doit
+    // rien en dire.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 48 }],
+      besoins: [1, 2, 3].map((j) => ({ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: j, nombreRequis: 1 })),
+      options: { ...entreesBase().options, nbParSemaine: 2, autoriserDepassementHeures: true },
+    }));
+    expect(r.creneaux).toHaveLength(3); // lundi, mardi posés normalement ; mercredi posé grâce à l'option
+    expect(r.rapport.depassements).toEqual([]);
+  });
+
+  it("JOURS_FORCES : le nombre de jours par semaine forcé peut, à lui seul, franchir le contrat — sans option ni modèle (revue #2)", () => {
+    // Contrat 24 h, nbParSemaine: 6, shifts de 8 h : le plafond forcé (6 jours) laisse passer 48 h,
+    // sans qu'aucune option n'ait été cochée ni qu'aucun modèle ne soit en cause.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 24 }],
+      besoins: [1, 2, 3, 4, 5, 6].map((j) => ({ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: j, nombreRequis: 1 })),
+      options: { ...entreesBase().options, nbParSemaine: 6 },
+    }));
+    expect(r.creneaux).toHaveLength(6);
+    expect(r.rapport.depassements).toEqual([
+      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 48, heuresContractuelles: 24, cause: "JOURS_FORCES" },
+    ]);
+  });
+
+  it("priorité des causes : une OPTION plus tard dans la semaine promeut une TOLERANCE notée plus tôt (revue #3)", () => {
+    // Contrat 20 h, option cochée, besoins du lundi au vendredi (8 h/jour, mode heures — pas de
+    // nbParSemaine) : le mercredi franchit le contrat par la tolérance d'un demi-shift (aucune option
+    // requise pour le poser), jeudi et vendredi ne passent QUE grâce à l'option. La cause affichée
+    // doit être OPTION — la décision la plus actionnable — pas la TOLERANCE du mercredi.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 20 }],
+      besoins: [1, 2, 3, 4, 5].map((j) => ({ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: j, nombreRequis: 1 })),
+      options: { ...entreesBase().options, autoriserDepassementHeures: true },
+    }));
+    expect(r.creneaux).toHaveLength(5);
+    expect(r.rapport.depassements).toEqual([
+      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 40, heuresContractuelles: 20, cause: "OPTION" },
+    ]);
   });
 });
 

@@ -77,13 +77,30 @@ export type TrouCouverture = {
 /**
  * D'où vient un dépassement des heures contractuelles hebdomadaires — jamais silencieux, toujours
  * déclaré dans `rapport.depassements`, quelle qu'en soit l'origine :
- *  - OPTION   : l'option « autoriser le dépassement » a été cochée pour couvrir un besoin déclaré.
- *  - TOLERANCE: le dernier shift posé a fait franchir le contrat par l'effet de la tolérance d'un
- *               demi-shift de `tientDansLesHeures` (couverture des besoins ou passe complémentaire).
- *  - MODELE   : un modèle hebdomadaire (affectation écrite par la Direction) a poussé le salarié
- *               au-delà de son contrat — jamais bloqué, seulement déclaré.
+ *  - OPTION      : l'option « autoriser le dépassement » a été cochée pour couvrir un besoin
+ *                  déclaré ET ce dépassement franchit réellement les heures contractuelles (en
+ *                  mode « nombre de jours par semaine », l'option ne débloque parfois qu'un jour
+ *                  de plus sans franchir le contrat — ce n'est alors pas un dépassement).
+ *  - JOURS_FORCES: en mode « nombre de jours par semaine » (`options.nbParSemaine > 0`), le plafond
+ *                  s'exprime en JOURS, pas en heures — un salarié peut donc franchir son contrat
+ *                  rien qu'en atteignant le nombre de jours forcé, sans option cochée ni modèle.
+ *  - MODELE      : un modèle hebdomadaire (affectation écrite par la Direction) a poussé le salarié
+ *                  au-delà de son contrat — jamais bloqué, seulement déclaré.
+ *  - TOLERANCE   : le dernier shift posé a fait franchir le contrat par l'effet de la tolérance d'un
+ *                  demi-shift de `tientDansLesHeures` (couverture des besoins ou passe complémentaire),
+ *                  en mode « heures » (`nbParSemaine` non forcé).
+ *
+ * Priorité d'affichage quand plusieurs causes se produisent la même semaine pour le même salarié
+ * (voir `noterDepassement`) : OPTION > JOURS_FORCES > MODELE > TOLERANCE, du plus au moins
+ * significatif. OPTION et JOURS_FORCES sont des décisions prises par l'utilisateur au formulaire de
+ * génération (cocher le dépassement, ou forcer un nombre de jours) ; MODELE est une affectation
+ * écrite par la Direction ; TOLERANCE n'est qu'un simple effet d'arrondi. La cause affichée doit
+ * être celle sur laquelle on peut agir.
  */
-export type CauseDepassement = "OPTION" | "TOLERANCE" | "MODELE";
+export type CauseDepassement = "OPTION" | "JOURS_FORCES" | "MODELE" | "TOLERANCE";
+
+/** Priorité des causes de dépassement, du plus au moins significatif — voir `CauseDepassement`. */
+const PRIORITE_CAUSE: Record<CauseDepassement, number> = { OPTION: 4, JOURS_FORCES: 3, MODELE: 2, TOLERANCE: 1 };
 
 export type DepassementHeures = {
   employeeId: string;
@@ -241,26 +258,42 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   };
 
   const depassements: DepassementHeures[] = [];
-  /** Enregistre (ou met à jour) le dépassement de la semaine d'un salarié. La cause n'est écrite
-   *  qu'à la création : un dépassement ne change pas d'origine parce qu'un shift ultérieur, dans la
-   *  même semaine déjà en dépassement, vient encore ajouter des heures. */
+  /** Enregistre (ou met à jour) le dépassement de la semaine d'un salarié. Le total d'heures est
+   *  toujours rafraîchi. La cause, elle, ne fait que se PROMOUVOIR : une entrée existante ne change
+   *  de cause que si la nouvelle est plus significative (voir `PRIORITE_CAUSE`/`CauseDepassement`) —
+   *  jamais l'inverse. Sans cette promotion, la première occurrence de la semaine (parfois une simple
+   *  TOLERANCE d'arrondi) figerait la cause affichée, même quand un shift ultérieur de la même
+   *  semaine relève d'une décision bien plus explicite (OPTION cochée, JOURS_FORCES). */
   const noterDepassement = (e: EmployePlanning, d: Date, cause: CauseDepassement) => {
     const lundiD = lundiDeUTC(d);
     const cle = `${e.id}_${iso(lundiD)}`;
     const existant = depassements.find((x) => x.employeeId === e.id && x.lundi.getTime() === lundiD.getTime());
     const heures = heuresSemaine.get(cle) ?? 0;
-    if (existant) existant.heuresPlanifiees = heures;
-    else depassements.push({ employeeId: e.id, lundi: lundiD, heuresPlanifiees: heures, heuresContractuelles: e.heuresHebdomadaires || 48, cause });
+    if (existant) {
+      existant.heuresPlanifiees = heures;
+      if (PRIORITE_CAUSE[cause] > PRIORITE_CAUSE[existant.cause]) existant.cause = cause;
+    } else {
+      depassements.push({ employeeId: e.id, lundi: lundiD, heuresPlanifiees: heures, heuresContractuelles: e.heuresHebdomadaires || 48, cause });
+    }
   };
 
   /** Vrai si, APRÈS affectation, le total de la semaine franchit (strictement) les heures
-   *  contractuelles du salarié — sert à détecter les dépassements TOLERANCE et MODELE, qui ne
-   *  passent jamais par `options.autoriserDepassementHeures`. */
+   *  contractuelles du salarié — sert à détecter les dépassements TOLERANCE, JOURS_FORCES et MODELE.
+   *  Ces trois causes ne DÉPENDENT PAS de `options.autoriserDepassementHeures` : cette option peut
+   *  très bien être cochée (pour couvrir un AUTRE shift de la même semaine) sans que ce
+   *  franchissement-CI en soit la cause — d'où la nécessité de ce test dédié plutôt que de le
+   *  déduire du seul état de l'option. */
   const franchitLeContrat = (e: EmployePlanning, d: Date): boolean => {
     const lundi = iso(lundiDeUTC(d));
     const heures = heuresSemaine.get(`${e.id}_${lundi}`) ?? 0;
     return heures > (e.heuresHebdomadaires || 48) + 0.01;
   };
+
+  /** Cause d'un franchissement qui arrive SANS que l'option de dépassement n'ait été invoquée pour
+   *  ce shift (`tientDansLesHeures` a répondu vrai) : en mode « nombre de jours par semaine », le
+   *  plafond de jours peut à lui seul pousser au-delà du contrat, sans rapport avec une tolérance
+   *  d'arrondi — voir `CauseDepassement`. */
+  const causeSansOption = (): CauseDepassement => (options.nbParSemaine > 0 ? "JOURS_FORCES" : "TOLERANCE");
 
   // ── Étape 1 : modèles hebdomadaires (affectations fixes, prioritaires) ────────────────────
   if (options.utiliserModeles) {
@@ -410,8 +443,12 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         compterEquite({ employeeId: e.id, date: d, shiftId: b.shiftId }, true);
         ajouter(couverture, cle, 1);
         acquis++;
-        if (!dansLesHeures) noterDepassement(e, d, "OPTION");
-        else if (franchitLeContrat(e, d)) noterDepassement(e, d, "TOLERANCE");
+        // OPTION ne se déclare QUE si les heures contractuelles sont réellement franchies : en mode
+        // « nombre de jours par semaine », `dansLesHeures` peut être faux parce que le plafond de
+        // JOURS est atteint, sans que les HEURES du contrat ne le soient — ce n'est alors pas un
+        // dépassement, l'option n'a rien engagé.
+        if (!dansLesHeures) { if (franchitLeContrat(e, d)) noterDepassement(e, d, "OPTION"); }
+        else if (franchitLeContrat(e, d)) noterDepassement(e, d, causeSansOption());
       }
 
       if (acquis < b.nombreRequis) {
@@ -460,10 +497,11 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         if (!shiftId) continue;
         affecter(emp.id, d, shiftId);
         compterEquite({ employeeId: emp.id, date: d, shiftId }, true);
-        // Comme dans la couverture des besoins : la tolérance d'un demi-shift peut faire franchir
-        // le contrat sur le dernier créneau posé — jamais un dépassement autorisé ici (aucun besoin
-        // ne le justifie), donc toujours TOLERANCE quand ça arrive.
-        if (franchitLeContrat(emp, d)) noterDepassement(emp, d, "TOLERANCE");
+        // Comme dans la couverture des besoins : la tolérance d'un demi-shift (ou, en mode « nombre
+        // de jours par semaine », le plafond de jours lui-même) peut faire franchir le contrat sur
+        // le dernier créneau posé — jamais un dépassement autorisé ici (aucun besoin ne le
+        // justifie), donc jamais OPTION quand ça arrive.
+        if (franchitLeContrat(emp, d)) noterDepassement(emp, d, causeSansOption());
       }
     }
   }

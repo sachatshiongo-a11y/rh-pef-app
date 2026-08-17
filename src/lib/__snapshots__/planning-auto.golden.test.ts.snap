@@ -36,7 +36,7 @@ exports[`GOLDEN — brigade de référence, semaine du 6 juillet 2026 > produit 
 exports[`GOLDEN — brigade de référence, semaine du 6 juillet 2026 > produit un planning stable et explicable 2`] = `
 {
   "crees": 28,
-  "depassements": 0,
+  "depassements": [],
   "sansShiftPoste": [],
   "sousHeures": [
     "cuis-2",

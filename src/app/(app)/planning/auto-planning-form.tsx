@@ -14,6 +14,7 @@ const LIBELLE_RAISON: Record<ResumeGeneration["trous"][number]["raison"], string
 
 const LIBELLE_CAUSE: Record<ResumeGeneration["depassements"][number]["cause"], string> = {
   OPTION: "dépassement autorisé pour couvrir un besoin",
+  JOURS_FORCES: "imposé par le nombre de jours par semaine forcé",
   TOLERANCE: "dernier shift au-delà du contrat (arrondi)",
   MODELE: "imposé par le modèle hebdomadaire",
 };
@@ -152,11 +153,17 @@ export function AutoPlanningForm({
                   )}
 
                   {resume.depassements.length > 0 && (
-                    <p className="font-medium">
-                      ⚠ Heures supplémentaires engagées pour {resume.depassements.length} salarié(s) :{" "}
-                      {resume.depassements.slice(0, 4).map((x) => `${x.nom} (${x.heuresPlanifiees} h au lieu de ${x.heuresContractuelles} h — ${LIBELLE_CAUSE[x.cause]})`).join(", ")}
-                      {resume.depassements.length > 4 ? "…" : ""}.
-                    </p>
+                    <div>
+                      <p className="font-medium">
+                        ⚠ Heures supplémentaires engagées pour {resume.personnesEnDepassement} salarié(s) :
+                      </p>
+                      <ul className="ml-3 list-disc">
+                        {resume.depassements.slice(0, 4).map((x, i) => (
+                          <li key={i}>{x.nom} — {x.semaine} : {x.heuresPlanifiees} h au lieu de {x.heuresContractuelles} h ({LIBELLE_CAUSE[x.cause]})</li>
+                        ))}
+                      </ul>
+                      {resume.depassements.length > 4 && <p className="italic">et {resume.depassements.length - 4} autre(s).</p>}
+                    </div>
                   )}
 
                   {resume.sousHeures > 0 && <p>{resume.sousHeures} salarié(s) sous leurs heures hebdo (congés compris).</p>}

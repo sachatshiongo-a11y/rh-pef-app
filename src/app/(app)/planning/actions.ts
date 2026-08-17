@@ -8,7 +8,7 @@ import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
-import { MOIS_FR } from "@/lib/dates-fr";
+import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -53,7 +53,13 @@ export type ResumeGeneration = {
   crees: number;
   trous: { date: string; libelle: string; manque: number; raison: RaisonNonCouverture }[];
   sansShiftPoste: { nom: string; poste: string }[];
-  depassements: { nom: string; heuresPlanifiees: number; heuresContractuelles: number; cause: CauseDepassement }[];
+  /** Une entrée par (salarié × semaine) : une génération au mois produit normalement plusieurs
+   *  entrées pour un même salarié (une par semaine touchée) — voir `personnesEnDepassement` pour le
+   *  nombre de PERSONNES distinctes concernées. */
+  depassements: { nom: string; semaine: string; heuresPlanifiees: number; heuresContractuelles: number; cause: CauseDepassement }[];
+  /** Nombre de salariés DISTINCTS concernés par un dépassement — jamais `depassements.length`, qui
+   *  compte des lignes (une par semaine), pas des personnes. */
+  personnesEnDepassement: number;
   sousHeures: number;
   /** Besoins/modèles ignorés car pointant sur un shift désactivé ou supprimé — nom si résolu, sinon identifiant brut. */
   shiftsInconnus: string[];
@@ -74,7 +80,7 @@ export async function genererPlanningAuto(
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const vide: ResumeGeneration = { crees: 0, trous: [], sansShiftPoste: [], depassements: [], sousHeures: 0, shiftsInconnus: [] };
+  const vide: ResumeGeneration = { crees: 0, trous: [], sansShiftPoste: [], depassements: [], personnesEnDepassement: 0, sousHeures: 0, shiftsInconnus: [] };
   const debut = new Date(debutIso + "T00:00:00.000Z");
   const fin = new Date(finIso + "T00:00:00.000Z");
   if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return vide;
@@ -182,10 +188,14 @@ export async function genererPlanningAuto(
     sansShiftPoste: rapport.sansShiftPoste.map((s) => ({ nom: nomEmp.get(s.employeeId) ?? "—", poste: s.poste })),
     depassements: rapport.depassements.map((x) => ({
       nom: nomEmp.get(x.employeeId) ?? "—",
+      // Lundi de la semaine concernée, formaté en français, court — ex. « sem. du 6 juil. » —
+      // indispensable dès qu'une génération au mois produit plusieurs entrées pour le même salarié.
+      semaine: `sem. du ${x.lundi.getUTCDate()} ${MOIS_FR_COURT[x.lundi.getUTCMonth()]}`,
       heuresPlanifiees: x.heuresPlanifiees,
       heuresContractuelles: x.heuresContractuelles,
       cause: x.cause,
     })),
+    personnesEnDepassement: new Set(rapport.depassements.map((x) => x.employeeId)).size,
     sousHeures: rapport.sousHeures.length,
     shiftsInconnus: rapport.shiftsInconnus.map((id) => nomShiftInconnu.get(id) ?? id),
   };
