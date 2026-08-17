@@ -55,6 +55,8 @@ export type ResumeGeneration = {
   sansShiftPoste: { nom: string; poste: string }[];
   depassements: { nom: string; heuresPlanifiees: number; heuresContractuelles: number }[];
   sousHeures: number;
+  /** Besoins/modèles ignorés car pointant sur un shift désactivé ou supprimé — nom si résolu, sinon identifiant brut. */
+  shiftsInconnus: string[];
 };
 
 /** Nombre de semaines d'historique lues pour l'équité (rotation des dimanches/fériés et des shifts). */
@@ -72,7 +74,7 @@ export async function genererPlanningAuto(
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const vide: ResumeGeneration = { crees: 0, trous: [], sansShiftPoste: [], depassements: [], sousHeures: 0 };
+  const vide: ResumeGeneration = { crees: 0, trous: [], sansShiftPoste: [], depassements: [], sousHeures: 0, shiftsInconnus: [] };
   const debut = new Date(debutIso + "T00:00:00.000Z");
   const fin = new Date(finIso + "T00:00:00.000Z");
   if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return vide;
@@ -151,6 +153,18 @@ export async function genererPlanningAuto(
   // Identifiants → noms lisibles, uniquement pour l'affichage.
   const nomEmp = new Map(employes.map((e) => [e.id, e.nom]));
   const nomShift = new Map(shiftsRows.map((s) => [s.id, s.nom]));
+
+  // Shifts ignorés (désactivés/supprimés) : shiftsRows ne contient que les shifts ACTIFS, on
+  // résout donc leur nom séparément — au pire on affiche l'identifiant brut.
+  let nomShiftInconnu = new Map<string, string>();
+  if (rapport.shiftsInconnus.length > 0) {
+    const rows = await prisma.shift.findMany({
+      where: { id: { in: rapport.shiftsInconnus } },
+      select: { id: true, nom: true },
+    });
+    nomShiftInconnu = new Map(rows.map((s) => [s.id, s.nom]));
+  }
+
   return {
     crees: rapport.crees,
     trous: rapport.trous.map((t) => ({
@@ -166,6 +180,7 @@ export async function genererPlanningAuto(
       heuresContractuelles: x.heuresContractuelles,
     })),
     sousHeures: rapport.sousHeures.length,
+    shiftsInconnus: rapport.shiftsInconnus.map((id) => nomShiftInconnu.get(id) ?? id),
   };
 }
 

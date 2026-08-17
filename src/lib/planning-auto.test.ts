@@ -179,6 +179,19 @@ describe("genererPlanning — couverture des besoins", () => {
     expect(r.rapport.trous[0].raison).toBe("TOUS_DEJA_PRIS");
   });
 
+  it("pose un titulaire disponible avant un renfort polyvalent, même si son id trie avant (B1)", () => {
+    // Régression : l'équité ne doit jamais mélanger titulaires et renforts. Ids choisis pour que le
+    // tri alphabétique mettrait le renfort devant si le mélange revenait — "aa-chef" < "zz-cuisinier".
+    const r = genererPlanning(entreesBase({
+      employes: [employe("zz-cuisinier", "Cuisinier"), employe("aa-chef", "Chef de partie")],
+      besoins: [{ ...besoinLundiMatin, nombreRequis: 1 }],
+      polyvalences: [{ posteSource: "Chef de partie", posteCible: "Cuisinier" }],
+    }));
+    const lundi = r.creneaux.filter((c) => iso2(c.date) === "2026-07-06");
+    expect(lundi).toHaveLength(1);
+    expect(lundi[0].employeeId).toBe("zz-cuisinier");
+  });
+
   it("rapporte TOUS_AU_REPOS quand la règle de repos bloque tout le monde", () => {
     // e1 a déjà 6 jours posés dans la semaine : le 7e est interdit par le repos hebdomadaire.
     const r = genererPlanning(entreesBase({
@@ -218,6 +231,49 @@ describe("genererPlanning — plafond d'heures", () => {
     expect(r.rapport.depassements).toEqual([
       { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 16, heuresContractuelles: 8 },
     ]);
+  });
+
+  it("cas mixte : un candidat libre et un candidat au plafond, besoin de 2 → TOUS_AU_PLAFOND (A2)", () => {
+    // "libre" couvre le besoin, "plafonne" est bloqué UNIQUEMENT par son plafond d'heures (déjà à
+    // 8h/8h sur la semaine). Le diagnostic doit pointer TOUS_AU_PLAFOND (le levier actionnable),
+    // pas EFFECTIF_INSUFFISANT — cocher « autoriser le dépassement » aurait tout couvert.
+    const r = genererPlanning(entreesBase({
+      employes: [
+        { ...employe("libre"), heuresHebdomadaires: 48 },
+        { ...employe("plafonne"), heuresHebdomadaires: 8 },
+      ],
+      besoins: [{ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 2, nombreRequis: 2 }],
+      existants: [{ employeeId: "plafonne", date: d("2026-07-06"), shiftId: SHIFT_MATIN.id }],
+    }));
+    const mardi = r.creneaux.filter((c) => iso2(c.date) === "2026-07-07");
+    expect(mardi.map((c) => c.employeeId)).toEqual(["libre"]);
+    expect(r.rapport.trous).toHaveLength(1);
+    expect(r.rapport.trous[0].manque).toBe(1);
+    expect(r.rapport.trous[0].raison).toBe("TOUS_AU_PLAFOND");
+  });
+});
+
+describe("genererPlanning — shifts désactivés (B2)", () => {
+  // `supprimerShift` désactive un shift (actif=false) sans purger les BesoinShift / PlanningModele
+  // qui le référencent : le moteur ne reçoit que les shifts ACTIFS, mais peut recevoir des besoins
+  // ou modèles pointant sur un shiftId absent. Il doit les ignorer, jamais les poser en silence.
+
+  it("ignore un besoin référençant un shift absent des shifts actifs, et le signale", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1")],
+      besoins: [{ shiftId: "shift-disparu", poste: "Cuisinier", jourSemaine: 1, nombreRequis: 1 }],
+    }));
+    expect(r.creneaux).toHaveLength(0);
+    expect(r.rapport.shiftsInconnus).toEqual(["shift-disparu"]);
+  });
+
+  it("ignore un modèle référençant un shift absent des shifts actifs, et le signale", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [employe("e1")],
+      modeles: [{ employeeId: "e1", jour: 1, semaine: 0, shiftId: "shift-disparu" }],
+    }));
+    expect(r.creneaux).toHaveLength(0);
+    expect(r.rapport.shiftsInconnus).toEqual(["shift-disparu"]);
   });
 });
 

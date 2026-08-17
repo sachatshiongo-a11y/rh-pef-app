@@ -87,6 +87,9 @@ export type RapportGeneration = {
   sansShiftPoste: { employeeId: string; poste: string }[];
   depassements: DepassementHeures[];
   sousHeures: { employeeId: string; heuresPlanifiees: number; heuresContractuelles: number }[];
+  /** Identifiants de shiftId référencés par un besoin ou un modèle mais absents de `entrees.shifts`
+   *  (typiquement un shift désactivé) — ignorés plutôt que posés à l'aveugle. */
+  shiftsInconnus: string[];
 };
 
 export type ResultatGeneration = { creneaux: CreneauPlanning[]; rapport: RapportGeneration };
@@ -112,6 +115,22 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   const joursAutorises = new Set(options.jours.length > 0 ? options.jours : [1, 2, 3, 4, 5, 6]);
   const feriesIso = new Set(entrees.feries.map(iso));
   const dureeParShift = new Map(entrees.shifts.map((s) => [s.id, s.dureeHeures]));
+
+  // Un shift désactivé (`supprimerShift`) reste référencé par ses BesoinShift / PlanningModele
+  // historiques — la server action ne transmet ici que les shifts ACTIFS. Poser un créneau dessus
+  // serait invisible (durée introuvable → 0 h comptée) : on l'ignore et on le signale.
+  const shiftsConnus = new Set(entrees.shifts.map((s) => s.id));
+  const shiftsInconnus = new Set<string>();
+  const besoinsUtilisables = entrees.besoins.filter((b) => {
+    if (shiftsConnus.has(b.shiftId)) return true;
+    shiftsInconnus.add(b.shiftId);
+    return false;
+  });
+  const modelesUtilisables = entrees.modeles.filter((m) => {
+    if (shiftsConnus.has(m.shiftId)) return true;
+    shiftsInconnus.add(m.shiftId);
+    return false;
+  });
 
   // Jours de la période effectivement planifiables.
   const joursPeriode: Date[] = [];
@@ -206,7 +225,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   // ── Étape 1 : modèles hebdomadaires (affectations fixes, prioritaires) ────────────────────
   if (options.utiliserModeles) {
     const modeleParEmp = new Map<string, Map<string, string>>();
-    for (const m of entrees.modeles) {
+    for (const m of modelesUtilisables) {
       const cle = modeleParEmp.get(m.employeeId) ?? new Map<string, string>();
       cle.set(`${m.jour}_${m.semaine}`, m.shiftId);
       modeleParEmp.set(m.employeeId, cle);
@@ -272,7 +291,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     );
 
   const besoinsParJour = new Map<number, BesoinPlanning[]>();
-  for (const b of entrees.besoins) {
+  for (const b of besoinsUtilisables) {
     const l = besoinsParJour.get(b.jourSemaine) ?? [];
     l.push(b);
     besoinsParJour.set(b.jourSemaine, l);
@@ -298,12 +317,20 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     shiftId: string
   ): RaisonNonCouverture => {
     if (candidats.length === 0) return "AUCUN_TITULAIRE";
+    // TOUS_AU_PLAFOND avant EFFECTIF_INSUFFISANT : dès qu'il reste, parmi les candidats, au moins un
+    // employé qui satisfait les contraintes dures mais échoue SEULEMENT sur son plafond d'heures,
+    // c'est cette cause qui porte l'action possible (autoriser le dépassement), même si le besoin a
+    // par ailleurs été partiellement couvert par du monde réellement libre. Appelé après la boucle
+    // d'affectation, `respecteContraintesDures` exclut déjà les candidats qui viennent d'être posés
+    // (ils sont désormais `occupe`) — seuls les vrais bloqués-par-le-plafond restent ici.
+    const bloquesParPlafond = candidats.filter(
+      (e) => respecteContraintesDures(e.id, d) && !tientDansLesHeures(e, d, shiftId)
+    );
+    if (bloquesParPlafond.length > 0) return "TOUS_AU_PLAFOND";
     if (libresAvant.length > 0) return "EFFECTIF_INSUFFISANT";
     if (candidats.every((e) => estEnConge(e.id, d))) return "TOUS_EN_CONGE";
     const dispos = candidats.filter((e) => !estEnConge(e.id, d));
     if (dispos.every((e) => occupe.has(`${e.id}_${iso(d)}`))) return "TOUS_DEJA_PRIS";
-    const libres = dispos.filter((e) => respecteContraintesDures(e.id, d));
-    if (libres.length > 0 && libres.every((e) => !tientDansLesHeures(e, d, shiftId))) return "TOUS_AU_PLAFOND";
     return "TOUS_AU_REPOS";
   };
 
@@ -328,7 +355,10 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         (e) => respecteContraintesDures(e.id, d) && (tientDansLesHeures(e, d, b.shiftId) || options.autoriserDepassementHeures)
       );
 
-      for (const e of ordonnerCandidats(candidats, d)) {
+      // Titulaires PUIS renforts polyvalents : deux viviers triés séparément et enchaînés, pour
+      // qu'un titulaire disponible passe toujours avant un renfort — jamais mélangés par l'équité,
+      // sinon un id alphabétiquement plus petit dans le vivier polyvalent doublerait un titulaire.
+      for (const e of [...ordonnerCandidats(titulaires, d), ...ordonnerCandidats(renforts, d)]) {
         if (acquis >= b.nombreRequis) break;
         if (!respecteContraintesDures(e.id, d)) continue;
         const dansLesHeures = tientDansLesHeures(e, d, b.shiftId);
@@ -414,6 +444,13 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
 
   return {
     creneaux,
-    rapport: { crees: creneaux.length, trous, sansShiftPoste, depassements, sousHeures },
+    rapport: {
+      crees: creneaux.length,
+      trous,
+      sansShiftPoste,
+      depassements,
+      sousHeures,
+      shiftsInconnus: [...shiftsInconnus],
+    },
   };
 }

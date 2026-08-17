@@ -18,7 +18,7 @@ async function main() {
     // poste, si leurs secteurs mèneraient à des shifts différents (cf. `shiftPourEmploye` dans
     // `src/app/(app)/planning/actions.ts`, qui raisonne par employé, jamais par poste agrégé).
     prisma.employee.findMany({ where: { actif: true }, select: { poste: true, secteur: true } }),
-    prisma.shift.findMany({ where: { actif: true } }),
+    prisma.shift.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
   ]);
 
   const parNom = (re: RegExp) => shifts.find((s) => re.test(s.nom));
@@ -38,7 +38,6 @@ async function main() {
 
   const employesParPoste = new Map<string, { poste: string; secteur: string | null }[]>();
   for (const e of employes) {
-    if (!e.poste) continue;
     (employesParPoste.get(e.poste) ?? employesParPoste.set(e.poste, []).get(e.poste)!).push(e);
   }
 

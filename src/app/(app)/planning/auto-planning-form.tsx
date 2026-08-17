@@ -70,9 +70,9 @@ export function AutoPlanningForm({
                   ))}
                 </select>
                 <span className="text-[11px] text-muted-foreground">
-                  Automatique : secteur Cuisine → Matin cuisine · Salle → Matin/midi salle · Caissière →
-                  Caisse · autres → Journée 8h-17h. Le shift Admin n&apos;est jamais affecté automatiquement
-                  (réservé, via le modèle d&apos;Aimée).
+                  Automatique : chaque poste reçoit le shift déclaré pour lui dans « Shifts par poste »
+                  (le premier de sa liste de préférence). Un poste sans shift déclaré n&apos;est pas
+                  planifié automatiquement — configurez-le dans « Shifts par poste ».
                 </span>
               </label>
 
@@ -154,6 +154,14 @@ export function AutoPlanningForm({
                   )}
 
                   {resume.sousHeures > 0 && <p>{resume.sousHeures} salarié(s) sous leurs heures hebdo (congés compris).</p>}
+
+                  {resume.shiftsInconnus.length > 0 && (
+                    <p>
+                      {resume.shiftsInconnus.length} besoin(s) ou modèle(s) ignoré(s) : le shift n&apos;existe
+                      plus ou a été désactivé ({resume.shiftsInconnus.slice(0, 4).join(", ")}
+                      {resume.shiftsInconnus.length > 4 ? "…" : ""}).
+                    </p>
+                  )}
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground">
