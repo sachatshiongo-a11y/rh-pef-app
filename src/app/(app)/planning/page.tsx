@@ -11,7 +11,8 @@ import { BesoinsManager } from "./besoins-manager";
 import { PolyvalenceManager } from "./polyvalence-manager";
 import { ShiftPosteManager } from "./shift-poste-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
-import { PlanningSemaine, type SemaineEmployee } from "./planning-semaine";
+import { PlanningSemaine, type SemaineEmployee, type SemaineOutils } from "./planning-semaine";
+import { grouperSalaries, type SalarieAClasser } from "./lecture-shift";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
 import { joursEnConge } from "@/lib/conges-couverture";
 import { espaceEmployeActif } from "@/lib/espace-employe";
@@ -393,13 +394,22 @@ export default async function PlanningPage({
   const titrePeriode = `${debutSemaine.getUTCDate()} → ${finSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}`;
 
   const versSemaineEmp = (e: (typeof employees)[number]): SemaineEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl, heuresHebdo: Number(e.heuresHebdomadaires) });
-  const brigade = employees.filter((e) => e.categorie === "BRIGADE").map(versSemaineEmp);
-  const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE").map(versSemaineEmp);
+  // Salariés poste + catégorie inclus : source unique pour le regroupement des lignes (§5) — le
+  // découpage Brigade/Backoffice par défaut passe par `grouperSalaries`, comme les critères Poste/Aucun,
+  // au lieu d'un filtrage manuel dupliqué.
+  const salariesAClasser: SalarieAClasser[] = employees.map((e) => ({ ...versSemaineEmp(e), poste: e.poste, categorie: e.categorie }));
   const joursSemaine = dates.map((d, i) => ({
     iso: isoDates[i], label: labelsJours[i], dow: d.getUTCDay(),
     ferie: feriesIso.has(isoDates[i]), dimanche: d.getUTCDay() === 0, aujourdhui: isoDates[i] === isoAujourdhui,
   }));
   const besoinsSemaine = besoinsDTO.map((b) => ({ shiftId: b.shiftId, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
+  // Outils de la vue semaine (densité, lecture « Par shift », regroupement — §3-§5) : créneaux bruts et
+  // besoins à la granularité poste, nécessaires au pivot `pivoterParShift`, en plus des salariés classés.
+  const outilsSemaine: SemaineOutils = {
+    employees: salariesAClasser,
+    creneaux: creneaux.map((c) => ({ employeeId: c.employeeId, iso: isoJour(new Date(c.date)), shiftId: c.shiftId })),
+    besoinsPoste: besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis })),
+  };
 
   return (
     <div>
@@ -427,7 +437,7 @@ export default async function PlanningPage({
       ) : (
         <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
           <PlanningSemaine
-            groupes={[{ titre: "Brigade", employees: brigade }, { titre: "Backoffice", employees: backoffice }]}
+            groupes={grouperSalaries(salariesAClasser, "categorie")}
             jours={joursSemaine}
             creneauMap={creneauMap}
             absences={absencesSemaine}
@@ -435,6 +445,7 @@ export default async function PlanningPage({
             shifts={shiftsActifs}
             besoins={besoinsSemaine}
             peutModifier={peutModifier}
+            outils={outilsSemaine}
           />
         </JourMobileProvider>
       )}
