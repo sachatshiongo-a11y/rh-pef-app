@@ -423,16 +423,29 @@ describe("genererPlanning — amorçage des quotas hebdomadaires par l'historiqu
     expect(heuresSemaineCivile).toBe(40); // pile la contractuelle
   });
 
-  it("le plafond de 6 jours par semaine tient aussi à cheval sur l'historique", () => {
+  it("les heures d'historique comptent dans le total déclaré par `rapport.depassements`", () => {
+    // On ne teste pas le plafond des 6 jours consécutifs ici : sur une semaine civile lundi→dimanche,
+    // 6 jours travaillés hors dimanche sont forcément consécutifs, donc le plafond en JOURS et la
+    // règle des jours consécutifs (qui lit `occupe`, déjà alimenté par l'historique même sans la
+    // correction A1) coïncident presque toujours — un tel test passerait avec ou sans l'amorçage,
+    // et ne prouverait rien (c'est justement ce qui a été constaté sur le test qu'il remplace).
     const r = genererPlanning(entreesBase({
-      debut: d("2026-07-11"), fin: d("2026-07-12"), // samedi 11 → dimanche 12
-      employes: [{ ...employe("e1"), heuresHebdomadaires: 100 }], // heures hautes : seul le plafond de jours limite
-      historique: ["2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10"].map((j) => ({
-        employeeId: "e1", date: d(j), shiftId: SHIFT_MATIN.id,
-      })), // lundi à vendredi, 5 jours déjà travaillés
-      modeles: [6, 0].map((j) => ({ employeeId: "e1", jour: j, semaine: 0, shiftId: SHIFT_MATIN.id })),
+      debut: d("2026-07-08"), fin: d("2026-07-08"), // mercredi seul : la semaine civile a démarré avant
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 8 }], // faible horaire : un seul shift le comble déjà
+      historique: [
+        { employeeId: "e1", date: d("2026-07-06"), shiftId: SHIFT_MATIN.id }, // lundi, 8 h : la contractuelle est déjà atteinte
+      ],
+      besoins: [{ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 3, nombreRequis: 1 }], // mercredi
+      options: { ...entreesBase().options, autoriserDepassementHeures: true },
     }));
-    expect(r.creneaux.map((c) => iso2(c.date))).toEqual(["2026-07-11"]); // samedi passe, dimanche refusé
+    // Sans l'amorçage, le moteur croit la semaine vierge : le shift du mercredi tient dans les 8 h
+    // « restantes », aucun dépassement n'est détecté et `depassements` reste vide.
+    expect(r.rapport.depassements).toHaveLength(1);
+    expect(r.rapport.depassements[0]).toMatchObject({
+      employeeId: "e1",
+      heuresPlanifiees: 16, // 8 h d'historique (lundi) + 8 h posées ce mercredi
+      heuresContractuelles: 8,
+    });
   });
 
   it("`ecraser: true` ne fait pas oublier l'historique — même résultat sur les heures de la semaine", () => {
