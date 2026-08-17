@@ -229,7 +229,7 @@ describe("genererPlanning — plafond d'heures", () => {
     expect(r.creneaux).toHaveLength(2);
     expect(r.rapport.trous).toHaveLength(0);
     expect(r.rapport.depassements).toEqual([
-      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 16, heuresContractuelles: 8 },
+      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 16, heuresContractuelles: 8, cause: "OPTION" },
     ]);
   });
 
@@ -250,6 +250,52 @@ describe("genererPlanning — plafond d'heures", () => {
     expect(r.rapport.trous).toHaveLength(1);
     expect(r.rapport.trous[0].manque).toBe(1);
     expect(r.rapport.trous[0].raison).toBe("TOUS_AU_PLAFOND");
+  });
+});
+
+describe("genererPlanning — cause des dépassements, jamais silencieux", () => {
+  // « Chaque dépassement est listé dans le rapport » : trois chemins peuvent faire franchir le
+  // contrat, chacun doit se déclarer avec sa propre cause — et aucun n'est bloqué en silence.
+
+  it("TOLERANCE : le dernier shift de la passe complémentaire fait franchir le contrat (A3)", () => {
+    // Contrat 45 h, shifts de 8 h : la tolérance d'un demi-shift (voulue, cf. `tientDansLesHeures`)
+    // accepte tant que heuresSemaine <= 45 - 4 + 0.01 = 41.01, donc jusqu'au 6e jour (40 h avant
+    // affectation) → 48 h posées, 3 h au-delà du contrat, sans qu'aucune option n'ait été cochée.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 45 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      options: { ...entreesBase().options, completer: true },
+    }));
+    expect(r.creneaux).toHaveLength(6); // le repos hebdomadaire plafonne à 6 jours
+    expect(r.creneaux.reduce((s) => s + 8, 0)).toBe(48);
+    expect(r.rapport.depassements).toEqual([
+      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 48, heuresContractuelles: 45, cause: "TOLERANCE" },
+    ]);
+  });
+
+  it("MODELE : un modèle hebdomadaire pousse un salarié au-delà de son contrat, sans être bloqué (A3)", () => {
+    // Contrat 16 h, modèle qui pose 3 shifts de 8 h (lun-mar-mer) = 24 h. Le modèle est une
+    // affectation de la Direction : le créneau du 3e jour est posé quand même, et le dépassement
+    // qui en résulte est déclaré.
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 16 }],
+      modeles: [1, 2, 3].map((j) => ({ employeeId: "e1", jour: j, semaine: 0, shiftId: SHIFT_MATIN.id })),
+    }));
+    expect(r.creneaux.map((c) => iso2(c.date))).toEqual(["2026-07-06", "2026-07-07", "2026-07-08"]);
+    expect(r.rapport.depassements).toEqual([
+      { employeeId: "e1", lundi: d("2026-07-06"), heuresPlanifiees: 24, heuresContractuelles: 16, cause: "MODELE" },
+    ]);
+  });
+
+  it("aucune entrée fantôme quand le salarié reste sous ou pile à son contrat", () => {
+    const r = genererPlanning(entreesBase({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 24 }], // 3 shifts de 8 h, pile au contrat
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      modeles: [1, 2].map((j) => ({ employeeId: "e1", jour: j, semaine: 0, shiftId: SHIFT_MATIN.id })), // 16 h, sous le contrat
+      options: { ...entreesBase().options, completer: true },
+    }));
+    expect(r.creneaux).toHaveLength(3); // 16 h de modèle + 8 h de complément = 24 h, pile
+    expect(r.rapport.depassements).toEqual([]);
   });
 });
 
@@ -373,6 +419,25 @@ describe("genererPlanning — équité", () => {
       historique: ["2026-06-21", "2026-06-28", "2026-07-05"].map((j) => ({
         employeeId: "habitue", date: d(j), shiftId: SHIFT_MATIN.id,
       })),
+    }));
+    expect(r.creneaux[0].employeeId).toBe("repose");
+  });
+
+  it("fait tourner les jours pénibles d'après un FÉRIÉ travaillé dans l'historique, à heures égales (A6)", () => {
+    // « habitue » a travaillé un jour férié AVANT la période (dans l'historique) ; « repose » non.
+    // Les deux ont autant d'heures sur la période (0 : rien encore posé). Pour un jour pénible DE la
+    // période (ici un dimanche), l'équité doit départager sur les jours pénibles CUMULÉS — historique
+    // compris — et donc choisir « repose ». Ce férié n'est reconnu comme pénible par le moteur que
+    // s'il figure dans `entrees.feries`, quelle que soit sa date : c'est précisément ce que
+    // `genererPlanningAuto` doit désormais lire sur [debutHistorique, fin], pas seulement [debut, fin].
+    const ferieHistorique = d("2026-06-24"); // mercredi, largement avant la période
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-12"), fin: d("2026-07-12"), // dimanche seul
+      employes: [employe("habitue"), employe("repose")],
+      besoins: [{ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine: 0, nombreRequis: 1 }],
+      options: { ...entreesBase().options, jours: [0] },
+      historique: [{ employeeId: "habitue", date: ferieHistorique, shiftId: SHIFT_MATIN.id }],
+      feries: [ferieHistorique],
     }));
     expect(r.creneaux[0].employeeId).toBe("repose");
   });

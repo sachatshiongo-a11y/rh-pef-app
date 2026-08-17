@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { dureeShift } from "./creneaux";
-import { genererPlanning, type RaisonNonCouverture } from "@/lib/planning-auto";
+import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from "@/lib/planning-auto";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
@@ -53,7 +53,7 @@ export type ResumeGeneration = {
   crees: number;
   trous: { date: string; libelle: string; manque: number; raison: RaisonNonCouverture }[];
   sansShiftPoste: { nom: string; poste: string }[];
-  depassements: { nom: string; heuresPlanifiees: number; heuresContractuelles: number }[];
+  depassements: { nom: string; heuresPlanifiees: number; heuresContractuelles: number; cause: CauseDepassement }[];
   sousHeures: number;
   /** Besoins/modèles ignorés car pointant sur un shift désactivé ou supprimé — nom si résolu, sinon identifiant brut. */
   shiftsInconnus: string[];
@@ -89,7 +89,13 @@ export async function genererPlanningAuto(
         select: { id: true, nom: true, poste: true, secteur: true, heuresParJour: true, heuresHebdomadaires: true },
       }),
       prisma.shift.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-      prisma.jourFerie.findMany({ where: { date: { gte: debut, lte: fin } } }),
+      // Fenêtre élargie à l'historique (A6) : l'équité fait tourner les jours pénibles (dimanches ET
+      // fériés) sur les 8 semaines d'historique — un férié travaillé avant la période doit compter,
+      // sinon la rotation triche sans le savoir. `feriesIso`, dans le moteur, ne filtre que les jours
+      // DE la période pour `joursPeriode` ; les dates d'historique n'y jouent aucun rôle, elles ne
+      // servent qu'à l'équité (`estPenible` sur `entrees.historique`) — élargir n'a donc aucun effet
+      // de bord sur la couverture.
+      prisma.jourFerie.findMany({ where: { date: { gte: debutHistorique, lte: fin } } }),
       prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, shiftId: true } }),
       prisma.planningCreneau.findMany({ where: { date: { gte: debutHistorique, lte: veilleDebut } }, select: { employeeId: true, date: true, shiftId: true } }),
       formData.get("modeles") === "on" ? prisma.planningModele.findMany() : Promise.resolve([]),
@@ -178,6 +184,7 @@ export async function genererPlanningAuto(
       nom: nomEmp.get(x.employeeId) ?? "—",
       heuresPlanifiees: x.heuresPlanifiees,
       heuresContractuelles: x.heuresContractuelles,
+      cause: x.cause,
     })),
     sousHeures: rapport.sousHeures.length,
     shiftsInconnus: rapport.shiftsInconnus.map((id) => nomShiftInconnu.get(id) ?? id),

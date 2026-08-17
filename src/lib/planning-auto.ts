@@ -74,11 +74,23 @@ export type TrouCouverture = {
   raison: RaisonNonCouverture;
 };
 
+/**
+ * D'où vient un dépassement des heures contractuelles hebdomadaires — jamais silencieux, toujours
+ * déclaré dans `rapport.depassements`, quelle qu'en soit l'origine :
+ *  - OPTION   : l'option « autoriser le dépassement » a été cochée pour couvrir un besoin déclaré.
+ *  - TOLERANCE: le dernier shift posé a fait franchir le contrat par l'effet de la tolérance d'un
+ *               demi-shift de `tientDansLesHeures` (couverture des besoins ou passe complémentaire).
+ *  - MODELE   : un modèle hebdomadaire (affectation écrite par la Direction) a poussé le salarié
+ *               au-delà de son contrat — jamais bloqué, seulement déclaré.
+ */
+export type CauseDepassement = "OPTION" | "TOLERANCE" | "MODELE";
+
 export type DepassementHeures = {
   employeeId: string;
   lundi: Date;
   heuresPlanifiees: number;
   heuresContractuelles: number;
+  cause: CauseDepassement;
 };
 
 export type RapportGeneration = {
@@ -229,13 +241,25 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   };
 
   const depassements: DepassementHeures[] = [];
-  const noterDepassement = (e: EmployePlanning, d: Date) => {
+  /** Enregistre (ou met à jour) le dépassement de la semaine d'un salarié. La cause n'est écrite
+   *  qu'à la création : un dépassement ne change pas d'origine parce qu'un shift ultérieur, dans la
+   *  même semaine déjà en dépassement, vient encore ajouter des heures. */
+  const noterDepassement = (e: EmployePlanning, d: Date, cause: CauseDepassement) => {
     const lundiD = lundiDeUTC(d);
     const cle = `${e.id}_${iso(lundiD)}`;
     const existant = depassements.find((x) => x.employeeId === e.id && x.lundi.getTime() === lundiD.getTime());
     const heures = heuresSemaine.get(cle) ?? 0;
     if (existant) existant.heuresPlanifiees = heures;
-    else depassements.push({ employeeId: e.id, lundi: lundiD, heuresPlanifiees: heures, heuresContractuelles: e.heuresHebdomadaires || 48 });
+    else depassements.push({ employeeId: e.id, lundi: lundiD, heuresPlanifiees: heures, heuresContractuelles: e.heuresHebdomadaires || 48, cause });
+  };
+
+  /** Vrai si, APRÈS affectation, le total de la semaine franchit (strictement) les heures
+   *  contractuelles du salarié — sert à détecter les dépassements TOLERANCE et MODELE, qui ne
+   *  passent jamais par `options.autoriserDepassementHeures`. */
+  const franchitLeContrat = (e: EmployePlanning, d: Date): boolean => {
+    const lundi = iso(lundiDeUTC(d));
+    const heures = heuresSemaine.get(`${e.id}_${lundi}`) ?? 0;
+    return heures > (e.heuresHebdomadaires || 48) + 0.01;
   };
 
   // ── Étape 1 : modèles hebdomadaires (affectations fixes, prioritaires) ────────────────────
@@ -254,6 +278,9 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         if (!shiftId) continue;
         if (!respecteContraintesDures(emp.id, d)) continue;
         affecter(emp.id, d, shiftId);
+        // Un modèle est une affectation écrite par la Direction : jamais bloqué par le plafond
+        // d'heures, mais tout franchissement du contrat qui en résulte doit être déclaré.
+        if (franchitLeContrat(emp, d)) noterDepassement(emp, d, "MODELE");
       }
     }
   }
@@ -383,7 +410,8 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         compterEquite({ employeeId: e.id, date: d, shiftId: b.shiftId }, true);
         ajouter(couverture, cle, 1);
         acquis++;
-        if (!dansLesHeures) noterDepassement(e, d);
+        if (!dansLesHeures) noterDepassement(e, d, "OPTION");
+        else if (franchitLeContrat(e, d)) noterDepassement(e, d, "TOLERANCE");
       }
 
       if (acquis < b.nombreRequis) {
@@ -432,6 +460,10 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
         if (!shiftId) continue;
         affecter(emp.id, d, shiftId);
         compterEquite({ employeeId: emp.id, date: d, shiftId }, true);
+        // Comme dans la couverture des besoins : la tolérance d'un demi-shift peut faire franchir
+        // le contrat sur le dernier créneau posé — jamais un dépassement autorisé ici (aucun besoin
+        // ne le justifie), donc toujours TOLERANCE quand ça arrive.
+        if (franchitLeContrat(emp, d)) noterDepassement(emp, d, "TOLERANCE");
       }
     }
   }

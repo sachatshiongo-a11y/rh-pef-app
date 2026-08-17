@@ -12,6 +12,12 @@ const LIBELLE_RAISON: Record<ResumeGeneration["trous"][number]["raison"], string
   TOUS_AU_PLAFOND: "tous au plafond d'heures — cochez « autoriser le dépassement » pour couvrir",
 };
 
+const LIBELLE_CAUSE: Record<ResumeGeneration["depassements"][number]["cause"], string> = {
+  OPTION: "dépassement autorisé pour couvrir un besoin",
+  TOLERANCE: "dernier shift au-delà du contrat (arrondi)",
+  MODELE: "imposé par le modèle hebdomadaire",
+};
+
 const JOURS = [
   { v: 1, l: "Lun" },
   { v: 2, l: "Mar" },
@@ -148,7 +154,7 @@ export function AutoPlanningForm({
                   {resume.depassements.length > 0 && (
                     <p className="font-medium">
                       ⚠ Heures supplémentaires engagées pour {resume.depassements.length} salarié(s) :{" "}
-                      {resume.depassements.slice(0, 4).map((x) => `${x.nom} (${x.heuresPlanifiees} h au lieu de ${x.heuresContractuelles} h)`).join(", ")}
+                      {resume.depassements.slice(0, 4).map((x) => `${x.nom} (${x.heuresPlanifiees} h au lieu de ${x.heuresContractuelles} h — ${LIBELLE_CAUSE[x.cause]})`).join(", ")}
                       {resume.depassements.length > 4 ? "…" : ""}.
                     </p>
                   )}
