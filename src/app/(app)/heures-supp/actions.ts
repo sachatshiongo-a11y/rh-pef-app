@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
+import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 
 async function appliquerHeures(employeeId: string, date: string, heures: string) {
   const valeur = Number(heures);
@@ -24,21 +25,32 @@ export async function saisirHeures(employeeId: string, date: string, heures: str
 
   await appliquerHeures(employeeId, date, heures);
 
+  revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
 }
 
-/** Saisie en lot (collage type tableur) : un seul aller-retour réseau pour tout un bloc collé. */
+/** Saisie en lot (collage / actions groupées). Ne reçoivent pas d'heures (entrée ignorée et
+ * renvoyée à l'appelant) : les jours couverts par un congé APPROUVÉ, et les jours de REPOS
+ * selon le modèle hebdo (la saisie unitaire reste libre). L'effacement reste permis partout. */
 export async function saisirHeuresEnLot(
   entrees: { employeeId: string; date: string; heures: string }[]
-) {
+): Promise<{ ignores: { employeeId: string; date: string }[] }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
+  const [enConge, repos] = await Promise.all([joursEnConge(entrees), joursDeReposSelonModele(entrees)]);
+  const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, heures } of entrees) {
+    const valeur = Number(heures);
+    if (heures !== "" && valeur > 0 && (enConge.has(`${employeeId}|${date}`) || repos.has(`${employeeId}|${date}`))) { ignores.push({ employeeId, date }); continue; }
     await appliquerHeures(employeeId, date, heures);
   }
 
+  revalidatePath("/presences"); // la grille fusionnée « Présences & heures » vit sur /presences
   revalidatePath("/heures-supp");
   revalidatePath("/employes");
+  revalidatePath("/paie"); // les bulletins non figés se recalculent au prochain affichage
+  return { ignores };
 }

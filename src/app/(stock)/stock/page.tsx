@@ -14,11 +14,20 @@ export default async function StockDashboard() {
   const annee = now.getFullYear(), mois = now.getMonth() + 1;
   const dateDuJour = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
+  // Bornes de dates en UTC (cohérent avec le stockage @db.Date).
+  const jjUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const dow = jjUTC.getUTCDay(); // 0 = dimanche
+  const lundi = new Date(jjUTC); lundi.setUTCDate(jjUTC.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  const dimanche = new Date(lundi); dimanche.setUTCDate(lundi.getUTCDate() + 6);
+  const debutMois = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const debutMoisSuivant = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
   const [
     moi, config, nbArticles, nbFournisseurs, stocks, facturesDues,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
     derniersComptages, pertesRecentes, bcAValider,
+    facturesSemaine, facturesEchues, legumesMois, consoMois,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -37,6 +46,17 @@ export default async function StockDashboard() {
     prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE" }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: { designation: true } } } }),
     prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
+    // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
+    prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true }, _count: true }),
+    // Factures échues non réglées.
+    prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
+    // Achats de légumes frais du mois en cours.
+    prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
+    // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue).
+    prisma.$queryRaw<{ total: number; n: number }[]>`
+      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD")), 0)::float AS total, COUNT(*)::int AS n
+      FROM "stock"."MouvementStock" m JOIN "stock"."ArticleStock" a ON a."id" = m."articleId"
+      WHERE m."type" = 'SORTIE' AND m."date" >= ${debutMois} AND m."date" < ${debutMoisSuivant}`,
   ]);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
@@ -45,7 +65,7 @@ export default async function StockDashboard() {
   const avecAlerte = stocks.map((s) => ({
     designation: s.article.designation,
     quantite: s.quantite,
-    niveau: niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum),
+    niveau: niveauAlerte(s.quantite, s.stockMinimum),
     valeur: s.article.prixUnitaireUSD ? Number(s.quantite) * Number(s.article.prixUnitaireUSD) : 0,
   }));
   const nbUrgent = avecAlerte.filter((a) => a.niveau === "URGENT").length;
@@ -67,19 +87,23 @@ export default async function StockDashboard() {
             <p className="text-sm capitalize text-muted-foreground">{user.role === "ADMIN" ? "Direction" : "Responsable stock"} · {dateDuJour} · Stock &amp; Achats</p>
           </div>
         </div>
-        <div className="rounded-xl border bg-muted/30 px-4 py-2 text-right">
+        <div className="w-full rounded-xl border bg-muted/30 px-4 py-2 sm:w-auto sm:text-right">
           <p className="text-xs text-muted-foreground">Taux du jour</p>
           <p className="text-lg font-semibold">1 USD = {taux ? taux.toLocaleString("fr-FR") : "—"} CDF</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Kpi label="Articles" valeur={String(nbArticles)} href="/stock/catalogue/nourriture" />
-        <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} accent={nbUrgent > 0 ? "red" : undefined} />
-        <Kpi label="À réapprovisionner" valeur={String(nbAppro)} accent={nbAppro > 0 ? "amber" : undefined} />
+        <Kpi label="Articles" valeur={String(nbArticles)} href="/stock/catalogue" />
+        <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
+        <Kpi label="À réapprovisionner" valeur={String(nbAppro)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
         <Kpi label="Valeur du stock" valeur={usd(valeurStock)} />
         <Kpi label="Factures à payer" valeur={usd(facturesDues._sum.resteAPayerUSD)} sous={`${facturesDues._count} facture(s)`} accent={Number(facturesDues._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
         <Kpi label="Commandes du mois" valeur={String(commandesMois)} href="/stock/commandes" />
+        <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine._sum.resteAPayerUSD)} sous={`${facturesSemaine._count} facture(s)`} accent={Number(facturesSemaine._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+        <Kpi label="Factures échues" valeur={usd(facturesEchues._sum.resteAPayerUSD)} sous={`${facturesEchues._count} facture(s)`} accent={facturesEchues._count > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
+        <Kpi label="Légumes frais du mois" valeur={usd(legumesMois._sum.montantUSD)} sous={`${legumesMois._count} achat(s)`} href="/stock/legumes" />
+        <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois[0]?.total ?? 0)}`} sous={`${consoMois[0]?.n ?? 0} sortie(s) valorisées`} href={`/stock/mouvements?mois=${annee}-${mois}`} />
       </div>
 
       {/* Bons de commande à valider — Direction uniquement */}
@@ -101,7 +125,7 @@ export default async function StockDashboard() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Bloc titre={`Articles au seuil minimum (${nbUrgent + nbAppro})`} lien="/stock/catalogue/nourriture">
+        <Bloc titre={`Articles au seuil minimum (${nbUrgent + nbAppro})`} lien="/stock/catalogue">
           {auSeuil.length === 0 ? <Vide t="Aucun article sous le seuil." /> : (
             <ul className="divide-y text-sm">
               {auSeuil.map((a, i) => (
@@ -229,14 +253,15 @@ export default async function StockDashboard() {
 
 function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: string; sous?: string; accent?: "red" | "amber"; href?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : "";
+  // h-full + flex : toutes les cartes d'une même rangée occupent la même hauteur (fin de l'effet décalé sur mobile).
   const inner = (
-    <div className={`rounded-lg border p-4 ${cls} ${href ? "transition-colors hover:border-primary" : ""}`}>
+    <div className={`flex h-full flex-col rounded-lg border p-4 ${cls} ${href ? "transition-colors hover:border-primary" : ""}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold">{valeur}</p>
-      {sous && <p className="text-xs text-muted-foreground">{sous}</p>}
+      <p className="mt-1 text-lg font-semibold sm:text-xl">{valeur}</p>
+      {sous && <p className="mt-auto pt-0.5 text-xs text-muted-foreground">{sous}</p>}
     </div>
   );
-  return href ? <Link href={href}>{inner}</Link> : inner;
+  return href ? <Link href={href} className="block h-full">{inner}</Link> : inner;
 }
 
 function Bloc({ titre, lien, children }: { titre: string; lien: string; children: React.ReactNode }) {

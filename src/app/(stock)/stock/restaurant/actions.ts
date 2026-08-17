@@ -1,15 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
+import { decOptionnel as dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 
-const dec = (v: FormDataEntryValue | null): number | null => {
-  const s = String(v ?? "").replace(",", ".").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-};
 
 async function garde() {
   const user = await verifySession();
@@ -18,7 +14,7 @@ async function garde() {
 }
 
 /** Met à jour le comptage d'un article resto pour une date donnée (upsert ; vide = suppression). */
-export async function majComptage(articleRestoId: string, dateISO: string, valeur: string) {
+export const majComptage = actionLisible(async (articleRestoId: string, dateISO: string, valeur: string) => {
   await garde();
   const date = new Date(dateISO);
   const q = dec(valeur);
@@ -32,17 +28,10 @@ export async function majComptage(articleRestoId: string, dateISO: string, valeu
     });
   }
   revalidatePath("/stock/restaurant");
-}
-
-/** Met à jour le stock de base journalier (niveau cible) d'un article resto. */
-export async function majBaseResto(articleRestoId: string, valeur: string) {
-  await garde();
-  await prisma.articleResto.update({ where: { id: articleRestoId }, data: { stockBaseJournalier: dec(valeur) } });
-  revalidatePath("/stock/restaurant");
-}
+});
 
 /** Ajoute un article au stock restaurant. */
-export async function creerArticleResto(formData: FormData) {
+export const creerArticleResto = actionLisible(async (formData: FormData) => {
   await garde();
   const espace = String(formData.get("espace") ?? "CUISINE") === "BAR" ? "BAR" : "CUISINE";
   const designation = String(formData.get("designation") ?? "").trim();
@@ -58,10 +47,10 @@ export async function creerArticleResto(formData: FormData) {
     },
   });
   revalidatePath("/stock/restaurant");
-}
+});
 
 /** Modifie un champ d'un article resto (désignation, catégorie, unité, base, ordre). */
-export async function modifierArticleResto(id: string, formData: FormData) {
+export const modifierArticleResto = actionLisible(async (id: string, formData: FormData) => {
   await garde();
   const data: Record<string, unknown> = {};
   if (formData.has("designation")) {
@@ -75,12 +64,12 @@ export async function modifierArticleResto(id: string, formData: FormData) {
   if (formData.has("ordre")) { const n = Number(formData.get("ordre")); if (Number.isFinite(n)) data.ordre = Math.trunc(n); }
   await prisma.articleResto.update({ where: { id }, data });
   revalidatePath("/stock/restaurant");
-}
+});
 
 /** Supprime un article du stock restaurant (et ses comptages). */
-export async function supprimerArticleResto(id: string) {
+export const supprimerArticleResto = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   await prisma.articleResto.delete({ where: { id } });
   revalidatePath("/stock/restaurant");
-}
+});

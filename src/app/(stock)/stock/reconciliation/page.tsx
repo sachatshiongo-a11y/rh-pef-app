@@ -2,38 +2,30 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { ReconciliationForm } from "./reconciliation-client";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
-import { supprimerTousComptages } from "./actions";
+import { ImportInventaireClient } from "../imports/import-client";
 import type { Prisma } from "@prisma/client";
 
-type SP = { q?: string; domaine?: string };
+type SP = { domaine?: string };
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const user = await verifySession();
   const estDirection = user.role === "ADMIN";
-  const q = (sp.q ?? "").trim();
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 
-  const where: Prisma.ArticleStockWhereInput = {
-    actif: true,
-    ...(domaine ? { domaine } : {}),
-    ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
-  };
-  const articles = await prisma.articleStock.findMany({ where, orderBy: { designation: "asc" }, include: { stock: true } });
-  const rows = articles.map((a) => ({ id: a.id, designation: a.designation, theorique: a.stock ? Number(a.stock.quantite) : 0 }));
+  const where: Prisma.ArticleStockWhereInput = { actif: true, ...(domaine ? { domaine } : {}) };
+  const articles = await prisma.articleStock.findMany({
+    where, orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
+    include: { stock: true, categorie: { select: { nom: true } } },
+  });
+  const rows = articles.map((a) => ({ id: a.id, code: a.code, designation: a.designation, categorie: a.categorie?.nom ?? "À classer", theorique: a.stock ? Number(a.stock.quantite) : 0 }));
 
-  // Comptages déjà appliqués (aussi archivés dans Archives) — consultables ici.
-  const comptages = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 12 });
+  // Trois derniers comptages appliqués — l'historique complet vit dans Archives.
+  const comptages = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 3 });
 
-  const ficheHref = (dom: string) => {
-    const p = new URLSearchParams();
-    if (q) p.set("q", q);
-    p.set("domaine", dom);
-    // Fiche de comptage Excel téléchargeable : génération instantanée (pas de PDF serveur react-pdf,
-    // qui saturait Render sur des centaines d'articles).
-    return `/stock/reconciliation/fiche/excel?${p}`;
-  };
+  // Fiche de comptage Excel téléchargeable : génération instantanée (pas de PDF serveur react-pdf,
+  // qui saturait Render sur des centaines d'articles).
+  const ficheHref = (dom: string) => `/stock/reconciliation/fiche/excel?domaine=${dom}`;
 
   return (
     <div className="space-y-4">
@@ -49,20 +41,31 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <a href={ficheHref("NOURRITURE")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</a>
           <a href={ficheHref("BOISSON")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</a>
           <a href={ficheHref("AUTRE")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</a>
-          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousComptages} libelle="Supprimer TOUS les comptages archivés ?" />
         </div>
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
-        <input name="q" defaultValue={q} placeholder="Rechercher un article…" className="min-w-48 flex-1 rounded-md border border-input bg-background px-3 py-1.5" />
+        <span className="text-muted-foreground">Domaine :</span>
         <select name="domaine" defaultValue={domaine ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="">Tous domaines</option>
           <option value="NOURRITURE">Nourriture</option>
           <option value="BOISSON">Boisson</option>
           <option value="AUTRE">Autre</option>
         </select>
-        <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
+        <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Charger</button>
       </form>
+
+      {/* Deux façons de mettre le stock au réel : saisie manuelle ci-dessous, ou import du classeur Excel. */}
+      {estDirection && (
+        <details className="group rounded-lg border">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+            <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
+            📥 Importer un comptage depuis le classeur Excel d&apos;inventaire
+            <span className="font-normal text-muted-foreground">— aperçu avant écriture, annulable depuis Imports</span>
+          </summary>
+          <div className="border-t p-3"><ImportInventaireClient /></div>
+        </details>
+      )}
 
       <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} />
 

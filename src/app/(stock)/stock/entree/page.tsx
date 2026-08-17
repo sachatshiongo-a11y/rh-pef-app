@@ -1,22 +1,14 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { qte } from "@/lib/stock";
+import { qte, usd } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
+import { SupprimerAchatBtn } from "./supprimer-achat-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
-import { supprimerToutesEntreesAchat } from "./actions";
+import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 
 type SP = { periode?: string };
 
-const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-
-function lundiDe(d: Date): Date {
-  const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const j = x.getUTCDay(); // 0=dim
-  x.setUTCDate(x.getUTCDate() - ((j + 6) % 7));
-  return x;
-}
 
 export default async function EntreePage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -25,7 +17,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 
   const [articles, mouvements, config] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true, prixUnitaireUSD: true } }),
     prisma.mouvementStock.findMany({
       // Les entrées issues d'une FACTURE (factureId non nul) ne s'affichent PAS ici : elles
       // apparaissent dans « Mouvements » et se répercutent dans le catalogue. La liste d'achat
@@ -72,20 +64,24 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Liste d&apos;achat</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Saisissez les articles achetés et leurs quantités : chaque ligne alimente directement
-            l&apos;inventaire. L&apos;historique se consulte par jour, semaine ou mois.
+            Réservez cette liste aux achats <strong>sans facture</strong> : chaque ligne alimente directement
+            l&apos;inventaire. Un achat avec facture s&apos;enregistre dans <strong>Factures</strong> (c&apos;est la facture
+            qui alimente le stock) ; les légumes frais dans <strong>leur onglet dédié</strong>.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <BoutonRapport types={[{ value: "ACHATS", label: "Achats" }]} />
-          <BoutonSupprimerTout estDirection={estDirection} action={supprimerToutesEntreesAchat} libelle="Supprimer TOUTES les entrées de la liste d'achat ? Le stock sera corrigé (effet annulé)." />
         </div>
       </div>
 
-      <ListeAchatForm articles={articles} taux={taux} estDirection={estDirection} />
+      <ListeAchatForm
+        articles={articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null }))}
+        taux={taux}
+        estDirection={estDirection}
+      />
 
       <div>
-        <div className="mb-2 flex items-center gap-2 text-sm">
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">Historique des achats</span>
           <span className="text-muted-foreground">·</span>
           {onglets.map((o) => (
@@ -96,19 +92,32 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         {groupes.length === 0 ? (
           <p className="text-sm text-muted-foreground">Aucune entrée enregistrée pour le moment.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {groupes.map((g) => (
-              <div key={g.cle} className="rounded-lg border">
-                <div className="border-b bg-muted/40 px-3 py-1.5 text-sm font-semibold">{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} ligne(s)</span></div>
-                <ul className="divide-y text-sm">
+              <details key={g.cle} className="group overflow-hidden rounded-lg border">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/50 px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} ligne(s)</span></span>
+                  {(() => {
+                    const total = g.lignes.reduce((t, m) => t + Number(m.montantUSD ?? 0), 0);
+                    return total > 0 ? <span className="shrink-0 tabular-nums text-emerald-700">{usd(total)}</span> : null;
+                  })()}
+                </summary>
+                <ul className="divide-y border-t text-sm">
                   {g.lignes.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between px-3 py-1.5">
-                      <span className="truncate pr-2">{m.article.designation}{m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}</span>
-                      <span className="shrink-0 font-medium text-emerald-700">+{qte(m.quantite)}</span>
+                    <li key={m.id} className="flex items-center justify-between gap-2 px-3 py-1">
+                      <span className="truncate pr-2">
+                        <Link href={`/stock/catalogue/${m.articleId}`} className="text-primary hover:underline">{m.article.designation}</Link>
+                        {m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-medium text-emerald-700">+{qte(m.quantite)}</span>
+                        {m.montantUSD !== null && <span className="tabular-nums text-muted-foreground">{usd(m.montantUSD)}</span>}
+                        {estDirection && <SupprimerAchatBtn mouvementId={m.id} designation={m.article.designation} />}
+                      </span>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </details>
             ))}
           </div>
         )}

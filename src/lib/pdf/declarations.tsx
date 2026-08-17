@@ -1,10 +1,12 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
-import { pdfColors, formatCDF } from "./theme";
+import { pdfColors, formatCDF, entreprise as entrepriseDefaut } from "./theme";
 import type { LigneDeclaration } from "@/lib/declarations";
 
 registerPdfFonts();
+
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
 const LIBELLE_STATUT: Record<string, string> = {
   A_DECLARER: "À déclarer",
@@ -65,11 +67,15 @@ export function BordereauDeclarationsDocument({
   mois,
   annee,
   tauxChange,
+  entreprise = entrepriseDefaut,
+  logo,
 }: {
   lignes: LigneDeclaration[];
   mois: number;
   annee: number;
   tauxChange: number;
+  entreprise?: typeof entrepriseDefaut;
+  logo?: ImageSrc;
 }) {
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {
     month: "long",
@@ -77,12 +83,12 @@ export function BordereauDeclarationsDocument({
   });
   const totalUSD = lignes.reduce((s, l) => s + l.montantUSD, 0);
   const totalCDF = lignes.reduce((s, l) => s + l.montantCDF, 0);
-  const docLabel = `PÂTES EN FOLIE — TOLYA SARL  •  Bordereau de déclarations - ${annee}-${String(mois).padStart(2, "0")}`;
+  const docLabel = `${entreprise.enseigne.toUpperCase()} — ${entreprise.nom}  •  Bordereau de déclarations - ${annee}-${String(mois).padStart(2, "0")}`;
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <PdfHeader title="Bordereau de déclarations" subtitle={periode} />
+        <PdfHeader title="Bordereau de déclarations" subtitle={periode} logo={logo} />
 
         <Text style={styles.intro}>
           Récapitulatif des cotisations sociales et fiscales retenues sur la paie de la période
@@ -125,9 +131,9 @@ export function BordereauDeclarationsDocument({
 
         <Text style={styles.note}>
           Les échéances marquées « à valider » restent à confirmer par le comptable de
-          l'entreprise. L'échéance CNSS est fixée au 15 du mois suivant la période de paie. Les taux
+          l’entreprise. L’échéance CNSS est fixée au 15 du mois suivant la période de paie. Les taux
           appliqués (CNSS, IPR, INPP, ONEM) sont ceux enregistrés dans les paramètres légaux de
-          l'exercice et doivent être validés par un comptable congolais avant tout usage officiel.
+          l’exercice et doivent être validés par un comptable congolais avant tout usage officiel.
         </Text>
 
         <Text style={styles.fait}>Fait à Kinshasa, le {new Date().toLocaleDateString("fr-FR")}</Text>
@@ -136,7 +142,7 @@ export function BordereauDeclarationsDocument({
           <PdfSignatureBox label="La Direction" signe={false} />
         </View>
 
-        <PdfFooter docLabel={docLabel} />
+        <PdfFooter docLabel={docLabel} ent={entreprise} />
       </Page>
     </Document>
   );

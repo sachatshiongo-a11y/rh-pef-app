@@ -15,8 +15,10 @@ const styles = StyleSheet.create({
   thCell: { color: "#ffffff", fontSize: 7, fontWeight: 700, paddingVertical: 4, paddingHorizontal: 4, textTransform: "uppercase" },
   tr: { flexDirection: "row", borderTop: `0.5 solid ${pdfColors.border}` },
   trTotal: { backgroundColor: pdfColors.goldLight },
+  trSection: { backgroundColor: pdfColors.goldLight },
   td: { fontSize: 8, paddingVertical: 3, paddingHorizontal: 4 },
   tdTotal: { fontWeight: 700, color: pdfColors.brownDark },
+  tdSection: { fontSize: 8.5, fontWeight: 700, color: pdfColors.brownDark, paddingVertical: 3, paddingHorizontal: 4 },
   wrap: { border: `0.75 solid ${pdfColors.border}` },
   pied: { marginTop: 10, fontSize: 7, fontStyle: "italic", color: pdfColors.textMuted },
 });
@@ -28,6 +30,10 @@ export function TableauDocument({
   colonnes,
   lignes,
   totalDerniereLigne = false,
+  sectionRows,
+  couleurLigne,
+  couleurCellule,
+  paysage = false,
   pied,
 }: {
   titre: string;
@@ -35,12 +41,17 @@ export function TableauDocument({
   colonnes: Colonne[];
   lignes: (string | number)[][];
   totalDerniereLigne?: boolean;
+  sectionRows?: number[]; // indices de lignes-titres de section (catégorie) : pleine largeur, en gras
+  couleurLigne?: (r: number) => string | undefined; // fond de ligne optionnel (ex. code couleur de statut)
+  couleurCellule?: (r: number, c: number) => string | undefined; // couleur de texte d'une cellule (ex. commande verte / livraison rouge)
+  paysage?: boolean; // orientation paysage (tableaux larges, ex. grille hebdo)
   pied?: string;
 }) {
+  const sections = new Set(sectionRows ?? []);
   const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
         <PdfHeader title={titre} subtitle={sousTitre} />
         <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
         <View style={styles.wrap}>
@@ -52,19 +63,68 @@ export function TableauDocument({
             ))}
           </View>
           {lignes.map((ligne, r) => {
+            if (sections.has(r)) {
+              return (
+                <View key={r} style={[styles.tr, styles.trSection]} wrap={false}>
+                  <Text style={[styles.tdSection, { width: "100%" }]}>{String(ligne[0] ?? "")}</Text>
+                </View>
+              );
+            }
             const total = totalDerniereLigne && r === lignes.length - 1;
+            const bg = !total ? couleurLigne?.(r) : undefined;
             return (
-              <View key={r} style={[styles.tr, total ? styles.trTotal : {}]} wrap={false}>
-                {colonnes.map((c, i) => (
-                  <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }]}>
-                    {String(ligne[i] ?? "")}
-                  </Text>
-                ))}
+              <View key={r} style={[styles.tr, total ? styles.trTotal : {}, bg ? { backgroundColor: bg } : {}]} wrap={false}>
+                {colonnes.map((c, i) => {
+                  const couleur = !total ? couleurCellule?.(r, i) : undefined;
+                  return (
+                    <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }, couleur ? { color: couleur, fontWeight: 700 } : {}]}>
+                      {String(ligne[i] ?? "")}
+                    </Text>
+                  );
+                })}
               </View>
             );
           })}
         </View>
         {pied && <Text style={styles.pied}>{pied}</Text>}
+        <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
+      </Page>
+    </Document>
+  );
+}
+
+export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: (string | number)[][]; totalDerniereLigne?: boolean };
+
+/** Document PDF à PLUSIEURS tableaux sur une même page (ex. synthèse + détail jour par jour). */
+export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }) {
+  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  return (
+    <Document>
+      <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
+        <PdfHeader title={titre} subtitle={sousTitre} />
+        <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
+        {tables.map((t, ti) => (
+          <View key={ti} style={{ marginBottom: 14 }} wrap={false}>
+            {t.sousTitre && <Text style={{ fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" }}>{t.sousTitre}</Text>}
+            <View style={styles.wrap}>
+              <View style={styles.th}>
+                {t.colonnes.map((c, i) => (
+                  <Text key={i} style={[styles.thCell, { width: c.width, textAlign: c.align ?? "left" }]}>{c.header}</Text>
+                ))}
+              </View>
+              {t.lignes.map((ligne, r) => {
+                const total = t.totalDerniereLigne && r === t.lignes.length - 1;
+                return (
+                  <View key={r} style={[styles.tr, total ? styles.trTotal : {}]} wrap={false}>
+                    {t.colonnes.map((c, i) => (
+                      <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }]}>{String(ligne[i] ?? "")}</Text>
+                    ))}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ))}
         <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
       </Page>
     </Document>

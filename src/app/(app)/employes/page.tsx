@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
+import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
+import { chargerParametresPaie } from "@/lib/config";
+import { GrilleTransport } from "@/app/(app)/transport/_grille";
+import { filtrerEmployes } from "./_donnees";
 import type { Employee } from "@prisma/client";
 
 function formatMoney(n: number) {
@@ -11,31 +16,56 @@ function formatMoney(n: number) {
 export default async function EmployesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string }>;
+  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string }>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
+  const vue = sp.vue === "transport" ? "transport" : "rh";
+  // Actifs par défaut ; « inactifs » = ex-employés (fin de contrat) ; « tous » = registre complet.
+  const statut = sp.statut === "inactifs" ? "inactifs" : sp.statut === "tous" ? "tous" : "actifs";
+  const whereActif = statut === "inactifs" ? { actif: false } : statut === "tous" ? {} : { actif: true };
 
-  const tous = await prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } });
+  const [tous, parametres] = await Promise.all([
+    prisma.employee.findMany({ where: whereActif, orderBy: { nom: "asc" } }),
+    vue === "transport" ? chargerParametresPaie() : Promise.resolve(null),
+  ]);
 
   // Options de filtre dérivées de l'ensemble (stables quel que soit le filtre courant).
   const postes = [...new Set(tous.map((e) => e.poste))].sort();
   const secteurs = [...new Set(tous.map((e) => e.secteur))].sort();
   const annees = [...new Set(tous.map((e) => new Date(e.dateEmbauche).getFullYear()))].sort((a, b) => b - a);
 
-  const q = (sp.q ?? "").trim().toLowerCase();
-  const employes = tous.filter((e) => {
-    if (sp.poste && e.poste !== sp.poste) return false;
-    if (sp.secteur && e.secteur !== sp.secteur) return false;
-    if (sp.annee && String(new Date(e.dateEmbauche).getFullYear()) !== sp.annee) return false;
-    if (q && !e.nom.toLowerCase().includes(q) && !e.matricule.toLowerCase().includes(q)) return false;
-    return true;
-  });
+  // Filtres courants sous forme de query string : partagés entre l'affichage (filtrerEmployes,
+  // MÊME logique que les exports — plus de duplication), les liens d'export et la bascule de vue.
+  const qsExport = new URLSearchParams();
+  if (sp.q) qsExport.set("q", sp.q);
+  if (sp.poste) qsExport.set("poste", sp.poste);
+  if (sp.secteur) qsExport.set("secteur", sp.secteur);
+  if (sp.annee) qsExport.set("annee", sp.annee);
+  if (statut !== "actifs") qsExport.set("statut", statut);
+  const suffixeExport = qsExport.toString() ? `?${qsExport}` : "";
 
+  const employes = filtrerEmployes(tous, qsExport);
   const brigade = employes.filter((e) => e.categorie === "BRIGADE");
   const backoffice = employes.filter((e) => e.categorie === "BACKOFFICE");
-  const filtreActif = !!(sp.poste || sp.secteur || sp.annee || q);
+  const filtreActif = Boolean(sp.q || sp.poste || sp.secteur || sp.annee);
+  const labelStatut = statut === "inactifs" ? "inactif(s)" : statut === "tous" ? "au total" : "actif(s)";
+  // Lien conservant les filtres courants mais changeant le statut (Actifs / Inactifs / Tous).
+  const lienStatut = (st: string) => {
+    const p = new URLSearchParams(qsExport);
+    if (st === "actifs") p.delete("statut"); else p.set("statut", st);
+    if (vue === "transport") p.set("vue", "transport");
+    return `/employes${p.toString() ? `?${p}` : ""}`;
+  };
+  // L'export « Exporter ▾ » cible la vue active (RH ou Transport), en conservant les filtres.
+  const baseExport = vue === "transport" ? "/transport" : "/employes";
+  // Bascule de vue en gardant les filtres.
+  const lienVue = (v: string) => {
+    const p = new URLSearchParams(qsExport);
+    if (v !== "rh") p.set("vue", v);
+    return `/employes${p.toString() ? `?${p}` : ""}`;
+  };
 
   return (
     <div>
@@ -43,14 +73,17 @@ export default async function EmployesPage({
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Employés</h1>
           <p className="text-sm text-muted-foreground">
-            {employes.length} affiché(s){filtreActif ? ` sur ${tous.length}` : " actif(s)"}
+            {employes.length} {labelStatut}{filtreActif ? ` (filtré sur ${tous.length})` : ""}
           </p>
         </div>
-        {peutModifier && (
-          <Link href="/employes/nouveau" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-            + Nouvel employé
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <BoutonRapport pdfHref={`${baseExport}/pdf${suffixeExport}`} pdfDownload excelHref={`${baseExport}/export${suffixeExport}`} />
+          {peutModifier && (
+            <Link href="/employes/nouveau" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              + Nouvel employé
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Filtres */}
@@ -83,26 +116,47 @@ export default async function EmployesPage({
         <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">
           Filtrer
         </button>
+        {vue === "transport" && <input type="hidden" name="vue" value="transport" />}
+        {statut !== "actifs" && <input type="hidden" name="statut" value={statut} />}
         {filtreActif && (
-          <Link href="/employes" className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">
+          <Link href={lienStatut(statut)} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">
             Réinitialiser
           </Link>
         )}
       </form>
 
-      <div className="mb-8">
-        <h2 className="mb-3 text-base font-semibold">
-          Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
-        </h2>
-        <EmployeeTable employes={brigade} peutModifier={peutModifier} />
+      {/* Statut : Actifs / Inactifs (ex-employés, fin de contrat) / Tous — registre complet. */}
+      <div className="mb-3 flex flex-wrap gap-1.5 text-sm">
+        {([["actifs", "Actifs"], ["inactifs", "Inactifs"], ["tous", "Tous"]] as const).map(([st, label]) => (
+          <Link key={st} href={lienStatut(st)} className={`rounded-full border px-3 py-1 ${statut === st ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
+        ))}
       </div>
 
-      <div>
-        <h2 className="mb-3 text-base font-semibold">
-          Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span>
-        </h2>
-        <EmployeeTable employes={backoffice} peutModifier={peutModifier} />
+      {/* Bascule de vue : Fiche RH / Transport (mêmes filtres et recherche partagés). */}
+      <div className="mb-5 flex flex-wrap gap-1.5 text-sm">
+        <Link href={lienVue("rh")} className={`rounded-full border px-3 py-1 ${vue === "rh" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fiche RH</Link>
+        <Link href={lienVue("transport")} className={`rounded-full border px-3 py-1 ${vue === "transport" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Transport</Link>
       </div>
+
+      {vue === "transport" ? (
+        <GrilleTransport employes={employes} jours={parametres!.joursOuvrablesMois} taux={parametres!.tauxChangeCDF} />
+      ) : (
+        <>
+          <div className="mb-8">
+            <h2 className="mb-3 text-base font-semibold">
+              Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
+            </h2>
+            <EmployeeTable employes={brigade} peutModifier={peutModifier} />
+          </div>
+
+          <div>
+            <h2 className="mb-3 text-base font-semibold">
+              Back-office <span className="font-normal text-muted-foreground">({backoffice.length})</span>
+            </h2>
+            <EmployeeTable employes={backoffice} peutModifier={peutModifier} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -116,7 +170,10 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
           <Link key={e.id} href={`/employes/${e.id}`} className="flex items-center gap-3 rounded-xl border bg-card p-3 active:bg-accent">
             <Avatar nom={e.nom} taille={40} photoUrl={e.photoUrl} />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{e.nom}</div>
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{e.nom}</span>
+                {!e.actif && <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Inactif</span>}
+              </div>
               <div className="truncate text-xs text-muted-foreground">
                 <span className="font-mono">{e.matricule}</span> · {e.poste}
               </div>
@@ -128,7 +185,7 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
           </Link>
         ))}
         {employes.length === 0 && (
-          <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun employé ne correspond.</p>
+          <EtatVide message="Aucun employé ne correspond." />
         )}
       </div>
 
@@ -155,6 +212,7 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
                 <Link href={`/employes/${e.id}`} className="flex items-center gap-2 hover:underline">
                   <Avatar nom={e.nom} taille={28} photoUrl={e.photoUrl} />
                   <span className="text-primary">{e.nom}</span>
+                  {!e.actif && <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">Inactif</span>}
                 </Link>
               </td>
               <td className="px-3 py-2">{e.poste}</td>

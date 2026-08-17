@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -9,7 +10,7 @@ import type { Role } from "@prisma/client";
 const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "STOCK"];
 
 /** Crée un utilisateur : compte Supabase Auth (email + mot de passe) + profil applicatif (rôle). */
-export async function creerUtilisateur(formData: FormData) {
+export const creerUtilisateur = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
 
@@ -47,10 +48,10 @@ export async function creerUtilisateur(formData: FormData) {
     userId: user.id,
   });
   revalidatePath("/parametres");
-}
+});
 
 /** Change le rôle d'un utilisateur. */
-export async function definirRoleUtilisateur(userId: string, formData: FormData) {
+export const definirRoleUtilisateur = actionLisible(async (userId: string, formData: FormData) => {
   const admin = await verifySession();
   requireRole(admin, ["ADMIN"]);
   const role = String(formData.get("role") ?? "") as Role;
@@ -60,10 +61,10 @@ export async function definirRoleUtilisateur(userId: string, formData: FormData)
   invaliderProfil(userId);
   await journaliser(prisma, { entite: "User", entiteId: userId, champ: "role", nouvelleValeur: role, userId: admin.id });
   revalidatePath("/parametres");
-}
+});
 
 /** Active / désactive un utilisateur (un compte désactivé ne peut plus se connecter). */
-export async function basculerActifUtilisateur(userId: string) {
+export const basculerActifUtilisateur = actionLisible(async (userId: string) => {
   const admin = await verifySession();
   requireRole(admin, ["ADMIN"]);
   if (userId === admin.id) throw new Error("Vous ne pouvez pas désactiver votre propre compte.");
@@ -73,10 +74,10 @@ export async function basculerActifUtilisateur(userId: string) {
   invaliderProfil(userId);
   await journaliser(prisma, { entite: "User", entiteId: userId, champ: "actif", nouvelleValeur: String(!u.actif), userId: admin.id });
   revalidatePath("/parametres");
-}
+});
 
 /** Lie (ou délie) un compte utilisateur à une fiche employé — la même personne. */
-export async function lierUtilisateurEmploye(userId: string, formData: FormData) {
+export const lierUtilisateurEmploye = actionLisible(async (userId: string, formData: FormData) => {
   const admin = await verifySession();
   requireRole(admin, ["ADMIN"]);
   const employeeId = String(formData.get("employeeId") ?? "").trim() || null;
@@ -94,10 +95,10 @@ export async function lierUtilisateurEmploye(userId: string, formData: FormData)
     userId: admin.id,
   });
   revalidatePath("/parametres");
-}
+});
 
 /** Réinitialise le mot de passe d'un utilisateur (Supabase Auth). */
-export async function reinitialiserMotDePasse(userId: string, formData: FormData) {
+export const reinitialiserMotDePasse = actionLisible(async (userId: string, formData: FormData) => {
   const admin = await verifySession();
   requireRole(admin, ["ADMIN"]);
   const password = String(formData.get("password") ?? "");
@@ -113,4 +114,4 @@ export async function reinitialiserMotDePasse(userId: string, formData: FormData
   if (!res.ok) throw new Error("Échec de la réinitialisation du mot de passe.");
   await journaliser(prisma, { entite: "User", entiteId: userId, champ: "motDePasse", nouvelleValeur: "réinitialisé", userId: admin.id });
   revalidatePath("/parametres");
-}
+});

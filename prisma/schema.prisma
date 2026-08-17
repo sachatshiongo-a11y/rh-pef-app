@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["public", "stock"]
+  schemas  = ["public", "stock", "exploitation"]
 }
 
 enum Role {
@@ -12,6 +12,8 @@ enum Role {
   MANAGER
   VIEWER
   STOCK
+  EMPLOYE // espace salarié en lecture seule (+ ses propres congés) — activable par déploiement
+  COMPTA
 
   @@schema("public")
 }
@@ -26,6 +28,13 @@ enum EmployeeCategory {
 enum EmployeeType {
   NATIONAL
   EXPATRIE
+
+  @@schema("public")
+}
+
+enum LienFamilial {
+  CONJOINT
+  ENFANT
 
   @@schema("public")
 }
@@ -86,6 +95,8 @@ model User {
   actif      Boolean   @default(true)
   employeeId String?   @unique // compte lié à une fiche employé (même personne)
   employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
+  motDePasseTemporaire Boolean @default(false) // compte salarié : forcer le changement à la 1re connexion
+  accesStock Boolean @default(false) // compte salarié qui a AUSSI accès à l'espace Stock (cumul de rôles)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
@@ -121,7 +132,49 @@ model Config {
   anneeCourante Int
   moisCourant   Int
   jourPaie      Int      @default(30) // jour du mois de la paie convenue (frise + alerte clôture)
+  espaceEmployeActif Boolean @default(false) // ouvre l'espace salarié (self-service) — OFF par défaut
+  // Âge au-delà duquel un enfant cesse d'être compté à charge dans la composition familiale.
+  // 18 ans par défaut — À VALIDER par un comptable-juriste (des prolongations existent, notamment
+  // pour les enfants aux études). Ne sert QU'À SIGNALER un écart avec le compteur `Employee.enfants` ;
+  // ne modifie JAMAIS un calcul de paie (décision 2026-08-16).
+  ageLimiteEnfantACharge Int @default(18)
   updatedAt     DateTime @updatedAt
+
+  @@schema("public")
+}
+
+// Identité de l'entreprise (singleton) — éditable dans Paramètres. Remplace/complète les valeurs
+// par défaut de src/lib/pdf/theme.ts sur tous les documents PDF. Champs vides = valeur par défaut.
+model ParamEntreprise {
+  id            String   @id @default("singleton")
+  nom           String?
+  enseigne      String?
+  telephone     String?
+  email         String?
+  site          String?
+  adresse       String? // siège social
+  lieuTravail   String? // restaurant / lieu de travail
+  pays          String?
+  compteBancaire String?
+  rccm          String?
+  idNat         String?
+  numImpot      String?
+  logoUrl       String? // logo d'en-tête des documents (Storage)
+  logoNom       String?
+  signatureUrl  String? // signature de la Direction (Storage)
+  signatureNom  String?
+  updatedAt     DateTime @updatedAt
+
+  @@schema("public")
+}
+
+/// Semaine de planning PUBLIÉE (visible par les salariés dans leur espace). Tant qu'une semaine
+/// n'est pas publiée, seuls la Direction/RH la voient. `lundi` = lundi UTC de la semaine.
+model SemainePubliee {
+  id           String   @id @default(uuid())
+  lundi        DateTime @unique @db.Date
+  publieeParId String?
+  createdAt    DateTime @default(now())
 
   @@schema("public")
 }
@@ -196,6 +249,7 @@ model Employee {
   poste                    String
   secteur                  String
   categorie                EmployeeCategory
+  categorieProfessionnelle String? // classification Code du travail RDC (manœuvre, ouvrier qualifié, employé, agent de maîtrise, cadre)
   salaireMensuel           Decimal          @db.Decimal(12, 2)
   transportJourCDF         Decimal          @default(0) @db.Decimal(12, 2)
   transportMoisCDF         Decimal          @default(0) @db.Decimal(12, 2)
@@ -224,6 +278,7 @@ model Employee {
 
   attendances          Attendance[]
   overtimeEntries      OvertimeEntry[]
+  pointages            Pointage[]
   payrollLines         PayrollLine[]
   leaveRequests        LeaveRequest[]
   remplaceDans         LeaveRequest[]         @relation("Remplacant")
@@ -235,9 +290,83 @@ model Employee {
   planningCreneaux     PlanningCreneau[]
   primes               Prime[]
   acomptes             AcompteSalaire[]
+  prets                PretPersonnel[]
+  tachesOnboarding     TacheOnboarding[]
   fraisMed             FraisMedical[]
+  demandesChangementShift DemandeChangementShift[]
+  echangesDemandes     EchangeCreneau[]       @relation("EchangeDemandeur")
+  echangesRecus        EchangeCreneau[]       @relation("EchangeCollegue")
   compte               User?                  @relation("CompteEmploye")
+  famille              MembreFamille[]
+  avantagesNature      AvantageNature[]
 
+  @@schema("public")
+}
+
+/// Composition familiale NOMINATIVE : conjoint et enfants, avec leurs dates de naissance.
+/// Sert de justificatif (réduction IPR pour charges de famille, allocation familiale) — un contrôle
+/// demande des noms et des dates, pas un compteur.
+///
+/// IMPORTANT : cette liste ne pilote AUCUN calcul de paie. La source du nombre d'enfants reste
+/// `Employee.enfants` (décision 2026-08-16) ; un écart entre les deux est SIGNALÉ à l'écran et
+/// tranché par la Direction, jamais appliqué en silence — changer la source modifierait des
+/// montants de paie existants sans que personne ne l'ait demandé.
+model MembreFamille {
+  id            String       @id @default(uuid())
+  employeeId    String
+  employee      Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  lien          LienFamilial
+  nom           String
+  dateNaissance DateTime?    @db.Date // facultative : un dossier incomplet se saisit quand même, et se voit
+  createdAt     DateTime     @default(now())
+  creeParId     String?
+
+  @@index([employeeId])
+  @@schema("public")
+}
+
+/// Échange de créneau entre DEUX salariés, à double validation : le collègue concerné ET la
+/// Direction doivent accepter. À la double acceptation, les deux créneaux du planning sont permutés.
+/// Le demandeur peut annuler tant que c'est en attente. Statuts en String (EN_ATTENTE/ACCEPTE/
+/// REFUSE/APPROUVE/ANNULE) pour rester lisible et découplé.
+model EchangeCreneau {
+  id               String   @id @default(uuid())
+  demandeurId      String
+  demandeur        Employee @relation("EchangeDemandeur", fields: [demandeurId], references: [id], onDelete: Cascade)
+  demandeurDate    DateTime @db.Date
+  demandeurShiftId String
+  collegueId       String
+  collegue         Employee @relation("EchangeCollegue", fields: [collegueId], references: [id], onDelete: Cascade)
+  collegueDate     DateTime @db.Date
+  collegueShiftId  String
+  motif            String?
+  reponseCollegue  String   @default("EN_ATTENTE") // EN_ATTENTE | ACCEPTE | REFUSE
+  reponseDirection String   @default("EN_ATTENTE") // EN_ATTENTE | APPROUVE | REFUSE
+  statut           String   @default("EN_ATTENTE") // EN_ATTENTE | APPROUVE | REFUSE | ANNULE
+  createdAt        DateTime @default(now())
+
+  @@index([demandeurId])
+  @@index([collegueId])
+  @@index([statut, createdAt])
+  @@schema("public")
+}
+
+/// Demande par un salarié de changer son shift sur un jour donné (self-service) → validée par la
+/// Direction. À l'approbation, le créneau du planning est mis à jour. `statut` réutilise LeaveStatus.
+model DemandeChangementShift {
+  id             String      @id @default(uuid())
+  employeeId     String
+  employee       Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date           DateTime    @db.Date
+  shiftActuelId  String? // shift planifié au moment de la demande (peut être nul si repos)
+  shiftDemandeId String // shift souhaité (parmi ceux correspondant au poste)
+  motif          String?
+  statut         LeaveStatus @default(EN_ATTENTE)
+  decideParId    String?
+  createdAt      DateTime    @default(now())
+
+  @@index([employeeId])
+  @@index([statut, createdAt])
   @@schema("public")
 }
 
@@ -248,8 +377,35 @@ model Prime {
   employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   nom        String // ex. "Prime de performance"
   montantUSD Decimal  @db.Decimal(12, 2)
+  // Majoration exprimée en POURCENTAGE du salaire de base : le taux saisi est conservé pour la
+  // traçabilité, mais c'est `montantUSD` qui fait foi — il est figé à la saisie et reste
+  // librement ajustable, comme la prime d'ancienneté. Rien n'est recalculé à la paie.
+  pourcentageBase Decimal? @db.Decimal(5, 2)
+  motif      String? // raison libre de la majoration (« remplacement du chef de partie »)
   mois       Int
   annee      Int
+  createdAt  DateTime @default(now())
+  creeParId  String?
+
+  @@index([employeeId, annee, mois])
+  @@schema("public")
+}
+
+/// Avantage en nature du mois (logement, nourriture, véhicule…).
+///
+/// PUREMENT INFORMATIF (décision 2026-08-16) : consigné et affiché sur le bulletin, mais EXCLU de
+/// tout calcul — ni assiette CNSS/INPP/ONEM, ni base IPR, ni net à payer. Un avantage en nature
+/// n'est pas versé en espèces ; son traitement fiscal en RDC reste À VALIDER par un comptable, et
+/// tant qu'il ne l'est pas le logiciel enregistre sans rien décider.
+model AvantageNature {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  nature     String // ex. "Logement", "Nourriture", "Véhicule"
+  montantUSD Decimal  @db.Decimal(12, 2) // valeur estimée de l'avantage sur le mois
+  mois       Int
+  annee      Int
+  motif      String?
   createdAt  DateTime @default(now())
   creeParId  String?
 
@@ -297,6 +453,71 @@ model AcompteSalaire {
   @@schema("public")
 }
 
+enum StatutPret {
+  EN_COURS
+  SOLDE
+  ANNULE
+
+  @@schema("public")
+}
+
+// Prêt au personnel : montant avancé, remboursé par retenues mensuelles automatiques sur la paie.
+model PretPersonnel {
+  id                 String        @id @default(uuid())
+  employeeId         String
+  employee           Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  montantUSD         Decimal       @db.Decimal(12, 2)
+  retenueMensuelleUSD Decimal      @db.Decimal(12, 2)
+  motif              String?
+  statut             StatutPret    @default(EN_COURS)
+  dateAccord         DateTime      @default(now())
+  creeParId          String?
+  createdAt          DateTime      @default(now())
+  retenues           RetenuePret[]
+
+  @@index([employeeId, statut])
+  @@schema("public")
+}
+
+// Modèle de checklist d'intégration (onboarding) — tâches par défaut, éditables dans Paramètres.
+model ModeleTacheOnboarding {
+  id      String @id @default(uuid())
+  libelle String
+  ordre   Int    @default(0)
+
+  @@schema("public")
+}
+
+// Tâche d'intégration d'un employé (copiée depuis le modèle à l'embauche).
+model TacheOnboarding {
+  id         String    @id @default(uuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  libelle    String
+  ordre      Int       @default(0)
+  fait       Boolean   @default(false)
+  faitLe     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([employeeId])
+  @@schema("public")
+}
+
+// Une retenue mensuelle appliquée sur la paie pour rembourser un prêt (une par mois/année).
+model RetenuePret {
+  id            String   @id @default(uuid())
+  pretId        String
+  pret          PretPersonnel @relation(fields: [pretId], references: [id], onDelete: Cascade)
+  mois          Int
+  annee         Int
+  montantUSD    Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
+
+  @@unique([pretId, mois, annee])
+  @@index([pretId])
+  @@schema("public")
+}
+
 // Shift = créneau de planning CONFIGURABLE (modifiable/ajoutable depuis l'onglet Planning).
 // Matin/Après-midi/Soir/Nuit ont des heures ; Repos/Congé/Férié sont « système » (heures nulles,
 // non supprimables). « Nuit » sert au planning — AUCUNE majoration de nuit n'est appliquée en paie.
@@ -316,6 +537,7 @@ model Shift {
 
   creneaux PlanningCreneau[]
   besoins  BesoinShift[]
+  postes   ShiftPoste[]
 
   @@schema("public")
 }
@@ -335,7 +557,62 @@ model BesoinShift {
   @@schema("public")
 }
 
+/// Shifts qu'un poste peut tenir, dans l'ordre de préférence. Remplace le repli par expression
+/// régulière sur le NOM du shift (`/caissi/`, `/cuisine/`, `/salle/`), qui changeait les
+/// affectations dès qu'un shift était renommé et envoyait tout poste non reconnu sur
+/// « Journée 8h-17h » sans le signaler.
+///
+/// Rattachement par la CHAÎNE `poste`, comme `BesoinShift` et `PolyvalencePoste` — mêmes voisins,
+/// même écran de configuration, même convention.
+///
+/// Sert à la passe complémentaire (remplir quelqu'un jusqu'à ses heures). Sans liste déclarée pour
+/// un poste, le moteur ne pose RIEN et le rapport nomme les salariés concernés : un trou visible
+/// vaut mieux qu'un shift faux posé en silence.
+model ShiftPoste {
+  id        String   @id @default(uuid())
+  poste     String // correspond à Employee.poste
+  shiftId   String
+  shift     Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  ordre     Int      @default(0) // 0 = essayé en premier
+  createdAt DateTime @default(now())
+
+  @@unique([poste, shiftId])
+  @@index([poste])
+  @@schema("public")
+}
+
 // Planning hebdomadaire prévisionnel (A3) : un shift par employé et par jour.
+// Commande de livraison au restaurant : quantité commandée par article et par jour. Se compare aux
+// livraisons réelles (sorties de stock) dans l'onglet Conso. journalière.
+model CommandeResto {
+  id        String       @id @default(uuid())
+  articleId String
+  article   ArticleStock @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  date      DateTime     @db.Date
+  quantite  Decimal      @db.Decimal(14, 3)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([articleId, date])
+  @@index([date])
+  @@schema("stock")
+}
+
+// Commande de légumes frais au restaurant (liste figée, pas des articles du catalogue) : quantité
+// commandée par légume et par jour. Se compare aux achats réels (AchatLegume).
+model CommandeLegumeResto {
+  id        String   @id @default(uuid())
+  legume    String
+  date      DateTime @db.Date
+  quantite  Decimal  @db.Decimal(14, 3)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([legume, date])
+  @@index([date])
+  @@schema("stock")
+}
+
 model PlanningCreneau {
   id         String   @id @default(uuid())
   employeeId String
@@ -343,10 +620,12 @@ model PlanningCreneau {
   date       DateTime @db.Date
   shiftId    String
   shift      Shift    @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  genereAuto Boolean  @default(false) // true = posé par la génération automatique (marqueur ✨) ; false = saisi à la main
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([employeeId, date])
+  @@index([date]) // planning : requêtes par plage de dates (génération auto, affichage mensuel)
   @@schema("public")
 }
 
@@ -355,6 +634,7 @@ enum TypeContrat {
   CDI
   STAGE
   JOURNALIER
+  INTERIM
 
   @@schema("public")
 }
@@ -363,6 +643,7 @@ enum StatutContrat {
   ACTIF
   EXPIRE
   RESILIE
+  TRANSFORME // clos par transformation (ex. CDD devenu CDI) — l'historique reste lisible
 
   @@schema("public")
 }
@@ -382,6 +663,16 @@ model Contrat {
   poste           String
   statut          StatutContrat @default(ACTIF)
   documentUrl     String?
+  renouvellements Int           @default(0) // nb de prolongations du CDD (garde-fou légal)
+  agence          String? // INTERIM : agence d'intérim qui emploie et paie la personne
+  coutJourUSD     Decimal?      @db.Decimal(12, 2) // INTERIM : coût journalier facturé par l'agence
+  accepteLe       DateTime? // acceptation numérique du salarié (« Lu et approuvé », horodatée)
+  // PDF FIGÉ au moment de l'acceptation : c'est l'exemplaire qui fait foi (le contrat n'est plus
+  // régénéré ensuite, même si le modèle évolue). Stocké dans Supabase Storage.
+  pdfAccepteUrl   String?
+  // Passe à true si les conditions sont corrigées APRÈS le figeage : l'exemplaire figé ne reflète
+  // plus le contrat → la Direction est avertie et peut le re-figer.
+  pdfAccepteObsolete Boolean @default(false)
   createdAt       DateTime      @default(now())
 
   @@index([employeeId])
@@ -483,7 +774,19 @@ model DocumentEmploye {
 model FichePoste {
   id          String   @id @default(uuid())
   poste       String   @unique
-  description String?  @db.Text
+  descriptionPoste String? @db.Text // mission / rôle (« Description du poste »)
+  description String?  @db.Text // responsabilités / missions (« Description des tâches »)
+  // Champs du modèle « fiche de poste » (générateur PDF). La classe/catégorie est déduite des salariés du poste.
+  typeContrat           String? // ex. « CDD à temps partiel »
+  echelleSalariale      String? // ex. « 100 usd »
+  categorieProfessionnelle String? // classe RDC du poste (MANOEUVRE/OUVRIER_QUALIFIE/EMPLOYE/AGENT_MAITRISE/CADRE)
+  superieurHierarchique String? // ex. « Contrôleur de gestion »
+  tempsTravail          String? // ex. « 10 heures/semaine »
+  competencesTechniques String? @db.Text
+  savoirEtre            String? @db.Text
+  formationsRequises    String? @db.Text
+  diplomesRequis        String? @db.Text
+  experiencesExigees    String? @db.Text
   fichierUrl  String?
   fichierNom  String?
   creeParId   String?
@@ -497,7 +800,29 @@ enum SourcePointage {
   MANUEL
   IVMS_RAPPORT
   IVMS_API
+  APP // pointage self-service depuis l'application (l'employé pointe lui-même)
 
+  @@schema("public")
+}
+
+/// Pointage interne (self-service) : un enregistrement par employé et par jour. L'arrivée et le
+/// départ sont horodatés par l'app ; la pause est saisie par l'employé. À la clôture (départ), les
+/// heures nettes alimentent OvertimeEntry + Attendance, comme l'import IVMS.
+model Pointage {
+  id           String         @id @default(uuid())
+  employeeId   String
+  employee     Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date         DateTime       @db.Date
+  heureDebut   DateTime // arrivée (horodatée par l'app)
+  heureFin     DateTime? // départ ; null = pointage en cours
+  pauseMinutes Int            @default(0) // pause saisie par l'employé
+  source       SourcePointage @default(APP)
+  creeParId    String? // compte ayant saisi (l'employé lui-même, ou la Direction en manuel)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
   @@schema("public")
 }
 
@@ -573,6 +898,11 @@ model PayrollLine {
   joursNonPayes   Int     @default(0)
   nombreAbsences  Int     @default(0) // A + N + S sur la période
   remuneration100 Decimal @default(0) @db.Decimal(12, 2)
+  // Scission de remuneration100 pour l'affichage du bulletin : part « jours payés non
+  // travaillés » (congés/fériés/repos sans heures, valorisés à la journée). 0 = anciens
+  // bulletins figés → le bulletin retombe sur la ligne unique historique.
+  joursPayesNonTravailles   Int     @default(0)
+  remunerationJoursPayesUSD Decimal @default(0) @db.Decimal(12, 2)
   remuneration2_3 Decimal @default(0) @db.Decimal(12, 2)
   hsValorisee     Decimal @default(0) @db.Decimal(12, 2)
 
@@ -591,7 +921,11 @@ model PayrollLine {
   // Commun
   transportUSD      Decimal @default(0) @db.Decimal(12, 2)
   primesUSD         Decimal @default(0) @db.Decimal(12, 2)
+  // Avantages en nature du mois — SNAPSHOT INFORMATIF, hors de tout calcul (voir AvantageNature).
+  // Figé ici pour que le bulletin archivé reste fidèle même si la saisie change ensuite.
+  avantagesNatureUSD Decimal @default(0) @db.Decimal(12, 2)
   acompteUSD        Decimal @default(0) @db.Decimal(12, 2)
+  retenuePretUSD    Decimal @default(0) @db.Decimal(12, 2) // échéance de prêt du personnel, déduite du net
   salBrutUSD        Decimal @db.Decimal(12, 2)
   cnssSalarieUSD    Decimal @db.Decimal(12, 2)
   netImposableUSD   Decimal @db.Decimal(12, 2)
@@ -732,8 +1066,9 @@ model DeclarationTaxe {
 /// clôture de paie proche… `lu` global (petite structure, 1–2 comptes Direction).
 model Notification {
   id        String   @id @default(uuid())
-  domaine   String   @default("RH") // RH | STOCK — cloisonne la cloche par espace
-  type      String // CONGE | ACOMPTE | CLOTURE | AUTRE
+  domaine   String   @default("RH") // RH | STOCK | SALARIE — cloisonne la cloche par espace
+  destinataireUserId String? // pour SALARIE : le compte salarié destinataire (cloche personnelle)
+  type      String // CONGE | ACOMPTE | CLOTURE | PLANNING | AUTRE
   refId     String? // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
   message   String
   lien      String?
@@ -741,6 +1076,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([domaine, lu, createdAt])
+  @@index([destinataireUserId, lu, createdAt])
   @@schema("public")
 }
 
@@ -750,7 +1086,7 @@ model Notification {
 model FinContrat {
   id                       String   @id @default(uuid())
   employeeId               String
-  motif                    String // DEMISSION | LICENCIEMENT | FIN_CDD | AUTRE
+  motif                    String // LICENCIEMENT | DEMISSION | FIN_CDD | RETRAITE | FAUTE_LOURDE | AUTRE
   dateFin                  DateTime @db.Date
   salaireJournalierUSD     Decimal  @db.Decimal(12, 2)
   joursTravaillesMois      Int      @default(0)
@@ -904,11 +1240,15 @@ model ArticleStock {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  stock         Stock?
-  mouvements    MouvementStock[]
-  lignesBC      LigneBonDeCommande[]
-  lignesFacture LigneFacture[]
+  stock            Stock?
+  mouvements       MouvementStock[]
+  lignesBC         LigneBonDeCommande[]
+  lignesFacture    LigneFacture[]
+  commandesResto   CommandeResto[]
+  fichesIngredient IngredientFiche[]
 
+  @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
+  @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
   @@schema("stock")
 }
 
@@ -978,6 +1318,7 @@ model BonDeCommande {
   factures   FactureFournisseur[]
 
   @@index([annee, mois])
+  @@index([fournisseurId]) // fiche fournisseur + filtre des bons de commande par fournisseur
   @@schema("stock")
 }
 
@@ -1060,10 +1401,30 @@ model FactureFournisseur {
 
   lignes     LigneFacture[]
   mouvements MouvementStock[]
+  paiements  Paiement[]
 
   @@index([annee, mois])
   @@index([fournisseurId])
   @@index([bonDeCommandeId])
+  @@schema("stock")
+}
+
+// Paiement (total ou partiel) enregistré sur une facture fournisseur — historique daté.
+model Paiement {
+  id                String             @id @default(uuid())
+  factureId         String
+  facture           FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  type              String             @default("PAIEMENT") // PAIEMENT | AVOIR (note de crédit / retour marchandise)
+  date              DateTime           @db.Date
+  montantUSD        Decimal            @db.Decimal(14, 2)
+  montantCDF        Decimal?           @db.Decimal(16, 2) // montant réellement versé en francs (si payé en CDF)
+  tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du paiement
+  modePaiement      String?
+  note              String?
+  creeParId    String? // User.id (pas de FK cross-schéma)
+  createdAt    DateTime           @default(now())
+
+  @@index([factureId])
   @@schema("stock")
 }
 
@@ -1097,6 +1458,51 @@ model AchatLegume {
   createdAt         DateTime @default(now())
 
   @@index([date])
+  @@schema("stock")
+}
+
+// Clôture mensuelle du stock : un mois clôturé n'accepte plus de mouvements datés dedans.
+model ClotureStock {
+  id        String   @id @default(uuid())
+  annee     Int
+  mois      Int
+  creeParId String? // User.id (pas de FK cross-schéma)
+  createdAt DateTime @default(now())
+  // Instantané du stock figé au moment de la clôture : { valeurTotaleUSD, lignes: [{ designation, domaine, quantite, prixUnitaireUSD }] }.
+  // Permet d'exporter l'inventaire « à la date de clôture » même après des mouvements ultérieurs.
+  snapshot Json?
+
+  @@unique([annee, mois])
+  @@schema("stock")
+}
+
+// ─── Journal d'import réversible (inventaire, factures) ───
+model ImportBatch {
+  id         String            @id @default(uuid())
+  type       String // INVENTAIRE | FACTURES
+  libelle    String // ex. « Inventaire Juillet 2026 » ou nom du fichier
+  statut     String            @default("APPLIQUE") // APPLIQUE | ANNULE
+  resume     Json? // compteurs affichés (mises à jour, créés, mouvements…)
+  creeParId  String? // User.id (pas de FK cross-schéma)
+  createdAt  DateTime          @default(now())
+  annuleeAt  DateTime?
+  operations ImportOperation[]
+
+  @@index([type, createdAt])
+  @@schema("stock")
+}
+
+// Une opération élémentaire d'un import, pour pouvoir l'annuler.
+model ImportOperation {
+  id       String      @id @default(uuid())
+  batchId  String
+  batch    ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  entite   String // ArticleStock | Stock | MouvementStock | AchatLegume | FactureFournisseur | LigneFacture
+  entiteId String
+  action   String // CREATE | UPDATE
+  avant    Json? // valeurs précédentes (pour restaurer un UPDATE) ; null pour un CREATE
+
+  @@index([batchId])
   @@schema("stock")
 }
 
@@ -1181,4 +1587,214 @@ model Rapport {
 
   @@index([type, createdAt])
   @@schema("stock")
+}
+
+// ─── Fiches techniques (recettes → coût de revient) ──────────────────────────
+enum TypeFiche {
+  PLAT
+  BAR
+
+  @@schema("stock")
+}
+
+model FicheTechnique {
+  id                    String    @id @default(uuid())
+  nom                   String
+  categorie             String?
+  type                  TypeFiche @default(PLAT)
+  nbPortions            Int       @default(1)
+  tauxTVA               Decimal   @default(0.16) @db.Decimal(5, 4)
+  prixVenteTTC          Decimal?  @db.Decimal(12, 4)
+  coefficientMargeCible Decimal?  @db.Decimal(8, 4)
+  estSousRecette        Boolean   @default(false)
+  rendementQuantite     Decimal?  @db.Decimal(14, 3) // en unité de base (g pour une sauce)
+  // Unité de BASE : "g", "ml" — ou une unité de comptage ("portion"), qui doit alors être aussi
+  // l'unité de consommation. JAMAIS "kg"/"L" : le coût d'une sous-recette se calcule sans aucune
+  // conversion, le moteur (src/lib/fiches/cout.ts) refuse ces cas au lieu d'un coût ×1000.
+  rendementUnite        String?
+  recette               String?   @db.Text
+  actif                 Boolean   @default(true)
+  // URL PRIVÉE (jamais l'URL publique du bucket) : servie par /fichiers/[...chemin], session
+  // obligatoire — même patron que Employee.photoUrl (src/app/(app)/employes/photo-actions.ts).
+  photoUrl              String?
+  creeLe                DateTime  @default(now())
+  majLe                 DateTime  @updatedAt
+
+  ingredients  IngredientFiche[] @relation("FicheIngredients")
+  utiliseeDans IngredientFiche[] @relation("SousRecette")
+
+  @@schema("stock")
+}
+
+model IngredientFiche {
+  id          String          @id @default(uuid())
+  ficheId     String
+  fiche       FicheTechnique  @relation("FicheIngredients", fields: [ficheId], references: [id], onDelete: Cascade)
+  articleId   String?
+  article     ArticleStock?   @relation(fields: [articleId], references: [id], onDelete: Restrict)
+  sousFicheId String?
+  sousFiche   FicheTechnique? @relation("SousRecette", fields: [sousFicheId], references: [id], onDelete: Restrict)
+  unite       String // unité de consommation
+  quantite    Decimal         @db.Decimal(14, 3)
+  ordre       Int             @default(0)
+
+  @@index([ficheId])
+  @@index([articleId])
+  @@index([sousFicheId])
+  @@schema("stock")
+}
+
+// ─── Sécurité de connexion ───────────────────────────────────────────────────
+
+// Échecs de connexion récents (anti-force-brute : blocage temporaire après N échecs).
+model TentativeConnexion {
+  id        String   @id @default(uuid())
+  email     String
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@schema("public")
+}
+
+// Jetons de réinitialisation de mot de passe (hachés, usage unique, expirent vite).
+model JetonReinitialisation {
+  id        String    @id @default(uuid())
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email])
+  @@schema("public")
+}
+
+// Polyvalence des postes (planning) : un employé au poste « source » peut couvrir
+// un besoin du poste « cible » quand les titulaires manquent.
+model PolyvalencePoste {
+  id          String @id @default(uuid())
+  posteSource String
+  posteCible  String
+
+  @@unique([posteSource, posteCible])
+  @@schema("public")
+}
+
+// ─── Exploitation : trésorerie / caisse ──────────────────────────────────────
+
+enum Devise {
+  USD
+  CDF
+
+  @@schema("exploitation")
+}
+
+enum SensEcriture {
+  RECETTE
+  DEPENSE
+  NEUTRE
+
+  @@schema("exploitation")
+}
+
+enum NatureCharge {
+  CHARGES_VARIABLES
+  CHARGES_FIXES
+  CHARGES_EXPLOITATION
+  CHARGES_EXCEPTIONNELLES
+
+  @@schema("exploitation")
+}
+
+model CompteTresorerie {
+  id              Int      @id @default(autoincrement())
+  nom             String   @unique
+  ordre           Int      @default(0)
+  actif           Boolean  @default(true)
+  soldeInitialUSD Decimal  @default(0) @db.Decimal(14, 2)
+  ecritures             EcritureCaisse[] @relation("compteEcriture")
+  ecrituresContrepartie EcritureCaisse[] @relation("contrepartieEcriture")
+  creeLe          DateTime @default(now())
+  majLe           DateTime @updatedAt
+  @@schema("exploitation")
+}
+
+model Rubrique {
+  id         Int          @id @default(autoincrement())
+  nom        String       @unique
+  sens       SensEcriture
+  ordre      Int          @default(0)
+  actif      Boolean      @default(true)
+  ratioIdeal       Decimal? @db.Decimal(5, 4)
+  ratioMax         Decimal? @db.Decimal(5, 4)
+  ratioIdealAnnuel Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,25)
+  ratioMaxAnnuel   Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,30)
+  categories Categorie[]
+  ecritures  EcritureCaisse[]
+  @@schema("exploitation")
+}
+
+model Categorie {
+  id                Int           @id @default(autoincrement())
+  nom               String        @unique
+  rubriqueId        Int
+  rubrique          Rubrique      @relation(fields: [rubriqueId], references: [id])
+  natureChargeDefaut NatureCharge?
+  ordre             Int           @default(0)
+  actif             Boolean       @default(true)
+  ecritures         EcritureCaisse[]
+  denominations     DenominationFrequente[]
+  @@schema("exploitation")
+}
+
+model DenominationFrequente {
+  id          Int        @id @default(autoincrement())
+  libelle     String     @unique
+  categorieId Int?
+  categorie   Categorie? @relation(fields: [categorieId], references: [id])
+  actif       Boolean    @default(true)
+  @@schema("exploitation")
+}
+
+model EcritureCaisse {
+  id                Int           @id @default(autoincrement())
+  date              DateTime      @db.Date
+  sens              SensEcriture
+  natureCharge      NatureCharge?
+  rubriqueId        Int
+  rubrique          Rubrique      @relation(fields: [rubriqueId], references: [id])
+  categorieId       Int
+  categorie         Categorie     @relation(fields: [categorieId], references: [id])
+  denomination      String
+  compteId          Int
+  compte            CompteTresorerie @relation("compteEcriture", fields: [compteId], references: [id])
+  compteContrepartieId Int?         // requis SI sens = NEUTRE (transfert) : compte destination ; source = compteId
+  compteContrepartie   CompteTresorerie? @relation("contrepartieEcriture", fields: [compteContrepartieId], references: [id])
+  montantOrigine    Decimal       @db.Decimal(14, 2)
+  devise            Devise
+  tauxChangeUtilise Decimal       @db.Decimal(14, 4)
+  montantUSD        Decimal       @db.Decimal(14, 2)
+  fournisseur       String?       // référence souple (pas de FK cross-schéma) ; autocomplétion depuis stock.Fournisseur
+  fournisseurStockId String?      // id (UUID) du Fournisseur du Stock si choisi (non relationnel) — stock.Fournisseur.id = String @default(uuid())
+  note              String?
+  creePar           String?
+  creeLe            DateTime      @default(now())
+  majLe             DateTime      @updatedAt
+  @@index([date])
+  @@index([rubriqueId])
+  @@index([compteId])
+  @@schema("exploitation")
+}
+
+model ActiviteJour {
+  id                 Int      @id @default(autoincrement())
+  date               DateTime @unique @db.Date
+  nbCouverts         Int?
+  nbCouvertsSurPlace Int?
+  nbCommandesEmporter Int?
+  note               String?
+  creeLe             DateTime @default(now())
+  majLe              DateTime @updatedAt
+  @@schema("exploitation")
 }

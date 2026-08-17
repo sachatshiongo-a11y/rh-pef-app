@@ -5,7 +5,9 @@ import { View, Text, Image, StyleSheet } from "@react-pdf/renderer";
 import { pdfColors, entreprise } from "./theme";
 
 const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
-const SIGNATURE_DIRECTRICE_PATH = path.join(
+/** Logo TOLYA SARL (utilisé pour les documents contractuels ; les bulletins gardent le logo Pâtes en Folie). */
+export const logoTolyaPath = path.join(process.cwd(), "public/logo-tolya.jpg");
+export const SIGNATURE_DIRECTRICE_PATH = path.join(
   process.cwd(),
   "public/signatures/signature-directrice.png"
 );
@@ -47,6 +49,9 @@ const styles = StyleSheet.create({
   // signature de la directrice (agrandie) se place juste au-dessus de la ligne.
   signatureBox: { width: "45%", height: 60, justifyContent: "flex-end" },
   signatureImage: { width: 185, height: 52, objectFit: "contain", alignSelf: "flex-start", marginBottom: -5 },
+  // Variante « grande » (contrat) : boîte pleine largeur, signature plus grande et centrée.
+  signatureBoxLarge: { width: "100%", height: 86, justifyContent: "flex-end" },
+  signatureImageLarge: { width: 230, height: 78, objectFit: "contain", alignSelf: "center", marginBottom: -3 },
   signatureLine: {
     borderTop: `0.75 solid ${pdfColors.text}`,
     paddingTop: 4,
@@ -79,12 +84,14 @@ const styles = StyleSheet.create({
   footerLine: { fontSize: 7, color: pdfColors.textMuted, lineHeight: 1.5 },
 });
 
-export function PdfHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
+
+export function PdfHeader({ title, subtitle, logo }: { title: string; subtitle?: string; logo?: ImageSrc }) {
   return (
     <View style={styles.header} fixed>
       <View style={styles.headerRow}>
         <View style={styles.headerLeft}>
-          <Image src={logoPath} style={styles.logo} />
+          <Image src={(logo ?? logoPath) as string} style={styles.logo} />
         </View>
         <View style={styles.headerRight}>
           <Text style={styles.headerTitle}>{title}</Text>
@@ -108,17 +115,17 @@ export function PdfSectionHeader({ children }: { children: ReactNode }) {
  * Bloc signature réutilisable. Si `signe` est vrai et que la signature de la directrice est
  * disponible (public/signatures/signature-directrice.png), elle est insérée automatiquement.
  */
-export function PdfSignatureBox({ label, signe }: { label: string; signe: boolean }) {
+export function PdfSignatureBox({ label, signe, large = false }: { label: string; signe: boolean; large?: boolean }) {
   const aSignature = signe && signatureDirectriceDisponible();
   return (
-    <View style={styles.signatureBox}>
-      {aSignature && <Image src={SIGNATURE_DIRECTRICE_PATH} style={styles.signatureImage} />}
+    <View style={large ? styles.signatureBoxLarge : styles.signatureBox}>
+      {aSignature && <Image src={SIGNATURE_DIRECTRICE_PATH} style={large ? styles.signatureImageLarge : styles.signatureImage} />}
       <Text style={styles.signatureLine}>{label}</Text>
     </View>
   );
 }
 
-export function PdfFooter({ docLabel }: { docLabel?: string }) {
+export function PdfFooter({ docLabel, ent = entreprise }: { docLabel?: string; ent?: typeof entreprise }) {
   return (
     <View style={styles.footer} fixed>
       {docLabel && (
@@ -133,21 +140,21 @@ export function PdfFooter({ docLabel }: { docLabel?: string }) {
       <View style={styles.footerRule} />
       <View style={styles.footerRow}>
         <View style={styles.footerCol}>
-          <Text style={styles.footerLine}>Téléphone : {entreprise.telephone}</Text>
+          <Text style={styles.footerLine}>Téléphone : {ent.telephone}</Text>
           <Text style={styles.footerLine}>
-            E-mail : {entreprise.email} - {entreprise.site}
+            E-mail : {ent.email} - {ent.site}
           </Text>
-          <Text style={styles.footerLine}>Adresse : {entreprise.adresse}</Text>
-          <Text style={styles.footerLine}>{entreprise.pays}</Text>
+          <Text style={styles.footerLine}>Adresse : {ent.adresse}</Text>
+          <Text style={styles.footerLine}>{ent.pays}</Text>
         </View>
         <View style={styles.footerDivider} />
         <View style={styles.footerCol}>
           <Text style={styles.footerLine}>
-            Numéro de compte Ecobank USD : {entreprise.compteEcobank}
+            Numéro de compte Ecobank USD : {ent.compteEcobank}
           </Text>
-          <Text style={styles.footerLine}>RCCM : {entreprise.rccm}</Text>
-          <Text style={styles.footerLine}>Id. Nat. : {entreprise.idNat}</Text>
-          <Text style={styles.footerLine}>N. Impôt : {entreprise.numImpot}</Text>
+          <Text style={styles.footerLine}>RCCM : {ent.rccm}</Text>
+          <Text style={styles.footerLine}>Id. Nat. : {ent.idNat}</Text>
+          <Text style={styles.footerLine}>N. Impôt : {ent.numImpot}</Text>
         </View>
       </View>
     </View>

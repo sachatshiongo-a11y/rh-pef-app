@@ -1,0 +1,102 @@
+import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import type { FichePoste } from "@prisma/client";
+import { registerPdfFonts } from "./fonts";
+import { PdfHeader, PdfFooter, PdfSectionHeader } from "./layout";
+import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
+
+type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
+
+registerPdfFonts();
+
+const styles = StyleSheet.create({
+  page: { paddingTop: 32, paddingHorizontal: 40, paddingBottom: 90, fontSize: 10, fontFamily: "Optima", color: pdfColors.text, lineHeight: 1.5 },
+  ligne: { flexDirection: "row", marginBottom: 4 },
+  label: { width: "38%", color: pdfColors.textMuted },
+  valeur: { width: "62%", fontWeight: 700, color: pdfColors.brownDark },
+  bloc: { marginTop: 6, marginBottom: 4 },
+  blocTitre: { fontSize: 10, fontWeight: 700, color: pdfColors.brownDark, marginTop: 6, marginBottom: 2 },
+  prose: { textAlign: "justify", marginBottom: 3 },
+  // Tableau des missions / activités : une ligne = un élément (numérotée).
+  tbl: { marginTop: 2, borderTopWidth: 0.5, borderTopColor: "#DDD" },
+  tblRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#DDD", paddingVertical: 3 },
+  tblNum: { width: 20, paddingLeft: 4, fontSize: 9, color: pdfColors.brownDark, fontWeight: 700 },
+  tblTxt: { flex: 1, paddingRight: 4, textAlign: "justify" },
+  vide: { color: pdfColors.textMuted, fontStyle: "italic" },
+  sectionEspace: { marginTop: 10 },
+});
+
+/** Découpe un texte en éléments (une ligne = un élément) et les présente en TABLEAU numéroté. */
+function Liste({ texte }: { texte: string | null | undefined }) {
+  const lignes = (texte ?? "").split(/\r?\n/).map((l) => l.replace(/^[•\-–*]\s*/, "").trim()).filter(Boolean);
+  if (lignes.length === 0) return <Text style={styles.vide}>—</Text>;
+  return (
+    <View style={styles.tbl}>
+      {lignes.map((l, i) => (
+        <View key={i} style={styles.tblRow} wrap={false}>
+          <Text style={styles.tblNum}>{i + 1}</Text>
+          <Text style={styles.tblTxt}>{l}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Ligne({ label, valeur }: { label: string; valeur: string | null | undefined }) {
+  return (
+    <View style={styles.ligne}>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.valeur}>{valeur?.trim() || "—"}</Text>
+    </View>
+  );
+}
+
+function BlocListe({ titre, texte }: { titre: string; texte: string | null | undefined }) {
+  return (
+    <View style={styles.bloc} wrap={false}>
+      <Text style={styles.blocTitre}>{titre}</Text>
+      <Liste texte={texte} />
+    </View>
+  );
+}
+
+/**
+ * Fiche de poste (PDF, modèle PEF) auto-remplie depuis la fiche enregistrée.
+ * La classe / catégorie professionnelle est déduite des salariés du poste (voir buffer).
+ */
+export function FichePosteDocument({ fiche, classe, entreprise = entrepriseDefaut, logo }: { fiche: FichePoste; classe: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc }) {
+  return (
+    <Document title={`Fiche de poste — ${fiche.poste}`}>
+      <Page size="A4" style={styles.page}>
+        <PdfHeader title="Fiche de poste" subtitle={fiche.poste} logo={logo} />
+
+        <PdfSectionHeader>Identification du poste</PdfSectionHeader>
+        <View style={{ marginTop: 6 }}>
+          <Ligne label="Intitulé du poste" valeur={fiche.poste} />
+          <Ligne label="Type de contrat" valeur={fiche.typeContrat} />
+          <Ligne label="Échelle salariale" valeur={fiche.echelleSalariale} />
+          <Ligne label="Classe / Catégorie professionnelle" valeur={classe} />
+          <Ligne label="Supérieur hiérarchique direct" valeur={fiche.superieurHierarchique} />
+          <Ligne label="Lieu de travail" valeur={`${entreprise.enseigne}, ${entreprise.lieuTravail}`} />
+          <Ligne label="Temps de travail" valeur={fiche.tempsTravail} />
+        </View>
+
+        <View style={styles.sectionEspace}>
+          <PdfSectionHeader>Description du poste</PdfSectionHeader>
+          <BlocListe titre="Missions principales du poste :" texte={fiche.descriptionPoste} />
+          <BlocListe titre="Activités et tâches principales :" texte={fiche.description} />
+        </View>
+
+        <View style={styles.sectionEspace}>
+          <PdfSectionHeader>Compétences requises pour le poste</PdfSectionHeader>
+          <BlocListe titre="Compétences techniques :" texte={fiche.competencesTechniques} />
+          <BlocListe titre="Savoir-être, soft skills :" texte={fiche.savoirEtre} />
+          <BlocListe titre="Formations requises :" texte={fiche.formationsRequises} />
+          <BlocListe titre="Diplômes requis :" texte={fiche.diplomesRequis} />
+          <BlocListe titre="Expériences exigées :" texte={fiche.experiencesExigees} />
+        </View>
+
+        <PdfFooter docLabel={`Fiche de poste — ${fiche.poste}`} ent={entreprise} />
+      </Page>
+    </Document>
+  );
+}

@@ -39,6 +39,8 @@ export const entreprise = {
   email: "info@patesenfolie.cd",
   site: "www.patesenfolie.cd",
   adresse: "31, avenue Comité Urbain - Gombe - Kinshasa",
+  // Adresse du restaurant (lieu de travail effectif), distincte du siège social.
+  lieuTravail: "10, avenue Wagenia - CTC Mall - Kinshasa",
   pays: "République Démocratique du Congo",
   compteEcobank: "350 800 593 68 - 25 US$",
   rccm: "CD/KNG/RCCM/18-B-01373",

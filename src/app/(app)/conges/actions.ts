@@ -5,14 +5,17 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
-import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
+import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
+import { poserCodesConge, retirerCodesConge, chargerPreloadConges } from "@/lib/conges-presences";
 
 function revaliderConges() {
   revalidatePath("/conges");
+  revalidatePath("/presences");
+  revalidatePath("/heures-supp");
   revalidatePath("/a-valider");
   revalidatePath("/employes");
   revalidatePath("/", "layout");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
 }
 
 export async function demanderConge(formData: FormData) {
@@ -23,21 +26,38 @@ export async function demanderConge(formData: FormData) {
   const type = String(formData.get("type"));
   const dateDebut = new Date(String(formData.get("dateDebut")));
   const dateFin = new Date(String(formData.get("dateFin")));
-  const nbJours = calculerJoursOuvrables(dateDebut, dateFin);
+  // Jours ouvrables : dimanches ET jours fériés exclus du décompte.
+  const feries = await prisma.jourFerie.findMany({ where: { date: { gte: dateDebut, lte: dateFin } }, select: { date: true } });
+  const nbJours = calculerJoursOuvrables(dateDebut, dateFin, feries.map((f) => f.date));
   const motif = String(formData.get("motif") ?? "").trim() || null;
   const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
 
+  // La Direction n'a pas à valider ses propres demandes : approuvée d'office (comme les BC).
+  const autoValide = user.role === "ADMIN";
   const demande = await prisma.leaveRequest.create({
-    data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: "EN_ATTENTE" },
+    data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: autoValide ? "APPROUVE" : "EN_ATTENTE", ...(autoValide ? { approuveParId: user.id } : {}) },
   });
 
   const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
-  await creerNotification({
-    type: "CONGE",
-    message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
-    lien: "/a-valider",
-    refId: demande.id,
-  });
+  // Notification TOUJOURS émise (choix client : trace visible même en auto-validation).
+  if (!autoValide) {
+    await creerNotification({
+      type: "CONGE",
+      message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+      lien: "/a-valider",
+      refId: demande.id,
+    });
+  } else {
+    await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "statut", nouvelleValeur: "APPROUVE (auto — Direction)", userId: user.id });
+    // Synchro grille Présences : les jours ouvrables du congé reçoivent leur code (C ou S).
+    await poserCodesConge(employeeId, dateDebut, dateFin, type);
+    await creerNotification({
+      type: "CONGE",
+      message: `Congé (${type}) approuvé — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+      lien: "/conges",
+      refId: demande.id,
+    });
+  }
 
   revalidatePath("/conges");
   revalidatePath("/employes");
@@ -49,10 +69,13 @@ export async function approuverConge(leaveRequestId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
 
+  const demande = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: leaveRequestId } });
   await prisma.leaveRequest.update({
     where: { id: leaveRequestId },
     data: { statut: "APPROUVE", approuveParId: user.id },
   });
+  // Synchro grille Présences : jours ouvrables du congé → code C/S, heures retirées.
+  await poserCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), demande.type);
   await journaliser(prisma, {
     entite: "LeaveRequest",
     entiteId: leaveRequestId,
@@ -61,6 +84,7 @@ export async function approuverConge(leaveRequestId: string) {
     userId: user.id,
   });
   await supprimerNotificationsPour(leaveRequestId);
+  await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), true);
 
   revaliderConges();
 }
@@ -69,10 +93,13 @@ export async function refuserConge(leaveRequestId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
 
+  const demande = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: leaveRequestId } });
   await prisma.leaveRequest.update({
     where: { id: leaveRequestId },
     data: { statut: "REFUSE", approuveParId: user.id },
   });
+  // Un congé auparavant approuvé avait posé ses codes sur la grille : on les retire.
+  if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin));
   await journaliser(prisma, {
     entite: "LeaveRequest",
     entiteId: leaveRequestId,
@@ -81,8 +108,22 @@ export async function refuserConge(leaveRequestId: string) {
     userId: user.id,
   });
   await supprimerNotificationsPour(leaveRequestId);
+  await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), false);
 
   revaliderConges();
+}
+
+/** Notifie le salarié concerné (cloche perso + push) de la décision sur SA demande de congé. */
+async function notifierSalarieDecision(employeeId: string, leaveRequestId: string, type: string, dateDebut: Date, dateFin: Date, approuve: boolean) {
+  const userId = await compteSalarieDe(employeeId);
+  if (!userId) return; // pas de compte salarié → rien à notifier
+  const periode = `du ${dateDebut.toLocaleDateString("fr-FR", { timeZone: "UTC" })} au ${dateFin.toLocaleDateString("fr-FR", { timeZone: "UTC" })}`;
+  await notifierSalarie(userId, {
+    type: "CONGE",
+    message: `Votre demande de congé (${type}) ${periode} a été ${approuve ? "approuvée ✅" : "refusée"}.`,
+    lien: "/espace/conges",
+    refId: `${leaveRequestId}:decision`, // refId distinct → non supprimé par supprimerNotificationsPour
+  });
 }
 
 /**
@@ -104,6 +145,7 @@ export async function supprimerConge(leaveRequestId: string) {
     demande.dateDebut
   ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
 
+  if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin));
   await supprimerNotificationsPour(leaveRequestId);
   await prisma.$transaction(async (tx) => {
     await tx.leaveRequest.delete({ where: { id: leaveRequestId } });
@@ -119,74 +161,78 @@ export async function supprimerConge(leaveRequestId: string) {
   revaliderConges();
 }
 
+/** Rapport d'un lot : demandes traitées + échecs NOMMÉS (l'échec d'une demande ne bloque pas
+ * les autres — les approbations sont des actes indépendants, contrairement au lot de paie). */
+export type RapportLotConges = { traitees: number; echecs: string[] };
+
 /** ACTION GROUPÉE : approuve plusieurs demandes en attente d'un coup. */
-export async function approuverCongesEnLot(ids: string[]): Promise<number> {
+export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotConges> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   let n = 0;
+  const echecs: string[] = [];
+  const [demandes, preload] = await Promise.all([
+    prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } }),
+    chargerPreloadConges(),
+  ]);
+  const demandeParId = new Map(demandes.map((d) => [d.id, d]));
   for (const id of ids) {
-    const d = await prisma.leaveRequest.findUnique({ where: { id } });
+    const d = demandeParId.get(id);
     if (!d || d.statut !== "EN_ATTENTE") continue;
-    await prisma.leaveRequest.update({
-      where: { id },
-      data: { statut: "APPROUVE", approuveParId: user.id },
-    });
-    await journaliser(prisma, {
-      entite: "LeaveRequest",
-      entiteId: id,
-      champ: "statut",
-      nouvelleValeur: "APPROUVE",
-      userId: user.id,
-    });
-    await supprimerNotificationsPour(id);
-    n++;
+    try {
+      await prisma.leaveRequest.update({
+        where: { id },
+        data: { statut: "APPROUVE", approuveParId: user.id },
+      });
+      await poserCodesConge(d.employeeId, new Date(d.dateDebut), new Date(d.dateFin), d.type, preload);
+      await journaliser(prisma, {
+        entite: "LeaveRequest",
+        entiteId: id,
+        champ: "statut",
+        nouvelleValeur: "APPROUVE",
+        userId: user.id,
+      });
+      await supprimerNotificationsPour(id);
+      await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), true);
+      n++;
+    } catch (e) {
+      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+    }
   }
   revaliderConges();
-  return n;
+  return { traitees: n, echecs };
 }
 
 /** ACTION GROUPÉE : refuse plusieurs demandes en attente d'un coup. */
-export async function refuserCongesEnLot(ids: string[]): Promise<number> {
+export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConges> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   let n = 0;
+  const echecs: string[] = [];
+  const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });
+  const demandeParId = new Map(demandes.map((d) => [d.id, d]));
   for (const id of ids) {
-    const d = await prisma.leaveRequest.findUnique({ where: { id } });
+    const d = demandeParId.get(id);
     if (!d || d.statut !== "EN_ATTENTE") continue;
-    await prisma.leaveRequest.update({
-      where: { id },
-      data: { statut: "REFUSE", approuveParId: user.id },
-    });
-    await journaliser(prisma, {
-      entite: "LeaveRequest",
-      entiteId: id,
-      champ: "statut",
-      nouvelleValeur: "REFUSE",
-      userId: user.id,
-    });
-    await supprimerNotificationsPour(id);
-    n++;
+    try {
+      await prisma.leaveRequest.update({
+        where: { id },
+        data: { statut: "REFUSE", approuveParId: user.id },
+      });
+      await journaliser(prisma, {
+        entite: "LeaveRequest",
+        entiteId: id,
+        champ: "statut",
+        nouvelleValeur: "REFUSE",
+        userId: user.id,
+      });
+      await supprimerNotificationsPour(id);
+      await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), false);
+      n++;
+    } catch (e) {
+      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+    }
   }
   revaliderConges();
-  return n;
-}
-
-/** Supprime toutes les demandes de congé (journal complet). Action destructive réservée à l'Admin. */
-export async function reinitialiserConges() {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
-
-  const nb = await prisma.leaveRequest.count();
-  await prisma.$transaction(async (tx) => {
-    await tx.leaveRequest.deleteMany({});
-    await journaliser(tx, {
-      entite: "LeaveRequest",
-      entiteId: "*",
-      champ: "suppression_totale",
-      ancienneValeur: `${nb} demande(s) supprimée(s)`,
-      userId: user.id,
-    });
-  });
-
-  revaliderConges();
+  return { traitees: n, echecs };
 }

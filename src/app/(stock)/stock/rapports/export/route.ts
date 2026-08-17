@@ -1,9 +1,22 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
-import { classeurExcel } from "@/lib/export-excel";
-import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
+import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
+import { TableauDocument, TablesDocument, type Colonne, type TableSpec } from "@/lib/pdf/tableau";
 import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
+
+/** Construit un TableSpec PDF (colonnes + lignes avec ligne Total) depuis les champs d'un tableau de rapport. */
+function versTableSpec(t: { entete: string[]; lignes: (string | number)[][]; largeurs: string[]; droite: number[]; sommables?: number[] }, sousTitre?: string): TableSpec {
+  const colonnes: Colonne[] = t.entete.map((header, i) => ({ header, width: t.largeurs[i] ?? "auto", align: t.droite.includes(i) ? "right" : "left" }));
+  let lignes = t.lignes;
+  if (t.sommables?.length) {
+    const tot: (string | number)[] = new Array(t.entete.length).fill("");
+    tot[0] = "Total";
+    for (const ci of t.sommables) { let s = 0; for (const l of t.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; } tot[ci] = Math.round(s * 100) / 100; }
+    lignes = [...t.lignes, tot];
+  }
+  return { sousTitre, colonnes, lignes, totalDerniereLigne: !!t.sommables?.length };
+}
 
 function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
   const now = new Date();
@@ -34,11 +47,9 @@ export async function GET(req: Request) {
   await prisma.rapport.create({ data: { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });
 
   if (format === "excel") {
-    const buf = await classeurExcel({
-      titre: `Rapport — ${data.titre}`,
-      periode,
-      feuilles: [{ nom: data.titre.slice(0, 28), entete: data.entete, lignes: data.lignes, totauxCols: data.sommables, variationCol: data.variationCol }],
-    });
+    const feuilles: FeuilleExcel[] = [{ nom: (data.soustitre ?? data.titre).slice(0, 28), entete: data.entete, lignes: data.lignes, totauxCols: data.sommables, variationCol: data.variationCol }];
+    if (data.table2) feuilles.push({ nom: data.table2.titre.slice(0, 28), entete: data.table2.entete, lignes: data.table2.lignes, totauxCols: data.table2.sommables });
+    const buf = await classeurExcel({ titre: `Rapport — ${data.titre}`, periode, feuilles });
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -47,20 +58,10 @@ export async function GET(req: Request) {
     });
   }
 
-  const colonnes: Colonne[] = data.entete.map((header, i) => ({ header, width: data.largeurs[i] ?? "auto", align: data.droite.includes(i) ? "right" : "left" }));
-  // Ligne « Total » en bas (somme des colonnes sommables) pour le PDF.
-  let lignesPdf = data.lignes;
-  if (data.sommables && data.sommables.length > 0) {
-    const tot: (string | number)[] = new Array(data.entete.length).fill("");
-    tot[0] = "Total";
-    for (const ci of data.sommables) {
-      let s = 0;
-      for (const l of data.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; }
-      tot[ci] = Math.round(s * 100) / 100;
-    }
-    lignesPdf = [...data.lignes, tot];
-  }
-  const buffer = await renderToBuffer(TableauDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, colonnes, lignes: lignesPdf, totalDerniereLigne: !!(data.sommables && data.sommables.length) }));
+  // PDF : un ou deux tableaux (synthèse + détail) selon le rapport.
+  const buffer = data.table2
+    ? await renderPdfBuffer(TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(data.table2, data.table2.titre)] }))
+    : await renderPdfBuffer(TableauDocument({ ...versTableSpec(data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

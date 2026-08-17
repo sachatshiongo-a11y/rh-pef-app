@@ -1,73 +1,56 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { qte, usd } from "@/lib/stock";
-import { MouvementForm, SupprimerMouvementBtn } from "./mouvements-client";
-import { BoutonRapport } from "../_rapport/bouton-rapport";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
-import { supprimerTousMouvements } from "./actions";
+import { MouvementForm, ColonneMouvements, type MvtLite } from "./mouvements-client";
+import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
-type Mvt = Prisma.MouvementStockGetPayload<{ include: { article: { select: { designation: true } } } }>;
+const mvtInclude = {
+  article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
+  facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
+  reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+} satisfies Prisma.MouvementStockInclude;
+type Mvt = Prisma.MouvementStockGetPayload<{ include: typeof mvtInclude }>;
 
-function Colonne({ titre, mouvements, signe, couleur }: { titre: string; mouvements: Mvt[]; signe: string; couleur: string }) {
-  return (
-    <div className="overflow-hidden rounded-lg border">
-      <div className={`border-b px-3 py-2 text-sm font-semibold ${couleur}`}>{titre} <span className="font-normal opacity-70">· {mouvements.length}</span></div>
+// Valeur d'un mouvement : montant saisi, sinon ESTIMATION quantité × prix catalogue (affichée ≈).
+const valeurDe = (m: Mvt): { v: number; estime: boolean } | null => {
+  if (m.montantUSD !== null) return { v: Number(m.montantUSD), estime: false };
+  if (m.article.prixUnitaireUSD === null) return null;
+  return { v: Number(m.quantite) * Number(m.article.prixUnitaireUSD), estime: true };
+};
 
-      {/* Mobile : lignes en cartes plutôt qu'un tableau à défilement. */}
-      <div className="divide-y lg:hidden">
-        {mouvements.map((m) => (
-          <div key={m.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
-            <div className="min-w-0">
-              <div className="truncate font-medium">{m.article.designation}</div>
-              <div className="text-[11px] text-muted-foreground">
-                {new Date(m.date).toLocaleDateString("fr-FR")}{m.origine ? ` · ${m.origine}` : ""}
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
-              <div className="text-[11px] tabular-nums text-muted-foreground">{m.montantUSD !== null ? usd(m.montantUSD) : "—"}</div>
-              <div className="mt-1"><SupprimerMouvementBtn id={m.id} /></div>
-            </div>
-          </div>
-        ))}
-        {mouvements.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun mouvement.</p>}
-      </div>
+// Sérialise un mouvement Prisma (Decimal/Date) vers la forme légère consommée côté client.
+const versLite = (m: Mvt): MvtLite => {
+  const bc = m.reception?.bonDeCommande;
+  const va = valeurDe(m);
+  return {
+    id: m.id,
+    articleId: m.articleId,
+    designation: m.article.designation,
+    dateISO: new Date(m.date).toISOString().slice(0, 10),
+    origine: m.origine,
+    type: m.type,
+    quantite: Number(m.quantite),
+    valeur: va ? va.v : null,
+    valeurEstimee: va ? va.estime : false,
+    facture: m.facture ? { id: m.facture.id, numero: m.facture.numero } : null,
+    bc: bc ? { id: bc.id, numero: bc.numero } : null,
+    fournId: m.facture?.fournisseurId ?? bc?.fournisseurId ?? null,
+    fournNom: m.facture?.fournisseurNom ?? bc?.fournisseur?.nom ?? null,
+  };
+};
 
-      {/* Ordinateur : tableau. */}
-      <div className="hidden max-h-[70vh] overflow-auto lg:block">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/60 text-left text-xs">
-            <tr className="[&>th]:px-3 [&>th]:py-1.5">
-              <th>Date</th><th>Article</th><th className="text-right">Qté</th><th className="text-right">Valeur</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {mouvements.map((m) => (
-              <tr key={m.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
-                <td className="px-3 py-1.5 text-muted-foreground">{new Date(m.date).toLocaleDateString("fr-FR")}</td>
-                <td className="px-3 py-1.5"><div className="font-medium">{m.article.designation}</div>{m.origine && <div className="text-[11px] text-muted-foreground">{m.origine}</div>}</td>
-                <td className="px-3 py-1.5 text-right font-medium">{signe}{qte(m.quantite)}</td>
-                <td className="px-3 py-1.5 text-right text-muted-foreground">{m.montantUSD !== null ? usd(m.montantUSD) : "—"}</td>
-                <td className="px-3 py-1.5 text-right"><SupprimerMouvementBtn id={m.id} /></td>
-              </tr>
-            ))}
-            {mouvements.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucun mouvement.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 type SP = { mois?: string; articleId?: string };
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const user = await verifySession();
   const estDirection = user.role === "ADMIN";
-  const mois = sp.mois && /^\d{4}-\d{1,2}$/.test(sp.mois) ? sp.mois : undefined; // « 2026-7 »
+  // Liste BORNÉE : mois courant par défaut (« tous » = tout l'historique, plafonné et signalé).
+  const now = new Date();
+  const moisCourant = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+  const mois = sp.mois === "tous" ? undefined
+    : sp.mois && /^\d{4}-\d{1,2}$/.test(sp.mois) ? sp.mois
+    : moisCourant; // « 2026-7 »
   const articleId = sp.articleId || undefined;
 
   const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}) };
@@ -76,35 +59,31 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     where.date = { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
   }
 
-  const [mouvements, articles] = await Promise.all([
-    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 600, include: { article: { select: { designation: true } } } }),
+  const PLAFOND = 600;
+  const [mouvements, nbTotal, articles] = await Promise.all([
+    prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
+    prisma.mouvementStock.count({ where }),
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
   ]);
-  const entrees = mouvements.filter((m) => m.type !== "SORTIE");
-  const sorties = mouvements.filter((m) => m.type === "SORTIE");
+  const entrees = mouvements.filter((m) => m.type !== "SORTIE").map(versLite);
+  const sorties = mouvements.filter((m) => m.type === "SORTIE").map(versLite);
 
   // 12 derniers mois pour le filtre.
-  const now = new Date();
   const moisOptions = Array.from({ length: 12 }).map((_, i) => {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
     return { val: `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`, label: `${MOIS_FR[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
   });
-  const dlQs = new URLSearchParams({ ...(mois ? { mois } : {}), ...(articleId ? { articleId } : {}) }).toString();
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
-        <div className="flex items-center gap-2">
-          <BoutonRapport types={[{ value: "MOUVEMENTS", label: "Mouvements" }]} />
-          <a href={`/stock/mouvements/imprimer${dlQs ? `?${dlQs}` : ""}`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
-          <a href={`/stock/mouvements/export${dlQs ? `?${dlQs}` : ""}`} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
-        </div>
+        <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
-        <select name="mois" defaultValue={mois ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
-          <option value="">Tous les mois</option>
+        <select name="mois" defaultValue={mois ?? "tous"} className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="tous">Tous les mois</option>
           {moisOptions.map((o) => <option key={o.val} value={o.val}>{o.label}</option>)}
         </select>
         <select name="articleId" defaultValue={articleId ?? ""} className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5">
@@ -112,15 +91,19 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
           {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
         </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(mois || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
-        <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousMouvements} libelle="Supprimer TOUS les mouvements ? Le stock sera recalculé (effet annulé)." />
+        {(mois !== moisCourant || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {nbTotal > PLAFOND
+            ? `${PLAFOND} affichés sur ${nbTotal} — affinez par mois ou par produit.`
+            : `${nbTotal} mouvement(s)`}
+        </span>
       </form>
 
       <MouvementForm articles={articles} estDirection={estDirection} />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Colonne titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" />
-        <Colonne titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" />
+        <ColonneMouvements titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" estDirection={estDirection} />
+        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} />
       </div>
     </div>
   );

@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculerJoursOuvrables,
   calculerHeuresSupp,
   numeroSemaineDuMois,
   calculerIprDGI,
   calculerPaieBackoffice,
   calculerPaieBrigade,
+  calculerPaieStage,
   calculerCongesAcquis,
+  ancienneteEnMois,
   congeDeductibleDuSolde,
   tauxPrimeAnciennete,
   resumerPresences,
+  reconstituerBrutDepuisNet,
   type ParametresPaie,
 } from "./payroll";
 
@@ -141,16 +145,22 @@ describe("calculerPaieBrigade — chaîne complète paramétrée", () => {
 });
 
 describe("calculerPaieBackoffice", () => {
-  it("salaire fixe + transport, mêmes règles CNSS/IPR/INPP/ONEM", () => {
+  it("le transport est NON IMPOSABLE et NON COTISABLE : versé au net, hors assiettes CNSS/IPR/INPP/ONEM", () => {
     const r = calculerPaieBackoffice(
       { salaireBaseUSD: 200, transportUSD: 20, enfants: 0 },
       params
     );
+    // Le brut versé inclut le transport…
     expect(r.salBrutUSD).toBeCloseTo(220, 6);
-    expect(r.cnssSalarieUSD).toBeCloseTo(11, 6);
-    expect(r.inppUSD).toBeCloseTo(6.6, 6);
-    expect(r.onemUSD).toBeCloseTo(0.44, 6);
-    expect(r.salNetUSD).toBeCloseTo(220 - 11 - r.iprCalculeUSD, 6);
+    // …mais toutes les assiettes sont calculées sur 200 (hors transport).
+    expect(r.cnssSalarieUSD).toBeCloseTo(200 * 0.05, 6);
+    expect(r.inppUSD).toBeCloseTo(200 * 0.03, 6);
+    expect(r.onemUSD).toBeCloseTo(200 * 0.002, 6);
+    // Et l'IPR est identique à celui d'un salaire de 200 SANS transport.
+    const sansTransport = calculerPaieBackoffice({ salaireBaseUSD: 200, transportUSD: 0, enfants: 0 }, params);
+    expect(r.iprCalculeUSD).toBeCloseTo(sansTransport.iprCalculeUSD, 6);
+    // Le net = net sans transport + 20 $ (le transport arrive intégralement au net).
+    expect(r.salNetUSD).toBeCloseTo(sansTransport.salNetUSD + 20, 6);
   });
 });
 
@@ -253,6 +263,46 @@ describe("resumerPresences", () => {
   });
 });
 
+// #3 — ancienneteEnMois : mois RÉVOLUS (compare aussi le jour du mois, pas seulement année/mois).
+// Régression : avant le correctif, un employé était crédité d'un mois ~4 semaines trop tôt
+// (dès le 1er du mois suivant l'embauche, sans attendre son anniversaire mensuel), ce qui
+// gonflait à tort les congés acquis via calculerCongesAcquis.
+describe("ancienneteEnMois — mois révolus (#3, régression)", () => {
+  const j = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+  it("embauche 2026-06-25, référence 2026-07-01 : 0 mois révolu (pas encore le 25 juillet)", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-01"))).toBe(0);
+  });
+
+  it("référence EXACTEMENT à l'anniversaire mensuel : le mois est compté", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-25"))).toBe(1);
+  });
+
+  it("référence 1 jour AVANT l'anniversaire mensuel : le mois n'est pas encore compté", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-24"))).toBe(0);
+  });
+
+  it("référence 1 jour APRÈS l'anniversaire mensuel : le mois est compté", () => {
+    expect(ancienneteEnMois(j("2026-06-25"), j("2026-07-26"))).toBe(1);
+  });
+
+  it("12 mois exactement révolus (embauche le 15, réf. un an plus tard le 15)", () => {
+    expect(ancienneteEnMois(j("2025-07-15"), j("2026-07-15"))).toBe(12);
+  });
+
+  it("11 mois et 29 jours : pas encore 12 mois révolus", () => {
+    expect(ancienneteEnMois(j("2025-07-15"), j("2026-07-14"))).toBe(11);
+  });
+
+  it("toujours ≥ 0, même si la référence est ANTÉRIEURE à l'embauche", () => {
+    expect(ancienneteEnMois(j("2026-07-15"), j("2026-01-01"))).toBe(0);
+  });
+
+  it("embauche et référence le même jour du mois : 0 mois révolu à J+0", () => {
+    expect(ancienneteEnMois(j("2026-07-15"), j("2026-07-15"))).toBe(0);
+  });
+});
+
 describe("calculerCongesAcquis", () => {
   it("prorata sous 12 mois, droits complets au-delà", () => {
     expect(calculerCongesAcquis(3, 18)).toBeCloseTo(4.5, 5);
@@ -267,6 +317,52 @@ describe("calculerCongesAcquis", () => {
     expect(calculerCongesAcquis(11, 18)).toBeCloseTo(16.5, 5);
     // Le mois en cours n'est PAS crédité : l'appelant passe des mois révolus (décision produit).
     expect(calculerCongesAcquis(0, 18)).toBe(0);
+  });
+
+  // #3, régression combinée : avec la valeur CORRIGÉE d'ancienneteEnMois, un employé embauché
+  // le 25 du mois n'a PAS son droit annuel complet dès le 1er du 13e mois calendaire (l'ancien
+  // bug le lui aurait accordé ~4 semaines trop tôt) — il faut attendre le 25, 12 mois plus tard.
+  it("n'accorde PAS le droit annuel complet avant 12 mois VRAIMENT révolus (ancienneteEnMois corrigé)", () => {
+    const embauche = new Date("2025-07-25T00:00:00Z");
+    // 1er juillet 2026 : calendairement "12 mois" au sens année/mois, mais le 25e jour n'est
+    // pas encore atteint → 11 mois révolus seulement.
+    const anciennete1erJuillet = ancienneteEnMois(embauche, new Date("2026-07-01T00:00:00Z"));
+    expect(anciennete1erJuillet).toBe(11);
+    expect(calculerCongesAcquis(anciennete1erJuillet, 18)).toBeCloseTo(16.5, 5);
+    expect(calculerCongesAcquis(anciennete1erJuillet, 18)).toBeLessThan(18);
+
+    // Le 25 juillet 2026 (anniversaire) : 12 mois révolus → droit annuel complet.
+    const anciennete25Juillet = ancienneteEnMois(embauche, new Date("2026-07-25T00:00:00Z"));
+    expect(anciennete25Juillet).toBe(12);
+    expect(calculerCongesAcquis(anciennete25Juillet, 18)).toBe(18);
+  });
+});
+
+describe("congeDeductibleDuSolde (déductibilité du solde de congés payés)", () => {
+  it("congé annuel / autre : déductibles (tauxPct non fourni, > 0, ou null → payé par défaut)", () => {
+    expect(congeDeductibleDuSolde("Congé annuel payé")).toBe(true);
+    expect(congeDeductibleDuSolde("Congé annuel payé", 100)).toBe(true);
+    expect(congeDeductibleDuSolde("Congé annuel payé", null)).toBe(true); // À VALIDER = payé par défaut
+    expect(congeDeductibleDuSolde("Autre")).toBe(true);
+    expect(congeDeductibleDuSolde("Mariage")).toBe(true);
+    expect(congeDeductibleDuSolde("Décès d'un proche")).toBe(true);
+  });
+
+  it("congé sans solde (tauxPct = 0) : NON déductible — ne doit pas entamer le solde payé", () => {
+    expect(congeDeductibleDuSolde("Congé sans solde", 0)).toBe(false);
+    // sans info de tauxPct (appelant non migré / type inconnu), comportement historique conservé
+    expect(congeDeductibleDuSolde("Congé sans solde")).toBe(true);
+  });
+
+  it("maternité / paternité / naissance / maladie / accident : NON déductibles quel que soit le taux", () => {
+    expect(congeDeductibleDuSolde("Congé maternité")).toBe(false);
+    expect(congeDeductibleDuSolde("Congé maternité", 100)).toBe(false);
+    expect(congeDeductibleDuSolde("Congé maternité", 0)).toBe(false);
+    expect(congeDeductibleDuSolde("Congé paternité / naissance")).toBe(false);
+    expect(congeDeductibleDuSolde("CONGÉ MALADIE")).toBe(false);
+    expect(congeDeductibleDuSolde("Maladie professionnelle")).toBe(false);
+    expect(congeDeductibleDuSolde("Accident du travail")).toBe(false);
+    expect(congeDeductibleDuSolde("Naissance (arrivée d'un enfant)")).toBe(false);
   });
 });
 
@@ -301,23 +397,92 @@ describe("tauxPrimeAnciennete — barème RDC (0% <3 ans, +1%/an, plafond 25%)",
   });
 });
 
-describe("congeDeductibleDuSolde", () => {
-  it("congé annuel payé (tauxPct > 0) → déductible du solde", () => {
-    expect(congeDeductibleDuSolde("Congé annuel payé", 100)).toBe(true);
+describe("calculerJoursOuvrables — dimanches et jours fériés exclus", () => {
+  // Lundi 29 juin → dimanche 5 juillet 2026 : 7 jours calendaires, 1 dimanche.
+  it("exclut les dimanches", () => {
+    expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"))).toBe(6);
+  });
+  it("exclut aussi les jours fériés fournis (ex. 30 juin, indépendance RDC)", () => {
+    expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"), [new Date("2026-06-30")])).toBe(5);
+  });
+  it("un férié tombant un dimanche n'est pas déduit deux fois", () => {
+    expect(calculerJoursOuvrables(new Date("2026-06-29"), new Date("2026-07-05"), [new Date("2026-07-05")])).toBe(6);
+  });
+});
+
+describe("reconstituerBrutDepuisNet — inversion net→brut (salaires saisis en net, 2026-07-22)", () => {
+  // Flag actif : le salaire de base saisi est un NET cible, le moteur reconstitue le brut.
+  const paramsNet: ParametresPaie = { ...params, salairesSaisisEnNet: true };
+
+  it("net ≤ 0 → brut 0", () => {
+    expect(reconstituerBrutDepuisNet(0, params, 0)).toBe(0);
+    expect(reconstituerBrutDepuisNet(-50, params, 0)).toBe(0);
   });
 
-  it("congé sans solde (tauxPct = 0) → NON déductible du solde payé", () => {
-    expect(congeDeductibleDuSolde("Congé sans solde", 0)).toBe(false);
+  it("gross-up positif : le brut reconstitué dépasse le net cible", () => {
+    for (const net of [100, 200, 500, 900]) {
+      expect(reconstituerBrutDepuisNet(net, params, 0)).toBeGreaterThan(net);
+    }
   });
 
-  it("taux null ou non fourni (type À VALIDER) → traité comme payé, déductible", () => {
-    expect(congeDeductibleDuSolde("Congé annuel payé", null)).toBe(true);
-    expect(congeDeductibleDuSolde("Congé annuel payé")).toBe(true);
+  it("strictement croissant avec le net cible", () => {
+    const g100 = reconstituerBrutDepuisNet(100, params, 0);
+    const g200 = reconstituerBrutDepuisNet(200, params, 0);
+    const g500 = reconstituerBrutDepuisNet(500, params, 0);
+    expect(g100).toBeLessThan(g200);
+    expect(g200).toBeLessThan(g500);
   });
 
-  it("congé légal spécial (maternité/maladie…) → non déductible quel que soit le taux", () => {
-    expect(congeDeductibleDuSolde("Congé de maternité", 100)).toBe(false);
-    expect(congeDeductibleDuSolde("Congé maladie", 66)).toBe(false);
-    expect(congeDeductibleDuSolde("Congé de paternité / naissance", 0)).toBe(false);
+  it("round-trip net→brut→net ≈ identité (back-office, sans transport/prime/HS)", () => {
+    // Le net perçu revient exactement au net cible (+ allocation familiale ajoutée après impôt),
+    // avec un brut imposable strictement supérieur. Balayage de nets et de personnes à charge.
+    for (const net of [80, 150, 250, 400, 750, 1200]) {
+      for (const enfants of [0, 3]) {
+        const r = calculerPaieBackoffice({ salaireBaseUSD: net, transportUSD: 0, enfants }, paramsNet);
+        expect(r.salNetUSD).toBeCloseTo(net + enfants * params.allocFamilialeParEnfantUSD, 2);
+        expect(r.salBrutUSD).toBeGreaterThan(net);
+      }
+    }
+  });
+
+  it("round-trip tenu même avec plafond CNSS défini", () => {
+    const avecPlafond: ParametresPaie = { ...paramsNet, plafondCnssMensuelCDF: 230_000 }; // = 100 $
+    const r = calculerPaieBackoffice({ salaireBaseUSD: 300, transportUSD: 0, enfants: 0 }, avecPlafond);
+    expect(r.salNetUSD).toBeCloseTo(300, 2);
+    expect(r.cnssSalarieUSD).toBeCloseTo(100 * 0.05, 2); // CNSS plafonnée à 100 $ × 5%
+  });
+
+  it("iprBase=1 (brut) exige un brut plus élevé que iprBase=2 (brut − CNSS) pour le même net", () => {
+    const gBase1 = reconstituerBrutDepuisNet(300, { ...params, iprBase: 1 }, 0);
+    const gBase2 = reconstituerBrutDepuisNet(300, { ...params, iprBase: 2 }, 0);
+    expect(gBase1).toBeGreaterThan(gBase2);
+  });
+
+  it("flag OFF (défaut) : aucune reconstitution, le brut = le montant saisi (non-régression)", () => {
+    const rBack = calculerPaieBackoffice({ salaireBaseUSD: 200, transportUSD: 0, enfants: 0 }, params);
+    expect(rBack.salBrutUSD).toBeCloseTo(200, 6);
+    const rBrig = calculerPaieBrigade(
+      { salaireJournalier: 10, salaireHoraire: 1.25, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: 0, enfants: 0 },
+      params
+    );
+    expect(rBrig.salBrutUSD).toBeCloseTo(260, 6);
+  });
+
+  it("brigade : la prime d'heures supp. est grossie par le même ratio ρ que la base", () => {
+    const base = { salaireJournalier: 10, salaireHoraire: 1.25, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, transportMoisUSD: 0, enfants: 0 };
+    const sansHS = calculerPaieBrigade({ ...base, hsValorisee: 0 }, paramsNet);
+    const avecHS = calculerPaieBrigade({ ...base, hsValorisee: 20 }, paramsNet);
+    const netBaseCible = 1.25 * 208; // 260 $
+    const rho = reconstituerBrutDepuisNet(netBaseCible, paramsNet, 0) / netBaseCible;
+    // Seule la part HS diffère entre les deux : 20 × ρ dans le brut.
+    expect(avecHS.salBrutUSD - sansHS.salBrutUSD).toBeCloseTo(20 * rho, 4);
+  });
+
+  it("STAGE : aucune reconstitution (net = brut, sans cotisations) même flag actif", () => {
+    const r = calculerPaieStage({ indemniteUSD: 150, transportUSD: 0 }, paramsNet);
+    expect(r.salBrutUSD).toBeCloseTo(150, 6);
+    expect(r.salNetUSD).toBeCloseTo(150, 6);
+    expect(r.cnssSalarieUSD).toBe(0);
+    expect(r.iprCalculeUSD).toBe(0);
   });
 });

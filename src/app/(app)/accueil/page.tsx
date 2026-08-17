@@ -31,7 +31,7 @@ export default async function AccueilPage() {
   const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const maintenant = new Date();
-  const dans30j = new Date(Date.now() + 30 * 86_400_000);
+  const dans30j = new Date(maintenant.getTime() + 30 * 86_400_000);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? maintenant.getMonth() + 1;
   const annee = config?.anneeCourante ?? maintenant.getFullYear();
@@ -50,6 +50,8 @@ export default async function AccueilPage() {
     runsHistorique,
     employesAnniv,
     contratsEcheance,
+    nbStagiaires,
+    nbInterimaires,
   ] = await Promise.all([
     prisma.employee.count({ where: { categorie: "BRIGADE", actif: true } }),
     prisma.employee.count({ where: { categorie: "BACKOFFICE", actif: true } }),
@@ -58,7 +60,7 @@ export default async function AccueilPage() {
     prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: maintenant }, dateFin: { gte: maintenant } } }),
-    calculerAlertes(),
+    calculerAlertes().then((l) => l.filter((a) => a.espace === "RH")), // les alertes STOCK restent dans leur espace
     prisma.leaveRequest.findMany({
       where: { statut: "APPROUVE", dateFin: { gte: maintenant }, dateDebut: { lte: dans30j } },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -79,6 +81,8 @@ export default async function AccueilPage() {
       orderBy: { dateFin: "asc" },
       take: 10,
     }),
+    prisma.employee.count({ where: { actif: true, contrat: "STAGE" } }),
+    prisma.employee.count({ where: { actif: true, contrat: "INTERIM" } }),
   ]);
 
   const lignes = run?.lignes ?? [];
@@ -128,6 +132,9 @@ export default async function AccueilPage() {
   const cartes = [
     { label: "Effectif brigade", value: String(effectifBrigade) },
     { label: "Effectif backoffice", value: String(effectifBackoffice) },
+    ...(nbStagiaires + nbInterimaires > 0
+      ? [{ label: "Dont stagiaires / intérim", value: `${nbStagiaires} · ${nbInterimaires}` }]
+      : []),
     { label: "Masse salariale nette", value: usd(masseNette) },
     { label: "Coût total employeur", value: usd(coutTotal) },
     { label: "Heures supp. valorisées", value: usd(hsValoriseeTotal) },
@@ -315,8 +322,8 @@ export default async function AccueilPage() {
 
           <div className="space-y-2">
             <LienCarte href="/documents" titre="Documents & archives" desc="Contrats, bulletins, congés" />
-            <LienCarte href="/absences" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
-            <LienCarte href="/historique" titre="Historique de paie" desc="Masse salariale par mois" />
+            <LienCarte href="/conges?vue=calendrier" titre="Calendrier des absences" desc="Vue annuelle et soldes" />
+            <LienCarte href="/paie?vue=historique" titre="Historique de paie" desc="Masse salariale par mois" />
           </div>
         </div>
       </div>

@@ -1,22 +1,35 @@
+import { FilAriane } from "@/components/fil-ariane";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
-import { chargerTauxParTypeConge } from "@/lib/conges";
+import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
 import { Timeline, type EvenementTimeline } from "./timeline";
 import { BulletinViewerButton } from "./bulletin-viewer";
+import { ContratViewerButton } from "./contrat-viewer";
 import { Avatar } from "@/components/avatar";
-import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical } from "../../paie/remuneration-actions";
+import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical, ajouterAvantageNature, supprimerAvantageNature } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
-import { HorairesModele } from "./horaires-modele";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { lundiDe } from "@/lib/dates-fr";
+import { dureeShift, libelleShift } from "../../planning/creneaux";
+import { COULEUR_CODE } from "../../presences/attendance-colors";
+import { TempsTravail } from "./temps-travail";
+import { espaceEmployeActif } from "@/lib/espace-employe";
+import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
+import { formaterUSD } from "@/lib/montant";
+import { compterFamille, ecartCompositionFamiliale } from "@/lib/famille";
+import { construireEcheancier } from "@/lib/prets";
+import { ajouterMembreFamille, supprimerMembreFamille } from "../actions";
+import { CompteEmployePanel } from "../compte-employe-panel";
+import { labelCategoriePro } from "@/lib/categorie-professionnelle";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -44,43 +57,78 @@ const TYPES_PRIME = [
   "Gratification exceptionnelle",
 ];
 
-function ancienneteEnMois(dateEmbauche: Date, reference: Date) {
-  return (
-    (reference.getFullYear() - dateEmbauche.getFullYear()) * 12 +
-    (reference.getMonth() - dateEmbauche.getMonth())
-  );
-}
-
 export default async function FicheEmployePage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; erreur?: string }>;
 }) {
   const user = await verifySession();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
   const { id } = await params;
-  const tab = (await searchParams).tab ?? "apercu";
+  const sp = await searchParams;
+  const tab = sp.tab ?? "apercu";
 
   const employee = await prisma.employee.findUnique({ where: { id } });
   if (!employee) notFound();
 
-  const [contrats, historique, disciplinaire, evaluations, documents] = await Promise.all([
+  const [contrats, historique, disciplinaire, evaluations, documents, fichePoste, prets, tachesOnboarding] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
     prisma.historiqueSalaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.dossierDisciplinaire.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.evaluation.findMany({ where: { employeeId: id }, orderBy: { date: "desc" } }),
     prisma.documentEmploye.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } }),
+    // Fiche de poste liée à l'intitulé de poste du salarié (tâches affichées dans l'onglet Contrat).
+    // Correspondance insensible à la casse et aux espaces (ex. « Chef de salle » vs « chef de salle »).
+    prisma.fichePoste.findFirst({ where: { poste: { equals: employee.poste.trim(), mode: "insensitive" } } }),
+    prisma.pretPersonnel.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, include: { retenues: { orderBy: [{ annee: "asc" }, { mois: "asc" }] } } }),
+    prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
   ]);
-
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? new Date().getMonth() + 1;
   const annee = config?.anneeCourante ?? new Date().getFullYear();
+
+  const pretsView = prets.map((p) => {
+    const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
+    // Échéancier = PROJECTION de la règle du moteur, pas une décision : rien n'est écrit, la
+    // retenue du mois reste calculée par `calculerEcheancePret` au moment de la paie.
+    const echeancier = construireEcheancier({
+      montantUSD: Number(p.montantUSD),
+      retenueMensuelleUSD: Number(p.retenueMensuelleUSD),
+      retenues: p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+      periodeCourante: { mois, annee },
+      actif: p.statut === "EN_COURS",
+    });
+    return {
+      id: p.id,
+      montant: Number(p.montantUSD),
+      retenueMensuelle: Number(p.retenueMensuelleUSD),
+      motif: p.motif,
+      statut: p.statut as string,
+      dateAccord: p.dateAccord,
+      rembourse,
+      solde: Math.max(0, Number(p.montantUSD) - rembourse),
+      nbRetenues: p.retenues.length,
+      echeancier,
+    };
+  });
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
+  // Plafond d'acompte de la période : affiché AVANT la saisie plutôt que refusé après coup.
+  const plafondAcompte = await chargerPlafondAcompte(prisma, { employeeId: id, mois, annee });
+
+  // Composition familiale : purement documentaire. Le comptage sert à SIGNALER un écart avec le
+  // champ `enfants` qui, lui, pilote la réduction IPR et l'allocation familiale — jamais à le corriger.
+  const famille = await prisma.membreFamille.findMany({
+    where: { employeeId: id },
+    orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }],
+  });
+  const ageLimiteEnfant = config?.ageLimiteEnfantACharge ?? 18;
+  const comptageFamille = compterFamille(famille, new Date(), ageLimiteEnfant);
+  const ecartFamille = ecartCompositionFamiliale(employee.enfants, comptageFamille);
 
   const [attendances, leaveRequests, payrollLines, tauxParType] = await Promise.all([
     prisma.attendance.findMany({
@@ -100,26 +148,106 @@ export default async function FicheEmployePage({
     chargerTauxParTypeConge(),
   ]);
 
-  const [primes, acomptes, fraisMed, modeleEntries, shiftsPlanning] = await Promise.all([
+  // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
+  const kinshasa = new Date(Date.now() + 3_600_000);
+  const lundiSemaine = lundiDe(kinshasa);
+  const dimancheSemaine = new Date(lundiSemaine);
+  dimancheSemaine.setUTCDate(dimancheSemaine.getUTCDate() + 6);
+
+  const [primes, acomptes, fraisMed, creneauxSemaine, heuresSemaine, presencesSemaine] = await Promise.all([
     prisma.prime.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
     prisma.acompteSalaire.findMany({ where: { employeeId: id }, orderBy: { dateDemande: "desc" }, take: 30 }),
     prisma.fraisMedical.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
-    prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true, semaine: true, shiftId: true } }),
-    prisma.shift.findMany({ where: { actif: true }, select: { id: true, nom: true, heureDebut: true, heureFin: true, dureeHeures: true } }),
+    prisma.planningCreneau.findMany({
+      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+      select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
+    }),
+    prisma.overtimeEntry.findMany({
+      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+      select: { date: true, heuresTravaillees: true },
+    }),
+    prisma.attendance.findMany({
+      where: { employeeId: id, date: { gte: lundiSemaine, lte: dimancheSemaine } },
+      select: { date: true, code: true },
+    }),
   ]);
-  // Horaire réel = shifts du modèle hebdo (durées converties depuis Decimal).
-  const shiftsHoraire = shiftsPlanning.map((s) => ({
-    id: s.id,
-    nom: s.nom,
-    heureDebut: s.heureDebut,
-    heureFin: s.heureFin,
-    dureeHeures: s.dureeHeures != null ? Number(s.dureeHeures) : null,
-  }));
+
+  // Les 7 jours de la semaine : shift planifié (Planning) vs heures réellement travaillées
+  // (Présences & heures) — le « réel » vient des saisies/pointages, pas d'un modèle théorique.
+  const isoDe = (d: Date) => d.toISOString().slice(0, 10);
+  const creneauParJour = new Map(creneauxSemaine.map((c) => [isoDe(new Date(c.date)), c.shift]));
+  const heuresParJour = new Map(heuresSemaine.map((h) => [isoDe(new Date(h.date)), Number(h.heuresTravaillees)]));
+  const codeParJour = new Map(presencesSemaine.map((p) => [isoDe(new Date(p.date)), p.code]));
+  const isoAujourdHui = isoDe(new Date(Date.UTC(kinshasa.getUTCFullYear(), kinshasa.getUTCMonth(), kinshasa.getUTCDate())));
+  const joursSemaine = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(lundiSemaine);
+    d.setUTCDate(d.getUTCDate() + i);
+    const iso = isoDe(d);
+    const shift = creneauParJour.get(iso);
+    return {
+      iso,
+      estAujourdHui: iso === isoAujourdHui,
+      label: d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", timeZone: "UTC" }),
+      prevu: shift ? libelleShift(shift.nom, shift.heureDebut, shift.heureFin) : null,
+      prevuHeures: shift
+        ? dureeShift({ heureDebut: shift.heureDebut, heureFin: shift.heureFin, dureeHeures: shift.dureeHeures != null ? Number(shift.dureeHeures) : null })
+        : 0,
+      realise: heuresParJour.get(iso) ?? null,
+      code: codeParJour.get(iso) ?? null,
+    };
+  });
+  const totalPrevuSemaine = Math.round(joursSemaine.reduce((a, j) => a + j.prevuHeures, 0) * 100) / 100;
+  const totalRealiseSemaine = Math.round(joursSemaine.reduce((a, j) => a + (j.realise ?? 0), 0) * 100) / 100;
+  const labelSemaine = `${lundiSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })} → ${dimancheSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "UTC" })}`;
   const fraisMedMoisCourant = fraisMed.filter((f) => f.mois === mois && f.annee === annee);
   const finContrats =
     tab === "fin"
       ? await prisma.finContrat.findMany({ where: { employeeId: id }, orderBy: { createdAt: "desc" } })
       : [];
+  // Jours habituellement travaillés (modèle hebdo) — pastilles L→D de la carte « Conditions actuelles ».
+  const joursModele =
+    tab === "contrats"
+      ? [...new Set((await prisma.planningModele.findMany({ where: { employeeId: id }, select: { jour: true } })).map((m) => m.jour))]
+      : [];
+
+  // Espace salarié : gestion du compte (Direction, feature active) — affiché dans l'onglet Aperçu.
+  const espaceActif = tab === "apercu" && estAdmin ? await espaceEmployeActif() : false;
+  const compteSalarie = espaceActif
+    ? await prisma.user.findUnique({ where: { employeeId: id }, select: { role: true, actif: true, accesStock: true } })
+    : null;
+
+  // Onglet « Temps de travail » : planning (2 semaines) + heures réelles (8 dernières semaines).
+  const lundiCourantIso = isoDe(lundiSemaine);
+  let donneesTemps: { creneaux: { iso: string; nom: string; heures: number }[]; heures: { iso: string; h: number }[]; codes: { iso: string; code: string }[] } | null = null;
+  if (tab === "temps") {
+    const debutRapport = new Date(lundiSemaine);
+    debutRapport.setUTCDate(debutRapport.getUTCDate() - 7 * 7); // 7 semaines avant la courante
+    const finPlanning = new Date(lundiSemaine);
+    finPlanning.setUTCDate(finPlanning.getUTCDate() + 13); // dimanche de la semaine suivante
+    const [creneauxTemps, heuresTemps, codesTemps] = await Promise.all([
+      prisma.planningCreneau.findMany({
+        where: { employeeId: id, date: { gte: lundiSemaine, lte: finPlanning } },
+        select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true, dureeHeures: true } } },
+      }),
+      prisma.overtimeEntry.findMany({
+        where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
+        select: { date: true, heuresTravaillees: true },
+      }),
+      prisma.attendance.findMany({
+        where: { employeeId: id, date: { gte: debutRapport, lte: dimancheSemaine } },
+        select: { date: true, code: true },
+      }),
+    ]);
+    donneesTemps = {
+      creneaux: creneauxTemps.map((c) => ({
+        iso: isoDe(new Date(c.date)),
+        nom: c.shift.nom,
+        heures: dureeShift({ heureDebut: c.shift.heureDebut, heureFin: c.shift.heureFin, dureeHeures: c.shift.dureeHeures != null ? Number(c.shift.dureeHeures) : null }),
+      })),
+      heures: heuresTemps.map((h) => ({ iso: isoDe(new Date(h.date)), h: Number(h.heuresTravaillees) })),
+      codes: codesTemps.map((c) => ({ iso: isoDe(new Date(c.date)), code: c.code })),
+    };
+  }
   // Paramètres légaux de départ (préavis, indemnité) — configurables dans Paramètres (À VALIDER).
   const paramsDepart =
     tab === "fin"
@@ -135,6 +263,10 @@ export default async function FicheEmployePage({
     return p?.valeur != null ? Number(p.valeur) : null;
   };
   const primesMoisCourant = primes.filter((p) => p.mois === mois && p.annee === annee);
+  const avantagesMoisCourant = await prisma.avantageNature.findMany({
+    where: { employeeId: id, mois, annee },
+    orderBy: { createdAt: "asc" },
+  });
   // Le bulletin live (plusieurs requêtes + calcul) n'est utile que dans l'onglet Aperçu.
   const apercuBulletin = tab === "apercu" ? await calculerBulletinLive(id, mois, annee) : null;
   const periodeLabel = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -147,6 +279,14 @@ export default async function FicheEmployePage({
     (Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6) * 52 / 12;
   const salaireHoraire = heuresMoisContrat > 0 ? Number(employee.salaireMensuel) / heuresMoisContrat : 0;
   const salaireJournalier = salaireHoraire * Number(employee.heuresParJour); // paie d'un jour travaillé
+  // Journalier BRUT pour l'aperçu du solde de tout compte (décision client 2026-07-22) : même base
+  // que le calcul serveur (dossier-actions.ts terminerContrat) = brut reconstitué ÷ jours ouvrables.
+  const baseFinContratUSD = parametres.salairesSaisisEnNet
+    ? reconstituerBrutDepuisNet(Number(employee.salaireMensuel), parametres, employee.enfants)
+    : Number(employee.salaireMensuel);
+  const salaireJournalierFinContrat =
+    parametres.joursOuvrablesMois > 0 ? baseFinContratUSD / parametres.joursOuvrablesMois : 0;
+  const suffixeNet = parametres.salairesSaisisEnNet ? " net" : "";
 
   // Transport du mois calculé comme en paie : brigade = tarif journalier × jours de présence P ;
   // backoffice = forfait mensuel fixe. (B3)
@@ -158,7 +298,7 @@ export default async function FicheEmployePage({
   const transportMoisCDF = transportMoisUSD * parametres.tauxChangeCDF;
 
   const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(annee, mois - 1, 1));
-  const congesAcquis = calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
+  const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
   const congesPrisAnnee = leaveRequests
     .filter(
       (l) =>
@@ -171,8 +311,8 @@ export default async function FicheEmployePage({
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
-  const dans30j = new Date(Date.now() + 30 * 86400000);
   const maintenant = new Date();
+  const dans30j = new Date(maintenant.getTime() + 30 * 86400000);
   for (const c of contrats) {
     if (c.dateFin && new Date(c.dateFin) >= maintenant && new Date(c.dateFin) <= dans30j) {
       notifications.push(`Contrat ${c.type} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}`);
@@ -247,6 +387,7 @@ export default async function FicheEmployePage({
 
   return (
     <div className="max-w-5xl">
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       {notifications.length > 0 && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="mb-1 font-semibold">Notifications</p>
@@ -258,9 +399,7 @@ export default async function FicheEmployePage({
         </div>
       )}
 
-      <Link href="/employes" className="mb-3 inline-block text-sm text-primary underline">
-        ← Retour à la liste
-      </Link>
+      <div className="mb-3"><FilAriane segments={[{ label: "Employés", href: "/employes" }, { label: employee.nom }]} /></div>
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:mb-6 sm:gap-4 sm:p-5">
         <div className="flex flex-col items-center gap-1">
           {employee.photoUrl ? (
@@ -277,6 +416,7 @@ export default async function FicheEmployePage({
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <Chip>{employee.categorie}</Chip>
+            {labelCategoriePro(employee.categorieProfessionnelle) && <Chip>{labelCategoriePro(employee.categorieProfessionnelle)}</Chip>}
             <Chip>{employee.contrat}</Chip>
             <Chip>Ancienneté&nbsp;{anciennete} mois</Chip>
             <Chip>{soldeConges} j de congés</Chip>
@@ -314,6 +454,7 @@ export default async function FicheEmployePage({
       <div className="mb-5 flex gap-2 overflow-x-auto border-b">
         {[
           { cle: "apercu", label: "Aperçu" },
+          { cle: "temps", label: "Temps de travail" },
           { cle: "conges", label: "Congés & absences" },
           { cle: "paie", label: "Paie" },
           { cle: "contrats", label: "Contrats" },
@@ -336,6 +477,21 @@ export default async function FicheEmployePage({
 
       {tab === "apercu" && (
         <>
+      {espaceActif && (
+        <div className="mb-5">
+          <CompteEmployePanel
+            employeeId={employee.id}
+            aCompte={compteSalarie?.role === "EMPLOYE"}
+            compteActif={compteSalarie?.actif ?? false}
+            accesStock={compteSalarie?.accesStock ?? false}
+          />
+        </div>
+      )}
+      {tab === "apercu" && !apercuBulletin && employee.contrat === "INTERIM" && (
+        <div className="mb-5 rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+          Employé intérimaire : salarié de l&apos;agence d&apos;intérim, payé par elle — aucun bulletin n&apos;est généré ici.
+        </div>
+      )}
       {apercuBulletin && (
         <HeuresTravailleesCard
           periode={periodeLabel}
@@ -366,22 +522,61 @@ export default async function FicheEmployePage({
         </dl>
       </Section>
 
-      {/* Horaire réel (jours et durées variables) reconstitué depuis le modèle hebdomadaire */}
-      <Section title="Horaire de travail réel">
+      {/* Semaine en cours : planning prévu (Planning) vs heures réellement travaillées (Présences & heures). */}
+      <Section title={`Cette semaine — planning et heures réelles (${labelSemaine})`}>
         <p className="mb-3 text-xs text-muted-foreground">
-          Reconstitué depuis le <span className="font-medium">modèle hebdomadaire</span> (Planning → Modèle hebdo).
-          Reflète les jours réellement travaillés et les horaires variables. Le « seuil heures supp. » ci-dessus
-          est une valeur distincte, utilisée uniquement pour déclencher les heures supplémentaires.
+          <span className="font-medium">Planifié</span> = le planning de la semaine ·{" "}
+          <span className="font-medium">Réalisé</span> = les heures réellement saisies/pointées.
+          L&apos;horaire type se règle dans <Link href="/planning?vue=modele" className="text-primary underline">Planning → Modèle hebdo</Link>.
         </p>
-        <HorairesModele entries={modeleEntries} shifts={shiftsHoraire} />
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full min-w-[30rem] text-sm">
+            <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
+                <th>Jour</th><th>Planifié</th><th className="text-right">Prévu</th><th className="text-right">Réalisé</th><th>Présence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {joursSemaine.map((j) => (
+                <tr key={j.iso} className={`border-t ${j.estAujourdHui ? "bg-primary/5 font-medium" : ""}`}>
+                  <td className="px-3 py-1.5 capitalize">{j.label}{j.estAujourdHui ? " ·" : ""}</td>
+                  <td className="px-3 py-1.5">{j.prevu ?? <span className="text-muted-foreground">Repos</span>}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{j.prevuHeures > 0 ? `${j.prevuHeures} h` : "—"}</td>
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                    {j.realise !== null && j.realise > 0 ? `${j.realise.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—"}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {j.code ? (
+                      <span className={`rounded-md px-1.5 py-0.5 text-xs font-semibold ${COULEUR_CODE[j.code as CodePresence] ?? ""}`}>{j.code}</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t bg-muted/40 font-medium">
+                <td className="px-3 py-1.5" colSpan={2}>Total semaine</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{totalPrevuSemaine > 0 ? `${totalPrevuSemaine} h` : "—"}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{totalRealiseSemaine > 0 ? `${totalRealiseSemaine} h` : "—"}</td>
+                <td className="px-3 py-1.5" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p className="mt-2 flex gap-4 text-xs">
+          <Link href="/planning" className="text-primary underline">Voir le planning →</Link>
+          <Link href="/presences" className="text-primary underline">Voir présences &amp; heures →</Link>
+        </p>
       </Section>
 
       {/* Détails salariaux */}
       <Section title="Détails salariaux">
         <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
-          <Info label="Salaire mensuel" value={formatMoney(Number(employee.salaireMensuel))} />
-          <Info label="Salaire journalier" value={formatMoney(salaireJournalier)} />
-          <Info label="Salaire horaire" value={formatMoney(salaireHoraire)} />
+          <Info label={`Salaire mensuel${suffixeNet}`} value={formatMoney(Number(employee.salaireMensuel))} />
+          <Info label={`Salaire journalier${suffixeNet}`} value={formatMoney(salaireJournalier)} />
+          <Info label={`Salaire horaire${suffixeNet}`} value={formatMoney(salaireHoraire)} />
           <Info
             label="Transport / jour"
             value={`${Number(employee.transportJourCDF).toLocaleString("fr-FR")} CDF`}
@@ -400,6 +595,70 @@ export default async function FicheEmployePage({
             value={formatMoney(Number(employee.fraisMedicauxMoisCourant))}
           />
         </dl>
+      </Section>
+
+      {/* Composition familiale — justificatif nominatif, sans effet sur le calcul de paie */}
+      <Section title="Composition familiale">
+        {ecartFamille && (
+          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {ecartFamille.message}
+          </p>
+        )}
+
+        <dl className="mb-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
+          <Info label="Conjoint" value={comptageFamille.conjoint || "—"} />
+          <Info label="Enfants à charge retenus par la paie" value={String(employee.enfants)} />
+          <Info
+            label={`Enfants déduits des dates (< ${ageLimiteEnfant} ans)`}
+            value={`${comptageFamille.enfantsACharge} sur ${comptageFamille.enfantsTotal} saisi(s)`}
+          />
+        </dl>
+
+        {famille.length === 0 ? (
+          <p className="mb-3 text-sm text-muted-foreground">Aucun membre saisi.</p>
+        ) : (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {famille.map((m) => (
+              <span
+                key={m.id}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ${m.lien === "CONJOINT" ? "bg-violet-100 text-violet-800" : "bg-slate-100 text-slate-800"}`}
+              >
+                {m.lien === "CONJOINT" ? "Conjoint" : "Enfant"} · {m.nom}
+                {" · "}
+                {m.dateNaissance
+                  ? m.dateNaissance.toLocaleDateString("fr-FR", { timeZone: "UTC" })
+                  : "date inconnue"}
+                {peutModifier && (
+                  <form action={supprimerMembreFamille.bind(null, m.id)} className="inline">
+                    <button className="opacity-70 hover:opacity-100" title="Retirer">✕</button>
+                  </form>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {peutModifier && (
+          <form action={ajouterMembreFamille.bind(null, employee.id)} className="rounded-lg border p-3">
+            <p className="mb-2 text-sm font-medium">Ajouter un membre</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <select name="lien" defaultValue="ENFANT" className="rounded border border-input bg-background px-2 py-1 text-sm">
+                <option value="ENFANT">Enfant</option>
+                <option value="CONJOINT">Conjoint</option>
+              </select>
+              <input name="nom" placeholder="Nom et prénom" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
+              <label className="flex flex-col text-xs text-muted-foreground">
+                Date de naissance
+                <input name="dateNaissance" type="date" className="rounded border border-input bg-background px-2 py-1 text-sm" />
+              </label>
+              <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Ajouter</button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Justificatif de la réduction IPR pour charges de famille. Sans effet sur le calcul : la paie
+              retient le champ « enfants » de la fiche, modifiable dans le formulaire de l&apos;employé.
+            </p>
+          </form>
+        )}
       </Section>
 
       {/* Coordonnées & informations de paiement */}
@@ -512,6 +771,13 @@ export default async function FicheEmployePage({
                   <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
                     CDF
                   </TelechargerLien>
+                  {" · "}
+                  <ContratViewerButton
+                    href={`/employes/${employee.id}/attestation-paie/${l.id}`}
+                    titre={`Attestation de paie — ${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
+                    libelle="Attestation"
+                    className="text-primary underline"
+                  />
                 </td>
               </tr>
             ))}
@@ -533,16 +799,20 @@ export default async function FicheEmployePage({
             <PrimeForm
               action={ajouterPrime.bind(null, employee.id)}
               types={TYPES_PRIME}
-              salaireBase={Number(employee.salaireMensuel)}
+              salaireBase={baseFinContratUSD}
               tauxAnciennete={tauxPrimeAnciennete(anciennete / 12)}
             />
             <form action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
               <p className="mb-2 text-sm font-medium">Demander un acompte</p>
               <div className="flex flex-wrap items-end gap-2">
-                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input name="montantUSD" type="number" step="0.01" min="0" max={plafondAcompte.disponibleUSD || undefined} placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Demander</button>
               </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Plafond : {formaterUSD(plafondAcompte.plafondUSD)} ({libelleSourcePlafond(plafondAcompte.source)})
+                {plafondAcompte.dejaEngageUSD > 0 && <> — {formaterUSD(plafondAcompte.dejaEngageUSD)} déjà engagé, il reste {formaterUSD(plafondAcompte.disponibleUSD)}</>}
+              </p>
             </form>
             <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
               <p className="mb-2 text-sm font-medium">Ajouter un frais médical (avec certificat)</p>
@@ -554,7 +824,44 @@ export default async function FicheEmployePage({
               </div>
               <p className="mt-1 text-xs text-muted-foreground">Remboursé sur le bulletin de la période (non imposable). PDF ou image.</p>
             </form>
+            <form action={ajouterAvantageNature.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
+              <p className="mb-2 text-sm font-medium">Consigner un avantage en nature</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <input name="nature" list="natures-avantage" placeholder="Logement, nourriture…" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                <datalist id="natures-avantage">
+                  <option value="Logement" />
+                  <option value="Nourriture" />
+                  <option value="Véhicule" />
+                  <option value="Téléphone" />
+                </datalist>
+                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Valeur $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <input name="motif" placeholder="Précision (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Consigner</button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mentionné sur le bulletin, <strong>hors calcul</strong> : ni cotisations, ni IPR, ni net à payer
+                (un avantage en nature n&apos;est pas versé en espèces). Traitement fiscal à valider par un comptable.
+              </p>
+            </form>
           </div>
+        )}
+
+        {avantagesMoisCourant.length > 0 && (
+          <>
+            <p className="mb-2 mt-2 text-xs font-semibold uppercase text-muted-foreground">Avantages en nature (mois en cours) — informatif</p>
+            <div className="mb-4 flex flex-wrap gap-2">
+              {avantagesMoisCourant.map((a) => (
+                <span key={a.id} className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-800">
+                  {a.nature} : {formatMoney(Number(a.montantUSD))}{a.motif ? ` · ${a.motif}` : ""}
+                  {estAdmin && (
+                    <form action={supprimerAvantageNature.bind(null, a.id)} className="inline">
+                      <button className="text-amber-900/70 hover:text-amber-900" title="Supprimer">✕</button>
+                    </form>
+                  )}
+                </span>
+              ))}
+            </div>
+          </>
         )}
 
         {fraisMedMoisCourant.length > 0 && (
@@ -636,13 +943,27 @@ export default async function FicheEmployePage({
       </>
       )}
 
+      {tab === "temps" && donneesTemps && (
+        <TempsTravail
+          lundiCourantIso={lundiCourantIso}
+          creneaux={donneesTemps.creneaux}
+          heures={donneesTemps.heures}
+          codes={donneesTemps.codes}
+        />
+      )}
+
       {(tab === "contrats" || tab === "fin" || tab === "dossier") && (
       <DossierEmploye
         vue={tab}
         employeeId={employee.id}
         poste={employee.poste}
+        fichePosteExiste={Boolean(fichePoste)}
+        fichePosteDescriptionPoste={fichePoste?.descriptionPoste ?? null}
+        fichePosteDescription={fichePoste?.description ?? null}
+        fichePosteFichierUrl={fichePoste?.fichierUrl ?? null}
         salaireMensuel={Number(employee.salaireMensuel)}
-        salaireJournalier={salaireJournalier}
+        salaireJournalier={salaireJournalierFinContrat}
+        salaireEstNet={parametres.salairesSaisisEnNet ?? false}
         soldeConges={soldeConges}
         joursPresence={joursPresenceP}
         ancienneteMois={anciennete}
@@ -650,7 +971,11 @@ export default async function FicheEmployePage({
         preavisLicenciement={valParam("preavis_jours_licenciement")}
         indemniteLicenciementJoursParAn={valParam("indemnite_licenciement_jours_par_an")}
         actif={employee.actif}
+        joursModele={joursModele}
         contrats={contrats}
+        prets={pretsView}
+        periodePaie={{ mois, annee }}
+        tachesOnboarding={tachesOnboarding.map((t) => ({ id: t.id, libelle: t.libelle, fait: t.fait, faitLe: t.faitLe }))}
         historique={historique}
         disciplinaire={disciplinaire}
         evaluations={evaluations}

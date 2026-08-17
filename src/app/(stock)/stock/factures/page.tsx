@@ -5,11 +5,11 @@ import { usd } from "@/lib/stock";
 import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
 import { ImportFacturesBtn } from "./import-factures-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
-type SP = { statut?: string; tri?: string; vue?: string };
+type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
-const MOIS_FR = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 const JOUR_MS = 86400000;
 /** Jours restants avant l'échéance (négatif si dépassée) ; null si réglée ou sans échéance. */
 function joursAvant(echeance: Date | null, statut: string): number | null {
@@ -26,41 +26,98 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const estDirection = user.role === "ADMIN";
   const f = sp.statut;
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";
-  const vue = sp.vue === "fournisseur" ? "fournisseur" : "detail";
-  const where: Prisma.FactureFournisseurWhereInput =
-    f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
-      : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {};
+  const vue = sp.vue === "fournisseur" ? "fournisseur" : sp.vue === "echeancier" ? "echeancier" : "detail";
+  // Arrivée depuis le tableau de bord (filtre « à payer » ou « échues ») → accordéons déroulés d'emblée.
+  const filtreImpayes = f === "du" || f === "A_REGLER" || f === "ECHUE_NON_REGLEE";
+  const ouvertParDefaut = filtreImpayes;
+
+  // Liste BORNÉE par année (défaut : année courante) — la table grandit sans fin, on ne la
+  // recharge plus entièrement. Exceptions voulues : les vues d'impayés couvrent TOUTES les
+  // années (masquer une vieille dette serait pire que tout), « Toutes » reste accessible.
+  const [anneesRows, configAnnee] = await Promise.all([
+    prisma.factureFournisseur.groupBy({ by: ["annee"], orderBy: { annee: "desc" } }),
+    prisma.config.findUnique({ where: { id: "singleton" }, select: { anneeCourante: true } }),
+  ]);
+  const anneesDispo = anneesRows.map((r) => r.annee);
+  const anneeDefaut = configAnnee?.anneeCourante ?? new Date().getFullYear();
+  const anneeSel: number | null =
+    filtreImpayes || sp.annee === "toutes" ? null : Number(sp.annee) || anneeDefaut;
+
+  const where: Prisma.FactureFournisseurWhereInput = {
+    ...(f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
+      : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {}),
+    ...(anneeSel ? { annee: anneeSel } : {}),
+  };
   const orderBy: Prisma.FactureFournisseurOrderByWithRelationInput[] =
     tri === "fournisseur" ? [{ fournisseurNom: "asc" }, { annee: "desc" }, { mois: "desc" }] : [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }];
 
-  const [factures, toutes, config] = await Promise.all([
+  // KPIs et soldes calculés en SQL (agrégats) : on ne recharge plus TOUTE la table à chaque affichage.
+  const [factures, kpiRows, config] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
-    prisma.factureFournisseur.findMany({ select: { fournisseurId: true, fournisseurNom: true, montantUSD: true, resteAPayerUSD: true, statut: true, annee: true, mois: true, fournisseur: { select: { nom: true } } } }),
+    prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number; nbTotal: number; nbReglees: number; nbDues: number; nbEchues: number }[]>`
+      SELECT COALESCE(SUM("montantUSD"), 0)::float                                              AS total,
+             COUNT(*)::int                                                                      AS "nbTotal",
+             COALESCE(SUM("montantUSD" - "resteAPayerUSD"), 0)::float                           AS regle,
+             COUNT(*) FILTER (WHERE statut = 'REGLEE')::int                                     AS "nbReglees",
+             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut <> 'REGLEE'), 0)::float        AS du,
+             COUNT(*) FILTER (WHERE statut <> 'REGLEE')::int                                    AS "nbDues",
+             COALESCE(SUM("resteAPayerUSD") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS echu,
+             COUNT(*) FILTER (WHERE statut = 'ECHUE_NON_REGLEE')::int                           AS "nbEchues"
+      FROM "stock"."FactureFournisseur"`,
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
+  const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0, nbTotal: 0, nbReglees: 0, nbDues: 0, nbEchues: 0 };
 
-  // KPIs globaux
-  const kpi = { total: 0, regle: 0, du: 0, echu: 0 };
-  for (const x of toutes) {
-    const m = Number(x.montantUSD), r = Number(x.resteAPayerUSD);
-    kpi.total += m; kpi.regle += m - r;
-    if (x.statut !== "REGLEE") kpi.du += r;
-    if (x.statut === "ECHUE_NON_REGLEE") kpi.echu += r;
-  }
-  // Solde par fournisseur
+  // Solde par fournisseur : agrégé en SQL, et seulement quand la vue « fournisseur » est affichée.
   const anneeC = config?.anneeCourante ?? new Date().getFullYear();
   const moisC = config?.moisCourant ?? new Date().getMonth() + 1;
-  const map = new Map<string, { id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }>();
-  for (const x of toutes) {
-    const nom = x.fournisseur?.nom ?? x.fournisseurNom;
-    const e = map.get(nom) ?? { id: null, nom, solde: 0, total: 0, nb: 0, nbAnnee: 0, nbMois: 0 };
-    if (!e.id && x.fournisseurId) e.id = x.fournisseurId;
-    e.solde += x.statut !== "REGLEE" ? Number(x.resteAPayerUSD) : 0;
-    e.total += Number(x.montantUSD); e.nb++;
-    if (x.annee === anneeC) { e.nbAnnee++; if (x.mois === moisC) e.nbMois++; }
-    map.set(nom, e);
+  const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
+  const cdfEq = (v: number) => (tauxCDF > 0 && v > 0 ? ` · ≈ ${Math.round(v * tauxCDF).toLocaleString("fr-FR")} CDF` : "");
+  const parFournisseur = vue === "fournisseur"
+    ? await prisma.$queryRaw<{ id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }[]>`
+        SELECT COALESCE(f."nom", x."fournisseurNom")                                            AS nom,
+               (ARRAY_AGG(x."fournisseurId") FILTER (WHERE x."fournisseurId" IS NOT NULL))[1]   AS id,
+               COALESCE(SUM(x."resteAPayerUSD") FILTER (WHERE x.statut <> 'REGLEE'), 0)::float  AS solde,
+               COALESCE(SUM(x."montantUSD"), 0)::float                                          AS total,
+               COUNT(*)::int                                                                    AS nb,
+               COUNT(*) FILTER (WHERE x.annee = ${anneeC})::int                                 AS "nbAnnee",
+               COUNT(*) FILTER (WHERE x.annee = ${anneeC} AND x.mois = ${moisC})::int           AS "nbMois"
+        FROM "stock"."FactureFournisseur" x
+        LEFT JOIN "stock"."Fournisseur" f ON f."id" = x."fournisseurId"
+        GROUP BY 1
+        ORDER BY solde DESC, total DESC`
+    : [];
+
+  // Échéancier de trésorerie : les factures dues, groupées par semaine d'échéance, avec cumul.
+  type EchLigne = { id: string; nom: string; fournisseurId: string | null; numero: string | null; echeance: string | null; reste: number };
+  type EchGroupe = { cle: string; titre: string; retard?: boolean; lignes: EchLigne[]; sousTotal: number };
+  const echeancier: EchGroupe[] = [];
+  if (vue === "echeancier") {
+    const dues = await prisma.factureFournisseur.findMany({
+      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, resteAPayerUSD: { gt: 0 } },
+      orderBy: [{ dateEcheance: { sort: "asc", nulls: "last" } }],
+      include: { fournisseur: { select: { nom: true } } },
+    });
+    const auj = new Date();
+    const auj0 = Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth(), auj.getUTCDate());
+    const idx = new Map<string, number>();
+    for (const x of dues) {
+      let cle: string, titre: string, retard = false;
+      if (!x.dateEcheance) { cle = "zz-sans"; titre = "Sans échéance"; }
+      else if (new Date(x.dateEcheance).getTime() < auj0) { cle = "aa-retard"; titre = "En retard"; retard = true; }
+      else {
+        const lundi = lundiDe(new Date(x.dateEcheance));
+        const dim = new Date(lundi); dim.setUTCDate(dim.getUTCDate() + 6);
+        cle = lundi.toISOString().slice(0, 10);
+        titre = `Semaine du ${lundi.getUTCDate()} ${MOIS_FR_COURT[lundi.getUTCMonth()]} au ${dim.getUTCDate()} ${MOIS_FR_COURT[dim.getUTCMonth()]}`;
+      }
+      if (!idx.has(cle)) { idx.set(cle, echeancier.length); echeancier.push({ cle, titre, retard, lignes: [], sousTotal: 0 }); }
+      const g = echeancier[idx.get(cle)!];
+      g.lignes.push({ id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero, echeance: d(x.dateEcheance), reste: Number(x.resteAPayerUSD) });
+      g.sousTotal += Number(x.resteAPayerUSD);
+    }
+    echeancier.sort((a, b) => a.cle.localeCompare(b.cle));
   }
-  const parFournisseur = [...map.values()].sort((a, b) => b.solde - a.solde || b.total - a.total);
 
   const toRow = (x: (typeof factures)[number]): FactureRow => ({
     id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
@@ -95,10 +152,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
   const lien = (params: Partial<SP>) => {
     const p = new URLSearchParams();
-    const s = { statut: f, tri, vue, ...params };
+    const s = { statut: f, tri, vue, annee: sp.annee, ...params };
     if (s.statut) p.set("statut", s.statut);
     if (s.tri && s.tri !== "mois") p.set("tri", s.tri);
     if (s.vue && s.vue !== "detail") p.set("vue", s.vue);
+    if (s.annee && s.annee !== String(anneeDefaut)) p.set("annee", s.annee);
     return `/stock/factures${p.toString() ? `?${p}` : ""}`;
   };
 
@@ -106,27 +164,26 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Factures fournisseurs</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href="/stock/factures/nouveau" className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90">+ Nouvelle facture</Link>
           {estDirection && <ImportFacturesBtn />}
-          <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} />
-          <a href="/stock/factures/imprimer" target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">PDF</a>
-          <a href="/stock/factures/export" download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Excel</a>
+          <BoutonRapport types={[{ value: "FACTURES", label: "Factures" }, { value: "PAIEMENTS", label: "Retards de paiement" }]} pdfHref="/stock/factures/imprimer" excelHref="/stock/factures/export" />
         </div>
       </div>
 
-      {/* KPIs épurés */}
+      {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={usd(kpi.total)} />
-        <Kpi label="Réglé" valeur={usd(kpi.regle)} accent="green" />
-        <Kpi label="À payer" valeur={usd(kpi.du)} accent={kpi.du > 0 ? "amber" : undefined} />
-        <Kpi label="Échu" valeur={usd(kpi.echu)} accent={kpi.echu > 0 ? "red" : undefined} />
+        <Kpi label="Total facturé" valeur={usd(kpi.total)} sous={`${kpi.nbTotal} facture(s)${cdfEq(kpi.total)}`} href={lien({ statut: "" })} />
+        <Kpi label="Réglé" valeur={usd(kpi.regle)} sous={`${kpi.nbReglees} réglée(s)${cdfEq(kpi.regle)}`} accent="green" href={lien({ statut: "REGLEE" })} />
+        <Kpi label="À payer (dont échu)" valeur={usd(kpi.du)} sous={`${kpi.nbDues} à régler${cdfEq(kpi.du)}`} accent={kpi.du > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
+        <Kpi label="Échu" valeur={usd(kpi.echu)} sous={`${kpi.nbEchues} échue(s)${cdfEq(kpi.echu)}`} accent={kpi.echu > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
       </div>
 
       {/* Bascule de vue */}
       <div className="flex flex-wrap gap-1.5 text-sm">
         <a href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</a>
         <a href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</a>
+        <a href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</a>
       </div>
 
       {vue === "fournisseur" ? (
@@ -158,6 +215,33 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
             </tbody>
           </table>
         </div>
+      ) : vue === "echeancier" ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">Ce qu&apos;il y a à sortir, semaine par semaine (reste à payer des factures non réglées). Le cumul aide à planifier la trésorerie.</p>
+          {echeancier.length === 0 && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucune facture à payer — tout est réglé. 🎉</p>}
+          {(() => { let cumul = 0; return echeancier.map((g) => { cumul += g.sousTotal; const cum = cumul; return (
+            <div key={g.cle} className={`overflow-hidden rounded-lg border ${g.retard ? "border-red-300" : ""}`}>
+              <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-sm font-semibold ${g.retard ? "bg-red-50 text-red-800" : "bg-muted/50"}`}>
+                <span>{g.retard ? "⚠ " : ""}{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} facture(s)</span></span>
+                <span className="tabular-nums">{usd(g.sousTotal)} <span className="text-xs font-normal text-muted-foreground">· cumul {usd(cum)}</span></span>
+              </div>
+              <ul className="divide-y text-sm">
+                {g.lignes.map((l) => (
+                  <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1">
+                    <span className="min-w-0 truncate">
+                      {l.fournisseurId ? <Link href={`/stock/fournisseurs/${l.fournisseurId}`} className="font-medium text-primary hover:underline">{l.nom}</Link> : <span className="font-medium">{l.nom}</span>}
+                      <span className="text-xs text-muted-foreground"> {l.numero ? `· N° ${l.numero}` : ""}{l.echeance ? ` · éch. ${l.echeance}` : ""}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-3">
+                      <span className="font-semibold tabular-nums">{usd(l.reste)}</span>
+                      <Link href={`/stock/factures/${l.id}`} className="text-xs text-primary underline">Détail</Link>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ); }); })()}
+        </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -167,6 +251,18 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
               ))}
             </div>
             <span className="text-muted-foreground">·</span>
+            {filtreImpayes ? (
+              <span className="text-xs text-muted-foreground">Impayés : toutes les années confondues.</span>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground">Année :</span>
+                {anneesDispo.map((a) => (
+                  <a key={a} href={lien({ annee: String(a) })} className={`rounded-full border px-3 py-1 ${anneeSel === a ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{a}</a>
+                ))}
+                <a href={lien({ annee: "toutes" })} className={`rounded-full border px-3 py-1 ${anneeSel === null ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Toutes</a>
+              </div>
+            )}
+            <span className="text-muted-foreground">·</span>
             <div className="flex gap-1.5">
               <span className="text-muted-foreground">Grouper :</span>
               <a href={lien({ tri: "mois" })} className={`rounded-full border px-3 py-1 ${tri === "mois" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Mois</a>
@@ -174,20 +270,24 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
           {tri === "mois"
-            ? <FacturesUI annees={annees} estDirection={estDirection} />
-            : <FacturesUI groupes={groupes} estDirection={estDirection} />}
+            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} />
+            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} />}
         </>
       )}
     </div>
   );
 }
 
-function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?: "green" | "amber" | "red" }) {
+function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: string; sous?: string; accent?: "green" | "amber" | "red"; href?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
-  return (
-    <div className={`rounded-lg border p-3 ${cls}`}>
+  const contenu = (
+    <>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-lg font-semibold">{valeur}</p>
-    </div>
+      {sous && <p className="mt-0.5 text-[11px] text-muted-foreground">{sous}</p>}
+    </>
   );
+  return href
+    ? <Link href={href} className={`block rounded-lg border p-3 transition-colors hover:border-primary ${cls}`} title="Filtrer la liste">{contenu}</Link>
+    : <div className={`rounded-lg border p-3 ${cls}`}>{contenu}</div>;
 }

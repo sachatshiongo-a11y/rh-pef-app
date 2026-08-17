@@ -3,7 +3,6 @@ import type { Employee, LeaveRequest, User } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
 import { pdfColors } from "./theme";
-import { calculerJoursOuvrables } from "@/lib/payroll";
 
 registerPdfFonts();
 
@@ -144,7 +143,7 @@ export function DemandeCongeDocument({
           <Ligne label="Date de reprise" value={dateReprise.toLocaleDateString("fr-FR")} />
           <Ligne
             label="Nb jours ouvrables"
-            value={String(calculerJoursOuvrables(dateDebut, dateFin))}
+            value={String(demande.nbJours)}
           />
           <Ligne
             label="Remplaçant(e)"

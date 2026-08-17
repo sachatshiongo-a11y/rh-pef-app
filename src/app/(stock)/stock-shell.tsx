@@ -7,48 +7,50 @@ import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { NotificationBell } from "@/components/notification-bell";
 import { logout } from "@/app/login/actions";
+import { Icone } from "@/components/icones";
+import { BoutonRetour } from "@/components/bouton-retour";
 
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
     titre: "Pilotage",
     items: [
-      { href: "/stock", label: "Tableau de bord", icone: "🏠" },
-      { href: "/stock/a-valider", label: "Demandes à valider", icone: "✅", adminOnly: true },
-      { href: "/stock/archives", label: "Archives", icone: "🗄️" },
+      { href: "/stock", label: "Tableau de bord", icone: "accueil" },
+      { href: "/stock/a-valider", label: "Demandes à valider", icone: "valider", adminOnly: true },
+      { href: "/stock/archives", label: "Archives", icone: "archives" },
     ],
   },
   {
     titre: "Dépôt",
     items: [
-      { href: "/stock/catalogue/nourriture", label: "Catalogue Nourriture", icone: "🥘" },
-      { href: "/stock/catalogue/boissons", label: "Catalogue Boissons", icone: "🥤" },
-      { href: "/stock/catalogue/autre", label: "Catalogue Autre", icone: "📦" },
-      { href: "/stock/entree", label: "Liste d'achat", icone: "🛒" },
-      { href: "/stock/mouvements", label: "Mouvements", icone: "🔄" },
-      { href: "/stock/reconciliation", label: "Réconciliation", icone: "⚖️" },
+      { href: "/stock/catalogue", label: "Catalogue", icone: "marmite" },
+      { href: "/stock/entree", label: "Liste d'achat", icone: "panier" },
+      { href: "/stock/mouvements", label: "Mouvements", icone: "echanges" },
+      { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },
     ],
   },
   {
     titre: "Restaurant",
     items: [
-      { href: "/stock/restaurant", label: "Stock restaurant", icone: "🍽️" },
-      { href: "/stock/legumes", label: "Achats légumes frais", icone: "🥬" },
-      { href: "/stock/journalier", label: "Conso. journalière", icone: "📆" },
+      { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts" },
+      { href: "/stock/fiches", label: "Fiches techniques", icone: "document" },
+      { href: "/stock/legumes", label: "Achats légumes frais", icone: "feuille" },
+      { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours" },
     ],
   },
   {
     titre: "Achats",
     items: [
-      { href: "/stock/commandes", label: "Bons de commande", icone: "📋" },
-      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "🚚" },
-      { href: "/stock/factures", label: "Factures", icone: "🧾" },
+      { href: "/stock/commandes", label: "Bons de commande", icone: "presence" },
+      { href: "/stock/fournisseurs", label: "Fournisseurs", icone: "camion" },
+      { href: "/stock/factures", label: "Factures", icone: "recu" },
     ],
   },
   {
     titre: "Configuration",
     items: [
-      { href: "/stock/parametres", label: "Paramètres", icone: "⚙️" },
-      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "👥", adminOnly: true },
+      { href: "/stock/imports", label: "Imports", icone: "importer", adminOnly: true },
+      { href: "/parametres", label: "Paramètres", icone: "parametres", adminOnly: true },
+      { href: "/stock/utilisateurs", label: "Utilisateurs", icone: "employes", adminOnly: true },
     ],
   },
 ];
@@ -57,7 +59,7 @@ export function StockShell({
   userNom,
   userRole,
   maPhoto,
-  doubleAcces,
+  autresEspaces = [],
   badges = {},
   notif,
   children,
@@ -65,7 +67,7 @@ export function StockShell({
   userNom: string;
   userRole: string;
   maPhoto: string | null;
-  doubleAcces: boolean;
+  autresEspaces?: { href: string; icone: string; label: string }[];
   badges?: Record<string, number>;
   notif: React.ComponentProps<typeof NotificationBell> | null;
   children: React.ReactNode;
@@ -115,11 +117,11 @@ export function StockShell({
                     key={item.href}
                     href={item.href}
                     onClick={fermer}
-                    className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm lg:py-1.5 ${
+                    className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:py-1.5 ${
                       actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
-                    <span aria-hidden className="w-5 shrink-0 text-center text-base leading-none">{item.icone}</span>
+                    <Icone nom={item.icone} className="w-4 shrink-0 text-muted-foreground" />
                     <span className="flex-1">{item.label}</span>
                     {(badges[item.href] ?? 0) > 0 && (
                       <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{badges[item.href]}</span>
@@ -140,19 +142,21 @@ export function StockShell({
               <p className="text-xs text-muted-foreground">{roleLabel}</p>
             </div>
           </div>
-          {doubleAcces && (
-            <Link href="/choix-espace" onClick={fermer} className="mt-1 block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">
-              Changer d&apos;espace
+          {/* Saut DIRECT vers les autres espaces du compte — un clic, sans repasser par le sélecteur. */}
+          {autresEspaces.map((e) => (
+            <Link key={e.href} href={e.href} onClick={fermer} className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring">
+              <Icone nom={e.icone} /> {e.label}
             </Link>
-          )}
+          ))}
           <form action={logout}>
-            <button type="submit" className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground">Déconnexion</button>
+            <button type="submit" className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"><Icone nom="deconnexion" /> Déconnexion</button>
           </form>
         </div>
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
+          <BoutonRetour />
           <button type="button" onClick={() => setOpen(true)} aria-label="Ouvrir le menu" className="rounded-md p-1.5 hover:bg-accent">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
@@ -163,7 +167,8 @@ export function StockShell({
           </div>
         </header>
         {notif && (
-          <div className="hidden justify-end border-b bg-background px-8 py-2 lg:flex">
+          <div className="hidden items-center justify-between border-b bg-background px-8 py-2 lg:flex">
+            <BoutonRetour />
             <NotificationBell {...notif} domaine="STOCK" />
           </div>
         )}

@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 import type { Employee } from "@prisma/client";
+import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
+import type { ParametresPaie } from "@/lib/payroll";
+import { SimulationSalaire, lireValeursSimulation, type ValeursSimulation } from "./simulation-salaire";
 
 function toDateInput(d: Date | string | undefined) {
   if (!d) return "";
@@ -14,14 +17,37 @@ export function EmployeeForm({
   action,
   joursOuvrablesMois,
   postes = [],
+  parametres,
+  impact,
 }: {
   employee?: Employee;
   action: (formData: FormData) => void;
   joursOuvrablesMois: number;
   postes?: string[];
+  /** Fournis (page Nouvel employé) → simulation de bulletin en direct dans un panneau latéral. */
+  parametres?: ParametresPaie;
+  impact?: { netActuel: number; coutActuel: number; effectif: number; periode: string } | null;
 }) {
+  // Simulation en direct : recalculée à chaque frappe à partir des champs du formulaire.
+  const [sim, setSim] = useState<ValeursSimulation>({
+    salaireMensuel: Number(employee?.salaireMensuel ?? 0),
+    categorie: employee?.categorie ?? "BRIGADE",
+    contrat: employee?.contrat ?? "CDD",
+    enfants: employee?.enfants ?? 0,
+    heuresHebdomadaires: Number(employee?.heuresHebdomadaires ?? 48),
+    heuresParJour: Number(employee?.heuresParJour ?? 8),
+    transportJourCDF: Number(employee?.transportJourCDF ?? 0),
+    transportMoisUSD: Number(employee?.transportMoisUSD ?? 0),
+    transportMoisCDF: 0,
+  });
+
   return (
-    <form action={action} className="grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+    <form
+      action={action}
+      onInput={(e) => parametres && setSim(lireValeursSimulation(new FormData(e.currentTarget)))}
+      className="grid max-w-3xl flex-1 grid-cols-1 gap-4 sm:grid-cols-2"
+    >
       <datalist id="postes-existants">
         {postes.map((p) => (
           <option key={p} value={p} />
@@ -54,6 +80,15 @@ export function EmployeeForm({
       <Field label="Poste" name="poste" defaultValue={employee?.poste} required list="postes-existants" />
       <Field label="Secteur" name="secteur" defaultValue={employee?.secteur} required />
 
+      <div className="sm:col-span-2">
+        <Select
+          label="Catégorie professionnelle (Code du travail RDC)"
+          name="categorieProfessionnelle"
+          defaultValue={employee?.categorieProfessionnelle ?? ""}
+          options={[{ value: "", label: "— non définie —" }, ...CATEGORIES_PRO.map((c) => ({ value: c.value, label: c.label }))]}
+        />
+      </div>
+
       <Select
         label="Catégorie"
         name="categorie"
@@ -78,6 +113,7 @@ export function EmployeeForm({
         heuresHebdoInit={employee?.heuresHebdomadaires?.toString() ?? "48"}
         heuresParJourInit={employee?.heuresParJour?.toString() ?? "8"}
         joursOuvrablesMois={joursOuvrablesMois}
+        salaireEstNet={parametres?.salairesSaisisEnNet ?? false}
       />
       <Field
         label="ID pointeuse IVMS (optionnel)"
@@ -127,7 +163,18 @@ export function EmployeeForm({
         type="number"
         defaultValue={employee?.enfants?.toString() ?? "0"}
       />
-      <Field label="Contrat" name="contrat" defaultValue={employee?.contrat ?? "CDD"} required />
+      <Select
+        label="Contrat"
+        name="contrat"
+        defaultValue={employee?.contrat ?? "CDD"}
+        options={[
+          { value: "CDD", label: "CDD" },
+          { value: "CDI", label: "CDI" },
+          { value: "STAGE", label: "Stage (indemnité, sans cotisations ni congés)" },
+          { value: "JOURNALIER", label: "Journalier" },
+          { value: "INTERIM", label: "Intérim (payé par l'agence — hors paie)" },
+        ]}
+      />
 
       <Field
         label="Date d'embauche"
@@ -172,6 +219,12 @@ export function EmployeeForm({
         </button>
       </div>
     </form>
+    {parametres && (
+      <div className="w-full shrink-0 lg:w-80">
+        <SimulationSalaire valeurs={sim} parametres={parametres} impact={impact ?? null} />
+      </div>
+    )}
+    </div>
   );
 }
 
@@ -189,11 +242,15 @@ function SalaireHoraire({
   heuresHebdoInit,
   heuresParJourInit,
   joursOuvrablesMois,
+  salaireEstNet,
 }: {
   salaireMensuelInit: string;
   heuresHebdoInit: string;
   heuresParJourInit: string;
   joursOuvrablesMois: number;
+  /** true si les salaires saisis sont interprétés comme des NETS (flag `salaires_saisis_en_net`) :
+      les libellés le reflètent alors, sinon on garde les libellés historiques (montant = brut). */
+  salaireEstNet: boolean;
 }) {
   const round2 = (n: number) => (Math.round(n * 100) / 100).toString();
   const round4 = (n: number) => (Math.round(n * 10000) / 10000).toString();
@@ -236,7 +293,7 @@ function SalaireHoraire({
   return (
     <>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="salaireMensuel" className="text-sm font-medium">Salaire mensuel $</label>
+        <label htmlFor="salaireMensuel" className="text-sm font-medium">{salaireEstNet ? "Salaire NET mensuel $" : "Salaire mensuel $"}</label>
         <input id="salaireMensuel" name="salaireMensuel" type="number" step="0.01" required value={mensuel} onChange={(e) => onMensuel(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -248,7 +305,7 @@ function SalaireHoraire({
         <input id="heuresMois" type="number" step="1" value={heuresMois} onChange={(e) => onHeuresMois(e.target.value)} className={champCls} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="tauxHoraire" className="text-sm font-medium">Taux horaire $/h (modifiable)</label>
+        <label htmlFor="tauxHoraire" className="text-sm font-medium">{salaireEstNet ? "Taux horaire NET $/h (modifiable)" : "Taux horaire $/h (modifiable)"}</label>
         <input id="tauxHoraire" type="number" step="0.0001" value={taux} onChange={(e) => onTaux(e.target.value)} className={champCls} />
       </div>
       <Field label="Heures / jour (seuil heures supp.)" name="heuresParJour" type="number" step="any" min="0" inputMode="decimal" defaultValue={heuresParJourInit} />
@@ -256,6 +313,15 @@ function SalaireHoraire({
         Heures/mois = heures/semaine × 52/12 (≈ 4,33 semaines). Taux horaire = salaire mensuel ÷
         heures/mois. « Heures/jour » sert de seuil quotidien d&apos;heures supplémentaires. Enregistrés :
         salaire mensuel, heures/semaine, heures/jour.
+        {salaireEstNet && (
+          <>
+            <br />
+            <b>Salaire NET</b> : le montant saisi ici est le NET réellement versé au salarié (à
+            valider par un comptable) — le moteur de paie reconstitue automatiquement le brut de base
+            (CNSS + IPR à sa charge) pour produire le bulletin. Le taux horaire ci-dessus est donc
+            lui aussi un taux NET, dérivé du même montant.
+          </>
+        )}
       </p>
     </>
   );

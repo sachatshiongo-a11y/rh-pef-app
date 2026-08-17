@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { creerAchatsLegumes, supprimerAchatLegume } from "./actions";
 import { LEGUMES } from "./legumes-data";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
+import { estErreur } from "@/lib/action-lisible";
 
 type Ligne = { legume: string; unite: string; quantite: string; montantCDF: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -27,8 +28,9 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
   const submit = (fd: FormData) => {
     setMsg(null);
     start(async () => {
-      try { await creerAchatsLegumes(fd); setMsg({ ok: true, t: "Achats enregistrés." }); setLignes([vide(), vide(), vide()]); setCle((c) => c + 1); }
-      catch (e) { setMsg({ ok: false, t: e instanceof Error ? e.message : "Erreur." }); }
+      const r = await creerAchatsLegumes(fd);
+      if (estErreur(r)) { setMsg({ ok: false, t: r.erreur }); return; }
+      setMsg({ ok: true, t: "Achats enregistrés." }); setLignes([vide(), vide(), vide()]); setCle((c) => c + 1);
     });
   };
 
@@ -68,7 +70,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
         <div className="text-right text-sm">
           <span className="text-muted-foreground">Total : </span>
           <span className="font-semibold">{totalCDF.toLocaleString("fr-FR")} CDF</span>
-          <span className="text-muted-foreground"> ≈ {totalUSD.toFixed(2)} $</span>
+          <span className="text-muted-foreground"> ≈ {totalUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</span>
         </div>
         <div className="flex items-center gap-2">
           <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
@@ -82,6 +84,6 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
 export function SupprimerAchatBtn({ id }: { id: string }) {
   const [isPending, start] = useTransition();
   return (
-    <button onClick={() => { if (confirm("Supprimer cette ligne ?")) start(() => supprimerAchatLegume(id)); }} disabled={isPending} className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50">✕</button>
+    <button onClick={() => { if (confirm("Supprimer cette ligne ?")) start(async () => { await supprimerAchatLegume(id); }); }} disabled={isPending} className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50">✕</button>
   );
 }

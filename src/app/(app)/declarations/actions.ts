@@ -6,6 +6,7 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import type { StatutDeclaration, TypeTaxe } from "@prisma/client";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 /**
  * Marque une déclaration comme DÉCLARÉE ou PAYÉE (directeur uniquement).
@@ -17,41 +18,44 @@ export async function marquerDeclaration(
   annee: number,
   statut: StatutDeclaration
 ) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible("/declarations", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  const bordereau = await calculerDeclarationsMois(mois, annee);
-  if (!bordereau) throw new Error("Aucune paie calculée pour ce mois.");
-  const ligne = bordereau.lignes.find((l) => l.type === type);
-  if (!ligne) throw new Error(`Taxe inconnue : ${type}`);
+    const bordereau = await calculerDeclarationsMois(mois, annee);
+    if (!bordereau) throw new Error("Aucune paie calculée pour ce mois.");
+    const ligne = bordereau.lignes.find((l) => l.type === type);
+    if (!ligne) throw new Error(`Taxe inconnue : ${type}`);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.declarationTaxe.upsert({
-      where: { type_mois_annee: { type, mois, annee } },
-      update: { statut, marqueParId: user.id, dateMarquage: new Date() },
-      create: {
-        type,
-        mois,
-        annee,
-        montantUSD: ligne.montantUSD,
-        montantCDF: ligne.montantCDF,
-        echeance: ligne.echeance,
-        statut,
-        marqueParId: user.id,
-        dateMarquage: new Date(),
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.declarationTaxe.upsert({
+        where: { type_mois_annee: { type, mois, annee } },
+        update: { statut, marqueParId: user.id, dateMarquage: new Date() },
+        create: {
+          type,
+          mois,
+          annee,
+          montantUSD: ligne.montantUSD,
+          montantCDF: ligne.montantCDF,
+          echeance: ligne.echeance,
+          statut,
+          marqueParId: user.id,
+          dateMarquage: new Date(),
+        },
+      });
+      await journaliser(tx, {
+        entite: "DeclarationTaxe",
+        entiteId: `${type}-${annee}-${mois}`,
+        champ: "statut",
+        nouvelleValeur: statut,
+        userId: user.id,
+      });
     });
-    await journaliser(tx, {
-      entite: "DeclarationTaxe",
-      entiteId: `${type}-${annee}-${mois}`,
-      champ: "statut",
-      nouvelleValeur: statut,
-      userId: user.id,
-    });
+
+    revalidatePath("/declarations");
+    revalidatePath("/accueil");
+
   });
-
-  revalidatePath("/declarations");
-  revalidatePath("/dashboard");
 }
 
 /** Variante appelable depuis un <form> (server component) : lit les champs du FormData. */

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
@@ -16,6 +17,7 @@ export default async function ArchiveDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
+      <FilAriane segments={[{ label: "Archives", href: "/stock/archives" }, { label: `Comptage du ${new Date(session.date).toLocaleDateString("fr-FR")}` }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Comptage du {new Date(session.date).toLocaleDateString("fr-FR")}</h1>
         <Link href="/stock/archives" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>

@@ -25,7 +25,7 @@ const COULEUR_STATUT: Record<StatutDeclaration, string> = {
 export default async function DeclarationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mois?: string; annee?: string }>;
+  searchParams: Promise<{ mois?: string; annee?: string; erreur?: string }>;
 }) {
   const user = await verifySession();
   const estAdmin = user.role === "ADMIN";
@@ -55,6 +55,7 @@ export default async function DeclarationsPage({
 
   return (
     <div>
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Déclarations</h1>

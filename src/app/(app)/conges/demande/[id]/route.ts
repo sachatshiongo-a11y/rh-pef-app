@@ -1,10 +1,10 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
-import { calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
+import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
-import { chargerTauxParTypeConge } from "@/lib/conges";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 export async function GET(
   _request: Request,
@@ -26,30 +26,29 @@ export async function GET(
   const mois = config?.moisCourant ?? new Date().getMonth() + 1;
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
 
-  const ancienneteMois =
-    (new Date(annee, mois - 1, 1).getFullYear() -
-      new Date(demande.employee.dateEmbauche).getFullYear()) *
-      12 +
-    (new Date(annee, mois - 1, 1).getMonth() - new Date(demande.employee.dateEmbauche).getMonth());
+  const ancienneteMois = ancienneteEnMois(new Date(demande.employee.dateEmbauche), new Date(annee, mois - 1, 1));
   const parametres = await chargerParametresPaie();
-  const congesAcquis = calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
+  const congesAcquis = typeSansConges(demande.employee.contrat) ? 0 : calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
 
-  const approuvees = await prisma.leaveRequest.findMany({
-    where: {
-      employeeId: demande.employeeId,
-      statut: "APPROUVE",
-      dateDebut: { gte: debutAnnee },
-    },
-  });
-  const tauxParType = await chargerTauxParTypeConge();
-  // Seuls les congés DÉDUCTIBLES (annuels payés) entament le solde ; les congés spéciaux
-  // (maternité, paternité, maladie, accident…) et les congés sans solde n'y touchent pas.
+  const [approuvees, tauxParType] = await Promise.all([
+    prisma.leaveRequest.findMany({
+      where: {
+        employeeId: demande.employeeId,
+        statut: "APPROUVE",
+        dateDebut: { gte: debutAnnee },
+      },
+    }),
+    chargerTauxParTypeConge(),
+  ]);
+  // Seuls les congés DÉDUCTIBLES (payés, hors congés spéciaux) entament le solde ; les congés
+  // spéciaux (maternité, paternité, maladie, accident…) et les congés sans solde (tauxPct = 0)
+  // n'y touchent pas — même logique que partout ailleurs.
   const congesPris = approuvees
     .filter((l) => congeDeductibleDuSolde(l.type, tauxParType.get(l.type)))
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     DemandeCongeDocument({
       employee: demande.employee,
       demande,

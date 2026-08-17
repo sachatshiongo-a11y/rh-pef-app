@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 
@@ -12,7 +13,7 @@ function intOuNull(v: FormDataEntryValue | null): number | null {
 }
 
 /** Crée un type de congé/absence paramétrable. joursPayes/tauxPct vides = « À VALIDER ». */
-export async function creerTypeConge(formData: FormData) {
+export const creerTypeConge = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const nom = String(formData.get("nom") ?? "").trim();
@@ -28,10 +29,10 @@ export async function creerTypeConge(formData: FormData) {
   });
   revalidatePath("/parametres");
   revalidatePath("/conges");
-}
+});
 
 /** Modifie un type de congé (nom, jours payés, taux). */
-export async function modifierTypeConge(id: string, formData: FormData) {
+export const modifierTypeConge = actionLisible(async (id: string, formData: FormData) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const nom = String(formData.get("nom") ?? "").trim();
@@ -46,20 +47,20 @@ export async function modifierTypeConge(id: string, formData: FormData) {
   });
   revalidatePath("/parametres");
   revalidatePath("/conges");
-}
+});
 
 /** Active / désactive un type (un type inactif n'apparaît plus dans le menu des congés). */
-export async function basculerTypeConge(id: string) {
+export const basculerTypeConge = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const t = await prisma.typeConge.findUniqueOrThrow({ where: { id } });
   await prisma.typeConge.update({ where: { id }, data: { actif: !t.actif } });
   revalidatePath("/parametres");
   revalidatePath("/conges");
-}
+});
 
 /** Supprime un type non système (les types système ne sont pas supprimables). */
-export async function supprimerTypeConge(id: string) {
+export const supprimerTypeConge = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const t = await prisma.typeConge.findUniqueOrThrow({ where: { id } });
@@ -67,4 +68,4 @@ export async function supprimerTypeConge(id: string) {
   await prisma.typeConge.delete({ where: { id } });
   revalidatePath("/parametres");
   revalidatePath("/conges");
-}
+});

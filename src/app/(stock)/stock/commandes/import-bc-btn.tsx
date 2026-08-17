@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { importerBonsCommandePDF } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 
-type Res = Awaited<ReturnType<typeof importerBonsCommandePDF>>;
+type Res = Exclude<Awaited<ReturnType<typeof importerBonsCommandePDF>>, { erreur: string }>;
 
 export function ImportBonsCommandeBtn() {
   const [ouvert, setOuvert] = useState(false);
@@ -14,8 +15,9 @@ export function ImportBonsCommandeBtn() {
   const envoyer = (fd: FormData) => {
     setRes(null); setErreur(null);
     start(async () => {
-      try { setRes(await importerBonsCommandePDF(fd)); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur pendant l'import."); }
+      const r = await importerBonsCommandePDF(fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setRes(r);
     });
   };
 

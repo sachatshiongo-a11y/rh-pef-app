@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getJwksKeys } from "@/lib/supabase/jwks";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/mot-de-passe-oublie", "/reinitialiser"];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -48,6 +48,16 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/entree";
     return NextResponse.redirect(url);
+  }
+
+  // Mémorise le dernier espace visité (les accueils d'espace sont les seuls points d'entrée
+  // depuis /choix-espace) — le sélecteur d'espace met ensuite ce choix en avant.
+  if (estAuthentifie) {
+    const p = request.nextUrl.pathname;
+    const espace = p === "/stock" || p.startsWith("/stock/") ? "stock" : p === "/espace" || p.startsWith("/espace/") ? "salarie" : p === "/accueil" ? "rh" : null;
+    if (espace && request.cookies.get("dernier-espace")?.value !== espace) {
+      response.cookies.set("dernier-espace", espace, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
+    }
   }
 
   return response;

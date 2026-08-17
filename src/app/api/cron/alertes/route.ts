@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
     select: { id: true, email: true },
   });
 
-  const base = "https://rh.patesenfolie.cd";
+  // Domaine public de l'app (liens des rappels). Configurable via env ; par défaut le domaine actuel.
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://gestion.patesenfolie.cd";
   const urgents = aEnvoyer.filter((a) => a.niveau === "urgent");
   const warnings = aEnvoyer.filter((a) => a.niveau === "warning");
   const lignes = (list: typeof aEnvoyer) =>
@@ -60,11 +61,11 @@ export async function GET(request: NextRequest) {
   await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
-      `Pâtes en Folie — Gestion · ${aEnvoyer.length} rappel(s) du jour`,
+      `Pâtes en Folie · ${aEnvoyer.length} rappel(s) du jour`,
       corps,
     ),
     envoyerPush(admins.map((a) => a.id), {
-      title: `Pâtes en Folie — Gestion · ${aEnvoyer.length} rappel(s)`,
+      title: `Pâtes en Folie · ${aEnvoyer.length} rappel(s)`,
       body: urgents.length
         ? `${urgents.length} urgent(s) · ${warnings.length} à venir`
         : `${warnings.length} échéance(s) à venir`,

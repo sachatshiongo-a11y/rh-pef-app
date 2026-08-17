@@ -1,0 +1,46 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GOLDEN — brigade de référence, semaine du 6 juillet 2026 > produit un planning stable et explicable 1`] = `
+[
+  "2026-07-06 | caiss-1 | caisse",
+  "2026-07-06 | chef-1 | matin-cuisine",
+  "2026-07-06 | cuis-1 | matin-cuisine",
+  "2026-07-06 | cuis-2 | matin-cuisine",
+  "2026-07-06 | serv-1 | matin-salle",
+  "2026-07-07 | caiss-1 | caisse",
+  "2026-07-07 | chef-1 | matin-cuisine",
+  "2026-07-07 | cuis-1 | matin-cuisine",
+  "2026-07-07 | cuis-2 | matin-cuisine",
+  "2026-07-07 | serv-1 | matin-salle",
+  "2026-07-08 | caiss-1 | caisse",
+  "2026-07-08 | chef-1 | matin-cuisine",
+  "2026-07-08 | cuis-1 | matin-cuisine",
+  "2026-07-08 | serv-1 | matin-salle",
+  "2026-07-09 | caiss-1 | caisse",
+  "2026-07-09 | chef-1 | matin-cuisine",
+  "2026-07-09 | cuis-1 | matin-cuisine",
+  "2026-07-09 | serv-1 | matin-salle",
+  "2026-07-10 | caiss-1 | caisse",
+  "2026-07-10 | chef-1 | matin-cuisine",
+  "2026-07-10 | cuis-1 | matin-cuisine",
+  "2026-07-10 | cuis-2 | matin-cuisine",
+  "2026-07-10 | serv-1 | matin-salle",
+  "2026-07-11 | caiss-1 | caisse",
+  "2026-07-11 | chef-1 | matin-cuisine",
+  "2026-07-11 | cuis-1 | matin-cuisine",
+  "2026-07-11 | cuis-2 | matin-cuisine",
+  "2026-07-11 | serv-1 | matin-salle",
+]
+`;
+
+exports[`GOLDEN — brigade de référence, semaine du 6 juillet 2026 > produit un planning stable et explicable 2`] = `
+{
+  "crees": 28,
+  "depassements": [],
+  "sansShiftPoste": [],
+  "sousHeures": [
+    "cuis-2",
+  ],
+  "trous": [],
+}
+`;

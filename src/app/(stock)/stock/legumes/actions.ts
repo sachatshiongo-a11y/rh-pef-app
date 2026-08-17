@@ -1,35 +1,25 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
+import { dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 
-/** Supprime TOUS les achats de légumes (Direction uniquement). Sans impact stock (journal). */
-export async function supprimerTousAchatsLegumes() {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-  const { count } = await prisma.achatLegume.deleteMany({});
-  await journaliser(prisma, { entite: "AchatLegume", entiteId: "tous", champ: "suppression groupée", nouvelleValeur: `${count} achat(s)`, userId: user.id });
-  revalidatePath("/stock/legumes");
-}
-
-const dec = (v: FormDataEntryValue | null): number => {
-  const n = Number(String(v ?? "").replace(",", ".").trim());
-  return Number.isFinite(n) ? n : 0;
-};
 
 /**
  * Enregistre des achats de légumes frais (multi-lignes) : montant saisi en CDF, converti en USD
  * au taux partagé (Config). Journal daté — ne touche pas au stock permanent.
  */
-export async function creerAchatsLegumes(formData: FormData) {
+export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
 
   const dateStr = String(formData.get("date") ?? "").trim();
   const date = dateStr ? new Date(dateStr) : new Date();
+  await exigerPeriodeOuverte(date);
   const noms = formData.getAll("legume").map((v) => String(v).trim());
   const unites = formData.getAll("unite").map((v) => String(v).trim());
   const qtes = formData.getAll("quantite").map(dec);
@@ -54,15 +44,17 @@ export async function creerAchatsLegumes(formData: FormData) {
   });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: `${lignes.length} ligne(s)`, champ: "achat legumes", nouvelleValeur: date.toISOString().slice(0, 10), userId: user.id });
   revalidatePath("/stock/legumes");
-}
+});
 
 /** Supprime une ligne d'achat de légumes. */
-export async function supprimerAchatLegume(id: string) {
+export const supprimerAchatLegume = actionLisible(async (id: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
   const a = await prisma.achatLegume.findUniqueOrThrow({ where: { id } });
+  await exigerPeriodeOuverte(new Date(a.date));
   await prisma.achatLegume.delete({ where: { id } });
   await journaliser(prisma, { entite: "AchatLegume", entiteId: id, champ: "suppression", ancienneValeur: `${a.legume} ${a.quantite}`, userId: user.id });
   revalidatePath("/stock/legumes");
-}
+});
+

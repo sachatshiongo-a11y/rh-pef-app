@@ -1,6 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
+import { dec } from "@/lib/nombre";
+import { cleAlnum as normNom } from "@/lib/texte";
+import { MOIS_FR } from "@/lib/dates-fr";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
@@ -10,9 +14,7 @@ import { creerNotification, supprimerNotificationsPour } from "@/lib/notificatio
 import { usd } from "@/lib/stock";
 import { extraireBonCommandePDF, type LigneBonCommande } from "@/lib/import-bc-pdf";
 
-const MOIS_FR = ["JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN", "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"];
 
-const normNom = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const slugBC = (s: string) => normNom(s).slice(0, 40) || "bc";
 
 async function televerserBC(file: File, dest: string): Promise<string> {
@@ -24,14 +26,14 @@ async function televerserBC(file: File, dest: string): Promise<string> {
     body: Buffer.from(await file.arrayBuffer()),
   });
   if (!res.ok) throw new Error(`téléversement PDF (${res.status})`);
-  return `${base}/storage/v1/object/public/employes/${dest}`;
+  return `/fichiers/${dest}`; // bucket privé — servi derrière session
 }
 
 /**
  * Importe des bons de commande depuis leurs PDF (texte). Direction uniquement. Chaque BC est créé
  * avec son PDF joint (source de vérité) ; les numéros en collision sont suffixés, les doublons ignorés.
  */
-export async function importerBonsCommandePDF(formData: FormData): Promise<{ importes: number; ignores: number; fournisseursCrees: string[]; erreurs: string[] }> {
+export const importerBonsCommandePDF = actionLisible(async (formData: FormData): Promise<{ importes: number; ignores: number; fournisseursCrees: string[]; erreurs: string[] }> => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
@@ -100,11 +102,7 @@ export async function importerBonsCommandePDF(formData: FormData): Promise<{ imp
   if (importes > 0) await journaliser(prisma, { entite: "BonDeCommande", entiteId: "import", champ: "import PDF", nouvelleValeur: `${importes} BC`, userId: user.id });
   revalidatePath("/stock/commandes");
   return { importes, ignores, fournisseursCrees, erreurs };
-}
-const dec = (v: FormDataEntryValue | undefined): number => {
-  const n = Number(String(v ?? "").replace(",", ".").trim());
-  return Number.isFinite(n) ? n : 0;
-};
+});
 const STATUTS = ["BROUILLON", "ENVOYE", "RECU_PARTIEL", "RECU", "ANNULE"] as const;
 type Statut = (typeof STATUTS)[number];
 
@@ -123,7 +121,7 @@ async function garde() {
 }
 
 /** Crée un bon de commande avec numérotation NNN/PEF/MOIS/AA (séquence remise à zéro chaque année). */
-export async function creerBonCommande(formData: FormData) {
+export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
 
@@ -157,13 +155,19 @@ export async function creerBonCommande(formData: FormData) {
   const four = fournisseurId ? await prisma.fournisseur.findUnique({ where: { id: fournisseurId }, select: { nom: true } }) : null;
   const tag = four ? tagFournisseur(four.nom) : "";
 
+  // La Direction n'a pas à valider ses propres bons : créé directement VALIDÉ (prêt à exporter/envoyer),
+  // sauf si elle coche « Enregistrer comme brouillon ». Le circuit brouillon → validation ne
+  // s'applique qu'aux autres rôles (ex. responsable stock).
+  const autoValide = user.role === "ADMIN" && formData.get("enregistrerBrouillon") == null;
+
   const bc = await prisma.$transaction(async (tx) => {
     const dernier = await tx.bonDeCommande.aggregate({ where: { annee }, _max: { sequence: true } });
     const sequence = (dernier._max.sequence ?? 0) + 1;
-    const numero = `${String(sequence).padStart(3, "0")}/PEF/${tag ? `${tag}/` : ""}${MOIS_FR[mois - 1]}/${String(annee).slice(-2)}`;
+    const numero = `${String(sequence).padStart(3, "0")}/PEF/${tag ? `${tag}/` : ""}${MOIS_FR[mois - 1].toUpperCase()}/${String(annee).slice(-2)}`;
     return tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,
+        ...(autoValide ? { statut: "VALIDE" as const } : {}),
         fournisseurId,
         delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
@@ -189,16 +193,21 @@ export async function creerBonCommande(formData: FormData) {
 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bc.id, champ: "creation", nouvelleValeur: bc.numero, userId: user.id });
 
-  // Un bon de commande vient d'être émis (à valider) : cloche + push/e-mail à la Direction.
-  await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
+  // Cloche TOUJOURS émise (choix client : trace visible de chaque bon, même auto-validé) :
+  // « à valider » quand un autre rôle l'émet, « créé et validé » quand la Direction auto-valide.
+  if (autoValide) {
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} créé et validé (${usd(totalUSD)})`, lien: `/stock/commandes/${bc.id}`, refId: bc.id });
+  } else if (user.role !== "ADMIN") {
+    await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `Nouveau bon de commande ${bc.numero}${four ? ` — ${four.nom}` : ""} à valider (${usd(totalUSD)})`, lien: "/stock/a-valider", refId: bc.id });
+  }
 
   revalidatePath("/stock/commandes");
   revalidatePath("/stock/a-valider");
   redirect(`/stock/commandes/${bc.id}`);
-}
+});
 
 /** Modifie un bon de commande encore à l'état BROUILLON (remplace ses lignes et son en-tête). */
-export async function modifierBonCommande(id: string, formData: FormData) {
+export const modifierBonCommande = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true } });
   if (bc.statut !== "BROUILLON") throw new Error("Seul un brouillon peut être modifié.");
@@ -245,16 +254,7 @@ export async function modifierBonCommande(id: string, formData: FormData) {
   revalidatePath(`/stock/commandes/${id}`);
   revalidatePath("/stock/commandes");
   redirect(`/stock/commandes/${id}`);
-}
-
-/** Supprime TOUS les bons de commande (Direction uniquement). Lignes en cascade, factures détachées. */
-export async function supprimerTousBonsCommande() {
-  const user = await garde();
-  requireRole(user, ["ADMIN"]);
-  const { count } = await prisma.bonDeCommande.deleteMany({});
-  await journaliser(prisma, { entite: "BonDeCommande", entiteId: "tous", champ: "suppression groupée", nouvelleValeur: `${count} BC`, userId: user.id });
-  revalidatePath("/stock/commandes");
-}
+});
 
 /** Valide un bon de commande (brouillon → validé). Condition pour l'export/l'envoi. */
 export async function validerBonCommande(id: string, _formData: FormData) {
@@ -267,7 +267,7 @@ export async function validerBonCommande(id: string, _formData: FormData) {
 
   // La demande « à valider » est traitée → sa notification disparaît.
   await supprimerNotificationsPour(id);
-  // Notifie l'auteur du BC que sa demande est validée (cloche pour tous + push à l'auteur).
+  // Cloche « validé » TOUJOURS émise (choix client : trace visible même en auto-validation) + push à l'auteur.
   await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${bc.numero} validé`, lien: `/stock/commandes/${id}`, refId: id } });
   if (bc.creeParId) await envoyerPush([bc.creeParId], { title: "Bon de commande validé", body: `${bc.numero} a été validé.`, url: `/stock/commandes/${id}`, tag: `bc-val-${id}` });
 
@@ -305,7 +305,7 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
  * en stock se fait uniquement à l'enregistrement de la FACTURE fournisseur (articles + quantités)
  * ou via la liste d'achat. La réception et l'entrée en stock sont volontairement différenciées.
  */
-export async function receptionnerBonCommande(bcId: string, formData: FormData) {
+export const receptionnerBonCommande = actionLisible(async (bcId: string, formData: FormData) => {
   const user = await garde();
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, include: { lignes: true } });
 
@@ -327,4 +327,38 @@ export async function receptionnerBonCommande(bcId: string, formData: FormData) 
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");
-}
+});
+
+/** Valide plusieurs bons de commande à l'état BROUILLON d'un coup (Direction). */
+export const validerBonsEnLot = actionLisible(async (ids: string[]) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  const bcs = await prisma.bonDeCommande.findMany({ where: { id: { in: uniq }, statut: "BROUILLON" }, select: { id: true, numero: true, creeParId: true } });
+  if (bcs.length === 0) return;
+  await prisma.bonDeCommande.updateMany({ where: { id: { in: bcs.map((b) => b.id) } }, data: { statut: "VALIDE" } });
+  for (const b of bcs) {
+    await supprimerNotificationsPour(b.id);
+    // Cloche « validé » TOUJOURS émise (choix client : trace visible même en auto-validation).
+    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Bon de commande ${b.numero} validé`, lien: `/stock/commandes/${b.id}`, refId: b.id } });
+  }
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: "lot", champ: "statut", nouvelleValeur: `${bcs.length} validé(s)`, userId: user.id });
+  revalidatePath("/stock/commandes");
+  revalidatePath("/stock/a-valider");
+  revalidatePath("/stock");
+});
+
+/** Supprime plusieurs bons de commande d'un coup (Direction). */
+export const supprimerBonsEnLot = actionLisible(async (ids: string[]) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]);
+  const uniq = [...new Set(ids.map(String))].filter(Boolean);
+  if (uniq.length === 0) return;
+  for (const id of uniq) await supprimerNotificationsPour(id);
+  const n = await prisma.bonDeCommande.deleteMany({ where: { id: { in: uniq } } });
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: "lot", champ: "suppression", nouvelleValeur: `${n.count} BC`, userId: user.id });
+  revalidatePath("/stock/commandes");
+  revalidatePath("/stock/a-valider");
+  revalidatePath("/stock");
+});

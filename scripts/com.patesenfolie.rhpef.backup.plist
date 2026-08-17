@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sauvegarde quotidienne locale (21h00) de la base RH PEF, plan Supabase Free sans backup natif.
+     Installation :
+       cp scripts/com.patesenfolie.rhpef.backup.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.patesenfolie.rhpef.backup.plist
+     Désactivation :
+       launchctl unload ~/Library/LaunchAgents/com.patesenfolie.rhpef.backup.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.patesenfolie.rhpef.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/sachatshiongo/Projects/rh-pef-app/scripts/backup-local.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>21</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardErrorPath</key><string>/Users/sachatshiongo/Sauvegardes-RH-PEF/launchd.err</string>
+  <key>StandardOutPath</key><string>/Users/sachatshiongo/Sauvegardes-RH-PEF/launchd.out</string>
+</dict>
+</plist>

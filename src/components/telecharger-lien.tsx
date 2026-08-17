@@ -50,12 +50,15 @@ export function TelechargerLien({
       const type = blob.type || "application/octet-stream";
       const file = new File([blob], nom, { type });
 
-      // 1) Mobile : partage natif (n'ouvre pas la webview, pas de piège).
+      // 1) Mobile TACTILE uniquement : partage natif (n'ouvre pas la webview, pas de piège).
+      //    Sur desktop (y compris PWA installée), `canShare` peut renvoyer true mais le partage se
+      //    termine sans rien télécharger → « rien ne se passe ». On réserve donc le partage au tactile.
+      const tactile = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
       const nav = navigator as Navigator & {
         canShare?: (data?: ShareData) => boolean;
         share?: (data?: ShareData) => Promise<void>;
       };
-      if (nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+      if (tactile && nav.canShare && nav.share && nav.canShare({ files: [file] })) {
         try {
           await nav.share({ files: [file], title: nom });
           return;

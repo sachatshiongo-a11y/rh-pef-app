@@ -2,8 +2,9 @@
 
 import { useRef, useState, useTransition } from "react";
 import { importerFacturesExcel } from "./actions";
+import { estErreur } from "@/lib/action-lisible";
 
-type Res = Awaited<ReturnType<typeof importerFacturesExcel>>;
+type Res = Exclude<Awaited<ReturnType<typeof importerFacturesExcel>>, { erreur: string }>;
 
 export function ImportFacturesBtn() {
   const [ouvert, setOuvert] = useState(false);
@@ -15,8 +16,9 @@ export function ImportFacturesBtn() {
   const envoyer = (fd: FormData) => {
     setRes(null); setErreur(null);
     start(async () => {
-      try { setRes(await importerFacturesExcel(fd)); }
-      catch (e) { setErreur(e instanceof Error ? e.message : "Erreur pendant l'import."); }
+      const r = await importerFacturesExcel(fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setRes(r);
     });
   };
 

@@ -8,27 +8,49 @@ import { uploadPhotoEmploye } from "../../photo-actions";
 import { chargerParametresPaie } from "@/lib/config";
 import { chargerPostes } from "@/lib/postes";
 import { Avatar } from "@/components/avatar";
+import { MOIS_FR } from "@/lib/dates-fr";
 
 export default async function ModifierEmployePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ erreur?: string }>;
 }) {
+  const sp = await searchParams;
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const { id } = await params;
-  const [employee, parametres, postes] = await Promise.all([
+  const [employee, parametres, postes, dernierRun] = await Promise.all([
     prisma.employee.findUnique({ where: { id } }),
     chargerParametresPaie(),
     chargerPostes(),
+    // Dernière paie calculée : référence de la simulation (visualiser une augmentation).
+    prisma.payrollRun.findFirst({
+      orderBy: [{ annee: "desc" }, { mois: "desc" }],
+      include: { lignes: { select: { employeeId: true, salNetUSD: true, coutEmployeurUSD: true } } },
+    }),
   ]);
   if (!employee) notFound();
+
+  const ligneEmp = dernierRun?.lignes.find((l) => l.employeeId === id) ?? null;
+  const impact =
+    dernierRun && dernierRun.lignes.length > 0
+      ? {
+          netActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.salNetUSD), 0),
+          coutActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.coutEmployeurUSD), 0),
+          effectif: dernierRun.lignes.length,
+          periode: `${MOIS_FR[dernierRun.mois - 1]} ${dernierRun.annee}`,
+          actuel: ligneEmp ? { net: Number(ligneEmp.salNetUSD), cout: Number(ligneEmp.coutEmployeurUSD) } : null,
+        }
+      : null;
 
   const action = modifierEmploye.bind(null, employee.id);
 
   return (
     <div>
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <Link href={`/employes/${employee.id}`} className="text-sm text-primary underline">
         ← Retour à la fiche
       </Link>
@@ -53,7 +75,14 @@ export default async function ModifierEmployePage({
         </form>
       </div>
 
-      <EmployeeForm employee={employee} action={action} joursOuvrablesMois={parametres.joursOuvrablesMois} postes={postes} />
+      <EmployeeForm
+        employee={employee}
+        action={action}
+        joursOuvrablesMois={parametres.joursOuvrablesMois}
+        postes={postes}
+        parametres={parametres}
+        impact={impact}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { classeurExcel } from "@/lib/export-excel";
 import { DOMAINE_LABEL } from "@/lib/stock";
+import { lignesFicheComptage, ENTETE_FICHE } from "../comptage-data";
 import type { Prisma } from "@prisma/client";
 
 /** Fiche de comptage en Excel téléchargeable (par domaine) — génération instantanée, à imprimer/compter. */
@@ -21,19 +22,11 @@ export async function GET(req: Request) {
   };
   const articles = await prisma.articleStock.findMany({
     where,
-    orderBy: [{ domaine: "asc" }, { categorieId: "asc" }, { designation: "asc" }],
+    orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
     include: { stock: { select: { quantite: true } }, categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } } },
   });
 
-  const lignes = articles.map((a) => [
-    a.designation,
-    a.categorie?.nom ?? "",
-    a.fournisseur?.nom ?? "",
-    a.unite ?? "",
-    a.stock ? Number(a.stock.quantite) : 0,
-    "", // Physique — à remplir à la main
-    "", // Écart — à remplir à la main
-  ]);
+  const { lignes, sectionRows } = lignesFicheComptage(articles, !!domaine);
 
   const label = domaine ? DOMAINE_LABEL[domaine] : "Inventaire";
   const buf = await classeurExcel({
@@ -41,8 +34,9 @@ export async function GET(req: Request) {
     periode: new Date().toLocaleDateString("fr-FR"),
     feuilles: [{
       nom: label.slice(0, 30),
-      entete: ["Désignation", "Catégorie", "Fournisseur", "Unité", "Théorique", "Physique", "Écart"],
+      entete: ENTETE_FICHE,
       lignes,
+      sectionRows,
     }],
   });
 

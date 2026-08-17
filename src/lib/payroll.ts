@@ -42,6 +42,16 @@ export type ParametresPaie = {
   allocFamilialeParEnfantUSD: number;
   joursOuvrablesMois: number;
   droitsCongesAnnuel: number;
+
+  // Interprétation des salaires saisis sur la fiche employé (Employee.salaireMensuel) — 2026-07-22.
+  // false (défaut) = valeur saisie interprétée comme un BRUT (comportement historique, inchangé).
+  // true = valeur saisie interprétée comme un NET cible ; le moteur reconstitue le brut de base via
+  // `reconstituerBrutDepuisNet` avant tout calcul de cotisations/impôt (voir calculerPaieBrigade /
+  // calculerPaieBackoffice). Optionnel (et non `?? false` en dur ici) pour que les paramètres de
+  // test existants (littéraux `ParametresPaie` dans payroll.test.ts / payroll-reference.test.ts, non
+  // mis à jour ici — le testeur s'en charge) restent valides sans le champ ; `undefined` se comporte
+  // comme `false` partout où le flag est consulté.
+  salairesSaisisEnNet?: boolean;
 };
 
 /**
@@ -88,6 +98,64 @@ export function calculerIprDGI(
   return impot;
 }
 
+/**
+ * Net de base obtenu à partir d'un brut G candidat, en appliquant EXACTEMENT les mêmes règles que
+ * `finaliserLignePaie` pour la CNSS salariale et l'IPR — mais sur G seul (pas de transport, pas de
+ * primes, pas d'allocations/frais médicaux/acompte/prêt : ceux-ci s'ajoutent en dehors du salaire de
+ * base reconstitué, voir `reconstituerBrutDepuisNet`). Fonction interne à la dichotomie.
+ */
+function netBaseDepuisBrut(G: number, params: ParametresPaie, personnesACharge: number): number {
+  const taux = params.tauxChangeCDF;
+  const plafondUSD = params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
+  const assietteCnssUSD = plafondUSD === null ? G : Math.min(G, plafondUSD);
+  const cnssSalarieUSD = assietteCnssUSD * params.cnssSalarie;
+  const baseImposableUSD = params.iprBase === 1 ? G : G - cnssSalarieUSD;
+  const iprCDF = calculerIprDGI(baseImposableUSD * taux, params, personnesACharge);
+  const iprUSD = iprCDF / taux;
+  return G - cnssSalarieUSD - iprUSD;
+}
+
+/**
+ * Reconstitue le salaire BRUT de base G tel que `netBaseDepuisBrut(G) === netCibleUSD` (CNSS
+ * salariale + IPR à la charge du salarié, cf. `finaliserLignePaie`) — inverse le moteur pour les
+ * salaires saisis comme des NETS (`params.salairesSaisisEnNet`, voir ce flag et son branchement dans
+ * `calculerPaieBrigade`/`calculerPaieBackoffice`). Périmètre = salaire de base seul ; primes/transport
+ * s'ajoutent par-dessus après reconstitution, pas avant (voir appelants).
+ *
+ * Méthode : dichotomie (bisection). `netBaseDepuisBrut` est strictement croissante et continue en G
+ * (CNSS proportionnelle plafonnée, IPR par tranches marginales croissantes, plancher/plafond IPR
+ * monotones) → une seule racine, la bisection converge sans ambiguïté.
+ *
+ * Convention : renvoie la borne HAUTE de l'intervalle final (`net(hi) ≥ netCibleUSD`), jamais la
+ * basse → on ne SOUS-paie jamais le salarié de quelques centimes par arrondi de la dichotomie.
+ *
+ * À VALIDER PAR UN COMPTABLE (2026-07-22) : pour les très bas salaires proches du plancher IPR
+ * mensuel (`iprPlancherMensuelCDF`, qui s'applique dès que la base imposable est positive, cf.
+ * `calculerIprDGI`), la fonction net(G) présente une discontinuité/à-plat autour du plancher — la
+ * dichotomie converge quand même vers le plus petit G tel que net(G) ≥ cible, ce qui est le
+ * comportement le plus prudent (jamais sous-payer), mais le comptable doit confirmer que cette zone
+ * ne produit pas un écart net anormal pour les bas salaires.
+ */
+export function reconstituerBrutDepuisNet(
+  netCibleUSD: number,
+  params: ParametresPaie,
+  personnesACharge: number
+): number {
+  if (netCibleUSD <= 0) return 0;
+
+  let hi = Math.max(netCibleUSD, 1);
+  while (netBaseDepuisBrut(hi, params, personnesACharge) < netCibleUSD) hi *= 2;
+  let lo = 0;
+
+  for (let i = 0; i < 60 && hi - lo >= 0.005; i++) {
+    const mid = (lo + hi) / 2;
+    if (netBaseDepuisBrut(mid, params, personnesACharge) < netCibleUSD) lo = mid;
+    else hi = mid;
+  }
+
+  return hi;
+}
+
 export type EntreesPaieBrigade = {
   salaireJournalier: number;
   salaireHoraire: number;
@@ -100,6 +168,7 @@ export type EntreesPaieBrigade = {
   fraisMedicauxUSD?: number;
   primesUSD?: number; // primes du mois (gain imposable)
   acompteUSD?: number; // acompte approuvé, déduit du net
+  retenuePretUSD?: number; // échéance de prêt du personnel
 };
 
 export type LignePaie = {
@@ -113,6 +182,7 @@ export type LignePaie = {
   fraisMedicauxUSD: number;
   primesUSD: number; // primes du mois (gain imposable, incluses dans le brut)
   acompteUSD: number; // acompte approuvé, déduit du net
+  retenuePretUSD: number; // échéance de prêt du personnel, déduite du net
   salNetUSD: number;
   salNetCDF: number;
   cnssPatronalUSD: number;
@@ -120,6 +190,11 @@ export type LignePaie = {
   onemUSD: number;
   coutEmployeurUSD: number;
   coutEmployeurCDF: number;
+  // Facteur de reconstitution brut/net (ρ) appliqué au salaire de base quand les salaires sont
+  // saisis en net (1 sinon). Exposé pour que l'appelant (paie-batch) grossisse de façon COHÉRENTE
+  // les composantes d'affichage dérivées du taux (jours payés non travaillés, HS, indemnité congés),
+  // afin que « base × taux = montant » reste vrai ligne à ligne sur le bulletin.
+  facteurReconstitution?: number;
 };
 
 export function calculerPaieBrigade(
@@ -129,27 +204,61 @@ export function calculerPaieBrigade(
   // Base = heures NORMALES au taux horaire (les heures supp/dimanche/férié sont payées à part,
   // en totalité, dans hsValorisee) + jours payés NON travaillés (absences justifiées / congés /
   // fériés non travaillés) valorisés à la journée (100%).
-  const remuneration100 =
+  // Ces montants sont calculés en amont (paie-batch.ts/bulletin-live.ts) à partir de
+  // `employee.salaireMensuel` — donc au NET si `params.salairesSaisisEnNet` est actif (2026-07-22).
+  const remuneration100Net =
     entrees.salaireHoraire * entrees.heuresNormales +
     entrees.salaireJournalier * entrees.joursPayesNonTravailles;
-  const remuneration2_3 = entrees.salaireJournalier * entrees.joursPayes2_3 * (2 / 3);
+  const remuneration2_3Net = entrees.salaireJournalier * entrees.joursPayes2_3 * (2 / 3);
   const primesUSD = entrees.primesUSD ?? 0;
 
-  const salBrutUSD =
-    remuneration100 + remuneration2_3 + entrees.hsValorisee + entrees.transportMoisUSD + primesUSD;
+  // Reconstitution du brut de base (2026-07-22) : les salaires saisis sur la fiche employé sont des
+  // NETS cibles (take-home) ; on reconstitue ici le brut de base G tel que
+  // G − CNSS_salariale(G) − IPR(baseImposable(G)) = netBaseCible, PUIS on recompose remuneration100/
+  // remuneration2_3 et la prime d'heures supp. à partir de G (au lieu des composantes nettes), afin
+  // que `finaliserLignePaie` reçoive le VRAI brut et calcule les cotisations/impôt dessus (jamais sur
+  // le net). Périmètre = salaire de base seul (remuneration100 + remuneration2_3) ; transport et
+  // primes NE sont PAS grossis, ils s'ajoutent tels quels par-dessus (gains déjà exprimés en clair,
+  // hors périmètre de l'inversion). Interrupteur d'INTERPRÉTATION de la donnée d'entrée — appliqué
+  // une seule fois par appel, jamais cumulatif (G n'est jamais réinjecté dans un nouvel appel : il
+  // est toujours recalculé depuis les montants nets fournis par l'appelant, eux-mêmes dérivés de la
+  // valeur stockée en base, inchangée).
+  const netBaseCible = remuneration100Net + remuneration2_3Net;
+  const brutBase = params.salairesSaisisEnNet
+    ? reconstituerBrutDepuisNet(netBaseCible, params, entrees.enfants)
+    : netBaseCible;
+  // Ratio brut/net appliqué UNIFORMÉMENT à remuneration100/remuneration2_3 (préserve leur proportion
+  // relative) et à la prime d'heures supplémentaires (décision client 2026-07-22) : la prime HS est
+  // donc valorisée au taux brut reconstitué, par approximation LINÉAIRE (même ratio que le salaire de
+  // base). Ce n'est qu'une approximation : à cause de la progressivité de l'IPR par tranches, le net
+  // HS réellement perçu n'est pas garanti être EXACTEMENT celui visé — à valider par un comptable,
+  // en particulier pour un salarié dont les heures supp. représentent une part importante du mois
+  // (l'écart théorique reste faible en pratique car HS reste généralement minoritaire face à la base).
+  const rho = netBaseCible > 0 ? brutBase / netBaseCible : 1;
+  const remuneration100 = remuneration100Net * rho;
+  const remuneration2_3 = remuneration2_3Net * rho;
+  const hsValorisee = entrees.hsValorisee * rho;
 
-  return finaliserLignePaie(
-    {
-      remuneration100,
-      remuneration2_3,
-      salBrutUSD,
-      enfants: entrees.enfants,
-      fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
-      primesUSD,
-      acompteUSD: entrees.acompteUSD ?? 0,
-    },
-    params
-  );
+  const salBrutUSD =
+    remuneration100 + remuneration2_3 + hsValorisee + entrees.transportMoisUSD + primesUSD;
+
+  return {
+    ...finaliserLignePaie(
+      {
+        remuneration100,
+        remuneration2_3,
+        salBrutUSD,
+        enfants: entrees.enfants,
+        fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
+        primesUSD,
+        acompteUSD: entrees.acompteUSD ?? 0,
+        retenuePretUSD: entrees.retenuePretUSD ?? 0,
+        transportUSD: entrees.transportMoisUSD,
+      },
+      params
+    ),
+    facteurReconstitution: rho,
+  };
 }
 
 export type EntreesPaieBackoffice = {
@@ -159,6 +268,7 @@ export type EntreesPaieBackoffice = {
   fraisMedicauxUSD?: number;
   primesUSD?: number;
   acompteUSD?: number;
+  retenuePretUSD?: number;
 };
 
 export function calculerPaieBackoffice(
@@ -166,7 +276,15 @@ export function calculerPaieBackoffice(
   params: ParametresPaie
 ): LignePaie {
   const primesUSD = entrees.primesUSD ?? 0;
-  const salBrutUSD = entrees.salaireBaseUSD + entrees.transportUSD + primesUSD;
+  // Reconstitution du brut de base (2026-07-22) — même principe que calculerPaieBrigade : le
+  // salaire mensuel saisi est interprété comme un NET cible si `params.salairesSaisisEnNet`, et le
+  // brut de base est reconstitué avant d'ajouter transport/primes (hors périmètre de l'inversion).
+  // Pas d'heures supplémentaires en back-office (EntreesPaieBackoffice n'en porte pas) : rien d'autre
+  // à grossir ici.
+  const salaireBaseUSD = params.salairesSaisisEnNet
+    ? reconstituerBrutDepuisNet(entrees.salaireBaseUSD, params, entrees.enfants)
+    : entrees.salaireBaseUSD;
+  const salBrutUSD = salaireBaseUSD + entrees.transportUSD + primesUSD;
 
   return finaliserLignePaie(
     {
@@ -177,9 +295,54 @@ export function calculerPaieBackoffice(
       fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
       primesUSD,
       acompteUSD: entrees.acompteUSD ?? 0,
+      retenuePretUSD: entrees.retenuePretUSD ?? 0,
+      transportUSD: entrees.transportUSD,
     },
     params
   );
+}
+
+export type EntreesPaieStage = {
+  indemniteUSD: number; // indemnité de stage forfaitaire (salaireMensuel de la fiche)
+  transportUSD: number;
+  fraisMedicauxUSD?: number;
+  primesUSD?: number;
+  acompteUSD?: number;
+  retenuePretUSD?: number;
+};
+
+/**
+ * Bulletin d'un STAGIAIRE : indemnité forfaitaire + transport, SANS cotisations (CNSS/INPP/ONEM),
+ * SANS impôt (IPR) ni allocations familiales — défaut prudent À VALIDER par un juriste (le régime
+ * fiscal des indemnités de stage n'est pas celui d'un salaire). Pas d'heures supp. ni de congés.
+ */
+export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresPaie): LignePaie {
+  const primesUSD = entrees.primesUSD ?? 0;
+  const acompteUSD = entrees.acompteUSD ?? 0;
+  const retenuePretUSD = entrees.retenuePretUSD ?? 0;
+  const fraisMedicauxUSD = entrees.fraisMedicauxUSD ?? 0;
+  const salBrutUSD = entrees.indemniteUSD + entrees.transportUSD + primesUSD;
+  const salNetUSD = salBrutUSD + fraisMedicauxUSD - acompteUSD - retenuePretUSD;
+  return {
+    remuneration100: entrees.indemniteUSD,
+    remuneration2_3: 0,
+    salBrutUSD,
+    cnssSalarieUSD: 0,
+    netImposableUSD: 0,
+    iprCalculeUSD: 0,
+    allocFamilialeUSD: 0,
+    fraisMedicauxUSD,
+    primesUSD,
+    acompteUSD,
+    retenuePretUSD,
+    salNetUSD,
+    salNetCDF: salNetUSD * params.tauxChangeCDF,
+    cnssPatronalUSD: 0,
+    inppUSD: 0,
+    onemUSD: 0,
+    coutEmployeurUSD: salBrutUSD,
+    coutEmployeurCDF: salBrutUSD * params.tauxChangeCDF,
+  };
 }
 
 function finaliserLignePaie(
@@ -191,24 +354,33 @@ function finaliserLignePaie(
     fraisMedicauxUSD: number;
     primesUSD?: number;
     acompteUSD?: number;
+    retenuePretUSD?: number;
+    transportUSD?: number; // indemnité de transport : exonérée d'IPR et non cotisable (CNSS/INPP/ONEM)
   },
   params: ParametresPaie
 ): LignePaie {
   const primesUSD = base.primesUSD ?? 0;
   const acompteUSD = base.acompteUSD ?? 0;
+  const retenuePretUSD = base.retenuePretUSD ?? 0;
+  const transportUSD = base.transportUSD ?? 0;
   const taux = params.tauxChangeCDF;
+
+  // L'indemnité de transport représente un remboursement de frais : exonérée d'IPR et NON soumise
+  // aux cotisations. On la retire donc de la base cotisable/imposable (elle reste versée au net,
+  // comprise dans le salaire brut).
+  const baseCotisableUSD = Math.max(0, base.salBrutUSD - transportUSD);
 
   // Assiette CNSS, éventuellement plafonnée (plafond exprimé en CDF)
   const plafondUSD =
     params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
   const assietteCnssUSD =
-    plafondUSD === null ? base.salBrutUSD : Math.min(base.salBrutUSD, plafondUSD);
+    plafondUSD === null ? baseCotisableUSD : Math.min(baseCotisableUSD, plafondUSD);
 
   const cnssSalarieUSD = assietteCnssUSD * params.cnssSalarie;
 
-  // Base imposable IPR selon le choix configuré (1 = brut ; 2/3 = brut − CNSS)
+  // Base imposable IPR selon le choix configuré (1 = brut ; 2/3 = brut − CNSS) — hors transport.
   const baseImposableUSD =
-    params.iprBase === 1 ? base.salBrutUSD : base.salBrutUSD - cnssSalarieUSD;
+    params.iprBase === 1 ? baseCotisableUSD : baseCotisableUSD - cnssSalarieUSD;
 
   // IPR calculé en CDF (barème DGI), reconverti en USD pour l'affichage/stockage
   const iprCDF = calculerIprDGI(baseImposableUSD * taux, params, base.enfants);
@@ -224,15 +396,16 @@ function finaliserLignePaie(
     iprCalculeUSD +
     allocFamilialeUSD +
     base.fraisMedicauxUSD -
-    acompteUSD;
+    acompteUSD -
+    retenuePretUSD;
   const salNetCDF = salNetUSD * taux;
 
   // Charges patronales : CNSS (pensions + risques + prestations familiales) + INPP + ONEM
   const cnssPatronalUSD =
     assietteCnssUSD *
     (params.cnssPatronalPensions + params.cnssPatronalRisques + params.cnssPatronalFamille);
-  const inppUSD = base.salBrutUSD * params.inppTaux;
-  const onemUSD = base.salBrutUSD * params.onemTaux;
+  const inppUSD = baseCotisableUSD * params.inppTaux;
+  const onemUSD = baseCotisableUSD * params.onemTaux;
   const coutEmployeurUSD = base.salBrutUSD + cnssPatronalUSD + inppUSD + onemUSD;
   const coutEmployeurCDF = coutEmployeurUSD * taux;
 
@@ -247,6 +420,7 @@ function finaliserLignePaie(
     fraisMedicauxUSD: base.fraisMedicauxUSD,
     primesUSD,
     acompteUSD,
+    retenuePretUSD,
     salNetUSD,
     salNetCDF,
     cnssPatronalUSD,
@@ -400,6 +574,24 @@ export function resumerPresences(codes: CodePresence[]): ResumePresence {
 }
 
 /**
+ * Ancienneté en MOIS RÉVOLUS entre une date d'embauche et une date de référence — compare aussi
+ * le JOUR du mois (pas seulement année/mois) : un mois n'est compté que s'il est effectivement
+ * terminé. Ex. embauche le 15 mars, référence le 1er avril → 0 mois révolu (pas encore le 15 avril).
+ * Sans cette correction, un employé était crédité d'un mois ~4 semaines trop tôt (jusqu'à son
+ * anniversaire mensuel), ce qui gonflait à tort les congés acquis via `calculerCongesAcquis`
+ * (ex. 12 mois → 18 j de congés alors qu'il en manquait encore quelques jours). Toujours ≥ 0.
+ * Helper UNIQUE (remplace 4 implémentations dupliquées et incorrectes) — fiche employé, espace
+ * salarié, PDF de demande de congé, calendrier des absences.
+ */
+export function ancienneteEnMois(dateEmbauche: Date, dateRef: Date): number {
+  let mois =
+    (dateRef.getFullYear() - dateEmbauche.getFullYear()) * 12 +
+    (dateRef.getMonth() - dateEmbauche.getMonth());
+  if (dateRef.getDate() < dateEmbauche.getDate()) mois -= 1;
+  return Math.max(0, mois);
+}
+
+/**
  * Congés acquis : droits annuels complets dès 12 mois d'ancienneté.
  * En-dessous d'un an de service, prorata classique (ancienneté en mois × droits annuels / 12).
  */
@@ -425,14 +617,18 @@ export function tauxPrimeAnciennete(anneesAnciennete: number): number {
 
 // Types de congés qui NE sont PAS déduits du solde de congés annuels (congés spéciaux/protégés) :
 // maternité/paternité, arrivée d'un enfant (naissance), maladie, maladie professionnelle, accident.
+// Reconnaissance par MOTS-CLÉS (insensible à la casse) sur le nom du TypeConge. Non-déductibles quel
+// que soit `tauxPct` (ce sont des congés légaux protégés, payés ou non, jamais décomptés du solde).
 const MOTS_CONGES_NON_DEDUCTIBLES = ["matern", "patern", "naiss", "enfant", "maladie", "accident"];
 
 /**
  * Un congé de ce type doit-il être décompté du solde de congés annuels payés ?
- * Déductible SSI le congé est PAYÉ (`tauxPct` du TypeConge ≠ 0) ET n'est pas un congé légal
- * spécial (maternité/paternité/naissance/maladie/accident, non déductibles quel que soit le taux).
- * Un congé sans solde (`tauxPct === 0`) n'entame donc pas le solde de congés payés acquis.
- * `tauxPct` non fourni ou null (type « À VALIDER ») → traité comme payé par défaut (comportement inchangé).
+ * Règle : déductible SSI le congé est PAYÉ (`tauxPct` du `TypeConge` ≠ 0) ET n'est pas un congé
+ * légal spécial déjà exclu par mots-clés (maternité/paternité/naissance/maladie/accident, qui
+ * restent non-déductibles quel que soit leur taux). Un congé sans solde (`tauxPct === 0`, ex.
+ * « Congé sans solde ») n'entame donc jamais le solde de congés payés acquis.
+ * `tauxPct` non fourni ou `null` (type « À VALIDER ») → traité comme payé par défaut, comportement
+ * inchangé pour ne pas pénaliser les types non encore paramétrés par un comptable.
  */
 export function congeDeductibleDuSolde(type: string, tauxPct?: number | null): boolean {
   const t = type.toLowerCase();
@@ -442,11 +638,13 @@ export function congeDeductibleDuSolde(type: string, tauxPct?: number | null): b
 }
 
 /** Nombre de jours ouvrables (hors dimanche) entre deux dates, bornes incluses. */
-export function calculerJoursOuvrables(debut: Date, fin: Date): number {
+/** Jours ouvrables entre deux dates : dimanches exclus, et jours fériés exclus si fournis. */
+export function calculerJoursOuvrables(debut: Date, fin: Date, joursFeries: Iterable<Date | string> = []): number {
+  const feries = new Set([...joursFeries].map((d) => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10)));
   let count = 0;
   const cur = new Date(debut);
   while (cur <= fin) {
-    if (cur.getUTCDay() !== 0) count++;
+    if (cur.getUTCDay() !== 0 && !feries.has(cur.toISOString().slice(0, 10))) count++;
     cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return count;

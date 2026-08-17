@@ -63,7 +63,7 @@
   --secondary: #f3e9dc;
   --secondary-foreground: #5a3b24;
   --muted: #f6efe4;
-  --muted-foreground: #8a7460;
+  --muted-foreground: #75614e; /* WCAG AA : 5,7:1 sur fond crème (l'ancien #8a7460 était à 4,3) */
   --accent: #e9c68c;
   --accent-foreground: #5a3b24;
   --destructive: oklch(0.55 0.16 27.325);
@@ -88,40 +88,100 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* Mode SOMBRE — palette chaude assortie à la marque (bruns/crème foncés). */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.65 0.13 22.216);
-  --success: oklch(0.62 0.1 155);
-  --success-foreground: oklch(0.145 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #1b140d;
+  --foreground: #f0e6d6;
+  --card: #241b12;
+  --card-foreground: #f0e6d6;
+  --popover: #241b12;
+  --popover-foreground: #f0e6d6;
+  --primary: #d3a367;
+  --primary-foreground: #1b140d;
+  --secondary: #2c2117;
+  --secondary-foreground: #f0e6d6;
+  --muted: #2a2016;
+  --muted-foreground: #b9a488;
+  --accent: #3a2c1b;
+  --accent-foreground: #eac98f;
+  --destructive: oklch(0.7 0.16 27);
+  --success: oklch(0.68 0.12 155);
+  --success-foreground: #1b140d;
+  --border: #3a2c1c;
+  --input: #3a2c1c;
+  --ring: #d9a75c;
+  --chart-1: oklch(0.8 0.12 75);
+  --chart-2: oklch(0.7 0.13 160);
+  --chart-3: oklch(0.72 0.14 25);
+  --chart-4: oklch(0.75 0.12 260);
+  --chart-5: oklch(0.78 0.13 300);
+  --sidebar: #17110b;
+  --sidebar-foreground: #f0e6d6;
+  --sidebar-primary: #d3a367;
+  --sidebar-primary-foreground: #1b140d;
+  --sidebar-accent: #2c2117;
+  --sidebar-accent-foreground: #f0e6d6;
+  --sidebar-border: #3a2c1c;
+  --sidebar-ring: #d9a75c;
+}
+
+/* Mode TAMISÉ — sombre doux, chaud et peu contrasté (ambiance feutrée, reposant). */
+.tamise {
+  --background: #322a20;
+  --foreground: #e9dec9;
+  --card: #3b3125;
+  --card-foreground: #e9dec9;
+  --popover: #3b3125;
+  --popover-foreground: #e9dec9;
+  --primary: #cba06a;
+  --primary-foreground: #2a2318;
+  --secondary: #453929;
+  --secondary-foreground: #e9dec9;
+  --muted: #40352a;
+  --muted-foreground: #c0af92;
+  --accent: #4c3f2d;
+  --accent-foreground: #ecca90;
+  --destructive: oklch(0.68 0.15 27);
+  --success: oklch(0.66 0.11 155);
+  --success-foreground: #2a2318;
+  --border: #4c3f2d;
+  --input: #4c3f2d;
+  --ring: #d9a75c;
+  --chart-1: oklch(0.8 0.12 75);
+  --chart-2: oklch(0.7 0.13 160);
+  --chart-3: oklch(0.72 0.14 25);
+  --chart-4: oklch(0.75 0.12 260);
+  --chart-5: oklch(0.78 0.13 300);
+  --sidebar: #2b241b;
+  --sidebar-foreground: #e9dec9;
+  --sidebar-primary: #cba06a;
+  --sidebar-primary-foreground: #2a2318;
+  --sidebar-accent: #453929;
+  --sidebar-accent-foreground: #e9dec9;
+  --sidebar-border: #4c3f2d;
+  --sidebar-ring: #d9a75c;
+}
+
+/* ---- Palette des graphiques Exploitation (Task Graphiques) ----
+   Couleurs CATÉGORIELLES fixes (identité d'une série = sa couleur ET son libellé/pointillé —
+   jamais la couleur seule, cf. légende obligatoire). Overrides en mode sombre pour rester lisibles
+   sur fond foncé (bleu/orange/aqua éclaircis) ; vert/rouge/doré inchangés (déjà assez lumineux). */
+:root {
+  --chart-vert: #2d7c31;
+  --chart-rouge: #c0392b;
+  --chart-dore: #a0522d;
+  --chart-bleu: #2a78d6;
+  --chart-orange: #eb6834;
+  --chart-aqua: #1baf7a;
+}
+.dark,
+.tamise {
+  --chart-vert: #2d7c31;
+  --chart-rouge: #c0392b;
+  --chart-dore: #a0522d;
+  --chart-bleu: #3987e5;
+  --chart-orange: #d95926;
+  --chart-aqua: #199e70;
 }
 
 @layer base {
@@ -175,3 +235,38 @@ textarea,
     font-size: 16px;
   }
 }
+
+/* ---- Accents pastel adaptés aux modes sombre & tamisé ----
+   Fonds tintés sombres + texte clair, en couleurs solides oklch (pas de color-mix avec
+   transparent, mal pré-calculé par le compilateur CSS). Hors @layer → priorité sur Tailwind,
+   sans toucher les centaines d'usages dans le code. */
+:is(.dark, .tamise) :is(.bg-emerald-50, .bg-emerald-100, .bg-emerald-200) { background-color: oklch(0.4 0.07 162); }
+:is(.dark, .tamise) :is(.text-emerald-600, .text-emerald-700, .text-emerald-800, .text-emerald-900) { color: oklch(0.86 0.13 162); }
+:is(.dark, .tamise) :is(.border-emerald-200, .border-emerald-300) { border-color: oklch(0.52 0.08 162); }
+:is(.dark, .tamise) :is(.bg-green-50, .bg-green-100, .bg-green-200) { background-color: oklch(0.4 0.08 150); }
+:is(.dark, .tamise) :is(.text-green-600, .text-green-700, .text-green-800, .text-green-900) { color: oklch(0.86 0.14 150); }
+:is(.dark, .tamise) :is(.border-green-200, .border-green-300) { border-color: oklch(0.52 0.09 150); }
+:is(.dark, .tamise) :is(.bg-teal-50, .bg-teal-100, .bg-teal-200) { background-color: oklch(0.4 0.06 185); }
+:is(.dark, .tamise) :is(.text-teal-600, .text-teal-700, .text-teal-800, .text-teal-900) { color: oklch(0.86 0.12 185); }
+:is(.dark, .tamise) :is(.border-teal-200, .border-teal-300) { border-color: oklch(0.52 0.07 185); }
+:is(.dark, .tamise) :is(.bg-sky-50, .bg-sky-100, .bg-sky-200) { background-color: oklch(0.4 0.08 233); }
+:is(.dark, .tamise) :is(.text-sky-600, .text-sky-700, .text-sky-800, .text-sky-900) { color: oklch(0.86 0.12 233); }
+:is(.dark, .tamise) :is(.border-sky-200, .border-sky-300) { border-color: oklch(0.52 0.09 233); }
+:is(.dark, .tamise) :is(.bg-blue-50, .bg-blue-100, .bg-blue-200) { background-color: oklch(0.4 0.09 255); }
+:is(.dark, .tamise) :is(.text-blue-600, .text-blue-700, .text-blue-800, .text-blue-900) { color: oklch(0.86 0.13 255); }
+:is(.dark, .tamise) :is(.border-blue-200, .border-blue-300) { border-color: oklch(0.52 0.1 255); }
+:is(.dark, .tamise) :is(.bg-violet-50, .bg-violet-100, .bg-violet-200) { background-color: oklch(0.4 0.1 295); }
+:is(.dark, .tamise) :is(.text-violet-600, .text-violet-700, .text-violet-800, .text-violet-900) { color: oklch(0.86 0.13 295); }
+:is(.dark, .tamise) :is(.border-violet-200, .border-violet-300) { border-color: oklch(0.52 0.11 295); }
+:is(.dark, .tamise) :is(.bg-rose-50, .bg-rose-100, .bg-rose-200) { background-color: oklch(0.4 0.1 12); }
+:is(.dark, .tamise) :is(.text-rose-600, .text-rose-700, .text-rose-800, .text-rose-900) { color: oklch(0.86 0.14 12); }
+:is(.dark, .tamise) :is(.border-rose-200, .border-rose-300) { border-color: oklch(0.52 0.11 12); }
+:is(.dark, .tamise) :is(.bg-red-50, .bg-red-100, .bg-red-200) { background-color: oklch(0.4 0.11 25); }
+:is(.dark, .tamise) :is(.text-red-600, .text-red-700, .text-red-800, .text-red-900) { color: oklch(0.84 0.15 25); }
+:is(.dark, .tamise) :is(.border-red-200, .border-red-300) { border-color: oklch(0.52 0.12 25); }
+:is(.dark, .tamise) :is(.bg-orange-50, .bg-orange-100, .bg-orange-200) { background-color: oklch(0.42 0.09 55); }
+:is(.dark, .tamise) :is(.text-orange-600, .text-orange-700, .text-orange-800, .text-orange-900) { color: oklch(0.86 0.13 55); }
+:is(.dark, .tamise) :is(.border-orange-200, .border-orange-300) { border-color: oklch(0.54 0.1 55); }
+:is(.dark, .tamise) :is(.bg-amber-50, .bg-amber-100, .bg-amber-200) { background-color: oklch(0.43 0.08 75); }
+:is(.dark, .tamise) :is(.text-amber-600, .text-amber-700, .text-amber-800, .text-amber-900) { color: oklch(0.87 0.13 75); }
+:is(.dark, .tamise) :is(.border-amber-200, .border-amber-300) { border-color: oklch(0.55 0.09 75); }

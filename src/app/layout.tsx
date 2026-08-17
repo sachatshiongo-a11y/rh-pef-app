@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import { MajBanner } from "@/components/maj-banner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pâtes en Folie — Gestion",
+  title: "Pâtes en Folie",
+  robots: { index: false, follow: false }, // outil interne : jamais indexé par les moteurs
   description: "Gestion de Pâtes en Folie",
   manifest: "/manifest.json",
   icons: {
@@ -18,7 +20,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "Pâtes en Folie — Gestion",
+    title: "Pâtes en Folie",
     statusBarStyle: "default",
   },
 };
@@ -34,8 +36,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="fr" className="h-full antialiased" suppressHydrationWarning>
+      <body className="min-h-dvh flex flex-col">
+        {children}
+        {/* Propose un rechargement quand un nouveau déploiement est en ligne (PWA). */}
+        <MajBanner version={(process.env.RENDER_GIT_COMMIT ?? "dev").slice(0, 12)} />
+      </body>
     </html>
   );
 }

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
+import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
+import { articlesEnHausse } from "@/lib/stock-prix";
 import { PrintDoc } from "../../_print/print-doc";
 import type { Prisma } from "@prisma/client";
 
@@ -13,22 +14,34 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     ...(domaine ? { domaine } : {}),
     ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
   };
-  const articles = await prisma.articleStock.findMany({
-    where, orderBy: [{ domaine: "asc" }, { designation: "asc" }],
-    include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
-  });
+  const [articles, lignesFacture] = await Promise.all([
+    prisma.articleStock.findMany({
+      where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
+      include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
+    }),
+    prisma.ligneFacture.findMany({
+      where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
+      select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
+    }),
+  ]);
+  const hausses = articlesEnHausse(lignesFacture);
 
   const lignes = articles.map((a) => {
-    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.seuilUrgent, a.stock.stockMinimum) : null;
+    const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
+    const qte = a.stock ? Number(a.stock.quantite) : 0;
+    const prix = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
+    const pct = hausses.get(a.id);
+    // La hausse est signalée directement dans la colonne Prix (ex. « 3.50  ↑+75% »).
+    const prixCell = prix !== null ? `${prix.toFixed(2)}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : (pct !== undefined ? `↑+${Math.round(pct)}%` : "");
     return [
       a.designation,
-      DOMAINE_LABEL[a.domaine] ?? a.domaine,
+      qte,
+      niv ? ALERTE_LABEL[niv] : "",
+      a.stock ? Number(a.stock.stockMinimum) : 0,
       a.categorie?.nom ?? "",
       a.fournisseur?.nom ?? "",
-      a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD).toFixed(2) : "",
-      a.stock ? Number(a.stock.quantite) : 0,
-      a.stock ? Number(a.stock.stockMinimum) : 0,
-      niv ? ALERTE_LABEL[niv] : "",
+      prixCell,
+      prix !== null ? (prix * qte).toFixed(2) : "",
     ] as (string | number)[];
   });
 
@@ -36,8 +49,8 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     <PrintDoc
       titre="Catalogue — Stock & Achats"
       sousTitre={new Date().toLocaleDateString("fr-FR")}
-      entete={["Désignation", "Domaine", "Catégorie", "Fournisseur", "Prix USD", "Stock", "Min", "Alerte"]}
-      aligneDroite={[4, 5, 6]}
+      entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix USD", "Valeur USD"]}
+      aligneDroite={[1, 3, 6, 7]}
       lignes={lignes}
     />
   );

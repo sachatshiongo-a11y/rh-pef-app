@@ -32,9 +32,13 @@ export async function envoyerEmail(destinataires: string[], sujet: string, texte
   const t = getTransporteur();
   const to = destinataires.filter(Boolean);
   if (!t || to.length === 0) return;
+  // Nom d'expéditeur affiché dans les boîtes mail (l'adresse vient de SMTP_FROM/SMTP_USER,
+  // qui peut déjà être au format « Nom <adresse> » — on n'en garde que l'adresse).
+  const brut = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "";
+  const adresse = brut.match(/<([^>]+)>/)?.[1] ?? brut;
   try {
     await t.sendMail({
-      from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+      from: { name: "Gestion Pâtes en Folie", address: adresse },
       to,
       subject: sujet,
       text: texte,

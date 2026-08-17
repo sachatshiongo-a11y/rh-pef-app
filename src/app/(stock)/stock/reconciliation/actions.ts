@@ -1,23 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionLisible } from "@/lib/action-lisible";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
-
-/** Supprime TOUTES les fiches de comptage archivées (Direction uniquement). Sans impact stock. */
-export async function supprimerTousComptages() {
-  const user = await verifySession();
-  requireModule(user, "stock");
-  requireRole(user, ["ADMIN"]);
-  const { count } = await prisma.sessionComptage.deleteMany({});
-  await journaliser(prisma, { entite: "SessionComptage", entiteId: "tous", champ: "suppression groupée", nouvelleValeur: `${count} comptage(s)`, userId: user.id });
-  revalidatePath("/stock/reconciliation");
-  revalidatePath("/stock/archives");
-}
 
 const num = (s: string) => Number(String(s).replace(",", ".").trim());
 
@@ -26,7 +17,7 @@ const num = (s: string) => Number(String(s).replace(",", ".").trim());
  * et exige une explication pour tout écart > 10 %. Si des écarts dépassent le seuil, notifie la
  * Direction et le responsable stock.
  */
-export async function appliquerComptage(formData: FormData) {
+export const appliquerComptage = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireModule(user, "stock");
 
@@ -51,7 +42,7 @@ export async function appliquerComptage(formData: FormData) {
   const theo = new Map(stocks.map((s) => [s.articleId, Number(s.quantite)]));
   const nom = new Map(articles.map((a) => [a.id, a.designation]));
   // Niveaux d'alerte AVANT ajustement, pour notifier les articles qui passent bas après recomptage.
-  const niveauxAvant = new Map<string, NiveauAlerte>(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.seuilUrgent, s.stockMinimum)]));
+  const niveauxAvant = new Map<string, NiveauAlerte>(stocks.map((s) => [s.articleId, niveauAlerte(s.quantite, s.stockMinimum)]));
 
   // Calcule les écarts + repère les lignes hors tolérance.
   const lignes = comptes.map((c) => {
@@ -70,26 +61,41 @@ export async function appliquerComptage(formData: FormData) {
   const nbEcarts = lignes.filter((l) => Math.abs(l.ecart) > 0.0001).length;
   const nbHorsTol = lignes.filter((l) => l.horsTol).length;
 
+  // Écritures GROUPÉES (createMany + un seul UPDATE…FROM VALUES) : l'ancienne boucle faisait
+  // 3 requêtes par ligne — sur des centaines d'articles et une liaison à forte latence, la
+  // transaction dépassait le délai Prisma (5 s) et explosait en production (P2028).
   const session = await prisma.$transaction(async (tx) => {
     const s = await tx.sessionComptage.create({
       data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: user.id },
     });
-    for (const l of lignes) {
-      await tx.ligneComptage.create({
-        data: {
-          sessionId: s.id, articleId: l.articleId, designation: l.designation,
-          theorique: l.theorique, physique: l.physique, ecart: l.ecart,
-          ecartPct: Number.isFinite(l.pct) ? Math.round(l.pct * 100) / 100 : null,
-          explication: l.explication || null,
-        },
+    await tx.ligneComptage.createMany({
+      data: lignes.map((l) => ({
+        sessionId: s.id, articleId: l.articleId, designation: l.designation,
+        theorique: l.theorique, physique: l.physique, ecart: l.ecart,
+        ecartPct: Number.isFinite(l.pct) ? Math.round(l.pct * 100) / 100 : null,
+        explication: l.explication || null,
+      })),
+    });
+    const avecEcart = lignes.filter((l) => Math.abs(l.ecart) > 0.0001);
+    if (avecEcart.length > 0) {
+      await tx.mouvementStock.createMany({
+        data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, creeParId: user.id })),
       });
-      if (Math.abs(l.ecart) > 0.0001) {
-        await tx.mouvementStock.create({ data: { articleId: l.articleId, type: "AJUSTEMENT", quantite: Math.abs(l.ecart), origine, creeParId: user.id } });
-      }
-      await tx.stock.upsert({ where: { articleId: l.articleId }, update: { quantite: l.physique }, create: { articleId: l.articleId, quantite: l.physique } });
+    }
+    const existants = new Set(stocks.map((x) => x.articleId));
+    const maj = lignes.filter((l) => existants.has(l.articleId));
+    if (maj.length > 0) {
+      await tx.$executeRaw`
+        UPDATE "stock"."Stock" AS s SET "quantite" = v.q, "updatedAt" = now()
+        FROM (VALUES ${Prisma.join(maj.map((l) => Prisma.sql`(${l.articleId}, ${l.physique}::decimal)`))}) AS v("articleId", q)
+        WHERE s."articleId" = v."articleId"`;
+    }
+    const manquants = lignes.filter((l) => !existants.has(l.articleId));
+    if (manquants.length > 0) {
+      await tx.stock.createMany({ data: manquants.map((l) => ({ articleId: l.articleId, quantite: l.physique })) });
     }
     return s;
-  });
+  }, { timeout: 60000 });
 
   // Notifie Direction + responsable stock si des écarts dépassent la tolérance.
   if (nbHorsTol > 0) {
@@ -107,4 +113,4 @@ export async function appliquerComptage(formData: FormData) {
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock");
-}
+});

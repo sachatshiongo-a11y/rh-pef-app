@@ -27,14 +27,17 @@ export async function creerNotification(params: {
 
   // Notification e-mail + push aux comptes Direction (best-effort ; no-op si non configuré).
   const admins = await prisma.user.findMany({ where: { role: "ADMIN", actif: true }, select: { id: true, email: true } });
+  // Lien DIRECT vers la page à traiter (demande de congé → /a-valider, etc.).
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://gestion.patesenfolie.cd";
+  const urlDirecte = `${base}${params.lien ?? "/a-valider"}`;
   await Promise.all([
     envoyerEmail(
       admins.map((a) => a.email),
-      `Pâtes en Folie — Gestion · ${params.message}`,
-      `${params.message}\n\nConnectez-vous pour traiter la demande.`
+      `Pâtes en Folie · ${params.message}`,
+      `${params.message}\n\nTraiter directement : ${urlDirecte}`
     ),
     envoyerPush(admins.map((a) => a.id), {
-      title: "Pâtes en Folie — Gestion",
+      title: "Pâtes en Folie",
       body: params.message,
       url: params.lien ?? "/a-valider",
       tag: params.refId ?? params.type,
@@ -45,6 +48,40 @@ export async function creerNotification(params: {
 /** Supprime les notifications liées à une demande (appelée quand la demande est traitée). */
 export async function supprimerNotificationsPour(refId: string) {
   await prisma.notification.deleteMany({ where: { refId } });
+}
+
+/**
+ * Notifie UN salarié sur sa cloche personnelle (domaine SALARIE) + push sur ses appareils.
+ * Utilisé pour les événements qui le concernent : congé approuvé/refusé, planning publié.
+ */
+export async function notifierSalarie(
+  userId: string,
+  params: { type: "CONGE" | "PLANNING" | "AUTRE"; message: string; lien?: string; refId?: string },
+) {
+  await prisma.notification.create({
+    data: { domaine: "SALARIE", destinataireUserId: userId, type: params.type, message: params.message, lien: params.lien ?? null, refId: params.refId ?? null },
+  });
+  await envoyerPush([userId], {
+    title: "Pâtes en Folie",
+    body: params.message,
+    url: params.lien ?? "/espace",
+    tag: params.refId ?? params.type,
+  });
+}
+
+/** Résout le compte salarié ACTIF (EMPLOYE ou magasinier STOCK) lié à une fiche employé, s'il existe. */
+export async function compteSalarieDe(employeeId: string): Promise<string | null> {
+  const u = await prisma.user.findUnique({ where: { employeeId }, select: { id: true, role: true, actif: true } });
+  return u && u.actif && (u.role === "EMPLOYE" || u.role === "STOCK") ? u.id : null;
+}
+
+/** Charge la cloche personnelle d'un salarié (ses notifications SALARIE). */
+export async function chargerNotificationsSalarie(userId: string): Promise<{ items: NotificationItem[]; nonLues: number }> {
+  const [items, nonLues] = await Promise.all([
+    prisma.notification.findMany({ where: { domaine: "SALARIE", destinataireUserId: userId }, orderBy: { createdAt: "desc" }, take: 20 }),
+    prisma.notification.count({ where: { domaine: "SALARIE", destinataireUserId: userId, lu: false } }),
+  ]);
+  return { items, nonLues };
 }
 
 /** Données de la cloche pour un espace (`domaine`) : notifications récentes, non lues, + alerte clôture (RH). */

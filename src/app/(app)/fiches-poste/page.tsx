@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste } from "./actions";
+import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste, renommerPoste, supprimerPoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
+import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
 
 export default async function FichesPostePage({
   searchParams,
@@ -32,7 +34,10 @@ export default async function FichesPostePage({
     a.localeCompare(b, "fr")
   );
 
-  const avecFiche = postes.filter((p) => ficheParPoste.get(p)?.fichierUrl || ficheParPoste.get(p)?.description).length;
+  const avecFiche = postes.filter((p) => {
+    const f = ficheParPoste.get(p);
+    return f?.fichierUrl || f?.description || f?.descriptionPoste;
+  }).length;
 
   return (
     <div>
@@ -114,7 +119,7 @@ export default async function FichesPostePage({
         {postes.map((poste) => {
           const fiche = ficheParPoste.get(poste);
           const effectif = effectifParPoste.get(poste) ?? 0;
-          const documente = Boolean(fiche?.fichierUrl || fiche?.description);
+          const documente = Boolean(fiche?.fichierUrl || fiche?.description || fiche?.descriptionPoste);
           return (
             <div key={poste} className={`rounded-xl border bg-card p-4 ${documente ? "" : "border-dashed"}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -124,18 +129,43 @@ export default async function FichesPostePage({
                     {effectif > 0 ? `${effectif} employé(s)` : "aucun employé actif"}
                     {fiche?.fichierNom ? ` · 📎 ${fiche.fichierNom}` : ""}
                   </p>
-                  {fiche?.description && (
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">{fiche.description}</p>
+                  {(fiche?.descriptionPoste || fiche?.description) && (
+                    <details className="group mt-2">
+                      <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary [&::-webkit-details-marker]:hidden">
+                        <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
+                        Voir la description
+                      </summary>
+                      {fiche?.descriptionPoste && (
+                        <>
+                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Missions principales du poste</p>
+                          <p className="whitespace-pre-line text-sm text-foreground/90">{fiche.descriptionPoste}</p>
+                        </>
+                      )}
+                      {fiche?.description && (
+                        <>
+                          <p className="mt-2 text-xs font-semibold text-muted-foreground">Activités et tâches principales</p>
+                          <p className="whitespace-pre-line text-sm text-foreground/90">{fiche.description}</p>
+                        </>
+                      )}
+                    </details>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {fiche && (
+                    <ContratViewerButton
+                      href={`/fiches-poste/${fiche.id}/pdf`}
+                      titre={`Fiche de poste — ${poste}`}
+                      libelle="Générer la fiche (PDF)"
+                      className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+                    />
+                  )}
                   {fiche?.fichierUrl && (
                     <TelechargerLien
                       href={fiche.fichierUrl}
                       nomFichier={fiche.fichierNom ?? undefined}
                       className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
                     >
-                      Télécharger
+                      Télécharger le document
                     </TelechargerLien>
                   )}
                   {!documente && (
@@ -154,13 +184,64 @@ export default async function FichesPostePage({
                   </summary>
                   <form action={enregistrerFichePoste} className="mt-3 space-y-2">
                     <input type="hidden" name="poste" value={poste} />
+                    <label className="block text-xs font-medium text-muted-foreground">Missions principales du poste</label>
+                    <textarea
+                      name="descriptionPoste"
+                      defaultValue={fiche?.descriptionPoste ?? ""}
+                      rows={4}
+                      placeholder="Les missions principales / responsabilités du poste…"
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    />
+                    <label className="block text-xs font-medium text-muted-foreground">Activités et tâches principales</label>
                     <textarea
                       name="description"
                       defaultValue={fiche?.description ?? ""}
-                      rows={4}
-                      placeholder="Description du poste : missions, responsabilités, compétences requises…"
+                      rows={5}
+                      placeholder="Les activités et tâches concrètes (avant / pendant / après le service…)…"
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     />
+
+                    {/* Champs du générateur de fiche de poste (PDF). */}
+                    <p className="mt-2 border-t pt-2 text-xs font-semibold text-muted-foreground">Informations pour la fiche de poste (PDF)</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Type de contrat
+                        <input type="text" name="typeContrat" defaultValue={fiche?.typeContrat ?? ""} placeholder="ex. CDD à temps partiel" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Échelle salariale
+                        <input type="text" name="echelleSalariale" defaultValue={fiche?.echelleSalariale ?? ""} placeholder="ex. 100 USD" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Supérieur hiérarchique direct
+                        <input type="text" name="superieurHierarchique" defaultValue={fiche?.superieurHierarchique ?? ""} placeholder="ex. Contrôleur de gestion" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Temps de travail
+                        <input type="text" name="tempsTravail" defaultValue={fiche?.tempsTravail ?? ""} placeholder="ex. 10 heures/semaine" className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Classe / Catégorie professionnelle
+                        <select name="categorieProfessionnelle" defaultValue={fiche?.categorieProfessionnelle ?? ""} className="rounded-md border bg-background px-3 py-1.5 text-sm text-foreground">
+                          <option value="">— (déduite des salariés du poste)</option>
+                          {CATEGORIES_PRO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Le lieu de travail se remplit automatiquement (restaurant Pâtes en Folie). Si la catégorie n&apos;est pas choisie ici, elle est déduite des salariés du poste.</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Compétences techniques <span className="font-normal">(une par ligne)</span>
+                        <textarea name="competencesTechniques" defaultValue={fiche?.competencesTechniques ?? ""} rows={3} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Savoir-être, soft skills <span className="font-normal">(une par ligne)</span>
+                        <textarea name="savoirEtre" defaultValue={fiche?.savoirEtre ?? ""} rows={3} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Formations requises
+                        <textarea name="formationsRequises" defaultValue={fiche?.formationsRequises ?? ""} rows={2} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">Diplômes requis
+                        <textarea name="diplomesRequis" defaultValue={fiche?.diplomesRequis ?? ""} rows={2} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                      <label className="flex flex-col gap-0.5 text-xs text-muted-foreground sm:col-span-2">Expériences exigées
+                        <textarea name="experiencesExigees" defaultValue={fiche?.experiencesExigees ?? ""} rows={2} className="rounded-md border bg-background px-3 py-2 text-sm text-foreground" />
+                      </label>
+                    </div>
+
                     <div className="flex flex-wrap items-center gap-2">
                       <input
                         type="file"
@@ -177,16 +258,53 @@ export default async function FichesPostePage({
                       </button>
                     </div>
                   </form>
-                  {estAdmin && fiche && (
-                    <form action={supprimerFichePoste.bind(null, poste)} className="mt-2">
-                      <ConfirmSubmitButton
-                        message={`Supprimer la fiche du poste « ${poste} » ?`}
-                        className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive"
-                      >
-                        Supprimer la fiche
-                      </ConfirmSubmitButton>
-                    </form>
-                  )}
+                  {/* Renommer le poste (répercuté sur employés, contrats, besoins, polyvalences). */}
+                  <form action={renommerPoste} className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                    <input type="hidden" name="poste" value={poste} />
+                    <input
+                      type="text"
+                      name="nouveau"
+                      required
+                      defaultValue={poste}
+                      aria-label={`Nouveau nom pour le poste ${poste}`}
+                      className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+                    />
+                    <ConfirmSubmitButton
+                      message={`Renommer le poste « ${poste} » ? Le changement s'applique à tous les employés, contrats et plannings concernés.`}
+                      className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+                    >
+                      Renommer
+                    </ConfirmSubmitButton>
+                  </form>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {estAdmin && fiche && (
+                      <form action={supprimerFichePoste.bind(null, poste)}>
+                        <ConfirmSubmitButton
+                          message={`Supprimer la fiche du poste « ${poste} » ? (Le poste et ses employés sont conservés.)`}
+                          className="rounded-md border border-destructive/60 px-3 py-1 text-xs font-medium text-destructive"
+                        >
+                          Supprimer la fiche
+                        </ConfirmSubmitButton>
+                      </form>
+                    )}
+                    {estAdmin && (
+                      effectif === 0 ? (
+                        <form action={supprimerPoste.bind(null, poste)}>
+                          <ConfirmSubmitButton
+                            message={`Supprimer définitivement le poste « ${poste} » ? La fiche, les besoins de planning et les polyvalences liés seront supprimés.`}
+                            className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive"
+                          >
+                            Supprimer le poste
+                          </ConfirmSubmitButton>
+                        </form>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Pour supprimer ce poste, réaffectez d&apos;abord ses {effectif} salarié(s).
+                        </span>
+                      )
+                    )}
+                  </div>
                 </details>
               )}
             </div>

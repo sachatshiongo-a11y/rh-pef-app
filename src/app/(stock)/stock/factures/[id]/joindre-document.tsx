@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { attacherDocumentFacture } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 export function JoindreDocument({ id, aDeja }: { id: string; aDeja: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -16,11 +17,10 @@ export function JoindreDocument({ id, aDeja }: { id: string; aDeja: boolean }) {
     const fd = new FormData();
     fd.set("document", file);
     start(async () => {
-      try {
-        await attacherDocumentFacture(id, fd);
-        setNom(null);
-        if (ref.current) ref.current.value = "";
-      } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); }
+      const r = await attacherDocumentFacture(id, fd);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      setNom(null);
+      if (ref.current) ref.current.value = "";
     });
   };
 

@@ -2,15 +2,26 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
-import { PlanningGrid, type EmployeeRow } from "./planning-grid";
+import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { PlanningMensuel, type CreneauJour } from "./planning-mensuel";
 import { ModeleGrid, type ModeleEmployee } from "./modele-grid";
 import { ShiftsManager } from "./shifts-manager";
 import { BesoinsManager } from "./besoins-manager";
+import { PolyvalenceManager } from "./polyvalence-manager";
+import { ShiftPosteManager } from "./shift-poste-manager";
 import { AutoPlanningForm } from "./auto-planning-form";
-import { CouvertureBar, calculerCouverture } from "./couverture-bar";
+import { PlanningSemaine, type SemaineEmployee, type SemaineOutils } from "./planning-semaine";
+import { grouperSalaries, type SalarieAClasser } from "./lecture-shift";
 import { paletteDe, libelleShift, type ShiftDTO } from "./creneaux";
+import { joursEnConge } from "@/lib/conges-couverture";
+import { espaceEmployeActif } from "@/lib/espace-employe";
+import { PublierSemaineBtn } from "./publier-btn";
+import { VueSelect } from "./vue-select";
+import { chargerEcartMois } from "./ecart-data";
+import { EcartView } from "./ecart-view";
+
+import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const WD = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -19,12 +30,6 @@ const MOIS_LONG = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ];
 
-function lundiDeLaSemaine(d: Date): Date {
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  const jour = date.getUTCDay();
-  date.setUTCDate(date.getUTCDate() + (jour === 0 ? -6 : 1 - jour));
-  return date;
-}
 function isoJour(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -32,15 +37,16 @@ function isoJour(d: Date): string {
 export default async function PlanningPage({
   searchParams,
 }: {
-  searchParams: Promise<{ debut?: string; vue?: string; mois?: string; annee?: string }>;
+  searchParams: Promise<{ debut?: string; vue?: string; mois?: string; annee?: string; erreur?: string }>;
 }) {
   const user = await verifySession();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
-  const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : "semaine";
-  const maintenant = new Date();
-  const nowUTC = new Date();
-  const isoAujourdhui = isoJour(new Date(Date.UTC(nowUTC.getFullYear(), nowUTC.getMonth(), nowUTC.getDate())));
+  const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : sp.vue === "ecart" ? "ecart" : "semaine";
+  // « Aujourd'hui » = date civile à Kinshasa (UTC+1), pas l'heure UTC du serveur : évite le décalage
+  // d'un jour entre 23h et minuit UTC. Le reste des dates est stocké en UTC minuit du bon jour.
+  const isoAujourdhui = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Kinshasa" }).format(new Date());
+  const maintenant = new Date(isoAujourdhui + "T00:00:00Z");
 
   const shifts = await prisma.shift.findMany({ orderBy: { ordre: "asc" } });
   const shiftsActifs: ShiftDTO[] = shifts
@@ -60,56 +66,83 @@ export default async function PlanningPage({
   const shiftParId = new Map(shifts.map((s) => [s.id, s]));
 
   // Config des effectifs requis (shift × poste × jour) qui pilote la génération auto « couverture ».
-  const [postesRows, besoinsRows] = await Promise.all([
+  const [postesRows, besoinsRows, polyvalences, shiftsPosteRows] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, select: { poste: true }, distinct: ["poste"], orderBy: { poste: "asc" } }),
     prisma.besoinShift.findMany(),
+    prisma.polyvalencePoste.findMany({ orderBy: [{ posteCible: "asc" }, { posteSource: "asc" }] }),
+    prisma.shiftPoste.findMany({ orderBy: [{ poste: "asc" }, { ordre: "asc" }] }),
   ]);
   const postesBesoin = postesRows.map((p) => p.poste).filter(Boolean);
   const shiftsBesoin = shifts.filter((s) => s.actif && !s.systeme).map((s) => ({ id: s.id, nom: s.nom }));
   const besoinsDTO = besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
-  const nomShift = (id: string) => shiftParId.get(id)?.nom ?? "?";
   const besoinsPanel = peutModifier ? (
-    <BesoinsManager shifts={shiftsBesoin} postes={postesBesoin} besoins={besoinsDTO} />
+    <div className="space-y-2">
+      <BesoinsManager shifts={shiftsBesoin} postes={postesBesoin} besoins={besoinsDTO} />
+      <PolyvalenceManager postes={postesBesoin} polyvalences={polyvalences.map((p) => ({ id: p.id, posteSource: p.posteSource, posteCible: p.posteCible }))} />
+      <ShiftPosteManager
+        postes={postesBesoin}
+        shifts={shiftsBesoin}
+        shiftsPoste={shiftsPosteRows.map((s) => ({ id: s.id, poste: s.poste, shiftId: s.shiftId, ordre: s.ordre }))}
+      />
+    </div>
   ) : null;
 
-  const onglets = (
-    <div className="flex overflow-hidden rounded-md border text-sm">
-      <Link href="/planning?vue=semaine" className={`px-3 py-1.5 ${vue === "semaine" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-        Semaine
-      </Link>
-      <Link href="/planning?vue=mois" className={`px-3 py-1.5 ${vue === "mois" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-        Mois
-      </Link>
-      <Link href="/planning?vue=modele" className={`px-3 py-1.5 ${vue === "modele" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>
-        Modèle hebdo
-      </Link>
+  // Onglets de vue — chaque lien conserve la période courante (semaine/mois) pour ne pas perdre le
+  // contexte temporel en changeant de vue. `renderOnglets` est appelé dans chaque branche avec les
+  // liens adaptés à la période affichée.
+  const renderOnglets = (semaineHref: string, moisHref: string, ecartHref?: string) => (
+    <VueSelect vue={vue} semaineHref={semaineHref} moisHref={moisHref} ecartHref={ecartHref} />
+  );
+  const ongletsDefaut = renderOnglets("/planning?vue=semaine", "/planning?vue=mois");
+  // Export PDF/Excel — téléchargement direct, conserve la période affichée.
+  const boutonsExport = (qs: string) => (
+    <div className="flex items-center overflow-hidden rounded-md border text-sm">
+      <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
+      <a href={`/planning/pdf${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">PDF</a>
+      <a href={`/planning/excel${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
+    </div>
+  );
+  // Vue Écart : un seul export (Excel), pas de PDF — cf. conception §5.
+  const boutonExportEcart = (qs: string) => (
+    <div className="flex items-center overflow-hidden rounded-md border text-sm">
+      <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
+      <a href={`/planning/excel/ecart${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
     </div>
   );
 
-  function BoutonAuto({ debut, fin }: { debut: string; fin: string }) {
-    if (!peutModifier) return null;
-    return <AutoPlanningForm debut={debut} fin={fin} shifts={shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }))} />;
-  }
+  // Bouton de génération auto : rendu inline (un composant défini dans le rendu serait remonté à chaque rendu).
+  const shiftsPourAuto = shiftsActifs.map((s) => ({ id: s.id, nom: s.nom }));
 
+  const chipsLegende = (
+    <div className="flex flex-wrap gap-2">
+      {shiftsActifs.map((s) => (
+        <span key={s.id} className={`rounded-md px-2 py-1 text-xs ${paletteDe(s.couleur).classe}`}>
+          {libelleShift(s.nom, s.heureDebut, s.heureFin)}
+        </span>
+      ))}
+    </div>
+  );
+  // Lecteurs (sans droit de modif) : seule la légende, repliée.
   const legende = (
     <details className="mb-4">
       <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Légende des shifts</summary>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {shiftsActifs.map((s) => (
-          <span key={s.id} className={`rounded-md px-2 py-1 text-xs ${paletteDe(s.couleur).classe}`}>
-            {libelleShift(s.nom, s.heureDebut, s.heureFin)}
-          </span>
-        ))}
-      </div>
+      <div className="mt-2">{chipsLegende}</div>
     </details>
   );
 
-  // Panneaux de configuration (shifts + effectifs requis) regroupés côte à côte pour épurer la vue.
+  // Réglages + légende regroupés sous UN SEUL volet replié au-dessus de la grille (épure la vue :
+  // par défaut, une seule barre fine au lieu de la légende + la rangée de panneaux de config).
   const configPanels = peutModifier ? (
-    <div className="mb-4 grid items-start gap-3 md:grid-cols-2">
-      <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
-      {besoinsPanel}
-    </div>
+    <details className="mb-4 rounded-lg border bg-card">
+      <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-muted-foreground">Réglages &amp; légende — shifts, effectifs requis, couleurs</summary>
+      <div className="space-y-3 border-t p-3">
+        {chipsLegende}
+        <div className="grid items-start gap-3 md:grid-cols-2">
+          <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
+          {besoinsPanel}
+        </div>
+      </div>
+    </details>
   ) : null;
 
   // -------------------------------------------------------------- VUE MODÈLE
@@ -118,7 +151,7 @@ export default async function PlanningPage({
       prisma.employee.findMany({
         where: { actif: true },
         orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-        select: { id: true, nom: true, photoUrl: true, salaireMensuel: true, heuresParJour: true, heuresHebdomadaires: true },
+        select: { id: true, nom: true, photoUrl: true, salaireMensuel: true, heuresParJour: true, heuresHebdomadaires: true, enfants: true },
       }),
       prisma.planningModele.findMany(),
       chargerParametresPaie(),
@@ -126,25 +159,33 @@ export default async function PlanningPage({
     const modeleMap: Record<string, string> = {};
     for (const m of modeles) modeleMap[`${m.employeeId}_${m.jour}_${m.semaine}`] = m.shiftId;
     // Taux horaire par défaut = salaire mensuel ÷ (heures/semaine × 52/12) — précis.
+    // Salaires en net (2026-07-22) : si le flag est actif, salaireMensuel est un NET → on grossit
+    // par ρ (brut/net) pour afficher un taux BRUT cohérent avec le bulletin (approximation nominale).
     const tauxDefautParEmp: Record<string, number> = {};
     for (const e of employees) {
+      const salaireMensuelNet = Number(e.salaireMensuel);
+      const rho =
+        params.salairesSaisisEnNet && salaireMensuelNet > 0
+          ? reconstituerBrutDepuisNet(salaireMensuelNet, params, e.enfants) / salaireMensuelNet
+          : 1;
       const denom = ((Number(e.heuresHebdomadaires) || Number(e.heuresParJour) * 6) * 52) / 12;
-      tauxDefautParEmp[e.id] = denom > 0 ? Number(e.salaireMensuel) / denom : 0;
+      tauxDefautParEmp[e.id] = denom > 0 ? (salaireMensuelNet * rho) / denom : 0;
     }
 
     return (
       <div>
+        {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold sm:text-2xl">Modèle hebdomadaire</h1>
             <p className="text-sm text-muted-foreground">Le shift/rôle habituel de chaque employé, par jour de la semaine</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">{onglets}</div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">{ongletsDefaut}</div>
         </div>
 
         {legende}
 
-        <ModeleGrid employees={employees as ModeleEmployee[]} shifts={shiftsActifs} modeleMap={modeleMap} tauxDefautParEmp={tauxDefautParEmp} peutModifier={peutModifier} />
+        <ModeleGrid employees={employees.map((e): ModeleEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl }))} shifts={shiftsActifs} modeleMap={modeleMap} tauxDefautParEmp={tauxDefautParEmp} peutModifier={peutModifier} />
 
         <p className="mt-4 text-xs text-muted-foreground">
           Définissez ici, pour chaque employé, le shift/rôle de chaque jour (laissez « repos » les
@@ -166,59 +207,70 @@ export default async function PlanningPage({
     const dates = Array.from({ length: nbJours }, (_, i) => new Date(Date.UTC(annee, mois - 1, i + 1)));
     const isoDates = dates.map(isoJour);
 
-    const [employees, creneaux, feries] = await Promise.all([
+    const [employeesRaw, creneaux, feries] = await Promise.all([
       prisma.employee.findMany({
         where: { actif: true },
         orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-        select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true },
+        select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true, heuresHebdomadaires: true },
       }),
       prisma.planningCreneau.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
     ]);
+    const employees = employeesRaw.map((e) => ({ ...e, heuresHebdomadaires: Number(e.heuresHebdomadaires) }));
     const nomParEmp = new Map(employees.map((e) => [e.id, e.nom]));
     const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
-    const joursMajores = dates.map((d, i) => d.getUTCDay() === 0 || feriesIso.has(isoDates[i]));
     const labelsJours = dates.map((d) => `${WD[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, "0")}`);
 
     const creneauMap: Record<string, string> = {};
+    const autoMois: string[] = [];
     const creneauxParJour: Record<string, CreneauJour[]> = {};
     for (const c of creneaux) {
       const key = isoJour(new Date(c.date));
-      creneauMap[`${c.employeeId}_${key}`] = c.shiftId;
+      const cle = `${c.employeeId}_${key}`;
+      creneauMap[cle] = c.shiftId;
+      if (c.genereAuto) autoMois.push(cle);
       const s = shiftParId.get(c.shiftId);
       if (s && s.actif)
         (creneauxParJour[key] ??= []).push({ nom: nomParEmp.get(c.employeeId) ?? "—", shift: libelleShift(s.nom, s.heureDebut, s.heureFin), couleur: s.couleur });
     }
 
+    // Congés approuvés du mois → cellules « Absence ».
+    const congeMoisSet = await joursEnConge(employees.flatMap((e) => isoDates.map((iso) => ({ employeeId: e.id, date: iso }))));
+    const absencesMois = [...congeMoisSet].map((k) => k.replace("|", "_"));
+
+    const versSemaineEmpMois = (e: (typeof employees)[number]): SemaineEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl, heuresHebdo: Number(e.heuresHebdomadaires) });
+    const joursMois = dates.map((d, i) => ({
+      iso: isoDates[i], label: labelsJours[i], dow: d.getUTCDay(),
+      ferie: feriesIso.has(isoDates[i]), dimanche: d.getUTCDay() === 0, aujourdhui: isoDates[i] === isoAujourdhui,
+    }));
+    const besoinsMois = besoinsDTO.map((b) => ({ shiftId: b.shiftId, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
+
     const moisPrec = mois === 1 ? { m: 12, a: annee - 1 } : { m: mois - 1, a: annee };
     const moisSuiv = mois === 12 ? { m: 1, a: annee + 1 } : { m: mois + 1, a: annee };
-    const brigade = employees.filter((e) => e.categorie === "BRIGADE") as EmployeeRow[];
-    const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE") as EmployeeRow[];
+    const brigade = employees.filter((e) => e.categorie === "BRIGADE").map(versSemaineEmpMois);
+    const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE").map(versSemaineEmpMois);
 
     return (
       <div>
+        {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold sm:text-2xl">Planning mensuel</h1>
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {onglets}
-            <BoutonAuto debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} />
+            {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`, `/planning?vue=ecart&mois=${mois}&annee=${annee}`)}
+            {boutonsExport(`?mois=${mois}&annee=${annee}`)}
+            {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} shifts={shiftsPourAuto} />}
             <Link href={`/planning?vue=mois&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
             <Link href="/planning?vue=mois" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
             <Link href={`/planning?vue=mois&mois=${moisSuiv.m}&annee=${moisSuiv.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
           </div>
         </div>
 
-        {configPanels}
-        {legende}
-        <CouvertureBar
-          jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
-          isoAujourdhui={isoAujourdhui}
-        />
+        {configPanels ?? legende}
 
-        {/* Aperçu calendrier (lecture) — replié par défaut, les grilles éditables ci-dessous font foi */}
+        {/* Aperçu calendrier (lecture) — replié par défaut, la grille éditable ci-dessous fait foi */}
         <details className="mb-6">
           <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Aperçu calendrier du mois</summary>
           <div className="mt-3">
@@ -226,36 +278,79 @@ export default async function PlanningPage({
           </div>
         </details>
 
-        {/* Grilles éditables du mois (défilement horizontal) */}
+        {/* Grille éditable du mois — cartes de shift (défilement horizontal) */}
         {employees.length === 0 ? (
           <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
         ) : (
-          <div className="space-y-6">
-            <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
-            <div>
-              <h2 className="mb-2 text-base font-semibold">Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span></h2>
-              <PlanningGrid employees={brigade} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-            </div>
-            <div>
-              <h2 className="mb-2 text-base font-semibold">Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span></h2>
-              <PlanningGrid employees={backoffice} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-            </div>
-            </JourMobileProvider>
-          </div>
+          <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
+            <PlanningSemaine
+              groupes={[{ titre: "Brigade", employees: brigade }, { titre: "Backoffice", employees: backoffice }]}
+              jours={joursMois}
+              creneauMap={creneauMap}
+              absences={absencesMois}
+              autoSet={autoMois}
+              shifts={shiftsActifs}
+              besoins={besoinsMois}
+              peutModifier={peutModifier}
+              colJour={104}
+              afficherContrat={false}
+            />
+          </JourMobileProvider>
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Vue mensuelle éditable (les grilles défilent horizontalement). Colonne orange = dimanche ou
-          jour férié. « Générer automatiquement » remplit les jours ouvrables selon les heures de
-          chaque employé sans écraser vos saisies.
+          Vue mensuelle éditable (la grille défile horizontalement). ✨ = créneau posé par la
+          génération automatique. « Générer automatiquement » remplit les jours ouvrables selon les
+          heures de chaque employé sans écraser vos saisies.
+        </p>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------- VUE ÉCART
+  // Écart prévu/réalisé (chantier B2) : lecture seule, calculée par le module pur
+  // src/lib/planning-ecart.ts — voir docs/superpowers/specs/2026-08-17-planning-ecart-….md §5.
+  if (vue === "ecart") {
+    const annee = Number(sp.annee) || maintenant.getFullYear();
+    const mois = sp.mois ? Math.min(12, Math.max(1, Number(sp.mois))) : maintenant.getMonth() + 1;
+    const { resultat, employesInfo, shiftsInfo } = await chargerEcartMois(mois, annee);
+
+    const moisPrec = mois === 1 ? { m: 12, a: annee - 1 } : { m: mois - 1, a: annee };
+    const moisSuiv = mois === 12 ? { m: 1, a: annee + 1 } : { m: mois + 1, a: annee };
+
+    return (
+      <div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold sm:text-2xl">Écart prévu / réalisé</h1>
+            <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {renderOnglets(
+              `/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`,
+              `/planning?vue=mois&mois=${mois}&annee=${annee}`,
+              `/planning?vue=ecart&mois=${mois}&annee=${annee}`,
+            )}
+            {boutonExportEcart(`?mois=${mois}&annee=${annee}`)}
+            <Link href={`/planning?vue=ecart&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
+            <Link href="/planning?vue=ecart" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
+            <Link href={`/planning?vue=ecart&mois=${moisSuiv.m}&annee=${moisSuiv.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
+          </div>
+        </div>
+
+        <EcartView resultat={resultat} employesInfo={employesInfo} shiftsInfo={shiftsInfo} />
+
+        <p className="mt-4 text-xs text-muted-foreground">
+          Lecture seule : cet écran constate, il ne corrige rien. Une présence se corrige dans
+          l&apos;onglet Présences ; le planning, dans les vues Semaine ou Mois.
         </p>
       </div>
     );
   }
 
   // ------------------------------------------------------------- VUE SEMAINE
-  const base = sp.debut ? new Date(sp.debut + "T00:00:00Z") : new Date();
-  const lundi = lundiDeLaSemaine(isNaN(base.getTime()) ? new Date() : base);
+  const base = sp.debut ? new Date(sp.debut + "T00:00:00Z") : maintenant;
+  const lundi = lundiDeLaSemaine(isNaN(base.getTime()) ? maintenant : base);
   const dates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(lundi);
     d.setUTCDate(d.getUTCDate() + i);
@@ -265,70 +360,94 @@ export default async function PlanningPage({
   const debutSemaine = dates[0];
   const finSemaine = dates[6];
 
-  const [employees, creneaux, feriesDuMois] = await Promise.all([
+  const [employeesRaw, creneaux, feriesDuMois, espaceActif, semainePubliee] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
-      select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true },
+      select: { id: true, nom: true, categorie: true, photoUrl: true, poste: true, heuresHebdomadaires: true },
     }),
     prisma.planningCreneau.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutSemaine, lte: finSemaine } } }),
+    espaceEmployeActif(),
+    prisma.semainePubliee.findUnique({ where: { lundi: debutSemaine }, select: { id: true } }),
   ]);
+  // Decimal → number dès la source : aucun objet Prisma non sérialisable ne franchit la frontière client.
+  const employees = employeesRaw.map((e) => ({ ...e, heuresHebdomadaires: Number(e.heuresHebdomadaires) }));
 
   const feriesIso = new Set(feriesDuMois.map((f) => isoJour(new Date(f.date))));
-  const joursMajores = dates.map((d, i) => i === 6 || feriesIso.has(isoDates[i]));
 
   const creneauMap: Record<string, string> = {};
+  const autoSemaine: string[] = [];
   for (const c of creneaux) {
-    creneauMap[`${c.employeeId}_${isoJour(new Date(c.date))}`] = c.shiftId;
+    const key = `${c.employeeId}_${isoJour(new Date(c.date))}`;
+    creneauMap[key] = c.shiftId;
+    if (c.genereAuto) autoSemaine.push(key);
   }
+
+  // Congés approuvés de la semaine → cellules « Absence ».
+  const congeSet = await joursEnConge(employees.flatMap((e) => isoDates.map((iso) => ({ employeeId: e.id, date: iso }))));
+  const absencesSemaine = [...congeSet].map((k) => k.replace("|", "_"));
 
   const labelsJours = dates.map((d, i) => `${JOURS[i]} ${String(d.getUTCDate()).padStart(2, "0")}`);
   const semainePrec = isoJour(new Date(lundi.getTime() - 7 * 86_400_000));
   const semaineSuiv = isoJour(new Date(lundi.getTime() + 7 * 86_400_000));
   const titrePeriode = `${debutSemaine.getUTCDate()} → ${finSemaine.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}`;
 
-  const brigade = employees.filter((e) => e.categorie === "BRIGADE") as EmployeeRow[];
-  const backoffice = employees.filter((e) => e.categorie === "BACKOFFICE") as EmployeeRow[];
+  const versSemaineEmp = (e: (typeof employees)[number]): SemaineEmployee => ({ id: e.id, nom: e.nom, photoUrl: e.photoUrl, heuresHebdo: Number(e.heuresHebdomadaires) });
+  // Salariés poste + catégorie inclus : source unique pour le regroupement des lignes (§5) — le
+  // découpage Brigade/Backoffice par défaut passe par `grouperSalaries`, comme les critères Poste/Aucun,
+  // au lieu d'un filtrage manuel dupliqué.
+  const salariesAClasser: SalarieAClasser[] = employees.map((e) => ({ ...versSemaineEmp(e), poste: e.poste, categorie: e.categorie }));
+  const joursSemaine = dates.map((d, i) => ({
+    iso: isoDates[i], label: labelsJours[i], dow: d.getUTCDay(),
+    ferie: feriesIso.has(isoDates[i]), dimanche: d.getUTCDay() === 0, aujourdhui: isoDates[i] === isoAujourdhui,
+  }));
+  const besoinsSemaine = besoinsDTO.map((b) => ({ shiftId: b.shiftId, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis }));
+  // Outils de la vue semaine (densité, lecture « Par shift », regroupement — §3-§5) : créneaux bruts et
+  // besoins à la granularité poste, nécessaires au pivot `pivoterParShift`, en plus des salariés classés.
+  const outilsSemaine: SemaineOutils = {
+    employees: salariesAClasser,
+    creneaux: creneaux.map((c) => ({ employeeId: c.employeeId, iso: isoJour(new Date(c.date)), shiftId: c.shiftId })),
+    besoinsPoste: besoinsRows.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis })),
+  };
 
   return (
     <div>
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Planning hebdomadaire</h1>
           <p className="text-sm text-muted-foreground">Semaine du {titrePeriode}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          {onglets}
-          <BoutonAuto debut={isoDates[0]} fin={isoDates[6]} />
+          {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`, `/planning?vue=ecart&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
+          {boutonsExport(`?debut=${isoDates[0]}`)}
+          {peutModifier && espaceActif && <PublierSemaineBtn lundiIso={isoDates[0]} publiee={!!semainePubliee} />}
+          {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}
           <Link href={`/planning?debut=${semainePrec}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
           <Link href="/planning" className="rounded-md border px-3 py-1.5 hover:bg-accent">Cette semaine</Link>
           <Link href={`/planning?debut=${semaineSuiv}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
         </div>
       </div>
 
-      {configPanels}
-      {legende}
-      <CouvertureBar
-        jours={calculerCouverture({ besoins: besoinsDTO, employees, creneauMap, isoDates, labelsJours, nomShift })}
-        isoAujourdhui={isoAujourdhui}
-      />
+      {configPanels ?? legende}
 
       {employees.length === 0 ? (
         <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun employé actif.</p>
       ) : (
-        <div className="space-y-6">
-          <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
-          <div>
-            <h2 className="mb-2 text-base font-semibold">Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span></h2>
-            <PlanningGrid employees={brigade} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-          </div>
-          <div>
-            <h2 className="mb-2 text-base font-semibold">Backoffice <span className="font-normal text-muted-foreground">({backoffice.length})</span></h2>
-            <PlanningGrid employees={backoffice} isoDates={isoDates} labelsJours={labelsJours} creneauMap={creneauMap} shifts={shiftsActifs} peutModifier={peutModifier} joursMajores={joursMajores} isoAujourdhui={isoAujourdhui} />
-          </div>
-          </JourMobileProvider>
-        </div>
+        <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(isoAujourdhui))}>
+          <PlanningSemaine
+            groupes={grouperSalaries(salariesAClasser, "categorie")}
+            jours={joursSemaine}
+            creneauMap={creneauMap}
+            absences={absencesSemaine}
+            autoSet={autoSemaine}
+            shifts={shiftsActifs}
+            besoins={besoinsSemaine}
+            peutModifier={peutModifier}
+            outils={outilsSemaine}
+          />
+        </JourMobileProvider>
       )}
 
       <p className="mt-4 text-xs text-muted-foreground">

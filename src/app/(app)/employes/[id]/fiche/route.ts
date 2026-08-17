@@ -1,10 +1,10 @@
-import { renderToBuffer } from "@react-pdf/renderer";
+import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
-import { chargerTauxParTypeConge } from "@/lib/conges";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
+import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const usd = (n: number) =>
@@ -43,10 +43,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const anciennete =
     (new Date(annee, mois - 1).getFullYear() - new Date(employee.dateEmbauche).getFullYear()) * 12 +
     (new Date(annee, mois - 1).getMonth() - new Date(employee.dateEmbauche).getMonth());
-  const congesAcquis = calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
-  // Congés spéciaux (maternité, maladie…) NON déduits du solde — même logique que partout.
+  const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
+  // Congés spéciaux (maternité, maladie…) et congés sans solde (tauxPct = 0) NON déduits du solde
+  // payé — même logique que partout.
   const congesPris = leaveRequests
-    .filter((l) => l.statut === "APPROUVE" && new Date(l.dateDebut) >= debutAnnee && congeDeductibleDuSolde(l.type, tauxParType.get(l.type)))
+    .filter(
+      (l) =>
+        l.statut === "APPROUVE" &&
+        new Date(l.dateDebut) >= debutAnnee &&
+        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
+    )
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
 
   const periodePresences = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {
@@ -54,7 +60,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     year: "numeric",
   });
 
-  const buffer = await renderToBuffer(
+  const buffer = await renderPdfBuffer(
     FicheEmployeDocument({
       employee,
       general: [
@@ -72,9 +78,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         { label: "Heures / jour", value: String(employee.heuresParJour) },
       ],
       salaire: [
-        { label: "Salaire mensuel", value: usd(Number(employee.salaireMensuel)) },
-        { label: "Salaire journalier", value: usd(salaireJournalier) },
-        { label: "Salaire horaire", value: usd(salaireHoraire) },
+        { label: `Salaire mensuel${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(Number(employee.salaireMensuel)) },
+        { label: `Salaire journalier${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(salaireJournalier) },
+        { label: `Salaire horaire${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(salaireHoraire) },
         { label: "Transport / jour", value: `${Number(employee.transportJourCDF).toLocaleString("fr-FR")} CDF` },
         { label: "Heures hebdo", value: String(employee.heuresHebdomadaires) },
         { label: "CNSS", value: usd(Number(employee.cnssMontant)) },

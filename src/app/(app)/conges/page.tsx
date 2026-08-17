@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { demanderConge, approuverConge, refuserConge, reinitialiserConges } from "./actions";
+import { demanderConge, approuverConge, refuserConge, supprimerConge } from "./actions";
+import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
+import { ChampsDatesConge } from "@/components/champs-dates-conge";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -23,14 +25,17 @@ function chipDate(dt: Date) {
 export default async function CongesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statut?: string; type?: string; q?: string }>;
+  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string } & SPCalendrier>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
+
+  // Vue Calendrier (fusion de l'ancien onglet /absences) : même donnée, deux présentations.
+  if (sp.vue === "calendrier") return <CalendrierAbsences sp={sp} />;
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const peutApprouver = user.role === "ADMIN";
 
-  const [employees, demandesAll, typesConge] = await Promise.all([
+  const [employees, demandesAll, typesConge, feriesRows] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
     prisma.leaveRequest.findMany({
       include: { employee: true, approuvePar: true },
@@ -38,7 +43,9 @@ export default async function CongesPage({
       take: 300,
     }),
     prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+    prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
+  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
   const TYPES_CONGE = typesConge.map((t) => t.nom);
 
   const typesPresents = [...new Set(demandesAll.map((d) => d.type))].sort();
@@ -54,24 +61,20 @@ export default async function CongesPage({
   const now = new Date();
   const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
   const enCours = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) <= now && new Date(d.dateFin) >= now).length;
-  const dans30 = new Date(Date.now() + 30 * 86_400_000);
+  const dans30 = new Date(now.getTime() + 30 * 86_400_000);
   const aVenir = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) > now && new Date(d.dateDebut) <= dans30).length;
   const nbApprouve = demandesAll.filter((d) => d.statut === "APPROUVE").length;
 
   return (
     <div>
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold sm:text-2xl">Congés</h1>
-        {peutApprouver && demandes.length > 0 && (
-          <form action={reinitialiserConges}>
-            <ConfirmSubmitButton
-              message="Supprimer TOUTES les demandes de congé (journal complet) ? Cette action est irréversible."
-              className="rounded-md border border-destructive px-4 py-2 text-sm font-medium text-destructive"
-            >
-              Réinitialiser les congés
-            </ConfirmSubmitButton>
-          </form>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences</h1>
+          <div className="flex overflow-hidden rounded-md border text-sm">
+            <span className="bg-primary px-3 py-1.5 font-medium text-primary-foreground">Liste</span>
+            <Link href="/conges?vue=calendrier" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
+          </div>
+        </div>
       </div>
 
       {/* Synthèse façon Factorial */}
@@ -127,30 +130,8 @@ export default async function CongesPage({
                 ))}
               </select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="dateDebut" className="text-sm font-medium">
-                Date début
-              </label>
-              <input
-                id="dateDebut"
-                name="dateDebut"
-                type="date"
-                required
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="dateFin" className="text-sm font-medium">
-                Date fin
-              </label>
-              <input
-                id="dateFin"
-                name="dateFin"
-                type="date"
-                required
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
+            {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
+            <ChampsDatesConge feries={feries} inputClassName="rounded-md border border-input bg-background px-3 py-2 text-sm" />
             <div className="flex flex-col gap-1.5">
               <label htmlFor="remplacantId" className="text-sm font-medium">
                 Remplaçant(e)
@@ -265,6 +246,16 @@ export default async function CongesPage({
                     </>
                   )}
                   <TelechargerLien href={`/conges/demande/${d.id}`} className="text-sm text-primary underline">PDF</TelechargerLien>
+                  {peutApprouver && (
+                    <form action={supprimerConge.bind(null, d.id)} className="inline">
+                      <ConfirmSubmitButton
+                        message={d.statut === "APPROUVE" ? "Supprimer ce congé approuvé ? Ses codes seront retirés de la feuille de présence." : "Supprimer cette demande de congé ?"}
+                        className="rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                      >
+                        ✕
+                      </ConfirmSubmitButton>
+                    </form>
+                  )}
                 </div>
               </div>
             );

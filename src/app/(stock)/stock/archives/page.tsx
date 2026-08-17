@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/stock";
-import { BoutonSupprimerTout } from "../_rapport/bouton-supprimer-tout";
-import { supprimerTousRapports } from "./actions";
+import { grouperParMois } from "@/lib/dates-fr";
+import { MoisAccordeon } from "@/components/mois-accordeon";
+
+const jfr = (d: Date | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 
 type SP = { vue?: string; entite?: string; userId?: string };
 
@@ -21,8 +24,7 @@ const TYPE_RAPPORT_LABEL: Record<string, string> = {
 
 export default async function ArchivesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
-  const user = await verifySession();
-  const estDirection = user.role === "ADMIN";
+  await verifySession();
   const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : sp.vue === "bons" ? "bons" : "comptages";
 
   const onglets: [string, string][] = [["comptages", "Comptages"], ["bons", "Bons de commande validés"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
@@ -42,51 +44,36 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 
       {vue === "comptages" && <Comptages />}
       {vue === "bons" && <BonsValides />}
-      {vue === "rapports" && <Rapports estDirection={estDirection} />}
+      {vue === "rapports" && <Rapports />}
       {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} />}
     </div>
   );
 }
 
 async function Comptages() {
-  const sessions = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+  const sessions = await prisma.sessionComptage.findMany({ orderBy: { date: "desc" }, take: 300 });
+  if (sessions.length === 0) return <EtatVide message="Aucun comptage archivé." />;
+  const groupes = grouperParMois(sessions, (s) => s.date);
   return (
-    <>
-    <div className="space-y-2 lg:hidden">
-      {sessions.map((s) => (
-        <Link key={s.id} href={`/stock/archives/${s.id}`} className="block rounded-xl border bg-card p-3 active:bg-accent">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">{new Date(s.date).toLocaleDateString("fr-FR")}</span>
-            <span className="text-xs text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"}</span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>{s.nbArticles} articles</span>
-            <span>{s.nbEcarts} écart(s)</span>
-            {s.nbHorsTol > 0 ? <span className="font-semibold text-red-700">{s.nbHorsTol} hors tolérance</span> : <span>0 hors tolérance</span>}
-          </div>
-        </Link>
+    <div className="space-y-2">
+      {groupes.map((g, i) => (
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} comptage(s)`} defaultOpen={i === 0}>
+          <ul className="divide-y border-t text-sm">
+            {g.items.map((s) => (
+              <li key={s.id}>
+                <Link href={`/stock/archives/${s.id}`} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
+                  <span className="min-w-0">
+                    <span className="font-medium">{jfr(s.date)}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"} · {s.nbArticles} articles · {s.nbEcarts} écart(s)</span>
+                  </span>
+                  {s.nbHorsTol > 0 ? <span className="shrink-0 text-xs font-semibold text-red-700">{s.nbHorsTol} hors tol.</span> : <span className="shrink-0 text-xs text-muted-foreground">0 hors tol.</span>}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </MoisAccordeon>
       ))}
-      {sessions.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun comptage archivé.</p>}
     </div>
-    <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-      <table className="w-full min-w-[40rem] text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Date</th><th>Domaine</th><th className="text-right">Articles</th><th className="text-right">Écarts</th><th className="text-right">Hors tolérance</th><th></th></tr></thead>
-        <tbody>
-          {sessions.map((s) => (
-            <tr key={s.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
-              <td className="px-3 py-2 font-medium">{new Date(s.date).toLocaleDateString("fr-FR")}</td>
-              <td className="px-3 py-2 text-muted-foreground">{s.domaine ? DOMAINE_LABEL[s.domaine] ?? s.domaine : "Tous"}</td>
-              <td className="px-3 py-2 text-right">{s.nbArticles}</td>
-              <td className="px-3 py-2 text-right">{s.nbEcarts}</td>
-              <td className="px-3 py-2 text-right">{s.nbHorsTol > 0 ? <span className="font-semibold text-red-700">{s.nbHorsTol}</span> : "0"}</td>
-              <td className="px-3 py-2 text-right"><Link href={`/stock/archives/${s.id}`} className="text-primary underline">Ouvrir</Link></td>
-            </tr>
-          ))}
-          {sessions.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun comptage archivé.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-    </>
   );
 }
 
@@ -94,103 +81,63 @@ async function BonsValides() {
   const bcs = await prisma.bonDeCommande.findMany({
     where: { statut: { notIn: ["BROUILLON", "ANNULE"] } },
     orderBy: [{ annee: "desc" }, { date: "desc" }],
-    take: 200,
+    take: 300,
     include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
   });
+  if (bcs.length === 0) return <EtatVide message="Aucun bon de commande validé." />;
+  const groupes = grouperParMois(bcs, (b) => b.date);
   return (
-    <>
-    {/* Mobile : cartes. */}
-    <div className="space-y-2 lg:hidden">
-      {bcs.map((b) => (
-        <div key={b.id} className="rounded-xl border bg-card p-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <Link href={`/stock/commandes/${b.id}`} className="font-medium text-primary hover:underline">{b.numero}</Link>
-              <div className="truncate text-xs text-muted-foreground">{b.fournisseur?.nom ?? "—"} · {new Date(b.date).toLocaleDateString("fr-FR")}</div>
-            </div>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
-          </div>
-          <div className="mt-1.5 flex items-center justify-between text-sm"><span className="text-muted-foreground">{b._count.lignes} ligne(s)</span><span className="font-semibold tabular-nums">{usd(b.totalUSD)}</span></div>
-        </div>
+    <div className="space-y-2">
+      {groupes.map((g, i) => (
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} bon(s)`} resume={usd(g.items.reduce((t, b) => t + Number(b.totalUSD), 0))} defaultOpen={i === 0}>
+          <ul className="divide-y border-t text-sm">
+            {g.items.map((b) => (
+              <li key={b.id} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
+                <span className="min-w-0">
+                  <Link href={`/stock/commandes/${b.id}`} className="font-medium text-primary hover:underline">{b.numero}</Link>
+                  <span className="ml-2 text-xs text-muted-foreground">{b.fournisseur?.nom ?? "—"} · {jfr(b.date)} · {b._count.lignes} ligne(s)</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
+                  <span className="font-semibold tabular-nums">{usd(b.totalUSD)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </MoisAccordeon>
       ))}
-      {bcs.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun bon de commande validé.</p>}
     </div>
-    {/* Ordinateur : tableau. */}
-    <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-      <table className="w-full min-w-[40rem] text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Numéro</th><th>Fournisseur</th><th>Date</th><th className="text-right">Total</th><th>Statut</th><th></th></tr></thead>
-        <tbody>
-          {bcs.map((b) => (
-            <tr key={b.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
-              <td className="px-3 py-2 font-medium">{b.numero}</td>
-              <td className="px-3 py-2">{b.fournisseur?.nom ?? "—"}</td>
-              <td className="px-3 py-2 text-muted-foreground">{new Date(b.date).toLocaleDateString("fr-FR")}</td>
-              <td className="px-3 py-2 text-right">{usd(b.totalUSD)}</td>
-              <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span></td>
-              <td className="px-3 py-2 text-right"><Link href={`/stock/commandes/${b.id}`} className="text-primary underline">Ouvrir</Link></td>
-            </tr>
-          ))}
-          {bcs.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun bon de commande validé.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-    </>
   );
 }
 
 const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${String(new Date(d).getUTCMonth() + 1).padStart(2, "0")}` : "");
 
-async function Rapports({ estDirection }: { estDirection: boolean }) {
-  const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
+async function Rapports() {
+  const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 300 });
+  if (rapports.length === 0) return <EtatVide message="Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés." />;
+  const groupes = grouperParMois(rapports, (r) => r.createdAt);
+  const periode = (r: (typeof rapports)[number]) =>
+    `${r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → ${r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}`;
   return (
-    <div className="space-y-3">
-      {estDirection && rapports.length > 0 && (
-        <div className="flex justify-end">
-          <BoutonSupprimerTout estDirection={estDirection} action={supprimerTousRapports} libelle="Supprimer TOUS les rapports générés ?" />
-        </div>
-      )}
-      {/* Mobile : cartes. */}
-      <div className="space-y-2 lg:hidden">
-        {rapports.map((r) => {
-          const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
-          return (
-            <div key={r.id} className="rounded-xl border bg-card p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-medium">{TYPE_RAPPORT_LABEL[r.type] ?? r.type} <span className="text-xs font-normal text-muted-foreground">· {r.mode === "detail" ? "Détaillé" : "Chiffré"} · {r.format.toUpperCase()}</span></div>
-                  <div className="text-xs text-muted-foreground">
-                    {r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} · généré le {new Date(r.createdAt).toLocaleDateString("fr-FR")}
-                  </div>
-                </div>
-                <a href={url} download target="_blank" rel="noopener" className="shrink-0 rounded border px-2 py-1 text-xs font-medium hover:bg-accent">Télécharger</a>
-              </div>
-            </div>
-          );
-        })}
-        {rapports.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</p>}
-      </div>
-
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-      <table className="w-full min-w-[44rem] text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Rapport</th><th>Type</th><th>Format</th><th>Période</th><th>Généré le</th><th></th></tr></thead>
-        <tbody>
-          {rapports.map((r) => {
-            const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
-            return (
-              <tr key={r.id} className="border-t even:bg-muted/25 hover:bg-accent/40">
-                <td className="px-3 py-2 font-medium">{TYPE_RAPPORT_LABEL[r.type] ?? r.type}</td>
-                <td className="px-3 py-2 text-muted-foreground">{r.mode === "detail" ? "Détaillé" : "Chiffré"}</td>
-                <td className="px-3 py-2 uppercase text-muted-foreground">{r.format}</td>
-                <td className="px-3 py-2 text-muted-foreground">{r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → {r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}</td>
-                <td className="px-3 py-2 text-muted-foreground">{new Date(r.createdAt).toLocaleString("fr-FR")}</td>
-                <td className="px-3 py-2 text-right"><a href={url} download target="_blank" rel="noopener" className="rounded border px-2 py-1 text-xs font-medium hover:bg-accent">Télécharger</a></td>
-              </tr>
-            );
-          })}
-          {rapports.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés.</td></tr>}
-        </tbody>
-      </table>
-      </div>
+    <div className="space-y-2">
+      {groupes.map((g, i) => (
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} rapport(s)`} defaultOpen={i === 0}>
+          <ul className="divide-y border-t text-sm">
+            {g.items.map((r) => {
+              const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
+              return (
+                <li key={r.id} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
+                  <span className="min-w-0">
+                    <span className="font-medium">{TYPE_RAPPORT_LABEL[r.type] ?? r.type}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{r.mode === "detail" ? "Détaillé" : "Chiffré"} · {r.format.toUpperCase()} · {periode(r)} · généré le {jfr(r.createdAt)}</span>
+                  </span>
+                  <a href={url} download target="_blank" rel="noopener" className="shrink-0 rounded border px-2.5 py-1 text-xs font-medium hover:bg-accent">Télécharger</a>
+                </li>
+              );
+            })}
+          </ul>
+        </MoisAccordeon>
+      ))}
     </div>
   );
 }
@@ -226,37 +173,27 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
         <span className="text-xs text-muted-foreground">{entrees.length} entrée(s)</span>
       </form>
 
-      {/* Mobile : cartes. */}
-      <div className="space-y-2 lg:hidden">
-        {entrees.map((e) => (
-          <div key={e.id} className="rounded-xl border bg-card p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{ENTITE_LABEL[e.entite] ?? e.entite} <span className="text-xs font-normal text-muted-foreground">· {e.champ}</span></span>
-              <span className="shrink-0 text-[11px] text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR")}</span>
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">{e.nouvelleValeur ?? e.ancienneValeur ?? "—"}{e.user?.nom ? ` · ${e.user.nom}` : ""}</div>
-          </div>
-        ))}
-        {entrees.length === 0 && <p className="rounded-xl border p-6 text-center text-sm text-muted-foreground">Aucune activité enregistrée.</p>}
-      </div>
-
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-      <table className="w-full min-w-[44rem] text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left"><tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold"><th>Quand</th><th>Type</th><th>Action</th><th>Détail</th><th>Par</th></tr></thead>
-        <tbody>
-          {entrees.map((e) => (
-            <tr key={e.id} className="border-t even:bg-muted/25">
-              <td className="px-3 py-2 text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR")}</td>
-              <td className="px-3 py-2">{ENTITE_LABEL[e.entite] ?? e.entite}</td>
-              <td className="px-3 py-2 text-muted-foreground">{e.champ}</td>
-              <td className="px-3 py-2 text-muted-foreground">{e.nouvelleValeur ?? e.ancienneValeur ?? "—"}</td>
-              <td className="px-3 py-2 text-muted-foreground">{e.user?.nom ?? "—"}</td>
-            </tr>
+      {entrees.length === 0 ? (
+        <EtatVide message="Aucune activité enregistrée." />
+      ) : (
+        <div className="space-y-2">
+          {grouperParMois(entrees, (e) => e.date).map((g, i) => (
+            <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} entrée(s)`} defaultOpen={i === 0}>
+              <ul className="divide-y border-t text-sm">
+                {g.items.map((e) => (
+                  <li key={e.id} className="flex items-start justify-between gap-3 px-3 py-1.5">
+                    <span className="min-w-0">
+                      <span className="font-medium">{ENTITE_LABEL[e.entite] ?? e.entite}</span> <span className="text-xs text-muted-foreground">· {e.champ}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{e.nouvelleValeur ?? e.ancienneValeur ?? "—"}{e.user?.nom ? ` · ${e.user.nom}` : ""}</span>
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR")}</span>
+                  </li>
+                ))}
+              </ul>
+            </MoisAccordeon>
           ))}
-          {entrees.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucune activité enregistrée.</td></tr>}
-        </tbody>
-      </table>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

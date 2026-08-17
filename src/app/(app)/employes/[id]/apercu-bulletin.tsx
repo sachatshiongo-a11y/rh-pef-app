@@ -13,21 +13,25 @@ function fmtH(n: number) {
   return (Object.is(r, -0) ? 0 : r).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 }
 
-/** Aperçu intégré (temps réel, pas PDF) du bulletin de la période — montants en USD ET CDF. */
-export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin; periode: string }) {
-  const l = apercu.ligne;
-  const t = apercu.tauxChangeCDF;
-  const totalRetenues = Number(l.cnssSalarieUSD) + Number(l.iprCalculeUSD) + Number(l.acompteUSD);
-
-  const Ligne = ({ label, usd, signe }: { label: string; usd: number; signe?: "+" | "-" }) => (
+// Défini au niveau module (pas dans le rendu) : sinon React le voit comme un composant
+// différent à chaque rendu et démonte/remonte tout le sous-arbre.
+function Ligne({ label, usd, taux, signe }: { label: string; usd: number; taux: number; signe?: "+" | "-" }) {
+  return (
     <div className="flex items-center justify-between border-t px-3 py-1.5 text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="text-right">
         <span className="font-medium">{signe ? `${signe} ` : ""}{fmtUSD(usd)}</span>
-        <span className="ml-2 text-xs text-muted-foreground">{fmtCDF(usd * t)}</span>
+        <span className="ml-2 text-xs text-muted-foreground">{fmtCDF(usd * taux)}</span>
       </span>
     </div>
   );
+}
+
+/** Aperçu intégré (temps réel, pas PDF) du bulletin de la période — montants en USD ET CDF. */
+export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin; periode: string }) {
+  const l = apercu.ligne;
+  const t = apercu.tauxChangeCDF;
+  const totalRetenues = Number(l.cnssSalarieUSD) + Number(l.iprCalculeUSD) + Number(l.acompteUSD) + Number(l.retenuePretUSD ?? 0);
 
   return (
     <div className="mb-6 overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -39,26 +43,27 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
       <div className="grid gap-0 md:grid-cols-2">
         <div>
           <p className="bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase text-emerald-800">Gains</p>
-          <Ligne label={L.base} usd={Number(l.remuneration100)} />
-          {Number(l.remuneration2_3) > 0 && <Ligne label={L.maladie} usd={Number(l.remuneration2_3)} />}
+          <Ligne taux={t} label={L.base} usd={Number(l.remuneration100)} />
+          {Number(l.remuneration2_3) > 0 && <Ligne taux={t} label={L.maladie} usd={Number(l.remuneration2_3)} />}
           {/* Primes : une ligne par prime ; rien du tout s'il n'y en a aucune (pas de ligne « 0 »). */}
           {apercu.primes.map((p, i) => (
-            <Ligne key={i} label={p.nom} usd={p.montantUSD} />
+            <Ligne key={i} taux={t} label={p.nom} usd={p.montantUSD} />
           ))}
-          <Ligne label={L.brut} usd={Number(l.salBrutUSD)} />
+          <Ligne taux={t} label={L.brut} usd={Number(l.salBrutUSD)} />
           {/* Tout est conditionnel : une ligne n'apparaît que si son montant est non nul. */}
           {(Number(l.allocFamilialeUSD) > 0 || Number(l.fraisMedicauxUSD) > 0) && (
             <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
           )}
-          {Number(l.allocFamilialeUSD) > 0 && <Ligne label={L.alloc} usd={Number(l.allocFamilialeUSD)} signe="+" />}
-          {Number(l.fraisMedicauxUSD) > 0 && <Ligne label={L.fraisMedicaux} usd={Number(l.fraisMedicauxUSD)} signe="+" />}
+          {Number(l.allocFamilialeUSD) > 0 && <Ligne taux={t} label={L.alloc} usd={Number(l.allocFamilialeUSD)} signe="+" />}
+          {Number(l.fraisMedicauxUSD) > 0 && <Ligne taux={t} label={L.fraisMedicaux} usd={Number(l.fraisMedicauxUSD)} signe="+" />}
         </div>
         <div className="border-l">
           <p className="bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase text-amber-800">Retenues</p>
-          <Ligne label={L.cnss} usd={Number(l.cnssSalarieUSD)} signe="-" />
-          <Ligne label={L.ipr} usd={Number(l.iprCalculeUSD)} signe="-" />
-          {Number(l.acompteUSD) > 0 && <Ligne label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />}
-          <Ligne label="Total retenues" usd={totalRetenues} signe="-" />
+          <Ligne taux={t} label={L.cnss} usd={Number(l.cnssSalarieUSD)} signe="-" />
+          <Ligne taux={t} label={L.ipr} usd={Number(l.iprCalculeUSD)} signe="-" />
+          {Number(l.acompteUSD) > 0 && <Ligne taux={t} label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />}
+          {Number(l.retenuePretUSD ?? 0) > 0 && <Ligne taux={t} label="Retenue prêt" usd={Number(l.retenuePretUSD)} signe="-" />}
+          <Ligne taux={t} label="Total retenues" usd={totalRetenues} signe="-" />
           <p className="mt-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground">Heures</p>
           <div className="flex items-center justify-between px-3 py-1.5 text-sm">
             <span className="text-muted-foreground">Travaillées · HS 30/60/100</span>

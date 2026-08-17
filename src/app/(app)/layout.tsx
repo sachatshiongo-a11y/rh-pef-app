@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession, estRH } from "@/lib/auth";
+import { verifySession, estRH, ciblesAutresEspaces } from "@/lib/auth";
+import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
 import { AppShell } from "./app-shell";
 
@@ -14,14 +15,22 @@ async function chargerBadges(): Promise<Record<string, number>> {
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const filtreRun = config ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } } : {};
-  const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente] = await Promise.all([
+  const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente, changementsShift] = await Promise.all([
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.acompteSalaire.count({ where: { statut: "EN_ATTENTE" } }),
+    prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
   ]);
+  const echangesEnAttente = await prisma.echangeCreneau.count({ where: { statut: "EN_ATTENTE" } });
   const badges = {
-    "/a-valider": congesEnAttente + bulletinsPasValide + bulletinsValide + acomptesEnAttente,
+    // NB (2026-07-22) : les bulletins brouillons (PAS_VALIDE) du mois en cours ne comptent PLUS dans
+    // le badge « Demandes de validation ». Ils sont (re)créés automatiquement à chaque recalcul (ex.
+    // dès qu'on saisit des présences), ce qui faisait gonfler le badge de ~24 sans qu'il s'agisse de
+    // vraies demandes — la validation/clôture de la paie se fait dans l'onglet Paie. Le badge ne
+    // compte donc que les demandes réelles (congés, acomptes, changements de shift) + les bulletins
+    // VALIDÉS restant à payer (qui, eux, n'apparaissent qu'après une validation délibérée).
+    "/a-valider": congesEnAttente + bulletinsValide + acomptesEnAttente + changementsShift + echangesEnAttente,
     "/conges": congesEnAttente,
     "/paie": bulletinsPasValide + bulletinsValide,
   };
@@ -35,10 +44,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // vers le résolveur d'entrée, qui l'oriente vers son propre espace. Le cloisonnement ne
   // repose donc pas sur le seul masquage des liens.
   if (!estRH(user.role)) redirect("/entree");
-  const [badges, notif, moi] = await Promise.all([
+  const [badges, notif, moi, salarieActif] = await Promise.all([
     chargerBadges(),
     chargerNotifications("RH"), // cloche pour tous les utilisateurs RH
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { id: true, photoUrl: true } } } }),
+    espaceEmployeActif(),
   ]);
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const monEmployeId = moi?.employe?.id ?? null;
@@ -50,6 +60,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       userRole={user.role}
       maPhoto={maPhoto}
       employeeId={monEmployeId}
+      autresEspaces={ciblesAutresEspaces(user, salarieActif, "rh")}
       notif={notif ? { items: notif.items, nonLues: notif.nonLues, cloture: notif.cloture } : null}
     >
       {children}

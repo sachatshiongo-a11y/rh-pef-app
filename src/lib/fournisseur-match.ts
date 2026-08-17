@@ -2,7 +2,7 @@
 // « ETS.SENEVE » ↔ « ETS SENEVE », « STE IMEXCO » ↔ « IMEXCO »…
 // Utilisé à la lecture d'un PDF de facture pour rattacher au bon fournisseur.
 
-const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+import { sansAccents as strip } from "./texte";
 // Formes juridiques / mots génériques ignorés dans la comparaison par jetons.
 const STOP = new Set(["ets", "ste", "sarl", "sa", "sprl", "srl", "cie", "co", "company", "societe", "sc", "sas", "group", "groupe", "etablissement", "etablissements", "the", "de", "des", "du", "la", "le", "les"]);
 // Mots trop génériques pour, à eux seuls, indiquer la même enseigne (exclus du « jeton distinctif partagé »).

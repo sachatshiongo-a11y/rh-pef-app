@@ -9,13 +9,21 @@ import { PaieBulk, type PaieRow } from "./paie-bulk";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
+import { HistoriquePaie, type SPHistorique } from "./historique-paie";
+import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
+
+// Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
+// bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
+// navigation client (surtout PWA, page préchargée/déjà montée), Next pouvait resservir une version
+// en cache sans relancer le rendu serveur — d'où l'impression de devoir recliquer « Calculer ».
+export const dynamic = "force-dynamic";
 
 export default async function PaiePage({
   searchParams,
 }: {
-  searchParams: Promise<{ vue?: string; erreur?: string; msg?: string }>;
+  searchParams: Promise<{ vue?: string; erreur?: string; msg?: string } & SPHistorique>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
@@ -26,6 +34,24 @@ export default async function PaiePage({
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? new Date().getMonth() + 1;
   const annee = config?.anneeCourante ?? new Date().getFullYear();
+
+  // Bulletins TOUJOURS à jour : si la paie a été calculée et qu'il reste des lignes non figées,
+  // on les recalcule silencieusement AVANT l'affichage — les présences, heures, pointages et
+  // congés saisis après le « Calculer » se répercutent ainsi sans re-cliquer. Les lignes
+  // validées/payées ne sont jamais touchées ; aucun run n'est créé ici.
+  const runMeta = await prisma.payrollRun.findUnique({
+    where: { mois_annee: { mois, annee } },
+    select: { lignes: { select: { statutPaiement: true } } },
+  });
+  if (runMeta && runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) {
+    try {
+      await rafraichirPaieDuMois({ creerRun: false });
+    } catch (e) {
+      // Échec ponctuel (réseau, pooler…) : on affiche le dernier état calculé plutôt qu'une
+      // page d'erreur — le prochain chargement retentera.
+      console.error("[paie] rafraîchissement automatique échoué :", e instanceof Error ? e.message : e);
+    }
+  }
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },
@@ -93,7 +119,6 @@ export default async function PaiePage({
   const brigade = rows.filter((r) => r.categorie === "BRIGADE");
   const backoffice = rows.filter((r) => r.categorie === "BACKOFFICE");
 
-  const taches = run ? await tachesBloquantesCloture(mois, annee) : [];
   const nbPasValide = rows.filter((r) => r.statutPaiement === "PAS_VALIDE").length;
 
   // Éléments de rémunération (détail par salarié), par type — toujours à jour (persisté ou aperçu).
@@ -128,18 +153,51 @@ export default async function PaiePage({
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const contratsDuMois = await prisma.contrat.findMany({
-    where: {
-      statut: "ACTIF",
-      OR: [
-        { dateDebut: { gte: debutMois, lte: finMois } },
-        { dateFin: { gte: debutMois, lte: finMois } },
-        { finPeriodeEssai: { gte: debutMois, lte: finMois } },
-      ],
-    },
-    include: { employee: { select: { id: true, nom: true } } },
-    orderBy: { dateFin: "asc" },
+
+  // Tâches bloquantes, prêts en cours et contrats du mois : indépendants, chargés en parallèle.
+  // Les prêts ne servent qu'à l'onglet Rémunération — non chargés pour les autres vues.
+  const [taches, pretsEnCours, contratsDuMois] = await Promise.all([
+    run ? tachesBloquantesCloture(mois, annee) : Promise.resolve([]),
+    vue === "remuneration"
+      ? prisma.pretPersonnel.findMany({
+          where: { statut: "EN_COURS" },
+          include: { employee: { select: { id: true, nom: true } }, retenues: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : Promise.resolve([]),
+    prisma.contrat.findMany({
+      where: {
+        statut: "ACTIF",
+        OR: [
+          { dateDebut: { gte: debutMois, lte: finMois } },
+          { dateFin: { gte: debutMois, lte: finMois } },
+          { finPeriodeEssai: { gte: debutMois, lte: finMois } },
+        ],
+      },
+      include: { employee: { select: { id: true, nom: true } } },
+      orderBy: { dateFin: "asc" },
+    }),
+  ]);
+  // Prêts en cours : encours total + échéance retenue ce mois-ci (onglet Rémunération).
+  const pretsRecap = pretsEnCours.map((p) => {
+    const montant = Number(p.montantUSD);
+    const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
+    const dejaHorsMois = p.retenues
+      .filter((r) => !(r.mois === mois && r.annee === annee))
+      .reduce((s, r) => s + Number(r.montantUSD), 0);
+    const soldeAvant = montant - dejaHorsMois;
+    return {
+      id: p.id,
+      employeeId: p.employee.id,
+      nom: p.employee.nom,
+      montant,
+      solde: Math.max(0, montant - rembourse),
+      echeanceMois: soldeAvant > 0 ? Math.min(Number(p.retenueMensuelleUSD), soldeAvant) : 0,
+    };
   });
+  const encoursTotal = pretsRecap.reduce((s, p) => s + p.solde, 0);
+  const echeancesMois = pretsRecap.reduce((s, p) => s + p.echeanceMois, 0);
+
   const contratRows: ContratRow[] = contratsDuMois.map((c) => ({
     id: c.id,
     employeeId: c.employee.id,
@@ -154,6 +212,7 @@ export default async function PaiePage({
     { cle: "bulletins", label: "Valider les bulletins" },
     { cle: "remuneration", label: "Éléments de la paie" },
     { cle: "contrats", label: `Suivi des contrats (${contratRows.length})` },
+    { cle: "historique", label: "Historique" },
   ];
 
   // Frise chronologique jusqu'au jour de paie (le 30), couleur selon la proximité.
@@ -304,6 +363,11 @@ export default async function PaiePage({
                     (traiter)
                   </Link>
                 )}
+                {t.type === "JOUR_P_SANS_HEURES" && (
+                  <Link href="/heures-supp" className="text-xs underline">
+                    (corriger)
+                  </Link>
+                )}
               </li>
             ))}
           </ul>
@@ -336,7 +400,42 @@ export default async function PaiePage({
       </>
       )}
 
-      {vue === "remuneration" && <RemunerationElements lignes={remuLignes} />}
+      {vue === "remuneration" && (
+        <>
+          <RemunerationElements lignes={remuLignes} />
+
+          {/* Prêts au personnel : encours et retenues du mois (vue d'ensemble). */}
+          <div className="mt-6 rounded-2xl border bg-card p-5">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold">Prêts au personnel</h2>
+                <p className="text-sm text-muted-foreground">Retenus automatiquement sur le salaire net jusqu&apos;au remboursement.</p>
+              </div>
+              <div className="flex gap-4 text-sm">
+                <span className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-800">Encours : {usd(encoursTotal)}</span>
+                <span className="rounded-full bg-muted px-3 py-1 font-medium">Retenues du mois : {usd(echeancesMois)}</span>
+              </div>
+            </div>
+            {pretsRecap.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucun prêt en cours.</p>
+            ) : (
+              <ul className="divide-y">
+                {pretsRecap.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+                    <Link href={`/employes/${p.employeeId}?tab=dossier`} className="font-medium text-primary underline">{p.nom}</Link>
+                    <span className="text-muted-foreground">Prêt de {usd(p.montant)}</span>
+                    <span>Retenue ce mois : <b>{usd(p.echeanceMois)}</b></span>
+                    <span>Reste dû : <b>{usd(p.solde)}</b></span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Historique de tous les mois de paie (fusion de l'ancien onglet /historique). */}
+      {vue === "historique" && <HistoriquePaie sp={sp} />}
 
       {vue === "contrats" && (
         <SuiviContrats contrats={contratRows} peutGerer={peutGerer} estAdmin={estAdmin} />

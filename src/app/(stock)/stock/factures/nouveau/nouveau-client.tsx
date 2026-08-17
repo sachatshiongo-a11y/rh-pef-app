@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from "../actions";
+import { estErreur } from "@/lib/action-lisible";
 
 type Art = { id: string; designation: string; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
@@ -18,6 +19,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
     b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: l.quantite, prix: l.prix })) : [vide(), vide(), vide()];
 
   const [erreur, setErreur] = useState<string | null>(null);
+  const [doublon, setDoublon] = useState<string | null>(null);
   const [isPending, start] = useTransition();
   const [bonId, setBonId] = useState(bon0?.id ?? "");
   const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
@@ -41,10 +43,17 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
     fd.set("facturePdf", file);
     analyserFacturePDF(fd)
       .then((r) => {
+        if (estErreur(r)) { setErreur(r.erreur); return; }
         setAnalyse(r);
         if (r.date) setDate(r.date);
         if (r.numero) setNumero(r.numero);
-        if (r.montant != null) setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+        // Lignes détaillées lues sur la facture (article rapproché du catalogue + quantité + prix) ;
+        // à défaut, une ligne unique avec le montant total.
+        if (r.lignes.length > 0) {
+          setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: String(l.quantite), prix: String(l.prixUnitaireUSD) })));
+        } else if (r.montant != null) {
+          setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+        }
         // Fournisseur : proche existant → on l'associe ; sinon on prépare la création automatique.
         if (r.match) { setFournisseurId(r.match.id); setFournisseurNom(r.match.nom); setCoord(null); }
         else if (r.fournisseur.nom) { setFournisseurId(""); setFournisseurNom(r.fournisseur.nom); setCoord(r.fournisseur); }
@@ -86,22 +95,34 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
 
   const submit = (fd: FormData) => {
-    setErreur(null);
+    setErreur(null); setDoublon(null);
     start(async () => {
-      try { await creerFactureAvecLignes(fd); }
+      let r: Awaited<ReturnType<typeof creerFactureAvecLignes>>;
+      try { r = await creerFactureAvecLignes(fd); }
       catch (e) {
-        // redirect() lève une exception attendue : ne pas l'afficher comme erreur.
-        if (e instanceof Error && e.message === "NEXT_REDIRECT") return;
+        // redirect() (succès) lève une exception interne de Next : ne pas l'afficher comme erreur.
         const d = e as { digest?: string };
-        if (d?.digest?.startsWith?.("NEXT_REDIRECT")) return;
-        setErreur(e instanceof Error ? e.message : "Erreur.");
+        if ((e instanceof Error && e.message === "NEXT_REDIRECT") || d?.digest?.startsWith?.("NEXT_REDIRECT")) return;
+        throw e;
       }
+      if (!estErreur(r)) return;
+      if (r.erreur.startsWith("DOUBLON_POSSIBLE|")) setDoublon(r.erreur.slice("DOUBLON_POSSIBLE|".length));
+      else setErreur(r.erreur);
     });
   };
 
   return (
     <form action={submit} className="space-y-4">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {doublon && (
+        <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="font-semibold">⚠ Achat peut-être déjà saisi</p>
+          <p className="mt-1">{doublon}</p>
+          <button type="submit" name="forcerDoublons" value="1" disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
+            Enregistrer quand même (le stock sera compté en plus)
+          </button>
+        </div>
+      )}
 
       <div className="rounded-lg border bg-muted/20 p-3">
         <div className="text-sm font-medium">Joindre le PDF de la facture <span className="font-normal text-muted-foreground">(facultatif)</span></div>
@@ -125,6 +146,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
               </p>
             ) : (
               <p>Fournisseur non détecté — renseignez-le à la main.</p>
+            )}
+            {analyse.lignes.length > 0 && (
+              <p>{analyse.lignes.length} ligne(s) lue(s), dont <span className="font-medium">{analyse.lignes.filter((l) => l.articleId).length}</span> rapprochée(s) d’un article du catalogue — vérifiez le tableau ci-dessous.</p>
             )}
           </div>
         )}
@@ -213,7 +237,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
                 <td className="px-2 py-1"><input name="ligne_unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} className={`${inp} w-20`} placeholder="Kg…" /></td>
                 <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
                 <td className="px-2 py-1"><input name="ligne_prix" value={l.prix} onChange={(e) => maj(i, { prix: e.target.value })} type="number" step="0.0001" min="0" className={`${inp} w-24 text-right`} /></td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toFixed(2)} $</td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
                 <td className="px-2 py-1 text-right">
                   <button type="button" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent" title="Retirer">✕</button>
                 </td>

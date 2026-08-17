@@ -5,7 +5,8 @@ import ExcelJS from "exceljs";
 // colonnes par leur en-tête (gère les formats 2023 et 2024/2025, et les futurs classeurs).
 
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-const norm = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+import { normTexte } from "./texte";
+const norm = (s: unknown) => normTexte(String(s ?? "")).trim();
 const alnum = (s: unknown) => norm(s).replace(/[^a-z0-9]/g, "");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

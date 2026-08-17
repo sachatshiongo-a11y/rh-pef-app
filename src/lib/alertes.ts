@@ -3,7 +3,9 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 
 export type Alerte = {
-  type: "CONGE_NON_VALIDE" | "JOUR_PAIE" | "CONTRAT" | "PERIODE_ESSAI" | "DOCUMENT" | "DECLARATION";
+  type: "CONGE_NON_VALIDE" | "JOUR_PAIE" | "CONTRAT" | "PERIODE_ESSAI" | "DOCUMENT" | "DECLARATION" | "FACTURES";
+  // Espace concerné : les alertes STOCK (factures fournisseurs…) ne s'affichent pas sur l'accueil RH.
+  espace: "RH" | "STOCK";
   niveau: "info" | "warning" | "urgent";
   message: string;
   lien?: string;
@@ -28,7 +30,8 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   // Toutes ces requêtes sont indépendantes : on les lance EN PARALLÈLE (Promise.all) au lieu de
   // les enchaîner. Sur un lien à forte latence, cela transforme ~5 allers-retours séquentiels en
   // un seul temps d'attente.
-  const [congesEnAttente, contrats, documents, runsRecents, declarationsCnss] = await Promise.all([
+  const dans7j = new Date(Date.now() + 7 * 86_400_000);
+  const [congesEnAttente, contrats, documents, runsRecents, declarationsCnss, facturesDues] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE", dateDebut: { gte: maintenant, lte: dans30j } },
       include: { employee: { select: { nom: true } } },
@@ -57,6 +60,10 @@ export async function calculerAlertes(): Promise<Alerte[]> {
       where: { type: "CNSS" },
       select: { mois: true, annee: true, statut: true },
     }),
+    prisma.factureFournisseur.findMany({
+      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, resteAPayerUSD: { gt: 0 }, dateEcheance: { not: null, lte: dans7j } },
+      select: { resteAPayerUSD: true, statut: true },
+    }),
   ]);
 
   // 1. Congés EN ATTENTE dont la date de début approche (≤ 7 jours) — signalement prioritaire.
@@ -64,6 +71,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     const j = joursAvant(new Date(c.dateDebut));
     alertes.push({
       type: "CONGE_NON_VALIDE",
+      espace: "RH",
       niveau: j <= 3 ? "urgent" : j <= 7 ? "warning" : "info",
       message: `Congé de ${c.employee.nom} débute ${
         j <= 0 ? "aujourd'hui" : `dans ${j} jour(s)`
@@ -82,6 +90,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     const restant = jourPaieEffectif - auj;
     alertes.push({
       type: "JOUR_PAIE",
+      espace: "RH",
       niveau: restant <= 1 ? "urgent" : "warning",
       message:
         restant <= 0
@@ -96,8 +105,14 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     if (c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= maintenant) {
       alertes.push({
         type: "CONTRAT",
+        espace: "RH",
         niveau: "warning",
-        message: `Contrat ${c.type} de ${c.employee.nom} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`,
+        message:
+          c.type === "STAGE"
+            ? `Stage de ${c.employee.nom} se termine le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`
+            : c.type === "INTERIM"
+            ? `Mission d'intérim de ${c.employee.nom} se termine le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`
+            : `Contrat ${c.type} de ${c.employee.nom} expire le ${new Date(c.dateFin).toLocaleDateString("fr-FR")}.`,
         lien: `/employes/${c.employee.id}`,
       });
     }
@@ -108,6 +123,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     ) {
       alertes.push({
         type: "PERIODE_ESSAI",
+        espace: "RH",
         niveau: "warning",
         message: `Période d'essai de ${c.employee.nom} se termine le ${new Date(c.finPeriodeEssai).toLocaleDateString("fr-FR")}.`,
         lien: `/employes/${c.employee.id}`,
@@ -119,6 +135,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   for (const doc of documents) {
     alertes.push({
       type: "DOCUMENT",
+      espace: "RH",
       niveau: "info",
       message: `Document « ${doc.nom} » de ${doc.employee.nom} expire le ${new Date(doc.dateExpiration!).toLocaleDateString("fr-FR")}.`,
       lien: `/employes/${doc.employee.id}`,
@@ -141,6 +158,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     });
     alertes.push({
       type: "DECLARATION",
+      espace: "RH",
       niveau: j < 0 ? "urgent" : j <= 5 ? "urgent" : j <= 10 ? "warning" : "info",
       message:
         j < 0
@@ -151,6 +169,19 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   }
 
   const ordre = { urgent: 0, warning: 1, info: 2 };
+  // Factures fournisseurs à payer sous 7 jours (ou déjà échues) — une alerte agrégée, pas une par facture.
+  if (facturesDues.length > 0) {
+    const echues = facturesDues.filter((f) => f.statut === "ECHUE_NON_REGLEE").length;
+    const total = facturesDues.reduce((t, f) => t + Number(f.resteAPayerUSD), 0);
+    alertes.push({
+      type: "FACTURES",
+      espace: "STOCK",
+      niveau: echues > 0 ? "urgent" : "warning",
+      message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
+      lien: "/stock/factures?statut=du",
+    });
+  }
+
   alertes.sort((a, b) => ordre[a.niveau] - ordre[b.niveau]);
   return alertes;
 }

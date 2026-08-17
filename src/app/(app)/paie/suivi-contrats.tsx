@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { transformerContrat, rompreContrat, prolongerContrat } from "./contrat-actions";
+import { transformerContrat, rompreContrat, prolongerContrat, prolongerEssai } from "./contrat-actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 
 export type ContratRow = {
@@ -49,14 +49,12 @@ export function SuiviContrats({
 
           {peutGerer && (
             <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
-              <form action={transformerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-1.5">
+              <form action={transformerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-1.5" title="L'ancien contrat reste dans l'historique (statut Transformé)">
                 <label className="flex flex-col text-[11px] text-muted-foreground">
                   Transformer en
                   <select name="type" defaultValue="CDI" className="rounded border border-input bg-background px-2 py-1 text-sm">
                     <option value="CDI">CDI</option>
                     <option value="CDD">CDD</option>
-                    <option value="STAGE">Stage</option>
-                    <option value="JOURNALIER">Journalier</option>
                   </select>
                 </label>
                 <label className="flex flex-col text-[11px] text-muted-foreground">
@@ -77,6 +75,18 @@ export function SuiviContrats({
                   Prolonger
                 </button>
               </form>
+
+              {c.finPeriodeEssai && (
+                <form action={prolongerEssai.bind(null, c.id)} className="flex flex-wrap items-end gap-1.5">
+                  <label className="flex flex-col text-[11px] text-muted-foreground">
+                    Nouvelle fin d&apos;essai
+                    <input name="finPeriodeEssai" type="date" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
+                  </label>
+                  <button type="submit" className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+                    Prolonger l&apos;essai
+                  </button>
+                </form>
+              )}
 
               {estAdmin && (
                 <form action={rompreContrat.bind(null, c.id)}>

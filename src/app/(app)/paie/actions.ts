@@ -7,64 +7,21 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, roleRequisPour } from "@/lib/paie-etats";
-import { calculerLignesPaie } from "@/lib/paie-batch";
-import type { ModePaiement, PaymentStatus } from "@prisma/client";
-
-// États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
-const STATUTS_FIGES: PaymentStatus[] = ["VALIDE", "PAYE"];
+import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
+import { calculerEcheancePret } from "@/lib/prets";
+import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
+import { actionLisible } from "@/lib/action-lisible";
 
 export async function calculerPaieDuMois() {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
-  const mois = config.moisCourant;
-  const annee = config.anneeCourante;
-
-  const run = await prisma.payrollRun.upsert({
-    where: { mois_annee: { mois, annee } },
-    update: { tauxChangeUtilise: config.tauxChangeCDF },
-    create: { mois, annee, tauxChangeUtilise: config.tauxChangeCDF },
-  });
-
-  // Lignes déjà validées/payées : on ne les recalcule pas (bulletin émis non écrasable).
-  const lignesFigees = await prisma.payrollLine.findMany({
-    where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } },
-    select: { employeeId: true },
-  });
-  const employeeIdsFiges = new Set(lignesFigees.map((l) => l.employeeId));
-
-  // Calcul en mémoire de tous les actifs (logique partagée avec l'aperçu temps réel de la page).
-  const { lignes, employesFraisMedicaux: fraisTous } = await calculerLignesPaie(mois, annee);
-  const nouvellesLignes = lignes
-    .filter((l) => !employeeIdsFiges.has(l.employee.id))
-    .map((l) => ({ payrollRunId: run.id, employeeId: l.employee.id, ...l.data }));
-  // On ne remet à zéro le solde « frais médicaux » que des lignes réellement (ré)écrites.
-  const employesFraisMedicaux = fraisTous.filter((id) => !employeeIdsFiges.has(id));
-
-  // Écriture en masse dans une transaction (remplace ~100 requêtes par ~4).
-  await prisma.$transaction([
-    prisma.payrollLine.deleteMany({
-      where: { payrollRunId: run.id, statutPaiement: { notIn: STATUTS_FIGES } },
-    }),
-    prisma.payrollLine.createMany({ data: nouvellesLignes }),
-    prisma.employee.updateMany({
-      where: { id: { in: employesFraisMedicaux } },
-      data: { fraisMedicauxMoisCourant: 0 },
-    }),
-    prisma.journalAudit.create({
-      data: {
-        entite: "PayrollRun",
-        entiteId: run.id,
-        champ: "calcul",
-        nouvelleValeur: `${nouvellesLignes.length} salaire(s) recalculé(s) — ${mois}/${annee}`,
-        userId: user.id,
-      },
-    }),
-  ]);
+  // Cœur partagé avec le rafraîchissement automatique de la page Paie (lib/paie-refresh) :
+  // crée le run du mois si besoin et (re)calcule toutes les lignes non figées, avec audit.
+  await rafraichirPaieDuMois({ creerRun: true, userId: user.id });
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
   revalidatePath("/employes");
 }
 
@@ -87,16 +44,18 @@ export async function recalculerPaieSiCalculee() {
  * Cœur d'une transition de la machine à états de paie (En attente → Préparé → Validé → Payé,
  * annulation possible). Enregistre la transition, journalise l'audit, fige un snapshot immuable
  * du bulletin au passage en « Validé ». Retourne false si la transition n'est pas autorisée
- * (en lot : on ignore silencieusement les lignes non concernées). NE vérifie pas le rôle ni ne
- * revalide — l'appelant s'en charge (unitaire ou groupé).
+ * (en lot : on ignore silencieusement les lignes non concernées). S'exécute dans la transaction
+ * fournie par l'appelant (unitaire : la sienne ; lot : UNE transaction pour tout le lot — tout ou
+ * rien). NE vérifie pas le rôle ni ne revalide — l'appelant s'en charge.
  */
 async function appliquerTransitionPaie(
+  tx: Prisma.TransactionClient,
   payrollLineId: string,
   versStatut: PaymentStatus,
   opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null },
   userId: string
 ): Promise<boolean> {
-  const ligne = await prisma.payrollLine.findUnique({
+  const ligne = await tx.payrollLine.findUnique({
     where: { id: payrollLineId },
     include: { employee: true, payrollRun: true },
   });
@@ -107,53 +66,86 @@ async function appliquerTransitionPaie(
   // — plus jamais « espèces » imposé par défaut, y compris pour les actions groupées.
   const modePaiement = opts.modePaiement ?? ligne.employee.modePaiement;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.payrollLine.update({
-      where: { id: payrollLineId },
-      data: {
-        statutPaiement: versStatut,
-        datePaiement: versStatut === "PAYE" ? new Date() : ligne.datePaiement,
-        modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
-        payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
-      },
-    });
+  await tx.payrollLine.update({
+    where: { id: payrollLineId },
+    data: {
+      statutPaiement: versStatut,
+      datePaiement: versStatut === "PAYE" ? new Date() : ligne.datePaiement,
+      modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
+      payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
+    },
+  });
 
-    await tx.transitionPaie.create({
+  await tx.transitionPaie.create({
+    data: {
+      payrollLineId,
+      deStatut,
+      versStatut,
+      userId,
+      modePaiement: versStatut === "PAYE" ? modePaiement : null,
+      preuveUrl: opts.preuveUrl ?? null,
+      commentaire: opts.commentaire ?? null,
+    },
+  });
+
+  // Au passage en « Validé », on fige un snapshot immuable du bulletin (jamais écrasé ensuite).
+  if (versStatut === "VALIDE") {
+    const dernier = await tx.versionBulletin.findFirst({
+      where: { payrollLineId },
+      orderBy: { numeroVersion: "desc" },
+    });
+    await tx.versionBulletin.create({
       data: {
         payrollLineId,
-        deStatut,
-        versStatut,
-        userId,
-        modePaiement: versStatut === "PAYE" ? modePaiement : null,
-        preuveUrl: opts.preuveUrl ?? null,
-        commentaire: opts.commentaire ?? null,
+        numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
+        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun })),
+        genreParId: userId,
       },
     });
 
-    // Au passage en « Validé », on fige un snapshot immuable du bulletin (jamais écrasé ensuite).
-    if (versStatut === "VALIDE") {
-      const dernier = await tx.versionBulletin.findFirst({
-        where: { payrollLineId },
-        orderBy: { numeroVersion: "desc" },
-      });
-      await tx.versionBulletin.create({
-        data: {
-          payrollLineId,
-          numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
-          snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun })),
-          genreParId: userId,
-        },
-      });
+    // Remboursement de prêt : au figeage du bulletin, on enregistre l'échéance du mois (diminue le
+    // solde) et on solde le prêt quand il est totalement remboursé. Idempotent (unique mois/année).
+    if (Number(ligne.retenuePretUSD) > 0) {
+      const prets = await tx.pretPersonnel.findMany({ where: { employeeId: ligne.employeeId, statut: "EN_COURS" }, include: { retenues: true } });
+      for (const p of prets) {
+        const { echeanceUSD, soldeAvantUSD } = calculerEcheancePret(
+          Number(p.montantUSD),
+          Number(p.retenueMensuelleUSD),
+          p.retenues.map((r) => ({ mois: r.mois, annee: r.annee, montantUSD: Number(r.montantUSD) })),
+          ligne.payrollRun.mois,
+          ligne.payrollRun.annee
+        );
+        if (echeanceUSD <= 0) continue;
+        await tx.retenuePret.upsert({
+          where: { pretId_mois_annee: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee } },
+          create: { pretId: p.id, mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee, montantUSD: echeanceUSD },
+          update: { montantUSD: echeanceUSD },
+        });
+        if (soldeAvantUSD - echeanceUSD <= 0.001) await tx.pretPersonnel.update({ where: { id: p.id }, data: { statut: "SOLDE" } });
+      }
     }
 
-    await journaliser(tx, {
-      entite: "PayrollLine",
-      entiteId: payrollLineId,
-      champ: "statutPaiement",
-      ancienneValeur: deStatut,
-      nouvelleValeur: versStatut,
-      userId,
-    });
+    // Frais médicaux (bug #1, corrigé 2026-07-22) : le solde « saisie manuelle du mois » de la
+    // fiche employé (Employee.fraisMedicauxMoisCourant) est capturé dans CETTE ligne figée
+    // (ligne.fraisMedicauxUSD, déjà persisté ci-dessus) — on le remet à zéro SEULEMENT maintenant,
+    // au moment où le bulletin est réellement validé (jamais sur un simple rafraîchissement de
+    // brouillon), pour ne pas le réappliquer par erreur le mois suivant (double comptage). La table
+    // durable `FraisMedical` (avec certificat, scopée mois/année) n'est pas concernée.
+    if (Number(ligne.employee.fraisMedicauxMoisCourant) !== 0) {
+      await tx.employee.update({
+        where: { id: ligne.employeeId },
+        data: { fraisMedicauxMoisCourant: 0 },
+      });
+    }
+  }
+
+  await journaliser(tx, {
+    entite: "PayrollLine",
+    entiteId: payrollLineId,
+    champ: "statutPaiement",
+    ancienneValeur: deStatut,
+    nouvelleValeur: versStatut,
+    userId,
   });
 
   return true;
@@ -169,16 +161,14 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
 
   requireRole(user, roleRequisPour(versStatut));
 
-  const ok = await appliquerTransitionPaie(
-    payrollLineId,
-    versStatut,
-    { modePaiement, preuveUrl, commentaire },
-    user.id
+  const ok = await prisma.$transaction((tx) =>
+    appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire }, user.id)
   );
-  if (!ok) throw new Error(`Transition non autorisée vers ${versStatut}.`);
+  // Message lisible via ?erreur= (un throw serait masqué par Next en production).
+  if (!ok) redirect(`/paie?erreur=${encodeURIComponent(`Transition non autorisée vers ${versStatut}.`)}`);
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
   revalidatePath("/a-valider");
 }
 
@@ -187,24 +177,29 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
  * Les lignes pour lesquelles la transition n'est pas autorisée sont ignorées. Retourne le
  * nombre de lignes effectivement modifiées.
  */
-export async function changerStatutEnLot(
+export const changerStatutEnLot = actionLisible(async (
   payrollLineIds: string[],
   versStatut: PaymentStatus,
   modePaiement?: ModePaiement | null
-): Promise<number> {
+): Promise<number> => {
   const user = await verifySession();
   requireRole(user, roleRequisPour(versStatut));
 
-  let modifiees = 0;
-  for (const id of payrollLineIds) {
-    if (await appliquerTransitionPaie(id, versStatut, { modePaiement }, user.id)) modifiees++;
-  }
+  // ATOMIQUE : tout ou rien — un échec au milieu annule TOUT le lot (jamais de paie à moitié
+  // validée). Les lignes dont la transition n'est pas autorisée restent simplement ignorées.
+  const modifiees = await prisma.$transaction(async (tx) => {
+    let n = 0;
+    for (const id of payrollLineIds) {
+      if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement }, user.id)) n++;
+    }
+    return n;
+  }, { timeout: 120_000 });
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
   revalidatePath("/a-valider");
   return modifiees;
-}
+});
 
 /**
  * CLÔTURE GLOBALE (§9) : valide d'un coup tous les bulletins « pas validé » du mois.
@@ -218,8 +213,9 @@ export async function cloturerPaie(): Promise<void> {
 
   const taches = await tachesBloquantesCloture(config.moisCourant, config.anneeCourante);
   if (taches.length > 0) {
-    throw new Error(
-      `Clôture bloquée : ${taches.length} tâche(s) à traiter avant de valider la paie (voir la bannière).`
+    // Message lisible via ?erreur= (un throw serait masqué par Next en production).
+    redirect(
+      `/paie?erreur=${encodeURIComponent(`Clôture bloquée : ${taches.length} tâche(s) à traiter avant de valider la paie (voir la bannière).`)}`
     );
   }
 
@@ -229,14 +225,17 @@ export async function cloturerPaie(): Promise<void> {
   });
   if (!run) return;
 
-  for (const l of run.lignes) {
-    await appliquerTransitionPaie(l.id, "VALIDE", {}, user.id);
-  }
-  await prisma.payrollRun.update({ where: { id: run.id }, data: { statut: "VALIDE" } });
+  // ATOMIQUE : tous les bulletins et l'état du run basculent dans UNE transaction.
+  await prisma.$transaction(async (tx) => {
+    for (const l of run.lignes) {
+      await appliquerTransitionPaie(tx, l.id, "VALIDE", {}, user.id);
+    }
+    await tx.payrollRun.update({ where: { id: run.id }, data: { statut: "VALIDE" } });
+  }, { timeout: 120_000 });
 
   revalidatePath("/paie");
   revalidatePath("/a-valider");
-  revalidatePath("/dashboard");
+  revalidatePath("/accueil");
 }
 
 /**
@@ -277,7 +276,6 @@ export async function reinitialiserPaieDuMois() {
   });
 
   revalidatePath("/paie");
-  revalidatePath("/dashboard");
-  revalidatePath("/historique");
+  revalidatePath("/accueil");
   redirect(`/paie?msg=${encodeURIComponent("Paie du mois réinitialisée.")}`);
 }

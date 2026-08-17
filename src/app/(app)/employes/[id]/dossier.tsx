@@ -8,17 +8,29 @@ import type {
 } from "@prisma/client";
 import {
   ajouterContrat,
+  attacherFichierContrat,
   changerSalaire,
   ajouterDisciplinaire,
   ajouterEvaluation,
   ajouterDocument,
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
+import { ContratViewerButton } from "./contrat-viewer";
+import { creerPret, annulerPret } from "./pret-actions";
+import type { Echeancier } from "@/lib/prets";
+import { MOIS_FR } from "@/lib/dates-fr";
+import { PretForm } from "./pret-form";
+import { listeEnProse } from "@/lib/texte";
+import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
+import { Icone } from "@/components/icones";
+import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat, figerContrat } from "../../paie/contrat-actions";
 
 const MOTIF_FIN: Record<string, string> = {
-  DEMISSION: "Démission",
-  LICENCIEMENT: "Licenciement",
+  LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
+  DEMISSION: "Démission (Art. 69 C.T.)",
   FIN_CDD: "Fin de CDD",
+  RETRAITE: "Départ à la retraite",
+  FAUTE_LOURDE: "Faute lourde (Art. 72 C.T.)",
   AUTRE: "Autre",
 };
 const money = (n: number) => Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -27,6 +39,7 @@ const STATUT_CONTRAT: Record<string, { label: string; classe: string }> = {
   ACTIF: { label: "Actif", classe: "bg-emerald-100 text-emerald-800" },
   EXPIRE: { label: "Expiré", classe: "bg-amber-100 text-amber-800" },
   RESILIE: { label: "Résilié", classe: "bg-red-100 text-red-800" },
+  TRANSFORME: { label: "Transformé", classe: "bg-sky-100 text-sky-800" },
 };
 function StatutContratBadge({ statut }: { statut: string }) {
   const s = STATUT_CONTRAT[statut] ?? { label: statut, classe: "bg-muted text-muted-foreground" };
@@ -62,6 +75,56 @@ function d(date: Date | null | undefined) {
   return date ? new Date(date).toLocaleDateString("fr-FR") : "—";
 }
 
+const TYPE_CONTRAT_LABEL: Record<string, string> = {
+  CDI: "CDI — durée indéterminée",
+  CDD: "CDD — durée déterminée",
+  STAGE: "Stage",
+  JOURNALIER: "Journalier",
+  INTERIM: "Intérim",
+};
+
+// Dates relatives de la carte « Conditions actuelles » (« il y a 3 ans », « dans 6 mois »).
+function ecartMois(a: Date, b: Date) {
+  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+}
+function relatifPasse(date: Date) {
+  const m = Math.max(0, ecartMois(date, new Date()));
+  if (m >= 12) { const ans = Math.floor(m / 12); return `il y a ${ans} an${ans > 1 ? "s" : ""}`; }
+  if (m >= 1) return `il y a ${m} mois`;
+  return "ce mois-ci";
+}
+function relatifFutur(date: Date) {
+  const m = ecartMois(new Date(), date);
+  if (m < 0) return "échue";
+  if (m >= 12) { const ans = Math.floor(m / 12); return `dans ${ans} an${ans > 1 ? "s" : ""}`; }
+  if (m >= 1) return `dans ${m} mois`;
+  return "ce mois-ci";
+}
+
+/** Encadré thématique de la carte contrat (Informations / Poste / Rémunération / Horaires) —
+ *  icônes du jeu maison (mêmes tracés que le menu), pas d'emoji. */
+function BlocContrat({ icone, titre, children }: { icone: string; titre: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <p className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <Icone nom={icone} className="shrink-0 text-muted-foreground" />
+        {titre}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function Champ({ label, valeur, note, alerte }: { label: string; valeur: string; note?: string; alerte?: boolean }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-sm font-medium ${alerte ? "text-amber-700" : ""}`}>{valeur}</p>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
 const inputCls =
   "rounded-md border border-input bg-background px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";
 
@@ -69,8 +132,13 @@ export function DossierEmploye({
   vue,
   employeeId,
   poste,
+  fichePosteExiste,
+  fichePosteDescriptionPoste,
+  fichePosteDescription,
+  fichePosteFichierUrl,
   salaireMensuel,
   salaireJournalier,
+  salaireEstNet,
   soldeConges,
   joursPresence,
   ancienneteMois,
@@ -78,7 +146,11 @@ export function DossierEmploye({
   preavisLicenciement,
   indemniteLicenciementJoursParAn,
   actif,
+  joursModele = [],
   contrats,
+  prets = [],
+  periodePaie,
+  tachesOnboarding = [],
   historique,
   disciplinaire,
   evaluations,
@@ -90,8 +162,13 @@ export function DossierEmploye({
   vue: "contrats" | "fin" | "dossier";
   employeeId: string;
   poste: string;
+  fichePosteExiste?: boolean;
+  fichePosteDescriptionPoste?: string | null;
+  fichePosteDescription?: string | null;
+  fichePosteFichierUrl?: string | null;
   salaireMensuel: number;
   salaireJournalier: number;
+  salaireEstNet: boolean;
   soldeConges: number;
   joursPresence: number;
   ancienneteMois: number;
@@ -99,7 +176,12 @@ export function DossierEmploye({
   preavisLicenciement: number | null;
   indemniteLicenciementJoursParAn: number | null;
   actif: boolean;
+  joursModele?: number[]; // jours travaillés selon le modèle hebdo (0=dim … 6=sam)
   contrats: Contrat[];
+  prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number; echeancier: Echeancier }[];
+  /** Période de paie en cours — sert à projeter le mois de solde d'un prêt à la saisie. */
+  periodePaie: { mois: number; annee: number };
+  tachesOnboarding?: { id: string; libelle: string; fait: boolean; faitLe: Date | null }[];
   historique: HistoriqueSalaire[];
   disciplinaire: DossierDisciplinaire[];
   evaluations: Evaluation[];
@@ -108,73 +190,395 @@ export function DossierEmploye({
   peutModifier: boolean;
   estAdmin: boolean;
 }) {
-  const dans30j = new Date(Date.now() + 30 * 86400000);
   const aujourdhui = new Date();
+  const dans30j = new Date(aujourdhui.getTime() + 30 * 86400000);
 
   return (
     <>
-      {vue === "contrats" && (
+      {vue === "contrats" && (() => {
+        // Le contrat COURANT (actif le plus récent) est mis en avant façon « Conditions actuelles » ;
+        // les autres (transformés, expirés, résiliés…) forment l'historique replié en dessous.
+        const courant = contrats.find((c) => c.statut === "ACTIF") ?? null;
+        const anciens = contrats.filter((c) => c !== courant);
+        return (
       <>
-      {/* Contrats */}
-      <Section title="Contrats">
-        {contrats.length === 0 ? (
+      {/* Conditions actuelles (contrat actif) */}
+      <Section title="Conditions actuelles">
+        {!courant ? (
           <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Aucun contrat enregistré.
+            Aucun contrat actif. {contrats.length > 0 ? "Consultez l'historique ci-dessous ou ajoutez un nouveau contrat." : "Ajoutez un premier contrat ci-dessous."}
           </p>
-        ) : (
-          <div className="mb-4 grid gap-3 md:grid-cols-2">
-            {contrats.map((c) => {
-              const expireBientot = c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
-              const essaiBientot = c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
-              return (
-                <div key={c.id} className="rounded-xl border bg-card p-4">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
-                      <p className="text-sm text-muted-foreground">
-                        du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
-                      </p>
-                    </div>
-                    <StatutContratBadge statut={c.statut} />
+        ) : (() => {
+          const c = courant;
+          const expireBientot = c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui;
+          const essaiBientot = c.finPeriodeEssai && new Date(c.finPeriodeEssai) <= dans30j && new Date(c.finPeriodeEssai) >= aujourdhui;
+          const essaiEnCours = c.finPeriodeEssai && new Date(c.finPeriodeEssai) >= aujourdhui;
+          return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                Effectives depuis le <b className="text-foreground">{d(c.dateDebut)}</b>
+              </p>
+              <StatutContratBadge statut={c.statut} />
+            </div>
+
+            {(expireBientot || essaiBientot) && (
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                {expireBientot ? "⚠ Contrat arrivant à échéance (30 j)" : "⚠ Fin de période d'essai proche (30 j)"}
+              </p>
+            )}
+
+            {/* L'exemplaire qui fait foi a été figé, puis les conditions ont été corrigées. */}
+            {c.pdfAccepteObsolete && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
+                <p className="text-xs font-medium text-destructive">
+                  ⚠ L&apos;exemplaire figé ne reflète plus ces conditions (corrigées depuis). C&apos;est pourtant lui qui est servi et qui fait foi.
+                </p>
+                {estAdmin && (
+                  <form action={figerContrat.bind(null, c.id)}>
+                    <button className="shrink-0 rounded-md bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground hover:opacity-90">
+                      Re-figer l&apos;exemplaire
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            {/* Informations sur le contrat */}
+            <BlocContrat icone="document" titre="Informations sur le contrat">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ label="Date de début" valeur={d(c.dateDebut)} note={relatifPasse(new Date(c.dateDebut))} />
+                <Champ label="Type de contrat" valeur={TYPE_CONTRAT_LABEL[c.type] ?? c.type} note={c.renouvellements > 0 ? `prolongé ${c.renouvellements} fois` : undefined} />
+                <Champ
+                  label="Date de fin"
+                  valeur={c.dateFin ? d(c.dateFin) : "Indéterminée"}
+                  note={c.dateFin ? relatifFutur(new Date(c.dateFin)) : undefined}
+                  alerte={Boolean(expireBientot)}
+                />
+                <Champ
+                  label="Période d'essai"
+                  valeur={c.finPeriodeEssai ? `Jusqu'au ${d(c.finPeriodeEssai)}` : "—"}
+                  note={essaiEnCours ? "en cours" : c.finPeriodeEssai ? "terminée" : undefined}
+                  alerte={Boolean(essaiBientot)}
+                />
+              </div>
+            </BlocContrat>
+
+            {/* Poste */}
+            <BlocContrat icone="mallette" titre="Poste">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ label="Position actuelle" valeur={c.poste} />
+                {c.agence && (
+                  <div className="col-span-2 md:col-span-3">
+                    <Champ
+                      label="Agence d'intérim"
+                      valeur={c.agence}
+                      note={`${c.coutJourUSD ? `${Number(c.coutJourUSD).toLocaleString("fr-FR")} $/jour facturé — ` : ""}payé par l'agence (hors paie)`}
+                    />
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
+                )}
+              </div>
+
+              {/* Description du poste + Description des tâches, façon Factorial (deux colonnes, en prose). */}
+              <div className="mt-4 border-t pt-3">
+                {(fichePosteDescriptionPoste?.trim() || fichePosteDescription?.trim()) ? (
+                  <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
                     <div>
-                      <p className="text-xs text-muted-foreground">Salaire mensuel</p>
-                      <p className="font-medium">{Number(c.salaireMensuel).toLocaleString("fr-FR")} {c.devise}</p>
+                      <p className="text-xs text-muted-foreground">Missions principales du poste</p>
+                      {fichePosteDescriptionPoste?.trim() ? (
+                        <p className="mt-1 text-sm leading-relaxed text-foreground">{listeEnProse(fichePosteDescriptionPoste)}</p>
+                      ) : (
+                        <p className="mt-1 text-sm text-muted-foreground">Non renseignées.</p>
+                      )}
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Fin de période d&apos;essai</p>
-                      <p className={`font-medium ${essaiBientot ? "text-amber-700" : ""}`}>{d(c.finPeriodeEssai)}</p>
+                      <p className="text-xs text-muted-foreground">Activités et tâches principales</p>
+                      {fichePosteDescription?.trim() ? (
+                        <p className="mt-1 text-sm leading-relaxed text-foreground">{listeEnProse(fichePosteDescription)}</p>
+                      ) : (
+                        <p className="mt-1 text-sm text-muted-foreground">Non renseignées.</p>
+                      )}
                     </div>
                   </div>
-                  {(expireBientot || essaiBientot) && (
-                    <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
-                      {expireBientot ? "Contrat arrivant à échéance (30 j)" : "Fin de période d'essai proche (30 j)"}
-                    </p>
+                ) : fichePosteExiste ? (
+                  <p className="text-sm text-muted-foreground">
+                    La fiche de poste existe mais n&apos;a pas encore de description.{" "}
+                    <a href="/fiches-poste" className="text-primary underline">La renseigner</a>
+                    {fichePosteFichierUrl ? " ou consulter le document ci-dessous." : "."}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Aucune fiche de poste pour «&nbsp;{c.poste}&nbsp;».{" "}
+                    <a href="/fiches-poste" className="text-primary underline">Créer la fiche de poste</a>
+                  </p>
+                )}
+                {fichePosteFichierUrl && (
+                  <a href={fichePosteFichierUrl} target="_blank" className="mt-2 inline-block text-xs text-primary underline">
+                    Ouvrir la fiche de poste (fichier) →
+                  </a>
+                )}
+              </div>
+            </BlocContrat>
+
+            {/* Rémunération */}
+            <BlocContrat icone="billet" titre="Rémunération">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ
+                  label={salaireEstNet ? "Salaire net" : "Salaire brut"}
+                  valeur={`${Number(c.salaireMensuel).toLocaleString("fr-FR")} ${c.devise} / mois`}
+                  note={`soit ${(Number(c.salaireMensuel) * 12).toLocaleString("fr-FR")} ${c.devise} / an`}
+                />
+                <Champ label="Politique de paie" valeur="Mensuelle (aux heures)" note="détail dans l'onglet Paie" />
+              </div>
+            </BlocContrat>
+
+            {/* Horaires */}
+            <BlocContrat icone="horloge" titre="Horaires">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
+                <Champ label="Heures de travail" valeur={`${Number(c.heuresHebdo).toLocaleString("fr-FR")} h / semaine`} />
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground">Jours travaillés</p>
+                  {joursModele.length > 0 ? (
+                    <div className="mt-1 flex gap-1.5">
+                      {["L", "M", "M", "J", "V", "S", "D"].map((lettre, i) => {
+                        const jsJour = (i + 1) % 7; // 0=lun → jour JS 1 … 6=dim → jour JS 0
+                        const travaille = joursModele.includes(jsJour);
+                        return (
+                          <span
+                            key={i}
+                            title={["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][i]}
+                            className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                              travaille ? "bg-teal-600 text-white" : "border text-muted-foreground"
+                            }`}
+                          >
+                            {lettre}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-sm text-muted-foreground">Modèle hebdo non défini — réglable dans Planning → Modèle hebdo.</p>
                   )}
-                  <div className="mt-3 border-t pt-2">
-                    {c.documentUrl ? (
-                      <a href={c.documentUrl} target="_blank" className="text-sm font-medium text-primary underline">Ouvrir le contrat →</a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Aucun fichier joint</span>
+                </div>
+              </div>
+            </BlocContrat>
+
+            {/* Fichier du contrat + attestation + génération PDF */}
+            <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+              <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
+              {c.accepteLe && (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800" title={c.pdfAccepteUrl ? "Le PDF servi est l'exemplaire figé au moment de l'acceptation — il fait foi." : undefined}>
+                  Accepté par le salarié le {d(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}
+                </span>
+              )}
+              {c.documentUrl && (
+                <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>
+              )}
+              {c.type === "STAGE" && (
+                <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
+                  Attestation de fin de stage →
+                </a>
+              )}
+              <ContratViewerButton href={`/employes/${employeeId}/attestation/travail`} titre="Attestation de travail" libelle="Attestation de travail (PDF)" className="text-sm font-medium text-primary underline" />
+              <ContratViewerButton href={`/employes/${employeeId}/attestation/salaire`} titre="Attestation de salaire" libelle="Attestation de salaire (PDF)" className="text-sm font-medium text-primary underline" />
+              {/* Figeage par la Direction : indispensable si l'espace salarié (acceptation) est désactivé. */}
+              {peutModifier && !c.pdfAccepteUrl && (
+                <form action={figerContrat.bind(null, c.id)}>
+                  <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent" title="Enregistre l'exemplaire PDF définitif : c'est lui qui fera foi (plus de régénération).">
+                    Figer l&apos;exemplaire (fait foi)
+                  </button>
+                </form>
+              )}
+              {estAdmin && c.pdfAccepteUrl && !c.pdfAccepteObsolete && (
+                <form action={figerContrat.bind(null, c.id)}>
+                  <button className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent" title="Remplace l'exemplaire figé par une régénération depuis les données actuelles.">
+                    Re-figer
+                  </button>
+                </form>
+              )}
+              {estAdmin && (
+                // Joindre / remplacer à tout moment le fichier d'un contrat déjà créé (PDF, Word…) — Direction.
+                <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
+                  <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="max-w-52 text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                  <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">{c.documentUrl ? "Remplacer" : "Joindre"}</button>
+                </form>
+              )}
+            </div>
+
+            {peutModifier && (() => {
+              const iso = (x: Date | null | undefined) => (x ? new Date(x).toISOString().slice(0, 10) : "");
+              return (
+              <details className="rounded-lg border bg-muted/20">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium">✎ Corriger les conditions actuelles</summary>
+                <div className="p-3 pt-1">
+                  <p className="mb-2 text-xs text-muted-foreground">Rectification directe du contrat actif (sans créer d&apos;historique). La fiche employé (type, poste, salaire) est mise à jour.</p>
+                  <form action={modifierContrat.bind(null, c.id)} className="grid grid-cols-2 gap-3 text-xs md:grid-cols-3">
+                    <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                    <label className="flex flex-col gap-0.5">Type de contrat
+                      <select name="type" defaultValue={c.type} className={inputCls}>
+                        {["CDI", "CDD", "STAGE", "JOURNALIER", "INTERIM"].map((t) => <option key={t} value={t}>{TYPE_CONTRAT_LABEL[t] ?? t}</option>)}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-0.5">Poste
+                      <input type="text" name="poste" required defaultValue={c.poste} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Date de début
+                      <input type="date" name="dateDebut" required defaultValue={iso(c.dateDebut)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Date de fin <span className="text-muted-foreground">(vide si CDI)</span>
+                      <input type="date" name="dateFin" defaultValue={iso(c.dateFin)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Fin de période d&apos;essai
+                      <input type="date" name="finPeriodeEssai" defaultValue={iso(c.finPeriodeEssai)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Heures / semaine
+                      <input type="number" name="heuresHebdo" step="0.5" min="1" defaultValue={Number(c.heuresHebdo)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Salaire mensuel {salaireEstNet ? "net" : "brut"}
+                      <input type="number" name="salaireMensuel" step="0.01" min="0" required defaultValue={Number(c.salaireMensuel)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Devise
+                      <select name="devise" defaultValue={c.devise} className={inputCls}>
+                        {["USD", "CDF"].map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </label>
+                    {c.type === "INTERIM" && (
+                      <>
+                        <label className="flex flex-col gap-0.5">Agence d&apos;intérim
+                          <input type="text" name="agence" defaultValue={c.agence ?? ""} className={inputCls} />
+                        </label>
+                        <label className="flex flex-col gap-0.5">Coût / jour facturé ($)
+                          <input type="number" name="coutJourUSD" step="0.01" min="0" defaultValue={c.coutJourUSD ? Number(c.coutJourUSD) : ""} className={inputCls} />
+                        </label>
+                      </>
+                    )}
+                    <div className="col-span-2 md:col-span-3">
+                      <button className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Enregistrer les corrections</button>
+                    </div>
+                  </form>
+                </div>
+              </details>
+              );
+            })()}
+
+            {peutModifier && (
+              <details className="rounded-lg border bg-muted/20">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium">＋ Nouvelles conditions — transformer · prolonger · période d&apos;essai</summary>
+                <div className="space-y-3 p-3 pt-1">
+                  {/* Transformation historisée : l'ancien contrat reste lisible (statut TRANSFORMÉ). */}
+                  <form action={transformerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                    <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                    <label className="flex flex-col gap-0.5">Nouveau type
+                      <select name="type" defaultValue={c.type === "CDI" ? "CDD" : "CDI"} className={inputCls}>
+                        {["CDI", "CDD"].filter((t) => t !== c.type).map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </label>
+                    <label className="flex flex-col gap-0.5">Début du nouveau contrat
+                      <input type="date" name="dateDebut" defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} />
+                    </label>
+                    <label className="flex flex-col gap-0.5">Fin (si CDD)
+                      <input type="date" name="dateFin" className={inputCls} />
+                    </label>
+                    <button className="rounded-md bg-primary px-2.5 py-1.5 font-medium text-primary-foreground">Transformer</button>
+                    <span className="text-muted-foreground">L&apos;ancien contrat reste dans l&apos;historique.</span>
+                  </form>
+                  {c.dateFin && (
+                    <form action={prolongerContrat.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                      <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                      <label className="flex flex-col gap-0.5">Nouvelle date de fin
+                        <input type="date" name="dateFin" required className={inputCls} />
+                      </label>
+                      <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger le contrat</button>
+                      {c.type === "CDD" && <span className="text-muted-foreground">Compté et borné (Code du travail — Barèmes).</span>}
+                    </form>
+                  )}
+                  {c.finPeriodeEssai && (
+                    <form action={prolongerEssai.bind(null, c.id)} className="flex flex-wrap items-end gap-2 text-xs">
+                      <input type="hidden" name="retour" value={`/employes/${employeeId}`} />
+                      <label className="flex flex-col gap-0.5">Nouvelle fin d&apos;essai
+                        <input type="date" name="finPeriodeEssai" required className={inputCls} />
+                      </label>
+                      <button className="rounded-md border px-2.5 py-1.5 font-medium hover:bg-accent">Prolonger l&apos;essai</button>
+                      <span className="text-muted-foreground">Bornée à la durée légale maximale.</span>
+                    </form>
+                  )}
+                </div>
+              </details>
+            )}
+          </div>
+          );
+        })()}
+      </Section>
+
+      {/* Historique des contrats (transformés, expirés, résiliés…) */}
+      {anciens.length > 0 && (
+        <Section title={`Historique (${anciens.length} contrat${anciens.length > 1 ? "s" : ""})`}>
+          <div className="grid gap-3 md:grid-cols-2">
+            {anciens.map((c) => (
+              <div key={c.id} className="rounded-xl border bg-card p-4">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
+                    <p className="text-sm text-muted-foreground">
+                      du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
+                      {c.renouvellements > 0 ? ` · prolongé ${c.renouvellements} fois` : ""}
+                    </p>
+                    {c.agence && (
+                      <p className="text-xs text-muted-foreground">
+                        Agence : <b>{c.agence}</b>{c.coutJourUSD ? ` · ${Number(c.coutJourUSD).toLocaleString("fr-FR")} $/jour facturé` : ""} — payé par l&apos;agence (hors paie)
+                      </p>
                     )}
                   </div>
+                  <StatutContratBadge statut={c.statut} />
                 </div>
-              );
-            })}
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Salaire mensuel</p>
+                    <p className="font-medium">{Number(c.salaireMensuel).toLocaleString("fr-FR")} {c.devise}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Fin de période d&apos;essai</p>
+                    <p className="font-medium">{d(c.finPeriodeEssai)}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
+                  <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
+                  {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {d(c.accepteLe)}</span>}
+                  {c.documentUrl && (
+                    <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>
+                  )}
+                  {c.type === "STAGE" && (
+                    <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
+                      Attestation de fin de stage →
+                    </a>
+                  )}
+                  {estAdmin && (
+                    <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
+                      <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" className="max-w-52 text-xs file:mr-2 file:rounded-md file:border file:bg-background file:px-2 file:py-1 file:text-xs" />
+                      <button className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">{c.documentUrl ? "Remplacer" : "Joindre"}</button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        )}
-        {peutModifier && (
+        </Section>
+      )}
+
+      {peutModifier && (
+      <Section title="Nouveau contrat">
           <details className="rounded-lg border bg-muted/20">
             <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">Ajouter / importer un contrat</summary>
             <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
-              <LabeledInput name="type" label="Type" select defaultValue="CDD" options={["CDD", "CDI", "STAGE", "JOURNALIER"]} />
+              <LabeledInput name="type" label="Type" select defaultValue="CDD" options={["CDD", "CDI", "STAGE", "JOURNALIER", "INTERIM"]} />
               <LabeledInput name="poste" label="Poste" defaultValue={poste} required />
               <LabeledInput name="dateDebut" label="Début" type="date" required />
               <LabeledInput name="dateFin" label="Fin (CDD)" type="date" />
               <LabeledInput name="finPeriodeEssai" label="Fin période d'essai" type="date" />
               <LabeledInput name="salaireMensuel" label="Salaire mensuel" type="number" step="0.01" defaultValue={salaireMensuel} />
               <LabeledInput name="heuresHebdo" label="Heures / semaine" type="number" step="0.5" defaultValue="48" />
+              <LabeledInput name="agence" label="Agence (intérim) — qui l'emploie et le paie" />
+              <LabeledInput name="coutJourUSD" label="Coût / jour facturé $ (intérim)" type="number" step="0.01" />
               <div className="flex flex-col gap-1 sm:col-span-2">
                 <span className="text-xs text-muted-foreground">Fichier du contrat (PDF, Word… max 15 Mo)</span>
                 <input type="file" name="fichier" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" className={inputCls} />
@@ -185,13 +589,137 @@ export function DossierEmploye({
               </div>
             </form>
           </details>
-        )}
       </Section>
-      </>
       )}
+      </>
+        );
+      })()}
 
       {vue === "dossier" && (
       <>
+      {/* Prêts au personnel */}
+      <Section title="Prêts au personnel">
+        {prets.length === 0 ? (
+          <p className="mb-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucun prêt.</p>
+        ) : (
+          <ul className="mb-4 divide-y">
+            {prets.map((p) => {
+              const pct = p.montant > 0 ? Math.min(100, Math.round((p.rembourse / p.montant) * 100)) : 0;
+              return (
+                <li key={p.id} className="py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {p.montant.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $ · retenue {p.retenueMensuelle.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $/mois
+                        <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.statut === "SOLDE" ? "bg-emerald-100 text-emerald-800" : p.statut === "ANNULE" ? "bg-muted text-muted-foreground" : "bg-amber-100 text-amber-800"}`}>
+                          {p.statut === "SOLDE" ? "Soldé" : p.statut === "ANNULE" ? "Annulé" : "En cours"}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.motif ? `${p.motif} · ` : ""}accordé le {d(p.dateAccord)} · {p.nbRetenues} retenue(s)
+                        {p.echeancier.dureeMois > 0 && <> · sur {p.echeancier.dureeMois} mois</>}
+                      </p>
+                    </div>
+                    <div className="min-w-[9rem] text-right">
+                      <p className="text-sm font-semibold">Solde : {p.solde.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</p>
+                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></div>
+                      {p.echeancier.moisSolde && (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          {p.echeancier.soldePrevisionnel ? "Soldé prévu en" : "Soldé en"}{" "}
+                          {MOIS_FR[p.echeancier.moisSolde.mois - 1]} {p.echeancier.moisSolde.annee}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {p.echeancier.echeances.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                        Échéancier ({p.echeancier.echeances.length} échéance(s))
+                      </summary>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full min-w-[22rem] text-xs">
+                          <thead>
+                            <tr className="border-b text-muted-foreground">
+                              <th className="py-1 pr-3 text-left font-medium">Nº</th>
+                              <th className="py-1 pr-3 text-left font-medium">Mois</th>
+                              <th className="py-1 pr-3 text-right font-medium">Échéance</th>
+                              <th className="py-1 pr-3 text-right font-medium">Solde après</th>
+                              <th className="py-1 text-left font-medium">État</th>
+                            </tr>
+                          </thead>
+                          <tbody className="tabular-nums">
+                            {p.echeancier.echeances.map((e) => (
+                              <tr key={e.rang} className={`border-b last:border-0 ${e.reglee ? "" : "text-muted-foreground"}`}>
+                                <td className="py-1 pr-3">{e.rang}</td>
+                                <td className="py-1 pr-3">{MOIS_FR[e.mois - 1]} {e.annee}</td>
+                                <td className="py-1 pr-3 text-right">{e.montantUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
+                                <td className="py-1 pr-3 text-right">{e.soldeApresUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
+                                <td className="py-1">{e.reglee ? "Retenue" : "Prévue"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Les échéances « prévues » sont une projection de la retenue mensuelle : c&apos;est la paie
+                        de chaque mois qui fixe le montant réellement retenu.
+                      </p>
+                    </details>
+                  )}
+                  {estAdmin && p.statut === "EN_COURS" && (
+                    <form action={annulerPret.bind(null, employeeId, p.id)} className="mt-1">
+                      <button className="text-xs text-destructive underline">Annuler le prêt (arrête les retenues futures)</button>
+                    </form>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {peutModifier && (
+          <PretForm action={creerPret.bind(null, employeeId)} periodeCourante={periodePaie} />
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">La retenue est déduite automatiquement du salaire net chaque mois (ligne « Retenue prêt » sur le bulletin) jusqu&apos;au remboursement complet.</p>
+      </Section>
+
+      {/* Intégration (onboarding) */}
+      <Section title="Intégration (onboarding)">
+        {tachesOnboarding.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            <p className="mb-2">Aucune checklist d&apos;intégration pour ce salarié.</p>
+            {peutModifier && (
+              <form action={genererOnboarding.bind(null, employeeId)}>
+                <button className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">Générer la checklist d&apos;intégration</button>
+              </form>
+            )}
+          </div>
+        ) : (() => {
+          const faites = tachesOnboarding.filter((t) => t.fait).length;
+          const pct = Math.round((faites / tachesOnboarding.length) * 100);
+          return (
+            <>
+              <div className="mb-3 flex items-center gap-3">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} /></div>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">{faites}/{tachesOnboarding.length} · {pct}%</span>
+              </div>
+              <ul className="divide-y">
+                {tachesOnboarding.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-2 py-2">
+                    <span className={t.fait ? "text-sm text-muted-foreground line-through" : "text-sm"}>{t.libelle}</span>
+                    {peutModifier ? (
+                      <form action={basculerTacheOnboarding.bind(null, employeeId, t.id)}>
+                        <button className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium ${t.fait ? "border-emerald-300 text-emerald-700" : "text-primary hover:bg-accent"}`}>{t.fait ? "✓ Fait" : "Marquer fait"}</button>
+                      </form>
+                    ) : t.fait ? <span className="text-xs text-emerald-700">✓</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </>
+          );
+        })()}
+      </Section>
+
       {/* Historique salarial */}
       <Section title="Historique salarial & promotions">
         {historique.length === 0 ? (

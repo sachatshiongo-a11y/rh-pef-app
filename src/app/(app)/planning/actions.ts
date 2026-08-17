@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
-import { pariteSemaine } from "./creneaux";
+import { dureeShift } from "./creneaux";
+import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from "@/lib/planning-auto";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
+import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
+import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
+import type { Prisma } from "@prisma/client";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -17,8 +23,8 @@ export async function saisirCreneau(employeeId: string, dateIso: string, shiftId
   } else {
     await prisma.planningCreneau.upsert({
       where: { employeeId_date: { employeeId, date } },
-      update: { shiftId },
-      create: { employeeId, date, shiftId },
+      update: { shiftId, genereAuto: false }, // une modif manuelle retire le marqueur ✨
+      create: { employeeId, date, shiftId, genereAuto: false },
     });
   }
   revalidatePath("/planning");
@@ -42,237 +48,220 @@ export async function saisirModele(employeeId: string, jour: number, shiftId: st
   revalidatePath("/planning");
 }
 
+/** Résumé renvoyé au formulaire de génération. Reprend le rapport du moteur, enrichi des noms
+ *  lisibles (le moteur ne connaît que des identifiants). */
+export type ResumeGeneration = {
+  crees: number;
+  trous: { date: string; libelle: string; manque: number; raison: RaisonNonCouverture }[];
+  sansShiftPoste: { nom: string; poste: string }[];
+  /** Une entrée par (salarié × semaine) : une génération au mois produit normalement plusieurs
+   *  entrées pour un même salarié (une par semaine touchée) — voir `personnesEnDepassement` pour le
+   *  nombre de PERSONNES distinctes concernées. */
+  depassements: { nom: string; semaine: string; heuresPlanifiees: number; heuresContractuelles: number; cause: CauseDepassement }[];
+  /** Nombre de salariés DISTINCTS concernés par un dépassement — jamais `depassements.length`, qui
+   *  compte des lignes (une par semaine), pas des personnes. */
+  personnesEnDepassement: number;
+  sousHeures: number;
+  /** Besoins/modèles ignorés car pointant sur un shift désactivé ou supprimé — nom si résolu, sinon identifiant brut. */
+  shiftsInconnus: string[];
+};
+
+/** Nombre de semaines d'historique lues pour l'équité (rotation des dimanches/fériés et des shifts). */
+const SEMAINES_HISTORIQUE = 8;
+
 /**
- * Génère automatiquement le planning sur une période, avec paramètres précis (formulaire) :
- *   - shiftId : shift à affecter (vide = 1er shift actif non-Nuit/non-système) ;
- *   - jours[] : jours de la semaine à couvrir (0=dim … 6=sam ; défaut lun→sam) ;
- *   - nbParSemaine : nb de jours/semaine par employé (0 = auto = heures hebdo ÷ heures/jour) ;
- *   - inclureFeries : couvrir aussi les jours fériés (défaut non) ;
- *   - modeles : utiliser les modèles hebdomadaires (rôle/shift fixe par jour) quand ils existent ;
- *   - ecraser : régénérer toute la période (sinon on ne remplit que les créneaux vides).
+ * Génère automatiquement le planning sur une période. Ne fait plus que lire, appeler le moteur
+ * (`src/lib/planning-auto.ts`, pur et testé) et écrire — toute la logique métier est là-bas.
  */
-export async function genererPlanningAuto(debutIso: string, finIso: string, formData: FormData) {
+export async function genererPlanningAuto(
+  debutIso: string,
+  finIso: string,
+  formData: FormData,
+): Promise<ResumeGeneration> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const debut = new Date(debutIso + "T00:00:00Z");
-  const fin = new Date(finIso + "T00:00:00Z");
-  if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return;
+  const vide: ResumeGeneration = { crees: 0, trous: [], sansShiftPoste: [], depassements: [], personnesEnDepassement: 0, sousHeures: 0, shiftsInconnus: [] };
+  const debut = new Date(debutIso + "T00:00:00.000Z");
+  const fin = new Date(finIso + "T00:00:00.000Z");
+  if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return vide;
+
+  const debutHistorique = new Date(debut.getTime() - SEMAINES_HISTORIQUE * 7 * 86_400_000);
+  const veilleDebut = new Date(debut.getTime() - 86_400_000);
+
+  const [employes, shiftsRows, feries, existants, historique, modeles, besoins, polyvalences, shiftsPoste, conges] =
+    await Promise.all([
+      prisma.employee.findMany({
+        where: { actif: true },
+        select: { id: true, nom: true, poste: true, secteur: true, heuresParJour: true, heuresHebdomadaires: true },
+      }),
+      prisma.shift.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
+      // Fenêtre élargie à l'historique (A6) : l'équité fait tourner les jours pénibles (dimanches ET
+      // fériés) sur les 8 semaines d'historique — un férié travaillé avant la période doit compter,
+      // sinon la rotation triche sans le savoir. `feriesIso`, dans le moteur, ne filtre que les jours
+      // DE la période pour `joursPeriode` ; les dates d'historique n'y jouent aucun rôle, elles ne
+      // servent qu'à l'équité (`estPenible` sur `entrees.historique`) — élargir n'a donc aucun effet
+      // de bord sur la couverture.
+      prisma.jourFerie.findMany({ where: { date: { gte: debutHistorique, lte: fin } } }),
+      prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, shiftId: true } }),
+      prisma.planningCreneau.findMany({ where: { date: { gte: debutHistorique, lte: veilleDebut } }, select: { employeeId: true, date: true, shiftId: true } }),
+      formData.get("modeles") === "on" ? prisma.planningModele.findMany() : Promise.resolve([]),
+      prisma.besoinShift.findMany(),
+      prisma.polyvalencePoste.findMany(),
+      prisma.shiftPoste.findMany({ orderBy: { ordre: "asc" } }),
+      prisma.leaveRequest.findMany({
+        where: { statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
+        select: { employeeId: true, dateDebut: true, dateFin: true },
+      }),
+    ]);
 
   const shiftIdParam = String(formData.get("shiftId") ?? "").trim();
   const joursParam = formData.getAll("jours").map(Number).filter((n) => n >= 0 && n <= 6);
-  const joursActifs = new Set(joursParam.length > 0 ? joursParam : [1, 2, 3, 4, 5, 6]);
-  const nbParSemaine = Number(formData.get("nbParSemaine") ?? 0) || 0;
-  const inclureFeries = formData.get("inclureFeries") === "on";
-  const utiliserModeles = formData.get("modeles") === "on"; // coché par défaut dans le formulaire
-  const ecraser = formData.get("ecraser") === "on";
 
-  const [employees, shifts, feries, existants, modeles, besoins, congesApprouves] = await Promise.all([
-    prisma.employee.findMany({
-      where: { actif: true },
-      select: { id: true, nom: true, heuresParJour: true, heuresHebdomadaires: true, poste: true, secteur: true },
-    }),
-    prisma.shift.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.jourFerie.findMany({ where: { date: { gte: debut, lte: fin } } }),
-    prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, shiftId: true } }),
-    utiliserModeles ? prisma.planningModele.findMany() : Promise.resolve([]),
-    prisma.besoinShift.findMany(),
-    prisma.leaveRequest.findMany({
-      where: { statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
-      select: { employeeId: true, dateDebut: true, dateFin: true },
-    }),
-  ]);
+  const { creneaux, rapport } = genererPlanning({
+    debut,
+    fin,
+    employes: employes.map((e) => ({
+      id: e.id, nom: e.nom, poste: e.poste, secteur: e.secteur,
+      heuresParJour: Number(e.heuresParJour), heuresHebdomadaires: Number(e.heuresHebdomadaires),
+    })),
+    shifts: shiftsRows.map((s) => ({
+      id: s.id, nom: s.nom,
+      dureeHeures: dureeShift({
+        heureDebut: s.heureDebut, heureFin: s.heureFin,
+        dureeHeures: s.dureeHeures == null ? null : Number(s.dureeHeures),
+      }),
+    })),
+    besoins: besoins.map((b) => ({ shiftId: b.shiftId, poste: b.poste, jourSemaine: b.jourSemaine, nombreRequis: b.nombreRequis })),
+    shiftsPoste: shiftsPoste.map((s) => ({ poste: s.poste, shiftId: s.shiftId, ordre: s.ordre })),
+    polyvalences: polyvalences.map((p) => ({ posteSource: p.posteSource, posteCible: p.posteCible })),
+    modeles: modeles.map((m) => ({ employeeId: m.employeeId, jour: m.jour, semaine: m.semaine, shiftId: m.shiftId })),
+    conges: conges.map((c) => ({ employeeId: c.employeeId, dateDebut: c.dateDebut, dateFin: c.dateFin })),
+    feries: feries.map((f) => f.date),
+    existants,
+    historique,
+    options: {
+      shiftId: shiftIdParam || undefined,
+      jours: joursParam,
+      nbParSemaine: Number(formData.get("nbParSemaine") ?? 0) || 0,
+      inclureFeries: formData.get("inclureFeries") === "on",
+      utiliserModeles: formData.get("modeles") === "on",
+      ecraser: formData.get("ecraser") === "on",
+      completer: formData.get("completer") === "on",
+      autoriserDepassementHeures: formData.get("depassement") === "on",
+    },
+  });
 
-  // Shift de repli selon la FICHE (poste/secteur) pour les employés SANS modèle hebdo :
-  //   caissier(ère) → Caisse ; secteur Cuisine → Matin cuisine ; secteur Salle → Matin/midi salle ;
-  //   autres (transport, direction, backoffice) → Journée 8h-17h. Le shift Admin (réservé, via
-  //   modèle uniquement) et Nuit ne sont JAMAIS affectés automatiquement.
-  const parNom = (re: RegExp) => shifts.find((s) => re.test(s.nom));
-  const shiftCaisse = parNom(/caisse/i);
-  const shiftCuisine = parNom(/matin cuisine/i);
-  const shiftSalle = parNom(/matin\/midi salle/i);
-  const shiftJournee =
-    parNom(/journée 8h-17h/i) ?? shifts.find((s) => !s.systeme && !/admin|nuit/i.test(s.nom));
-  const shiftChoisi = shiftIdParam ? shifts.find((s) => s.id === shiftIdParam) : null;
-
-  const shiftPourEmploye = (emp: { poste: string | null; secteur: string | null }) => {
-    if (shiftChoisi) return shiftChoisi; // choix explicite de l'utilisateur
-    const poste = (emp.poste ?? "").toLowerCase();
-    const secteur = (emp.secteur ?? "").toLowerCase();
-    if (/caissi/.test(poste)) return shiftCaisse ?? shiftJournee;
-    if (/cuisine/.test(secteur)) return shiftCuisine ?? shiftJournee;
-    if (/salle/.test(secteur)) return shiftSalle ?? shiftJournee;
-    return shiftJournee;
-  };
-
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const feriesIso = new Set(feries.map((f) => iso(new Date(f.date))));
-  const existSet = new Set(existants.map((c) => `${c.employeeId}_${iso(new Date(c.date))}`));
-  const shiftsActifsIds = new Set(shifts.map((s) => s.id));
-  // Modèle : employeeId -> ("jour_semaine" -> shiftId) ; seuls les shifts encore actifs.
-  const modeleParEmp = new Map<string, Map<string, string>>();
-  for (const m of modeles) {
-    if (!shiftsActifsIds.has(m.shiftId)) continue;
-    (modeleParEmp.get(m.employeeId) ?? modeleParEmp.set(m.employeeId, new Map()).get(m.employeeId)!).set(`${m.jour}_${m.semaine}`, m.shiftId);
-  }
-  // Shift du modèle pour une date : couche de la parité (semaine A/B) sinon couche « chaque semaine ».
-  const shiftDuModele = (mod: Map<string, string>, d: Date): string | undefined => {
-    const dow = d.getUTCDay();
-    return mod.get(`${dow}_${pariteSemaine(d)}`) ?? mod.get(`${dow}_0`);
-  };
-
-  // Jours retenus de la période (selon jours de semaine choisis, fériés optionnels), par semaine.
-  const joursParSemaine = new Map<string, Date[]>();
-  for (let d = new Date(debut); d <= fin; d = new Date(d.getTime() + 86_400_000)) {
-    const dow = d.getUTCDay();
-    if (!joursActifs.has(dow)) continue;
-    if (!inclureFeries && feriesIso.has(iso(d))) continue;
-    const lundi = new Date(d);
-    lundi.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
-    const cle = iso(lundi);
-    (joursParSemaine.get(cle) ?? joursParSemaine.set(cle, []).get(cle)!).push(new Date(d));
-  }
-
-  // Congés validés : intervalles par employé (un salarié en congé n'est pas planifiable ce jour-là).
-  const congesParEmp = new Map<string, { debut: Date; fin: Date }[]>();
-  for (const c of congesApprouves) {
-    (congesParEmp.get(c.employeeId) ?? congesParEmp.set(c.employeeId, []).get(c.employeeId)!).push({
-      debut: new Date(c.dateDebut),
-      fin: new Date(c.dateFin),
-    });
-  }
-  const estEnConge = (empId: string, d: Date) =>
-    (congesParEmp.get(empId) ?? []).some((iv) => d >= iv.debut && d <= iv.fin);
-
-  const lundiIso = (d: Date) => {
-    const dow = d.getUTCDay();
-    const l = new Date(d);
-    l.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
-    return iso(l);
-  };
-  const posteOf = new Map(employees.map((e) => [e.id, e.poste]));
-  const maxJoursSem = (e: { heuresParJour: unknown; heuresHebdomadaires: unknown }) =>
-    nbParSemaine > 0
-      ? Math.min(joursActifs.size, nbParSemaine)
-      : Math.min(joursActifs.size, Math.max(1, Math.round((Number(e.heuresHebdomadaires) || 48) / (Number(e.heuresParJour) || 8))));
-  const joursPlats = [...joursParSemaine.values()].flat().sort((a, b) => a.getTime() - b.getTime());
-
-  const aCreer: { employeeId: string; date: Date; shiftId: string }[] = [];
-
-  if (besoins.length > 0) {
-    // ===== Génération « couverture d'abord » : remplir chaque besoin (shift × poste × jour) =====
-    const empsParPoste = new Map<string, typeof employees>();
-    for (const e of employees) {
-      (empsParPoste.get(e.poste) ?? empsParPoste.set(e.poste, []).get(e.poste)!).push(e);
-    }
-    const occupeJour = new Set<string>(); // `${empId}_${isoD}` — 1 seul shift/jour
-    const compteSem = new Map<string, number>(); // `${empId}_${lundiIso}` — quota hebdo
-    const couverture = new Map<string, number>(); // `${isoD}_${shiftId}_${poste}` — déjà couvert
-    const totalAffecte = new Map<string, number>(); // empId -> nb total (équité/rotation)
-    const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
-
-    // Créneaux existants conservés (si on n'écrase pas) : comptent dans la couverture et les quotas.
-    if (!ecraser) {
-      for (const ex of existants) {
-        const isoD = iso(new Date(ex.date));
-        occupeJour.add(`${ex.employeeId}_${isoD}`);
-        bump(compteSem, `${ex.employeeId}_${lundiIso(new Date(ex.date))}`);
-        bump(totalAffecte, ex.employeeId);
-        const p = posteOf.get(ex.employeeId);
-        if (p) bump(couverture, `${isoD}_${ex.shiftId}_${p}`);
-      }
-    }
-    const affecter = (empId: string, d: Date, shiftId: string, poste: string) => {
-      const isoD = iso(d);
-      aCreer.push({ employeeId: empId, date: d, shiftId });
-      occupeJour.add(`${empId}_${isoD}`);
-      bump(compteSem, `${empId}_${lundiIso(d)}`);
-      bump(totalAffecte, empId);
-      bump(couverture, `${isoD}_${shiftId}_${poste}`);
-    };
-
-    // 1) Modèles hebdo (affectations fixes prioritaires) s'ils sont activés : comptent dans la couverture.
-    if (utiliserModeles) {
-      for (const emp of employees) {
-        const mod = modeleParEmp.get(emp.id);
-        if (!mod || mod.size === 0) continue;
-        for (const d of joursPlats) {
-          const shiftId = shiftDuModele(mod, d);
-          if (!shiftId || occupeJour.has(`${emp.id}_${iso(d)}`) || estEnConge(emp.id, d)) continue;
-          affecter(emp.id, d, shiftId, emp.poste);
-        }
-      }
-    }
-
-    // 2) Couverture : pour chaque jour × besoin du jour, compléter jusqu'au nombre requis.
-    const besoinsParDow = new Map<number, typeof besoins>();
-    for (const b of besoins) {
-      (besoinsParDow.get(b.jourSemaine) ?? besoinsParDow.set(b.jourSemaine, []).get(b.jourSemaine)!).push(b);
-    }
-    for (const d of joursPlats) {
-      const isoD = iso(d);
-      const lundi = lundiIso(d);
-      for (const b of besoinsParDow.get(d.getUTCDay()) ?? []) {
-        if (!shiftsActifsIds.has(b.shiftId)) continue;
-        let have = couverture.get(`${isoD}_${b.shiftId}_${b.poste}`) ?? 0;
-        if (have >= b.nombreRequis) continue;
-        const pool = (empsParPoste.get(b.poste) ?? []).filter(
-          (e) =>
-            !occupeJour.has(`${e.id}_${isoD}`) &&
-            !estEnConge(e.id, d) &&
-            (compteSem.get(`${e.id}_${lundi}`) ?? 0) < maxJoursSem(e),
-        );
-        // Équité : d'abord ceux qui ont le moins travaillé, puis le moins cette semaine.
-        pool.sort(
-          (a, b2) =>
-            (totalAffecte.get(a.id) ?? 0) - (totalAffecte.get(b2.id) ?? 0) ||
-            (compteSem.get(`${a.id}_${lundi}`) ?? 0) - (compteSem.get(`${b2.id}_${lundi}`) ?? 0),
-        );
-        for (const e of pool) {
-          if (have >= b.nombreRequis) break;
-          affecter(e.id, d, b.shiftId, b.poste);
-          have++;
-        }
-      }
-    }
-  } else {
-    // ===== Aucun besoin défini : ancienne logique centrée employé (rôle selon fiche / modèle) =====
-    for (const emp of employees) {
-      const modele = modeleParEmp.get(emp.id);
-      if (modele && modele.size > 0) {
-        for (const jours of joursParSemaine.values()) {
-          for (const d of jours) {
-            const shiftId = shiftDuModele(modele, d);
-            if (!shiftId) continue;
-            if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
-            aCreer.push({ employeeId: emp.id, date: d, shiftId });
-          }
-        }
-        continue;
-      }
-      const shiftEmp = shiftPourEmploye(emp);
-      if (!shiftEmp) continue;
-      const hj = Number(emp.heuresParJour) || 8;
-      const hh = Number(emp.heuresHebdomadaires) || 48;
-      const nbSem = nbParSemaine > 0
-        ? Math.min(joursActifs.size, nbParSemaine)
-        : Math.min(joursActifs.size, Math.max(1, Math.round(hh / hj)));
-      for (const jours of joursParSemaine.values()) {
-        for (const d of jours.slice(0, nbSem)) {
-          if (!ecraser && existSet.has(`${emp.id}_${iso(d)}`)) continue;
-          aCreer.push({ employeeId: emp.id, date: d, shiftId: shiftEmp.id });
-        }
-      }
-    }
-  }
-
-  // « Écraser » = régénérer toute la période (2 requêtes). Sinon on remplit seulement les vides.
-  if (ecraser) {
+  if (formData.get("ecraser") === "on") {
     await prisma.planningCreneau.deleteMany({ where: { date: { gte: debut, lte: fin } } });
   }
-  if (aCreer.length > 0) {
-    await prisma.planningCreneau.createMany({ data: aCreer, skipDuplicates: true });
+  if (creneaux.length > 0) {
+    await prisma.planningCreneau.createMany({
+      data: creneaux.map((c) => ({ ...c, genereAuto: true })),
+      skipDuplicates: true,
+    });
   }
+  revalidatePath("/planning");
+
+  // Identifiants → noms lisibles, uniquement pour l'affichage.
+  const nomEmp = new Map(employes.map((e) => [e.id, e.nom]));
+  const nomShift = new Map(shiftsRows.map((s) => [s.id, s.nom]));
+
+  // Shifts ignorés (désactivés/supprimés) : shiftsRows ne contient que les shifts ACTIFS, on
+  // résout donc leur nom séparément — au pire on affiche l'identifiant brut.
+  let nomShiftInconnu = new Map<string, string>();
+  if (rapport.shiftsInconnus.length > 0) {
+    const rows = await prisma.shift.findMany({
+      where: { id: { in: rapport.shiftsInconnus } },
+      select: { id: true, nom: true },
+    });
+    nomShiftInconnu = new Map(rows.map((s) => [s.id, s.nom]));
+  }
+
+  return {
+    crees: rapport.crees,
+    trous: rapport.trous.map((t) => ({
+      date: t.date.toISOString().slice(0, 10),
+      libelle: `${t.date.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })} · ${nomShift.get(t.shiftId) ?? "shift"} × ${t.poste}`,
+      manque: t.manque,
+      raison: t.raison,
+    })),
+    sansShiftPoste: rapport.sansShiftPoste.map((s) => ({ nom: nomEmp.get(s.employeeId) ?? "—", poste: s.poste })),
+    depassements: rapport.depassements.map((x) => ({
+      nom: nomEmp.get(x.employeeId) ?? "—",
+      // Lundi de la semaine concernée, formaté en français, court — ex. « sem. du 6 juil. » —
+      // indispensable dès qu'une génération au mois produit plusieurs entrées pour le même salarié.
+      semaine: `sem. du ${x.lundi.getUTCDate()} ${MOIS_FR_COURT[x.lundi.getUTCMonth()]}`,
+      heuresPlanifiees: x.heuresPlanifiees,
+      heuresContractuelles: x.heuresContractuelles,
+      cause: x.cause,
+    })),
+    personnesEnDepassement: new Set(rapport.depassements.map((x) => x.employeeId)).size,
+    sousHeures: rapport.sousHeures.length,
+    shiftsInconnus: rapport.shiftsInconnus.map((id) => nomShiftInconnu.get(id) ?? id),
+  };
+}
+
+/**
+ * Renumérote séquentiellement (0, 1, 2, …) les shifts d'un poste, dans leur ordre actuel — appelée
+ * après un retrait ou un déplacement. L'ordre pilote quel shift la génération auto essaie en
+ * premier : il doit rester strictement séquentiel, sans trou ni doublon, jamais dépendant de l'ordre
+ * d'insertion en base.
+ */
+async function renumeroterShiftsPoste(tx: Prisma.TransactionClient, poste: string) {
+  const lignes = await tx.shiftPoste.findMany({ where: { poste }, orderBy: { ordre: "asc" } });
+  await Promise.all(
+    lignes.map((l, i) => (l.ordre === i ? null : tx.shiftPoste.update({ where: { id: l.id }, data: { ordre: i } }))),
+  );
+}
+
+/** Déclare qu'un poste peut tenir un shift, à la position donnée dans l'ordre de préférence. */
+export async function definirShiftPoste(poste: string, shiftId: string, ordre: number) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const p = poste.trim();
+  if (!p || !shiftId) return;
+  await prisma.shiftPoste.upsert({
+    where: { poste_shiftId: { poste: p, shiftId } },
+    create: { poste: p, shiftId, ordre },
+    update: { ordre },
+  });
+  revalidatePath("/planning");
+}
+
+/** Retire un shift de la liste des shifts acceptables d'un poste, puis renumérote le reste (compact,
+ *  sans trou) — sinon deux lignes peuvent finir avec le même `ordre`, et le tri devient dépendant de
+ *  l'ordre de retour de la base. */
+export async function supprimerShiftPoste(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  await prisma.$transaction(async (tx) => {
+    const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
+    if (!sp) return;
+    await tx.shiftPoste.delete({ where: { id } });
+    await renumeroterShiftsPoste(tx, sp.poste);
+  });
+  revalidatePath("/planning");
+}
+
+/**
+ * Déplace un shift d'un cran dans l'ordre de préférence de son poste (monter = essayé plus tôt par
+ * la génération auto). Sans effet aux extrémités. Renumérote tout le poste après coup, ce qui
+ * corrige au passage d'éventuels doublons d'`ordre` hérités d'avant ce correctif.
+ */
+export async function deplacerShiftPoste(id: string, direction: "haut" | "bas") {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  await prisma.$transaction(async (tx) => {
+    const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
+    if (!sp) return;
+    const lignes = await tx.shiftPoste.findMany({ where: { poste: sp.poste }, orderBy: { ordre: "asc" } });
+    const idx = lignes.findIndex((l) => l.id === id);
+    const cible = direction === "haut" ? idx - 1 : idx + 1;
+    if (idx === -1 || cible < 0 || cible >= lignes.length) return; // déjà à une extrémité
+    [lignes[idx], lignes[cible]] = [lignes[cible], lignes[idx]];
+    await Promise.all(lignes.map((l, i) => tx.shiftPoste.update({ where: { id: l.id }, data: { ordre: i } })));
+  });
   revalidatePath("/planning");
 }
 
@@ -293,8 +282,8 @@ export async function saisirCreneauxEnLot(
     const date = new Date(e.dateIso + "T00:00:00Z");
     await prisma.planningCreneau.upsert({
       where: { employeeId_date: { employeeId: e.employeeId, date } },
-      update: { shiftId: e.shiftId },
-      create: { employeeId: e.employeeId, date, shiftId: e.shiftId },
+      update: { shiftId: e.shiftId, genereAuto: false }, // saisie manuelle groupée → retire le marqueur ✨
+      create: { employeeId: e.employeeId, date, shiftId: e.shiftId, genereAuto: false },
     });
   }
   revalidatePath("/planning");
@@ -314,49 +303,55 @@ function lireNombre(v: FormDataEntryValue | null): number | null {
 
 /** Ajoute un nouveau shift configurable. */
 export async function creerShift(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/planning", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const nom = String(formData.get("nom") ?? "").trim();
-  if (!nom) throw new Error("Le nom du shift est requis.");
-  const couleur = String(formData.get("couleur") ?? "indigo");
-  const dernier = await prisma.shift.findFirst({ orderBy: { ordre: "desc" } });
+    const nom = String(formData.get("nom") ?? "").trim();
+    if (!nom) throw new Error("Le nom du shift est requis.");
+    const couleur = String(formData.get("couleur") ?? "indigo");
+    const dernier = await prisma.shift.findFirst({ orderBy: { ordre: "desc" } });
 
-  await prisma.shift.create({
-    data: {
-      nom,
-      heureDebut: lireHeure(formData.get("heureDebut")),
-      heureFin: lireHeure(formData.get("heureFin")),
-      couleur,
-      dureeHeures: lireNombre(formData.get("dureeHeures")),
-      tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
-      ordre: (dernier?.ordre ?? 0) + 1,
-    },
+    await prisma.shift.create({
+      data: {
+        nom,
+        heureDebut: lireHeure(formData.get("heureDebut")),
+        heureFin: lireHeure(formData.get("heureFin")),
+        couleur,
+        dureeHeures: lireNombre(formData.get("dureeHeures")),
+        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
+        ordre: (dernier?.ordre ?? 0) + 1,
+      },
+    });
+    revalidatePath("/planning");
+
   });
-  revalidatePath("/planning");
 }
 
 /** Modifie un shift existant (nom, heures, couleur). */
 export async function modifierShift(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/planning", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const id = String(formData.get("id"));
-  const nom = String(formData.get("nom") ?? "").trim();
-  if (!nom) throw new Error("Le nom du shift est requis.");
+    const id = String(formData.get("id"));
+    const nom = String(formData.get("nom") ?? "").trim();
+    if (!nom) throw new Error("Le nom du shift est requis.");
 
-  await prisma.shift.update({
-    where: { id },
-    data: {
-      nom,
-      heureDebut: lireHeure(formData.get("heureDebut")),
-      heureFin: lireHeure(formData.get("heureFin")),
-      couleur: String(formData.get("couleur") ?? "indigo"),
-      dureeHeures: lireNombre(formData.get("dureeHeures")),
-      tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
-    },
+    await prisma.shift.update({
+      where: { id },
+      data: {
+        nom,
+        heureDebut: lireHeure(formData.get("heureDebut")),
+        heureFin: lireHeure(formData.get("heureFin")),
+        couleur: String(formData.get("couleur") ?? "indigo"),
+        dureeHeures: lireNombre(formData.get("dureeHeures")),
+        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
+      },
+    });
+    revalidatePath("/planning");
+
   });
-  revalidatePath("/planning");
 }
 
 /**
@@ -365,19 +360,22 @@ export async function modifierShift(formData: FormData) {
  * plutôt que de le supprimer.
  */
 export async function supprimerShift(id: string) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible("/planning", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
-  if (!shift) return;
-  if (shift.systeme) throw new Error("Ce shift système ne peut pas être supprimé.");
+    const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
+    if (!shift) return;
+    if (shift.systeme) throw new Error("Ce shift système ne peut pas être supprimé.");
 
-  if (shift._count.creneaux > 0) {
-    await prisma.shift.update({ where: { id }, data: { actif: false } });
-  } else {
-    await prisma.shift.delete({ where: { id } });
-  }
-  revalidatePath("/planning");
+    if (shift._count.creneaux > 0) {
+      await prisma.shift.update({ where: { id }, data: { actif: false } });
+    } else {
+      await prisma.shift.delete({ where: { id } });
+    }
+    revalidatePath("/planning");
+
+  });
 }
 
 /** Réactive un shift désactivé. */
@@ -392,9 +390,10 @@ export async function reactiverShift(id: string) {
  * Définit l'effectif requis pour un shift × poste × jour de la semaine (0=dim…6=sam).
  * nombreRequis ≤ 0 efface le besoin. Pilote la génération auto « couverture d'abord ».
  */
-export async function definirBesoin(shiftId: string, poste: string, jourSemaine: number, nombreRequis: number) {
+export async function definirBesoin(shiftId: string, posteBrut: string, jourSemaine: number, nombreRequis: number) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const poste = posteBrut.trim(); // espaces fantômes = besoins jamais matchés
   if (!shiftId || !poste || jourSemaine < 0 || jourSemaine > 6) return;
   const n = Math.round(Number(nombreRequis) || 0);
   if (n <= 0) {
@@ -407,4 +406,167 @@ export async function definirBesoin(shiftId: string, poste: string, jourSemaine:
     });
   }
   revalidatePath("/planning");
+}
+
+/** Déclare qu'un poste peut en couvrir un autre au planning (ex. « Chef » couvre « Commis cuisine »). */
+export async function definirPolyvalence(posteSource: string, posteCible: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const src = posteSource.trim(), cible = posteCible.trim();
+  if (!src || !cible || src === cible) return;
+  await prisma.polyvalencePoste.upsert({
+    where: { posteSource_posteCible: { posteSource: src, posteCible: cible } },
+    update: {},
+    create: { posteSource: src, posteCible: cible },
+  });
+  revalidatePath("/planning");
+}
+
+export async function supprimerPolyvalence(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  await prisma.polyvalencePoste.delete({ where: { id } });
+  revalidatePath("/planning");
+}
+
+/** Publie une semaine de planning (visible par les salariés dans leur espace). `lundiIso` = lundi UTC. */
+export async function publierSemaine(lundiIso: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const lundi = new Date(lundiIso + "T00:00:00Z");
+  const dejaPubliee = await prisma.semainePubliee.findUnique({ where: { lundi }, select: { id: true } });
+  await prisma.semainePubliee.upsert({
+    where: { lundi },
+    update: { publieeParId: user.id },
+    create: { lundi, publieeParId: user.id },
+  });
+
+  // À la PREMIÈRE publication de cette semaine, notifier les salariés qui y ont des créneaux
+  // (cloche perso + push). On ne re-notifie pas une re-publication (évite le spam).
+  if (!dejaPubliee) {
+    const dim = new Date(lundi); dim.setUTCDate(dim.getUTCDate() + 6);
+    const creneaux = await prisma.planningCreneau.findMany({
+      where: { date: { gte: lundi, lte: dim } },
+      select: { employeeId: true },
+      distinct: ["employeeId"],
+    });
+    if (creneaux.length > 0) {
+      const comptes = await prisma.user.findMany({
+        where: { role: { in: ["EMPLOYE", "STOCK"] }, actif: true, employeeId: { in: creneaux.map((c) => c.employeeId) } },
+        select: { id: true },
+      });
+      const label = `${lundi.getUTCDate()} ${MOIS_FR[lundi.getUTCMonth()]}`;
+      await Promise.all(comptes.map((c) => notifierSalarie(c.id, {
+        type: "PLANNING",
+        message: `Votre planning de la semaine du ${label} est publié.`,
+        lien: "/espace/planning",
+        refId: `planning:${lundiIso}`,
+      })));
+    }
+  }
+
+  revalidatePath("/planning");
+  revalidatePath("/espace/planning");
+  revalidatePath("/espace");
+}
+
+/** Retire une semaine de la publication (les salariés ne la voient plus). */
+export async function depublierSemaine(lundiIso: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const lundi = new Date(lundiIso + "T00:00:00Z");
+  await prisma.semainePubliee.deleteMany({ where: { lundi } });
+  revalidatePath("/planning");
+  revalidatePath("/espace/planning");
+  revalidatePath("/espace");
+}
+
+/** Direction : approuve une demande de changement de shift → met à jour le planning + notifie le salarié. */
+export async function approuverChangementShift(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
+  if (!dem || dem.statut !== "EN_ATTENTE") return;
+
+  await prisma.$transaction([
+    prisma.planningCreneau.upsert({
+      where: { employeeId_date: { employeeId: dem.employeeId, date: dem.date } },
+      update: { shiftId: dem.shiftDemandeId, genereAuto: false },
+      create: { employeeId: dem.employeeId, date: dem.date, shiftId: dem.shiftDemandeId, genereAuto: false },
+    }),
+    prisma.demandeChangementShift.update({ where: { id }, data: { statut: "APPROUVE", decideParId: user.id } }),
+  ]);
+
+  const [shift, userId] = await Promise.all([
+    prisma.shift.findUnique({ where: { id: dem.shiftDemandeId }, select: { nom: true } }),
+    compteSalarieDe(dem.employeeId),
+  ]);
+  if (userId) await notifierSalarie(userId, {
+    type: "PLANNING",
+    message: `Votre changement de shift du ${dem.date.toLocaleDateString("fr-FR", { timeZone: "UTC" })} (${shift?.nom ?? ""}) a été approuvé ✅.`,
+    lien: "/espace/planning",
+    refId: `${id}:decision`,
+  });
+  await supprimerNotificationsPour(id);
+  revalidatePath("/planning");
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/planning");
+  revalidatePath("/", "layout");
+}
+
+/** Direction : refuse une demande de changement de shift → notifie le salarié. */
+export async function refuserChangementShift(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const dem = await prisma.demandeChangementShift.findUnique({ where: { id } });
+  if (!dem || dem.statut !== "EN_ATTENTE") return;
+  await prisma.demandeChangementShift.update({ where: { id }, data: { statut: "REFUSE", decideParId: user.id } });
+
+  const userId = await compteSalarieDe(dem.employeeId);
+  if (userId) await notifierSalarie(userId, {
+    type: "PLANNING",
+    message: `Votre demande de changement de shift du ${dem.date.toLocaleDateString("fr-FR", { timeZone: "UTC" })} a été refusée.`,
+    lien: "/espace/planning",
+    refId: `${id}:decision`,
+  });
+  await supprimerNotificationsPour(id);
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/planning");
+  revalidatePath("/", "layout");
+}
+
+/** Direction : approuve un échange de créneau. Le swap n'a lieu que si le collègue a aussi accepté. */
+export async function approuverEchange(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const e = await prisma.echangeCreneau.findUnique({ where: { id } });
+  if (!e || e.statut !== "EN_ATTENTE") return;
+  await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "APPROUVE" } });
+  const fait = await finaliserEchangeSiComplet(id);
+  if (!fait) {
+    // En attente du collègue : le prévenir qu'il ne manque que sa réponse.
+    const uB = await compteSalarieDe(e.collegueId);
+    if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "La Direction a approuvé un échange de shift vous concernant — votre accord est attendu.", lien: "/espace/echanges", refId: `${id}:dir` });
+  }
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/echanges");
+  revalidatePath("/planning");
+  revalidatePath("/", "layout");
+}
+
+/** Direction : refuse un échange de créneau → clôt la demande et prévient les deux salariés. */
+export async function refuserEchange(id: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  const e = await prisma.echangeCreneau.findUnique({ where: { id } });
+  if (!e || e.statut !== "EN_ATTENTE") return;
+  await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "REFUSE", statut: "REFUSE" } });
+  await supprimerNotificationsPour(id);
+  const [uA, uB] = await Promise.all([compteSalarieDe(e.demandeurId), compteSalarieDe(e.collegueId)]);
+  const msg = "Un échange de shift a été refusé par la Direction.";
+  if (uA) await notifierSalarie(uA, { type: "PLANNING", message: msg, lien: "/espace/echanges", refId: `${id}:dir` });
+  if (uB) await notifierSalarie(uB, { type: "PLANNING", message: msg, lien: "/espace/echanges", refId: `${id}:dir` });
+  revalidatePath("/a-valider");
+  revalidatePath("/espace/echanges");
+  revalidatePath("/", "layout");
 }

@@ -58,5 +58,6 @@ export async function chargerParametresPaieDirect(prisma: PrismaClient): Promise
     allocFamilialeParEnfantUSD: requis("alloc_familiale_par_enfant_usd"),
     joursOuvrablesMois: requis("jours_ouvrables_mois"),
     droitsCongesAnnuel: requis("droits_conges_annuel"),
+    salairesSaisisEnNet: optionnel("salaires_saisis_en_net") === 1,
   };
 }

@@ -111,6 +111,53 @@ export function calculerHeuresDepuisPointages(
 }
 
 /**
+ * Ajuste les heures d'un jour selon le shift normal de l'employé et une pause déjeuner.
+ * Règles (décision client 2026-07) :
+ *  — Pause : `pauseMinutes` (30 min par défaut) TOUJOURS déduites — droit à la pause déjeuner.
+ *  — Jamais avant le début du shift : l'arrivée en avance ne compte pas (début = max(pointage, shift)).
+ *  — Heures supp seulement à partir de `graceMinutes` (60 min) APRÈS la fin du shift : la 1re heure
+ *    après la fin est une tolérance non comptée ; au-delà, seul l'excédent après fin+1h est crédité.
+ *  — Sans shift renseigné (heureDebut/heureFin absents ou fin ≤ début) : on retire seulement la pause.
+ * Renvoie les heures payables (≥ 0, arrondies au centième).
+ */
+export function ajusterHeuresJour(opts: {
+  premier: Date;
+  dernier: Date;
+  shiftDebut?: string | null; // "HH:MM" (heure murale)
+  shiftFin?: string | null; // "HH:MM"
+  pauseMinutes?: number;
+  graceMinutes?: number;
+}): number {
+  const pauseH = (opts.pauseMinutes ?? 30) / 60;
+  const graceMs = (opts.graceMinutes ?? 60) * 60_000;
+  let inMs = opts.premier.getTime();
+  let outMs = opts.dernier.getTime();
+
+  // Construit les bornes du shift dans le MÊME repère (heure murale = UTC ici, cf. isoJour).
+  const hhmm = (v: string) => {
+    const [h, m] = v.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return Date.UTC(opts.premier.getUTCFullYear(), opts.premier.getUTCMonth(), opts.premier.getUTCDate(), h, m);
+  };
+  const debutMs = opts.shiftDebut ? hhmm(opts.shiftDebut) : null;
+  const finMs = opts.shiftFin ? hhmm(opts.shiftFin) : null;
+
+  if (debutMs !== null && finMs !== null && finMs > debutMs) {
+    inMs = Math.max(inMs, debutMs); // jamais avant le début du shift
+    if (outMs <= finMs) {
+      // parti à l'heure ou en avance : on garde le pointage réel
+    } else if (outMs <= finMs + graceMs) {
+      outMs = finMs; // dans la tolérance : la 1re heure après la fin n'est pas comptée
+    } else {
+      outMs = outMs - graceMs; // heures supp au-delà de fin+1h : on retire l'heure de tolérance
+    }
+  }
+
+  const heures = (outMs - inMs) / 3_600_000 - pauseH;
+  return Math.max(0, Math.round(heures * 100) / 100);
+}
+
+/**
  * Apparie les résultats de pointage aux employés via idExterneIVMS.
  * Retourne les jours appariés (avec employeeId) et signale les ID non trouvés.
  */

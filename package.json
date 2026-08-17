@@ -10,41 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "electron": "electron electron/main.cjs",
-    "electron:build": "electron-builder"
-  },
-  "main": "electron/main.cjs",
-  "build": {
-    "appId": "cd.patesenfolie.gestion",
-    "productName": "Pâtes en Folie — Gestion",
-    "asar": false,
-    "afterPack": "electron/after-pack.cjs",
-    "files": [
-      "electron/**/*",
-      "package.json",
-      "!node_modules/**/*",
-      "!.next/**/*",
-      "!src/**/*",
-      "!prisma/**/*",
-      "!public/**/*",
-      "!dist-electron/**/*"
-    ],
-    "directories": {
-      "output": "dist-electron"
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "build/icon.icns",
-      "category": "public.app-category.business",
-      "identity": null
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.png"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
+    "deployer": "node scripts/deployer.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -56,6 +22,7 @@
     "@supabase/supabase-js": "^2.110.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "decimal.js": "^10.6.0",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1",
@@ -81,8 +48,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
-    "electron": "^43.0.0",
-    "electron-builder": "^26.15.3",
+    "embedded-postgres": "^18.4.0-beta.17",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "sharp": "^0.35.2",

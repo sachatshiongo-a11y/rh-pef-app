@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import { marquerPayee, supprimerFacture } from "./actions";
+import { useMemo, useState, useTransition } from "react";
+import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEnLot } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
+import { estErreur } from "@/lib/action-lisible";
 
 export type FactureRow = {
   id: string;
@@ -37,27 +38,45 @@ function badgeEcheance(f: FactureRow): { texte: string; cls: string } | null {
 
 const sommaireCls = "flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden";
 
-export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; estDirection?: boolean }) {
+export function FacturesUI({ groupes, annees, estDirection = true, ouvert = false }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; estDirection?: boolean; ouvert?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
 
-  const run = (fn: () => Promise<void>) => {
+  const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
-    startTransition(async () => { try { await fn(); } catch (e) { setErreur(e instanceof Error ? e.message : "Erreur."); } });
+    startTransition(async () => {
+      const r = await fn();
+      if (estErreur(r)) setErreur(r.erreur);
+    });
   };
+
+  // Toutes les factures affichées (à plat), pour « tout sélectionner » et les actions groupées.
+  const toutes = useMemo(() => {
+    const acc: FactureRow[] = [];
+    if (annees) for (const a of annees) for (const m of a.mois) acc.push(...m.factures);
+    else for (const g of groupes ?? []) acc.push(...g.factures);
+    return acc;
+  }, [annees, groupes]);
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const clear = () => setSel(new Set());
+  const selIds = [...sel];
+  const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE"));
 
   const liste = (factures: FactureRow[]) => (
     <ul className="divide-y border-t">
       {factures.map((f) => {
         const be = badgeEcheance(f);
         return (
-          <li key={f.id} className="px-3 py-3 hover:bg-accent/30 sm:px-4">
+          <li key={f.id} className={`flex gap-3 px-3 py-1.5 hover:bg-accent/30 sm:px-4 ${sel.has(f.id) ? "bg-primary/5" : ""}`}>
+            <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="mt-1 shrink-0" aria-label={`Sélectionner ${f.nom}`} />
+            <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 {f.fournisseurId
                   ? <Link href={`/stock/fournisseurs/${f.fournisseurId}`} className="truncate font-semibold text-primary hover:underline">{f.nom}</Link>
                   : <p className="truncate font-semibold">{f.nom}</p>}
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                   {f.numero ? (
                     <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 font-mono text-sm font-semibold tracking-wide text-foreground">N° {f.numero}</span>
                   ) : (
@@ -67,11 +86,11 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
                 </div>
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-lg font-semibold tabular-nums">{usd(f.montant)}</p>
+                <p className="text-base font-semibold tabular-nums">{usd(f.montant)}</p>
                 <p className="text-[11px] text-muted-foreground">échéance {f.echeance ?? "—"}</p>
               </div>
             </div>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
               {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
               <div className="ml-auto flex items-center gap-2">
@@ -87,6 +106,7 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
                 )}
               </div>
             </div>
+            </div>
           </li>
         );
       })}
@@ -97,23 +117,58 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
     <div className="space-y-2">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
+      {/* Barre d'actions groupées — sélection multiple par cases à cocher. */}
+      <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={toutes.length > 0 && sel.size === toutes.length}
+            ref={(el) => { if (el) el.indeterminate = sel.size > 0 && sel.size < toutes.length; }}
+            onChange={(e) => setSel(e.target.checked ? new Set(toutes.map((f) => f.id)) : new Set())}
+          />
+          Tout sélectionner
+        </label>
+        <span className="text-sm text-muted-foreground">{sel.size} sélectionnée(s)</span>
+        {sel.size > 0 && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => run(async () => { const r = await marquerPayeesEnLot(selNonReglees); if (!estErreur(r)) clear(); return r; })}
+              disabled={isPending || selNonReglees.length === 0}
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              ✓ Marquer payées ({selNonReglees.length})
+            </button>
+            {estDirection && (
+              <button
+                onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { const r = await supprimerFacturesEnLot(selIds); if (!estErreur(r)) clear(); return r; }); }}
+                disabled={isPending}
+                className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                ✕ Supprimer ({sel.size})
+              </button>
+            )}
+            <button onClick={clear} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Désélectionner</button>
+          </div>
+        )}
+      </div>
+
       {annees ? (
         <>
-          {annees.map((a, ai) => {
+          {annees.map((a) => {
             const nbA = a.mois.reduce((n, m) => n + m.factures.length, 0);
             const duA = a.mois.reduce((n, m) => n + sumReste(m.factures), 0);
             return (
-              <details key={a.annee} open={ai === 0} className="group overflow-hidden rounded-xl border">
-                <summary className={`${sommaireCls} bg-muted/60 px-4 py-2.5 text-sm font-semibold`}>
+              <details key={a.annee} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
+                <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{a.annee} <span className="font-normal text-muted-foreground">· {nbA} facture(s)</span></span>
                   {duA > 0 ? <span className="text-red-700">dû {usd(duA)}</span> : <span className="text-emerald-700">soldé</span>}
                 </summary>
                 <div className="space-y-1.5 p-2">
-                  {a.mois.map((m, mi) => {
+                  {a.mois.map((m) => {
                     const duM = sumReste(m.factures);
                     return (
-                      <details key={m.cle} open={ai === 0 && mi === 0} className="group/m overflow-hidden rounded-lg border">
-                        <summary className={`${sommaireCls} bg-muted/30 px-3 py-1.5 text-sm font-medium`}>
+                      <details key={m.cle} open={ouvert || undefined} className="group/m overflow-hidden rounded-lg border">
+                        <summary className={`${sommaireCls} bg-muted/30 px-3 py-1 text-sm font-medium`}>
                           <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open/m:rotate-90">▸</span>{m.label} <span className="font-normal text-muted-foreground">· {m.factures.length}</span></span>
                           {duM > 0 ? <span className="text-xs text-red-700">dû {usd(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}
                         </summary>
@@ -133,8 +188,8 @@ export function FacturesUI({ groupes, annees, estDirection = true }: { groupes?:
             const total = g.factures.reduce((t, f) => t + Number(f.montant), 0);
             const regle = total - sumReste(g.factures);
             return (
-              <details key={g.titre} open className="group overflow-hidden rounded-xl border">
-                <summary className={`${sommaireCls} bg-muted/60 px-4 py-2.5 text-sm font-semibold`}>
+              <details key={g.titre} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
+                <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.factures.length} facture(s)</span></span>
                   <span className="text-xs font-normal">Réglé <b className="text-emerald-700">{usd(regle)}</b> / {usd(total)}</span>
                 </summary>

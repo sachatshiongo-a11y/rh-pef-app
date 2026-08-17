@@ -8,6 +8,7 @@ import {
   reinitialiserMotDePasse,
   lierUtilisateurEmploye,
 } from "./user-actions";
+import { estErreur } from "@/lib/action-lisible";
 
 export type UserRow = {
   id: string;
@@ -47,14 +48,11 @@ export function UsersAdmin({
   const [erreur, setErreur] = useState<string | null>(null);
   const [ouvertMdp, setOuvertMdp] = useState<string | null>(null);
 
-  function action(fn: () => Promise<void>) {
+  function action(fn: () => Promise<unknown>) {
     setErreur(null);
     startTransition(async () => {
-      try {
-        await fn();
-      } catch (e) {
-        setErreur(e instanceof Error ? e.message : "Erreur.");
-      }
+      const r = await fn();
+      if (estErreur(r)) setErreur(r.erreur);
     });
   }
 
