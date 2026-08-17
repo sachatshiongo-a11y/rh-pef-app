@@ -395,3 +395,51 @@ describe("genererPlanning — équité", () => {
     expect(r.creneaux[0].shiftId).toBe(SHIFT_SOIR.id);
   });
 });
+
+describe("genererPlanning — amorçage des quotas hebdomadaires par l'historique (A1)", () => {
+  // La génération se fait au mois : la période ne démarre presque jamais un lundi. Le début de la
+  // semaine civile tombe alors dans l'historique, strictement antérieur à `debut`. Sans amorçage,
+  // le moteur croit cette semaine vierge et peut dépasser les heures contractuelles sans que
+  // `rapport.depassements` ne le dise — alors que l'écran promet que chaque dépassement y figure.
+  const entreesACheval = (surcharge: Partial<EntreesGeneration> = {}) => entreesBase({
+    debut: d("2026-07-08"), fin: d("2026-07-12"), // mercredi 8 → dimanche 12 : ne démarre pas un lundi
+    employes: [{ ...employe("e1"), heuresHebdomadaires: 40 }],
+    historique: [
+      { employeeId: "e1", date: d("2026-07-06"), shiftId: SHIFT_MATIN.id }, // lundi, 8 h
+      { employeeId: "e1", date: d("2026-07-07"), shiftId: SHIFT_MATIN.id }, // mardi, 8 h
+    ],
+    shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+    options: { ...entreesBase().options, completer: true },
+    ...surcharge,
+  });
+
+  it("les heures d'avant la période comptent : la semaine s'arrête à 40 h, pas 48", () => {
+    const r = genererPlanning(entreesACheval());
+    // Sans la correction, le moteur ignore les 16 h de lundi/mardi et pose 4 jours (mercredi à
+    // samedi, dimanche étant de toute façon bloqué par les 6 jours consécutifs) : 32 h de période
+    // + 16 h d'historique = 48 h, sans le moindre dépassement rapporté.
+    expect(r.creneaux).toHaveLength(3); // mercredi, jeudi, vendredi
+    const heuresSemaineCivile = r.creneaux.length * 8 + 16; // + les 16 h de l'historique
+    expect(heuresSemaineCivile).toBe(40); // pile la contractuelle
+  });
+
+  it("le plafond de 6 jours par semaine tient aussi à cheval sur l'historique", () => {
+    const r = genererPlanning(entreesBase({
+      debut: d("2026-07-11"), fin: d("2026-07-12"), // samedi 11 → dimanche 12
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 100 }], // heures hautes : seul le plafond de jours limite
+      historique: ["2026-07-06", "2026-07-07", "2026-07-08", "2026-07-09", "2026-07-10"].map((j) => ({
+        employeeId: "e1", date: d(j), shiftId: SHIFT_MATIN.id,
+      })), // lundi à vendredi, 5 jours déjà travaillés
+      modeles: [6, 0].map((j) => ({ employeeId: "e1", jour: j, semaine: 0, shiftId: SHIFT_MATIN.id })),
+    }));
+    expect(r.creneaux.map((c) => iso2(c.date))).toEqual(["2026-07-11"]); // samedi passe, dimanche refusé
+  });
+
+  it("`ecraser: true` ne fait pas oublier l'historique — même résultat sur les heures de la semaine", () => {
+    // `ecraser` purge les créneaux DE la période (`existants`), jamais l'historique, qui lui est
+    // antérieur à `debut` et n'a donc rien à voir avec ce que l'écraser régénère.
+    const r = genererPlanning(entreesACheval({ options: { ...entreesBase().options, completer: true, ecraser: true } }));
+    expect(r.creneaux).toHaveLength(3);
+    expect(r.creneaux.length * 8 + 16).toBe(40);
+  });
+});

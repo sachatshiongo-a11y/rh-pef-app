@@ -157,8 +157,24 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   const heuresSemaine = new Map<string, number>(); // `${empId}_${lundiIso}` → heures planifiées
   const ajouter = (m: Map<string, number>, k: string, n: number) => m.set(k, (m.get(k) ?? 0) + n);
 
-  // L'historique alimente `occupe` (jours consécutifs) mais PAS les quotas de la période.
-  for (const h of entrees.historique) occupe.add(`${h.employeeId}_${iso(h.date)}`);
+  // Semaines civiles (lundis) que la période touche — sert à limiter l'amorçage ci-dessous aux
+  // seules semaines concernées, pas à tout l'historique.
+  const semainesTouchees = new Set(joursPeriode.map((j) => iso(lundiDeUTC(j))));
+
+  // L'historique alimente `occupe` (jours consécutifs) ET, pour la ou les semaines civiles que la
+  // période chevauche, amorce aussi `joursSemaine`/`heuresSemaine` : la période ne démarre presque
+  // jamais un lundi (on génère au mois), donc le début de la semaine civile tombe le plus souvent
+  // dans l'historique. Sans cet amorçage, le moteur croirait cette semaine vierge et pourrait
+  // dépasser les heures contractuelles sans jamais le signaler dans `rapport.depassements`. Fait
+  // QUEL QUE SOIT `options.ecraser` : cette option ne purge que les créneaux DE la période, jamais
+  // l'historique, qui lui est strictement antérieur.
+  for (const h of entrees.historique) {
+    occupe.add(`${h.employeeId}_${iso(h.date)}`);
+    const lundi = iso(lundiDeUTC(h.date));
+    if (!semainesTouchees.has(lundi)) continue;
+    ajouter(joursSemaine, `${h.employeeId}_${lundi}`, 1);
+    ajouter(heuresSemaine, `${h.employeeId}_${lundi}`, dureeParShift.get(h.shiftId) ?? 0);
+  }
 
   if (!options.ecraser) {
     for (const ex of entrees.existants) {
