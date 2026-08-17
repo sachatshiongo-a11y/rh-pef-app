@@ -2,14 +2,25 @@
 
 import { useRouter } from "next/navigation";
 
-/** Sélecteur de vue du planning (Semaine / Mois / Modèle hebdo) en liste déroulante compacte —
- *  remplace les 3 onglets pour dégager la barre d'en-tête. Conserve la période affichée. */
-export function VueSelect({ vue, semaineHref, moisHref }: { vue: string; semaineHref: string; moisHref: string }) {
+/** Sélecteur de vue du planning (Semaine / Mois / Modèle hebdo / Écart) en liste déroulante compacte —
+ *  remplace les onglets pour dégager la barre d'en-tête. Conserve la période affichée. */
+export function VueSelect({
+  vue,
+  semaineHref,
+  moisHref,
+  ecartHref = "/planning?vue=ecart",
+}: {
+  vue: string;
+  semaineHref: string;
+  moisHref: string;
+  ecartHref?: string;
+}) {
   const router = useRouter();
   const options = [
     { v: "semaine", label: "Vue : Semaine", href: semaineHref },
     { v: "mois", label: "Vue : Mois", href: moisHref },
     { v: "modele", label: "Vue : Modèle hebdo", href: "/planning?vue=modele" },
+    { v: "ecart", label: "Vue : Écart prévu/réalisé", href: ecartHref },
   ];
   return (
     <select

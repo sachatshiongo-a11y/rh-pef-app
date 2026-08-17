@@ -17,6 +17,8 @@ import { joursEnConge } from "@/lib/conges-couverture";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { PublierSemaineBtn } from "./publier-btn";
 import { VueSelect } from "./vue-select";
+import { chargerEcartMois } from "./ecart-data";
+import { EcartView } from "./ecart-view";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 
@@ -39,7 +41,7 @@ export default async function PlanningPage({
   const user = await verifySession();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
-  const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : "semaine";
+  const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : sp.vue === "ecart" ? "ecart" : "semaine";
   // « Aujourd'hui » = date civile à Kinshasa (UTC+1), pas l'heure UTC du serveur : évite le décalage
   // d'un jour entre 23h et minuit UTC. Le reste des dates est stocké en UTC minuit du bon jour.
   const isoAujourdhui = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Kinshasa" }).format(new Date());
@@ -87,8 +89,8 @@ export default async function PlanningPage({
   // Onglets de vue — chaque lien conserve la période courante (semaine/mois) pour ne pas perdre le
   // contexte temporel en changeant de vue. `renderOnglets` est appelé dans chaque branche avec les
   // liens adaptés à la période affichée.
-  const renderOnglets = (semaineHref: string, moisHref: string) => (
-    <VueSelect vue={vue} semaineHref={semaineHref} moisHref={moisHref} />
+  const renderOnglets = (semaineHref: string, moisHref: string, ecartHref?: string) => (
+    <VueSelect vue={vue} semaineHref={semaineHref} moisHref={moisHref} ecartHref={ecartHref} />
   );
   const ongletsDefaut = renderOnglets("/planning?vue=semaine", "/planning?vue=mois");
   // Export PDF/Excel — téléchargement direct, conserve la période affichée.
@@ -97,6 +99,13 @@ export default async function PlanningPage({
       <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
       <a href={`/planning/pdf${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">PDF</a>
       <a href={`/planning/excel${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
+    </div>
+  );
+  // Vue Écart : un seul export (Excel), pas de PDF — cf. conception §5.
+  const boutonExportEcart = (qs: string) => (
+    <div className="flex items-center overflow-hidden rounded-md border text-sm">
+      <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
+      <a href={`/planning/excel/ecart${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
     </div>
   );
 
@@ -249,7 +258,7 @@ export default async function PlanningPage({
             <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`)}
+            {renderOnglets(`/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`, `/planning?vue=mois&mois=${mois}&annee=${annee}`, `/planning?vue=ecart&mois=${mois}&annee=${annee}`)}
             {boutonsExport(`?mois=${mois}&annee=${annee}`)}
             {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[isoDates.length - 1]} shifts={shiftsPourAuto} />}
             <Link href={`/planning?vue=mois&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
@@ -292,6 +301,47 @@ export default async function PlanningPage({
           Vue mensuelle éditable (la grille défile horizontalement). ✨ = créneau posé par la
           génération automatique. « Générer automatiquement » remplit les jours ouvrables selon les
           heures de chaque employé sans écraser vos saisies.
+        </p>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------- VUE ÉCART
+  // Écart prévu/réalisé (chantier B2) : lecture seule, calculée par le module pur
+  // src/lib/planning-ecart.ts — voir docs/superpowers/specs/2026-08-17-planning-ecart-….md §5.
+  if (vue === "ecart") {
+    const annee = Number(sp.annee) || maintenant.getFullYear();
+    const mois = sp.mois ? Math.min(12, Math.max(1, Number(sp.mois))) : maintenant.getMonth() + 1;
+    const { resultat, employesInfo, shiftsInfo } = await chargerEcartMois(mois, annee);
+
+    const moisPrec = mois === 1 ? { m: 12, a: annee - 1 } : { m: mois - 1, a: annee };
+    const moisSuiv = mois === 12 ? { m: 1, a: annee + 1 } : { m: mois + 1, a: annee };
+
+    return (
+      <div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold sm:text-2xl">Écart prévu / réalisé</h1>
+            <p className="text-sm capitalize text-muted-foreground">{MOIS_LONG[mois - 1]} {annee}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {renderOnglets(
+              `/planning?debut=${isoJour(lundiDeLaSemaine(new Date(Date.UTC(annee, mois - 1, 15))))}`,
+              `/planning?vue=mois&mois=${mois}&annee=${annee}`,
+              `/planning?vue=ecart&mois=${mois}&annee=${annee}`,
+            )}
+            {boutonExportEcart(`?mois=${mois}&annee=${annee}`)}
+            <Link href={`/planning?vue=ecart&mois=${moisPrec.m}&annee=${moisPrec.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">← Préc.</Link>
+            <Link href="/planning?vue=ecart" className="rounded-md border px-3 py-1.5 hover:bg-accent">Ce mois</Link>
+            <Link href={`/planning?vue=ecart&mois=${moisSuiv.m}&annee=${moisSuiv.a}`} className="rounded-md border px-3 py-1.5 hover:bg-accent">Suiv. →</Link>
+          </div>
+        </div>
+
+        <EcartView resultat={resultat} employesInfo={employesInfo} shiftsInfo={shiftsInfo} />
+
+        <p className="mt-4 text-xs text-muted-foreground">
+          Lecture seule : cet écran constate, il ne corrige rien. Une présence se corrige dans
+          l&apos;onglet Présences ; le planning, dans les vues Semaine ou Mois.
         </p>
       </div>
     );
@@ -360,7 +410,7 @@ export default async function PlanningPage({
           <p className="text-sm text-muted-foreground">Semaine du {titrePeriode}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
+          {renderOnglets(`/planning?debut=${isoDates[0]}`, `/planning?vue=mois&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`, `/planning?vue=ecart&mois=${dates[3].getUTCMonth() + 1}&annee=${dates[3].getUTCFullYear()}`)}
           {boutonsExport(`?debut=${isoDates[0]}`)}
           {peutModifier && espaceActif && <PublierSemaineBtn lundiIso={isoDates[0]} publiee={!!semainePubliee} />}
           {peutModifier && <AutoPlanningForm debut={isoDates[0]} fin={isoDates[6]} shifts={shiftsPourAuto} />}

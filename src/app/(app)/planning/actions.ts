@@ -9,6 +9,7 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
+import type { Prisma } from "@prisma/client";
 
 /** Enregistre / efface le shift d'un employé pour un jour. shiftId vide = effacer. */
 export async function saisirCreneau(employeeId: string, dateIso: string, shiftId: string) {
@@ -201,6 +202,19 @@ export async function genererPlanningAuto(
   };
 }
 
+/**
+ * Renumérote séquentiellement (0, 1, 2, …) les shifts d'un poste, dans leur ordre actuel — appelée
+ * après un retrait ou un déplacement. L'ordre pilote quel shift la génération auto essaie en
+ * premier : il doit rester strictement séquentiel, sans trou ni doublon, jamais dépendant de l'ordre
+ * d'insertion en base.
+ */
+async function renumeroterShiftsPoste(tx: Prisma.TransactionClient, poste: string) {
+  const lignes = await tx.shiftPoste.findMany({ where: { poste }, orderBy: { ordre: "asc" } });
+  await Promise.all(
+    lignes.map((l, i) => (l.ordre === i ? null : tx.shiftPoste.update({ where: { id: l.id }, data: { ordre: i } }))),
+  );
+}
+
 /** Déclare qu'un poste peut tenir un shift, à la position donnée dans l'ordre de préférence. */
 export async function definirShiftPoste(poste: string, shiftId: string, ordre: number) {
   const user = await verifySession();
@@ -215,11 +229,39 @@ export async function definirShiftPoste(poste: string, shiftId: string, ordre: n
   revalidatePath("/planning");
 }
 
-/** Retire un shift de la liste des shifts acceptables d'un poste. */
+/** Retire un shift de la liste des shifts acceptables d'un poste, puis renumérote le reste (compact,
+ *  sans trou) — sinon deux lignes peuvent finir avec le même `ordre`, et le tri devient dépendant de
+ *  l'ordre de retour de la base. */
 export async function supprimerShiftPoste(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
-  await prisma.shiftPoste.delete({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
+    if (!sp) return;
+    await tx.shiftPoste.delete({ where: { id } });
+    await renumeroterShiftsPoste(tx, sp.poste);
+  });
+  revalidatePath("/planning");
+}
+
+/**
+ * Déplace un shift d'un cran dans l'ordre de préférence de son poste (monter = essayé plus tôt par
+ * la génération auto). Sans effet aux extrémités. Renumérote tout le poste après coup, ce qui
+ * corrige au passage d'éventuels doublons d'`ordre` hérités d'avant ce correctif.
+ */
+export async function deplacerShiftPoste(id: string, direction: "haut" | "bas") {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+  await prisma.$transaction(async (tx) => {
+    const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
+    if (!sp) return;
+    const lignes = await tx.shiftPoste.findMany({ where: { poste: sp.poste }, orderBy: { ordre: "asc" } });
+    const idx = lignes.findIndex((l) => l.id === id);
+    const cible = direction === "haut" ? idx - 1 : idx + 1;
+    if (idx === -1 || cible < 0 || cible >= lignes.length) return; // déjà à une extrémité
+    [lignes[idx], lignes[cible]] = [lignes[cible], lignes[idx]];
+    await Promise.all(lignes.map((l, i) => tx.shiftPoste.update({ where: { id: l.id }, data: { ordre: i } })));
+  });
   revalidatePath("/planning");
 }
 

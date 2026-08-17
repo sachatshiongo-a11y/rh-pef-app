@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { definirShiftPoste, supprimerShiftPoste } from "./actions";
+import { definirShiftPoste, supprimerShiftPoste, deplacerShiftPoste } from "./actions";
 
 type ShiftPosteDTO = { id: string; poste: string; shiftId: string; ordre: number };
 
@@ -85,9 +85,27 @@ export function ShiftPosteManager({
                 <span className="font-medium">{p}</span>
                 <span className="text-muted-foreground">:</span>
                 {liste.map((sp, i) => (
-                  <span key={sp.id} className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-800">
+                  <span key={sp.id} className="inline-flex items-center gap-0.5 rounded-full bg-indigo-100 py-0.5 pl-2 pr-1 text-xs text-indigo-800">
                     {i + 1}. {nomShift.get(sp.shiftId) ?? "shift"}
-                    <button onClick={() => startTransition(() => supprimerShiftPoste(sp.id))} disabled={pending} className="opacity-70 hover:opacity-100" title="Retirer">✕</button>
+                    <button
+                      onClick={() => startTransition(() => deplacerShiftPoste(sp.id, "haut"))}
+                      disabled={pending || i === 0}
+                      className="px-0.5 opacity-70 hover:opacity-100 disabled:opacity-30"
+                      title="Monter (essayé plus tôt par la génération auto)"
+                      aria-label={`Monter ${nomShift.get(sp.shiftId) ?? "ce shift"} dans l'ordre de ${p}`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      onClick={() => startTransition(() => deplacerShiftPoste(sp.id, "bas"))}
+                      disabled={pending || i === liste.length - 1}
+                      className="px-0.5 opacity-70 hover:opacity-100 disabled:opacity-30"
+                      title="Descendre (essayé plus tard par la génération auto)"
+                      aria-label={`Descendre ${nomShift.get(sp.shiftId) ?? "ce shift"} dans l'ordre de ${p}`}
+                    >
+                      ↓
+                    </button>
+                    <button onClick={() => startTransition(() => supprimerShiftPoste(sp.id))} disabled={pending} className="px-0.5 opacity-70 hover:opacity-100" title="Retirer">✕</button>
                   </span>
                 ))}
               </li>
