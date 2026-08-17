@@ -1,0 +1,96 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GOLDEN — brigade de référence, écart prévu/réalisé, semaine du 6 juillet 2026 > produit une couverture et des écarts d'heures stables 1`] = `
+[
+  "2026-07-06 | caisse×Caissier : 1/1 tenus",
+  "2026-07-06 | matin-cuisine×Chef de partie : 1/1 tenus",
+  "2026-07-06 | matin-cuisine×Cuisinier : 1/2 tenus — manquants: cuis-1(non renseigné)",
+  "2026-07-06 | matin-salle×Serveur : 1/1 tenus",
+  "2026-07-07 | caisse×Caissier : 1/1 tenus",
+  "2026-07-07 | matin-cuisine×Chef de partie : 1/1 tenus",
+  "2026-07-07 | matin-cuisine×Cuisinier : 2/2 tenus",
+  "2026-07-07 | matin-salle×Serveur : 1/1 tenus",
+  "2026-07-08 | caisse×Caissier : 1/1 tenus",
+  "2026-07-08 | matin-cuisine×Chef de partie : 1/1 tenus",
+  "2026-07-08 | matin-cuisine×Cuisinier : 0/1 tenus — manquants: cuis-1(M)",
+  "2026-07-08 | matin-salle×Serveur : 1/1 tenus",
+  "2026-07-09 | caisse×Caissier : 0/1 tenus — manquants: caiss-1(A)",
+  "2026-07-09 | matin-cuisine×Chef de partie : 1/1 tenus",
+  "2026-07-09 | matin-cuisine×Cuisinier : 1/1 tenus",
+  "2026-07-09 | matin-salle×Serveur : 1/1 tenus",
+  "2026-07-10 | caisse×Caissier : 1/1 tenus",
+  "2026-07-10 | matin-cuisine×Chef de partie : 1/1 tenus",
+  "2026-07-10 | matin-cuisine×Cuisinier : 2/2 tenus",
+  "2026-07-10 | matin-salle×Serveur : 1/1 tenus",
+  "2026-07-11 | caisse×Caissier : 1/1 tenus",
+  "2026-07-11 | matin-cuisine×Chef de partie : 1/1 tenus",
+  "2026-07-11 | matin-cuisine×Cuisinier : 2/2 tenus",
+  "2026-07-11 | matin-salle×Serveur : 0/1 tenus — manquants: serv-1(N)",
+]
+`;
+
+exports[`GOLDEN — brigade de référence, écart prévu/réalisé, semaine du 6 juillet 2026 > produit une couverture et des écarts d'heures stables 2`] = `
+[
+  {
+    "ecart": -24,
+    "employeeId": "cuis-1",
+    "heuresPlanifiees": 48,
+    "heuresRealisees": 24,
+    "joursPlanifies": 6,
+    "joursPresenceSansHeures": 1,
+    "joursTenus": 4,
+    "joursTravaillesHorsPlanning": 0,
+  },
+  {
+    "ecart": 0,
+    "employeeId": "cuis-2",
+    "heuresPlanifiees": 32,
+    "heuresRealisees": 32,
+    "joursPlanifies": 4,
+    "joursPresenceSansHeures": 0,
+    "joursTenus": 4,
+    "joursTravaillesHorsPlanning": 0,
+  },
+  {
+    "ecart": 0,
+    "employeeId": "chef-1",
+    "heuresPlanifiees": 48,
+    "heuresRealisees": 48,
+    "joursPlanifies": 6,
+    "joursPresenceSansHeures": 0,
+    "joursTenus": 6,
+    "joursTravaillesHorsPlanning": 0,
+  },
+  {
+    "ecart": -2,
+    "employeeId": "serv-1",
+    "heuresPlanifiees": 48,
+    "heuresRealisees": 46,
+    "joursPlanifies": 6,
+    "joursPresenceSansHeures": 0,
+    "joursTenus": 5,
+    "joursTravaillesHorsPlanning": 1,
+  },
+  {
+    "ecart": -8,
+    "employeeId": "caiss-1",
+    "heuresPlanifiees": 48,
+    "heuresRealisees": 40,
+    "joursPlanifies": 6,
+    "joursPresenceSansHeures": 0,
+    "joursTenus": 5,
+    "joursTravaillesHorsPlanning": 0,
+  },
+]
+`;
+
+exports[`GOLDEN — brigade de référence, écart prévu/réalisé, semaine du 6 juillet 2026 > produit une couverture et des écarts d'heures stables 3`] = `
+{
+  "creneauxAbsents": 3,
+  "creneauxNonRenseignes": 1,
+  "creneauxPrevus": 28,
+  "creneauxTenus": 24,
+  "heuresPlanifiees": 224,
+  "heuresRealisees": 190,
+}
+`;
