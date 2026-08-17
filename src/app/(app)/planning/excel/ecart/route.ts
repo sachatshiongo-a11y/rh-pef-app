@@ -2,12 +2,8 @@ import { verifySession } from "@/lib/auth";
 import { classeurExcel } from "@/lib/export-excel";
 import { chargerEcartMois } from "../../ecart-data";
 import { libelleShift } from "../../creneaux";
+import { raisonDe } from "../../raisons";
 import { JOURS_FR, MOIS_FR } from "@/lib/dates-fr";
-
-const RAISON_CODE: Record<string, string> = {
-  M: "maladie", A: "absence justifiée", N: "absence injustifiée", C: "congé", S: "sans solde", O: "repos", F: "férié",
-};
-const raisonDe = (code: string | null) => (code == null ? "non renseigné" : (RAISON_CODE[code] ?? code));
 
 const fmt1 = (n: number) => n.toFixed(1).replace(".", ",");
 const fmtEcart = (n: number) => `${n > 0 ? "↑" : n < 0 ? "↓" : ""} ${n >= 0 ? "+" : "−"}${fmt1(Math.abs(n))} h`;

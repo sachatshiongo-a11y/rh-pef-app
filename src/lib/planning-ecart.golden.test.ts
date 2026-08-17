@@ -143,12 +143,23 @@ describe("GOLDEN — brigade de référence, écart prévu/réalisé, semaine du
   it("respecte les invariants attendus, quoi qu'il arrive au reste du calcul", () => {
     const r = calculerEcarts(ENTREES);
 
-    // Le total des créneaux prévus est la somme des groupes de couverture.
-    expect(r.total.creneauxPrevus).toBe(r.couverture.reduce((s, l) => s + l.prevus, 0));
-    // tenus + absents + non renseignés = prévus, toujours.
-    expect(r.total.creneauxTenus + r.total.creneauxAbsents + r.total.creneauxNonRenseignes).toBe(
-      r.total.creneauxPrevus,
-    );
+    // Les totaux attendus sont écrits en dur (pas recalculés depuis `r` : une assertion qui dérive
+    // du même résultat qu'elle vérifie reste vraie même si ce résultat est faux — c'est exactement
+    // ce qui s'est produit avec un doublon (employeeId, date) avant la correction du module : 2 = 2
+    // passait, alors que 2 était le chiffre en trop). Ces valeurs viennent de l'instantané golden ci-
+    // dessus, relu et vérifié à la main pour cette brigade de référence.
+    expect(r.total).toEqual({
+      creneauxPrevus: 28,
+      creneauxTenus: 24,
+      creneauxAbsents: 3,
+      creneauxNonRenseignes: 1,
+      heuresPlanifiees: 224,
+      heuresRealisees: 190,
+    });
+    // Chaque (date, shift, poste) n'apparaît qu'une seule fois dans la couverture — pas de ligne
+    // dupliquée qui compterait deux fois le même besoin.
+    const cles = r.couverture.map((l) => `${l.date.toISOString().slice(0, 10)}_${l.shiftId}_${l.poste}`);
+    expect(new Set(cles).size).toBe(cles.length);
     // Le travail hors planning du dimanche de serv-1 ne crée aucun groupe de couverture le dimanche.
     expect(r.couverture.some((l) => l.date.toISOString().slice(0, 10) === "2026-07-12")).toBe(false);
     // Une ligne d'heures par employé de la brigade, dans l'ordre d'entrée.

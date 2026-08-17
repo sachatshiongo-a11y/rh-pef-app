@@ -80,6 +80,32 @@ describe("calculerEcarts — un créneau codé P est tenu ; les autres codes son
   });
 });
 
+describe("calculerEcarts — doublon (employeeId, date) dans les créneaux", () => {
+  it("dédoublonne : un même salarié planifié deux fois le même jour ne compte qu'une fois dans la couverture, et le bloc Heures reste inchangé", () => {
+    const jour = d("2026-07-06");
+    const r = calculerEcarts(entreesBase({
+      // Deux créneaux identiques (même employé, même jour, même shift) — situation qu'une base
+      // saine empêche via @@unique([employeeId, date]), mais que ce module pur ne peut pas voir.
+      creneaux: [
+        { employeeId: "e1", date: jour, shiftId: SHIFT_MATIN.id },
+        { employeeId: "e1", date: jour, shiftId: SHIFT_MATIN.id },
+      ],
+      codes: [{ employeeId: "e1", date: jour, code: "P" }],
+      heures: [{ employeeId: "e1", date: jour, heuresTravaillees: 8 }],
+    }));
+
+    expect(r.couverture).toHaveLength(1);
+    expect(r.couverture[0].prevus).toBe(1); // une seule personne, pas deux
+    expect(r.couverture[0].tenus).toBe(1);
+    expect(r.total.creneauxPrevus).toBe(1);
+
+    const ligne = r.heures[0];
+    expect(ligne.joursPlanifies).toBe(1);
+    expect(ligne.heuresPlanifiees).toBe(8); // pas 16 : le bloc Heures dédoublonnait déjà via sa Map
+    expect(ligne.heuresRealisees).toBe(8);
+  });
+});
+
 describe("calculerEcarts — un créneau sans code n'est pas une absence", () => {
   it("classe le créneau en NON_RENSEIGNE, avec un code null, jamais dans les absents", () => {
     const jour = d("2026-07-06");

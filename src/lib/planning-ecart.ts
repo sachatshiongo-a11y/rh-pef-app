@@ -105,7 +105,20 @@ export function calculerEcarts(entrees: EntreesEcart): ResultatEcart {
   const posteDe = new Map(entrees.employes.map((e) => [e.id, e.poste]));
   const dureeParShift = new Map(entrees.shifts.map((s) => [s.id, s.dureeHeures]));
 
-  const creneauxPeriode = entrees.creneaux.filter((c) => dansPeriode(c.date));
+  // Dédoublonne (employeeId, date) en gardant la première occurrence. `PlanningCreneau` porte
+  // `@@unique([employeeId, date])` côté base, mais ce module est pur : il n'a aucune visibilité sur
+  // cette contrainte et ne doit pas en dépendre pour rester correct si elle venait à manquer (ex.
+  // appelant en amont qui fusionne deux sources).
+  const creneauxDedupliques: CreneauEcart[] = [];
+  const vusEmployeDate = new Set<string>();
+  for (const c of entrees.creneaux) {
+    const cle = `${c.employeeId}_${iso(c.date)}`;
+    if (vusEmployeDate.has(cle)) continue;
+    vusEmployeDate.add(cle);
+    creneauxDedupliques.push(c);
+  }
+
+  const creneauxPeriode = creneauxDedupliques.filter((c) => dansPeriode(c.date));
 
   // Index par employé → date ISO, pour éviter toute collision de clé (deux id ne doivent jamais se
   // confondre par un simple préfixe de chaîne, ex. "e1" et "e10").

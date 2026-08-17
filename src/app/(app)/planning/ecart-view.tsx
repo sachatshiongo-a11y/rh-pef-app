@@ -2,28 +2,13 @@ import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { JOURS_FR } from "@/lib/dates-fr";
 import { libelleShift } from "./creneaux";
+import { raisonDe } from "./raisons";
 import type { EcartEmployeInfo, EcartShiftInfo } from "./ecart-data";
 import type { LigneCouverture, LigneHeures, ResultatEcart } from "@/lib/planning-ecart";
 
 // Deux questions, et seulement deux (voir la conception) : la couverture a-t-elle tenu, et les
 // heures prévues ont-elles été faites. Vue en lecture seule, aucune écriture depuis cet écran —
 // une correction de présence se fait dans l'onglet Présences, qui est fait pour ça.
-
-/** Le code du jour → sa raison en clair, jamais présentée comme une négligence du salarié
- *  (décision 2 de la conception) : ce libellé n'apparaît que pour un code réellement saisi. */
-const RAISON_CODE: Record<string, string> = {
-  M: "maladie",
-  A: "absence justifiée",
-  N: "absence injustifiée",
-  C: "congé",
-  S: "sans solde",
-  O: "repos",
-  F: "férié",
-};
-
-function raisonDe(code: string | null): string {
-  return code == null ? "non renseigné" : (RAISON_CODE[code] ?? code);
-}
 
 function libelleJour(d: Date): string {
   return `${JOURS_FR[d.getUTCDay()]} ${d.getUTCDate()}`;
