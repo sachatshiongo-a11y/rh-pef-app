@@ -14,9 +14,19 @@ services:
     runtime: node
     region: frankfurt
     plan: free
-    # Branche déployée : on travaille sur feat/stock-achats, Render la déploie automatiquement
-    # (plus besoin de faire avancer main à la main à chaque lot).
-    branch: feat/stock-achats
+    # Branche déployée : `main` (2026-08-17). Auparavant `feat/stock-achats`, parce qu'on y
+    # travaillait en continu et que ça évitait de faire avancer `main` à la main à chaque lot.
+    #
+    # Ce raccourci a fini par coûter cher : tout le travail d'août a été fusionné dans `main`
+    # pendant que Render continuait de servir une branche figée depuis le 16. La production
+    # affichait donc une version périmée alors que tout était poussé — deux vérités parallèles,
+    # sans que rien ne le signale.
+    #
+    # `main` est désormais la seule branche déployée. Une seule vérité.
+    #
+    # ⚠️ Ce fichier ne suffit pas : si le service n'a pas été créé par Blueprint, c'est le réglage
+    # du tableau de bord Render (service → Settings → Branch) qui fait foi. Changer les DEUX.
+    branch: main
     # --include=dev : NODE_ENV=production ci-dessous ferait sinon sauter les devDependencies
     # (tailwindcss, @tailwindcss/postcss, typescript…) qui sont nécessaires au build Next.
     buildCommand: npm ci --include=dev && npx prisma generate && npx prisma migrate deploy && npm run build
