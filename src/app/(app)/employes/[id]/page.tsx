@@ -24,9 +24,8 @@ import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
 import { formaterUSD } from "@/lib/montant";
-import { compterFamille, ecartCompositionFamiliale } from "@/lib/famille";
 import { construireEcheancier } from "@/lib/prets";
-import { ajouterMembreFamille, supprimerMembreFamille } from "../actions";
+import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
@@ -127,8 +126,6 @@ export default async function FicheEmployePage({
     orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }],
   });
   const ageLimiteEnfant = config?.ageLimiteEnfantACharge ?? 18;
-  const comptageFamille = compterFamille(famille, new Date(), ageLimiteEnfant);
-  const ecartFamille = ecartCompositionFamiliale(employee.enfants, comptageFamille);
 
   const [attendances, leaveRequests, payrollLines, tauxParType] = await Promise.all([
     prisma.attendance.findMany({
@@ -597,67 +594,20 @@ export default async function FicheEmployePage({
         </dl>
       </Section>
 
-      {/* Composition familiale — justificatif nominatif, sans effet sur le calcul de paie */}
+      {/* Composition familiale — APERÇU en lecture seule. L'édition vit sur la page Modifier,
+          comme la photo : un aperçu qu'on peut modifier au passage brouille la frontière entre
+          consulter et agir. */}
       <Section title="Composition familiale">
-        {ecartFamille && (
-          <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            {ecartFamille.message}
-          </p>
-        )}
-
-        <dl className="mb-3 grid grid-cols-2 gap-x-8 gap-y-2 text-sm md:grid-cols-3">
-          <Info label="Conjoint" value={comptageFamille.conjoint || "—"} />
-          <Info label="Enfants à charge retenus par la paie" value={String(employee.enfants)} />
-          <Info
-            label={`Enfants déduits des dates (< ${ageLimiteEnfant} ans)`}
-            value={`${comptageFamille.enfantsACharge} sur ${comptageFamille.enfantsTotal} saisi(s)`}
-          />
-        </dl>
-
-        {famille.length === 0 ? (
-          <p className="mb-3 text-sm text-muted-foreground">Aucun membre saisi.</p>
-        ) : (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {famille.map((m) => (
-              <span
-                key={m.id}
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ${m.lien === "CONJOINT" ? "bg-violet-100 text-violet-800" : "bg-slate-100 text-slate-800"}`}
-              >
-                {m.lien === "CONJOINT" ? "Conjoint" : "Enfant"} · {m.nom}
-                {" · "}
-                {m.dateNaissance
-                  ? m.dateNaissance.toLocaleDateString("fr-FR", { timeZone: "UTC" })
-                  : "date inconnue"}
-                {peutModifier && (
-                  <form action={supprimerMembreFamille.bind(null, m.id)} className="inline">
-                    <button className="opacity-70 hover:opacity-100" title="Retirer">✕</button>
-                  </form>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
-
+        <CompositionFamiliale
+          employeeId={employee.id}
+          membres={famille}
+          enfantsCompteur={employee.enfants}
+          ageLimiteEnfant={ageLimiteEnfant}
+        />
         {peutModifier && (
-          <form action={ajouterMembreFamille.bind(null, employee.id)} className="rounded-lg border p-3">
-            <p className="mb-2 text-sm font-medium">Ajouter un membre</p>
-            <div className="flex flex-wrap items-end gap-2">
-              <select name="lien" defaultValue="ENFANT" className="rounded border border-input bg-background px-2 py-1 text-sm">
-                <option value="ENFANT">Enfant</option>
-                <option value="CONJOINT">Conjoint</option>
-              </select>
-              <input name="nom" placeholder="Nom et prénom" required className="rounded border border-input bg-background px-2 py-1 text-sm" />
-              <label className="flex flex-col text-xs text-muted-foreground">
-                Date de naissance
-                <input name="dateNaissance" type="date" className="rounded border border-input bg-background px-2 py-1 text-sm" />
-              </label>
-              <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Ajouter</button>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Justificatif de la réduction IPR pour charges de famille. Sans effet sur le calcul : la paie
-              retient le champ « enfants » de la fiche, modifiable dans le formulaire de l&apos;employé.
-            </p>
-          </form>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Pour ajouter ou retirer un membre : <Link href={`/employes/${employee.id}/modifier`} className="text-primary hover:underline">modifier la fiche</Link>.
+          </p>
         )}
       </Section>
 

@@ -9,6 +9,7 @@ import { chargerParametresPaie } from "@/lib/config";
 import { chargerPostes } from "@/lib/postes";
 import { Avatar } from "@/components/avatar";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { CompositionFamiliale } from "../../composition-familiale";
 
 export default async function ModifierEmployePage({
   params,
@@ -22,7 +23,7 @@ export default async function ModifierEmployePage({
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const { id } = await params;
-  const [employee, parametres, postes, dernierRun] = await Promise.all([
+  const [employee, parametres, postes, dernierRun, famille, config] = await Promise.all([
     prisma.employee.findUnique({ where: { id } }),
     chargerParametresPaie(),
     chargerPostes(),
@@ -31,6 +32,8 @@ export default async function ModifierEmployePage({
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
       include: { lignes: { select: { employeeId: true, salNetUSD: true, coutEmployeurUSD: true } } },
     }),
+    prisma.membreFamille.findMany({ where: { employeeId: id }, orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }] }),
+    prisma.config.findUnique({ where: { id: "singleton" }, select: { ageLimiteEnfantACharge: true } }),
   ]);
   if (!employee) notFound();
 
@@ -73,6 +76,18 @@ export default async function ModifierEmployePage({
             Mettre à jour la photo
           </button>
         </form>
+      </div>
+
+      {/* Composition familiale — modifiable uniquement ici, comme la photo. */}
+      <div className="mb-6 rounded-xl border bg-card p-4">
+        <p className="mb-3 text-sm font-medium">Composition familiale</p>
+        <CompositionFamiliale
+          employeeId={employee.id}
+          membres={famille}
+          enfantsCompteur={employee.enfants}
+          ageLimiteEnfant={config?.ageLimiteEnfantACharge ?? 18}
+          modifiable
+        />
       </div>
 
       <EmployeeForm
