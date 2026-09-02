@@ -7,6 +7,7 @@ import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { slugFichier } from "@/lib/texte";
+import { formaterNombre } from "@/lib/montant";
 
 /** Attestation de travail / de salaire du salarié connecté (self-service, ses données uniquement). */
 export async function GET(request: Request, { params }: { params: Promise<{ type: string }> }) {
@@ -29,7 +30,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ type
   const parametresPaie = await chargerParametresPaie();
   const salaireEstNet = parametresPaie.salairesSaisisEnNet ?? false;
   const salaireBrut = salaireEstNet
-    ? `${reconstituerBrutDepuisNet(Number(contrat.salaireMensuel), parametresPaie, employee.enfants).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`
+    ? `${formaterNombre(reconstituerBrutDepuisNet(Number(contrat.salaireMensuel), parametresPaie, employee.enfants), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`
     : null;
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(

@@ -3,6 +3,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader } from "./layout";
 import { pdfColors } from "./theme";
 import type { AnalysePrix } from "@/lib/stock-prix";
+import { formaterNombre } from "@/lib/montant";
 
 registerPdfFonts();
 
@@ -31,8 +32,8 @@ const styles = StyleSheet.create({
   vide: { paddingVertical: 8, paddingHorizontal: 6, fontSize: 8.5, color: pdfColors.textMuted },
 });
 
-const usd = (v: number | null) => (v === null ? "—" : `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`);
-const nb = (v: number) => v.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+const usd = (v: number | null) => (v === null ? "—" : `${formaterNombre(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`);
+const nb = (v: number) => formaterNombre(v, { maximumFractionDigits: 3 });
 const dCourt = (v: Date) => new Date(v).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 
 export type MouvementLigne = { id: string; date: Date; type: string; quantite: number; origine: string | null; source: string | null };

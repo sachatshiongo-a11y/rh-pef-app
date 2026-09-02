@@ -1,4 +1,6 @@
 // Palette inspirée du logo Pâtes en Folie (brun/or), en tons plus clairs pour un rendu épuré.
+import { formaterNombre } from "@/lib/montant";
+
 export const pdfColors = {
   brown: "#8B5E3C",
   brownDark: "#5A3B24",
@@ -25,7 +27,7 @@ export type Devise = "USD" | "CDF";
 export function formatMontant(montantUSD: number, devise: Devise, tauxChangeCDF: number): string {
   if (devise === "USD") {
     return (
-      montantUSD.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+      formaterNombre(montantUSD, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
       " $"
     );
   }

@@ -6,10 +6,11 @@ import { TableauDocument } from "@/lib/pdf/tableau";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { inventaireDuMois, parDomaine, alerteLabel } from "@/lib/cloture-inventaire";
 import { niveauAlerte } from "@/lib/stock";
+import { formaterNombre } from "@/lib/montant";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
-const usd = (n: number) => `${r2(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
-const num = (n: number) => (Math.round(n * 1000) / 1000).toLocaleString("fr-FR");
+const usd = (n: number) => `${formaterNombre(r2(n), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+const num = (n: number) => formaterNombre(Math.round(n * 1000) / 1000);
 
 /**
  * Inventaire valorisé d'un mois (figé à la clôture, sinon état actuel) : une feuille par domaine

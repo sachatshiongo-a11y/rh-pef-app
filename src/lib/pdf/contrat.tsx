@@ -4,6 +4,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
 import { listeEnProse } from "@/lib/texte";
+import { formaterNombre } from "@/lib/montant";
 
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
@@ -59,7 +60,7 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
   const ne = femme ? "née" : "né";
   const cdd = contrat.type === "CDD";
   const heures = Number(contrat.heuresHebdo);
-  const salaire = `${Number(contrat.salaireMensuel).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} ${contrat.devise}`;
+  const salaire = `${formaterNombre(Number(contrat.salaireMensuel), { minimumFractionDigits: 2 })} ${contrat.devise}`;
   // Numérotation continue des articles (la période d'essai est facultative → un compteur évite tout décalage).
   let noArt = 0;
   const artNo = () => ++noArt;
@@ -124,7 +125,7 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
         <Text style={styles.artTitre}>Article {artNo()} — Lieu et durée du travail</Text>
         <Text style={styles.art}>
           {femme ? "La Salariée" : "Le Salarié"}{" "}exercera principalement ses fonctions au restaurant «&nbsp;{entreprise.enseigne}&nbsp;»,
-          {" "}sis {entreprise.lieuTravail}. La durée du travail est fixée à <Text style={styles.gras}>{heures.toLocaleString("fr-FR")} heures par semaine</Text>,
+          {" "}sis {entreprise.lieuTravail}. La durée du travail est fixée à <Text style={styles.gras}>{formaterNombre(heures)} heures par semaine</Text>,
           répartie selon le planning établi par l&apos;Employeur.
         </Text>
 
