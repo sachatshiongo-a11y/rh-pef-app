@@ -6,6 +6,7 @@ import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { lireFichier } from "@/lib/storage";
+import { formaterNombre } from "@/lib/montant";
 
 /**
  * Génère le PDF d'un contrat (buffer + nom de fichier) — partagé entre la route Direction
@@ -52,7 +53,7 @@ export async function genererContratPdf(
   if (salaireEstNet) {
     const parametresPaie = await chargerParametresPaie();
     const brut = reconstituerBrutDepuisNet(Number(contrat.salaireMensuel), parametresPaie, contrat.employee.enfants);
-    salaireBrut = `${brut.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`;
+    salaireBrut = `${formaterNombre(brut, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`;
   }
 
   const ent = await chargerEntreprise();

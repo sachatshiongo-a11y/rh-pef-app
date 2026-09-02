@@ -1,7 +1,8 @@
 import type { Employee } from "@prisma/client";
 import type { Colonne } from "@/lib/pdf/tableau";
+import { formaterNombre } from "@/lib/montant";
 
-const money = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Filtre la liste (mêmes critères que l'onglet Employés) et ordonne Brigade puis Backoffice, par nom. */
 export function filtrerEmployes(tous: Employee[], sp: URLSearchParams): Employee[] {

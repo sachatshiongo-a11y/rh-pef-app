@@ -10,9 +10,10 @@ import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
 import type { PaieRow } from "./paie-bulk";
 import type { Devise } from "@/lib/pdf/theme";
+import { formaterNombre } from "@/lib/montant";
 
 function money(n: number) {
-  return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
+  return formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
 
 /** Ligne compacte de l'aperçu léger (carte mobile). `usd` négatif = retenue. */
@@ -99,7 +100,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                     <span>
                       {money(r.salNetUSD)}
                       <span className="ml-1 text-xs font-normal text-muted-foreground">
-                        {Math.round(r.salNetCDF).toLocaleString("fr-FR")} CDF
+                        {formaterNombre(Math.round(r.salNetCDF))} CDF
                       </span>
                     </span>
                   </div>

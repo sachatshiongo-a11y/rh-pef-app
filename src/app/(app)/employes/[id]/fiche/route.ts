@@ -5,10 +5,11 @@ import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
 import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
+import { formaterNombre } from "@/lib/montant";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const usd = (n: number) =>
-  n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
+  formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   await verifySession();
@@ -81,7 +82,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         { label: `Salaire mensuel${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(Number(employee.salaireMensuel)) },
         { label: `Salaire journalier${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(salaireJournalier) },
         { label: `Salaire horaire${parametres.salairesSaisisEnNet ? " net" : ""}`, value: usd(salaireHoraire) },
-        { label: "Transport / jour", value: `${Number(employee.transportJourCDF).toLocaleString("fr-FR")} CDF` },
+        { label: "Transport / jour", value: `${formaterNombre(Number(employee.transportJourCDF))} CDF` },
         { label: "Heures hebdo", value: String(employee.heuresHebdomadaires) },
         { label: "CNSS", value: usd(Number(employee.cnssMontant)) },
       ],
@@ -109,7 +110,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           year: "numeric",
         }),
         netUSD: usd(Number(l.salNetUSD)),
-        netCDF: `${Number(l.salNetCDF).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF`,
+        netCDF: `${formaterNombre(Number(l.salNetCDF), { maximumFractionDigits: 0 })} CDF`,
         statut: l.statutPaiement === "PAYE" ? "Payé" : "En attente",
       })),
       contrats: contrats.map((c) => ({

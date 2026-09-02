@@ -3,6 +3,7 @@ import type { Employee, Contrat } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
+import { formaterNombre } from "@/lib/montant";
 
 registerPdfFonts();
 
@@ -41,7 +42,7 @@ export function AttestationDocument({
   const civilite = femme ? "Madame" : "Monsieur";
   const interesse = femme ? "l'intéressée" : "l'intéressé";
   const enPoste = employee.actif && contrat.statut === "ACTIF";
-  const salaire = `${Number(contrat.salaireMensuel).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} ${contrat.devise}`;
+  const salaire = `${formaterNombre(Number(contrat.salaireMensuel), { minimumFractionDigits: 2 })} ${contrat.devise}`;
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
 
   return (

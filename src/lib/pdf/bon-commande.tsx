@@ -4,6 +4,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
 import { pdfColors } from "./theme";
 import { delaiPaiementLabel } from "@/lib/stock";
+import { formaterNombre } from "@/lib/montant";
 
 registerPdfFonts();
 
@@ -29,7 +30,7 @@ const styles = StyleSheet.create({
   sigLine: { borderTop: `0.75 solid ${pdfColors.text}`, marginTop: 40, paddingTop: 4, fontSize: 8, color: pdfColors.textMuted },
 });
 
-const usd = (v: number) => `${v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+const usd = (v: number) => `${formaterNombre(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 
 function PRow({ label, value }: { label: string; value: string }) {
   return (
@@ -87,8 +88,8 @@ export function BonCommandeDocument({
           {bc.lignes.map((l) => (
             <View key={l.id} style={styles.tr}>
               <Text style={styles.cDes}>{l.designation}</Text>
-              <Text style={styles.cNum}>{Number(l.quantite).toLocaleString("fr-FR", { maximumFractionDigits: 3 })}</Text>
-              <Text style={styles.cNum}>{l.nbCartons ? Number(l.nbCartons).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) : "—"}</Text>
+              <Text style={styles.cNum}>{formaterNombre(Number(l.quantite), { maximumFractionDigits: 3 })}</Text>
+              <Text style={styles.cNum}>{l.nbCartons ? formaterNombre(Number(l.nbCartons), { maximumFractionDigits: 2 }) : "—"}</Text>
               <Text style={styles.cNum}>{usd(Number(l.prixUnitaireUSD))}</Text>
               <Text style={styles.cNum}>{usd(Number(l.totalLigneUSD))}</Text>
             </View>

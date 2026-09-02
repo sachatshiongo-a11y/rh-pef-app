@@ -3,10 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
+import { formaterNombre } from "@/lib/montant";
 
-const usd = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-// Espaces insécables fins de fr-FR mal rendus par la police PDF → espace normale.
-const cdf = (n: number) => Math.round(n).toLocaleString("fr-FR").replace(/[  ]/g, " ");
+const usd = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const cdf = (n: number) => formaterNombre(Math.round(n));
 
 /** Livre de paie du mois courant en PDF (mêmes lignes/colonnes que l'onglet Paie). */
 export async function GET() {

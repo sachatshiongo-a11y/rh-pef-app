@@ -5,6 +5,7 @@ import { chargerParametresPaie } from "@/lib/config";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { lignesTransport, colonnesTransport, cdf, usd } from "../_donnees";
 import { filtrerEmployes } from "../../employes/_donnees";
+import { formaterNombre } from "@/lib/montant";
 
 /** Export PDF de la grille de transport — mêmes filtres, colonnes et montants que l'onglet, total en pied. */
 export async function GET(request: Request) {
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
   const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: "Grille de transport",
-      sousTitre: `${items.length} employé(s) · base ${jours} j ouvrables · 1 $ = ${taux.toLocaleString("fr-FR")} CDF`,
+      sousTitre: `${items.length} employé(s) · base ${jours} j ouvrables · 1 $ = ${formaterNombre(taux)} CDF`,
       colonnes: colonnesTransport,
       lignes,
       paysage: true,

@@ -1,7 +1,8 @@
 import type { Colonne } from "@/lib/pdf/tableau";
+import { formaterNombre } from "@/lib/montant";
 
-export const cdf = (n: number) => Math.round(n).toLocaleString("fr-FR");
-export const usd = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const cdf = (n: number) => formaterNombre(Math.round(n));
+export const usd = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const CATEGORIE_LABEL: Record<string, string> = { BRIGADE: "Brigade", BACKOFFICE: "Back-office" };
 

@@ -3,6 +3,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
 import { pdfColors, formatCDF, entreprise as entrepriseDefaut } from "./theme";
 import type { LigneDeclaration } from "@/lib/declarations";
+import { formaterNombre } from "@/lib/montant";
 
 registerPdfFonts();
 
@@ -59,7 +60,7 @@ const styles = StyleSheet.create({
 });
 
 function money(n: number) {
-  return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
+  return formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
 
 export function BordereauDeclarationsDocument({

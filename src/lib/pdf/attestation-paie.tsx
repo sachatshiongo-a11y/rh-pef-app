@@ -3,6 +3,7 @@ import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatCDF } from "./theme";
+import { formaterNombre } from "@/lib/montant";
 
 registerPdfFonts();
 
@@ -34,7 +35,7 @@ const fr = (d: Date | string | null | undefined) =>
 const moisAnnee = (mois: number, annee: number) =>
   new Date(Date.UTC(annee, mois - 1, 1)).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
-const usd = (n: number) => `${Number(n).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+const usd = (n: number) => `${formaterNombre(Number(n), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 const cdf = (n: number) => `${formatCDF(Number(n))} CDF`;
 
 /**
