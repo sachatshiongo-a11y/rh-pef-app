@@ -2,7 +2,24 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getJwksKeys } from "@/lib/supabase/jwks";
 
+/**
+ * Les SEULES pages atteignables sans être connecté. Tout le reste est redirigé vers /login.
+ *
+ * Comparaison EXACTE (ou suivie d'un « / »), jamais un simple `startsWith` : avec un préfixe nu,
+ * une future page « /login-technicien » ou « /reinitialiser-tout » deviendrait publique sans que
+ * personne ne l'ait décidé, et sans que rien ne le signale. C'est exactement la forme de fuite
+ * d'accès qu'on cherche à éviter.
+ *
+ * Corrigé le 2026-09-05, en reprise de la même correction faite sur atelier-dominique-app : aucune
+ * route du dépôt ne commençait alors par un préfixe public sans être ce préfixe — la fuite était
+ * LATENTE, pas ouverte. On la referme avant qu'un écran mal nommé ne l'ouvre tout seul.
+ */
 const PUBLIC_PATHS = ["/login", "/mot-de-passe-oublie", "/reinitialiser"];
+
+/** Exportée pour être vérifiée par `src/lib/chemins-publics.test.ts`. */
+export function cheminPublic(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -36,7 +53,7 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims(undefined, { keys });
   const estAuthentifie = !!data?.claims?.sub;
 
-  const isPublic = PUBLIC_PATHS.some((p) => request.nextUrl.pathname.startsWith(p));
+  const isPublic = cheminPublic(request.nextUrl.pathname);
 
   if (!estAuthentifie && !isPublic) {
     const url = request.nextUrl.clone();
