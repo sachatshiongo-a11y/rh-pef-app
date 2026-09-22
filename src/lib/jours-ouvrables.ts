@@ -55,3 +55,58 @@ export function finApresJoursOuvrables(debut: Date, jours: number, joursFeries: 
   }
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// LE FORMULAIRE DE CONGÉ : début · jours ouvrables · fin, où le dernier champ touché entre
+// « jours » et « fin » a raison. Fonction pure, testée sans rendu React : le composant
+// `ChampsDatesConge` ne fait que l'appeler.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Les trois champs tels que les `<input>` les portent : `AAAA-MM-JJ` ou `""`, jours en texte. */
+export type ChampsConge = { debut: string; jours: string; fin: string; dernierTouche: "jours" | "fin" | null };
+export type ChampConge = "debut" | "jours" | "fin";
+
+export const CHAMPS_CONGE_VIDES: ChampsConge = { debut: "", jours: "", fin: "", dernierTouche: null };
+
+const dateIso = (s: string): Date | null => {
+  if (!s) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+const entier = (s: string): number | null => (/^\d+$/.test(s) ? Number(s) : null);
+
+function finDepuisJours(debut: string, jours: string, feries: Set<string>): string {
+  const d = dateIso(debut);
+  const n = entier(jours);
+  if (!d || n === null) return "";
+  const f = finApresJoursOuvrables(d, n, feries);
+  return f ? iso(f) : "";
+}
+
+function joursDepuisFin(debut: string, fin: string, feries: Set<string>): string {
+  const d = dateIso(debut);
+  const f = dateIso(fin);
+  if (!d || !f || f < d) return "";
+  return String(compterJoursOuvrables(d, f, feries));
+}
+
+/**
+ * Nouvel état après que l'utilisateur a touché `champ`.
+ * - jours → la fin se calcule ; fin → les jours se recalculent ;
+ * - début → si le dernier touché est « jours », la fin suit ; sinon, si une fin existe, les
+ *   jours se recalculent ; sinon rien.
+ */
+export function recalculerChampsConge(etat: ChampsConge, champ: ChampConge, valeur: string, feries: Set<string>): ChampsConge {
+  switch (champ) {
+    case "jours":
+      return { ...etat, jours: valeur, fin: finDepuisJours(etat.debut, valeur, feries), dernierTouche: "jours" };
+    case "fin":
+      return { ...etat, fin: valeur, jours: joursDepuisFin(etat.debut, valeur, feries), dernierTouche: "fin" };
+    case "debut": {
+      const suivant = { ...etat, debut: valeur };
+      if (etat.dernierTouche === "jours" && etat.jours) return { ...suivant, fin: finDepuisJours(valeur, etat.jours, feries) };
+      if (etat.fin) return { ...suivant, jours: joursDepuisFin(valeur, etat.fin, feries) };
+      return suivant;
+    }
+  }
+}

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { compterJoursOuvrables, finApresJoursOuvrables } from "./jours-ouvrables";
+import {
+  compterJoursOuvrables,
+  finApresJoursOuvrables,
+  recalculerChampsConge,
+  CHAMPS_CONGE_VIDES,
+  type ChampsConge,
+} from "./jours-ouvrables";
 
 const d = (s: string) => new Date(`${s}T00:00:00Z`);
 const iso = (x: Date | null) => (x ? x.toISOString().slice(0, 10) : null);
@@ -57,5 +63,50 @@ describe("finApresJoursOuvrables — la date de fin pour N jours ouvrables à pa
       const fin = finApresJoursOuvrables(debut, n, feries)!;
       expect(compterJoursOuvrables(debut, fin, feries), `${iso(debut)} + ${n} j`).toBe(n);
     }
+  });
+});
+
+describe("recalculerChampsConge — le dernier champ touché entre jours et fin a raison", () => {
+  const feries = new Set(["2026-06-30"]);
+  const depuis = (e: Partial<ChampsConge>): ChampsConge => ({ ...CHAMPS_CONGE_VIDES, ...e });
+
+  it("je tape les jours → la fin se calcule", () => {
+    const e = recalculerChampsConge(depuis({ debut: "2026-06-29" }), "jours", "6", feries);
+    expect(e).toEqual({ debut: "2026-06-29", jours: "6", fin: "2026-07-06", dernierTouche: "jours" });
+  });
+  it("je touche la fin → les jours se recalculent", () => {
+    const e = recalculerChampsConge(depuis({ debut: "2026-06-29", jours: "6", fin: "2026-07-06", dernierTouche: "jours" }), "fin", "2026-07-04", feries);
+    expect(e).toEqual({ debut: "2026-06-29", jours: "5", fin: "2026-07-04", dernierTouche: "fin" });
+  });
+  it("je change le début après avoir tapé des jours → la fin suit", () => {
+    const e = recalculerChampsConge(depuis({ debut: "2026-06-29", jours: "6", fin: "2026-07-06", dernierTouche: "jours" }), "debut", "2026-07-06", feries);
+    expect(e.fin).toBe("2026-07-11");
+    expect(e.jours).toBe("6");
+  });
+  it("je change le début après avoir tapé une fin → les jours se recalculent", () => {
+    // Mercredi 1er juillet → samedi 4 juillet : 4 jours ouvrables (aucun dimanche, le 30 juin
+    // férié est hors de ce nouvel intervalle). La valeur d'origine de la tâche (« 3 ») ne
+    // correspond pas à ce calcul ; corrigée ici après vérification par exécution.
+    const e = recalculerChampsConge(depuis({ debut: "2026-06-29", jours: "5", fin: "2026-07-04", dernierTouche: "fin" }), "debut", "2026-07-01", feries);
+    expect(e.jours).toBe("4");
+    expect(e.fin).toBe("2026-07-04");
+  });
+  it("je change le début sans rien d'autre → rien ne se calcule", () => {
+    const e = recalculerChampsConge(CHAMPS_CONGE_VIDES, "debut", "2026-06-29", feries);
+    expect(e).toEqual({ debut: "2026-06-29", jours: "", fin: "", dernierTouche: null });
+  });
+  it("jours vides ou 0 → la fin s'efface", () => {
+    const base = depuis({ debut: "2026-06-29", jours: "6", fin: "2026-07-06", dernierTouche: "jours" });
+    expect(recalculerChampsConge(base, "jours", "", feries).fin).toBe("");
+    expect(recalculerChampsConge(base, "jours", "0", feries).fin).toBe("");
+  });
+  it("fin avant début → les jours s'effacent (le formulaire ne s'enverra pas)", () => {
+    const e = recalculerChampsConge(depuis({ debut: "2026-06-29" }), "fin", "2026-06-20", feries);
+    expect(e.jours).toBe("");
+    expect(e.fin).toBe("2026-06-20");
+  });
+  it("jours tapés sans début → rien ne se calcule, la valeur est gardée", () => {
+    const e = recalculerChampsConge(CHAMPS_CONGE_VIDES, "jours", "4", feries);
+    expect(e).toEqual({ debut: "", jours: "4", fin: "", dernierTouche: "jours" });
   });
 });
