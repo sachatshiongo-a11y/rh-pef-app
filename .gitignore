@@ -45,3 +45,7 @@ next-env.d.ts
 backups/
 
 build/icon.iconset/
+
+# Worker de pdf.js — PRODUIT par `npm run postinstall` (scripts/copier-worker-pdfjs.mjs) depuis la
+# version de pdfjs-dist réellement installée. Le commiter le ferait vieillir en silence.
+/public/pdf.worker.min.mjs
