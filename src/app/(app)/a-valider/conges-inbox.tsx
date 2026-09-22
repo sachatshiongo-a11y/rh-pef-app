@@ -11,6 +11,7 @@ import {
   type RapportLotConges,
 } from "../conges/actions";
 import { Avatar } from "@/components/avatar";
+import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 
 export type CongeRow = {
   id: string;
@@ -79,12 +80,8 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
           {selection.size > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-              <button onClick={() => bulk(approuverCongesEnLot)} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-success">
-                Approuver
-              </button>
-              <button onClick={() => bulk(refuserCongesEnLot)} disabled={isPending} className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-destructive/90">
-                Refuser
-              </button>
+              <BoutonApprouver onClick={() => bulk(approuverCongesEnLot)} disabled={isPending} />
+              <BoutonRefuser onClick={() => bulk(refuserCongesEnLot)} disabled={isPending} />
               {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
             </div>
           )}
@@ -118,12 +115,8 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
 
                 {peutValider && (
                   <div className="flex items-center gap-2">
-                    <button onClick={() => individuel(approuverConge, d.id)} disabled={isPending} className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-success">
-                      Approuver
-                    </button>
-                    <button onClick={() => individuel(refuserConge, d.id)} disabled={isPending} className="rounded-full bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90">
-                      Refuser
-                    </button>
+                    <BoutonApprouver onClick={() => individuel(approuverConge, d.id)} disabled={isPending} />
+                    <BoutonRefuser onClick={() => individuel(refuserConge, d.id)} disabled={isPending} />
                     <button
                       onClick={() => {
                         if (confirm("Supprimer cette demande de la liste ? (tracé au journal d'audit)"))

@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { CLASSES_DANGER, CLASSES_GEOMETRIE } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { PaieBulk, type PaieRow } from "./paie-bulk";
 import { BulletinsValidation } from "./bulletins-validation";
@@ -257,7 +258,7 @@ export default async function PaiePage({
         <div className="flex flex-wrap gap-2">
           {run && (
             <details className="group relative">
-              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent sm:px-4 sm:py-2 [&::-webkit-details-marker]:hidden">
+              <summary className={`${CLASSES_GEOMETRIE} cursor-pointer list-none border hover:bg-accent [&::-webkit-details-marker]:hidden`}>
                 Exporter
                 <span aria-hidden className="text-xs transition-transform group-open:rotate-180">▾</span>
               </summary>
@@ -284,7 +285,7 @@ export default async function PaiePage({
             <form action={calculerPaieDuMois}>
               <button
                 type="submit"
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                className={`${CLASSES_GEOMETRIE} bg-primary text-primary-foreground`}
               >
                 Calculer la paie du mois
               </button>
@@ -293,8 +294,8 @@ export default async function PaiePage({
           {estAdmin && run && nbPasValide > 0 && taches.length === 0 && (
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
+                variante="valider"
                 message={`Clôturer la paie de ${periode} ? Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».`}
-                className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90"
               >
                 Clôturer la paie ({nbPasValide})
               </ConfirmSubmitButton>
@@ -303,7 +304,7 @@ export default async function PaiePage({
           {estAdmin && run && nbPasValide > 0 && taches.length > 0 && (
             <span
               title="Traitez d'abord les tâches en attente (voir la bannière)"
-              className="cursor-not-allowed rounded-md border border-amber-400 px-4 py-2 text-sm font-medium text-amber-700 opacity-70"
+              className={`${CLASSES_GEOMETRIE} cursor-not-allowed border border-amber-400 text-amber-700 opacity-70`}
             >
               Clôture bloquée ⚠
             </span>
@@ -312,7 +313,7 @@ export default async function PaiePage({
             <form action={reinitialiserPaieDuMois}>
               <ConfirmSubmitButton
                 message={`Supprimer la paie calculée pour ${periode} ? Cette action est irréversible (n'affecte pas les mois passés).`}
-                className="rounded-md border border-destructive px-4 py-2 text-sm font-medium text-destructive"
+                className={CLASSES_DANGER}
               >
                 Réinitialiser
               </ConfirmSubmitButton>

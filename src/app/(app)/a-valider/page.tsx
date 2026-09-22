@@ -5,6 +5,7 @@ import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { Avatar } from "@/components/avatar";
 import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "../planning/actions";
+import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { salaireNetUSD } from "@/lib/paie-net";
 
 function joursAvant(date: Date): number {
@@ -172,10 +173,10 @@ export default async function AValiderPage() {
                   {peutPlanning ? (
                     <span className="flex shrink-0 gap-2">
                       <form action={approuverEchange.bind(null, e.id)}>
-                        <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700" title={collegueOk ? "Approuver — l'échange sera appliqué" : "Approuver — appliqué dès l'accord du collègue"}>Approuver</button>
+                        <BoutonApprouver type="submit" title={collegueOk ? "Approuver — l'échange sera appliqué" : "Approuver — appliqué dès l'accord du collègue"} />
                       </form>
                       <form action={refuserEchange.bind(null, e.id)}>
-                        <button className="rounded-md border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">Refuser</button>
+                        <BoutonRefuser type="submit" />
                       </form>
                     </span>
                   ) : (
@@ -211,10 +212,10 @@ export default async function AValiderPage() {
                 {peutPlanning ? (
                   <span className="flex shrink-0 gap-2">
                     <form action={approuverChangementShift.bind(null, dem.id)}>
-                      <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">Approuver</button>
+                      <BoutonApprouver type="submit" />
                     </form>
                     <form action={refuserChangementShift.bind(null, dem.id)}>
-                      <button className="rounded-md border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">Refuser</button>
+                      <BoutonRefuser type="submit" />
                     </form>
                   </span>
                 ) : (

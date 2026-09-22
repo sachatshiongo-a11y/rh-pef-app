@@ -2,6 +2,22 @@
 
 import { useState } from "react";
 
+/**
+ * Ce que dit la réponse d'une route de document. Fonction PURE, séparée du composant parce que ce
+ * dépôt n'a pas de DOM en test : c'est la seule partie de ce chemin qu'un test peut tenir.
+ *
+ * `redirected` SE LIT AVANT `ok`, et l'ordre est tout : `fetch` SUIT les redirections, et le garde
+ * d'authentification REDIRIGE vers /login au lieu de refuser. Session expirée = 200 + la page de
+ * connexion en HTML ; `ok` est vrai, et sans ce contrôle on enregistre cet écran sous le nom
+ * « Bulletin Août 2026.pdf », que le salarié transmet ensuite à sa banque ou à son bailleur.
+ */
+export type VerdictReponseDocument = "ok" | "session-expiree" | "erreur";
+
+export function verdictReponseDocument(res: { redirected: boolean; ok: boolean }): VerdictReponseDocument {
+  if (res.redirected) return "session-expiree";
+  return res.ok ? "ok" : "erreur";
+}
+
 function nomDepuisEntetes(headers: Headers, defaut: string): string {
   const cd = headers.get("Content-Disposition") ?? "";
   const m = cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
@@ -44,7 +60,15 @@ export function TelechargerLien({
     setBusy(true);
     try {
       const res = await fetch(href, { credentials: "same-origin" });
-      if (!res.ok) throw new Error(String(res.status));
+      const verdict = verdictReponseDocument(res);
+      if (verdict === "session-expiree") {
+        // On NE retombe PAS sur `window.open` ici : il servirait la page de connexion, ou serait
+        // bloqué en silence (appelé après un `await`, il est hors geste utilisateur). Mieux vaut
+        // le dire.
+        window.alert("Votre session a expiré. Reconnectez-vous, puis rouvrez ce document.");
+        return;
+      }
+      if (verdict === "erreur") throw new Error(String(res.status));
       const blob = await res.blob();
       const nom = nomFichier ?? nomDepuisEntetes(res.headers, "document.pdf");
       const type = blob.type || "application/octet-stream";

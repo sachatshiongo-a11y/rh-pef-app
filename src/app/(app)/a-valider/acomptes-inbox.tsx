@@ -10,6 +10,7 @@ import {
 } from "../paie/remuneration-actions";
 import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
 import { Avatar } from "@/components/avatar";
+import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 
 export type AcompteRow = {
   id: string;
@@ -81,12 +82,8 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
           {selection.size > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-              <button onClick={() => bulk(approuverAcomptesEnLot)} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-success">
-                Approuver
-              </button>
-              <button onClick={() => bulk(refuserAcomptesEnLot)} disabled={isPending} className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white hover:bg-destructive/90">
-                Refuser
-              </button>
+              <BoutonApprouver onClick={() => bulk(approuverAcomptesEnLot)} disabled={isPending} />
+              <BoutonRefuser onClick={() => bulk(refuserAcomptesEnLot)} disabled={isPending} />
               {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
             </div>
           )}
@@ -120,12 +117,8 @@ export function AcomptesInbox({ rows, peutValider }: { rows: AcompteRow[]; peutV
 
                 {peutValider && (
                   <div className="flex items-center gap-2">
-                    <button onClick={() => individuel(approuverAcompte, d.id)} disabled={isPending} className="rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-success">
-                      Approuver
-                    </button>
-                    <button onClick={() => individuel(refuserAcompte, d.id)} disabled={isPending} className="rounded-full bg-red-500 px-4 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90">
-                      Refuser
-                    </button>
+                    <BoutonApprouver onClick={() => individuel(approuverAcompte, d.id)} disabled={isPending} />
+                    <BoutonRefuser onClick={() => individuel(refuserAcompte, d.id)} disabled={isPending} />
                   </div>
                 )}
                 <button

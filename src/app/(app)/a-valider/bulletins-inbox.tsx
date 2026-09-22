@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "../paie/actions";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { BoutonValider } from "@/components/action-buttons";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
 
@@ -78,9 +79,7 @@ export function BulletinsInbox({
         {selection.size > 0 && (
           <>
             <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-            <button onClick={() => lancer([...selection])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white hover:bg-success">
-              {actionLabel}
-            </button>
+            <BoutonValider onClick={() => lancer([...selection])} disabled={isPending}>{actionLabel}</BoutonValider>
             {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
           </>
         )}
@@ -101,9 +100,7 @@ export function BulletinsInbox({
             <div className="flex items-center gap-3 text-xs">
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
-              <button onClick={() => lancer([r.id])} disabled={isPending} className="rounded-full bg-emerald-500 px-3 py-1.5 font-semibold text-white hover:bg-success">
-                {actionLabel}
-              </button>
+              <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
             </div>
           </div>
         ))}

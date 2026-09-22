@@ -170,8 +170,8 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex overflow-hidden rounded-md border text-sm">
-          <button type="button" onClick={() => setType("ENTREE")} className={`px-3 py-1.5 ${type === "ENTREE" ? "bg-success text-white" : "hover:bg-accent"}`}>Entrée</button>
-          <button type="button" onClick={() => setType("SORTIE")} className={`px-3 py-1.5 ${type === "SORTIE" ? "bg-destructive text-white" : "hover:bg-accent"}`}>Sortie</button>
+          <button type="button" onClick={() => setType("ENTREE")} className={`px-3 py-1.5 ${type === "ENTREE" ? "bg-success text-success-foreground" : "hover:bg-accent"}`}>Entrée</button>
+          <button type="button" onClick={() => setType("SORTIE")} className={`px-3 py-1.5 ${type === "SORTIE" ? "bg-destructive text-destructive-foreground" : "hover:bg-accent"}`}>Sortie</button>
         </div>
         <input type="hidden" name="type" value={type} />
         {type === "ENTREE" && <span className="text-xs text-muted-foreground">Entrées hors achat (ex. retour restaurant → dépôt). Les achats passent par la Liste d&apos;achat ou une facture.</span>}

@@ -9,6 +9,7 @@ import { grouperParMois } from "@/lib/dates-fr";
 import { validerBonsEnLot, supprimerBonsEnLot } from "./actions";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
+import { BoutonValider, BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
 
 export type BCRow = {
   id: string; numero: string; fournisseurId: string | null; fournisseurNom: string | null;
@@ -31,9 +32,9 @@ export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]
 
       {estDirection && commandes.length > 0 && (
         <BulkBar count={sel.size} total={commandes.length} onAll={(on) => setAll(commandes.map((c) => c.id), on)}>
-          <button disabled={isPending || brouillons.length === 0} onClick={() => run(() => validerBonsEnLot(brouillons))} className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50">✓ Valider ({brouillons.length})</button>
-          <button disabled={isPending} onClick={() => { if (confirm(`Supprimer ${sel.size} bon(s) de commande ?`)) run(() => supprimerBonsEnLot(ids)); }} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">✕ Supprimer ({sel.size})</button>
-          <button onClick={clear} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Désélectionner</button>
+          <BoutonValider disabled={isPending || brouillons.length === 0} onClick={() => run(() => validerBonsEnLot(brouillons))}>{`Valider (${brouillons.length})`}</BoutonValider>
+          <BoutonDanger disabled={isPending} onClick={() => { if (confirm(`Supprimer ${sel.size} bon(s) de commande ?`)) run(() => supprimerBonsEnLot(ids)); }}>✕ Supprimer ({sel.size})</BoutonDanger>
+          <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
         </BulkBar>
       )}
 

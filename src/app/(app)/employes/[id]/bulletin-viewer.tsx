@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { VisionneuseDocument } from "@/components/visionneuse-document";
 import { useLockBodyScroll } from "@/components/use-lock-body-scroll";
 import type { Devise } from "@/lib/pdf/theme";
 
@@ -12,6 +13,7 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
   const [ouvert, setOuvert] = useState(false);
   const [devise, setDevise] = useState<Devise>("USD");
   const src = `${base}/${payrollLineId}?devise=${devise}`;
+  const panneauRef = useRef<HTMLDivElement>(null);
   useLockBodyScroll(ouvert);
 
   return (
@@ -30,9 +32,16 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
         createPortal(
           <div
             className="fixed inset-0 z-50 flex flex-col overscroll-contain bg-black/70 p-2 sm:p-4"
-            onClick={() => setOuvert(false)}
+            // `e.target === e.currentTarget` : SEUL un clic sur le fond lui-même referme. Un geste
+            // de zoom ou de défilement qui finit par « relâcher » sur un enfant ne doit jamais
+            // être pris pour un clic sur le fond (le `stopPropagation` ci-dessous l'empêche déjà,
+            // ce test le garantit même si un futur enfant l'oubliait).
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setOuvert(false);
+            }}
           >
             <div
+              ref={panneauRef}
               className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col"
               onClick={(e) => e.stopPropagation()}
             >
@@ -50,9 +59,10 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
                       </button>
                     ))}
                   </div>
-                  {/* Repli visible : sur iOS, l'aperçu PDF en iframe se comporte parfois mal
-                      (rendu partiel, scroll capturé). Un onglet séparé utilise le vrai lecteur PDF
-                      du système, toujours fiable. */}
+                  {/* Sortie de secours, DANS L'EN-TÊTE — donc au-dessus de la visionneuse et
+                      indépendante d'elle : elle fonctionne que le dessin réussisse ou non. (Le
+                      cadre blanc de l'`<iframe>` sur iOS, que ce lien compensait jadis, n'existe
+                      plus : les pages sont dessinées, cf. visionneuse-document.tsx.) */}
                   <a
                     href={src}
                     target="_blank"
@@ -69,7 +79,18 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
                   </button>
                 </div>
               </div>
-              <iframe key={src} src={src} title={`Bulletin ${nom}`} className="h-full min-h-0 w-full flex-1 rounded-b-lg bg-white" />
+              {/* Plus d'`<iframe>` : iOS n'y rend AUCUN PDF (cadre blanc). La visionneuse dessine
+                  les pages elle-même et porte les gestes d'Aperçu (pincer, double-taper, glisser
+                  vers le bas pour refermer). Voir src/components/visionneuse-document.tsx. */}
+              <VisionneuseDocument
+                key={src}
+                src={src}
+                titre={`Bulletin — ${nom}`}
+                actions={["Télécharger", "Nouvel onglet"]}
+                onFermer={() => setOuvert(false)}
+                panneauRef={panneauRef}
+                className="rounded-b-lg"
+              />
             </div>
           </div>,
           document.body,

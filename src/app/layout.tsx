@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { MajBanner } from "@/components/maj-banner";
+import { EnregistrerSW } from "@/components/enregistrer-sw";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -39,6 +40,9 @@ export default function RootLayout({
     <html lang="fr" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-dvh flex flex-col">
         {children}
+        {/* Enregistre le service worker pour TOUT LE MONDE : il porte le cache de la coquille et la
+            page hors ligne, pas seulement les notifications — voir src/components/enregistrer-sw.tsx. */}
+        <EnregistrerSW />
         {/* Propose un rechargement quand un nouveau déploiement est en ligne (PWA). */}
         <MajBanner version={(process.env.RENDER_GIT_COMMIT ?? "dev").slice(0, 12)} />
       </body>

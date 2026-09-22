@@ -5,7 +5,7 @@ import { demanderConge, approuverConge, refuserConge, supprimerConge } from "./a
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
+import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
 import { ChampsDatesConge } from "@/components/champs-dates-conge";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
@@ -251,10 +251,10 @@ export default async function CongesPage({
                   {peutApprouver && d.statut === "EN_ATTENTE" && (
                     <>
                       <form action={approuverConge.bind(null, d.id)} className="inline">
-                        <button type="submit" className={BTN_VALIDER}>✓ Approuver</button>
+                        <BoutonApprouver type="submit" />
                       </form>
                       <form action={refuserConge.bind(null, d.id)} className="inline">
-                        <button type="submit" className={BTN_REFUSER}>✕ Refuser</button>
+                        <BoutonRefuser type="submit" />
                       </form>
                     </>
                   )}
