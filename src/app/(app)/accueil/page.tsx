@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { calculerAlertes, type Alerte } from "@/lib/alertes";
 import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -67,7 +68,7 @@ export default async function AccueilPage() {
       orderBy: { dateDebut: "asc" },
       take: 10,
     }),
-    prisma.payrollRun.findMany({ orderBy: [{ annee: "desc" }, { mois: "desc" }], take: 6, include: { lignes: { select: { salNetUSD: true, coutEmployeurUSD: true } } } }),
+    prisma.payrollRun.findMany({ orderBy: [{ annee: "desc" }, { mois: "desc" }], take: 6, include: { lignes: { select: { salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } } }),
     prisma.employee.findMany({ where: { actif: true, dateNaissance: { not: null } }, select: { id: true, nom: true, photoUrl: true, dateNaissance: true } }),
     prisma.contrat.findMany({
       where: {
@@ -93,7 +94,7 @@ export default async function AccueilPage() {
     nbValide: lignes.filter((l) => l.statutPaiement === "VALIDE").length,
     nbPasValide: lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length,
   });
-  const masseNette = lignes.reduce((a, l) => a + Number(l.salNetUSD), 0);
+  const masseNette = lignes.reduce((a, l) => a + salaireNetUSD(l), 0);
   const coutTotal = lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0);
   const hsValoriseeTotal = lignes.reduce((a, l) => a + Number(l.hsValorisee), 0);
   const transportTotal = lignes.reduce((a, l) => a + Number(l.transportUSD), 0);
@@ -114,7 +115,7 @@ export default async function AccueilPage() {
 
   const historique = [...runsHistorique].reverse().map((r) => ({
     periode: new Date(r.annee, r.mois - 1).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
-    net: r.lignes.reduce((a, l) => a + Number(l.salNetUSD), 0),
+    net: r.lignes.reduce((a, l) => a + salaireNetUSD(l), 0),
     cout: r.lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0),
   }));
   // Variation en % du dernier mois par rapport au précédent.

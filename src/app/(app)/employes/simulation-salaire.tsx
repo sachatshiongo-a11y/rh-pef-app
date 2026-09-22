@@ -7,6 +7,7 @@ import {
   type ParametresPaie,
   type LignePaie,
 } from "@/lib/payroll";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD, type LigneNet } from "@/lib/paie-net";
 
 // Simulation de bulletin EN DIRECT dans le formulaire employé : mois « type » (heures
 // contractuelles, sans heures supp. ni absences), avec le VRAI moteur de paie (CNSS, barème
@@ -129,6 +130,9 @@ export function SimulationSalaire({
   }
 
   const chargesPatronales = ligne.cnssPatronalUSD + ligne.inppUSD + ligne.onemUSD;
+  // `LignePaie` (moteur) ne porte pas `transportUSD` : on le reconstitue avec la valeur locale
+  // déjà calculée ci-dessus pour dériver le salaire net (hors transport) et le total versé.
+  const ligneNet: LigneNet = { salNetUSD: ligne.salNetUSD, transportUSD };
 
   return (
     <Panneau titre="Simulation du bulletin (mois type)">
@@ -152,11 +156,9 @@ export function SimulationSalaire({
           <Ligne label={`Allocations familiales (${v.enfants} enf.)`} val={`+ ${usd(ligne.allocFamilialeUSD)}`} vert />
         )}
         <div className="border-t pt-1">
-          <Ligne label="Net à payer (transport compris)" val={usd(ligne.salNetUSD)} gras vert />
-          {transportUSD > 0 && (
-            <p className="text-right text-[11px] text-muted-foreground">dont transport {usd(transportUSD)}</p>
-          )}
-          <p className="text-right text-[11px] text-muted-foreground">≈ {cdf(ligne.salNetCDF)}</p>
+          <Ligne label="Salaire net" val={usd(salaireNetUSD(ligneNet))} gras vert />
+          {transportUSD > 0 && <Ligne label="Total versé (transport compris)" val={usd(totalVerseUSD(ligneNet))} />}
+          <p className="text-right text-[11px] text-muted-foreground">≈ {cdf(salaireNetCDF(ligneNet, parametres.tauxChangeCDF))}</p>
         </div>
         <div className="border-t pt-1">
           <Ligne label="Charges patronales (CNSS + INPP + ONEM)" val={`+ ${usd(chargesPatronales)}`} />
@@ -166,7 +168,7 @@ export function SimulationSalaire({
 
       {impact && impact.effectif > 0 && (() => {
         // Création : le simulé S'AJOUTE. Modification : le simulé REMPLACE le bulletin actuel.
-        const deltaNet = ligne.salNetUSD - (impact.actuel?.net ?? 0);
+        const deltaNet = salaireNetUSD(ligneNet) - (impact.actuel?.net ?? 0);
         const deltaCout = ligne.coutEmployeurUSD - (impact.actuel?.cout ?? 0);
         const pct = (d: number, base: number) => `${d >= 0 ? "+" : "−"}${((Math.abs(d) / base) * 100).toFixed(1)} %`;
         return (
@@ -176,7 +178,7 @@ export function SimulationSalaire({
             </p>
             {impact.actuel && (
               <p>
-                Net de l&apos;employé : {usd(impact.actuel.net)} → <b>{usd(ligne.salNetUSD)}</b>{" "}
+                Salaire net de l&apos;employé : {usd(impact.actuel.net)} → <b>{usd(salaireNetUSD(ligneNet))}</b>{" "}
                 <span className={deltaNet >= 0 ? "text-emerald-700" : "text-red-700"}>
                   ({deltaNet >= 0 ? "+" : "−"}{usd(Math.abs(deltaNet))})
                 </span>

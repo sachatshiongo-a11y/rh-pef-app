@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
 import { classeurExcel } from "@/lib/export-excel";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
 /**
  * Export Excel de la paie du mois courant — FIDÈLE à l'onglet Paie : mêmes lignes (brigade puis
@@ -38,8 +39,13 @@ export async function GET(request: Request) {
     "Transport $",
     "Salaire net $",
     "Salaire net CDF",
+    "Total versé $",
+    "Total versé CDF",
     "Statut",
   ];
+
+  // Taux du bulletin — jamais déduit de salNetCDF / salNetUSD (voir src/lib/paie-net.ts).
+  const taux = run ? Number(run.tauxChangeUtilise) : 0;
 
   const rows = lignes.map((l) => [
     l.employee.matricule,
@@ -49,7 +55,9 @@ export async function GET(request: Request) {
     Number(Number(l.cnssSalarieUSD).toFixed(2)),
     Number(Number(l.iprCalculeUSD).toFixed(2)),
     Number(Number(l.transportUSD).toFixed(2)),
-    Number(Number(l.salNetUSD).toFixed(2)),
+    Number(salaireNetUSD(l).toFixed(2)),
+    Number(salaireNetCDF(l, taux).toFixed(0)),
+    Number(totalVerseUSD(l).toFixed(2)),
     Number(Number(l.salNetCDF).toFixed(0)),
     LIBELLE_STATUT[l.statutPaiement],
   ]);
