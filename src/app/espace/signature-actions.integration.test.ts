@@ -9,7 +9,7 @@ import { creerBaseTest } from "@/lib/test/db";
 // que ce soit. Le test « il ne peut pas signer le bulletin d'un collègue » prouve cette fermeture.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "EMPLOYE", nom: "Testeur", employeeId: "seed-emp" } }));
-const S = vi.hoisted(() => ({ traceUrl: "/fichiers/signatures/test/trace.png" }));
+const S = vi.hoisted(() => ({ chemins: [] as string[] }));
 // Actif par défaut (comme dans la quasi-totalité des tests existants) ; certains tests le
 // désactivent ponctuellement pour prouver que l'interrupteur bloque bien un appel DIRECT à
 // l'action, indépendamment du rendu de page.
@@ -28,7 +28,13 @@ vi.mock("@/lib/auth", () => ({
   requireRole: () => {},
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
-vi.mock("@/lib/storage", () => ({ televerserFichier: async () => S.traceUrl, lireFichier: async () => null }));
+vi.mock("@/lib/storage", () => ({
+  // On RETIENT le chemin : c'est lui qui prouve qu'une tentative refusée n'écrase rien.
+  // L'URL renvoyée DÉRIVE du chemin (comme le vrai stockage) : sans cela, deux téléversements
+  // vers le même chemin seraient indiscernables et le test ci-dessous ne prouverait rien.
+  televerserFichier: async (chemin: string) => { S.chemins.push(chemin); return `/fichiers/${chemin}`; },
+  lireFichier: async () => null,
+}));
 vi.mock("@/lib/espace-employe", () => ({
   espaceEmployeActif: async () => F.espaceEmployeActif,
   emailInterneMatricule: (m: string) => `${m.toLowerCase()}@salarie.local`,
@@ -132,7 +138,7 @@ describe("signerMonDocument — espace salarié", () => {
     expect(sig).not.toBeNull();
     expect(sig?.mode).toBe("ESPACE_SALARIE");
     expect(sig?.presenteParId).toBeNull();
-    expect(sig?.traceUrl).toBe(S.traceUrl);
+    expect(sig?.traceUrl).toBe(`/fichiers/${S.chemins[0]}`);
     expect(sig?.employeeId).toBe(empId);
   });
 
@@ -159,6 +165,29 @@ describe("signerMonDocument — espace salarié", () => {
   it("il ne peut pas signer deux fois → erreur", async () => {
     const res = await signerMonDocument("BULLETIN", ligneValideId, PNG_VALIDE);
     expect(res).toMatchObject({ erreur: "Ce document est déjà signé." });
+  });
+
+  it("une tentative REFUSÉE n'écrase pas le tracé déjà stocké : chaque essai a son propre chemin", async () => {
+    // Le téléversement a lieu avant l'écriture en base, et le stockage est en upsert : avec un
+    // chemin déterministe, le second essai remplaçait le PNG du premier et le document affichait
+    // le tracé d'un autre sous la mention du signataire.
+    const dejaSignee = await prisma.signatureElectronique.findUniqueOrThrow({
+      where: { cible_cibleId: { cible: "BULLETIN", cibleId: ligneValideId } },
+    });
+    S.chemins.length = 0;
+    const res = await signerMonDocument("BULLETIN", ligneValideId, PNG_VALIDE);
+    expect(res).toMatchObject({ erreur: "Ce document est déjà signé." });
+
+    expect(S.chemins, "la tentative refusée a bien téléversé un fichier").toHaveLength(1);
+    expect(
+      `/fichiers/${S.chemins[0]}`,
+      "la tentative refusée a écrit sur le chemin de la signature valide : elle en a écrasé le tracé"
+    ).not.toBe(dejaSignee.traceUrl);
+    // ...et la ligne en base continue de désigner le tracé d'origine.
+    const apres = await prisma.signatureElectronique.findUniqueOrThrow({
+      where: { cible_cibleId: { cible: "BULLETIN", cibleId: ligneValideId } },
+    });
+    expect(apres.traceUrl).toBe(dejaSignee.traceUrl);
   });
 
   it("un tracé qui n'est pas un PNG est refusé → erreur « Signature illisible. »", async () => {

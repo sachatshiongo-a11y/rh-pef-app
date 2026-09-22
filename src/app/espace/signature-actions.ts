@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import type { CibleSignature } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -49,7 +50,18 @@ export const signerMonDocument = actionLisible(
     if (etat.employeeId !== user.employeeId) throw new Error("Ce document ne vous appartient pas.");
 
     const buf = decoderTrace(pngDataUrl);
-    const traceUrl = await televerserFichier(`signatures/${cible.toLowerCase()}/${cibleId}.png`, buf, "image/png");
+    // CHEMIN UNIQUE PAR SIGNATURE, jamais devinable à partir du document.
+    // Le téléversement a lieu AVANT l'écriture en base (qui seule sait si le document est déjà
+    // signé) et `televerserFichier` envoie `x-upsert: true` : avec un chemin déterministe
+    // `signatures/<cible>/<cibleId>.png`, une tentative REFUSÉE — page restée ouverte, double
+    // soumission, appel direct — remplaçait quand même le fichier. Le document aurait alors
+    // affiché le tracé du second sous la mention du premier. Le tracé à afficher est celui que la
+    // LIGNE de signature désigne (`traceUrl`), et elle seule.
+    const traceUrl = await televerserFichier(
+      `signatures/${cible.toLowerCase()}/${cibleId}-${randomUUID()}.png`,
+      buf,
+      "image/png"
+    );
 
     await enregistrerSignature(prisma, {
       cible,
