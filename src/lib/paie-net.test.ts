@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "./paie-net";
 
@@ -25,5 +27,28 @@ describe("paie-net — salaire net = total versé − transport", () => {
   });
   it("un transport supérieur au versé (donnée incohérente) donne un net négatif, jamais NaN", () => {
     expect(salaireNetUSD({ salNetUSD: 10, transportUSD: 25 })).toBe(-15);
+  });
+});
+
+describe("règle : hors moteur, personne ne lit salNetUSD sans passer par paie-net", () => {
+  // Le moteur et le lot de paie PRODUISENT salNetUSD ; tout le reste l'AFFICHE, et doit donc dire
+  // lequel des deux nets il montre. Une lecture directe est un « net » qui a échappé à la règle.
+  const PRODUCTEURS = new Set(["src/lib/payroll.ts", "src/lib/paie-batch.ts", "src/lib/paie-net.ts"]);
+  it("tout fichier de src/ qui mentionne salNetUSD importe @/lib/paie-net (ou est producteur)", () => {
+    const fautifs: string[] = [];
+    const parcourir = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) parcourir(p);
+        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+          const rel = path.relative(process.cwd(), p);
+          if (PRODUCTEURS.has(rel)) continue;
+          const s = fs.readFileSync(p, "utf8");
+          if (s.includes("salNetUSD") && !s.includes("@/lib/paie-net")) fautifs.push(rel);
+        }
+      }
+    };
+    parcourir(path.join(process.cwd(), "src"));
+    expect(fautifs, "importer salaireNetUSD/totalVerseUSD de @/lib/paie-net").toEqual([]);
   });
 });
