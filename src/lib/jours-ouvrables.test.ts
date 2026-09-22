@@ -54,15 +54,17 @@ describe("finApresJoursOuvrables — la date de fin pour N jours ouvrables à pa
     expect(finApresJoursOuvrables(d("2026-06-29"), -3)).toBeNull();
     expect(finApresJoursOuvrables(d("2026-06-29"), 1.5)).toBeNull();
   });
-  it("aller-retour : compter(début, fin(début, n)) === n, sur 200 tirages avec fériés", () => {
+  it("aller-retour : compter(début, fin(début, n)) === n, pour 400 débuts × n ∈ 1..30, fériés compris", () => {
+    // Balayage exhaustif plutôt que tirage au sort : ~12 000 cas, instantané, et chaque férié
+    // déclaré est traversé de nombreuses fois (le tirage précédent n'en rencontrait aucun).
     const feries = ["2026-06-30", "2026-08-01", "2026-12-25", "2027-01-01"];
-    let graine = 42;
-    const alea = (max: number) => { graine = (graine * 1103515245 + 12345) % 2147483648; return graine % max; };
-    for (let i = 0; i < 200; i++) {
-      const debut = new Date(Date.UTC(2026, alea(12), 1 + alea(28)));
-      const n = 1 + alea(40);
-      const fin = finApresJoursOuvrables(debut, n, feries)!;
-      expect(compterJoursOuvrables(debut, fin, feries), `${iso(debut)} + ${n} j`).toBe(n);
+    const origine = Date.UTC(2026, 0, 1);
+    for (let jour = 0; jour < 400; jour++) {
+      const debut = new Date(origine + jour * 86_400_000);
+      for (let n = 1; n <= 30; n++) {
+        const fin = finApresJoursOuvrables(debut, n, feries)!;
+        expect(compterJoursOuvrables(debut, fin, feries), `${iso(debut)} + ${n} j`).toBe(n);
+      }
     }
   });
 });

@@ -94,7 +94,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       soldes: [
         { label: "Congés acquis (année)", value: `${congesAcquis} j` },
         { label: "Congés pris (année)", value: `${congesPris} j` },
-        { label: "Solde", value: `${Math.round((congesAcquis - congesPris) * 10) / 10} j` },
+        { label: "Solde de congé annuel", value: `${Math.round((congesAcquis - congesPris) * 10) / 10} j` },
       ],
       conges: leaveRequests.map((l) => ({
         type: l.type,

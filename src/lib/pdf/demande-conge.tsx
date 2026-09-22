@@ -132,7 +132,7 @@ export function DemandeCongeDocument({
         </View>
 
         <View style={styles.soldeBox}>
-          <Text style={styles.soldeLabel}>Solde de congés disponible</Text>
+          <Text style={styles.soldeLabel}>Solde de congé annuel disponible</Text>
           <Text style={styles.soldeValue}>{soldeConges} jours</Text>
         </View>
 
