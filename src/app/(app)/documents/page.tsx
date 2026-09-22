@@ -12,6 +12,7 @@ import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
+import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../signature-actions";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
@@ -422,12 +423,6 @@ export default async function DocumentsPage({
   );
 }
 
-/** État de signature pour un compte qui ne peut pas faire signer (VIEWER) : lecture seule. */
-function EtatSignatureLecture({ etat, signeLeTexte }: { etat: "A_SIGNER" | "SIGNE" | "A_RESIGNER"; signeLeTexte: string | null }) {
-  if (etat === "SIGNE") return <span className="whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Signé le {signeLeTexte}</span>;
-  if (etat === "A_RESIGNER") return <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">À resigner</span>;
-  return <span className="whitespace-nowrap text-xs text-muted-foreground">À signer</span>;
-}
 
 function Thead({ cols }: { cols: string[] }) {
   return (

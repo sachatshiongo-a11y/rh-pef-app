@@ -417,14 +417,25 @@ export async function signaturesImprimables(
 ): Promise<Map<string, SignatureImprimable>> {
   const vues = await chargerSignatures(client, cible, cibleIds);
   const par = new Map<string, SignatureImprimable>();
-  await Promise.all(
-    [...vues].map(async ([cibleId, sig]) => {
+
+  // PLAFOND DE CONCURRENCE sur la lecture des tracés. Les REQUÊTES de signature sont au nombre de
+  // trois quel que soit l'effectif, mais les tracés vivent dans le stockage et se lisent un par
+  // un : un `Promise.all` nu sur la liasse d'un effectif complet ouvrirait 200 lectures Supabase
+  // au même instant. Huit à la fois gardent l'export rapide sans transformer une impression de
+  // liasse en rafale contre le stockage.
+  const entrees = [...vues];
+  const PARALLELE = 8;
+  let curseur = 0;
+  const ouvrier = async () => {
+    for (let i = curseur++; i < entrees.length; i = curseur++) {
+      const [cibleId, sig] = entrees[i];
       // `lireFichier` renvoie null si le stockage est indisponible : la mention reste, sans tracé —
       // jamais une erreur qui empêcherait d'ouvrir le document.
       const trace = traceAAfficher(sig) && sig.traceUrl ? await lireFichier(sig.traceUrl) : null;
       par.set(cibleId, { image: trace ? { data: trace, format: "png" } : null, mention: mentionSignature(sig) });
-    })
-  );
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLELE, entrees.length) }, ouvrier));
   return par;
 }
 
