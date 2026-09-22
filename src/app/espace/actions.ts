@@ -7,6 +7,7 @@ import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
 import { calculerJoursOuvrables } from "@/lib/payroll";
+import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
@@ -69,6 +70,8 @@ export async function demanderMonConge(formData: FormData) {
     const feries = await prisma.jourFerie.findMany({ where: { date: { gte: dateDebut, lte: dateFin } }, select: { date: true } });
     const nbJours = calculerJoursOuvrables(dateDebut, dateFin, feries.map((f) => f.date));
     if (nbJours <= 0) throw new Error("La période ne contient aucun jour ouvrable (dimanches et fériés exclus).");
+    const ecart = ecartJoursSoumis(formData.get("nbJours"), nbJours);
+    if (ecart) throw new Error(ecart);
 
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
     const demande = await prisma.leaveRequest.create({

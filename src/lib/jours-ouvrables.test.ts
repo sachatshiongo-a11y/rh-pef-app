@@ -4,6 +4,7 @@ import {
   finApresJoursOuvrables,
   recalculerChampsConge,
   CHAMPS_CONGE_VIDES,
+  ecartJoursSoumis,
   type ChampsConge,
 } from "./jours-ouvrables";
 
@@ -108,5 +109,23 @@ describe("recalculerChampsConge — le dernier champ touché entre jours et fin 
   it("jours tapés sans début → rien ne se calcule, la valeur est gardée", () => {
     const e = recalculerChampsConge(CHAMPS_CONGE_VIDES, "jours", "4", feries);
     expect(e).toEqual({ debut: "", jours: "4", fin: "", dernierTouche: "jours" });
+  });
+});
+
+describe("ecartJoursSoumis — le serveur refuse un nombre qui ne colle plus aux dates", () => {
+  it("cohérent → pas d'erreur", () => {
+    expect(ecartJoursSoumis("11", 11)).toBeNull();
+  });
+  it("champ absent ou vide → pas d'erreur (le serveur fait foi)", () => {
+    expect(ecartJoursSoumis(null, 11)).toBeNull();
+    expect(ecartJoursSoumis("", 11)).toBeNull();
+  });
+  it("écart → le message dit les deux nombres et quoi faire", () => {
+    expect(ecartJoursSoumis("12", 11)).toBe(
+      "Le nombre de jours ne correspond plus aux dates (12 saisis, 11 recalculés) — vérifiez la date de fin.",
+    );
+  });
+  it("valeur non numérique → traitée comme un écart", () => {
+    expect(ecartJoursSoumis("douze", 11)).toContain("ne correspond plus aux dates");
   });
 });

@@ -110,3 +110,17 @@ export function recalculerChampsConge(etat: ChampsConge, champ: ChampConge, vale
     }
   }
 }
+
+/**
+ * Contrôle serveur : le nombre de jours SOUMIS par le formulaire doit être celui que le serveur
+ * recalcule depuis les dates. Un écart n'est pas corrigé en silence — c'est un signal (fériés
+ * chargés partiellement côté client, formulaire resté ouvert la veille d'un férié ajouté), et
+ * enregistrer un nombre différent de celui affiché est ce qu'un utilisateur ne pardonne pas.
+ * Champ absent ou vide : aucun contrôle, le serveur fait foi (anciens formulaires).
+ */
+export function ecartJoursSoumis(soumis: FormDataEntryValue | null, calcule: number): string | null {
+  const texte = String(soumis ?? "").trim();
+  if (texte === "") return null;
+  if (/^\d+$/.test(texte) && Number(texte) === calcule) return null;
+  return `Le nombre de jours ne correspond plus aux dates (${texte} saisis, ${calcule} recalculés) — vérifiez la date de fin.`;
+}

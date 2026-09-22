@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
+import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { poserCodesConge, retirerCodesConge, chargerPreloadConges } from "@/lib/conges-presences";
 
@@ -19,49 +21,57 @@ function revaliderConges() {
 }
 
 export async function demanderConge(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  return formulaireLisible("/conges", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const employeeId = String(formData.get("employeeId"));
-  const type = String(formData.get("type"));
-  const dateDebut = new Date(String(formData.get("dateDebut")));
-  const dateFin = new Date(String(formData.get("dateFin")));
-  // Jours ouvrables : dimanches ET jours fériés exclus du décompte.
-  const feries = await prisma.jourFerie.findMany({ where: { date: { gte: dateDebut, lte: dateFin } }, select: { date: true } });
-  const nbJours = calculerJoursOuvrables(dateDebut, dateFin, feries.map((f) => f.date));
-  const motif = String(formData.get("motif") ?? "").trim() || null;
-  const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
+    const employeeId = String(formData.get("employeeId"));
+    const type = String(formData.get("type"));
+    const dateDebut = new Date(String(formData.get("dateDebut")));
+    const dateFin = new Date(String(formData.get("dateFin")));
+    if (Number.isNaN(dateDebut.getTime()) || Number.isNaN(dateFin.getTime())) throw new Error("Dates requises.");
+    if (dateFin < dateDebut) throw new Error("La date de fin doit être après la date de début.");
+    // Jours ouvrables : dimanches ET jours fériés exclus du décompte.
+    const feries = await prisma.jourFerie.findMany({ where: { date: { gte: dateDebut, lte: dateFin } }, select: { date: true } });
+    const nbJours = calculerJoursOuvrables(dateDebut, dateFin, feries.map((f) => f.date));
+    if (nbJours <= 0) throw new Error("La période ne contient aucun jour ouvrable (dimanches et fériés exclus).");
+    // Le formulaire a affiché un nombre : il doit être celui-ci, sinon on refuse plutôt que d'enregistrer autre chose.
+    const ecart = ecartJoursSoumis(formData.get("nbJours"), nbJours);
+    if (ecart) throw new Error(ecart);
+    const motif = String(formData.get("motif") ?? "").trim() || null;
+    const remplacantId = String(formData.get("remplacantId") ?? "").trim() || null;
 
-  // La Direction n'a pas à valider ses propres demandes : approuvée d'office (comme les BC).
-  const autoValide = user.role === "ADMIN";
-  const demande = await prisma.leaveRequest.create({
-    data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: autoValide ? "APPROUVE" : "EN_ATTENTE", ...(autoValide ? { approuveParId: user.id } : {}) },
+    // La Direction n'a pas à valider ses propres demandes : approuvée d'office (comme les BC).
+    const autoValide = user.role === "ADMIN";
+    const demande = await prisma.leaveRequest.create({
+      data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: autoValide ? "APPROUVE" : "EN_ATTENTE", ...(autoValide ? { approuveParId: user.id } : {}) },
+    });
+
+    const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
+    // Notification TOUJOURS émise (choix client : trace visible même en auto-validation).
+    if (!autoValide) {
+      await creerNotification({
+        type: "CONGE",
+        message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+        lien: "/a-valider",
+        refId: demande.id,
+      });
+    } else {
+      await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "statut", nouvelleValeur: "APPROUVE (auto — Direction)", userId: user.id });
+      // Synchro grille Présences : les jours ouvrables du congé reçoivent leur code (C ou S).
+      await poserCodesConge(employeeId, dateDebut, dateFin, type);
+      await creerNotification({
+        type: "CONGE",
+        message: `Congé (${type}) approuvé — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
+        lien: "/conges",
+        refId: demande.id,
+      });
+    }
+
+    revalidatePath("/conges");
+    revalidatePath("/employes");
+    revalidatePath("/", "layout");
   });
-
-  const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
-  // Notification TOUJOURS émise (choix client : trace visible même en auto-validation).
-  if (!autoValide) {
-    await creerNotification({
-      type: "CONGE",
-      message: `Nouvelle demande de congé (${type}) — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
-      lien: "/a-valider",
-      refId: demande.id,
-    });
-  } else {
-    await journaliser(prisma, { entite: "LeaveRequest", entiteId: demande.id, champ: "statut", nouvelleValeur: "APPROUVE (auto — Direction)", userId: user.id });
-    // Synchro grille Présences : les jours ouvrables du congé reçoivent leur code (C ou S).
-    await poserCodesConge(employeeId, dateDebut, dateFin, type);
-    await creerNotification({
-      type: "CONGE",
-      message: `Congé (${type}) approuvé — ${emp?.nom ?? "employé"}, ${nbJours} j.`,
-      lien: "/conges",
-      refId: demande.id,
-    });
-  }
-
-  revalidatePath("/conges");
-  revalidatePath("/employes");
-  revalidatePath("/", "layout");
 }
 
 /** Seuls les comptes Admin (Directrice, Sacha) peuvent autoriser ou refuser une demande. */
