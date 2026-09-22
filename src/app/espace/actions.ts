@@ -284,10 +284,13 @@ export async function annulerEchange(id: string) {
 
 /** Le salarié accepte numériquement son contrat (« Lu et approuvé », horodaté). Notifie la Direction. */
 export async function accepterMonContrat(id: string) {
-  const user = await verifySession();
-  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  // `exigerSalarie` vérifie AUSSI `espaceEmployeActif()` : une Server Action est un point
+  // d'entrée HTTP indépendant du rendu de page — couper l'interrupteur du self-service (son état
+  // par défaut) doit empêcher un appel direct d'écrire une acceptation de contrat, pas seulement
+  // masquer le bouton côté page.
+  const { employeeId } = await exigerSalarie();
   const c = await prisma.contrat.findUnique({ where: { id }, select: { employeeId: true, accepteLe: true, type: true } });
-  if (!c || c.employeeId !== user.employeeId || c.accepteLe) return; // déjà accepté ou pas le mien
+  if (!c || c.employeeId !== employeeId || c.accepteLe) return; // déjà accepté ou pas le mien
   await prisma.contrat.update({ where: { id }, data: { accepteLe: new Date() } });
 
   // Fige l'exemplaire qui FAIT FOI : le PDF est généré une fois (avec l'acceptation horodatée) puis
@@ -302,15 +305,15 @@ export async function accepterMonContrat(id: string) {
     // Le figeage ne doit jamais bloquer l'acceptation : à défaut, le contrat reste généré à la volée.
   }
 
-  const emp = await prisma.employee.findUnique({ where: { id: user.employeeId }, select: { nom: true } });
+  const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
   await creerNotification({
     type: "AUTRE",
     message: `${emp?.nom ?? "Un salarié"} a accepté son contrat (${c.type}).`,
-    lien: `/employes/${user.employeeId}?tab=contrats`,
+    lien: `/employes/${employeeId}?tab=contrats`,
     refId: `contrat:${id}:accept`,
   });
   revalidatePath("/espace/documents");
-  revalidatePath(`/employes/${user.employeeId}`);
+  revalidatePath(`/employes/${employeeId}`);
   revalidatePath("/", "layout");
 }
 

@@ -10,6 +10,10 @@ import { creerBaseTest } from "@/lib/test/db";
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "EMPLOYE", nom: "Testeur", employeeId: "seed-emp" } }));
 const S = vi.hoisted(() => ({ traceUrl: "/fichiers/signatures/test/trace.png" }));
+// Actif par défaut (comme dans la quasi-totalité des tests existants) ; certains tests le
+// désactivent ponctuellement pour prouver que l'interrupteur bloque bien un appel DIRECT à
+// l'action, indépendamment du rendu de page.
+const F = vi.hoisted(() => ({ espaceEmployeActif: true }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, p) => {
@@ -24,14 +28,22 @@ vi.mock("@/lib/auth", () => ({
   requireRole: () => {},
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
-vi.mock("@/lib/storage", () => ({ televerserFichier: async () => S.traceUrl }));
+vi.mock("@/lib/storage", () => ({ televerserFichier: async () => S.traceUrl, lireFichier: async () => null }));
+vi.mock("@/lib/espace-employe", () => ({
+  espaceEmployeActif: async () => F.espaceEmployeActif,
+  emailInterneMatricule: (m: string) => `${m.toLowerCase()}@salarie.local`,
+  estMatricule: (s: string) => !s.includes("@"),
+  genererMotDePasseTemporaire: () => "TEST-PASS",
+}));
 vi.mock("@/lib/notifications", () => ({
   creerNotification: async () => {},
   notifierSalarie: async () => {},
   compteSalarieDe: async () => null,
+  supprimerNotificationsPour: async () => {},
 }));
 
 const { signerMonDocument } = await import("./signature-actions");
+const { accepterMonContrat } = await import("./actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -41,6 +53,7 @@ let ligneValideId: string; // bulletin de empId
 let ligneBrouillonId: string; // bulletin de empId, non validé
 let ligneCollegueId: string; // bulletin de collegueId
 let demandeApprouveeId: string; // demande de congé de empId, approuvée (signable)
+let contratActifId: string; // contrat ACTIF de empId, pas encore accepté
 
 // Un vrai PNG plausible (en-tête + remplissage), tel qu'exporté par `CadreSignature`.
 const ENTETE_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -97,6 +110,13 @@ beforeAll(async () => {
       dateFin: new Date("2026-08-07"), nbJours: 5, statut: "APPROUVE",
     },
   })).id;
+
+  contratActifId = (await prisma.contrat.create({
+    data: {
+      employeeId: empId, type: "CDI", dateDebut: new Date("2025-01-01"),
+      heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Test", statut: "ACTIF",
+    },
+  })).id;
 }, 120_000);
 
 afterAll(async () => { await fermer?.(); });
@@ -151,5 +171,37 @@ describe("signerMonDocument — espace salarié", () => {
       where: { cible_cibleId: { cible: "DEMANDE_CONGE", cibleId: demandeApprouveeId } },
     });
     expect(sig).toBeNull();
+  });
+});
+
+describe("garde espaceEmployeActif — un appel DIRECT à l'action est bloqué, pas seulement le rendu de page", () => {
+  // Une Server Action est un point d'entrée HTTP indépendant du rendu de page : couper
+  // l'interrupteur du self-service (état par défaut) doit empêcher un appel direct d'écrire une
+  // signature ou une acceptation de contrat, même si personne n'a vu de bouton pour le déclencher.
+  it("espace désactivé → signerMonDocument est refusé, aucune ligne SignatureElectronique créée", async () => {
+    F.espaceEmployeActif = false;
+    try {
+      const res = await signerMonDocument("DEMANDE_CONGE", demandeApprouveeId, PNG_VALIDE);
+      expect(res).toMatchObject({ erreur: expect.any(String) });
+
+      const sig = await prisma.signatureElectronique.findUnique({
+        where: { cible_cibleId: { cible: "DEMANDE_CONGE", cibleId: demandeApprouveeId } },
+      });
+      expect(sig).toBeNull();
+    } finally {
+      F.espaceEmployeActif = true;
+    }
+  });
+
+  it("espace désactivé → accepterMonContrat est refusé, accepteLe n'est PAS mis à jour", async () => {
+    F.espaceEmployeActif = false;
+    try {
+      await expect(accepterMonContrat(contratActifId)).rejects.toThrow();
+
+      const contrat = await prisma.contrat.findUnique({ where: { id: contratActifId }, select: { accepteLe: true } });
+      expect(contrat?.accepteLe).toBeNull();
+    } finally {
+      F.espaceEmployeActif = true;
+    }
   });
 });

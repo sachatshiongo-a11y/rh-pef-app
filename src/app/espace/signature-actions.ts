@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { CibleSignature } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession, estSalarie } from "@/lib/auth";
+import { espaceEmployeActif } from "@/lib/espace-employe";
 import { actionLisible } from "@/lib/action-lisible";
 import { documentSignable, enregistrerSignature, decoderTrace } from "@/lib/signature";
 import { televerserFichier } from "@/lib/storage";
@@ -36,7 +37,11 @@ function pagesConcernees(cible: CibleSignature): string[] {
 export const signerMonDocument = actionLisible(
   async (cible: CibleSignature, cibleId: string, pngDataUrl: string): Promise<void> => {
     const user = await verifySession();
-    if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+    // Une Server Action est un point d'entrée HTTP indépendant du rendu de page : couper
+    // l'interrupteur du self-service (son état par défaut) doit empêcher un appel direct
+    // d'écrire une signature, pas seulement masquer le cadre côté page. Même enchaînement que
+    // `exigerSalarie` (`src/app/espace/actions.ts`).
+    if (!(await espaceEmployeActif()) || !estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
 
     const etat = await documentSignable(prisma, cible, cibleId);
     if (!etat.ok) throw new Error(etat.raison);
