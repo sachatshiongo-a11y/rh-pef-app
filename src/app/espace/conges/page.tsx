@@ -8,6 +8,7 @@ import { Icone } from "@/components/icones";
 import { ChampsDatesConge } from "@/components/champs-dates-conge";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
+import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { signerMonDocument } from "../signature-actions";
 
 const BADGE: Record<string, { label: string; classe: string }> = {
@@ -149,16 +150,27 @@ function SectionAbsences({
                   <p className="text-xs text-muted-foreground">{Number(l.nbJours)} jour{Number(l.nbJours) > 1 ? "s" : ""}{l.motif ? ` · ${l.motif}` : ""}</p>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${b.classe}`}>{b.label}</span>
+                {/* Le document AVANT le geste : on ne demande jamais de signer ce qu'on ne peut
+                    pas lire. Présent dès que la demande est approuvée, signée ou non — même
+                    idiome d'aperçu que les contrats de « Mes documents ». */}
                 {l.statut === "APPROUVE" && (
-                  <BoutonSigner
-                    cible="DEMANDE_CONGE"
-                    cibleId={l.id}
-                    nomSalarie={nomSalarie}
-                    libelleDocument={`${l.type} — ${new Date(l.dateDebut).toISOString().slice(0, 10)}`}
-                    cote="SALARIE"
-                    action={signerMonDocument}
-                    {...(etats.get(l.id) ?? { etat: "A_SIGNER" as const, signeLeTexte: null })}
-                  />
+                  <>
+                    <ContratViewerButton
+                      href={`/espace/conges/demande/${l.id}`}
+                      titre={`Demande de congé — ${l.type}`}
+                      libelle="Voir la demande"
+                      className="shrink-0 text-sm text-primary underline"
+                    />
+                    <BoutonSigner
+                      cible="DEMANDE_CONGE"
+                      cibleId={l.id}
+                      nomSalarie={nomSalarie}
+                      libelleDocument={`${l.type} — ${new Date(l.dateDebut).toISOString().slice(0, 10)}`}
+                      cote="SALARIE"
+                      action={signerMonDocument}
+                      {...(etats.get(l.id) ?? { etat: "A_SIGNER" as const, signeLeTexte: null })}
+                    />
+                  </>
                 )}
               </li>
             );
