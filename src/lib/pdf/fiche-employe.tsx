@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
 
 type Ligne = { label: string; value: string };
 type Conge = { type: string; debut: string; fin: string; jours: number; statut: string };
-type Paie = { periode: string; netUSD: string; netCDF: string; statut: string };
+type Paie = { periode: string; netUSD: string; netCDF: string; verseUSD: string; statut: string };
 type Contrat = { type: string; debut: string; fin: string; essai: string; statut: string };
 
 function Grid({ items }: { items: Ligne[] }) {
@@ -127,20 +127,22 @@ export function FicheEmployeDocument({
         <View style={styles.section}>
           <PdfSectionHeader>Historique de paie</PdfSectionHeader>
           <View style={[styles.row, styles.rowHead]}>
-            <Text style={[styles.th, { width: "34%" }]}>Période</Text>
-            <Text style={[styles.th, { width: "24%" }]}>Net $</Text>
-            <Text style={[styles.th, { width: "27%" }]}>Net CDF</Text>
-            <Text style={[styles.th, { width: "15%" }]}>Paiement</Text>
+            <Text style={[styles.th, { width: "24%" }]}>Période</Text>
+            <Text style={[styles.th, { width: "19%" }]}>Salaire net $</Text>
+            <Text style={[styles.th, { width: "22%" }]}>Salaire net CDF</Text>
+            <Text style={[styles.th, { width: "19%" }]}>Total versé $</Text>
+            <Text style={[styles.th, { width: "16%" }]}>Paiement</Text>
           </View>
           {paies.length === 0 ? (
             <Text style={styles.empty}>Aucune paie calculée pour cet employé.</Text>
           ) : (
             paies.map((p, i) => (
               <View key={i} style={styles.row}>
-                <Text style={[styles.td, { width: "34%" }]}>{p.periode}</Text>
-                <Text style={[styles.td, { width: "24%" }]}>{p.netUSD}</Text>
-                <Text style={[styles.td, { width: "27%" }]}>{p.netCDF}</Text>
-                <Text style={[styles.td, { width: "15%" }]}>{p.statut}</Text>
+                <Text style={[styles.td, { width: "24%" }]}>{p.periode}</Text>
+                <Text style={[styles.td, { width: "19%" }]}>{p.netUSD}</Text>
+                <Text style={[styles.td, { width: "22%" }]}>{p.netCDF}</Text>
+                <Text style={[styles.td, { width: "19%" }]}>{p.verseUSD}</Text>
+                <Text style={[styles.td, { width: "16%" }]}>{p.statut}</Text>
               </View>
             ))
           )}

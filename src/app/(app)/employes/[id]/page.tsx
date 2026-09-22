@@ -23,7 +23,8 @@ import { COULEUR_CODE } from "../../presences/attendance-colors";
 import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
-import { formaterUSD } from "@/lib/montant";
+import { formaterUSD, formaterNombre } from "@/lib/montant";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 import { construireEcheancier } from "@/lib/prets";
 import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
@@ -682,12 +683,13 @@ export default async function FicheEmployePage({
       <>
       <Section title="Historique de paie">
         <div className="max-h-[70vh] overflow-auto">
-        <table className="w-full min-w-[36rem] text-sm">
+        <table className="w-full min-w-[42rem] text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Période</th>
               <th className="px-3 py-2 text-right">Salaire net $</th>
               <th className="px-3 py-2 text-right">Salaire net CDF</th>
+              <th className="px-3 py-2 text-right">Total versé $</th>
               <th className="px-3 py-2">Paiement</th>
               <th className="px-3 py-2" />
             </tr>
@@ -701,10 +703,11 @@ export default async function FicheEmployePage({
                     year: "numeric",
                   })}
                 </td>
-                <td className="px-3 py-2 text-right">{formatMoney(Number(l.salNetUSD))}</td>
+                <td className="px-3 py-2 text-right">{formatMoney(salaireNetUSD(l))}</td>
                 <td className="px-3 py-2 text-right">
-                  {Number(l.salNetCDF).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
+                  {formaterNombre(Math.round(salaireNetCDF(l, Number(l.payrollRun.tauxChangeUtilise))))} CDF
                 </td>
+                <td className="px-3 py-2 text-right text-muted-foreground">{formatMoney(totalVerseUSD(l))}</td>
                 <td className="px-3 py-2">
                   <PaiementBadge statut={l.statutPaiement} />
                 </td>

@@ -6,6 +6,7 @@ import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type Co
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
 import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 import { formaterNombre } from "@/lib/montant";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const usd = (n: number) =>
@@ -108,8 +109,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
           month: "long",
           year: "numeric",
         }),
-        netUSD: usd(Number(l.salNetUSD)),
-        netCDF: `${formaterNombre(Number(l.salNetCDF), { maximumFractionDigits: 0 })} CDF`,
+        netUSD: usd(salaireNetUSD(l)),
+        netCDF: `${formaterNombre(salaireNetCDF(l, Number(l.payrollRun.tauxChangeUtilise)), { maximumFractionDigits: 0 })} CDF`,
+        verseUSD: usd(totalVerseUSD(l)),
         statut: l.statutPaiement === "PAYE" ? "Payé" : "En attente",
       })),
       contrats: contrats.map((c) => ({
