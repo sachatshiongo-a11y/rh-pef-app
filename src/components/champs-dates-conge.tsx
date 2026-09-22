@@ -1,27 +1,16 @@
 "use client";
 
 import { useState } from "react";
-
-/** Même règle que la paie (calculerJoursOuvrables) : dimanches et jours fériés exclus,
- *  le samedi est OUVRABLE (semaine de 6 jours, usage RDC). */
-function joursOuvrables(debut: string, fin: string, feries: Set<string>): number | null {
-  if (!debut || !fin) return null;
-  const d = new Date(`${debut}T00:00:00Z`);
-  const f = new Date(`${fin}T00:00:00Z`);
-  if (Number.isNaN(d.getTime()) || Number.isNaN(f.getTime()) || f < d) return null;
-  let n = 0;
-  const cur = new Date(d);
-  while (cur <= f) {
-    if (cur.getUTCDay() !== 0 && !feries.has(cur.toISOString().slice(0, 10))) n++;
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return n;
-}
+import { recalculerChampsConge, CHAMPS_CONGE_VIDES, type ChampConge } from "@/lib/jours-ouvrables";
 
 /**
- * Les deux champs de dates d'une demande de congé + décompte EN DIRECT des jours ouvrables
- * entre la prise et le retour. Partagé entre le formulaire Direction et l'espace salarié.
- * Rend deux cellules sœurs (fragment) : s'insère tel quel dans la grille du formulaire.
+ * Les trois champs d'une demande de congé — Date début · Jours ouvrables · Date fin — avec
+ * recalcul EN DIRECT : les jours et la fin se recalculent l'un l'autre, le dernier touché a
+ * raison (règle dans `lib/jours-ouvrables`, testée là-bas). Partagé entre le formulaire Direction
+ * et l'espace salarié. Rend trois cellules sœurs (fragment) : s'insère tel quel dans la grille.
+ *
+ * Le serveur recalcule les jours depuis les dates et refuse un écart : ce composant aide à saisir,
+ * il ne décide de rien.
  */
 export function ChampsDatesConge({
   feries,
@@ -36,43 +25,25 @@ export function ChampsDatesConge({
   labelDebut?: string;
   labelFin?: string;
 }) {
-  const [debut, setDebut] = useState("");
-  const [fin, setFin] = useState("");
-  const n = joursOuvrables(debut, fin, new Set(feries));
+  const [etat, setEtat] = useState(CHAMPS_CONGE_VIDES);
+  const feriesSet = new Set(feries);
+  const toucher = (champ: ChampConge) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setEtat((s) => recalculerChampsConge(s, champ, e.target.value, feriesSet));
 
   return (
     <>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="dateDebut" className="text-sm font-medium">{labelDebut}</label>
-        <input
-          id="dateDebut"
-          name="dateDebut"
-          type="date"
-          required
-          min={min}
-          value={debut}
-          onChange={(e) => setDebut(e.target.value)}
-          className={inputClassName}
-        />
+        <input id="dateDebut" name="dateDebut" type="date" required min={min} value={etat.debut} onChange={toucher("debut")} className={inputClassName} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="nbJours" className="text-sm font-medium">Jours ouvrables</label>
+        <input id="nbJours" name="nbJours" type="number" inputMode="numeric" required min={1} step={1} value={etat.jours} onChange={toucher("jours")} className={inputClassName} />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="dateFin" className="text-sm font-medium">{labelFin}</label>
-        <input
-          id="dateFin"
-          name="dateFin"
-          type="date"
-          required
-          min={debut || min}
-          value={fin}
-          onChange={(e) => setFin(e.target.value)}
-          className={inputClassName}
-        />
-        {n !== null && (
-          <p className="text-xs font-medium text-primary">
-            soit {n} jour{n > 1 ? "s" : ""} ouvrable{n > 1 ? "s" : ""}
-            <span className="font-normal text-muted-foreground"> (hors dimanches et fériés)</span>
-          </p>
-        )}
+        <input id="dateFin" name="dateFin" type="date" required min={etat.debut || min} value={etat.fin} onChange={toucher("fin")} className={inputClassName} />
+        <p className="text-xs text-muted-foreground">Dimanches et jours fériés exclus.</p>
       </div>
     </>
   );
