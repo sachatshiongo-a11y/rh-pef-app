@@ -29,6 +29,7 @@
   --color-destructive: var(--destructive);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -67,7 +68,11 @@
   --accent: #e9c68c;
   --accent-foreground: #5a3b24;
   --destructive: oklch(0.55 0.16 27.325);
-  --success: oklch(0.56 0.1 155);
+  --destructive-foreground: #fdfbf7;
+  /* L abaissee de 0.56 a 0.54 : a 0.56 le texte du bouton plafonnait a 4,27:1
+     (et 4,42 en blanc), sous le seuil AA de 4,5. A 0.54 : 4,64:1. Ecart visuel
+     imperceptible (RVB 61,134,90 -> 55,128,84). */
+  --success: oklch(0.54 0.1 155);
   --success-foreground: #fdfbf7;
   --border: #e7dacb;
   --input: #e7dacb;
@@ -105,6 +110,7 @@
   --accent: #3a2c1b;
   --accent-foreground: #eac98f;
   --destructive: oklch(0.7 0.16 27);
+  --destructive-foreground: #1b140d;
   --success: oklch(0.68 0.12 155);
   --success-foreground: #1b140d;
   --border: #3a2c1c;
@@ -142,6 +148,7 @@
   --accent: #4c3f2d;
   --accent-foreground: #ecca90;
   --destructive: oklch(0.68 0.15 27);
+  --destructive-foreground: #2a2318;
   --success: oklch(0.66 0.11 155);
   --success-foreground: #2a2318;
   --border: #4c3f2d;

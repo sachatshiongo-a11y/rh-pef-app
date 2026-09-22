@@ -132,7 +132,7 @@ export function FinContratForm({
             <span className="font-semibold">Total à verser</span>
             <span className="text-xl font-bold">{fmt(total)}</span>
           </div>
-          <button className="mt-4 w-full rounded-md bg-destructive px-4 py-2.5 text-sm font-medium text-white hover:opacity-90">
+          <button className="mt-4 w-full rounded-md bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground hover:opacity-90">
             Terminer le contrat &amp; archiver
           </button>
         </aside>

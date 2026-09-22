@@ -50,7 +50,7 @@ export function BoutonApprouver({ children, className, ...props }: BoutonActionP
   return (
     <button
       {...props}
-      className={fusionner(BASE_CLASSES, "bg-success text-white hover:bg-success/90", className)}
+      className={fusionner(BASE_CLASSES, "bg-success text-success-foreground hover:bg-success/90", className)}
     >
       <span aria-hidden="true">✓</span>
       {children ?? "Approuver"}
@@ -66,7 +66,7 @@ export function BoutonRefuser({ children, className, ...props }: BoutonActionPro
   return (
     <button
       {...props}
-      className={fusionner(BASE_CLASSES, "bg-destructive text-white hover:bg-destructive/90", className)}
+      className={fusionner(BASE_CLASSES, "bg-destructive text-destructive-foreground hover:bg-destructive/90", className)}
     >
       <span aria-hidden="true">✕</span>
       {children ?? "Refuser"}
@@ -83,7 +83,7 @@ export function BoutonValider({ children, className, ...props }: BoutonActionPro
   return (
     <button
       {...props}
-      className={fusionner(BASE_CLASSES, "bg-success text-white hover:bg-success/90", className)}
+      className={fusionner(BASE_CLASSES, "bg-success text-success-foreground hover:bg-success/90", className)}
     >
       <span aria-hidden="true">✓</span>
       {children ?? "Valider"}
