@@ -13,11 +13,13 @@ import { notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 function pagesConcernees(cible: CibleSignature, employeeId: string): string[] {
   switch (cible) {
     case "BULLETIN":
-      return ["/paie"];
+      // La colonne « Signature » est sur Documents & archives et sur la fiche de l'employé ;
+      // `revalidatePath("/", "layout")` en fin d'action couvre la fiche (route dynamique).
+      return ["/paie", "/documents"];
     case "DEMANDE_CONGE":
       return ["/conges", "/a-valider"];
     case "CONTRAT":
-      return [`/employes/${employeeId}`];
+      return [`/employes/${employeeId}`, "/documents"];
   }
 }
 

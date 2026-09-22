@@ -35,38 +35,61 @@ export type SignatureVue = {
 };
 
 /**
- * Relit le document désigné et renvoie son instantané canonique — la même donnée que celle qui
- * serait signée aujourd'hui. `null` si le document n'existe plus (jamais une erreur : appelants
- * traitent l'absence comme un cas normal, ex. document supprimé après coup).
+ * Relit PLUSIEURS documents d'une même cible et renvoie leurs instantanés canoniques — UNE seule
+ * requête, quel que soit le nombre de documents.
+ *
+ * C'est le SEUL chemin de lecture : `instantaneDe` (un document) passe par lui. Un écran qui liste
+ * tout l'effectif et une route qui rend un bulletin isolé comparent donc exactement la même donnée,
+ * et il n'existe pas de variante « rapide » qui pourrait un jour diverger de l'autre.
+ *
+ * Un id absent de la carte = document introuvable (supprimé depuis) : jamais une erreur, les
+ * appelants traitent l'absence comme un cas normal.
+ */
+export async function instantanesDe(
+  client: ClientSignature,
+  cible: CibleSignature,
+  cibleIds: string[]
+): Promise<Map<string, Instantane>> {
+  const par = new Map<string, Instantane>();
+  if (cibleIds.length === 0) return par;
+  switch (cible) {
+    case "BULLETIN": {
+      const lignes = await client.payrollLine.findMany({
+        where: { id: { in: cibleIds } },
+        include: { payrollRun: true, employee: { select: { matricule: true } } },
+      });
+      for (const ligne of lignes) par.set(ligne.id, instantaneBulletin(ligne));
+      return par;
+    }
+    case "CONTRAT": {
+      const contrats = await client.contrat.findMany({
+        where: { id: { in: cibleIds } },
+        include: { employee: { select: { matricule: true } } },
+      });
+      for (const contrat of contrats) par.set(contrat.id, instantaneContrat(contrat));
+      return par;
+    }
+    case "DEMANDE_CONGE": {
+      const demandes = await client.leaveRequest.findMany({
+        where: { id: { in: cibleIds } },
+        include: { employee: { select: { matricule: true } } },
+      });
+      for (const demande of demandes) par.set(demande.id, instantaneDemandeConge(demande));
+      return par;
+    }
+  }
+}
+
+/**
+ * Instantané canonique d'UN document — la même donnée que celle qui serait signée aujourd'hui.
+ * `null` si le document n'existe plus.
  */
 export async function instantaneDe(
   client: ClientSignature,
   cible: CibleSignature,
   cibleId: string
 ): Promise<Instantane | null> {
-  switch (cible) {
-    case "BULLETIN": {
-      const ligne = await client.payrollLine.findUnique({
-        where: { id: cibleId },
-        include: { payrollRun: true, employee: { select: { matricule: true } } },
-      });
-      return ligne ? instantaneBulletin(ligne) : null;
-    }
-    case "CONTRAT": {
-      const contrat = await client.contrat.findUnique({
-        where: { id: cibleId },
-        include: { employee: { select: { matricule: true } } },
-      });
-      return contrat ? instantaneContrat(contrat) : null;
-    }
-    case "DEMANDE_CONGE": {
-      const demande = await client.leaveRequest.findUnique({
-        where: { id: cibleId },
-        include: { employee: { select: { matricule: true } } },
-      });
-      return demande ? instantaneDemandeConge(demande) : null;
-    }
-  }
+  return (await instantanesDe(client, cible, [cibleId])).get(cibleId) ?? null;
 }
 
 /**
@@ -117,49 +140,76 @@ export async function documentSignable(
 }
 
 /**
- * Lit la signature d'un document et détecte l'obsolescence : recalcule l'instantané ACTUEL du
- * document et le compare à l'empreinte enregistrée à la signature. Si elles diffèrent et que la
- * signature n'était pas déjà marquée, PERSISTE `obsolete: true` (jamais l'inverse : une fois
- * marquée obsolète, seule une nouvelle signature — `enregistrerSignature` — repart à zéro).
+ * Lit les signatures de PLUSIEURS documents d'une même cible et détecte l'obsolescence :
+ * recalcule l'instantané ACTUEL de chaque document et le compare à l'empreinte enregistrée à la
+ * signature. Si elles diffèrent et que la signature n'était pas déjà marquée, PERSISTE
+ * `obsolete: true` (jamais l'inverse : une fois marquée obsolète, seule une nouvelle signature —
+ * `enregistrerSignature` — repart à zéro).
+ *
+ * L'état affiché est donc TOUJOURS dérivé du document lui-même. Aucun booléen « signé » n'est
+ * recopié sur le bulletin ou le contrat : recalculer une paie fait basculer l'écran en
+ * « à resigner » tout seul, sans qu'aucun code de paie n'ait à y penser.
  *
  * Une empreinte vide (`""`) signale une signature reprise par la migration (ancien clic
  * « Lu et approuvé » sans instantané) : on ne compare rien, elle n'est jamais marquée obsolète.
+ *
+ * Les documents jamais signés sont simplement ABSENTS de la carte renvoyée.
  */
-export async function chargerSignature(
+export async function chargerSignatures(
   client: ClientSignature,
   cible: CibleSignature,
-  cibleId: string
-): Promise<SignatureVue | null> {
-  const sig = await client.signatureElectronique.findUnique({
-    where: { cible_cibleId: { cible, cibleId } },
+  cibleIds: string[]
+): Promise<Map<string, SignatureVue>> {
+  const vues = new Map<string, SignatureVue>();
+  if (cibleIds.length === 0) return vues;
+
+  // TROIS requêtes au total, quel que soit le nombre de documents : les signatures, les documents
+  // à re-comparer, et l'éventuel marquage. Un écran qui liste tout l'effectif ne peut donc pas
+  // dégénérer en une requête par ligne — et surtout, il n'a aucune raison de se passer de la
+  // lecture de signature « pour ne pas payer N requêtes ».
+  const sigs = await client.signatureElectronique.findMany({
+    where: { cible, cibleId: { in: cibleIds } },
     include: {
       employee: { select: { nom: true, matricule: true } },
       presentePar: { select: { nom: true } },
     },
   });
-  if (!sig) return null;
+  if (sigs.length === 0) return vues;
 
-  let obsolete = sig.obsolete;
-  if (sig.empreinte !== "" && !sig.obsolete) {
-    const instantane = await instantaneDe(client, cible, cibleId);
-    if (instantane && empreinteDe(instantane) !== sig.empreinte) {
-      await client.signatureElectronique.update({
-        where: { id: sig.id },
-        data: { obsolete: true },
-      });
-      obsolete = true;
-    }
+  const aVerifier = sigs.filter((s) => s.empreinte !== "" && !s.obsolete);
+  const instantanes = await instantanesDe(client, cible, aVerifier.map((s) => s.cibleId));
+  const devenues = aVerifier
+    .filter((s) => {
+      const i = instantanes.get(s.cibleId);
+      return i !== undefined && empreinteDe(i) !== s.empreinte;
+    })
+    .map((s) => s.id);
+  if (devenues.length > 0) {
+    await client.signatureElectronique.updateMany({ where: { id: { in: devenues } }, data: { obsolete: true } });
   }
+  const marquees = new Set(devenues);
 
-  return {
-    traceUrl: sig.traceUrl,
-    signeLe: sig.signeLe,
-    mode: sig.mode,
-    nomSalarie: sig.employee.nom,
-    matricule: sig.employee.matricule,
-    nomPresentePar: sig.presentePar?.nom ?? null,
-    obsolete,
-  };
+  for (const sig of sigs) {
+    vues.set(sig.cibleId, {
+      traceUrl: sig.traceUrl,
+      signeLe: sig.signeLe,
+      mode: sig.mode,
+      nomSalarie: sig.employee.nom,
+      matricule: sig.employee.matricule,
+      nomPresentePar: sig.presentePar?.nom ?? null,
+      obsolete: sig.obsolete || marquees.has(sig.id),
+    });
+  }
+  return vues;
+}
+
+/** La signature d'UN document. `null` s'il n'a jamais été signé. */
+export async function chargerSignature(
+  client: ClientSignature,
+  cible: CibleSignature,
+  cibleId: string
+): Promise<SignatureVue | null> {
+  return (await chargerSignatures(client, cible, [cibleId])).get(cibleId) ?? null;
 }
 
 /**
@@ -297,6 +347,18 @@ function dateHeureKinshasa(d: Date): string {
   return `${p("day")}/${p("month")}/${p("year")} à ${p("hour")} h ${p("minute")}`;
 }
 
+/** Le seul jour, heure de Kinshasa — `JJ/MM/AAAA`. Mêmes précautions que `dateHeureKinshasa`. */
+function jourKinshasa(d: Date): string {
+  const morceaux = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Africa/Kinshasa",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(d);
+  const p = (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
+  return normaliserEspaces(`${p("day")}/${p("month")}/${p("year")}`);
+}
+
 /**
  * LA PHRASE IMPRIMÉE SOUS LE TRAIT — elle dit la vérité sur le geste, jamais une formule passe-partout.
  *
@@ -348,18 +410,49 @@ export const traceAAfficher = (v: SignatureVue): boolean => v.traceUrl !== null 
  *
  * Renvoie `undefined` quand le document n'a jamais été signé (la case reste vide, sans mention).
  */
+export async function signaturesImprimables(
+  client: ClientSignature,
+  cible: CibleSignature,
+  cibleIds: string[]
+): Promise<Map<string, SignatureImprimable>> {
+  const vues = await chargerSignatures(client, cible, cibleIds);
+  const par = new Map<string, SignatureImprimable>();
+  await Promise.all(
+    [...vues].map(async ([cibleId, sig]) => {
+      // `lireFichier` renvoie null si le stockage est indisponible : la mention reste, sans tracé —
+      // jamais une erreur qui empêcherait d'ouvrir le document.
+      const trace = traceAAfficher(sig) && sig.traceUrl ? await lireFichier(sig.traceUrl) : null;
+      par.set(cibleId, { image: trace ? { data: trace, format: "png" } : null, mention: mentionSignature(sig) });
+    })
+  );
+  return par;
+}
+
+/** Ce qu'UN document imprime. `undefined` quand il n'a jamais été signé. */
 export async function signatureImprimable(
   client: ClientSignature,
   cible: CibleSignature,
   cibleId: string
 ): Promise<SignatureImprimable | undefined> {
-  const sig = await chargerSignature(client, cible, cibleId);
-  if (!sig) return undefined;
-  // `lireFichier` renvoie null si le stockage est indisponible : la mention reste, sans tracé —
-  // jamais une erreur qui empêcherait d'ouvrir le document.
-  const trace = traceAAfficher(sig) && sig.traceUrl ? await lireFichier(sig.traceUrl) : null;
-  return {
-    image: trace ? { data: trace, format: "png" } : null,
-    mention: mentionSignature(sig),
-  };
+  return (await signaturesImprimables(client, cible, [cibleId])).get(cibleId);
+}
+
+/**
+ * CE QU'UN ÉCRAN AFFICHE — les trois états, dérivés de la signature relue, jamais d'un champ
+ * recopié sur le document.
+ *
+ * `A_RESIGNER` n'est pas une décision : c'est `chargerSignatures` qui a constaté que l'empreinte
+ * du document ne correspond plus à celle signée. Recalculer une paie suffit donc à faire basculer
+ * l'écran, sans qu'aucun code de paie n'ait à connaître l'existence des signatures.
+ */
+export type EtatSignature = {
+  etat: "A_SIGNER" | "SIGNE" | "A_RESIGNER";
+  /** Date de la signature, heure de Kinshasa, `JJ/MM/AAAA` — `null` quand rien n'est signé. */
+  signeLeTexte: string | null;
+};
+
+export function etatSignature(v: SignatureVue | undefined | null): EtatSignature {
+  if (!v) return { etat: "A_SIGNER", signeLeTexte: null };
+  const signeLeTexte = jourKinshasa(v.signeLe);
+  return { etat: v.obsolete ? "A_RESIGNER" : "SIGNE", signeLeTexte };
 }

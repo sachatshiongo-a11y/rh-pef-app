@@ -8,6 +8,9 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { BTN_VALIDER, BTN_REFUSER } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
 import { ChampsDatesConge } from "@/components/champs-dates-conge";
+import { chargerSignatures, etatSignature } from "@/lib/signature";
+import { BoutonSigner } from "@/components/bouton-signer";
+import { faireSignerDocument } from "../signature-actions";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -64,6 +67,13 @@ export default async function CongesPage({
   const dans30 = new Date(now.getTime() + 30 * 86_400_000);
   const aVenir = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) > now && new Date(d.dateDebut) <= dans30).length;
   const nbApprouve = demandesAll.filter((d) => d.statut === "APPROUVE").length;
+
+  // Signatures des demandes approuvées affichées : UNE requête, jamais une par ligne.
+  const sigConges = await chargerSignatures(
+    prisma,
+    "DEMANDE_CONGE",
+    demandes.filter((d) => d.statut === "APPROUVE").map((d) => d.id)
+  );
 
   return (
     <div>
@@ -249,6 +259,17 @@ export default async function CongesPage({
                     </>
                   )}
                   <TelechargerLien href={`/conges/demande/${d.id}`} className="text-sm text-primary underline">PDF</TelechargerLien>
+                  {peutGerer && d.statut === "APPROUVE" && (
+                    <BoutonSigner
+                      cible="DEMANDE_CONGE"
+                      cibleId={d.id}
+                      nomSalarie={d.employee.nom}
+                      libelleDocument={`${d.type} — ${d.employee.nom}`}
+                      cote="DIRECTION"
+                      action={faireSignerDocument}
+                      {...etatSignature(sigConges.get(d.id))}
+                    />
+                  )}
                   {peutApprouver && (
                     <form action={supprimerConge.bind(null, d.id)} className="inline">
                       <ConfirmSubmitButton

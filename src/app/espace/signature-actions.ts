@@ -14,7 +14,8 @@ import { creerNotification } from "@/lib/notifications";
 function pagesConcernees(cible: CibleSignature): string[] {
   switch (cible) {
     case "BULLETIN":
-      return ["/espace/paie"];
+      // Le bouton de signature vit sur « Mes documents » ; l'aperçu du bulletin, sur « Ma paie ».
+      return ["/espace/paie", "/espace/documents"];
     case "DEMANDE_CONGE":
       return ["/espace/conges"];
     case "CONTRAT":

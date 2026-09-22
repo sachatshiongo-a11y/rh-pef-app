@@ -8,6 +8,9 @@ import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { AccepterContrat } from "./accepter-contrat";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
+import { chargerSignatures, etatSignature } from "@/lib/signature";
+import { BoutonSigner } from "@/components/bouton-signer";
+import { signerMonDocument } from "../signature-actions";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const moisAnnee = (m: number, a: number) => new Date(a, m - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -26,6 +29,14 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
     }),
     prisma.contrat.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" } }),
     prisma.documentEmploye.findMany({ where: { employeeId: s.employeeId }, orderBy: { createdAt: "desc" } }),
+  ]);
+
+  // Les signatures des documents affichés, en DEUX requêtes (une par cible) quel que soit le
+  // nombre de lignes — jamais une requête par bulletin. Ce sont ces lectures qui détectent
+  // qu'un document a bougé depuis sa signature : rien n'est stocké sur le bulletin lui-même.
+  const [sigBulletins, sigContrats] = await Promise.all([
+    chargerSignatures(prisma, "BULLETIN", bulletins.map((b) => b.id)),
+    chargerSignatures(prisma, "CONTRAT", contrats.map((c) => c.id)),
   ]);
 
   return (
@@ -79,6 +90,15 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                   <BulletinViewerButton payrollLineId={b.id} nom={`bulletin ${moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}`} base="/espace/bulletin" />
                   <TelechargerLien href={`/espace/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">$</TelechargerLien>
                   <TelechargerLien href={`/espace/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
+                  <BoutonSigner
+                    cible="BULLETIN"
+                    cibleId={b.id}
+                    nomSalarie={s.nom}
+                    libelleDocument={`Bulletin ${moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}`}
+                    cote="SALARIE"
+                    action={signerMonDocument}
+                    {...etatSignature(sigBulletins.get(b.id))}
+                  />
                 </div>
               </li>
             ))}
@@ -103,6 +123,17 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                 <div className="flex shrink-0 items-center gap-3 text-sm">
                   <ContratViewerButton href={`/espace/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} className="text-primary underline" />
                   {c.statut === "ACTIF" && !c.accepteLe && <AccepterContrat id={c.id} />}
+                  {c.statut === "ACTIF" && (
+                    <BoutonSigner
+                      cible="CONTRAT"
+                      cibleId={c.id}
+                      nomSalarie={s.nom}
+                      libelleDocument={`Contrat ${c.type} · ${c.poste}`}
+                      cote="SALARIE"
+                      action={signerMonDocument}
+                      {...etatSignature(sigContrats.get(c.id))}
+                    />
+                  )}
                   {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-xs text-muted-foreground underline">pièce jointe</a>}
                 </div>
               </li>
