@@ -76,6 +76,25 @@ enum PaymentStatus {
   @@schema("public")
 }
 
+/// Les trois documents qu'un salarié signe (cf. docs/superpowers/specs/2026-09-22-signature-electronique-design.md).
+enum CibleSignature {
+  CONTRAT
+  BULLETIN
+  DEMANDE_CONGE
+
+  @@schema("public")
+}
+
+/// Signature faite SEUL depuis l'espace salarié, ou recueillie sur l'appareil de l'entreprise en
+/// présence d'un responsable. La distinction est IMPRIMÉE sur le document : on n'écrit jamais
+/// « depuis son espace salarié » sur un geste qui a eu lieu sur la tablette du bureau.
+enum ModeSignature {
+  ESPACE_SALARIE
+  PRESENTIEL
+
+  @@schema("public")
+}
+
 enum ModePaiement {
   ESPECES
   VIREMENT
@@ -106,6 +125,7 @@ model User {
   versionsBulletin   VersionBulletin[]
   actionsAudit       JournalAudit[]
   pushSubscriptions  PushSubscription[]
+  signaturesPresentees  SignatureElectronique[] @relation("SignaturePresenteePar")
 
   @@schema("public")
 }
@@ -299,6 +319,7 @@ model Employee {
   compte               User?                  @relation("CompteEmploye")
   famille              MembreFamille[]
   avantagesNature      AvantageNature[]
+  signatures            SignatureElectronique[]
 
   @@schema("public")
 }
@@ -988,6 +1009,38 @@ model VersionBulletin {
 
   @@unique([payrollLineId, numeroVersion])
   @@index([payrollLineId])
+  @@schema("public")
+}
+
+/// Une signature par document. Le tracé est la FORME ; ce qui rend la signature opposable est
+/// enregistré avec lui : qui (employeeId), quand (signeLe, horodatage SERVEUR), et quoi
+/// (`donnees` + `empreinte`). Un document modifié après coup passe `obsolete` — la signature
+/// n'est jamais effacée.
+model SignatureElectronique {
+  id            String         @id @default(uuid())
+  cible         CibleSignature
+  cibleId       String // id du Contrat / PayrollLine / LeaveRequest
+  employeeId    String
+  employee      Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// PNG du tracé (bucket privé, `/fichiers/signatures/<cible>/<cibleId>.png`).
+  /// NULL = contrat accepté au CLIC avant le 2026-09-22 : il n'y a jamais eu de tracé.
+  traceUrl      String?
+  signeLe       DateTime       @default(now())
+  mode          ModeSignature
+  /// Compte Direction qui a présenté l'appareil — obligatoire en PRESENTIEL, null sinon.
+  presenteParId String?
+  presentePar   User?          @relation("SignaturePresenteePar", fields: [presenteParId], references: [id])
+
+  /// Instantané canonique des données signées, et son SHA-256.
+  donnees       Json
+  empreinte     String
+  obsolete      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([cible, cibleId])
+  @@index([employeeId])
   @@schema("public")
 }
 
