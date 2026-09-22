@@ -1,21 +1,34 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  BUDGET_PIXELS_TOTAL,
+  COTE_PIXELS_MAX,
+  EVENEMENTS_FIN_POINTEUR,
   MessageEtatDocument,
   VisionneuseDocument,
   ZOOM_DOUBLE_TAP,
   ZOOM_MAX,
   ZOOM_MIN,
+  avancerGeste,
   bornerZoom,
+  budgetSurfaceParPage,
+  commencerGeste,
   decisionFermetureGeste,
   dimensionsCanvasPdf,
   distanceEntrePointeurs,
+  echelleProvisoire,
   estDoubleTap,
   estTap,
   glissementAmorti,
   modeAffichageDocument,
+  modeGesteAuContact,
+  phraseActions,
+  poserPolyfillWithResolvers,
+  positionAncree,
+  recupererDocument,
   toucheActionZone,
+  translationPince,
   zoomApresDoubleTap,
   zoomPince,
 } from "./visionneuse-document";
@@ -116,7 +129,7 @@ describe("dimensionsCanvasPdf — netteté sur un écran à haute densité", () 
   // ───────────────────────────────────────────────────────────────────────────
   // LE PLAFOND : au-delà d'une certaine surface, iOS rend un canvas BLANC — soit exactement le
   // symptôme que cette visionneuse existe pour supprimer. FALSIFIÉ : en retirant la réduction
-  // d'échelle, le test ci-dessous monte à 8775 px de haut.
+  // d'échelle, le test ci-dessous monte à 4967 px de haut.
   // ───────────────────────────────────────────────────────────────────────────
   it("plafonne le côté physique du canvas, en gardant la taille CSS intacte", () => {
     // iPhone Pro (DPR 3), zone de 390 px, zoomé ×3, page A4 en points (595 × 842).
@@ -289,5 +302,254 @@ describe("VisionneuseDocument — plus jamais d'<iframe>", () => {
     expect(html).not.toMatch(/<object/);
     // Et il annonce ce qu'il fait, plutôt que de laisser un cadre muet.
     expect(html).toMatch(/Chargement du document/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RELECTURE DU 2026-09-22 — LES CINQ DÉFAUTS TROUVÉS, ET CE QUI LES ATTRAPE.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("1. le défilement ne se fige plus au premier geste, en haut du document", () => {
+  it("le mode du geste est décidé au CONTACT, sur le scrollTop réel et le zoom du moment", () => {
+    expect(modeGesteAuContact(1, 0)).toBe("nous");
+    expect(modeGesteAuContact(1, 8), "on a déjà défilé : le natif garde la main").toBe("navigateur");
+    expect(modeGesteAuContact(2.5, 0), "zoomé : le glissement déplace la page").toBe("navigateur");
+  });
+
+  it("BLOQUANT — le doigt ne se bloque plus après ~8 px", () => {
+    // LE DÉFAUT : la décision était reprise à chaque mouvement, à partir de l'état React « en
+    // haut ». Défiler à la main faisait aussitôt passer « en haut » à faux, donc le mouvement
+    // suivant ne faisait plus rien : le doigt avançait d'environ 8 px puis se bloquait jusqu'à ce
+    // qu'on le lève — au tout premier geste de chaque consultation.
+    // FALSIFIÉ : en faisant recalculer le mode dans `avancerGeste` à partir de la position
+    // courante (`modeGesteAuContact(geste.zoomDepart, geste.scrollTopDepart - dy)`), seule la
+    // première étape passe et les trois suivantes retombent sur « rien ».
+    const geste = commencerGeste({ x: 100, y: 400, t: 0, zoom: 1, scrollTop: 0 });
+    expect(geste.mode).toBe("nous");
+
+    const parcours = [-8, -40, -120, -300].map((dy) => avancerGeste(geste, dy, 1));
+    expect(parcours).toEqual([
+      { type: "defiler", scrollTop: 8 },
+      { type: "defiler", scrollTop: 40 },
+      { type: "defiler", scrollTop: 120 },
+      { type: "defiler", scrollTop: 300 },
+    ]);
+  });
+
+  it("vers le bas, en haut du document : le panneau suit le doigt (c'est la fermeture qui s'arme)", () => {
+    const geste = commencerGeste({ x: 100, y: 400, t: 0, zoom: 1, scrollTop: 0 });
+    expect(avancerGeste(geste, 100, 1)).toEqual({ type: "suivreLeDoigt", translation: 60 });
+  });
+
+  it("un geste commencé ailleurs qu'en haut, ou zoomé, laisse tout au navigateur", () => {
+    const enCours = commencerGeste({ x: 100, y: 400, t: 0, zoom: 1, scrollTop: 340 });
+    expect(avancerGeste(enCours, -40, 1)).toEqual({ type: "rien" });
+    const zoome = commencerGeste({ x: 100, y: 400, t: 0, zoom: 2.5, scrollTop: 0 });
+    expect(avancerGeste(zoome, -40, 1)).toEqual({ type: "rien" });
+  });
+
+  it("un deuxième doigt suspend immédiatement le geste à un doigt", () => {
+    const geste = commencerGeste({ x: 100, y: 400, t: 0, zoom: 1, scrollTop: 0 });
+    expect(avancerGeste(geste, -40, 2)).toEqual({ type: "rien" });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. LE PLAFOND PROTÈGE LA SOMME DES PAGES, PAS UNE PAGE. Toutes les pages sont dessinées ET
+// conservées à la fois ; iOS purge les surfaces et les rend BLANCHES quand le total est trop gros.
+// FALSIFIÉ : en retirant la réduction par la surface dans `dimensionsCanvasPdf`, le premier test
+// ci-dessous monte à ≈ 178 Mo ; en remplaçant `budgetSurfaceParPage` par le budget total (donc un
+// plafond PAR PAGE au lieu du cumul), il monte à ≈ 192 Mo. Les deux sont bien au-dessus du budget.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("2. le budget de mémoire vaut pour TOUTES les pages conservées", () => {
+  /** Le cas mesuré par la relecture : contrat de 4 pages, iPhone Pro (DPR 3), zone 390 px,
+   *  double-tapé (×2,5) — c'est-à-dire un geste ordinaire sur un document ordinaire. */
+  function pixelsCumules(nombrePages: number, surfaceParPage: number): number {
+    let total = 0;
+    for (let i = 0; i < nombrePages; i += 1) {
+      const d = dimensionsCanvasPdf((390 - 16) * 2.5, 595, 842, 3, COTE_PIXELS_MAX, surfaceParPage);
+      total += d.largeurPixels * d.hauteurPixels;
+    }
+    return total;
+  }
+
+  it("un contrat de 4 pages double-tapé reste dans le budget", () => {
+    const total = pixelsCumules(4, budgetSurfaceParPage(4));
+    expect(total).toBeLessThanOrEqual(BUDGET_PIXELS_TOTAL * 1.02);
+    // 4 octets par pixel (RGBA) : environ 48 Mo, contre les ≈ 180 Mo d'avant ce plafond.
+    expect(total * 4).toBeLessThan(55_000_000);
+  });
+
+  it("le budget se divise bien par le nombre de pages", () => {
+    expect(budgetSurfaceParPage(1)).toBe(BUDGET_PIXELS_TOTAL);
+    expect(budgetSurfaceParPage(4)).toBe(BUDGET_PIXELS_TOTAL / 4);
+    expect(budgetSurfaceParPage(0), "un document sans page ne divise jamais par zéro").toBe(BUDGET_PIXELS_TOTAL);
+  });
+
+  it("un document long est dessiné moins fin, mais AUCUNE page n'est blanche", () => {
+    // 12 pages : chaque page reçoit un douzième du budget, et garde une taille CSS intacte.
+    const d = dimensionsCanvasPdf((390 - 16) * 2.5, 595, 842, 3, COTE_PIXELS_MAX, budgetSurfaceParPage(12));
+    expect(d.largeurPixels).toBeGreaterThan(0);
+    expect(d.hauteurPixels).toBeGreaterThan(0);
+    expect(d.largeurPixels * d.hauteurPixels).toBeLessThanOrEqual(budgetSurfaceParPage(12) * 1.02);
+    expect(d.largeurCss).toBe(935); // la place occupée à l'écran ne dépend pas du budget
+  });
+
+  it("sans ce budget, le cumul mesuré dépassait 150 Mo — c'est le défaut, écrit noir sur blanc", () => {
+    const sansPlafondDeSurface = pixelsCumules(4, Number.POSITIVE_INFINITY);
+    expect(sansPlafondDeSurface * 4).toBeGreaterThan(150_000_000);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. LE PINCEMENT SUIT LES DOIGTS. « À la manière de l'application d'aperçu sur iPhone » : une
+// page qui ne bouge pas pendant tout le geste puis saute 90 ms après ne tient pas la promesse.
+// FALSIFIÉ : en faisant renvoyer 1 à `echelleProvisoire`, la page ne bouge plus du geste et les
+// deux premiers tests tombent ; en faisant renvoyer `scrollDepart` à `positionAncree`, on perd la
+// ligne lue et le test d'ancrage tombe.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("3. pincer donne un retour visuel immédiat, et n'égare pas la ligne lue", () => {
+  it("l'échelle provisoire suit les doigts pendant le geste", () => {
+    expect(echelleProvisoire(2.5, 1)).toBe(2.5);
+    expect(echelleProvisoire(2, 4)).toBe(0.5);
+  });
+
+  it("elle ne vaut 1 que si le zoom n'a pas bougé — sinon la page resterait figée", () => {
+    expect(echelleProvisoire(2, 2)).toBe(1);
+    expect(echelleProvisoire(2.5, 1)).not.toBe(1);
+    expect(echelleProvisoire(Number.NaN, 1)).toBe(1);
+    expect(echelleProvisoire(2, 0)).toBe(1);
+  });
+
+  it("le point sous les doigts reste sous les doigts après le zoom", () => {
+    // On lit une ligne à 300 px du haut de la zone, déjà 200 px plus bas dans le document.
+    // Ce point est à 500 px du haut du contenu ; après un ×2 il est à 1000, donc le défilement
+    // doit valoir 1000 − 300 = 700 pour le laisser exactement où il était.
+    expect(positionAncree(2, 200, 300, 300)).toBe(700);
+    // Les doigts se sont aussi déplacés vers le haut pendant le pincement : on suit.
+    expect(positionAncree(2, 200, 300, 100)).toBe(900);
+  });
+
+  it("le défilement ne devient jamais négatif", () => {
+    expect(positionAncree(0.5, 0, 100, 400)).toBe(0);
+  });
+
+  it("la translation du geste place le contenu exactement là où le défilement le mettra ensuite", () => {
+    // La cohérence entre le PENDANT (translation) et l'APRÈS (défilement) : c'est elle qui évite
+    // le saut au relâchement.
+    const [rapport, scroll, ancre] = [2, 200, 300];
+    expect(translationPince(rapport, scroll, ancre, ancre)).toBe(scroll - positionAncree(rapport, scroll, ancre, ancre));
+  });
+});
+
+describe("4. le contrôle du worker au moment du build", () => {
+  it("`prebuild` exige le worker, `postinstall` reste indulgent", async () => {
+    const { decisionCopie } = await import("../../scripts/copier-worker-pdfjs.mjs");
+    // Installation incomplète : on ne casse pas `npm install` pour ça.
+    expect(decisionCopie({ source: null, exiger: false })).toMatchObject({ action: "abandonner", code: 0 });
+    // Build : c'est le dernier endroit où échouer est utile. Sans ce 1, un bundle SANS worker
+    // partirait en production et la visionneuse serait cassée sur les téléphones.
+    // FALSIFIÉ : en renvoyant toujours 0, ce test tombe.
+    expect(decisionCopie({ source: null, exiger: true })).toMatchObject({ action: "abandonner", code: 1 });
+    expect(decisionCopie({ source: "/chemin/pdf.worker.min.mjs", exiger: true })).toMatchObject({
+      action: "copier",
+      code: 0,
+    });
+  });
+
+  it("le dépôt appelle bien le script en mode exigeant avant le build", async () => {
+    const pkg = await import("../../package.json");
+    expect(pkg.default.scripts.prebuild).toContain("--exiger");
+    expect(pkg.default.scripts.postinstall).not.toContain("--exiger");
+  });
+});
+
+describe("5. les petits pièges qui cassent tout en silence", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("une fin de pointeur PERDUE est écoutée comme les autres", () => {
+    // Sans `lostpointercapture`, un `pointerup` tactile égaré laisse une entrée fantôme : tout
+    // toucher ultérieur compte pour deux doigts, le zoom saute et « glisser pour refermer » ne
+    // s'arme plus jamais. Le composant boucle sur CETTE liste : en retirer un le débranche.
+    // FALSIFIÉ : en retirant "lostpointercapture" de la constante, ce test tombe.
+    expect([...EVENEMENTS_FIN_POINTEUR]).toEqual(["pointerup", "pointercancel", "lostpointercapture"]);
+  });
+
+  it("un réseau qui ne répond jamais finit par ÉCHOUER, au lieu de charger indéfiniment", { timeout: 2000 }, async () => {
+    // FALSIFIÉ : en retirant l'AbortController de `recupererDocument`, la promesse ne se règle
+    // jamais et ce test tombe en dépassement de délai.
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) =>
+      new Promise((_resolu, rejete) => {
+        init.signal?.addEventListener("abort", () => rejete(new Error("annulé")));
+      }),
+    );
+    await expect(recupererDocument("/paie/bulletin/abc", 30)).rejects.toThrow();
+  });
+
+  it("une réponse en erreur ne passe jamais pour un document", async () => {
+    vi.stubGlobal("fetch", async () => new Response("interdit", { status: 403 }));
+    await expect(recupererDocument("/paie/bulletin/abc", 500)).rejects.toThrow(/403/);
+  });
+
+  it("une réponse correcte rend le type RÉEL et les octets, en une seule requête", async () => {
+    let appels = 0;
+    vi.stubGlobal("fetch", async () => {
+      appels += 1;
+      return new Response(new Blob(["%PDF-1.7"]), { headers: { "Content-Type": "application/pdf" } });
+    });
+    const { mime, blob } = await recupererDocument("/paie/bulletin/abc", 500);
+    expect(mime).toBe("application/pdf");
+    expect(blob.size).toBeGreaterThan(0);
+    // Ces routes FABRIQUENT le PDF à chaque appel : deux requêtes le produiraient deux fois.
+    expect(appels).toBe(1);
+  });
+
+  it("`Promise.withResolvers` est posé quand il manque, et jamais écrasé quand il existe", async () => {
+    // pdfjs 5.x s'en sert 31 fois, et Next ne transpile pas `node_modules` : sans ce polyfill,
+    // AUCUN document ne s'affiche sous iOS 17.4.
+    // FALSIFIÉ : en faisant renvoyer `false` sans rien poser, les deux premières attentes tombent.
+    const vieuxMoteur: { withResolvers?: unknown } = {};
+    expect(poserPolyfillWithResolvers(vieuxMoteur)).toBe(true);
+    expect(typeof vieuxMoteur.withResolvers).toBe("function");
+
+    const pose = vieuxMoteur.withResolvers as <T>() => {
+      promise: Promise<T>;
+      resolve: (v: T) => void;
+      reject: (r?: unknown) => void;
+    };
+    const { promise, resolve } = pose<string>();
+    resolve("vu");
+    await expect(promise).resolves.toBe("vu");
+
+    const origine = () => ({});
+    const moteurRecent = { withResolvers: origine };
+    expect(poserPolyfillWithResolvers(moteurRecent)).toBe(false);
+    expect(moteurRecent.withResolvers, "un moteur récent garde SA version").toBe(origine);
+  });
+
+  it("le message d'échec ne cite que les boutons RÉELLEMENT présents chez l'appelant", () => {
+    // FALSIFIÉ : en réécrivant la phrase en dur (« Télécharger » ou « Nouvel onglet »), la
+    // première attente tombe — on enverrait l'utilisateur de l'aperçu d'ordinateur vers un bouton
+    // qui n'existe pas dans sa barre.
+    const inline = renderToStaticMarkup(
+      createElement(MessageEtatDocument, { phase: "echec", actions: ["Télécharger", "Agrandir"] }),
+    );
+    expect(inline).not.toMatch(/Nouvel onglet/);
+    expect(inline).toMatch(/Agrandir/);
+
+    const pleinEcran = renderToStaticMarkup(
+      createElement(MessageEtatDocument, { phase: "echec", actions: ["Télécharger", "Nouvel onglet"] }),
+    );
+    expect(pleinEcran).toMatch(/Nouvel onglet/);
+  });
+
+  it("la phrase des actions se lit comme une phrase", () => {
+    expect(phraseActions(["Télécharger"])).toBe("« Télécharger »");
+    expect(phraseActions(["Télécharger", "Agrandir"])).toBe("« Télécharger » ou « Agrandir »");
+    expect(phraseActions(["A", "B", "C"])).toBe("« A », « B » ou « C »");
+    expect(phraseActions([]), "jamais une phrase bancale").toBe("les boutons ci-dessus");
+    expect(phraseActions(["  "])).toBe("les boutons ci-dessus");
   });
 });

@@ -222,7 +222,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 ici, donc ni `onFermer` ni panneau à faire suivre : pincer et double-taper marchent,
                 « glisser pour refermer » n'aurait rien à refermer. */}
             <div className="hidden h-[560px] w-full lg:flex lg:h-[82vh]">
-              <VisionneuseDocument key={src} src={src} titre={`Bulletin — ${sel.nom}`} />
+              <VisionneuseDocument key={src} src={src} titre={`Bulletin — ${sel.nom}`} actions={["Télécharger", "Agrandir"]} />
             </div>
             <div className="flex flex-col items-center gap-3 px-4 py-6 text-center lg:hidden">
               <p className="text-sm text-muted-foreground">
@@ -305,6 +305,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 key={`grand-${src}`}
                 src={src}
                 titre={`Bulletin — ${sel.nom}`}
+                actions={["Télécharger", "Nouvel onglet"]}
                 onFermer={() => setAgrandi(false)}
                 panneauRef={panneauRef}
                 className="rounded-b-lg"

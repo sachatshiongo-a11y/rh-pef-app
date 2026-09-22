@@ -54,6 +54,7 @@ export function ContratViewerButton({ href, titre, libelle = "Voir le contrat", 
                 key={href}
                 src={href}
                 titre={titre}
+                actions={["Télécharger", "Nouvel onglet"]}
                 onFermer={() => setOuvert(false)}
                 panneauRef={panneauRef}
                 className="rounded-b-lg"

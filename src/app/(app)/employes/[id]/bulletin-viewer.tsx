@@ -86,6 +86,7 @@ export function BulletinViewerButton({ payrollLineId, nom, base = "/paie/bulleti
                 key={src}
                 src={src}
                 titre={`Bulletin — ${nom}`}
+                actions={["Télécharger", "Nouvel onglet"]}
                 onFermer={() => setOuvert(false)}
                 panneauRef={panneauRef}
                 className="rounded-b-lg"
