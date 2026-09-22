@@ -17,6 +17,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { formaterUSD } from "@/lib/montant";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 /** D'où vient le plafond retenu — repris tel quel dans les messages affichés à l'utilisateur. */
 export type SourcePlafond = "NET_MOIS_PRECEDENT" | "SALAIRE_FICHE";
@@ -37,7 +38,9 @@ export type PlafondAcompte = {
 const EPSILON_USD = 0.005;
 
 export function calculerPlafondAcompte(entrees: {
-  /** Net du bulletin du mois précédent, ou null si aucun bulletin (embauche récente, reprise). */
+  /** SALAIRE NET (hors transport) du bulletin du mois précédent, ou null si aucun bulletin
+   * (embauche récente, reprise) — une avance se prend sur le salaire, pas sur un remboursement de
+   * frais. */
   netMoisPrecedentUSD: number | null;
   /** Salaire mensuel de la fiche employé — filet de sécurité quand il n'y a pas de bulletin. */
   salaireFicheUSD: number;
@@ -144,7 +147,7 @@ export async function chargerPlafondAcompte(
         employeeId: params.employeeId,
         payrollRun: { mois: precedent.mois, annee: precedent.annee },
       },
-      select: { salNetUSD: true },
+      select: { salNetUSD: true, transportUSD: true },
     }),
     client.acompteSalaire.findMany({
       where: {
@@ -159,7 +162,7 @@ export async function chargerPlafondAcompte(
   ]);
 
   return calculerPlafondAcompte({
-    netMoisPrecedentUSD: lignePrecedente ? Number(lignePrecedente.salNetUSD) : null,
+    netMoisPrecedentUSD: lignePrecedente ? salaireNetUSD(lignePrecedente) : null,
     salaireFicheUSD: employe ? Number(employe.salaireMensuel) : 0,
     acomptesEngagesUSD: engages.map((a) => Number(a.montantUSD)),
   });

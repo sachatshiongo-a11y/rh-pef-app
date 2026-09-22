@@ -4,6 +4,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatCDF } from "./theme";
 import { formaterNombre } from "@/lib/montant";
+import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
 
 registerPdfFonts();
 
@@ -62,13 +63,13 @@ export function AttestationPaieDocument({
   const periode = moisAnnee(run.mois, run.annee);
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
 
-  const salNetUSD = Number(ligne.salNetUSD);
+  // Salaire net (hors transport) et total versé : `lib/paie-net`, seule soustraction du dépôt —
+  // l'attestation la faisait localement depuis le 2026-07-22 ; le bulletin l'a rejointe le 2026-09-22.
+  const salNetUSD = totalVerseUSD(ligne);
   const salNetCDF = Number(ligne.salNetCDF);
   const taux = Number(run.tauxChangeUtilise) || 1;
   const transportUSD = Number(ligne.transportUSD);
-  // Le net perçu inclut le transport : on isole le net « salaire seul » pour l'afficher à côté du
-  // transport, sans double compter (2026-07-22, demande client : « juste le net et le transport »).
-  const salaireNetHorsTransportUSD = salNetUSD - transportUSD;
+  const salaireNetHorsTransportUSD = salaireNetUSD(ligne);
   const avecTransport = transportUSD > 0;
 
   return (

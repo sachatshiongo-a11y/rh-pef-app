@@ -66,6 +66,31 @@ describe("chargerPlafondAcompte — quelle référence est servie", () => {
     expect(p.plafondUSD).toBe(310);
   });
 
+  it("le plafond est le SALAIRE NET du mois précédent — le transport n'en fait pas partie", async () => {
+    // Même patron que le test précédent : une ligne du mois précédent avec salNetUSD 368.5 et
+    // transportUSD 114.78 → plafond 253.72, pas 368.5.
+    const emp = await prisma.employee.create({
+      data: { ...baseEmp, matricule: "AC06-PEF", nom: "Transport", salaireMensuel: 400 },
+    });
+    const run = await prisma.payrollRun.upsert({
+      where: { mois_annee: { mois: 7, annee: 2026 } },
+      create: { mois: 7, annee: 2026, tauxChangeUtilise: 2800 },
+      update: {},
+    });
+    await prisma.payrollLine.create({
+      data: {
+        payrollRunId: run.id, employeeId: emp.id,
+        salBrutUSD: 368.5, cnssSalarieUSD: 0, netImposableUSD: 368.5, iprCalculeUSD: 0,
+        allocFamilialeUSD: 0, salNetUSD: 368.5, salNetCDF: 368.5 * 2800, transportUSD: 114.78,
+        cnssPatronalUSD: 0, coutEmployeurUSD: 368.5, coutEmployeurCDF: 368.5 * 2800,
+      },
+    });
+
+    const p = await chargerPlafondAcompte(prisma, { employeeId: emp.id, mois: 8, annee: 2026 });
+    expect(p.source).toBe("NET_MOIS_PRECEDENT");
+    expect(p.plafondUSD).toBeCloseTo(253.72, 2);
+  });
+
   it("remonte à décembre de l'année précédente pour un acompte de janvier", async () => {
     // La bascule d'année est le cas où un décalage de mois passe inaperçu : sans elle, janvier
     // ne trouverait aucun bulletin et retomberait à tort sur le salaire de la fiche.
