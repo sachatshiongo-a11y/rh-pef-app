@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "./garde";
 import { chargerParametresPaie } from "@/lib/config";
 import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
-import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
+import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 import { lundiDe } from "@/lib/dates-fr";
 import { Icone } from "@/components/icones";
 
@@ -32,15 +32,15 @@ export default async function EspaceAccueil() {
   const anciennete = ancienneteEnMois(new Date(emp.dateEmbauche), now);
   const congesAcquis = typeSansConges(emp.contrat) ? 0 : calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
   const debutAnnee = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-  const [congesAnnee, tauxParType] = await Promise.all([
+  const [congesAnnee, compteParType] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { employeeId: s.employeeId, statut: "APPROUVE", dateDebut: { gte: debutAnnee } },
       select: { type: true, nbJours: true },
     }),
-    chargerTauxParTypeConge(),
+    chargerCompteDansSoldeParType(),
   ]);
   const congesPris = congesAnnee
-    .filter((l) => congeDeductibleDuSolde(l.type, tauxParType.get(l.type)))
+    .filter((l) => congeDeductibleDuSolde(compteParType.get(l.type)))
     .reduce((a, l) => a + Number(l.nbJours), 0);
   const solde = Math.round((congesAcquis - congesPris) * 10) / 10;
 

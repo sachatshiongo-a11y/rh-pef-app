@@ -23,10 +23,10 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
   const [emp, demandes, typesConges, feriesRows] = await Promise.all([
     prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { contrat: true, dateEmbauche: true } }),
     prisma.leaveRequest.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" }, take: 60 }),
-    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true, tauxPct: true } }),
+    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true, compteDansSolde: true } }),
     prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
-  const tauxParType = new Map(typesConges.map((t) => [t.nom, t.tauxPct]));
+  const compteParType = new Map(typesConges.map((t) => [t.nom, t.compteDansSolde]));
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
   const now = new Date();
@@ -38,7 +38,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
       (l) =>
         l.statut === "APPROUVE" &&
         new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
+        congeDeductibleDuSolde(compteParType.get(l.type))
     )
     .reduce((a, l) => a + Number(l.nbJours), 0);
   const solde = Math.round((congesAcquis - congesPris) * 10) / 10;

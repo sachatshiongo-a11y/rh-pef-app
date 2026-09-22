@@ -83,11 +83,11 @@ export function typeSansConges(type: string | null | undefined): boolean {
 }
 
 /**
- * `TypeConge.tauxPct` par nom, pour résoudre la déductibilité d'une demande de congé
+ * `TypeConge.compteDansSolde` par nom, pour résoudre la déductibilité d'une demande de congé
  * (`congeDeductibleDuSolde`, dans `@/lib/payroll`) : `LeaveRequest.type` est un texte libre (pas de
- * FK stricte vers `TypeConge`, cf. schéma), donc on résout le taux par nom au moment du calcul.
+ * FK stricte vers `TypeConge`, cf. schéma), donc on résout la case par nom au moment du calcul.
  */
-export async function chargerTauxParTypeConge(): Promise<Map<string, number | null>> {
-  const types = await prisma.typeConge.findMany({ select: { nom: true, tauxPct: true } });
-  return new Map(types.map((t) => [t.nom, t.tauxPct]));
+export async function chargerCompteDansSoldeParType(): Promise<Map<string, boolean>> {
+  const types = await prisma.typeConge.findMany({ select: { nom: true, compteDansSolde: true } });
+  return new Map(types.map((t) => [t.nom, t.compteDansSolde]));
 }
