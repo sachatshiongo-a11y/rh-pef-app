@@ -43,7 +43,7 @@ vi.mock("@/lib/notifications", () => ({
 }));
 
 const { signerMonDocument } = await import("./signature-actions");
-const { accepterMonContrat } = await import("./actions");
+const { accepterMonContrat, repondreEchange } = await import("./actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -200,6 +200,44 @@ describe("garde espaceEmployeActif — un appel DIRECT à l'action est bloqué, 
 
       const contrat = await prisma.contrat.findUnique({ where: { id: contratActifId }, select: { accepteLe: true } });
       expect(contrat?.accepteLe).toBeNull();
+    } finally {
+      F.espaceEmployeActif = true;
+    }
+  });
+
+  it("espace désactivé → repondreEchange est refusé, l'échange n'est PAS appliqué (planning inchangé)", async () => {
+    // Échange prêt à être finalisé dès la réponse du collègue (Direction déjà APPROUVE) : si la
+    // garde ne bloquait pas, accepter permuterait immédiatement les deux créneaux du planning.
+    const shiftA = await prisma.shift.create({ data: { nom: "Matin", dureeHeures: 8, ordre: 0 } });
+    const shiftB = await prisma.shift.create({ data: { nom: "Soir", dureeHeures: 8, ordre: 1 } });
+    const date = new Date("2026-09-01T00:00:00.000Z");
+
+    await prisma.planningCreneau.create({ data: { employeeId: collegueId, date, shiftId: shiftA.id } }); // demandeur (Salarié B)
+    await prisma.planningCreneau.create({ data: { employeeId: empId, date, shiftId: shiftB.id } }); // collègue connecté (Salarié A)
+
+    const ech = await prisma.echangeCreneau.create({
+      data: {
+        demandeurId: collegueId, demandeurDate: date, demandeurShiftId: shiftA.id,
+        collegueId: empId, collegueDate: date, collegueShiftId: shiftB.id,
+        statut: "EN_ATTENTE", reponseDirection: "APPROUVE",
+      },
+    });
+
+    F.espaceEmployeActif = false;
+    try {
+      await expect(repondreEchange(ech.id, true)).rejects.toThrow();
+
+      const relu = await prisma.echangeCreneau.findUnique({ where: { id: ech.id } });
+      expect(relu?.statut).toBe("EN_ATTENTE");
+      expect(relu?.reponseCollegue).toBe("EN_ATTENTE");
+
+      // Le planning n'a pas bougé : aucun des deux salariés n'a récupéré le créneau de l'autre.
+      const [creneauDemandeur, creneauCollegue] = await Promise.all([
+        prisma.planningCreneau.findUnique({ where: { employeeId_date: { employeeId: collegueId, date } } }),
+        prisma.planningCreneau.findUnique({ where: { employeeId_date: { employeeId: empId, date } } }),
+      ]);
+      expect(creneauDemandeur?.shiftId).toBe(shiftA.id);
+      expect(creneauCollegue?.shiftId).toBe(shiftB.id);
     } finally {
       F.espaceEmployeActif = true;
     }
