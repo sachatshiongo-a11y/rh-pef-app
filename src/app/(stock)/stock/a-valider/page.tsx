@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { validerBonCommande } from "../commandes/actions";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
 
 export default async function AValiderPage() {
   const user = await verifySession();
@@ -36,7 +36,7 @@ export default async function AValiderPage() {
                 <span className="text-sm text-muted-foreground"> · {bc.fournisseur?.nom ?? "—"} · {bc._count.lignes} ligne(s) · {usd(bc.totalUSD)}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Link href={`/stock/commandes/${bc.id}`} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Voir l&apos;aperçu</Link>
+                <Link href={`/stock/commandes/${bc.id}`} className={CLASSES_NEUTRE}>Voir l&apos;aperçu</Link>
                 {estDirection ? (
                   <form action={validerBonCommande.bind(null, bc.id)}>
                     <BoutonValider type="submit" />

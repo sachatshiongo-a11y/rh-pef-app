@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "./actions";
 import { StatusActions } from "./status-actions";
-import { BoutonValider } from "@/components/action-buttons";
+import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -124,9 +124,9 @@ export function PaieBulk({
                 </select>
                 <BoutonValider onClick={() => lancer("PAYE")} disabled={isPending}>Marquer payé</BoutonValider>
               </span>
-              <button onClick={() => lancer("PAS_VALIDE")} disabled={isPending} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">
+              <BoutonNeutre onClick={() => lancer("PAS_VALIDE")} disabled={isPending}>
                 ↩ Rouvrir
-              </button>
+              </BoutonNeutre>
             </>
           )}
           <button onClick={() => setSelection(new Set())} className="ml-auto text-xs text-muted-foreground underline">

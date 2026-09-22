@@ -15,6 +15,20 @@ import type { ButtonHTMLAttributes } from "react";
 const BASE_CLASSES =
   "inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50";
 
+// Chaînes de classes équivalentes aux composants ci-dessous, pour les cas où l'élément ne PEUT
+// PAS être un <button> : un <Link> next/link (« Voir l'aperçu », « Modifier le brouillon » —
+// ce sont des navigations : en faire des <button> ferait perdre l'ouverture dans un nouvel
+// onglet et le préchargement), ou un <button> brut composé avec un <select> dans le même
+// <form> (status-actions.tsx). Même géométrie que BASE_CLASSES : c'est la norme, et une barre
+// d'actions qui contient un bouton de la famille doit être homogène jusqu'au dernier élément.
+// À réserver aux étapes intermédiaires qui ne sont ni une approbation ni un refus — pour
+// approuver/refuser/valider, toujours un composant ci-dessous.
+export const CLASSES_NEUTRE = `${BASE_CLASSES} border hover:bg-accent`;
+export const CLASSES_DANGER = `${BASE_CLASSES} border border-destructive/40 text-destructive hover:bg-destructive/10`;
+
+/** Alias historique de CLASSES_NEUTRE (déjà importé ailleurs). */
+export const BTN_NEUTRE = CLASSES_NEUTRE;
+
 type BoutonActionProps = ButtonHTMLAttributes<HTMLButtonElement>;
 
 function fusionner(...classes: (string | undefined)[]) {
@@ -69,20 +83,29 @@ export function BoutonValider({ children, className, ...props }: BoutonActionPro
 
 /**
  * Bouton neutre — pour une étape intermédiaire qui n'est ni une approbation ni un refus
- * (ex. « Rouvrir » un bulletin déjà validé). Pas d'icône imposée : le libellé la porte au
- * besoin (« ↩ Rouvrir »).
+ * (ex. « Rouvrir » un bulletin déjà validé, « Désélectionner »). Pas d'icône imposée : le
+ * libellé la porte au besoin (« ↩ Rouvrir »).
  */
 export function BoutonNeutre({ children, className, ...props }: BoutonActionProps) {
   return (
-    <button {...props} className={fusionner(BASE_CLASSES, "border hover:bg-accent", className)}>
+    <button {...props} className={fusionner(CLASSES_NEUTRE, className)}>
       {children}
     </button>
   );
 }
 
-// Chaîne de classes équivalente à BoutonNeutre, pour les rares cas où un <button> neutre
-// doit rester un élément brut (ex. composition avec un <select> dans le même <form>, comme
-// dans status-actions.tsx). À réserver aux étapes intermédiaires qui ne sont ni une
-// approbation ni un refus — pour approuver/refuser/valider, toujours un composant ci-dessus.
-export const BTN_NEUTRE =
-  "inline-flex items-center gap-1 rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent";
+/**
+ * Bouton destructif — une SUPPRESSION, pas un refus : le libellé « Refuser » mentirait, donc
+ * il a sa propre entrée dans la famille. Contour rouge (jamais un aplat : un aplat rouge est
+ * réservé au refus d'une demande, qui pèse autant qu'une approbation), mais MÊME GÉOMÉTRIE
+ * que les autres — c'est tout l'objet de son existence : il vit à côté d'un BoutonValider
+ * dans une barre d'actions groupées, et une barre d'actions doit être homogène.
+ * Couleurs reprises telles quelles de l'existant, seule la géométrie est normalisée.
+ */
+export function BoutonDanger({ children, className, ...props }: BoutonActionProps) {
+  return (
+    <button {...props} className={fusionner(CLASSES_DANGER, className)}>
+      {children}
+    </button>
+  );
+}

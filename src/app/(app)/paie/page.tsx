@@ -293,8 +293,8 @@ export default async function PaiePage({
           {estAdmin && run && nbPasValide > 0 && taches.length === 0 && (
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
+                variante="valider"
                 message={`Clôturer la paie de ${periode} ? Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».`}
-                className="rounded-md bg-success px-4 py-2 text-sm font-medium text-white hover:bg-success/90"
               >
                 Clôturer la paie ({nbPasValide})
               </ConfirmSubmitButton>
