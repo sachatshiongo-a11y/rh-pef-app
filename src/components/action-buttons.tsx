@@ -12,8 +12,15 @@
 // avec onClick + useTransition).
 import type { ButtonHTMLAttributes } from "react";
 
-const BASE_CLASSES =
+// LA géométrie de la famille : forme, espacement, taille de texte. Exportée nue (sans aucune
+// couleur) pour les éléments d'une barre d'actions qui ne sont PAS des décisions à deux issues
+// et n'ont donc pas à entrer dans la famille — un bouton bg-primary, un <summary> de menu, un
+// <span> d'état désactivé. Ils composent cette géométrie avec leurs propres couleurs : la barre
+// reste homogène sans qu'on leur invente une sémantique qu'ils n'ont pas.
+export const CLASSES_GEOMETRIE =
   "inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50";
+
+const BASE_CLASSES = CLASSES_GEOMETRIE;
 
 // Chaînes de classes équivalentes aux composants ci-dessous, pour les cas où l'élément ne PEUT
 // PAS être un <button> : un <Link> next/link (« Voir l'aperçu », « Modifier le brouillon » —
