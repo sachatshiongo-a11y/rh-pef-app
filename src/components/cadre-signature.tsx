@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * LE CADRE DE SIGNATURE — on trace au doigt, on obtient un PNG.
@@ -23,46 +23,88 @@ export function CadreSignature({
 }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   const dernier = useRef<{ x: number; y: number } | null>(null);
+  // Rectangle CSS du canvas, capturé une fois au pointerdown et réutilisé pendant tout le
+  // geste : évite un getBoundingClientRect() (recalcul de mise en page synchrone) à chaque
+  // pointermove, sensible sur un téléphone d'entrée de gamme.
+  const rectRef = useRef<DOMRect | null>(null);
   const [points, setPoints] = useState(0);
+  // Miroir de `points` lisible depuis le callback du ResizeObserver sans recréer l'observateur
+  // à chaque tracé (setPoints seul obligerait à reconnecter l'observateur à chaque point).
+  const pointsRef = useRef(0);
+
+  const majPoints = (n: number) => {
+    pointsRef.current = n;
+    setPoints(n);
+  };
+
+  const appliquerReglagesTrait = (ctx: CanvasRenderingContext2D) => {
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#111827";
+  };
+
+  // Le <canvas> a une taille intrinsèque par défaut de 300×150 tant qu'on ne lui fixe pas
+  // width/height explicitement (ce n'est PAS 0×0) : sans ce redimensionnement, le bitmap
+  // resterait figé à 300×150 pendant que la boîte CSS fait h-40 w-full — export flou, et tout
+  // point au-delà d'environ 150px CSS tomberait hors bitmap, non dessiné, en silence. On
+  // redimensionne donc à chaque changement de taille observé (au montage, et si la boîte de
+  // dialogue change de largeur) — mais seulement si `points === 0` : changer width/height
+  // efface le bitmap, et on ne veut surtout pas détruire un tracé en cours parce que le clavier
+  // du téléphone s'est ouvert ou que la mise en page a légèrement bougé.
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const observer = new ResizeObserver((entries) => {
+      if (pointsRef.current !== 0) return;
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width <= 0 || height <= 0) return;
+      c.width = Math.round(width * 2);
+      c.height = Math.round(height * 2);
+      const ctx = c.getContext("2d");
+      if (ctx) appliquerReglagesTrait(ctx);
+    });
+    observer.observe(c);
+    return () => observer.disconnect();
+  }, []);
 
   const contexte = () => {
     const c = ref.current;
     if (!c) return null;
-    // Taille RÉELLE du canvas = taille CSS × 2 (netteté). Fixée à la première interaction, quand
-    // la boîte de dialogue a sa largeur définitive.
-    if (c.width === 0) {
-      const r = c.getBoundingClientRect();
-      c.width = Math.round(r.width * 2);
-      c.height = Math.round(r.height * 2);
-    }
     const ctx = c.getContext("2d");
-    if (ctx) { ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#111827"; }
+    if (ctx) appliquerReglagesTrait(ctx);
     return ctx;
   };
 
-  const position = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * 2, y: (e.clientY - r.top) * 2 };
+  const position = (e: React.PointerEvent<HTMLCanvasElement>, r: DOMRect) => {
+    const c = e.currentTarget;
+    const ratio = c.width / r.width;
+    return { x: (e.clientX - r.left) * ratio, y: (e.clientY - r.top) * (c.height / r.height) };
   };
 
   const debut = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
-    contexte();
-    dernier.current = position(e);
-    setPoints((n) => n + 1);
+    const ctx = contexte();
+    const r = e.currentTarget.getBoundingClientRect();
+    rectRef.current = r;
+    if (!ctx) return;
+    dernier.current = position(e, r);
+    majPoints(pointsRef.current + 1);
   };
 
   const trace = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!dernier.current) return;
+    if (!dernier.current || !rectRef.current) return;
     const ctx = contexte();
     if (!ctx) return;
-    const p = position(e);
+    const p = position(e, rectRef.current);
     ctx.beginPath();
     ctx.moveTo(dernier.current.x, dernier.current.y);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
     dernier.current = p;
-    setPoints((n) => n + 1);
+    majPoints(pointsRef.current + 1);
   };
 
   const fin = () => { dernier.current = null; };
@@ -71,7 +113,7 @@ export function CadreSignature({
     const c = ref.current;
     const ctx = c?.getContext("2d");
     if (c && ctx) ctx.clearRect(0, 0, c.width, c.height);
-    setPoints(0);
+    majPoints(0);
   };
 
   return (
@@ -82,7 +124,7 @@ export function CadreSignature({
         onPointerDown={debut}
         onPointerMove={(e) => e.buttons === 1 && trace(e)}
         onPointerUp={fin}
-        onPointerLeave={fin}
+        onPointerCancel={fin}
         className="h-40 w-full touch-none rounded-lg border-2 border-dashed border-input bg-background"
         aria-label="Cadre de signature — tracez votre signature avec le doigt"
       />
