@@ -33,7 +33,17 @@ describe("paie-net — salaire net = total versé − transport", () => {
 describe("règle : hors moteur, personne ne lit salNetUSD sans passer par paie-net", () => {
   // Le moteur et le lot de paie PRODUISENT salNetUSD ; tout le reste l'AFFICHE, et doit donc dire
   // lequel des deux nets il montre. Une lecture directe est un « net » qui a échappé à la règle.
-  const PRODUCTEURS = new Set(["src/lib/payroll.ts", "src/lib/paie-batch.ts", "src/lib/paie-net.ts"]);
+  // bulletin-live.ts PRODUIT les lignes d'aperçu (calculerBulletinLive), au même titre que
+  // paie-batch.ts produit les lignes stockées — ce n'est pas un affichage.
+  const PRODUCTEURS = new Set([
+    "src/lib/payroll.ts",
+    "src/lib/paie-batch.ts",
+    "src/lib/paie-net.ts",
+    "src/lib/bulletin-live.ts",
+  ]);
+  // Un vrai import du module, pas une simple mention (un commentaire qui cite "@/lib/paie-net" ne
+  // suffit plus — sinon un fichier peut se contenter de PARLER du module sans jamais l'appeler).
+  const IMPORTE_LE_MODULE = /^\s*import\s[^;]*from\s+["']@\/lib\/paie-net["']/m;
   it("tout fichier de src/ qui mentionne salNetUSD importe @/lib/paie-net (ou est producteur)", () => {
     const fautifs: string[] = [];
     const parcourir = (d: string) => {
@@ -44,7 +54,7 @@ describe("règle : hors moteur, personne ne lit salNetUSD sans passer par paie-n
           const rel = path.relative(process.cwd(), p);
           if (PRODUCTEURS.has(rel)) continue;
           const s = fs.readFileSync(p, "utf8");
-          if (s.includes("salNetUSD") && !s.includes("@/lib/paie-net")) fautifs.push(rel);
+          if (s.includes("salNetUSD") && !IMPORTE_LE_MODULE.test(s)) fautifs.push(rel);
         }
       }
     };
