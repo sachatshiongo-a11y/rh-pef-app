@@ -77,7 +77,6 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
               {typesConges.map((t) => <option key={t.nom} value={t.nom}>{t.nom}</option>)}
             </select>
           </label>
-          <div className="hidden sm:block" />
           {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
           <ChampsDatesConge feries={feries} min={auj()} labelDebut="Du" labelFin="Au" inputClassName={inputCls} />
           <label className="flex flex-col gap-1 text-sm sm:col-span-2">Motif (facultatif)

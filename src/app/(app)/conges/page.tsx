@@ -149,7 +149,7 @@ export default async function CongesPage({
                 ))}
               </select>
             </div>
-            <div className="col-span-2 flex flex-col gap-1.5 md:col-span-3">
+            <div className="col-span-2 flex flex-col gap-1.5 md:col-span-2">
               <label htmlFor="motif" className="text-sm font-medium">
                 Motif (optionnel)
               </label>
