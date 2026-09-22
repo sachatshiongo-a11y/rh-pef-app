@@ -173,6 +173,37 @@ describe("chargerSignature — obsolescence quand le document change", () => {
     expect(sig?.obsolete).toBe(true);
   });
 
+  it("changer le TAUX DE CHANGE fait basculer le bulletin signé en « à resigner »", async () => {
+    // Le défaut trouvé en relecture : `rafraichirPaieDuMois` réécrit `tauxChangeUtilise` sur le run
+    // à CHAQUE ouverture de /paie, même quand toutes les lignes sont figées (VALIDE/PAYE). Le
+    // bulletin en francs étant calculé à l'impression à ce taux, un bulletin signé à 812 000 FC se
+    // réimprimait à 841 000 FC sans jamais passer « à resigner ».
+    const run = await prisma.payrollRun.create({ data: { mois: 10, annee: 2026, statut: "VALIDE", tauxChangeUtilise: 2800 } });
+    const ligne = await prisma.payrollLine.create({
+      data: {
+        payrollRunId: run.id, employeeId: empId, statutPaiement: "VALIDE",
+        transportUSD: 15, salBrutUSD: 300, cnssSalarieUSD: 15, netImposableUSD: 285,
+        iprCalculeUSD: 10, allocFamilialeUSD: 0, salNetUSD: 290, salNetCDF: 812000,
+        cnssPatronalUSD: 36, coutEmployeurUSD: 336, coutEmployeurCDF: 940800,
+      },
+    });
+    await enregistrerSignature(prisma, {
+      cible: "BULLETIN", cibleId: ligne.id, employeeId: empId,
+      traceUrl: "https://storage.test/signatures/BULLETIN/taux.png",
+      mode: "ESPACE_SALARIE", presenteParId: null,
+    });
+    expect((await chargerSignature(prisma, "BULLETIN", ligne.id))?.obsolete).toBe(false);
+
+    // 290 $ × 2800 = 812 000 FC signés ; × 2900 = 841 000 FC imprimés désormais.
+    await prisma.payrollRun.update({ where: { id: run.id }, data: { tauxChangeUtilise: 2900 } });
+
+    const apres = await chargerSignature(prisma, "BULLETIN", ligne.id);
+    expect(apres?.obsolete, "le bulletin en francs a changé de montant : il doit passer « à resigner »").toBe(true);
+    // ...et persisté, comme toute obsolescence.
+    const enBase = await prisma.signatureElectronique.findUnique({ where: { cible_cibleId: { cible: "BULLETIN", cibleId: ligne.id } } });
+    expect(enBase?.obsolete).toBe(true);
+  });
+
   it("une signature reprise (empreinte vide) n'est jamais marquée obsolète", async () => {
     await prisma.signatureElectronique.create({
       data: {

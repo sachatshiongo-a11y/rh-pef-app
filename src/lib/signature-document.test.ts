@@ -32,6 +32,13 @@ describe("instantaneBulletin", () => {
     const b = empreinteDe(instantaneBulletin({ ...bulletin, salNetUSD: 368.51 } as never));
     expect(a).not.toBe(b);
   });
+  it("le TAUX DE CHANGE fait partie de ce qui est signé : le bulletin en francs en dépend", () => {
+    // Le montant en francs n'est pas stocké, il est calculé à l'impression au taux du run.
+    // 368,50 $ × 2800 = 1 031 800 FC signés ; × 2900 = 1 068 650 FC imprimés.
+    const a = empreinteDe(instantaneBulletin(bulletin as never));
+    const b = empreinteDe(instantaneBulletin({ ...bulletin, payrollRun: { ...bulletin.payrollRun, tauxChangeUtilise: 2900 } } as never));
+    expect(a, "un taux différent doit donner une empreinte différente").not.toBe(b);
+  });
   it("le statut de paiement fait partie de ce qui est signé (VALIDÉ ≠ PAYÉ)", () => {
     const a = empreinteDe(instantaneBulletin(bulletin as never));
     const b = empreinteDe(instantaneBulletin({ ...bulletin, statutPaiement: "PAYE" } as never));

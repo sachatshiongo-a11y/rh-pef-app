@@ -28,17 +28,31 @@ export function empreinteDe(o: Instantane): string {
 }
 
 type LigneBulletin = {
-  payrollRun: { mois: number; annee: number };
+  payrollRun: { mois: number; annee: number; tauxChangeUtilise: Montant };
   employee: { matricule: string };
   salBrutUSD: Montant; cnssSalarieUSD: Montant; iprCalculeUSD: Montant; transportUSD: Montant;
   primesUSD: Montant; acompteUSD: Montant; retenuePretUSD: Montant; allocFamilialeUSD: Montant;
   fraisMedicauxUSD: Montant; salNetUSD: Montant; statutPaiement: string;
 };
 
-/** Le salarié signe des MONTANTS : tout ce qui les compose entre dans l'empreinte. */
+/**
+ * Le salarié signe des MONTANTS : tout ce qui les compose entre dans l'empreinte.
+ *
+ * Y COMPRIS LE TAUX DE CHANGE, et ce n'est pas un détail : le bulletin en francs n'est pas stocké,
+ * il est CALCULÉ à l'impression (`pdf/bulletin.tsx` : `Number(run.tauxChangeUtilise)`), et
+ * `rafraichirPaieDuMois` réécrit ce taux sur le run à CHAQUE ouverture de `/paie`, y compris quand
+ * toutes les lignes sont validées ou payées (les statuts figés protègent les montants en dollars,
+ * pas le taux). Sans le taux ici, un bulletin signé à 812 000 FC se réimprimait à 841 000 FC après
+ * un simple ajustement de taux, sans jamais passer « à resigner » : mesuré, corrigé, et prouvé par
+ * `signature.integration.test.ts` (« changer le TAUX DE CHANGE fait basculer le bulletin signé »).
+ *
+ * Conséquence ASSUMÉE : tout ajustement de taux fait basculer les bulletins signés du mois en
+ * « à resigner ». C'est le comportement juste — le montant imprimé en francs a réellement changé.
+ */
 export function instantaneBulletin(l: LigneBulletin): Instantane {
   return {
     periode: `${l.payrollRun.annee}-${String(l.payrollRun.mois).padStart(2, "0")}`,
+    tauxChange: usd(l.payrollRun.tauxChangeUtilise),
     matricule: l.employee.matricule,
     brut: usd(l.salBrutUSD),
     cnss: usd(l.cnssSalarieUSD),
