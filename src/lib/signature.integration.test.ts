@@ -190,3 +190,63 @@ describe("chargerSignature — obsolescence quand le document change", () => {
     expect(sig?.obsolete).toBe(false);
   });
 });
+
+describe("enregistrerSignature — l'invariant « déjà signé » est tenu par la base", () => {
+  it("une signature marquée obsolète reste remplaçable", async () => {
+    // Précondition posée par le test précédent : la signature du bulletin est obsolète.
+    const avant = await prisma.signatureElectronique.findUnique({
+      where: { cible_cibleId: { cible: "BULLETIN", cibleId: ligneValideId } },
+    });
+    expect(avant?.obsolete).toBe(true);
+
+    await enregistrerSignature(prisma, {
+      cible: "BULLETIN", cibleId: ligneValideId, employeeId: empId,
+      traceUrl: "https://storage.test/signatures/BULLETIN/re-signee.png",
+      mode: "PRESENTIEL", presenteParId: presentateurId,
+    });
+
+    const apres = await prisma.signatureElectronique.findUnique({
+      where: { cible_cibleId: { cible: "BULLETIN", cibleId: ligneValideId } },
+    });
+    expect(apres?.obsolete).toBe(false);
+    expect(apres?.traceUrl).toBe("https://storage.test/signatures/BULLETIN/re-signee.png");
+  });
+
+  it("deux enregistrements CONCURRENTS sur un document neuf : un seul réussit, l'autre est refusé", async () => {
+    const urlA = "https://storage.test/signatures/DEMANDE_CONGE/concurrent-a.png";
+    const urlB = "https://storage.test/signatures/DEMANDE_CONGE/concurrent-b.png";
+
+    const [resA, resB] = await Promise.allSettled([
+      enregistrerSignature(prisma, {
+        cible: "DEMANDE_CONGE", cibleId: demandeApprouveeId, employeeId: empId,
+        traceUrl: urlA, mode: "ESPACE_SALARIE", presenteParId: null,
+      }),
+      enregistrerSignature(prisma, {
+        cible: "DEMANDE_CONGE", cibleId: demandeApprouveeId, employeeId: empId,
+        traceUrl: urlB, mode: "ESPACE_SALARIE", presenteParId: null,
+      }),
+    ]);
+
+    const resultats = [
+      { res: resA, url: urlA },
+      { res: resB, url: urlB },
+    ];
+    const gagnants = resultats.filter((r) => r.res.status === "fulfilled");
+    const perdants = resultats.filter((r) => r.res.status === "rejected");
+    expect(gagnants).toHaveLength(1);
+    expect(perdants).toHaveLength(1);
+
+    const perdant = perdants[0].res;
+    if (perdant.status === "rejected") {
+      expect((perdant.reason as Error).message).toBe("Ce document est déjà signé.");
+    }
+
+    // Une seule ligne en base, portant le tracé du gagnant — l'invariant est tenu par la
+    // contrainte d'unicité de la base, pas par la lecture applicative qui a pu être périmée.
+    const lignes = await prisma.signatureElectronique.findMany({
+      where: { cible: "DEMANDE_CONGE", cibleId: demandeApprouveeId },
+    });
+    expect(lignes).toHaveLength(1);
+    expect(lignes[0].traceUrl).toBe(gagnants[0].url);
+  }, 30_000);
+});

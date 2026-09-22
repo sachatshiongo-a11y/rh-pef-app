@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { CibleSignature, ModeSignature, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { CibleSignature, ModeSignature } from "@prisma/client";
 import {
   canonique,
   empreinteDe,
@@ -160,9 +161,20 @@ export async function chargerSignature(
 
 /**
  * Écrit une signature : refuse si le document n'est pas signable, refuse si une signature NON
- * obsolète existe déjà (un document déjà signé et à jour ne se re-signe pas en silence). Sinon
- * `upsert` sur `[cible, cibleId]` — une signature obsolète peut être remplacée (la Direction a
- * corrigé le document, le salarié re-signe la version à jour).
+ * obsolète existe déjà (un document déjà signé et à jour ne se re-signe pas en silence). Une
+ * signature obsolète peut être remplacée (la Direction a corrigé le document, le salarié re-signe
+ * la version à jour).
+ *
+ * L'invariant « une seule signature non obsolète par document » est tenu par la BASE, pas par une
+ * lecture applicative : un `findUnique` suivi d'un `upsert` séparé laisse une fenêtre entre lecture
+ * et écriture (double-clic, renvoi réseau) où deux appels concurrents peuvent tous les deux lire
+ * « pas de signature valide » et le second écraserait alors une signature qui vient d'être posée.
+ * Deux écritures conditionnelles à la place :
+ *  1. `updateMany` filtré sur `obsolete: true` — ne touche RIEN si la ligne n'est plus obsolète
+ *     (un concurrent l'a déjà remplacée entre-temps) : la condition est réévaluée par Postgres au
+ *     moment de l'écriture, pas au moment d'une lecture qui peut être périmée.
+ *  2. Sinon `create` — et c'est la contrainte d'unicité `[cible, cibleId]` de la base qui tranche
+ *     entre deux créations concurrentes : le perdant reçoit `P2002`, traduit en refus métier.
  */
 export async function enregistrerSignature(
   client: ClientSignature,
@@ -185,6 +197,8 @@ export async function enregistrerSignature(
     throw new Error(etat.raison);
   }
 
+  // Contrôle immédiat : donne un message rapide dans le cas NON concurrent (l'écrasante majorité
+  // des appels). Ce n'est PAS ce sur quoi repose l'invariant — voir les deux écritures ci-dessous.
   const existante = await client.signatureElectronique.findUnique({
     where: { cible_cibleId: { cible: params.cible, cibleId: params.cibleId } },
   });
@@ -194,30 +208,37 @@ export async function enregistrerSignature(
 
   const donnees = JSON.parse(canonique(instantane)) as Prisma.InputJsonValue;
   const empreinte = empreinteDe(instantane);
+  const champs = {
+    employeeId: params.employeeId,
+    traceUrl: params.traceUrl,
+    mode: params.mode,
+    presenteParId: params.presenteParId,
+    donnees,
+    empreinte,
+    signeLe: new Date(),
+    obsolete: false,
+  };
 
-  await client.signatureElectronique.upsert({
-    where: { cible_cibleId: { cible: params.cible, cibleId: params.cibleId } },
-    create: {
-      cible: params.cible,
-      cibleId: params.cibleId,
-      employeeId: params.employeeId,
-      traceUrl: params.traceUrl,
-      mode: params.mode,
-      presenteParId: params.presenteParId,
-      donnees,
-      empreinte,
-      signeLe: new Date(),
-      obsolete: false,
-    },
-    update: {
-      employeeId: params.employeeId,
-      traceUrl: params.traceUrl,
-      mode: params.mode,
-      presenteParId: params.presenteParId,
-      donnees,
-      empreinte,
-      signeLe: new Date(),
-      obsolete: false,
-    },
+  // 1. Remplacement atomique d'une signature obsolète.
+  const remplacees = await client.signatureElectronique.updateMany({
+    where: { cible: params.cible, cibleId: params.cibleId, obsolete: true },
+    data: champs,
   });
+  if (remplacees.count === 1) {
+    return;
+  }
+
+  // 2. Aucune ligne obsolète à remplacer : soit il n'existait aucune signature, soit elle existe
+  // et n'est PAS obsolète — dans les deux cas on tente une création, et c'est la contrainte
+  // d'unicité de la base qui décide.
+  try {
+    await client.signatureElectronique.create({
+      data: { cible: params.cible, cibleId: params.cibleId, ...champs },
+    });
+  } catch (erreur) {
+    if (erreur instanceof Prisma.PrismaClientKnownRequestError && erreur.code === "P2002") {
+      throw new Error("Ce document est déjà signé.");
+    }
+    throw erreur;
+  }
 }
