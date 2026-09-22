@@ -48,7 +48,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
     employeeId: u.employeeId,
     employeNom: u.employe?.nom ?? null,
   }));
-  const typeCongeRows: TypeCongeRow[] = typesConges.map((t) => ({ id: t.id, nom: t.nom, joursPayes: t.joursPayes, tauxPct: t.tauxPct, systeme: t.systeme, actif: t.actif }));
+  const typeCongeRows: TypeCongeRow[] = typesConges.map((t) => ({ id: t.id, nom: t.nom, joursPayes: t.joursPayes, tauxPct: t.tauxPct, compteDansSolde: t.compteDansSolde, systeme: t.systeme, actif: t.actif }));
 
   if (!estAdmin) {
     return (

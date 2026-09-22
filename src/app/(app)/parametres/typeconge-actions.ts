@@ -24,6 +24,7 @@ export const creerTypeConge = actionLisible(async (formData: FormData) => {
       nom,
       joursPayes: intOuNull(formData.get("joursPayes")),
       tauxPct: intOuNull(formData.get("tauxPct")),
+      compteDansSolde: formData.get("compteDansSolde") === "on",
       ordre: (dernier?.ordre ?? 0) + 1,
     },
   });
@@ -43,6 +44,7 @@ export const modifierTypeConge = actionLisible(async (id: string, formData: Form
       nom,
       joursPayes: intOuNull(formData.get("joursPayes")),
       tauxPct: intOuNull(formData.get("tauxPct")),
+      compteDansSolde: formData.get("compteDansSolde") === "on",
     },
   });
   revalidatePath("/parametres");
