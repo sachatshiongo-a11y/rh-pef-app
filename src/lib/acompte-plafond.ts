@@ -68,7 +68,7 @@ export function calculerPlafondAcompte(entrees: {
 /** Libellé de la référence utilisée, pour les messages et l'aide à la saisie. */
 export function libelleSourcePlafond(source: SourcePlafond): string {
   return source === "NET_MOIS_PRECEDENT"
-    ? "net du mois précédent"
+    ? "salaire net du mois précédent"
     : "salaire de la fiche (aucun bulletin le mois précédent)";
 }
 

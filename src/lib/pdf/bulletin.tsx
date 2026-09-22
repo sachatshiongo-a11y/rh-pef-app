@@ -447,23 +447,25 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           compare à la fiche. Le transport, remboursement de frais, s'affiche à part ; le TOTAL VERSÉ
           est la somme remise en main propre. Les nombres viennent de `lib/paie-net`, seule
           soustraction du dépôt — le montant stocké (`salNetUSD`) reste le total versé. */}
-      <View style={styles.totalBox}>
-        <Text style={styles.totalLabel}>SALAIRE NET</Text>
-        <Text style={styles.totalValue}>{m(salaireNetUSD(ligne))}</Text>
-      </View>
-      {Number(ligne.transportUSD) > 0 && (
-        <View style={styles.verseRow}>
-          <Text style={styles.verseLabel}>Indemnité de transport (non imposable, non cotisable)</Text>
-          <Text style={styles.verseValue}>{m(Number(ligne.transportUSD))}</Text>
+      <View wrap={false}>
+        <View style={styles.totalBox}>
+          <Text style={styles.totalLabel}>SALAIRE NET</Text>
+          <Text style={styles.totalValue}>{m(salaireNetUSD(ligne))}</Text>
         </View>
-      )}
-      <View style={styles.verseRow}>
-        <Text style={styles.verseTotalLabel}>TOTAL VERSÉ</Text>
-        <Text style={styles.verseTotalValue}>{m(totalVerseUSD(ligne))}</Text>
-      </View>
-      <View style={styles.coutRow}>
-        <Text style={styles.coutText}>Coût total employeur (charges patronales comprises)</Text>
-        <Text style={styles.coutText}>{m(Number(ligne.coutEmployeurUSD))}</Text>
+        {Number(ligne.transportUSD) > 0 && (
+          <View style={styles.verseRow}>
+            <Text style={styles.verseLabel}>Indemnité de transport (non imposable, non cotisable)</Text>
+            <Text style={styles.verseValue}>{m(Number(ligne.transportUSD))}</Text>
+          </View>
+        )}
+        <View style={styles.verseRow}>
+          <Text style={styles.verseTotalLabel}>TOTAL VERSÉ</Text>
+          <Text style={styles.verseTotalValue}>{m(totalVerseUSD(ligne))}</Text>
+        </View>
+        <View style={styles.coutRow}>
+          <Text style={styles.coutText}>Coût total employeur (charges patronales comprises)</Text>
+          <Text style={styles.coutText}>{m(Number(ligne.coutEmployeurUSD))}</Text>
+        </View>
       </View>
 
       {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + avantages en nature
@@ -492,7 +494,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
               <Text style={styles.mentionLabel}>Avantages en nature : </Text>
               {m(avantagesNatureUSD)} — fournis en nature, non versés en espèces. Mention informative,
-              non comprise dans le salaire brut ni dans le net à payer.
+              non comprise dans le salaire brut ni dans le salaire net.
             </Text>
           )}
           {estPaye && (

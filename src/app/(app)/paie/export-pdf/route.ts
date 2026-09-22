@@ -39,7 +39,7 @@ export async function GET() {
     { header: "CNSS $", width: "9%", align: "right" },
     { header: "IPR $", width: "8%", align: "right" },
     { header: "Salaire net $", width: "11%", align: "right" },
-    { header: "Net CDF", width: "10%", align: "right" },
+    { header: "Sal. net CDF", width: "10%", align: "right" },
     { header: "Versé $", width: "10%", align: "right" },
   ];
 

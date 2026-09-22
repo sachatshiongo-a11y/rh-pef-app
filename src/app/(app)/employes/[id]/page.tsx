@@ -792,7 +792,7 @@ export default async function FicheEmployePage({
                 <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Consigner</button>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Mentionné sur le bulletin, <strong>hors calcul</strong> : ni cotisations, ni IPR, ni net à payer
+                Mentionné sur le bulletin, <strong>hors calcul</strong> : ni cotisations, ni IPR, ni salaire net
                 (un avantage en nature n&apos;est pas versé en espèces). Traitement fiscal à valider par un comptable.
               </p>
             </form>

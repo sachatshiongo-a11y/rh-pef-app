@@ -213,8 +213,8 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();
 
-    // Un acompte est une avance sur un droit DÉJÀ acquis : plafonné au net du mois précédent (à
-    // défaut, au salaire de la fiche), cumul des acomptes du mois compris.
+    // Un acompte est une avance sur un droit DÉJÀ acquis : plafonné au salaire net du mois
+    // précédent (à défaut, au salaire de la fiche), cumul des acomptes du mois compris.
     const plafond = await chargerPlafondAcompte(prisma, { employeeId, mois, annee });
     const verdict = verifierMontantAcompte(montantUSD, plafond);
     if (!verdict.ok) throw new Error(verdict.message);

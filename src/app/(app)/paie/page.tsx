@@ -143,6 +143,7 @@ export default async function PaiePage({
         alloc: Number(l.allocFamilialeUSD),
         acompte: Number(l.acompteUSD),
         net: salaireNetUSD(l),
+        verse: totalVerseUSD(l),
       }))
     : (apercu!.lignes).map((l) => ({
         employeeId: l.employee.id,
@@ -156,6 +157,7 @@ export default async function PaiePage({
         alloc: l.data.allocFamilialeUSD,
         acompte: l.data.acompteUSD,
         net: salaireNetUSD(l.data),
+        verse: totalVerseUSD(l.data),
       }));
 
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).

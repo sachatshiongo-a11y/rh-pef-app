@@ -58,7 +58,8 @@ export async function GET(request: Request) {
     Number(salaireNetUSD(l).toFixed(2)),
     Number(salaireNetCDF(l, taux).toFixed(0)),
     Number(totalVerseUSD(l).toFixed(2)),
-    Number(Number(l.salNetCDF).toFixed(0)),
+    // Même taux que « Salaire net CDF » et que le bulletin PDF — jamais le taux figé de la ligne.
+    Number((totalVerseUSD(l) * taux).toFixed(0)),
     LIBELLE_STATUT[l.statutPaiement],
   ]);
 

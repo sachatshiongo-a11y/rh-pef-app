@@ -203,6 +203,7 @@ function Groupe({
               <th className="px-3 py-2 text-right">Brut $</th>
               <th className="px-3 py-2 text-right">Salaire net $</th>
               <th className="px-3 py-2 text-right">Salaire net CDF</th>
+              <th className="px-3 py-2 text-right">Total versé $</th>
               <th className="px-3 py-2">Statut</th>
               <th className="px-3 py-2">Bulletin</th>
               <th className="px-3 py-2 text-right">Actions</th>
@@ -228,6 +229,7 @@ function Groupe({
                 <td className="px-3 py-2 text-right">
                   {l.salaireNetCDF.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
                 </td>
+                <td className="px-3 py-2 text-right">{money(l.totalVerseUSD)}</td>
                 <td className="px-3 py-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_STATUT[l.statutPaiement]}`}>
                     {LIBELLE_STATUT[l.statutPaiement]}

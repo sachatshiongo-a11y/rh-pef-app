@@ -12,6 +12,7 @@ export type LigneRemu = {
   alloc: number;
   acompte: number;
   net: number;
+  verse: number;
 };
 
 const money = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -41,6 +42,7 @@ export function RemunerationElements({ lignes }: { lignes: LigneRemu[] }) {
   }
 
   const masseNette = lignes.reduce((s, l) => s + l.net, 0);
+  const totalVerse = lignes.reduce((s, l) => s + l.verse, 0);
 
   return (
     <div className="space-y-5">
@@ -51,8 +53,12 @@ export function RemunerationElements({ lignes }: { lignes: LigneRemu[] }) {
           <p className="mt-1 text-xl font-semibold">{lignes.length}</p>
         </div>
         <div className="rounded-xl border bg-card p-4">
-          <p className="text-xs text-muted-foreground">Masse nette à payer</p>
+          <p className="text-xs text-muted-foreground">Masse salariale nette</p>
           <p className="mt-1 text-xl font-semibold">{money(masseNette)}</p>
+        </div>
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Total versé</p>
+          <p className="mt-1 text-xl font-semibold">{money(totalVerse)}</p>
         </div>
         <div className="rounded-xl border bg-card p-4">
           <p className="text-xs text-muted-foreground">Total primes</p>
