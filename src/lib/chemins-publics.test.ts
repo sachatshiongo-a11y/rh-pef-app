@@ -42,6 +42,12 @@ const RECUPEREES_SANS_SESSION = [
   { chemin: "/sw.js", pourquoi: "le script du service worker ; une redirection fait échouer son enregistrement" },
   { chemin: "/icons/icon-192.png", pourquoi: "l'icône de l'écran d'accueil" },
   { chemin: "/icons/icon-512.png", pourquoi: "l'icône de l'écran d'accueil" },
+  {
+    chemin: "/pdf.worker.min.mjs",
+    pourquoi:
+      "le worker de pdf.js, que la visionneuse de documents va chercher seule ; derrière le garde, " +
+      "il répond 307 vers /login et aucun PDF ne s'affiche plus sur iPhone",
+  },
 ];
 
 /** Le motif du proxy dit quelles requêtes le garde EXAMINE. Hors motif = jamais examinée. */
