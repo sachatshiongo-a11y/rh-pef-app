@@ -196,6 +196,29 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
+
+  /* Une liste deroulante ne doit jamais elargir la page.
+     La largeur intrinseque d'un <select> est celle de son option la PLUS LONGUE
+     (ex. « Caprice Bokole - mar. 22 sept. - Matin/midi salle »). Dans une grille
+     ou une barre flex, cette largeur devient le plancher de la piste : la carte
+     deborde, puis la page entiere defile lateralement sur telephone.
+
+     Les DEUX regles sont necessaires ; mesure au navigateur a 375 px de large
+     sur la reproduction des deux structures reelles (formulaire en grille
+     + barre de filtres), page de 436 px au temoin :
+       - la regle sur le select seule .......... 399 px (la grille deborde encore)
+       - la regle sur le label seule ........... 436 px (la barre deborde encore)
+       - les deux .............................. 375 px (rien ne deborde)
+     Ne pas « simplifier » en n'en gardant qu'une. Et max-width:100% SEUL ne
+     corrige rien (399 px) : c'est le plancher automatique qui deborde, pas le
+     select. Un test verifie que les deux moitiees sont toujours la. */
+  select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  label:has(select) {
+    min-width: 0;
+  }
 }
 
 /* ---- Fluidité mobile (PWA) ---- */
