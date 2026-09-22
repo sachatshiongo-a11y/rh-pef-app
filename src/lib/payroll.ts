@@ -637,15 +637,9 @@ export function congeDeductibleDuSolde(type: string, tauxPct?: number | null): b
   return true;
 }
 
-/** Nombre de jours ouvrables (hors dimanche) entre deux dates, bornes incluses. */
-/** Jours ouvrables entre deux dates : dimanches exclus, et jours fériés exclus si fournis. */
-export function calculerJoursOuvrables(debut: Date, fin: Date, joursFeries: Iterable<Date | string> = []): number {
-  const feries = new Set([...joursFeries].map((d) => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10)));
-  let count = 0;
-  const cur = new Date(debut);
-  while (cur <= fin) {
-    if (cur.getUTCDay() !== 0 && !feries.has(cur.toISOString().slice(0, 10))) count++;
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return count;
-}
+/**
+ * Jours ouvrables entre deux dates — déplacé dans `@/lib/jours-ouvrables` le 2026-09-22 (le module
+ * porte aussi le sens inverse, jours → date de fin, pour le formulaire de congé). Réexporté ici
+ * pour ses appelants historiques (paie, contrats).
+ */
+export { compterJoursOuvrables as calculerJoursOuvrables } from "@/lib/jours-ouvrables";
