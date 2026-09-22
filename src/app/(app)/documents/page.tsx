@@ -213,6 +213,9 @@ export default async function DocumentsPage({
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               <TelechargerLien href={`/paie/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
               <TelechargerLien href={`/paie/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">Bulletin CDF</TelechargerLien>
+              {!peutFaireSigner && b.statutPaiement !== "PAS_VALIDE" && (
+                <EtatSignatureLecture {...etatSignature(sigBulletins.get(b.id))} />
+              )}
               {peutFaireSigner && b.statutPaiement !== "PAS_VALIDE" && (
                 <BoutonSigner
                   cible="BULLETIN"
