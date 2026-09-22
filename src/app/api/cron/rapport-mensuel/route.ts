@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { envoyerEmail } from "@/lib/email";
 import { MOIS_FR_MAJ } from "@/lib/dates-fr";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 // Toujours exécuté à la demande (jamais mis en cache) : c'est un déclencheur.
 export const dynamic = "force-dynamic";
@@ -55,7 +56,8 @@ export async function GET(request: NextRequest) {
   if (run && run.lignes.length > 0) {
     const lignes = run.lignes;
     const somme = (f: (l: (typeof lignes)[number]) => number) => lignes.reduce((a, l) => a + f(l), 0);
-    const totalNet = somme((l) => Number(l.salNetUSD));
+    const totalNet = somme((l) => salaireNetUSD(l));
+    const totalTransport = somme((l) => Number(l.transportUSD));
     const totalCout = somme((l) => Number(l.coutEmployeurUSD));
     const totalHeures = somme((l) => Number(l.heuresTravaillees));
     const totalHS = somme((l) => Number(l.heuresSupp30) + Number(l.heuresSupp60) + Number(l.heuresSupp100));
@@ -65,6 +67,7 @@ export async function GET(request: NextRequest) {
       `👥 PAIE — ${run.lignes.length} bulletin(s) (${payees} payé(s)) · effectif actif : ${effectif}`,
       "",
       `• Masse salariale nette : ${usd(totalNet)}`,
+      `• Transport versé : ${usd(totalTransport)}`,
       `• Coût employeur total : ${usd(totalCout)}`,
       `• Heures travaillées : ${totalHeures.toLocaleString("fr-FR")} h (dont ${totalHS.toLocaleString("fr-FR")} h supp.)`,
       `• Jours de congé pris : ${totalConges}`,

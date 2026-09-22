@@ -76,7 +76,7 @@ describe("verifierMontantAcompte", () => {
     expect(v.ok).toBe(false);
     if (v.ok) return;
     expect(v.message).toContain("300,00 $");
-    expect(v.message).toContain("net du mois précédent");
+    expect(v.message).toContain("salaire net du mois précédent");
   });
 
   it("refuse le cumul du mois même si la demande isolée tient dans le plafond", () => {
@@ -119,7 +119,7 @@ describe("verifierMontantAcompte", () => {
 
 describe("libelleSourcePlafond", () => {
   it("nomme la référence de façon compréhensible dans les deux cas", () => {
-    expect(libelleSourcePlafond("NET_MOIS_PRECEDENT")).toBe("net du mois précédent");
+    expect(libelleSourcePlafond("NET_MOIS_PRECEDENT")).toBe("salaire net du mois précédent");
     expect(libelleSourcePlafond("SALAIRE_FICHE")).toContain("aucun bulletin");
   });
 });

@@ -13,6 +13,8 @@ import { HistoriquePaie, type SPHistorique } from "./historique-paie";
 import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
+import { chargerParametresPaie } from "@/lib/config";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
 // Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
 // bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
@@ -66,7 +68,11 @@ export default async function PaiePage({
   // Paie EN TEMPS RÉEL : si aucune paie n'a encore été figée (pas de PayrollRun), on calcule un
   // aperçu à la volée depuis les données courantes. Le bouton « Calculer » ne sert plus qu'à figer
   // les bulletins pour la validation/l'export — les montants sont toujours à jour à l'affichage.
-  const apercu = run ? null : await calculerLignesPaie(mois, annee);
+  // Taux de l'aperçu : celui des paramètres de paie AVEC LESQUELS l'aperçu est calculé (jamais
+  // dérivé de salNetCDF / salNetUSD — un net nul donnerait NaN, voir src/lib/paie-net.ts).
+  const [apercu, parametresPaie] = run
+    ? [null, null]
+    : await Promise.all([calculerLignesPaie(mois, annee), chargerParametresPaie()]);
   const enApercu = !run;
 
   const modeDefaut = (e: { modePaiement: PaieRow["modePaiementDefaut"] }): PaieRow["modePaiementDefaut"] => e.modePaiement;
@@ -80,8 +86,9 @@ export default async function PaiePage({
         photoUrl: l.employee.photoUrl,
         categorie: l.employee.categorie,
         salBrutUSD: Number(l.salBrutUSD),
-        salNetUSD: Number(l.salNetUSD),
-        salNetCDF: Number(l.salNetCDF),
+        salaireNetUSD: salaireNetUSD(l),
+        salaireNetCDF: salaireNetCDF(l, Number(run.tauxChangeUtilise)),
+        totalVerseUSD: totalVerseUSD(l),
         statutPaiement: l.statutPaiement,
         modePaiementDefaut: modeDefaut(l.employee),
         baseUSD: Number(l.remuneration100) + Number(l.remuneration2_3),
@@ -102,8 +109,9 @@ export default async function PaiePage({
         photoUrl: l.employee.photoUrl,
         categorie: l.employee.categorie,
         salBrutUSD: l.data.salBrutUSD,
-        salNetUSD: l.data.salNetUSD,
-        salNetCDF: l.data.salNetCDF,
+        salaireNetUSD: salaireNetUSD(l.data),
+        salaireNetCDF: salaireNetCDF(l.data, parametresPaie!.tauxChangeCDF),
+        totalVerseUSD: totalVerseUSD(l.data),
         statutPaiement: "PAS_VALIDE",
         modePaiementDefaut: modeDefaut(l.employee),
         baseUSD: l.data.remuneration100 + l.data.remuneration2_3,
@@ -134,7 +142,8 @@ export default async function PaiePage({
         fraisMedicaux: Number(l.fraisMedicauxUSD),
         alloc: Number(l.allocFamilialeUSD),
         acompte: Number(l.acompteUSD),
-        net: Number(l.salNetUSD),
+        net: salaireNetUSD(l),
+        verse: totalVerseUSD(l),
       }))
     : (apercu!.lignes).map((l) => ({
         employeeId: l.employee.id,
@@ -147,7 +156,8 @@ export default async function PaiePage({
         fraisMedicaux: l.data.fraisMedicauxUSD,
         alloc: l.data.allocFamilialeUSD,
         acompte: l.data.acompteUSD,
-        net: l.data.salNetUSD,
+        net: salaireNetUSD(l.data),
+        verse: totalVerseUSD(l.data),
       }));
 
   // Suivi des contrats du mois (entrées/sorties, échéances, périodes d'essai).
@@ -449,12 +459,13 @@ const usd = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2,
 /** Tableau lecture seule de l'aperçu temps réel (avant que la paie ne soit figée). */
 function ApercuGroupe({ titre, rows }: { titre: string; rows: PaieRow[] }) {
   if (rows.length === 0) return null;
-  const totalNet = rows.reduce((s, r) => s + r.salNetUSD, 0);
+  const totalNet = rows.reduce((s, r) => s + r.salaireNetUSD, 0);
+  const totalVerse = rows.reduce((s, r) => s + r.totalVerseUSD, 0);
   return (
     <div className="overflow-hidden rounded-xl border">
       <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
         <h3 className="text-sm font-semibold">{titre} · {rows.length}</h3>
-        <span className="text-xs text-muted-foreground">Net total {usd(totalNet)}</span>
+        <span className="text-xs text-muted-foreground">Salaire net total {usd(totalNet)} · Total versé {usd(totalVerse)}</span>
       </div>
       <div className="max-h-[70vh] overflow-auto">
         <table className="w-full min-w-[44rem] text-sm">
@@ -466,8 +477,8 @@ function ApercuGroupe({ titre, rows }: { titre: string; rows: PaieRow[] }) {
               <th className="px-3 py-2 text-right font-medium">Transport</th>
               <th className="px-3 py-2 text-right font-medium">Primes</th>
               <th className="px-3 py-2 text-right font-medium">Acompte</th>
-              <th className="px-3 py-2 text-right font-medium">Net USD</th>
-              <th className="px-3 py-2 text-right font-medium">Net CDF</th>
+              <th className="px-3 py-2 text-right font-medium">Salaire net $</th>
+              <th className="px-3 py-2 text-right font-medium">Salaire net CDF</th>
             </tr>
           </thead>
           <tbody>
@@ -482,8 +493,8 @@ function ApercuGroupe({ titre, rows }: { titre: string; rows: PaieRow[] }) {
                 <td className="px-3 py-2 text-right tabular-nums">{usd(r.transportUSD)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{usd(r.primesUSD)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{r.acompteUSD ? "−" + usd(r.acompteUSD) : "—"}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{usd(r.salNetUSD)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.salNetCDF).toLocaleString("fr-FR")} CDF</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{usd(r.salaireNetUSD)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{Math.round(r.salaireNetCDF).toLocaleString("fr-FR")} CDF</td>
               </tr>
             ))}
           </tbody>

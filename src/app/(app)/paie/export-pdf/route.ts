@@ -4,6 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import { formaterNombre } from "@/lib/montant";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
 const usd = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cdf = (n: number) => formaterNombre(Math.round(n));
@@ -24,17 +25,22 @@ export async function GET() {
       : a.employee.nom.localeCompare(b.employee.nom)
   );
   if (lignes.length === 0) return new Response("Aucune paie calculée pour ce mois", { status: 404 });
+  // Taux du bulletin — jamais déduit de salNetCDF / salNetUSD (voir src/lib/paie-net.ts).
+  // `run` est forcément défini ici : lignes non vides implique run non null.
+  const taux = Number(run!.tauxChangeUtilise);
 
+  // Largeurs (%) : 10+16+8+9+9+9+8+11+10+10 = 100.
   const colonnes: Colonne[] = [
-    { header: "Matricule", width: "11%" },
-    { header: "Nom", width: "18%" },
+    { header: "Matricule", width: "10%" },
+    { header: "Nom", width: "16%" },
     { header: "Cat.", width: "8%" },
-    { header: "Brut $", width: "11%", align: "right" },
-    { header: "Transport $", width: "11%", align: "right" },
-    { header: "CNSS $", width: "10%", align: "right" },
-    { header: "IPR $", width: "9%", align: "right" },
-    { header: "Net $", width: "11%", align: "right" },
-    { header: "Net CDF", width: "11%", align: "right" },
+    { header: "Brut $", width: "9%", align: "right" },
+    { header: "Transport $", width: "9%", align: "right" },
+    { header: "CNSS $", width: "9%", align: "right" },
+    { header: "IPR $", width: "8%", align: "right" },
+    { header: "Salaire net $", width: "11%", align: "right" },
+    { header: "Sal. net CDF", width: "10%", align: "right" },
+    { header: "Versé $", width: "10%", align: "right" },
   ];
 
   const rows: (string | number)[][] = lignes.map((l) => [
@@ -45,8 +51,9 @@ export async function GET() {
     usd(Number(l.transportUSD)),
     usd(Number(l.cnssSalarieUSD)),
     usd(Number(l.iprCalculeUSD)),
-    usd(Number(l.salNetUSD)),
-    cdf(Number(l.salNetCDF)),
+    usd(salaireNetUSD(l)),
+    cdf(salaireNetCDF(l, taux)),
+    usd(totalVerseUSD(l)),
   ]);
   // Ligne de total.
   const somme = (f: (l: (typeof lignes)[number]) => number) => lignes.reduce((s, l) => s + f(l), 0);
@@ -58,8 +65,9 @@ export async function GET() {
     usd(somme((l) => Number(l.transportUSD))),
     usd(somme((l) => Number(l.cnssSalarieUSD))),
     usd(somme((l) => Number(l.iprCalculeUSD))),
-    usd(somme((l) => Number(l.salNetUSD))),
-    cdf(somme((l) => Number(l.salNetCDF))),
+    usd(somme((l) => salaireNetUSD(l))),
+    cdf(somme((l) => salaireNetCDF(l, taux))),
+    usd(somme((l) => totalVerseUSD(l))),
   ]);
 
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });

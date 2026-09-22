@@ -4,6 +4,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatCDF } from "./theme";
 import { formaterNombre } from "@/lib/montant";
+import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
 
 registerPdfFonts();
 
@@ -62,13 +63,13 @@ export function AttestationPaieDocument({
   const periode = moisAnnee(run.mois, run.annee);
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
 
-  const salNetUSD = Number(ligne.salNetUSD);
-  const salNetCDF = Number(ligne.salNetCDF);
+  // Salaire net (hors transport) et total versé : `lib/paie-net`, seule soustraction du dépôt —
+  // l'attestation la faisait localement depuis le 2026-07-22 ; le bulletin l'a rejointe le 2026-09-22.
+  const verseUSD = totalVerseUSD(ligne);
+  const verseCDF = Number(ligne.salNetCDF);
   const taux = Number(run.tauxChangeUtilise) || 1;
   const transportUSD = Number(ligne.transportUSD);
-  // Le net perçu inclut le transport : on isole le net « salaire seul » pour l'afficher à côté du
-  // transport, sans double compter (2026-07-22, demande client : « juste le net et le transport »).
-  const salaireNetHorsTransportUSD = salNetUSD - transportUSD;
+  const salaireNetHorsTransportUSD = salaireNetUSD(ligne);
   const avecTransport = transportUSD > 0;
 
   return (
@@ -90,7 +91,7 @@ export function AttestationPaieDocument({
             a perçu, au titre du mois de <Text style={styles.gras}>{periode}</Text>, un salaire{" "}
             <Text style={styles.gras}>net</Text> de <Text style={styles.gras}>{usd(salaireNetHorsTransportUSD)}</Text>
             {avecTransport ? <>, ainsi qu&apos;une indemnité de transport de <Text style={styles.gras}>{usd(transportUSD)}</Text> (soit {cdf(transportUSD * taux)})</> : null},
-            {avecTransport ? <>{" "}soit un montant net total de <Text style={styles.gras}>{usd(salNetUSD)}</Text> ({cdf(salNetCDF)}),</> : <>{" "}(soit {cdf(salNetCDF)}),</>}
+            {avecTransport ? <>{" "}soit un montant net total de <Text style={styles.gras}>{usd(verseUSD)}</Text> ({cdf(verseCDF)}),</> : <>{" "}(soit {cdf(verseCDF)}),</>}
             {" "}selon les éléments de paie arrêtés par l&apos;entreprise pour cette période.
           </Text>
 
@@ -108,7 +109,7 @@ export function AttestationPaieDocument({
             )}
             <View style={styles.recapLigneNet}>
               <Text style={styles.recapLabel}>Total net perçu</Text>
-              <Text style={styles.recapValeur}>{usd(salNetUSD)} ({cdf(salNetCDF)})</Text>
+              <Text style={styles.recapValeur}>{usd(verseUSD)} ({cdf(verseCDF)})</Text>
             </View>
           </View>
 

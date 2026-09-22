@@ -2,9 +2,10 @@ import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfSignatureBox } from "./layout";
-import { pdfColors, entreprise as entrepriseDefaut, formatMontant, formatCDF, type Devise } from "./theme";
+import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
+import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
 
 registerPdfFonts();
 
@@ -122,6 +123,12 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 10.5, fontWeight: 700, color: pdfColors.brownDark },
   totalValue: { fontSize: 13, fontWeight: 700, color: pdfColors.brownDark },
+  // Sous le SALAIRE NET : l'indemnité de transport à part, puis le TOTAL VERSÉ — la somme remise.
+  verseRow: { marginTop: 3, paddingHorizontal: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  verseLabel: { fontSize: 8, color: pdfColors.textMuted },
+  verseValue: { fontSize: 8, color: pdfColors.text },
+  verseTotalLabel: { fontSize: 9, fontWeight: 700, color: pdfColors.brownDark },
+  verseTotalValue: { fontSize: 10.5, fontWeight: 700, color: pdfColors.brownDark },
   coutRow: {
     marginTop: 3,
     paddingHorizontal: 8,
@@ -436,20 +443,30 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         Légende présences : P présent · A absent · C congé · M maladie · F férié · O repos · N non payé.
       </Text>
 
-      <View style={styles.totalBox}>
-        <Text style={styles.totalLabel}>SALAIRE NET À PAYER</Text>
-        <Text style={styles.totalValue}>{m(Number(ligne.salNetUSD))}</Text>
+      {/* Le SALAIRE NET est hors transport (décision Direction 2026-09-22) : c'est le nombre qui se
+          compare à la fiche. Le transport, remboursement de frais, s'affiche à part ; le TOTAL VERSÉ
+          est la somme remise en main propre. Les nombres viennent de `lib/paie-net`, seule
+          soustraction du dépôt — le montant stocké (`salNetUSD`) reste le total versé. */}
+      <View wrap={false}>
+        <View style={styles.totalBox}>
+          <Text style={styles.totalLabel}>SALAIRE NET</Text>
+          <Text style={styles.totalValue}>{m(salaireNetUSD(ligne))}</Text>
+        </View>
+        {Number(ligne.transportUSD) > 0 && (
+          <View style={styles.verseRow}>
+            <Text style={styles.verseLabel}>Indemnité de transport (non imposable, non cotisable)</Text>
+            <Text style={styles.verseValue}>{m(Number(ligne.transportUSD))}</Text>
+          </View>
+        )}
+        <View style={styles.verseRow}>
+          <Text style={styles.verseTotalLabel}>TOTAL VERSÉ</Text>
+          <Text style={styles.verseTotalValue}>{m(totalVerseUSD(ligne))}</Text>
+        </View>
+        <View style={styles.coutRow}>
+          <Text style={styles.coutText}>Coût total employeur (charges patronales comprises)</Text>
+          <Text style={styles.coutText}>{m(Number(ligne.coutEmployeurUSD))}</Text>
+        </View>
       </View>
-      <View style={styles.coutRow}>
-        <Text style={styles.coutText}>Coût total employeur (charges patronales comprises)</Text>
-        <Text style={styles.coutText}>{m(Number(ligne.coutEmployeurUSD))}</Text>
-      </View>
-      {Number(ligne.transportUSD) > 0 && (
-        <Text style={styles.legende}>
-          Dont frais de transport (non imposable, non cotisable, versé au net) : {m(Number(ligne.transportUSD))}
-          {devise !== "CDF" ? ` (≈ ${formatCDF(Number(ligne.transportUSD) * tauxChange)} FC)` : ""}.
-        </Text>
-      )}
 
       {/* Mentions : congés pris sur la période (toujours affichés s'il y en a) + avantages en nature
           + mode de paiement (uniquement une fois le bulletin payé). La boîte n'est rendue que si
@@ -477,7 +494,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <Text style={[styles.mentionLigne, congesPeriode.length > 0 ? { marginTop: 3 } : {}]}>
               <Text style={styles.mentionLabel}>Avantages en nature : </Text>
               {m(avantagesNatureUSD)} — fournis en nature, non versés en espèces. Mention informative,
-              non comprise dans le salaire brut ni dans le net à payer.
+              non comprise dans le salaire brut ni dans le salaire net.
             </Text>
           )}
           {estPaye && (

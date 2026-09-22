@@ -6,6 +6,8 @@ import { Icone } from "@/components/icones";
 import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { AccepterContrat } from "./accepter-contrat";
+import { salaireNetUSD } from "@/lib/paie-net";
+import { formaterNombre } from "@/lib/montant";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const moisAnnee = (m: number, a: number) => new Date(a, m - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -71,7 +73,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
                 <div>
                   <p className="text-sm font-medium capitalize">{moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}</p>
-                  <p className="text-xs text-muted-foreground">Net : {Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</p>
+                  <p className="text-xs text-muted-foreground">Salaire net : {formaterNombre(salaireNetUSD(b), { minimumFractionDigits: 2 })} $</p>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
                   <BulletinViewerButton payrollLineId={b.id} nom={`bulletin ${moisAnnee(b.payrollRun.mois, b.payrollRun.annee)}`} base="/espace/bulletin" />

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { prisma } from "@/lib/prisma";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 // Sous-onglet « Historique » de la Paie (fusion de l'ancien /historique) : tous les mois de paie
 // archivés — masse salariale, coût employeur, statut — avec filtres année/mois/statut.
@@ -68,7 +69,7 @@ export async function HistoriquePaie({ sp }: { sp: SPHistorique }) {
       {/* Mobile : cartes. */}
       <div className="space-y-2 lg:hidden">
         {runs.map((r) => {
-          const masseNette = r.lignes.reduce((a, l) => a + Number(l.salNetUSD), 0);
+          const masseNette = r.lignes.reduce((a, l) => a + salaireNetUSD(l), 0);
           const coutTotal = r.lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0);
           return (
             <div key={r.id} className="rounded-xl border bg-card p-3">
@@ -106,7 +107,7 @@ export async function HistoriquePaie({ sp }: { sp: SPHistorique }) {
           </thead>
           <tbody>
             {runs.map((r) => {
-              const masseNette = r.lignes.reduce((acc, l) => acc + Number(l.salNetUSD), 0);
+              const masseNette = r.lignes.reduce((acc, l) => acc + salaireNetUSD(l), 0);
               const coutTotal = r.lignes.reduce((acc, l) => acc + Number(l.coutEmployeurUSD), 0);
               return (
                 <tr key={r.id} className="border-t">

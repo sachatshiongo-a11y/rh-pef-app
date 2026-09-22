@@ -1,5 +1,6 @@
 import type { ApercuBulletin } from "@/lib/bulletin-live";
 import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
+import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
 function fmtUSD(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -32,6 +33,9 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
   const l = apercu.ligne;
   const t = apercu.tauxChangeCDF;
   const totalRetenues = Number(l.cnssSalarieUSD) + Number(l.iprCalculeUSD) + Number(l.acompteUSD) + Number(l.retenuePretUSD ?? 0);
+  // Salaire net hors transport (décision Direction 2026-09-22) : `l` (LignePaie) ne porte pas
+  // transportUSD, exposé à part sur `apercu` — voir @/lib/bulletin-live.
+  const ligneNet = { salNetUSD: l.salNetUSD, transportUSD: apercu.transportUSD };
 
   return (
     <div className="mb-6 overflow-hidden rounded-2xl border bg-card shadow-sm">
@@ -72,12 +76,20 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-t bg-primary/5 px-4 py-3">
-        <span className="font-semibold">Salaire net à payer</span>
-        <span className="text-right">
-          <span className="text-lg font-bold">{fmtUSD(Number(l.salNetUSD))}</span>
-          <span className="ml-2 text-sm text-muted-foreground">{fmtCDF(Number(l.salNetCDF))}</span>
-        </span>
+      <div className="border-t bg-primary/5 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <span className="font-semibold">Salaire net</span>
+          <span className="text-right">
+            <span className="text-lg font-bold">{fmtUSD(salaireNetUSD(ligneNet))}</span>
+            <span className="ml-2 text-sm text-muted-foreground">{fmtCDF(salaireNetCDF(ligneNet, t))}</span>
+          </span>
+        </div>
+        {Number(apercu.transportUSD) > 0 && (
+          <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
+            <span>Total versé (transport compris)</span>
+            <span>{fmtUSD(totalVerseUSD(ligneNet))}</span>
+          </div>
+        )}
       </div>
     </div>
   );

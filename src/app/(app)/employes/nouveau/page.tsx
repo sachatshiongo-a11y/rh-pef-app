@@ -5,6 +5,7 @@ import { creerEmploye } from "../actions";
 import { chargerParametresPaie } from "@/lib/config";
 import { chargerPostes } from "@/lib/postes";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 export default async function NouvelEmployePage() {
   const user = await verifySession();
@@ -15,13 +16,13 @@ export default async function NouvelEmployePage() {
     // Dernière paie calculée : sert de référence à la simulation d'impact (masse, coût).
     prisma.payrollRun.findFirst({
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
-      include: { lignes: { select: { salNetUSD: true, coutEmployeurUSD: true } } },
+      include: { lignes: { select: { salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
     }),
   ]);
   const impact =
     dernierRun && dernierRun.lignes.length > 0
       ? {
-          netActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.salNetUSD), 0),
+          netActuel: dernierRun.lignes.reduce((t, l) => t + salaireNetUSD(l), 0),
           coutActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.coutEmployeurUSD), 0),
           effectif: dernierRun.lignes.length,
           periode: `${MOIS_FR[dernierRun.mois - 1]} ${dernierRun.annee}`,

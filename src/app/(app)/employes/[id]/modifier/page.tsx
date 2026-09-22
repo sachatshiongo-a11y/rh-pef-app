@@ -10,6 +10,7 @@ import { chargerPostes } from "@/lib/postes";
 import { Avatar } from "@/components/avatar";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { CompositionFamiliale } from "../../composition-familiale";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 export default async function ModifierEmployePage({
   params,
@@ -30,7 +31,7 @@ export default async function ModifierEmployePage({
     // Dernière paie calculée : référence de la simulation (visualiser une augmentation).
     prisma.payrollRun.findFirst({
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
-      include: { lignes: { select: { employeeId: true, salNetUSD: true, coutEmployeurUSD: true } } },
+      include: { lignes: { select: { employeeId: true, salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
     }),
     prisma.membreFamille.findMany({ where: { employeeId: id }, orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }] }),
     prisma.config.findUnique({ where: { id: "singleton" }, select: { ageLimiteEnfantACharge: true } }),
@@ -41,11 +42,11 @@ export default async function ModifierEmployePage({
   const impact =
     dernierRun && dernierRun.lignes.length > 0
       ? {
-          netActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.salNetUSD), 0),
+          netActuel: dernierRun.lignes.reduce((t, l) => t + salaireNetUSD(l), 0),
           coutActuel: dernierRun.lignes.reduce((t, l) => t + Number(l.coutEmployeurUSD), 0),
           effectif: dernierRun.lignes.length,
           periode: `${MOIS_FR[dernierRun.mois - 1]} ${dernierRun.annee}`,
-          actuel: ligneEmp ? { net: Number(ligneEmp.salNetUSD), cout: Number(ligneEmp.coutEmployeurUSD) } : null,
+          actuel: ligneEmp ? { net: salaireNetUSD(ligneEmp), cout: Number(ligneEmp.coutEmployeurUSD) } : null,
         }
       : null;
 

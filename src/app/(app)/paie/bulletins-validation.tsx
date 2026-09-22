@@ -71,7 +71,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   <Avatar nom={r.nom} taille={32} photoUrl={r.photoUrl} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{r.nom}</p>
-                    <p className="text-xs text-muted-foreground">Net : {money(r.salNetUSD)}</p>
+                    <p className="text-xs text-muted-foreground">Salaire net : {money(r.salaireNetUSD)}</p>
                   </div>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${COULEUR_STATUT[r.statutPaiement]}`}>
@@ -98,12 +98,13 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   <div className="mt-1 flex items-center justify-between border-t pt-1 text-sm font-semibold">
                     <span>{L.net}</span>
                     <span>
-                      {money(r.salNetUSD)}
+                      {money(r.salaireNetUSD)}
                       <span className="ml-1 text-xs font-normal text-muted-foreground">
-                        {formaterNombre(Math.round(r.salNetCDF))} CDF
+                        {formaterNombre(Math.round(r.salaireNetCDF))} CDF
                       </span>
                     </span>
                   </div>
+                  {r.transportUSD > 0 && <MiniLigne label="Total versé" usd={r.totalVerseUSD} />}
                 </div>
               </details>
 
@@ -161,7 +162,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   <Avatar nom={r.nom} taille={28} photoUrl={r.photoUrl} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{r.nom}</p>
-                    <p className="text-xs text-muted-foreground">{money(r.salNetUSD)}</p>
+                    <p className="text-xs text-muted-foreground">{money(r.salaireNetUSD)}</p>
                   </div>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${COULEUR_STATUT[r.statutPaiement]}`}>

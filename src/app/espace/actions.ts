@@ -105,8 +105,8 @@ export async function demanderMonAcompte(formData: FormData) {
     const mois = config?.moisCourant ?? new Date().getMonth() + 1;
     const annee = config?.anneeCourante ?? new Date().getFullYear();
 
-    // Même plafond que côté Direction : le salarié ne peut pas demander plus que son net du mois
-    // précédent (à défaut, son salaire de fiche), cumul de ses demandes du mois compris.
+    // Même plafond que côté Direction : le salarié ne peut pas demander plus que son salaire net
+    // du mois précédent (à défaut, son salaire de fiche), cumul de ses demandes du mois compris.
     const plafond = await chargerPlafondAcompte(prisma, { employeeId, mois, annee });
     const verdict = verifierMontantAcompte(montantUSD, plafond);
     if (!verdict.ok) throw new Error(verdict.message);

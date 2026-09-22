@@ -5,6 +5,7 @@ import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { Avatar } from "@/components/avatar";
 import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "../planning/actions";
+import { salaireNetUSD } from "@/lib/paie-net";
 
 function joursAvant(date: Date): number {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
@@ -93,7 +94,7 @@ export default async function AValiderPage() {
     matricule: l.employee.matricule,
     nom: l.employee.nom,
     photoUrl: l.employee.photoUrl,
-    montant: money(Number(l.salNetUSD)),
+    montant: money(salaireNetUSD(l)),
   });
   const prepareRows = prepare.map(toRow);
   const valideRows = valide.map(toRow);
