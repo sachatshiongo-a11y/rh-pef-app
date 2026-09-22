@@ -6,9 +6,9 @@
  * minuit — c'est ainsi que les colonnes `@db.Date` reviennent de Prisma et que les `<input
  * type="date">` envoient leurs valeurs.
  *
- * Ce module ne dépend de RIEN : il est importé par les composants client (formulaire de congé)
- * comme par les actions serveur et la paie. La copie client de cette boucle, qui vivait dans
- * `components/champs-dates-conge.tsx`, a été supprimée le 2026-09-22 à son profit.
+ * Ce module ne dépend de RIEN : prévu pour être importé par les composants client (formulaire de
+ * congé) comme par les actions serveur et la paie. La copie client de cette boucle dans
+ * `components/champs-dates-conge.tsx` doit disparaître à son profit.
  */
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
