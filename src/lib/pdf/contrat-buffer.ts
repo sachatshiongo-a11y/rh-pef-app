@@ -7,6 +7,7 @@ import { chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { lireFichier } from "@/lib/storage";
 import { formaterNombre } from "@/lib/montant";
+import { signatureImprimable } from "@/lib/signature";
 
 /**
  * Génère le PDF d'un contrat (buffer + nom de fichier) — partagé entre la route Direction
@@ -57,8 +58,9 @@ export async function genererContratPdf(
   }
 
   const ent = await chargerEntreprise();
+  const signatureSalarie = await signatureImprimable(prisma, "CONTRAT", contrat.id);
   const buffer = await renderPdfBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
+    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature, signatureSalarie }),
   );
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
 }

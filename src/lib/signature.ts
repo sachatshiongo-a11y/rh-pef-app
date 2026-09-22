@@ -10,6 +10,9 @@ import {
   instantaneDemandeConge,
   type Instantane,
 } from "@/lib/signature-document";
+import { normaliserEspaces } from "@/lib/montant";
+import { lireFichier } from "@/lib/storage";
+import type { SignatureImprimable } from "@/lib/pdf/layout";
 
 // LIRE ET ÉCRIRE UNE SIGNATURE — la couche qui relit le document cible, compare son empreinte à
 // celle enregistrée à la signature, et écrit une nouvelle signature quand le document est
@@ -260,4 +263,103 @@ export async function enregistrerSignature(
     }
     throw erreur;
   }
+}
+
+// --- CE QUE LE DOCUMENT IMPRIME ------------------------------------------------------------
+
+export type { SignatureImprimable };
+
+/**
+ * Date et heure de KINSHASA (UTC+1, pas d'heure d'été) au format `JJ/MM/AAAA à HH h MM`.
+ *
+ * ⚠️ Construite morceau par morceau (`formatToParts`), et JAMAIS par la méthode `toLocaleString`
+ * avec la locale fr-FR (écrite ici séparément à dessein : le garde-fou
+ * `lib/pdf/glyphes-manquants.test.ts` cherche cette chaîne littérale dans tout fichier qui
+ * alimente un PDF, et ce module en alimente trois) :
+ * depuis ICU 72, Intl fr-FR insère une ESPACE FINE INSÉCABLE (U+202F) entre l'heure et les
+ * minutes comme entre les milliers d'un montant. Optima, la police embarquée dans nos PDF, n'a
+ * aucun glyphe pour ce caractère : react-pdf se rabat sur Helvetica, qui dessine une barre noire
+ * en travers — le défaut corrigé dans tout ce dépôt le 2026-09-22 sur les montants. La sortie
+ * repasse malgré tout par `normaliserEspaces` en dernier geste : ceinture ET bretelles, car un
+ * changement de version d'ICU peut réintroduire l'espace fine là où on ne l'attend pas.
+ */
+function dateHeureKinshasa(d: Date): string {
+  const morceaux = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Africa/Kinshasa",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23", // minuit s'écrit « 00 h 00 », jamais « 24 h 00 »
+  }).formatToParts(d);
+  const p = (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
+  return `${p("day")}/${p("month")}/${p("year")} à ${p("hour")} h ${p("minute")}`;
+}
+
+/**
+ * LA PHRASE IMPRIMÉE SOUS LE TRAIT — elle dit la vérité sur le geste, jamais une formule passe-partout.
+ *
+ * Quatre formes, et la distinction est le tout :
+ *  - depuis l'espace salarié : le salarié était SEUL devant son téléphone ;
+ *  - en présentiel : un responsable lui a tendu l'appareil de l'entreprise, et il est NOMMÉ ;
+ *  - sans tracé (`traceUrl` nul) : contrat accepté d'un clic avant ce lot, repris par la migration.
+ *    Il n'y a jamais eu de geste tracé et le document l'écrit tel quel plutôt que de laisser croire
+ *    le contraire ;
+ *  - obsolète : le document a bougé depuis la signature. L'avertissement passe en tête et
+ *    l'appelant n'affiche PAS le tracé.
+ *
+ * Le préfixe d'obsolescence ne porte AUCUN symbole d'avertissement : « ⚠ » (U+26A0) est absent
+ * d'Optima (mesuré — le PDF bascule alors sur Helvetica, cf. `lib/pdf/glyphes-manquants.test.ts`).
+ * L'avertissement est porté par les MOTS, qui eux s'impriment.
+ */
+export function mentionSignature(v: SignatureVue): string {
+  const quand = dateHeureKinshasa(v.signeLe);
+  let phrase: string;
+  if (v.traceUrl === null) {
+    phrase = `Accepté électroniquement le ${quand}, sans signature tracée.`;
+  } else if (v.mode === "PRESENTIEL") {
+    // Le responsable est nommé s'il est connu ; son compte a pu être supprimé depuis.
+    const responsable = v.nomPresentePar ?? "un responsable de l'entreprise";
+    phrase = `Signé par ${v.nomSalarie} (matricule ${v.matricule}) le ${quand}, sur l'appareil de l'entreprise, en présence de ${responsable}.`;
+  } else {
+    phrase = `Signé électroniquement par ${v.nomSalarie} (matricule ${v.matricule}) le ${quand}, depuis son espace salarié.`;
+  }
+  const prefixe = v.obsolete ? "Document modifié après signature — à resigner. " : "";
+  // Dernier geste avant de rendre la chaîne : elle finit dans un PDF.
+  return normaliserEspaces(prefixe + phrase);
+}
+
+/**
+ * LE TRACÉ NE S'AFFICHE QUE SI LA SIGNATURE EST À JOUR.
+ *
+ * Règle isolée ici, et nulle part ailleurs, parce qu'elle doit pouvoir être CASSÉE dans un test :
+ * recopiée dans chaque générateur de PDF (ou dans le jeu d'essai qui la vérifie), elle ne serait
+ * plus prouvée nulle part. Un paraphe posé sous des montants recalculés depuis la signature dirait
+ * que le salarié a approuvé ce qu'il n'a jamais vu ; la mention, elle, reste et dit pourquoi.
+ */
+export const traceAAfficher = (v: SignatureVue): boolean => v.traceUrl !== null && !v.obsolete;
+
+/**
+ * Ce qu'un document imprime, prêt à poser : tracé + mention. UN SEUL endroit décide que le tracé
+ * ne s'affiche pas sur un document obsolète — répété dans chaque générateur de PDF, cet oubli-là
+ * serait invisible jusqu'au jour où un bulletin recalculé sortirait avec le paraphe du salarié
+ * sous des montants qu'il n'a jamais vus.
+ *
+ * Renvoie `undefined` quand le document n'a jamais été signé (la case reste vide, sans mention).
+ */
+export async function signatureImprimable(
+  client: ClientSignature,
+  cible: CibleSignature,
+  cibleId: string
+): Promise<SignatureImprimable | undefined> {
+  const sig = await chargerSignature(client, cible, cibleId);
+  if (!sig) return undefined;
+  // `lireFichier` renvoie null si le stockage est indisponible : la mention reste, sans tracé —
+  // jamais une erreur qui empêcherait d'ouvrir le document.
+  const trace = traceAAfficher(sig) && sig.traceUrl ? await lireFichier(sig.traceUrl) : null;
+  return {
+    image: trace ? { data: trace, format: "png" } : null,
+    mention: mentionSignature(sig),
+  };
 }

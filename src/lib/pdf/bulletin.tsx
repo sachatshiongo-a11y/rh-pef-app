@@ -1,7 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
-import { PdfHeader, PdfSignatureBox } from "./layout";
+import { PdfHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
@@ -231,10 +231,12 @@ type BulletinProps = {
    * casser un appelant qui ne les chargerait pas encore — dans ce cas le montant stocké est
    * affiché tel quel (comportement historique). */
   params?: ParametresPaie;
+  /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */
+  signatureSalarie?: SignatureImprimable;
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params, signatureSalarie }: BulletinProps) {
   const feriesSet = new Set(feries);
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
@@ -513,7 +515,12 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
       <Text style={styles.fait}>Fait à Kinshasa, le {faitLe}</Text>
 
       <View style={styles.signatures} wrap={false}>
-        <PdfSignatureBox label="Signature du salarié" signe={false} />
+        <PdfSignatureBox
+          label="Signature du salarié"
+          signe={false}
+          image={signatureSalarie?.image ?? undefined}
+          mention={signatureSalarie?.mention}
+        />
         <PdfSignatureBox label="Signature de la direction" signe={ligne.statutPaiement === "PAYE"} />
       </View>
     </Page>

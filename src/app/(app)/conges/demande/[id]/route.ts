@@ -5,6 +5,7 @@ import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
 import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { chargerParametresPaie } from "@/lib/config";
 import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { signatureImprimable } from "@/lib/signature";
 
 export async function GET(
   _request: Request,
@@ -46,6 +47,7 @@ export async function GET(
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
 
+  const signatureSalarie = await signatureImprimable(prisma, "DEMANDE_CONGE", demande.id);
   const buffer = await renderPdfBuffer(
     DemandeCongeDocument({
       employee: demande.employee,
@@ -53,6 +55,7 @@ export async function GET(
       approuvePar: demande.approuvePar,
       remplacant: demande.remplacant,
       soldeConges,
+      signatureSalarie,
     })
   );
 
