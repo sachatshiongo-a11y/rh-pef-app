@@ -19,7 +19,7 @@ const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm
 export default async function EspaceDocuments({ searchParams }: { searchParams: Promise<{ certif?: string; erreur?: string }> }) {
   const s = await chargerSalarie();
   const sp = await searchParams;
-  const [bulletins, contrats, documents] = await Promise.all([
+  const [bulletins, contrats, documents, conges] = await Promise.all([
     // Seuls les bulletins VALIDÉS ou PAYÉS sont montrés au salarié (pas les brouillons en préparation).
     prisma.payrollLine.findMany({
       where: { employeeId: s.employeeId, statutPaiement: { in: ["VALIDE", "PAYE"] } },
@@ -29,14 +29,22 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
     }),
     prisma.contrat.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" } }),
     prisma.documentEmploye.findMany({ where: { employeeId: s.employeeId }, orderBy: { createdAt: "desc" } }),
+    // Seules les demandes APPROUVÉES ont un document à remettre : une demande en attente ou
+    // refusée ne s'ouvre ni ne se signe (la route /espace/conges/demande la refuse aussi).
+    prisma.leaveRequest.findMany({
+      where: { employeeId: s.employeeId, statut: "APPROUVE" },
+      orderBy: { dateDebut: "desc" },
+      take: 60,
+    }),
   ]);
 
-  // Les signatures des documents affichés, en DEUX requêtes (une par cible) quel que soit le
+  // Les signatures des documents affichés, en TROIS requêtes (une par cible) quel que soit le
   // nombre de lignes — jamais une requête par bulletin. Ce sont ces lectures qui détectent
   // qu'un document a bougé depuis sa signature : rien n'est stocké sur le bulletin lui-même.
-  const [sigBulletins, sigContrats] = await Promise.all([
+  const [sigBulletins, sigContrats, sigConges] = await Promise.all([
     chargerSignatures(prisma, "BULLETIN", bulletins.map((b) => b.id)),
     chargerSignatures(prisma, "CONTRAT", contrats.map((c) => c.id)),
+    chargerSignatures(prisma, "DEMANDE_CONGE", conges.map((c) => c.id)),
   ]);
 
   return (
@@ -98,6 +106,39 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                     cote="SALARIE"
                     action={signerMonDocument}
                     {...etatSignature(sigBulletins.get(b.id))}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* Congés approuvés — même gabarit que les deux rubriques qui l'encadrent : on ouvre le
+          document AVANT de le signer, et l'état de signature vient de `etatSignature`. */}
+      <Section titre="Congés approuvés">
+        {conges.length === 0 ? (
+          <Vide>Aucune demande de congé approuvée.</Vide>
+        ) : (
+          <ul className="divide-y">
+            {conges.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{c.type}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {fr(c.dateDebut)} → {fr(c.dateFin)} · {Number(c.nbJours)} jour{Number(c.nbJours) > 1 ? "s" : ""}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3 text-sm">
+                  <ContratViewerButton href={`/espace/conges/demande/${c.id}`} titre={`Demande de congé — ${c.type}`} libelle="Voir la demande" className="text-primary underline" />
+                  <BoutonSigner
+                    cible="DEMANDE_CONGE"
+                    cibleId={c.id}
+                    nomSalarie={s.nom}
+                    libelleDocument={`${c.type} — ${fr(c.dateDebut)}`}
+                    cote="SALARIE"
+                    action={signerMonDocument}
+                    {...etatSignature(sigConges.get(c.id))}
                   />
                 </div>
               </li>
