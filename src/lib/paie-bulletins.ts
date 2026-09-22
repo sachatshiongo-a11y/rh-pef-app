@@ -5,6 +5,8 @@ import { chargerParametresPaie } from "@/lib/config";
 import type { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import type { ImagePdf } from "@/lib/entreprise";
 import type { ParametresPaie } from "@/lib/payroll";
+import type { BulletinProps } from "@/lib/pdf/bulletin";
+import { signaturesImprimables, type SignatureImprimable } from "@/lib/signature";
 
 export type DonneesBulletinsDuMois = {
   run: NonNullable<Awaited<ReturnType<typeof chargerRun>>>;
@@ -16,6 +18,8 @@ export type DonneesBulletinsDuMois = {
   logo: ImagePdf;
   /** Paramètres de paie (2026-07-22) — pour reconstituer le brut affiché sur le bulletin PDF. */
   parametres: ParametresPaie;
+  /** Tracé + mention de signature, par id de ligne de paie. Absent = bulletin jamais signé. */
+  signaturesParLigne: Map<string, SignatureImprimable>;
 };
 
 function chargerRun(mois: number, annee: number) {
@@ -69,5 +73,40 @@ export async function chargerDonneesBulletinsDuMois(mois: number, annee: number)
       montantUSD: Number(p.montantUSD),
     });
 
-  return { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise: ent.entreprise, logo: ent.logo, parametres };
+  // LES SIGNATURES DE TOUTE LA LIASSE, EN UNE FOIS.
+  //
+  // Sans cette ligne, un bulletin ouvert à l'unité porterait la mention de signature et le MÊME
+  // bulletin sorti de l'export groupé n'en porterait aucune : la Direction imprimerait la liasse
+  // du mois et distribuerait des bulletins qui paraissent non signés alors qu'ils le sont.
+  // Le coût invoqué (« une requête par salarié ») n'existe pas : `signaturesImprimables` fait le
+  // même nombre de requêtes pour tout l'effectif que pour un seul bulletin. Seule la lecture des
+  // tracés dans le stockage est proportionnelle — et il n'y en a que pour les bulletins signés.
+  const signaturesParLigne = await signaturesImprimables(prisma, "BULLETIN", run.lignes.map((l) => l.id));
+
+  return { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise: ent.entreprise, logo: ent.logo, parametres, signaturesParLigne };
+}
+
+/**
+ * Les propriétés de rendu d'un bulletin, pour CHAQUE ligne du mois — l'unique assembleur des
+ * exports groupés (PDF d'un seul tenant et ZIP de PDF séparés).
+ *
+ * Il existe pour que les deux routes ne puissent pas diverger : recopié dans chacune, l'oubli de
+ * `signatureSalarie` dans une seule des deux serait invisible jusqu'au jour où un salarié
+ * comparerait son exemplaire à celui de la liasse.
+ */
+export function bulletinsPourPdf(donnees: DonneesBulletinsDuMois): Omit<BulletinProps, "devise">[] {
+  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo, parametres, signaturesParLigne } = donnees;
+  return run.lignes.map((l) => ({
+    employee: l.employee,
+    ligne: l,
+    run,
+    congesPeriode: congesParEmp.get(l.employeeId) ?? [],
+    primes: primesParEmp.get(l.employeeId) ?? [],
+    codesParJour: codesParEmp.get(l.employeeId) ?? {},
+    feries,
+    entreprise,
+    logo,
+    params: parametres,
+    signatureSalarie: signaturesParLigne.get(l.id),
+  }));
 }

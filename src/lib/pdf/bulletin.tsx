@@ -214,7 +214,7 @@ function Row({
 
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
-type BulletinProps = {
+export type BulletinProps = {
   employee: Employee;
   ligne: PayrollLine;
   run: PayrollRun;
