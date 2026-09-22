@@ -14,5 +14,5 @@ export const LBL_BULLETIN = {
   acompte: "Acompte sur salaire",
   alloc: "Allocation familiale",
   fraisMedicaux: "Frais médicaux",
-  net: "Salaire net à payer",
+  net: "Salaire net",
 } as const;

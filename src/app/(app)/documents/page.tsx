@@ -8,6 +8,8 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import type { PaymentStatus } from "@prisma/client";
 import { normTexte } from "@/lib/texte";
+import { salaireNetUSD } from "@/lib/paie-net";
+import { formaterNombre } from "@/lib/montant";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -192,7 +194,7 @@ export default async function DocumentsPage({
             </div>
             <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="capitalize">{new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} · {b.employee.matricule}</span>
-              <span className="font-semibold text-foreground">{Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</span>
+              <span className="font-semibold text-foreground">{formaterNombre(salaireNetUSD(b), { minimumFractionDigits: 2 })} $</span>
             </div>
             <div className="mt-2 flex gap-3 text-sm">
               <TelechargerLien href={`/paie/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
@@ -261,14 +263,14 @@ export default async function DocumentsPage({
         <table className="w-full text-sm">
           {onglet === "bulletins" && (
             <>
-              <Thead cols={["Période", "Matricule", "Employé", "Net $", "Statut", "Bulletin"]} />
+              <Thead cols={["Période", "Matricule", "Employé", "Salaire net $", "Statut", "Bulletin"]} />
               <tbody>
                 {bulletins.map((b) => (
                   <tr key={b.id} className="border-t">
                     <td className="px-3 py-2 capitalize">{new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</td>
                     <td className="px-3 py-2 font-mono text-xs">{b.employee.matricule}</td>
                     <td className="px-3 py-2"><EmpLink id={b.employee.id} nom={b.employee.nom} photoUrl={b.employee.photoUrl} /></td>
-                    <td className="px-3 py-2">{Number(b.salNetUSD).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} $</td>
+                    <td className="px-3 py-2">{formaterNombre(salaireNetUSD(b), { minimumFractionDigits: 2 })} $</td>
                     <td className="px-3 py-2"><Badge classe={COULEUR_STATUT[b.statutPaiement]}>{LIBELLE_STATUT[b.statutPaiement]}</Badge></td>
                     <td className="whitespace-nowrap px-3 py-2">
                       <TelechargerLien href={`/paie/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">$</TelechargerLien>

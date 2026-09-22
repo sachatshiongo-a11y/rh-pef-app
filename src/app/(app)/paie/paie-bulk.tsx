@@ -17,8 +17,9 @@ export type PaieRow = {
   photoUrl?: string | null;
   categorie: string;
   salBrutUSD: number;
-  salNetUSD: number;
-  salNetCDF: number;
+  salaireNetUSD: number;
+  salaireNetCDF: number;
+  totalVerseUSD: number;
   statutPaiement: PaymentStatus;
   modePaiementDefaut: ModePaiement;
   // Détail pour l'aperçu léger (HTML) des cartes mobile.
@@ -200,8 +201,8 @@ function Groupe({
               <th className="px-3 py-2">Matricule</th>
               <th className="px-3 py-2">Nom</th>
               <th className="px-3 py-2 text-right">Brut $</th>
-              <th className="px-3 py-2 text-right">Net $</th>
-              <th className="px-3 py-2 text-right">Net CDF</th>
+              <th className="px-3 py-2 text-right">Salaire net $</th>
+              <th className="px-3 py-2 text-right">Salaire net CDF</th>
               <th className="px-3 py-2">Statut</th>
               <th className="px-3 py-2">Bulletin</th>
               <th className="px-3 py-2 text-right">Actions</th>
@@ -223,9 +224,9 @@ function Groupe({
                   <EmployeeName id={l.employeeId} nom={l.nom} photoUrl={l.photoUrl} />
                 </td>
                 <td className="px-3 py-2 text-right">{money(l.salBrutUSD)}</td>
-                <td className="px-3 py-2 text-right">{money(l.salNetUSD)}</td>
+                <td className="px-3 py-2 text-right">{money(l.salaireNetUSD)}</td>
                 <td className="px-3 py-2 text-right">
-                  {l.salNetCDF.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
+                  {l.salaireNetCDF.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
                 </td>
                 <td className="px-3 py-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_STATUT[l.statutPaiement]}`}>
