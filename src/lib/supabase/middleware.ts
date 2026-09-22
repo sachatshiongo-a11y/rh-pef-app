@@ -13,8 +13,17 @@ import { getJwksKeys } from "@/lib/supabase/jwks";
  * Corrigé le 2026-09-05, en reprise de la même correction faite sur atelier-dominique-app : aucune
  * route du dépôt ne commençait alors par un préfixe public sans être ce préfixe — la fuite était
  * LATENTE, pas ouverte. On la referme avant qu'un écran mal nommé ne l'ouvre tout seul.
+ *
+ * `/hors-ligne` (2026-09-22) est publique À DESSEIN, et c'est la seule qui ne soit pas une page de
+ * connexion. Elle ne contient AUCUNE donnée : ni montant, ni nom, ni appel serveur — c'est une
+ * phrase qui dit qu'il n'y a pas de réseau (voir src/app/hors-ligne/page.tsx). Le service worker la
+ * met en cache à son installation pour la servir quand une navigation échoue ; si elle répondait
+ * par une redirection vers /login, il mettrait en cache la PAGE DE CONNEXION sous son nom et
+ * l'afficherait à la place — un écran de connexion trompeur au lieu d'un message honnête. Pire, une
+ * réponse issue d'une redirection ne peut pas servir une navigation : le repli échouerait tout
+ * court. La rendre publique est donc ce qui la rend fiable, et ne divulgue rien.
  */
-const PUBLIC_PATHS = ["/login", "/mot-de-passe-oublie", "/reinitialiser"];
+const PUBLIC_PATHS = ["/login", "/mot-de-passe-oublie", "/reinitialiser", "/hors-ligne"];
 
 /** Exportée pour être vérifiée par `src/lib/chemins-publics.test.ts`. */
 export function cheminPublic(pathname: string): boolean {

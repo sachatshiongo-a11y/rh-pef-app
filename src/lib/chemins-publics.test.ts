@@ -40,6 +40,7 @@ import { cheminPublic } from "@/lib/supabase/middleware";
 const RECUPEREES_SANS_SESSION = [
   { chemin: "/manifest.json", pourquoi: "le manifeste PWA, lu à l'installation depuis n'importe quel écran" },
   { chemin: "/sw.js", pourquoi: "le script du service worker ; une redirection fait échouer son enregistrement" },
+  { chemin: "/hors-ligne", pourquoi: "la page servie sans réseau ; sinon le cache du service worker retient la page de connexion à sa place" },
   { chemin: "/icons/icon-192.png", pourquoi: "l'icône de l'écran d'accueil" },
   { chemin: "/icons/icon-512.png", pourquoi: "l'icône de l'écran d'accueil" },
   {
@@ -61,6 +62,9 @@ describe("le garde d'authentification ne laisse pas fuir, et ne bloque pas ce qu
     // Le cœur de la correction. Chaque paire : ce qui doit passer, et le voisin qui ne doit pas.
     expect(cheminPublic("/login")).toBe(true);
     expect(cheminPublic("/login-technicien"), "un préfixe nu rendrait cette page publique").toBe(false);
+
+    expect(cheminPublic("/hors-ligne")).toBe(true);
+    expect(cheminPublic("/hors-ligne-tout"), "un préfixe nu rendrait cette page publique").toBe(false);
 
     expect(cheminPublic("/reinitialiser")).toBe(true);
     expect(cheminPublic("/reinitialiser-tout"), "un préfixe nu rendrait cette page publique").toBe(false);
