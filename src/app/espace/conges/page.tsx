@@ -59,7 +59,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
       {/* Compteurs façon tableau de bord */}
       <div className="grid grid-cols-3 gap-3">
         <StatConge n={congesAcquis} label="Jours cumulés" />
-        <StatConge n={solde} label="Jours disponibles" accent />
+        <StatConge n={solde} label="Solde de congé annuel" accent />
         <StatConge n={congesPris} label="Jours pris" />
       </div>
 
@@ -84,7 +84,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
           </label>
           <div className="sm:col-span-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Envoyer la demande</button>
-            <span className="ml-3 text-xs text-muted-foreground">Le décompte exclut les dimanches et jours fériés.</span>
+            <span className="ml-3 text-xs text-muted-foreground">Seul le congé annuel se déduit de ce solde.</span>
           </div>
         </form>
       </details>

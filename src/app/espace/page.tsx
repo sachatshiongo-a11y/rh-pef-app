@@ -58,7 +58,7 @@ export default async function EspaceAccueil() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Carte titre="Solde de congés" valeur={`${solde} j`} sousTitre="jours disponibles" icone="parasol" href="/espace/conges" />
+        <Carte titre="Solde de congé annuel" valeur={`${solde} j`} sousTitre="jours disponibles" icone="parasol" href="/espace/conges" />
         <Carte titre="Demandes en cours" valeur={String(congesEnAttente)} sousTitre="en attente de validation" icone="valider" href="/espace/conges" />
         <Carte
           titre="Prochain service"

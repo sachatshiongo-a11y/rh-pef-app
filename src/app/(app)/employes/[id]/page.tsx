@@ -662,7 +662,7 @@ export default async function FicheEmployePage({
         <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
           <Stat label="Congés acquis (année)" value={congesAcquis} />
           <Stat label="Congés pris (année)" value={congesPrisAnnee} />
-          <Stat label="Solde" value={soldeConges} />
+          <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
 
         <AbsencesCard
