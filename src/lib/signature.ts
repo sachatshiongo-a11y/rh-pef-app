@@ -176,6 +176,25 @@ export async function chargerSignature(
  *  2. Sinon `create` — et c'est la contrainte d'unicité `[cible, cibleId]` de la base qui tranche
  *     entre deux créations concurrentes : le perdant reçoit `P2002`, traduit en refus métier.
  */
+/**
+ * Décode le tracé envoyé par le navigateur. NE JAMAIS faire confiance au client : ce n'est pas
+ * parce que le composant `CadreSignature` n'exporte que du PNG qu'un appel direct de l'action
+ * (contournant l'UI) ne pourrait pas envoyer autre chose — un SVG (vecteur, peut contenir du
+ * script), un autre format d'image, ou n'importe quel blob en base64. On vérifie l'en-tête PNG
+ * OCTET PAR OCTET, jamais la déclaration `data:image/...` seule (un attaquant la falsifie
+ * trivialement).
+ */
+export function decoderTrace(dataUrl: string): Buffer {
+  const prefixe = "data:image/png;base64,";
+  if (!dataUrl.startsWith(prefixe)) throw new Error("Signature illisible.");
+  const buf = Buffer.from(dataUrl.slice(prefixe.length), "base64");
+  // En-tête PNG : 89 50 4E 47 0D 0A 1A 0A
+  const enTete = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (buf.length < 100 || !buf.subarray(0, 8).equals(enTete)) throw new Error("Signature illisible.");
+  if (buf.length > 400_000) throw new Error("Signature trop lourde.");
+  return buf;
+}
+
 export async function enregistrerSignature(
   client: ClientSignature,
   params: {
