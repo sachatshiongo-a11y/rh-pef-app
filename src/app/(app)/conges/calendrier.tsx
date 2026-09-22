@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { ancienneteEnMois, calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
-import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
+import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -102,7 +102,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   const finAnnee = new Date(Date.UTC(annee, 11, 31));
 
-  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee, params, tauxParType] = await Promise.all([
+  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee, params, compteParType] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -118,7 +118,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
     prisma.jourFerie.findMany({ where: { date: { gte: debutRange, lte: finRange } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutAnnee, lte: finAnnee } }, select: { date: true } }),
     chargerParametresPaie(),
-    chargerTauxParTypeConge(),
+    chargerCompteDansSoldeParType(),
   ]);
 
   const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
@@ -148,7 +148,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   // --- Soldes annuels (conservés sous le calendrier) ---
   const congesAnnuelsParEmp = new Map<string, number>();
   for (const d of demandesAnnee) {
-    if (!congeDeductibleDuSolde(d.type, tauxParType.get(d.type))) continue;
+    if (!congeDeductibleDuSolde(compteParType.get(d.type))) continue;
     const debut = new Date(Math.max(new Date(d.dateDebut).getTime(), debutAnnee.getTime()));
     const fin = new Date(Math.min(new Date(d.dateFin).getTime(), finAnnee.getTime()));
     if (debut > fin) continue;
@@ -295,7 +295,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
       </div>
 
       {/* Soldes de congés annuels */}
-      <h2 className="mb-2 mt-8 text-base font-semibold">Soldes de congés — {annee}</h2>
+      <h2 className="mb-2 mt-8 text-base font-semibold">Soldes de congé annuel — {annee}</h2>
       <div className="max-h-[70vh] overflow-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left">
@@ -303,7 +303,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
               <th className="px-3 py-2">Employé</th>
               <th className="px-3 py-2 text-center">Droits acquis</th>
               <th className="px-3 py-2 text-center">Congés pris (décomptés)</th>
-              <th className="px-3 py-2 text-center">Solde</th>
+              <th className="px-3 py-2 text-center">Solde annuel</th>
             </tr>
           </thead>
           <tbody>
@@ -334,8 +334,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
 
       <p className="mt-4 text-xs text-muted-foreground">
         Source : demandes de congé <span className="font-medium">approuvées</span>. Solde = droits acquis
-        selon l&apos;ancienneté − congés décomptés sur l&apos;année (maternité, maladie, accident du
-        travail et arrivée d&apos;un enfant ne sont pas déduits). Les droits légaux restent à valider
+        selon l&apos;ancienneté − congés décomptés sur l&apos;année (seuls les types cochés « Solde
+        annuel » dans Paramètres se déduisent). Les droits légaux restent à valider
         par un comptable. Colonne orange = dimanche ou jour férié.
       </p>
     </div>

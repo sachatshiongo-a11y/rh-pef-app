@@ -615,37 +615,19 @@ export function tauxPrimeAnciennete(anneesAnciennete: number): number {
   return Math.min(25, annees);
 }
 
-// Types de congés qui NE sont PAS déduits du solde de congés annuels (congés spéciaux/protégés) :
-// maternité/paternité, arrivée d'un enfant (naissance), maladie, maladie professionnelle, accident.
-// Reconnaissance par MOTS-CLÉS (insensible à la casse) sur le nom du TypeConge. Non-déductibles quel
-// que soit `tauxPct` (ce sont des congés légaux protégés, payés ou non, jamais décomptés du solde).
-const MOTS_CONGES_NON_DEDUCTIBLES = ["matern", "patern", "naiss", "enfant", "maladie", "accident"];
+/**
+ * Un congé de ce type se déduit-il du solde de congé annuel ? C'est la case `compteDansSolde` du
+ * `TypeConge` qui le dit (Paramètres → Types de congé), et rien d'autre — plus de reconnaissance
+ * par mots-clés sur le nom, plus de règle « taux à 0 % ». `undefined` = type absent de la table
+ * (`LeaveRequest.type` est du texte libre) → ne compte pas.
+ */
+export function congeDeductibleDuSolde(compteDansSolde: boolean | undefined): boolean {
+  return compteDansSolde === true;
+}
 
 /**
- * Un congé de ce type doit-il être décompté du solde de congés annuels payés ?
- * Règle : déductible SSI le congé est PAYÉ (`tauxPct` du `TypeConge` ≠ 0) ET n'est pas un congé
- * légal spécial déjà exclu par mots-clés (maternité/paternité/naissance/maladie/accident, qui
- * restent non-déductibles quel que soit leur taux). Un congé sans solde (`tauxPct === 0`, ex.
- * « Congé sans solde ») n'entame donc jamais le solde de congés payés acquis.
- * `tauxPct` non fourni ou `null` (type « À VALIDER ») → traité comme payé par défaut, comportement
- * inchangé pour ne pas pénaliser les types non encore paramétrés par un comptable.
+ * Jours ouvrables entre deux dates — déplacé dans `@/lib/jours-ouvrables` le 2026-09-22 (le module
+ * porte aussi le sens inverse, jours → date de fin, pour le formulaire de congé). Réexporté ici
+ * pour ses appelants historiques (paie, contrats).
  */
-export function congeDeductibleDuSolde(type: string, tauxPct?: number | null): boolean {
-  const t = type.toLowerCase();
-  if (MOTS_CONGES_NON_DEDUCTIBLES.some((mot) => t.includes(mot))) return false;
-  if (tauxPct === 0) return false;
-  return true;
-}
-
-/** Nombre de jours ouvrables (hors dimanche) entre deux dates, bornes incluses. */
-/** Jours ouvrables entre deux dates : dimanches exclus, et jours fériés exclus si fournis. */
-export function calculerJoursOuvrables(debut: Date, fin: Date, joursFeries: Iterable<Date | string> = []): number {
-  const feries = new Set([...joursFeries].map((d) => (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10)));
-  let count = 0;
-  const cur = new Date(debut);
-  while (cur <= fin) {
-    if (cur.getUTCDay() !== 0 && !feries.has(cur.toISOString().slice(0, 10))) count++;
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return count;
-}
+export { compterJoursOuvrables as calculerJoursOuvrables } from "@/lib/jours-ouvrables";

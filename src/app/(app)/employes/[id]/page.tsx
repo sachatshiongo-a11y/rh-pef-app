@@ -28,7 +28,7 @@ import { construireEcheancier } from "@/lib/prets";
 import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
-import { typeSansConges, chargerTauxParTypeConge } from "@/lib/regles-contrats";
+import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -127,7 +127,7 @@ export default async function FicheEmployePage({
   });
   const ageLimiteEnfant = config?.ageLimiteEnfantACharge ?? 18;
 
-  const [attendances, leaveRequests, payrollLines, tauxParType] = await Promise.all([
+  const [attendances, leaveRequests, payrollLines, compteParType] = await Promise.all([
     prisma.attendance.findMany({
       where: { employeeId: id, date: { gte: debutMois, lte: finMois } },
       orderBy: { date: "asc" },
@@ -142,7 +142,7 @@ export default async function FicheEmployePage({
       include: { payrollRun: true },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
-    chargerTauxParTypeConge(),
+    chargerCompteDansSoldeParType(),
   ]);
 
   // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
@@ -301,7 +301,7 @@ export default async function FicheEmployePage({
       (l) =>
         l.statut === "APPROUVE" &&
         new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
+        congeDeductibleDuSolde(compteParType.get(l.type))
     )
     .reduce((acc, l) => acc + Number(l.nbJours), 0);
   const soldeConges = Math.round((congesAcquis - congesPrisAnnee) * 10) / 10;
@@ -662,7 +662,7 @@ export default async function FicheEmployePage({
         <div className="mb-4 grid grid-cols-3 gap-4 text-sm">
           <Stat label="Congés acquis (année)" value={congesAcquis} />
           <Stat label="Congés pris (année)" value={congesPrisAnnee} />
-          <Stat label="Solde" value={soldeConges} />
+          <Stat label="Solde de congé annuel" value={soldeConges} />
         </div>
 
         <AbsencesCard

@@ -12,7 +12,8 @@ function intOuNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-/** Crée un type de congé/absence paramétrable. joursPayes/tauxPct vides = « À VALIDER ». */
+/** Crée un type de congé/absence paramétrable. joursPayes/tauxPct vides = « À VALIDER » et la case
+ * « compte dans le solde » (seuls les types cochés se déduisent du solde de congé annuel). */
 export const creerTypeConge = actionLisible(async (formData: FormData) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
@@ -24,6 +25,7 @@ export const creerTypeConge = actionLisible(async (formData: FormData) => {
       nom,
       joursPayes: intOuNull(formData.get("joursPayes")),
       tauxPct: intOuNull(formData.get("tauxPct")),
+      compteDansSolde: formData.get("compteDansSolde") === "on",
       ordre: (dernier?.ordre ?? 0) + 1,
     },
   });
@@ -31,7 +33,7 @@ export const creerTypeConge = actionLisible(async (formData: FormData) => {
   revalidatePath("/conges");
 });
 
-/** Modifie un type de congé (nom, jours payés, taux). */
+/** Modifie un type de congé (nom, jours payés, taux, case « compte dans le solde »). */
 export const modifierTypeConge = actionLisible(async (id: string, formData: FormData) => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
@@ -43,6 +45,7 @@ export const modifierTypeConge = actionLisible(async (id: string, formData: Form
       nom,
       joursPayes: intOuNull(formData.get("joursPayes")),
       tauxPct: intOuNull(formData.get("tauxPct")),
+      compteDansSolde: formData.get("compteDansSolde") === "on",
     },
   });
   revalidatePath("/parametres");

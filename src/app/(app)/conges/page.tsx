@@ -25,7 +25,7 @@ function chipDate(dt: Date) {
 export default async function CongesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string } & SPCalendrier>;
+  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string } & SPCalendrier>;
 }) {
   const user = await verifySession();
   const sp = await searchParams;
@@ -93,9 +93,12 @@ export default async function CongesPage({
       </div>
 
       {peutGerer && (
-        <details className="mb-6 rounded-xl border">
+        <details open={!!sp.erreur} className="mb-6 rounded-xl border">
           <summary className="cursor-pointer px-5 py-3 text-sm font-semibold">+ Nouvelle demande de congé</summary>
           <div className="border-t p-5">
+          {sp.erreur && (
+            <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>
+          )}
           <form action={demanderConge} className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="employeeId" className="text-sm font-medium">
@@ -149,7 +152,7 @@ export default async function CongesPage({
                 ))}
               </select>
             </div>
-            <div className="col-span-2 flex flex-col gap-1.5 md:col-span-3">
+            <div className="col-span-2 flex flex-col gap-1.5 md:col-span-2">
               <label htmlFor="motif" className="text-sm font-medium">
                 Motif (optionnel)
               </label>

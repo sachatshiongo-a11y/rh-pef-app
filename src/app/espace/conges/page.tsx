@@ -23,10 +23,10 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
   const [emp, demandes, typesConges, feriesRows] = await Promise.all([
     prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { contrat: true, dateEmbauche: true } }),
     prisma.leaveRequest.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" }, take: 60 }),
-    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true, tauxPct: true } }),
+    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" }, select: { nom: true, compteDansSolde: true } }),
     prisma.jourFerie.findMany({ select: { date: true } }),
   ]);
-  const tauxParType = new Map(typesConges.map((t) => [t.nom, t.tauxPct]));
+  const compteParType = new Map(typesConges.map((t) => [t.nom, t.compteDansSolde]));
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
 
   const now = new Date();
@@ -38,7 +38,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
       (l) =>
         l.statut === "APPROUVE" &&
         new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(l.type, tauxParType.get(l.type))
+        congeDeductibleDuSolde(compteParType.get(l.type))
     )
     .reduce((a, l) => a + Number(l.nbJours), 0);
   const solde = Math.round((congesAcquis - congesPris) * 10) / 10;
@@ -59,7 +59,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
       {/* Compteurs façon tableau de bord */}
       <div className="grid grid-cols-3 gap-3">
         <StatConge n={congesAcquis} label="Jours cumulés" />
-        <StatConge n={solde} label="Jours disponibles" accent />
+        <StatConge n={solde} label="Solde de congé annuel" accent />
         <StatConge n={congesPris} label="Jours pris" />
       </div>
 
@@ -77,7 +77,6 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
               {typesConges.map((t) => <option key={t.nom} value={t.nom}>{t.nom}</option>)}
             </select>
           </label>
-          <div className="hidden sm:block" />
           {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
           <ChampsDatesConge feries={feries} min={auj()} labelDebut="Du" labelFin="Au" inputClassName={inputCls} />
           <label className="flex flex-col gap-1 text-sm sm:col-span-2">Motif (facultatif)
@@ -85,7 +84,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
           </label>
           <div className="sm:col-span-2">
             <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Envoyer la demande</button>
-            <span className="ml-3 text-xs text-muted-foreground">Le décompte exclut les dimanches et jours fériés.</span>
+            <span className="ml-3 text-xs text-muted-foreground">Seul le congé annuel se déduit de ce solde.</span>
           </div>
         </form>
       </details>

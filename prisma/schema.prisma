@@ -431,6 +431,9 @@ model TypeConge {
   ordre      Int     @default(0)
   systeme    Boolean @default(false)
   actif      Boolean @default(true)
+  // Seul(s) type(s) déduit(s) du solde de congé annuel — décidé ici, dans Paramètres, jamais par
+  // le nom du type. Coché à la migration pour tout type dont le nom contient « annuel ».
+  compteDansSolde Boolean @default(false)
 
   @@schema("public")
 }

@@ -14,6 +14,7 @@ export type TypeCongeRow = {
   nom: string;
   joursPayes: number | null;
   tauxPct: number | null;
+  compteDansSolde: boolean;
   systeme: boolean;
   actif: boolean;
 };
@@ -43,6 +44,7 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
               <th className="py-2">Type</th>
               <th className="py-2 text-center">Jours payés</th>
               <th className="py-2 text-center">Taux %</th>
+              <th className="py-2 text-center">Solde annuel</th>
               <th className="py-2 text-center">Statut</th>
               <th className="py-2 text-right">Actions</th>
             </tr>
@@ -55,11 +57,16 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
                     <input name="nom" defaultValue={t.nom} className={`${inputCls} w-44`} />
                     <input name="joursPayes" type="number" defaultValue={t.joursPayes ?? ""} placeholder="À valider" className={`${inputCls} w-24`} />
                     <input name="tauxPct" type="number" defaultValue={t.tauxPct ?? ""} placeholder="À valider" className={`${inputCls} w-20`} />
+                    <label className="flex items-center gap-1 text-xs" title="Ce type se déduit du solde de congé annuel">
+                      <input type="checkbox" name="compteDansSolde" defaultChecked={t.compteDansSolde} />
+                      solde
+                    </label>
                     <button disabled={isPending} className="rounded border px-2 py-1 text-xs hover:bg-accent">Enregistrer</button>
                   </form>
                 </td>
                 <td className="py-1.5 text-center">{t.joursPayes ?? <span className="text-amber-600">À valider</span>}</td>
                 <td className="py-1.5 text-center">{t.tauxPct ?? <span className="text-amber-600">À valider</span>}</td>
+                <td className="py-1.5 text-center">{t.compteDansSolde ? <span className="font-medium text-emerald-700">✓</span> : <span className="text-muted-foreground">—</span>}</td>
                 <td className="py-1.5 text-center">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${t.actif ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
                     {t.actif ? "Actif" : "Inactif"}
@@ -91,11 +98,13 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
         <input name="nom" placeholder="Nouveau type (ex. Congé exceptionnel)" required className={`${inputCls} flex-1`} />
         <input name="joursPayes" type="number" placeholder="Jours payés" className={`${inputCls} w-28`} />
         <input name="tauxPct" type="number" placeholder="Taux %" className={`${inputCls} w-24`} />
+        <label className="flex items-center gap-1 text-sm"><input type="checkbox" name="compteDansSolde" /> Compte dans le solde</label>
         <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Ajouter</button>
       </form>
       <p className="text-xs text-muted-foreground">
         Jours payés / taux laissés vides = <span className="font-medium text-amber-600">À valider</span> par un
-        comptable-juriste (non appliqués en paie tant que non renseignés).
+        comptable-juriste (non appliqués en paie tant que non renseignés). Seuls les types cochés
+        « Solde annuel » se déduisent du solde de congé annuel ; les autres restent demandables.
       </p>
     </div>
   );

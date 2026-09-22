@@ -338,31 +338,16 @@ describe("calculerCongesAcquis", () => {
   });
 });
 
-describe("congeDeductibleDuSolde (déductibilité du solde de congés payés)", () => {
-  it("congé annuel / autre : déductibles (tauxPct non fourni, > 0, ou null → payé par défaut)", () => {
-    expect(congeDeductibleDuSolde("Congé annuel payé")).toBe(true);
-    expect(congeDeductibleDuSolde("Congé annuel payé", 100)).toBe(true);
-    expect(congeDeductibleDuSolde("Congé annuel payé", null)).toBe(true); // À VALIDER = payé par défaut
-    expect(congeDeductibleDuSolde("Autre")).toBe(true);
-    expect(congeDeductibleDuSolde("Mariage")).toBe(true);
-    expect(congeDeductibleDuSolde("Décès d'un proche")).toBe(true);
+describe("congeDeductibleDuSolde — la case sur le type décide, rien d'autre (2026-09-22)", () => {
+  it("type coché → déduit du solde de congé annuel", () => {
+    expect(congeDeductibleDuSolde(true)).toBe(true);
   });
-
-  it("congé sans solde (tauxPct = 0) : NON déductible — ne doit pas entamer le solde payé", () => {
-    expect(congeDeductibleDuSolde("Congé sans solde", 0)).toBe(false);
-    // sans info de tauxPct (appelant non migré / type inconnu), comportement historique conservé
-    expect(congeDeductibleDuSolde("Congé sans solde")).toBe(true);
+  it("type décoché → non déduit, quel que soit son nom", () => {
+    // Un « Congé annuel » décoché ne compte pas : la case prime sur le nom.
+    expect(congeDeductibleDuSolde(false)).toBe(false);
   });
-
-  it("maternité / paternité / naissance / maladie / accident : NON déductibles quel que soit le taux", () => {
-    expect(congeDeductibleDuSolde("Congé maternité")).toBe(false);
-    expect(congeDeductibleDuSolde("Congé maternité", 100)).toBe(false);
-    expect(congeDeductibleDuSolde("Congé maternité", 0)).toBe(false);
-    expect(congeDeductibleDuSolde("Congé paternité / naissance")).toBe(false);
-    expect(congeDeductibleDuSolde("CONGÉ MALADIE")).toBe(false);
-    expect(congeDeductibleDuSolde("Maladie professionnelle")).toBe(false);
-    expect(congeDeductibleDuSolde("Accident du travail")).toBe(false);
-    expect(congeDeductibleDuSolde("Naissance (arrivée d'un enfant)")).toBe(false);
+  it("type inconnu de la table (LeaveRequest.type est du texte libre) → non déduit", () => {
+    expect(congeDeductibleDuSolde(undefined)).toBe(false);
   });
 });
 
