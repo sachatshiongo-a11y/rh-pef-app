@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { validerBonCommande } from "../commandes/actions";
+import { BoutonValider } from "@/components/action-buttons";
 
 export default async function AValiderPage() {
   const user = await verifySession();
@@ -38,7 +39,7 @@ export default async function AValiderPage() {
                 <Link href={`/stock/commandes/${bc.id}`} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Voir l&apos;aperçu</Link>
                 {estDirection ? (
                   <form action={validerBonCommande.bind(null, bc.id)}>
-                    <button className="rounded-md bg-success px-3 py-1.5 text-sm font-medium text-white hover:bg-success/90">✓ Valider</button>
+                    <BoutonValider type="submit" />
                   </form>
                 ) : (
                   <span className="text-xs text-amber-700">En attente Direction</span>

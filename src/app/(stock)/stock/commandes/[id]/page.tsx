@@ -7,6 +7,7 @@ import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, delaiPaiementLabel } from 
 import { changerStatutBonCommande, validerBonCommande, supprimerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
 import { LierFacture } from "./lier-facture";
+import { BoutonValider } from "@/components/action-buttons";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -60,7 +61,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
               <Link href={`/stock/commandes/${bc.id}/modifier`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Modifier le brouillon</Link>
               {estDirection ? (
                 <form action={validerBonCommande.bind(null, bc.id)}>
-                  <button className="rounded-md bg-success px-4 py-1.5 text-sm font-medium text-white hover:bg-success/90">Valider le bon de commande</button>
+                  <BoutonValider type="submit">Valider le bon de commande</BoutonValider>
                 </form>
               ) : (
                 <span className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800">En attente de validation par la Direction</span>
