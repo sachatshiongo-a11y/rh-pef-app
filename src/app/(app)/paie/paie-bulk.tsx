@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "./actions";
 import { StatusActions } from "./status-actions";
+import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -108,9 +109,7 @@ export function PaieBulk({
           <span className="text-sm font-medium">{n} sélectionné(s) :</span>
           {estAdmin && (
             <>
-              <button onClick={() => lancer("VALIDE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
-                ✓ Valider
-              </button>
+              <BoutonValider onClick={() => lancer("VALIDE")} disabled={isPending} />
               <span className="inline-flex items-center gap-1">
                 <select
                   value={modeBulk}
@@ -123,13 +122,11 @@ export function PaieBulk({
                     <option key={m.valeur} value={m.valeur}>{m.label}</option>
                   ))}
                 </select>
-                <button onClick={() => lancer("PAYE")} disabled={isPending} className="rounded-md bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90">
-                  ✓ Marquer payé
-                </button>
+                <BoutonValider onClick={() => lancer("PAYE")} disabled={isPending}>Marquer payé</BoutonValider>
               </span>
-              <button onClick={() => lancer("PAS_VALIDE")} disabled={isPending} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">
+              <BoutonNeutre onClick={() => lancer("PAS_VALIDE")} disabled={isPending}>
                 ↩ Rouvrir
-              </button>
+              </BoutonNeutre>
             </>
           )}
           <button onClick={() => setSelection(new Set())} className="ml-auto text-xs text-muted-foreground underline">

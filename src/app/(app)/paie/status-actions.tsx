@@ -2,7 +2,7 @@
 
 import { changerStatutPaie } from "./actions";
 import { prochainsEtats } from "@/lib/paie-etats";
-import { BTN_VALIDER, BTN_NEUTRE } from "@/components/action-buttons";
+import { BoutonValider, BTN_NEUTRE } from "@/components/action-buttons";
 import type { PaymentStatus, ModePaiement } from "@prisma/client";
 
 // Libellé d'une transition « en avant » (validation / paiement).
@@ -64,9 +64,11 @@ export function StatusActions({
                 ))}
               </select>
             )}
-            <button type="submit" className={reouverture ? BTN_NEUTRE : BTN_VALIDER}>
-              {reouverture ? "↩ Rouvrir" : `✓ ${LABEL_AVANT[vers]}`}
-            </button>
+            {reouverture ? (
+              <button type="submit" className={BTN_NEUTRE}>↩ Rouvrir</button>
+            ) : (
+              <BoutonValider type="submit">{LABEL_AVANT[vers]}</BoutonValider>
+            )}
           </form>
         );
       })}

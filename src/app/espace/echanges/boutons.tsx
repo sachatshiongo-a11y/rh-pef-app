@@ -2,15 +2,14 @@
 
 import { useTransition } from "react";
 import { repondreEchange, annulerEchange, annulerChangement } from "../actions";
+import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 
 export function RepondreEchange({ id }: { id: string }) {
   const [pending, start] = useTransition();
   return (
     <span className="flex shrink-0 gap-2">
-      <button disabled={pending} onClick={() => start(async () => { await repondreEchange(id, true); })}
-        className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Accepter</button>
-      <button disabled={pending} onClick={() => start(async () => { await repondreEchange(id, false); })}
-        className="rounded-md border border-destructive px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Refuser</button>
+      <BoutonApprouver disabled={pending} onClick={() => start(async () => { await repondreEchange(id, true); })}>Accepter</BoutonApprouver>
+      <BoutonRefuser disabled={pending} onClick={() => start(async () => { await repondreEchange(id, false); })} />
     </span>
   );
 }
