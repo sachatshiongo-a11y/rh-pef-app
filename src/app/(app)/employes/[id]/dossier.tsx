@@ -375,7 +375,10 @@ export function DossierEmploye({
             {/* Fichier du contrat + attestation + génération PDF */}
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
               <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
-              {c.accepteLe && (
+              {/* Une signature valide vaut acceptation : le bouton de signature porte déjà la date,
+                  cette pastille ferait doublon. Et « exemplaire figé » serait faux pour un contrat
+                  signé, dont le PDF est désormais régénéré pour porter le tracé. */}
+              {c.accepteLe && (etatsSignatureContrats[c.id]?.etat ?? "A_SIGNER") === "A_SIGNER" && (
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800" title={c.pdfAccepteUrl ? "Le PDF servi est l'exemplaire figé au moment de l'acceptation — il fait foi." : undefined}>
                   Accepté par le salarié le {d(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}
                 </span>

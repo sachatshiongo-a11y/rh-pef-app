@@ -111,18 +111,24 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
           <Vide>Aucun contrat enregistré.</Vide>
         ) : (
           <ul className="divide-y">
-            {contrats.map((c) => (
+            {contrats.map((c) => {
+              // UNE signature valide VAUT acceptation à l'écran : « Lu et approuvé » disparaît, et
+              // l'acceptation n'est plus écrite deux fois (le badge « Signé le … » la porte déjà).
+              // ⚠️ Rien n'est écrit en base : `accepteLe` reste ce qu'il est, seule la vue change.
+              const sigC = etatSignature(sigContrats.get(c.id));
+              const signe = sigC.etat !== "A_SIGNER";
+              return (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{c.type} · {c.poste}</p>
                   <p className="text-xs text-muted-foreground">
                     {fr(c.dateDebut)} → {c.dateFin ? fr(c.dateFin) : "indéterminé"}
-                    {c.accepteLe ? <span className="text-emerald-700"> · accepté le {fr(c.accepteLe)}</span> : null}
+                    {c.accepteLe && !signe ? <span className="text-emerald-700"> · accepté le {fr(c.accepteLe)}</span> : null}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3 text-sm">
                   <ContratViewerButton href={`/espace/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} className="text-primary underline" />
-                  {c.statut === "ACTIF" && !c.accepteLe && <AccepterContrat id={c.id} />}
+                  {c.statut === "ACTIF" && !c.accepteLe && !signe && <AccepterContrat id={c.id} />}
                   {c.statut === "ACTIF" && (
                     <BoutonSigner
                       cible="CONTRAT"
@@ -131,13 +137,14 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                       libelleDocument={`Contrat ${c.type} · ${c.poste}`}
                       cote="SALARIE"
                       action={signerMonDocument}
-                      {...etatSignature(sigContrats.get(c.id))}
+                      {...sigC}
                     />
                   )}
                   {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-xs text-muted-foreground underline">pièce jointe</a>}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </Section>

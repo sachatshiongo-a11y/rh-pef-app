@@ -218,9 +218,12 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
               {signatureSalarie?.image && <Image src={signatureSalarie.image as unknown as string} style={styles.signImgSalarie} />}
             </View>
             <Text style={styles.signLineBase}>{femme ? "La Salariée" : "Le Salarié"} — {employee.nom}</Text>
-            {/* Historique : les contrats acceptés d'un CLIC avant la signature électronique portent
-                cette ligne, et la gardent. */}
-            {accepteLe && <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>}
+            {/* UNE SEULE formulation datée de l'acceptation sur le document. La mention de
+                signature est la plus précise (elle dit le geste, le mode et, en présentiel, qui
+                était là) : dès qu'elle existe, cette ligne historique s'efface, sinon un contrat
+                repris par la migration écrivait trois fois le même fait. Sans signature, elle
+                reste le seul témoin des contrats acceptés d'un clic avant ce lot. */}
+            {accepteLe && !signatureSalarie?.mention && <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>}
             {signatureSalarie?.mention && <Text style={styles.mentionSign}>{signatureSalarie.mention}</Text>}
           </View>
         </View>
