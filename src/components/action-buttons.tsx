@@ -31,7 +31,10 @@ const BASE_CLASSES = CLASSES_GEOMETRIE;
 // À réserver aux étapes intermédiaires qui ne sont ni une approbation ni un refus — pour
 // approuver/refuser/valider, toujours un composant ci-dessous.
 export const CLASSES_NEUTRE = `${BASE_CLASSES} border hover:bg-accent`;
-export const CLASSES_DANGER = `${BASE_CLASSES} border border-destructive/40 text-destructive hover:bg-destructive/10`;
+// Contour destructif PLEIN, jamais atténué : ces boutons effacent (une paie calculée, une
+// sélection de commandes). Une bordure à 40 % les faisait passer pour anodins — l'action, elle,
+// ne l'est pas. Le survol teinté reste, il confirme la cible avant le clic.
+export const CLASSES_DANGER = `${BASE_CLASSES} border border-destructive text-destructive hover:bg-destructive/10`;
 
 /** Alias historique de CLASSES_NEUTRE (déjà importé ailleurs). */
 export const BTN_NEUTRE = CLASSES_NEUTRE;
