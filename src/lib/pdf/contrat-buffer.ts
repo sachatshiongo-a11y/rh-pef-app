@@ -7,6 +7,7 @@ import { chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { lireFichier } from "@/lib/storage";
 import { formaterNombre } from "@/lib/montant";
+import { signatureImprimable } from "@/lib/signature";
 
 /**
  * Génère le PDF d'un contrat (buffer + nom de fichier) — partagé entre la route Direction
@@ -21,9 +22,22 @@ export async function genererContratPdf(
 
   const nomEmp = contrat.employee.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "_");
 
+  // La signature est lue AVANT la décision de servir l'exemplaire figé — elle en fait partie.
+  // `image` n'est non nul que si la signature est à jour ET porte un tracé (`traceAAfficher`).
+  const signatureSalarie = await signatureImprimable(prisma, "CONTRAT", contrat.id);
+
   // Contrat ACCEPTÉ : on sert l'exemplaire FIGÉ au moment de l'acceptation (celui qui fait foi),
   // jamais une régénération — le modèle a pu évoluer depuis.
-  if (contrat.pdfAccepteUrl && !opts?.ignorerFige) {
+  //
+  // SAUF si le salarié a tracé sa signature depuis : l'exemplaire figé a été produit à
+  // l'acceptation, donc AVANT le tracé, et il ne le porte pas. L'écran affichait alors
+  // « Signé le … » pendant que le PDF remis au salarié restait muet — l'incohérence qui
+  // décrédibilise tout le dispositif. Dans ce cas on régénère, et le document porte le tracé.
+  //
+  // Ce qu'on y perd, assumé : pour un contrat SIGNÉ, « l'exemplaire figé fait foi » ne s'applique
+  // plus — y compris après un « Re-figer » (on ne sait pas dater le figeage, seulement constater
+  // qu'une signature tracée existe). Le distinguer exigerait de mémoriser la date de figeage.
+  if (contrat.pdfAccepteUrl && !opts?.ignorerFige && !signatureSalarie?.image) {
     const fige = await lireFichier(contrat.pdfAccepteUrl);
     if (fige) return { buffer: fige, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
   }
@@ -58,7 +72,7 @@ export async function genererContratPdf(
 
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature }),
+    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature, signatureSalarie }),
   );
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
 }

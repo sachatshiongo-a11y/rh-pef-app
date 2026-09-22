@@ -6,6 +6,10 @@ import { typeSansConges } from "@/lib/regles-contrats";
 import { demanderMonConge } from "../actions";
 import { Icone } from "@/components/icones";
 import { ChampsDatesConge } from "@/components/champs-dates-conge";
+import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
+import { BoutonSigner } from "@/components/bouton-signer";
+import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
+import { signerMonDocument } from "../signature-actions";
 
 const BADGE: Record<string, { label: string; classe: string }> = {
   EN_ATTENTE: { label: "En attente", classe: "bg-amber-100 text-amber-800" },
@@ -46,6 +50,14 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
   const todayIso = auj();
   const aVenir = demandes.filter((l) => l.statut !== "REFUSE" && new Date(l.dateFin).toISOString().slice(0, 10) >= todayIso).reverse();
   const passees = demandes.filter((l) => new Date(l.dateFin).toISOString().slice(0, 10) < todayIso);
+
+  // Seules les demandes APPROUVÉES se signent ; une seule requête pour toutes celles affichées.
+  const sigConges = await chargerSignatures(
+    prisma,
+    "DEMANDE_CONGE",
+    demandes.filter((l) => l.statut === "APPROUVE").map((l) => l.id)
+  );
+  const etats = new Map(demandes.map((l) => [l.id, etatSignature(sigConges.get(l.id))] as const));
 
   const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
@@ -89,8 +101,8 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
         </form>
       </details>
 
-      <SectionAbsences titre="À venir" items={aVenir} vide="Aucune absence à venir." />
-      <SectionAbsences titre="Passées" items={passees} vide="Aucune absence passée." />
+      <SectionAbsences titre="À venir" items={aVenir} vide="Aucune absence à venir." nomSalarie={s.nom} etats={etats} />
+      <SectionAbsences titre="Passées" items={passees} vide="Aucune absence passée." nomSalarie={s.nom} etats={etats} />
     </div>
   );
 }
@@ -106,7 +118,19 @@ function StatConge({ n, label, accent }: { n: number; label: string; accent?: bo
 
 type Demande = { id: string; type: string; nbJours: unknown; dateDebut: Date; dateFin: Date; motif: string | null; statut: string };
 
-function SectionAbsences({ titre, items, vide }: { titre: string; items: Demande[]; vide: string }) {
+function SectionAbsences({
+  titre,
+  items,
+  vide,
+  nomSalarie,
+  etats,
+}: {
+  titre: string;
+  items: Demande[];
+  vide: string;
+  nomSalarie: string;
+  etats: Map<string, EtatSignature>;
+}) {
   return (
     <div>
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">{titre}</h2>
@@ -126,6 +150,28 @@ function SectionAbsences({ titre, items, vide }: { titre: string; items: Demande
                   <p className="text-xs text-muted-foreground">{Number(l.nbJours)} jour{Number(l.nbJours) > 1 ? "s" : ""}{l.motif ? ` · ${l.motif}` : ""}</p>
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${b.classe}`}>{b.label}</span>
+                {/* Le document AVANT le geste : on ne demande jamais de signer ce qu'on ne peut
+                    pas lire. Présent dès que la demande est approuvée, signée ou non — même
+                    idiome d'aperçu que les contrats de « Mes documents ». */}
+                {l.statut === "APPROUVE" && (
+                  <>
+                    <ContratViewerButton
+                      href={`/espace/conges/demande/${l.id}`}
+                      titre={`Demande de congé — ${l.type}`}
+                      libelle="Voir la demande"
+                      className="shrink-0 text-sm text-primary underline"
+                    />
+                    <BoutonSigner
+                      cible="DEMANDE_CONGE"
+                      cibleId={l.id}
+                      nomSalarie={nomSalarie}
+                      libelleDocument={`${l.type} — ${new Date(l.dateDebut).toISOString().slice(0, 10)}`}
+                      cote="SALARIE"
+                      action={signerMonDocument}
+                      {...(etats.get(l.id) ?? { etat: "A_SIGNER" as const, signeLeTexte: null })}
+                    />
+                  </>
+                )}
               </li>
             );
           })}

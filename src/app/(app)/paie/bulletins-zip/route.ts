@@ -3,7 +3,7 @@ import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { BulletinDocument } from "@/lib/pdf/bulletin";
-import { chargerDonneesBulletinsDuMois } from "@/lib/paie-bulletins";
+import { chargerDonneesBulletinsDuMois, bulletinsPourPdf } from "@/lib/paie-bulletins";
 import { slugFichier } from "@/lib/texte";
 import type { Devise } from "@/lib/pdf/theme";
 
@@ -20,29 +20,15 @@ export async function GET(request: Request) {
   if (!donnees) {
     return new Response("Aucune paie calculée pour ce mois", { status: 404 });
   }
-  const { run, feries, congesParEmp, codesParEmp, primesParEmp, entreprise, logo, parametres } = donnees;
-
   const periode = `${annee}-${String(mois).padStart(2, "0")}`;
 
+  // Assemblage partagé avec l'export PDF groupé — c'est lui qui pose `signatureSalarie` : un
+  // bulletin archivé dans le ZIP dit la même chose que le même bulletin ouvert à l'unité.
   const zip = new JSZip();
   const utilises = new Set<string>();
-  for (const l of run.lignes) {
-    const buffer = await renderPdfBuffer(
-      BulletinDocument({
-        employee: l.employee,
-        ligne: l,
-        run,
-        devise,
-        congesPeriode: congesParEmp.get(l.employeeId) ?? [],
-        primes: primesParEmp.get(l.employeeId) ?? [],
-        codesParJour: codesParEmp.get(l.employeeId) ?? {},
-        feries,
-        entreprise,
-        logo,
-        params: parametres,
-      })
-    );
-    let nom = `${slugFichier(l.employee.nom) || l.employee.matricule || l.employeeId}_${periode}_${devise}`;
+  for (const b of bulletinsPourPdf(donnees)) {
+    const buffer = await renderPdfBuffer(BulletinDocument({ ...b, devise }));
+    let nom = `${slugFichier(b.employee.nom) || b.employee.matricule || b.ligne.employeeId}_${periode}_${devise}`;
     // Évite les collisions de noms de fichiers (homonymes).
     let suffixe = 1;
     let candidat = nom;

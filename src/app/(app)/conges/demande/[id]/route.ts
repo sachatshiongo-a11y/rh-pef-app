@@ -1,11 +1,9 @@
-import { renderPdfBuffer } from "@/lib/pdf/fonts";
-import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
-import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
-import { chargerParametresPaie } from "@/lib/config";
-import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { genererDemandeCongePdf } from "@/lib/pdf/demande-conge-buffer";
 
+/** Demande de congé (PDF) côté Direction. Le document lui-même est assemblé par
+ *  `genererDemandeCongePdf`, partagé avec l'espace salarié (/espace/conges/demande) : les deux
+ *  côtés impriment donc rigoureusement la même feuille. */
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -13,53 +11,15 @@ export async function GET(
   await verifySession();
   const { id } = await params;
 
-  const demande = await prisma.leaveRequest.findUnique({
-    where: { id },
-    include: { employee: true, approuvePar: true, remplacant: true },
-  });
-  if (!demande) {
+  const pdf = await genererDemandeCongePdf(id);
+  if (!pdf) {
     return new Response("Demande introuvable", { status: 404 });
   }
 
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const debutAnnee = new Date(Date.UTC(annee, 0, 1));
-
-  const ancienneteMois = ancienneteEnMois(new Date(demande.employee.dateEmbauche), new Date(annee, mois - 1, 1));
-  const parametres = await chargerParametresPaie();
-  const congesAcquis = typeSansConges(demande.employee.contrat) ? 0 : calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
-
-  const [approuvees, compteParType] = await Promise.all([
-    prisma.leaveRequest.findMany({
-      where: {
-        employeeId: demande.employeeId,
-        statut: "APPROUVE",
-        dateDebut: { gte: debutAnnee },
-      },
-    }),
-    chargerCompteDansSoldeParType(),
-  ]);
-  // Seuls les types cochés « compte dans le solde » (Paramètres) entament le solde de congé annuel.
-  const congesPris = approuvees
-    .filter((l) => congeDeductibleDuSolde(compteParType.get(l.type)))
-    .reduce((acc, l) => acc + Number(l.nbJours), 0);
-  const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
-
-  const buffer = await renderPdfBuffer(
-    DemandeCongeDocument({
-      employee: demande.employee,
-      demande,
-      approuvePar: demande.approuvePar,
-      remplacant: demande.remplacant,
-      soldeConges,
-    })
-  );
-
-  return new Response(new Uint8Array(buffer), {
+  return new Response(new Uint8Array(pdf.buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="Demande_${demande.employee.matricule}.pdf"`,
+      "Content-Disposition": `inline; filename="${pdf.nomFichier}"`,
     },
   });
 }

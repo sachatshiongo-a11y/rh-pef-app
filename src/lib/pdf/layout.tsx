@@ -64,6 +64,22 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: pdfColors.textMuted,
   },
+  // Mention de signature : posée SOUS le trait, HORS DU FLUX (position absolue ancrée au bas de la
+  // case). En flux, elle aurait poussé le trait du salarié vers le haut et les deux traits de
+  // signature ne se seraient plus fait face — l'alignement que la hauteur fixe ci-dessus existe
+  // précisément pour garantir. Hors du flux, la case garde sa hauteur, la mention déborde sous
+  // elle (le bloc de signatures est le dernier de la page, il y a la marge de pied pour ça) et
+  // une case NON signée ne paie aucun espace réservé.
+  signatureMention: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    right: 0,
+    marginTop: 2,
+    fontSize: 5.8,
+    color: pdfColors.textMuted,
+    lineHeight: 1.25,
+  },
 
   footer: {
     position: "absolute",
@@ -85,6 +101,17 @@ const styles = StyleSheet.create({
 });
 
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
+
+/**
+ * Ce qu'un document imprime du geste de signature du SALARIÉ : le tracé (absent si le document a
+ * été modifié depuis — voir `chargerSignature`) et la phrase qui dit qui a signé, quand, et dans
+ * quelles conditions. Construit par `signatureImprimable` (`@/lib/signature`) ; `undefined` quand
+ * le document n'a jamais été signé.
+ */
+export type SignatureImprimable = {
+  image: { data: Buffer; format: "png" } | null;
+  mention: string;
+};
 
 export function PdfHeader({ title, subtitle, logo }: { title: string; subtitle?: string; logo?: ImageSrc }) {
   return (
@@ -114,13 +141,38 @@ export function PdfSectionHeader({ children }: { children: ReactNode }) {
 /**
  * Bloc signature réutilisable. Si `signe` est vrai et que la signature de la directrice est
  * disponible (public/signatures/signature-directrice.png), elle est insérée automatiquement.
+ *
+ * `image` est le tracé du SALARIÉ : il prend la place de la signature de la directrice dans la
+ * case, et l'appelant ne doit le fournir que si la signature est à jour — un tracé posé sur des
+ * montants qui ont bougé depuis ferait croire que le salarié a approuvé ce qu'il n'a jamais vu.
+ * `mention` dit le reste : qui, quand, et dans quelles conditions.
  */
-export function PdfSignatureBox({ label, signe, large = false }: { label: string; signe: boolean; large?: boolean }) {
+export function PdfSignatureBox({
+  label,
+  signe,
+  large = false,
+  image,
+  mention,
+}: {
+  label: string;
+  signe: boolean;
+  large?: boolean;
+  /** Tracé du salarié (PNG). La signature de la DIRECTRICE reste pilotée par `signe`. */
+  image?: ImageSrc;
+  /** Ligne sous le trait : qui a signé, quand, et dans quelles conditions. */
+  mention?: string;
+}) {
   const aSignature = signe && signatureDirectriceDisponible();
+  const styleImage = large ? styles.signatureImageLarge : styles.signatureImage;
   return (
     <View style={large ? styles.signatureBoxLarge : styles.signatureBox}>
-      {aSignature && <Image src={SIGNATURE_DIRECTRICE_PATH} style={large ? styles.signatureImageLarge : styles.signatureImage} />}
+      {image ? (
+        <Image src={image as string} style={styleImage} />
+      ) : (
+        aSignature && <Image src={SIGNATURE_DIRECTRICE_PATH} style={styleImage} />
+      )}
       <Text style={styles.signatureLine}>{label}</Text>
+      {mention && <Text style={styles.signatureMention}>{mention}</Text>}
     </View>
   );
 }

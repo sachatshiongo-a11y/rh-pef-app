@@ -1,7 +1,7 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, LeaveRequest, User } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
-import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layout";
+import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors } from "./theme";
 
 registerPdfFonts();
@@ -67,13 +67,6 @@ const styles = StyleSheet.create({
   statutValueRefuse: { color: "#8C2E2E" },
   statutValueEnAttente: { color: pdfColors.brownDark },
   signatures: { marginTop: 30, flexDirection: "row", justifyContent: "space-between" },
-  signatureLine: {
-    borderTop: `0.75 solid ${pdfColors.text}`,
-    marginTop: 48,
-    paddingTop: 4,
-    fontSize: 8,
-    color: pdfColors.textMuted,
-  },
 });
 
 const STATUT_LABEL: Record<string, string> = {
@@ -97,12 +90,15 @@ export function DemandeCongeDocument({
   approuvePar,
   remplacant,
   soldeConges,
+  signatureSalarie,
 }: {
   employee: Employee;
   demande: LeaveRequest;
   approuvePar: User | null;
   remplacant: Employee | null;
   soldeConges: number;
+  /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */
+  signatureSalarie?: SignatureImprimable;
 }) {
   const dateDebut = new Date(demande.dateDebut);
   const dateFin = new Date(demande.dateFin);
@@ -193,9 +189,14 @@ export function DemandeCongeDocument({
         </View>
 
         <View style={styles.signatures}>
-          <View style={{ width: "45%" }}>
-            <Text style={styles.signatureLine}>Signature du salarié</Text>
-          </View>
+          {/* Même gabarit que la case de la direction (45 %) : le tracé et la mention se posent
+              exactement comme sur le bulletin, et les deux traits restent alignés. */}
+          <PdfSignatureBox
+            label="Signature du salarié"
+            signe={false}
+            image={signatureSalarie?.image ?? undefined}
+            mention={signatureSalarie?.mention}
+          />
           <PdfSignatureBox label="Signature de la direction" signe={estTranchee} />
         </View>
 

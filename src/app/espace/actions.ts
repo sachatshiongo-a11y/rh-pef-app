@@ -16,28 +16,26 @@ import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { televerserFichier } from "@/lib/storage";
 
-/** Marque comme lues MES notifications (cloche salarié) — scopé à mon compte uniquement. */
-export async function marquerMesNotificationsLues() {
-  const user = await verifySession();
-  if (!estSalarie(user)) throw new Error("Accès refusé.");
-  await prisma.notification.updateMany({ where: { domaine: "SALARIE", destinataireUserId: user.id, lu: false }, data: { lu: true } });
-  revalidatePath("/espace", "layout");
-}
-
-/** Supprime UNE de mes notifications (vérifie qu'elle m'appartient). */
-export async function supprimerMaNotification(id: string) {
-  const user = await verifySession();
-  if (!estSalarie(user)) throw new Error("Accès refusé.");
-  await prisma.notification.deleteMany({ where: { id, domaine: "SALARIE", destinataireUserId: user.id } });
-  revalidatePath("/espace", "layout");
-}
-
 /** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
   const user = await verifySession();
   if (!(await espaceEmployeActif()) || !estSalarie(user)) throw new Error("Accès refusé.");
   if (!user.employeeId) throw new Error("Compte non relié à une fiche employé.");
   return { userId: user.id, employeeId: user.employeeId };
+}
+
+/** Marque comme lues MES notifications (cloche salarié) — scopé à mon compte uniquement. */
+export async function marquerMesNotificationsLues() {
+  const { userId } = await exigerSalarie();
+  await prisma.notification.updateMany({ where: { domaine: "SALARIE", destinataireUserId: userId, lu: false }, data: { lu: true } });
+  revalidatePath("/espace", "layout");
+}
+
+/** Supprime UNE de mes notifications (vérifie qu'elle m'appartient). */
+export async function supprimerMaNotification(id: string) {
+  const { userId } = await exigerSalarie();
+  await prisma.notification.deleteMany({ where: { id, domaine: "SALARIE", destinataireUserId: userId } });
+  revalidatePath("/espace", "layout");
 }
 
 /** Le salarié définit son nouveau mot de passe (fin du mot de passe temporaire). */
@@ -169,10 +167,9 @@ export async function demanderChangementShift(formData: FormData) {
 
 /** Le salarié annule sa demande de changement de shift simple (tant qu'elle est en attente). */
 export async function annulerChangement(id: string) {
-  const user = await verifySession();
-  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const { employeeId } = await exigerSalarie();
   const d = await prisma.demandeChangementShift.findUnique({ where: { id }, select: { employeeId: true, statut: true } });
-  if (!d || d.employeeId !== user.employeeId || d.statut !== "EN_ATTENTE") return;
+  if (!d || d.employeeId !== employeeId || d.statut !== "EN_ATTENTE") return;
   await prisma.demandeChangementShift.delete({ where: { id } });
   await supprimerNotificationsPour(id);
   revalidatePath("/espace/echanges");
@@ -243,10 +240,9 @@ export async function demanderEchange(formData: FormData) {
 
 /** Le COLLÈGUE concerné accepte ou refuse l'échange. Accepter peut finaliser (si Direction OK). */
 export async function repondreEchange(id: string, accepte: boolean) {
-  const user = await verifySession();
-  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const { employeeId } = await exigerSalarie();
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
-  if (!e || e.statut !== "EN_ATTENTE" || e.collegueId !== user.employeeId) return;
+  if (!e || e.statut !== "EN_ATTENTE" || e.collegueId !== employeeId) return;
 
   if (!accepte) {
     await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "REFUSE", statut: "REFUSE" } });
@@ -269,10 +265,9 @@ export async function repondreEchange(id: string, accepte: boolean) {
 
 /** Le DEMANDEUR annule sa proposition tant qu'elle est en attente. */
 export async function annulerEchange(id: string) {
-  const user = await verifySession();
-  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  const { employeeId } = await exigerSalarie();
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
-  if (!e || e.statut !== "EN_ATTENTE" || e.demandeurId !== user.employeeId) return;
+  if (!e || e.statut !== "EN_ATTENTE" || e.demandeurId !== employeeId) return;
   await prisma.echangeCreneau.update({ where: { id }, data: { statut: "ANNULE" } });
   await supprimerNotificationsPour(id);
   const uB = await compteSalarieDe(e.collegueId);
@@ -284,10 +279,13 @@ export async function annulerEchange(id: string) {
 
 /** Le salarié accepte numériquement son contrat (« Lu et approuvé », horodaté). Notifie la Direction. */
 export async function accepterMonContrat(id: string) {
-  const user = await verifySession();
-  if (!estSalarie(user) || !user.employeeId) throw new Error("Accès refusé.");
+  // `exigerSalarie` vérifie AUSSI `espaceEmployeActif()` : une Server Action est un point
+  // d'entrée HTTP indépendant du rendu de page — couper l'interrupteur du self-service (son état
+  // par défaut) doit empêcher un appel direct d'écrire une acceptation de contrat, pas seulement
+  // masquer le bouton côté page.
+  const { employeeId } = await exigerSalarie();
   const c = await prisma.contrat.findUnique({ where: { id }, select: { employeeId: true, accepteLe: true, type: true } });
-  if (!c || c.employeeId !== user.employeeId || c.accepteLe) return; // déjà accepté ou pas le mien
+  if (!c || c.employeeId !== employeeId || c.accepteLe) return; // déjà accepté ou pas le mien
   await prisma.contrat.update({ where: { id }, data: { accepteLe: new Date() } });
 
   // Fige l'exemplaire qui FAIT FOI : le PDF est généré une fois (avec l'acceptation horodatée) puis
@@ -302,15 +300,15 @@ export async function accepterMonContrat(id: string) {
     // Le figeage ne doit jamais bloquer l'acceptation : à défaut, le contrat reste généré à la volée.
   }
 
-  const emp = await prisma.employee.findUnique({ where: { id: user.employeeId }, select: { nom: true } });
+  const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
   await creerNotification({
     type: "AUTRE",
     message: `${emp?.nom ?? "Un salarié"} a accepté son contrat (${c.type}).`,
-    lien: `/employes/${user.employeeId}?tab=contrats`,
+    lien: `/employes/${employeeId}?tab=contrats`,
     refId: `contrat:${id}:accept`,
   });
   revalidatePath("/espace/documents");
-  revalidatePath(`/employes/${user.employeeId}`);
+  revalidatePath(`/employes/${employeeId}`);
   revalidatePath("/", "layout");
 }
 

@@ -24,6 +24,9 @@ import { listeEnProse } from "@/lib/texte";
 import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
 import { Icone } from "@/components/icones";
 import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat, figerContrat } from "../../paie/contrat-actions";
+import { BoutonSigner } from "@/components/bouton-signer";
+import { faireSignerDocument } from "../../signature-actions";
+import type { EtatSignature } from "@/lib/signature";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -148,6 +151,8 @@ export function DossierEmploye({
   actif,
   joursModele = [],
   contrats,
+  nomSalarie,
+  etatsSignatureContrats = {},
   prets = [],
   periodePaie,
   tachesOnboarding = [],
@@ -178,6 +183,10 @@ export function DossierEmploye({
   actif: boolean;
   joursModele?: number[]; // jours travaillés selon le modèle hebdo (0=dim … 6=sam)
   contrats: Contrat[];
+  /** Nom du salarié — le bandeau « Remettez l'appareil à … » le nomme. */
+  nomSalarie: string;
+  /** État de signature par contrat, DÉRIVÉ du document (`etatSignature`), jamais stocké. */
+  etatsSignatureContrats?: Record<string, EtatSignature>;
   prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number; echeancier: Echeancier }[];
   /** Période de paie en cours — sert à projeter le mois de solde d'un prêt à la saisie. */
   periodePaie: { mois: number; annee: number };
@@ -366,10 +375,24 @@ export function DossierEmploye({
             {/* Fichier du contrat + attestation + génération PDF */}
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
               <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
-              {c.accepteLe && (
+              {/* Une signature valide vaut acceptation : le bouton de signature porte déjà la date,
+                  cette pastille ferait doublon. Et « exemplaire figé » serait faux pour un contrat
+                  signé, dont le PDF est désormais régénéré pour porter le tracé. */}
+              {c.accepteLe && (etatsSignatureContrats[c.id]?.etat ?? "A_SIGNER") === "A_SIGNER" && (
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800" title={c.pdfAccepteUrl ? "Le PDF servi est l'exemplaire figé au moment de l'acceptation — il fait foi." : undefined}>
                   Accepté par le salarié le {d(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}
                 </span>
+              )}
+              {peutModifier && c.statut === "ACTIF" && (
+                <BoutonSigner
+                  cible="CONTRAT"
+                  cibleId={c.id}
+                  nomSalarie={nomSalarie}
+                  libelleDocument={`Contrat ${c.type} · ${c.poste} — ${nomSalarie}`}
+                  cote="DIRECTION"
+                  action={faireSignerDocument}
+                  {...(etatsSignatureContrats[c.id] ?? { etat: "A_SIGNER" as const, signeLeTexte: null })}
+                />
               )}
               {c.documentUrl && (
                 <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>

@@ -10,6 +10,10 @@ import type { PaymentStatus } from "@prisma/client";
 import { normTexte } from "@/lib/texte";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
+import { chargerSignatures, etatSignature } from "@/lib/signature";
+import { BoutonSigner } from "@/components/bouton-signer";
+import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
+import { faireSignerDocument } from "../signature-actions";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -38,7 +42,8 @@ export default async function DocumentsPage({
 }: {
   searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string; q?: string }>;
 }) {
-  await verifySession();
+  const user = await verifySession();
+  const peutFaireSigner = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
   const onglet = sp.onglet ?? "bulletins";
   const annee = sp.annee ? Number(sp.annee) : null;
@@ -89,6 +94,16 @@ export default async function DocumentsPage({
       (!annee || new Date(c.dateDebut).getFullYear() === annee) &&
       (!mois || new Date(c.dateDebut).getMonth() + 1 === mois) &&
       (!statut || c.statut === statut)
+  );
+
+  // Signatures des bulletins affichés : UNE requête pour toute la liste filtrée. La colonne
+  // « Signature » lit l'état DÉRIVÉ du document — un bulletin recalculé y repasse en « À resigner »
+  // sans qu'aucun champ n'ait été écrit sur la ligne de paie.
+  // (liste vide hors de l'onglet Bulletins : `chargerSignatures` rend la main sans requête)
+  const sigBulletins = await chargerSignatures(
+    prisma,
+    "BULLETIN",
+    onglet === "bulletins" ? bulletins.filter((b) => b.statutPaiement !== "PAS_VALIDE").map((b) => b.id) : []
   );
 
   // Options du filtre statut selon l'onglet actif.
@@ -196,9 +211,23 @@ export default async function DocumentsPage({
               <span className="capitalize">{new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} · {b.employee.matricule}</span>
               <span className="font-semibold text-foreground">{formaterNombre(salaireNetUSD(b), { minimumFractionDigits: 2 })} $</span>
             </div>
-            <div className="mt-2 flex gap-3 text-sm">
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               <TelechargerLien href={`/paie/bulletin/${b.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
               <TelechargerLien href={`/paie/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">Bulletin CDF</TelechargerLien>
+              {!peutFaireSigner && b.statutPaiement !== "PAS_VALIDE" && (
+                <EtatSignatureLecture {...etatSignature(sigBulletins.get(b.id))} />
+              )}
+              {peutFaireSigner && b.statutPaiement !== "PAS_VALIDE" && (
+                <BoutonSigner
+                  cible="BULLETIN"
+                  cibleId={b.id}
+                  nomSalarie={b.employee.nom}
+                  libelleDocument={`Bulletin ${new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} — ${b.employee.nom}`}
+                  cote="DIRECTION"
+                  action={faireSignerDocument}
+                  {...etatSignature(sigBulletins.get(b.id))}
+                />
+              )}
             </div>
           </div>
         ))}
@@ -263,7 +292,7 @@ export default async function DocumentsPage({
         <table className="w-full text-sm">
           {onglet === "bulletins" && (
             <>
-              <Thead cols={["Période", "Matricule", "Employé", "Salaire net $", "Statut", "Bulletin"]} />
+              <Thead cols={["Période", "Matricule", "Employé", "Salaire net $", "Statut", "Bulletin", "Signature"]} />
               <tbody>
                 {bulletins.map((b) => (
                   <tr key={b.id} className="border-t">
@@ -277,9 +306,26 @@ export default async function DocumentsPage({
                       {" · "}
                       <TelechargerLien href={`/paie/bulletin/${b.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
                     </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      {b.statutPaiement === "PAS_VALIDE" ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : peutFaireSigner ? (
+                        <BoutonSigner
+                          cible="BULLETIN"
+                          cibleId={b.id}
+                          nomSalarie={b.employee.nom}
+                          libelleDocument={`Bulletin ${new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} — ${b.employee.nom}`}
+                          cote="DIRECTION"
+                          action={faireSignerDocument}
+                          {...etatSignature(sigBulletins.get(b.id))}
+                        />
+                      ) : (
+                        <EtatSignatureLecture {...etatSignature(sigBulletins.get(b.id))} />
+                      )}
+                    </td>
                   </tr>
                 ))}
-                <Vide n={bulletins.length} cols={6} />
+                <Vide n={bulletins.length} cols={7} />
               </tbody>
             </>
           )}
@@ -376,6 +422,7 @@ export default async function DocumentsPage({
     </div>
   );
 }
+
 
 function Thead({ cols }: { cols: string[] }) {
   return (

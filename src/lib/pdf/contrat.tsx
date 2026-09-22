@@ -1,7 +1,7 @@
 import { Document, Page, Text, View, Image, StyleSheet } from "@react-pdf/renderer";
 import type { Employee, Contrat } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
-import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH } from "./layout";
+import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRICE_PATH, type SignatureImprimable } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
 import { listeEnProse } from "@/lib/texte";
 import { formaterNombre } from "@/lib/montant";
@@ -35,6 +35,13 @@ const styles = StyleSheet.create({
   signImg: { width: 210, height: 56, objectFit: "contain", marginBottom: -2 },
   signLineBase: { borderTopWidth: 0.8, borderTopColor: pdfColors.text, width: "100%", paddingTop: 3, textAlign: "center", fontSize: 9 },
   luApprouve: { fontSize: 8.5, fontStyle: "italic", marginBottom: 2 },
+  // Tracé du salarié : il partage `signSpace` (56) avec la mention manuscrite « Lu et approuvé »,
+  // d'où une hauteur plus basse que la signature de la Direction (56) qui, elle, occupe l'espace
+  // seule. L'espace fixe est ce qui maintient les deux traits à la même hauteur : ne pas le déborder.
+  signImgSalarie: { width: 180, height: 40, objectFit: "contain", marginBottom: -2 },
+  // Mention de signature, sous le trait. Elle vient APRÈS le trait donc ne déplace rien : dans
+  // cette colonne le trait est positionné par `signSpace`, pas par ce qui le suit.
+  mentionSign: { marginTop: 3, fontSize: 6.5, color: pdfColors.textMuted, textAlign: "center", lineHeight: 1.25 },
 });
 
 const fr = (d: Date | string | null | undefined) =>
@@ -52,7 +59,7 @@ export type ParamsContrat = { preavisDemission: number | null; preavisLicencieme
  * Contrat de travail (PDF, modèle RDC) auto-rempli depuis la fiche + les termes du contrat.
  * ⚠️ Modèle générique — à FAIRE VALIDER par un juriste avant usage réel (comme les barèmes de paie).
  */
-export function ContratDocument({ employee, contrat, params, salaireEstNet, salaireBrut, accepteLe, fonctions, entreprise = entrepriseDefaut, logo, signature }: { employee: Employee; contrat: Contrat; params: ParamsContrat; salaireEstNet: boolean; salaireBrut?: string | null; accepteLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null }) {
+export function ContratDocument({ employee, contrat, params, salaireEstNet, salaireBrut, accepteLe, fonctions, entreprise = entrepriseDefaut, logo, signature, signatureSalarie }: { employee: Employee; contrat: Contrat; params: ParamsContrat; salaireEstNet: boolean; salaireBrut?: string | null; accepteLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null; /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */ signatureSalarie?: SignatureImprimable }) {
   // Signature de la Direction : téléversée (paramètres) si fournie, sinon celle groupée dans le projet.
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
@@ -208,9 +215,16 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
           <View style={styles.colSign}>
             <View style={styles.signSpace}>
               <Text style={styles.luApprouve}>Lu et approuvé</Text>
+              {signatureSalarie?.image && <Image src={signatureSalarie.image as unknown as string} style={styles.signImgSalarie} />}
             </View>
             <Text style={styles.signLineBase}>{femme ? "La Salariée" : "Le Salarié"} — {employee.nom}</Text>
-            {accepteLe && <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>}
+            {/* UNE SEULE formulation datée de l'acceptation sur le document. La mention de
+                signature est la plus précise (elle dit le geste, le mode et, en présentiel, qui
+                était là) : dès qu'elle existe, cette ligne historique s'efface, sinon un contrat
+                repris par la migration écrivait trois fois le même fait. Sans signature, elle
+                reste le seul témoin des contrats acceptés d'un clic avant ce lot. */}
+            {accepteLe && !signatureSalarie?.mention && <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>}
+            {signatureSalarie?.mention && <Text style={styles.mentionSign}>{signatureSalarie.mention}</Text>}
           </View>
         </View>
 

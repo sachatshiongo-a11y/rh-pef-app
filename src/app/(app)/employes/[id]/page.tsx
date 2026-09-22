@@ -30,6 +30,10 @@ import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
+import { BoutonSigner } from "@/components/bouton-signer";
+import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
+import { faireSignerDocument } from "../../signature-actions";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -145,6 +149,17 @@ export default async function FicheEmployePage({
     }),
     chargerCompteDansSoldeParType(),
   ]);
+
+  // Signatures des bulletins et des contrats de cette fiche : DEUX requêtes, quel que soit
+  // l'historique. L'état affiché est relu du document à chaque rendu — un bulletin recalculé
+  // repasse de lui-même en « À resigner ».
+  const [sigBulletins, sigContrats] = await Promise.all([
+    chargerSignatures(prisma, "BULLETIN", payrollLines.filter((l) => l.statutPaiement !== "PAS_VALIDE").map((l) => l.id)),
+    chargerSignatures(prisma, "CONTRAT", contrats.map((c) => c.id)),
+  ]);
+  const etatsContrats: Record<string, EtatSignature> = Object.fromEntries(
+    contrats.map((c) => [c.id, etatSignature(sigContrats.get(c.id))])
+  );
 
   // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
   const kinshasa = new Date(Date.now() + 3_600_000);
@@ -691,6 +706,7 @@ export default async function FicheEmployePage({
               <th className="px-3 py-2 text-right">Salaire net CDF</th>
               <th className="px-3 py-2 text-right">Total versé $</th>
               <th className="px-3 py-2">Paiement</th>
+              <th className="px-3 py-2">Signature</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -710,6 +726,23 @@ export default async function FicheEmployePage({
                 <td className="px-3 py-2 text-right text-muted-foreground">{formatMoney(totalVerseUSD(l))}</td>
                 <td className="px-3 py-2">
                   <PaiementBadge statut={l.statutPaiement} />
+                </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  {l.statutPaiement === "PAS_VALIDE" ? (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  ) : peutModifier ? (
+                    <BoutonSigner
+                      cible="BULLETIN"
+                      cibleId={l.id}
+                      nomSalarie={employee.nom}
+                      libelleDocument={`Bulletin ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })} — ${employee.nom}`}
+                      cote="DIRECTION"
+                      action={faireSignerDocument}
+                      {...etatSignature(sigBulletins.get(l.id))}
+                    />
+                  ) : (
+                    <EtatSignatureLecture {...etatSignature(sigBulletins.get(l.id))} />
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right">
                   <BulletinViewerButton
@@ -736,7 +769,7 @@ export default async function FicheEmployePage({
             ))}
             {payrollLines.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-4 text-center text-muted-foreground">
                   Aucune paie calculée pour cet employé pour le moment.
                 </td>
               </tr>
@@ -926,6 +959,8 @@ export default async function FicheEmployePage({
         actif={employee.actif}
         joursModele={joursModele}
         contrats={contrats}
+        nomSalarie={employee.nom}
+        etatsSignatureContrats={etatsContrats}
         prets={pretsView}
         periodePaie={{ mois, annee }}
         tachesOnboarding={tachesOnboarding.map((t) => ({ id: t.id, libelle: t.libelle, fait: t.fait, faitLe: t.faitLe }))}
@@ -941,6 +976,7 @@ export default async function FicheEmployePage({
     </div>
   );
 }
+
 
 function Section({
   title,

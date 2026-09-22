@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "node:path";
 
 export default defineConfig({
@@ -23,6 +23,17 @@ export default defineConfig({
     // vitesse. Si cette machine change (plus de RAM, CI dédié), cette valeur peut être révisée —
     // mais elle doit rester une valeur MESURÉE, pas un défaut vitest laissé au hasard.
     maxWorkers: 2,
+    // Ce dépôt héberge des ARBRES DE TRAVAIL frères sous `.claude/worktrees/<branche>/`, qui
+    // contiennent chacun une copie complète de `src/` — donc des centaines de fichiers de tests
+    // portant d'AUTRES branches. Sans cette exclusion, `npm test` lancé à la racine les ramasse :
+    // « la suite est verte » devient une affirmation qui dépend de ce que d'autres sessions ont
+    // sous la main au même instant (mesuré le 2026-09-22 : 156 fichiers / 1698 tests collectés,
+    // dont 78 fichiers / 852 tests venant de `.claude/worktrees/`). Deux relectures s'y sont
+    // fait prendre le même jour, dans des sens opposés — un faux vert et un faux rouge.
+    // PIÈGE : `exclude` REMPLACE les valeurs par défaut de vitest (`**/node_modules/**` et
+    // `**/.git/**`) au lieu de s'y ajouter. D'où le `...configDefaults.exclude` : l'écrire
+    // `exclude: ["**/.claude/**"]` tout court ré-ouvrirait `node_modules/` à la collecte.
+    exclude: [...configDefaults.exclude, "**/.claude/**"],
   },
   resolve: {
     alias: {
