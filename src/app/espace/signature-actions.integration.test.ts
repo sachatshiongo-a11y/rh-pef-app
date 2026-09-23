@@ -45,8 +45,12 @@ vi.mock("@/lib/espace-employe", () => ({
 }));
 // Le RENDU du PDF est couvert par `lib/pdf/contrat-signature.integration.test.ts` ; ici on vérifie
 // seulement que la signature d'un contrat FIGE un exemplaire (et que son échec ne défait rien).
+const P = vi.hoisted(() => ({ enPanne: false }));
 vi.mock("@/lib/pdf/contrat-buffer", () => ({
-  genererContratPdf: async () => ({ buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x" }),
+  genererContratPdf: async () => {
+    if (P.enPanne) throw new Error("rendu PDF en panne");
+    return { buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x" };
+  },
 }));
 vi.mock("@/lib/notifications", () => ({
   creerNotification: async (n: { message: string; lien?: string }) => { N.direction.push(n); },
@@ -377,6 +381,20 @@ describe("signer un contrat depuis l'espace vaut acceptation", () => {
 
     expect(await photo(), "signer un bulletin ou un congé a modifié un contrat").toBe(avant);
     expect((await relire(c.id)).contrat.accepteLe).toBeNull();
+  });
+
+  it("le figeage de l'exemplaire en panne ne bloque JAMAIS l'acceptation", async () => {
+    const c = await nouveauContrat(empId);
+    P.enPanne = true;
+    try {
+      const res = await signerMonDocument("CONTRAT", c.id, PNG_VALIDE);
+      expect(res, "une panne du rendu PDF a fait échouer la signature").toBeUndefined();
+    } finally {
+      P.enPanne = false;
+    }
+    const { contrat, sig } = await relire(c.id);
+    expect(contrat.accepteLe!.getTime()).toBe(sig!.signeLe.getTime());
+    expect(contrat.pdfAccepteUrl, "à défaut de figeage, le contrat est régénéré à la volée").toBeNull();
   });
 
   it("un contrat accepté d'un CLIC avant ce lot reste accepté, à sa date d'origine", async () => {

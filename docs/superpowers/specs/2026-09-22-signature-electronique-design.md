@@ -210,3 +210,19 @@ Chaque signature est journalisée (`JournalAudit`) : qui, quand, sur quel docume
   resigner. C'est voulu — il a signé un montant, pas un document.
 - La signature en présentiel nomme le responsable présent. Ce nom est imprimé sur le document remis
   au salarié.
+
+## 12. Décision du 2026-09-23 — signer vaut acceptation formelle
+
+La Direction tranche : **signer un contrat vaut acceptation formelle**, et remplace le clic
+« Lu et approuvé » (composant `AccepterContrat` et action `accepterMonContrat` supprimés).
+
+- `enregistrerSignature` écrit, **dans une seule transaction**, la signature et
+  `Contrat.accepteLe` = `signeLe` (le même instant). Une re-signature après obsolescence avance
+  `accepteLe`. La même écriture retire l'exemplaire figé précédent (`pdfAccepteUrl`).
+- `lib/signer-document.ts` est le chemin unique des deux actions : signature, puis figeage de
+  l'exemplaire qui fait foi (hors transaction, jamais bloquant), puis notification de la
+  Direction **uniquement** en mode `ESPACE_SALARIE` — en présentiel, elle tenait l'appareil.
+- `contrat-buffer` sert l'exemplaire figé quand il est celui de la signature
+  (`accepteLe === signeLe`, signature à jour) ; il régénère pour une signature obsolète.
+- Bulletins et congés ne touchent à aucun contrat. Les contrats acceptés d'un clic avant le lot 2
+  restent acceptés, à leur date, et ne basculent jamais en « à signer » / « à resigner ».
