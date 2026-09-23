@@ -54,7 +54,11 @@ export function calculerReferenceSalarie(e: EntreesReferenceSalarie): ReferenceS
     referencePlanningDepuis: estBrigadePlanning ? (parametres.referencePlanningDepuis ?? null) : null,
     params: parametres,
   });
-  const avertissements: AvertissementPaie[] = estBrigadePlanning
+  // Avant la date d'effet (source CONTRAT), la ligne se calcule comme avant, SANS avertissement :
+  // juin et juillet, recalculés tant qu'ils ne sont pas validés, gagnaient sinon « Saisi d'avance »
+  // sur des lignes dont aucun montant ne change (17 lignes de juillet en production, 2026-09-23).
+  // Un repli (CONTRAT_REPLI) garde les siens : c'est la nouvelle règle qui renonce, elle le dit.
+  const avertissements: AvertissementPaie[] = estBrigadePlanning && ref.source !== "CONTRAT"
     ? [
         ...ref.avertissements,
         ...detecterAvertissementsSaisie(joursEmp.saisie, { referencePlanning: ref.source === "PLANNING" }),

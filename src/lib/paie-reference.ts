@@ -222,6 +222,7 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
   }
   const heuresDues = (js: JourReference[]) => js.filter(puiseAuPlafond).reduce((acc, j) => acc + hdu(j), 0);
   const facteurSemaine = new Map<string, number>();
+  const partSemaine = new Map<string, number>(); // part P du plafond revenant au mois
   for (const [lundi, js] of semaines) {
     const hors = horsParSemaine.get(lundi) ?? [];
     const planifiees = [...js, ...hors]
@@ -232,6 +233,7 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     const dHors = heuresDues(hors);
     const part = dHors > 0 ? (plafond * dMois) / (dMois + dHors) : plafond;
     facteurSemaine.set(lundi, dMois > 0 ? Math.min(1, part / dMois) : 0);
+    partSemaine.set(lundi, part);
   }
   const hduSansCreneau = (j: JourReference) => hdu(j) * (facteurSemaine.get(iso(lundiDe(j.date))) ?? 0);
 
@@ -305,19 +307,25 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     const quand = dates.length === 1 ? `le ${jjmm(dates[0])}` : `les ${dates.map(jjmm).join(", ")} (${dates.length} j)`;
     avertissements.push({ code: "CONGE_SANS_SOLDE_RECODE", message: `Congé sans solde approuvé mais ${libelle} ${quand} : traité comme sans solde` });
   }
-  // Semaine à cheval sur le mois SUIVANT, encore vierge de l'autre côté : des heures dues puisent au
-  // plafond dans ce mois (D_mois > 0), mais aucun jour hors du mois (lun → sam) n'a ni créneau ni
-  // code. Le plafond est alors calculé sur ce mois seul (D_hors = 0, rien de planifié en face) : la
-  // retenue changerait si le mois suivant était planifié (Rachel, S du 28 au 30/09 : 160,00 au lieu
-  // de 184,62). Un jour absent de `joursHorsMois` compte comme vierge (même convention que le
-  // plafond). Un mois qui finit un samedi ou un dimanche n'a aucune semaine à cheval de ce côté.
+  // Semaine à cheval sur le mois SUIVANT, encore vierge de l'autre côté : aucun jour hors du mois
+  // (lun → sam) n'a ni créneau ni code, donc le plafond est partagé sur ce mois seul (D_hors = 0). La
+  // RETENUE changerait si le mois suivant était planifié (Rachel, S du 28 au 30/09 : 160,00 au lieu
+  // de 184,62). Signalé seulement quand l'argent peut bouger (resserré le 2026-09-23, correction 1) :
+  //   - la part du plafond de la semaine est positive (plafond nul : planifier en face n'y change rien) ;
+  //   - un jour du mois qui puise au plafond est un congé sans solde (S ou liste) ou un M hors férié.
+  // Un congé PAYÉ (C, A, O, F, férié) entre pour les mêmes heures dans R et dans la base : l'effet
+  // est nul (ou de quelques centimes si des heures manquent), « la retenue » n'existe pas.
+  // Un jour absent de `joursHorsMois` compte comme vierge (même convention que le plafond). Un mois
+  // qui finit un samedi ou un dimanche n'a aucune semaine à cheval de ce côté.
   const lundiFin = lundiDe(finMois);
   const samediFinT = lundiFin.getTime() + 5 * 86_400_000;
   if (samediFinT > finMoisT) {
     const cle = iso(lundiFin);
     const horsLunSam = (horsParSemaine.get(cle) ?? []).filter((j) => j.date.getUTCDay() !== 0);
     const vierge = horsLunSam.every((j) => !j.aUnCreneau && j.code == null);
-    if (vierge && heuresDues(semaines.get(cle) ?? []) > 0) {
+    const retenue = (semaines.get(cle) ?? []).some((j) =>
+      puiseAuPlafond(j) && (estSansSolde(j) || (j.code === "M" && !e.joursFeries.has(iso(j.date)))));
+    if (vierge && (partSemaine.get(cle) ?? 0) > 0 && retenue) {
       avertissements.push({ code: "SEMAINE_A_CHEVAL_NON_PLANIFIEE", message: `Semaine du ${jjmm(lundiFin)} à cheval sur le mois suivant, encore non planifié : la retenue de la semaine est calculée sur ce mois seul.` });
     }
   }

@@ -65,11 +65,18 @@ pas), un mois donné :
   C = 36 − 24 = 12 h retenues, 184,62 $ (l'ancien `H × n/6` donnait 192,00 $) ; S du 28/09 au 3/10 →
   septembre et octobre retiennent 18 h chacun (177,78 $), 36 h en tout ; S du 28 au 30/09 et octobre
   sans code → septembre retient 36 h (160,00 $). 40 h lun-ven, S le mercredi 30/09 → 190,91 $, octobre
-  planifié ou non. Quand la semaine à cheval sur le mois SUIVANT a des heures dues dans le mois
-  (D_mois > 0) et que ses jours hors du mois (lun → sam) n'ont encore ni créneau ni code,
-  l'avertissement `SEMAINE_A_CHEVAL_NON_PLANIFIEE` le dit (« Semaine du 28/09 à cheval sur le mois
-  suivant, encore non planifié : la retenue de la semaine est calculée sur ce mois seul. ») : Rachel,
-  S du 28 au 30/09, retient 160,00 $ au lieu de 184,62 $ si octobre avait été planifié.
+  planifié ou non. L'avertissement `SEMAINE_A_CHEVAL_NON_PLANIFIEE` (« Semaine du 28/09 à cheval sur
+  le mois suivant, encore non planifié : la retenue de la semaine est calculée sur ce mois seul. »)
+  sort seulement quand la retenue peut bouger, c'est-à-dire quand trois conditions sont réunies
+  (resserré le 2026-09-23) :
+  1. les jours de la semaine hors du mois (lun → sam) n'ont encore ni créneau ni code ;
+  2. la part du plafond de la semaine revenant au mois est positive ;
+  3. au moins un jour du mois qui puise au plafond est un congé sans solde (S, ou un jour de
+     `joursCongeSansSolde`) ou un M hors férié.
+  Rachel, S du 28 au 30/09, retient 160,00 $ au lieu de 184,62 $ si octobre avait été planifié :
+  signalé. En M, la base passe de 186,67 $ à 194,87 $ : signalé. Un congé PAYÉ (C, A, O, F, férié)
+  entre pour les mêmes heures dans R et dans la base, donc la base reste à 200,00 $ que le mois suivant
+  soit planifié ou non : rien n'est signalé. Rien non plus quand le plafond de la semaine vaut déjà 0.
 - **Congé sans solde** : le contrat est suspendu, aucun jour n'est dû, **même un férié**. Est traité
   comme S un jour non travaillé codé S, **ou tout jour non travaillé qui figure dans
   `joursCongeSansSolde`** (dates couvertes par un congé APPROUVÉ de type non payé, fériés compris,
@@ -149,6 +156,9 @@ La référence et la base sont une **fonction pure** (`src/lib/paie-reference.ts
 3. **Avertissements sur la ligne de paie et dans la boîte de validation, sans bloquer** : présences ou
    heures saisies pour des jours à venir ; jour codé P sans créneau ; planning modifié après la saisie
    des heures ; repli sur la référence contrat ; taux de rôle ignoré ; `t > 1,3 × t0`.
+   Avant la date d'effet (source `CONTRAT`, §4), la ligne de la brigade n'a **aucun**
+   avertissement : juin et juillet se calculent comme avant, sans signal nouveau. Un repli
+   (`CONTRAT_REPLI`) garde les siens.
 
 ## 7. Hors périmètre
 

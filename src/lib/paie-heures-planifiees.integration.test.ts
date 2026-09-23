@@ -32,20 +32,21 @@ const SAISI = new Date("2026-10-01T08:00:00Z"); // saisies faites APRÈS les jou
 const PLANIFIE = new Date("2026-08-25T08:00:00Z"); // planning posé AVANT les heures
 const septembre = Array.from({ length: 30 }, (_, i) => d(i + 1));
 const lunSam = (x: Date) => x.getUTCDay() !== 0;
+const JUILLET_MARTINE = Array.from({ length: 31 }, (_, i) => d(i + 1, 7)).filter((x) => x.getUTCDay() >= 1 && x.getUTCDay() <= 5);
 
-async function salarie(matricule: string, nom: string, salaireMensuel: number, heuresHebdomadaires: number, heuresParJour: number, enfants: number) {
+async function salarie(matricule: string, nom: string, salaireMensuel: number, heuresHebdomadaires: number, heuresParJour: number, enfants: number, transportJourCDF = 0) {
   return (await prisma.employee.create({ data: {
     matricule, nom, sexe: "F", etatCivil: "Célibataire", poste: "Brigade", secteur: "Cuisine", categorie: "BRIGADE",
-    salaireMensuel, heuresHebdomadaires, heuresParJour, enfants, transportJourCDF: 0,
+    salaireMensuel, heuresHebdomadaires, heuresParJour, enfants, transportJourCDF,
     dateEmbauche: new Date("2025-01-06T00:00:00Z"), contrat: "CDD",
   } })).id;
 }
 async function planifier(employeeId: string, shiftId: string, jours: Date[]) {
   await prisma.planningCreneau.createMany({ data: jours.map((date) => ({ employeeId, date, shiftId, createdAt: PLANIFIE, updatedAt: PLANIFIE })) });
 }
-async function pointer(employeeId: string, jours: Date[], code: "P" | "C" | "S", heures: number) {
-  await prisma.attendance.createMany({ data: jours.map((date) => ({ employeeId, date, code, createdAt: SAISI, updatedAt: SAISI })) });
-  if (heures > 0) await prisma.overtimeEntry.createMany({ data: jours.map((date) => ({ employeeId, date, heuresTravaillees: heures, createdAt: SAISI, updatedAt: SAISI })) });
+async function pointer(employeeId: string, jours: Date[], code: "P" | "C" | "S", heures: number, saisiLe = SAISI) {
+  await prisma.attendance.createMany({ data: jours.map((date) => ({ employeeId, date, code, createdAt: saisiLe, updatedAt: saisiLe })) });
+  if (heures > 0) await prisma.overtimeEntry.createMany({ data: jours.map((date) => ({ employeeId, date, heuresTravaillees: heures, createdAt: saisiLe, updatedAt: saisiLe })) });
 }
 
 beforeAll(async () => {
@@ -61,10 +62,14 @@ beforeAll(async () => {
   const cuisine = await prisma.shift.create({ data: { nom: "Matin/cuisine", heureDebut: "08:30", heureFin: "16:30" } }); // 8 h
 
   // Martine Mutombo : 400 $ net, contrat 54 h, planning lun–ven + samedis 12 et 26 → 216 h, toutes faites.
-  ids.martine = await salarie("MM01-PEF", "Martine Mutombo", 400, 54, 9, 2);
+  // Transport 2 300 FC/jour de présence (= 1 $ au taux de 2 300) : hors de la base nette, mais il
+  // traverse le moteur et doit arriver égal sur la fiche et sur le lot (salNetCDF compris).
+  ids.martine = await salarie("MM01-PEF", "Martine Mutombo", 400, 54, 9, 2, 2300);
   const joursMartine = septembre.filter((x) => (x.getUTCDay() >= 1 && x.getUTCDay() <= 5) || x.getUTCDate() === 12 || x.getUTCDate() === 26);
   await planifier(ids.martine, journee.id, joursMartine);
   await pointer(ids.martine, joursMartine, "P", 9);
+  // Juillet (avant la date d'effet) : lun–ven 9 h, 23 jours, tout saisi D'AVANCE le 1er juillet.
+  await pointer(ids.martine, JUILLET_MARTINE, "P", 9, new Date("2026-07-01T08:00:00Z"));
 
   // Syntyche Kanku : 200 $, 36 h, 6 h du lundi au samedi jusqu'au 19 ; congé du 21 au 30 SANS créneau.
   ids.syntyche = await salarie("SK01-PEF", "Syntyche Kanku", 200, 36, 6, 0);
@@ -145,7 +150,8 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(baseNette(de(ids.syntyche))).toBe("200.00");
     expect(baseNette(de(ids.marie))).toBe("200.00");
     expect(de(ids.martine)).toMatchObject({ sourceReference: "PLANNING", heuresContractuelles: 216, avertissementsPaie: [] });
-    expect(de(ids.syntyche)).toMatchObject({ heuresContractuelles: 156, joursPayesNonTravailles: 9, heuresPayeesNonTravaillees: 54 });
+    // Congé PAYÉ du 28 au 30/09, octobre vierge : la base ne dépend pas d'octobre, rien à signaler.
+    expect(de(ids.syntyche)).toMatchObject({ heuresContractuelles: 156, joursPayesNonTravailles: 9, heuresPayeesNonTravaillees: 54, avertissementsPaie: [] });
     expect(de(ids.marie)).toMatchObject({ heuresContractuelles: 208, joursPayesNonTravailles: 12, heuresPayeesNonTravaillees: 96 });
   });
 
@@ -157,11 +163,27 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(l.avertissementsPaie.map((a) => a.code)).toEqual(["REPLI_CONTRAT"]);
   });
 
-  it("juillet 2026 (avant la date d'effet) → ancienne référence contrat", async () => {
+  it("juillet 2026 (avant la date d'effet) → ancienne référence contrat : 353,85, sans avertissement", async () => {
     const l = (await calculerLignesPaie(7, 2026)).lignes.find((x) => x.employee.id === ids.martine)!.data;
     expect(l.sourceReference).toBe("CONTRAT");
     expect(l.heuresContractuelles).toBe(234); // 54 × 52/12
+    // Ancienne règle, à la main : t0 = 400 / (54 × 52/12) = 400 / 234 $/h ; 23 jours lun–ven × 9 h =
+    // 207 h, 45 h par semaine au plus (≤ 54 : aucune HS) ; aucun jour payé non travaillé.
+    // Base nette = 207 × 400 / 234 = 353,846… → 353,85 (la nouvelle règle aurait payé 400,00 sur R = 207).
+    expect(JUILLET_MARTINE).toHaveLength(23);
+    expect(l.heuresTravaillees).toBe(207);
+    expect(baseNette(l)).toBe("353.85");
+    expect(l.transportUSD).toBeCloseTo(23, 10); // 23 présences × 2 300 FC ÷ 2 300
+    // Tout est saisi d'avance (le 01/07 pour tout le mois) : avant la date d'effet, aucun avertissement.
     expect(l.avertissementsPaie).toEqual([]);
+    expect((await calculerBulletinLive(ids.martine, 7, 2026))!.reference.avertissements).toEqual([]);
+  });
+
+  it("septembre en repli sur le contrat → l'avertissement REPLI_CONTRAT reste, sur le lot et la fiche", async () => {
+    const l = (await calculerLignesPaie(9, 2026)).lignes.find((x) => x.employee.id === ids.semaineVide)!.data;
+    expect(l.sourceReference).toBe("CONTRAT_REPLI");
+    expect(l.avertissementsPaie.map((a) => a.code)).toEqual(["REPLI_CONTRAT"]);
+    expect((await calculerBulletinLive(ids.semaineVide, 9, 2026))!.reference.avertissements.map((a) => a.code)).toEqual(["REPLI_CONTRAT"]);
   });
 
   it("semaine à cheval, octobre déjà planifié → 12 h retenues : 184,62 (jamais 160,00)", async () => {
@@ -213,8 +235,8 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
       for (const [nom, id] of Object.entries(ids)) {
         const lot = lignes.find((l) => l.employee.id === id)!.data;
         const live = (await calculerBulletinLive(id, mois, 2026))!;
-        const argent = (x: { salNetUSD: number; salBrutUSD: number; remuneration100: number; remuneration2_3: number; cnssSalarieUSD: number; iprCalculeUSD: number; allocFamilialeUSD: number }) =>
-          [x.salNetUSD, x.salBrutUSD, x.remuneration100, x.remuneration2_3, x.cnssSalarieUSD, x.iprCalculeUSD, x.allocFamilialeUSD].map((n) => Number(n).toFixed(2));
+        const argent = (x: { salNetUSD: number; salNetCDF: number; salBrutUSD: number; remuneration100: number; remuneration2_3: number; cnssSalarieUSD: number; iprCalculeUSD: number; allocFamilialeUSD: number }) =>
+          [x.salNetUSD, x.salNetCDF, x.salBrutUSD, x.remuneration100, x.remuneration2_3, x.cnssSalarieUSD, x.iprCalculeUSD, x.allocFamilialeUSD].map((n) => Number(n).toFixed(2));
         expect(argent(live.ligne), `${nom} ${mois}/2026`).toEqual(argent(lot));
         expect(live.transportUSD.toFixed(2), `${nom} ${mois}/2026`).toBe(lot.transportUSD.toFixed(2));
         expect([live.heuresTravaillees, live.hs30, live.hs60, live.hs100], `${nom} ${mois}/2026`).toEqual([lot.heuresTravaillees, lot.heuresSupp30, lot.heuresSupp60, lot.heuresSupp100]);
@@ -230,6 +252,10 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect((await calculerBulletinLive(ids.sansSolde, 9, 2026))!.reference.avertissements.map((a) => a.code)).toEqual(["CONGE_SANS_SOLDE_RECODE"]);
     expect((await calculerBulletinLive(ids.cddEchu, 9, 2026))!.reference.avertissements.map((a) => a.code)).toEqual(["CDD_ECHU_POURSUIVI"]);
     expect((await calculerBulletinLive(ids.martine, 9, 2026))!.ligne.salNetUSD.toFixed(2)).not.toBe("369.23");
+    // Le transport n'est pas nul sur la fiche : la comparaison du transport et de salNetCDF porte.
+    const martineLive = (await calculerBulletinLive(ids.martine, 9, 2026))!;
+    expect(martineLive.transportUSD).toBeCloseTo(24, 10); // 24 présences × 2 300 FC ÷ 2 300
+    expect(martineLive.ligne.salNetCDF).toBeGreaterThan(0);
   });
 
   it("la carte d'aperçu dit la référence et affiche les avertissements", async () => {
@@ -256,6 +282,11 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(martine.sourceReference).toBe("PLANNING");
     expect(Number(martine.heuresContractuelles)).toBe(216);
     expect(martine.avertissementsPaie).toEqual([]);
+    // Syntyche : 9 jours de congé C sans créneau, 54 h payées non travaillées (36 h la semaine du 21,
+    // 18 h du 28 au 30) — la colonne en heures est bien écrite, pas seulement calculée.
+    const syntyche = await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ids.syntyche } });
+    expect(Number(syntyche.heuresPayeesNonTravaillees)).toBe(54);
+    expect(syntyche.joursPayesNonTravailles).toBe(9);
     const vide = await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ids.semaineVide } });
     expect(vide.sourceReference).toBe("CONTRAT_REPLI");
     expect(vide.motifReference).toBe("Planning incomplet : semaine du 21/09 sans créneau");

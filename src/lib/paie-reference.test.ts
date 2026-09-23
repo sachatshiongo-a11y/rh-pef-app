@@ -304,10 +304,10 @@ describe("paie sur heures planifiées — propriétés", () => {
 
   // ── Semaine à cheval sur deux mois : la semaine CIVILE entière fixe le plafond, partagé au prorata ──
   const TRAV_RACHEL = (d: Date) => [2, 4, 6].includes(dow(d)); // mardi, jeudi, samedi, 12 h
-  const rachelCheval = (mois: number, sDansMois: (d: Date) => boolean, horsMois: JourReference[], modele = false) => {
+  const rachelCheval = (mois: number, sDansMois: (d: Date) => boolean, horsMois: JourReference[], modele = false, codeConge: CodePresence = "S", joursFeries = new Set<string>()) => {
     const h = (d: Date) => (TRAV_RACHEL(d) && !sDansMois(d) ? 12 : 0);
-    return calculerReferenceMois(entrees({ mois, salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12, joursHorsMois: horsMois,
-      jours: joursDuMois(2026, mois, { heures: h, faites: h, modele: modele ? (d) => (TRAV_RACHEL(d) ? 12 : 0) : undefined, code: (d) => (sDansMois(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
+    return calculerReferenceMois(entrees({ mois, salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12, joursHorsMois: horsMois, joursFeries,
+      jours: joursDuMois(2026, mois, { heures: h, faites: h, modele: modele ? (d) => (TRAV_RACHEL(d) ? 12 : 0) : undefined, code: (d) => (sDansMois(d) ? codeConge : h(d) > 0 ? "P" : null) }) }));
   };
   const planningRachel = (d: Date) => (TRAV_RACHEL(d) ? 12 : 0);
 
@@ -420,6 +420,54 @@ describe("paie sur heures planifiées — propriétés", () => {
     const oct = rachelCheval(10, (d) => jour(d) >= 26, []);
     expect(oct.source).toBe("PLANNING");
     expect(oct.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+  });
+
+  // Correction 1 (2026-09-23) : le signal ne sort que si la RETENUE peut bouger — part du plafond > 0
+  // et au moins un jour S (ou de la liste) ou M hors férié qui puise au plafond.
+  const octobreVierge = () => [...joursEntre("2026-08-31", "2026-08-31", {}), ...joursEntre("2026-10-01", "2026-10-04", {})];
+  it("Rachel, congé PAYÉ (C) du 28 au 30/09, octobre vierge → rien à signaler (même base, octobre planifié ou non)", () => {
+    const vierge = rachelCheval(9, (d) => jour(d) >= 28, octobreVierge(), false, "C");
+    const planifie = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", { heures: planningRachel }),
+    ], false, "C");
+    expect(vierge.heuresReference).toBe(180); // 144 h + 36 h de congé payé
+    expect(planifie.heuresReference).toBe(156); // 144 h + 12 h
+    expect(baseNette(vierge)).toBeCloseTo(200, 10); // C payé dans R ET dans la base : 200,00 des deux côtés
+    expect(baseNette(planifie)).toBeCloseTo(200, 10);
+    expect(vierge.avertissements).toEqual([]);
+  });
+
+  it("Rachel, maladie (M) du 28 au 30/09, octobre vierge → signalé ; M sur un férié → rien", () => {
+    const vierge = rachelCheval(9, (d) => jour(d) >= 28, octobreVierge(), false, "M");
+    const planifie = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", { heures: planningRachel }),
+    ], false, "M");
+    // M payé aux 2/3 : l'heure du mois ne pèse pas pareil dans R et dans la base, la base bouge.
+    expect(baseNette(vierge)).toBeCloseTo((200 / 180) * (144 + 36 * (2 / 3)), 10); // 186,67
+    expect(baseNette(planifie)).toBeCloseTo((200 / 156) * (144 + 12 * (2 / 3)), 10); // 194,87
+    expect(vierge.avertissements).toEqual([{ code: CHEVAL, message: MESSAGE_CHEVAL }]);
+    // Les trois jours M sont fériés : payés à 100 % comme fériés, plus aucune retenue.
+    const ferie = rachelCheval(9, (d) => jour(d) >= 28, octobreVierge(), false, "M", new Set(["2026-09-28", "2026-09-29", "2026-09-30"]));
+    expect(ferie.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+  });
+
+  it("S le mercredi 30/09 avec un plafond de 0 (semaine déjà à H dans le mois), octobre vierge → rien à signaler", () => {
+    // 24 h/sem, lundi et mardi 12 h : la semaine du 28/09 a déjà ses 24 h planifiées lun. 28 et mar. 29.
+    const cas = (hebdo: number) => {
+      const h = (d: Date) => (dow(d) === 1 || dow(d) === 2 ? 12 : 0);
+      return calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: hebdo, heuresParJour: 12, joursHorsMois: octobreVierge(),
+        jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (jour(d) === 30 ? "S" : h(d) > 0 ? "P" : null) }) }));
+    };
+    const plafondNul = cas(24);
+    expect(plafondNul.source).toBe("PLANNING");
+    expect(plafondNul.heuresReference).toBe(108); // 9 jours × 12 h, rien retenu pour le 30
+    expect(plafondNul.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+    // Témoin : 36 h/sem → plafond 12 h, le S du 30 retient 12 h, et cela se dit.
+    const temoin = cas(36);
+    expect(temoin.heuresReference).toBe(120);
+    expect(temoin.avertissements.filter((a) => a.code === CHEVAL)).toEqual([{ code: CHEVAL, message: MESSAGE_CHEVAL }]);
   });
 
   // ── Férié dans un congé sans solde APPROUVÉ : arrive SANS code (conges-presences saute les fériés) ──
