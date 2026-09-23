@@ -43,6 +43,17 @@ pas), un mois donné :
   durée du créneau de travail s'il y en a un, sinon durée du modèle pour ce jour (couche A/B puis
   « chaque semaine » ; 0 si le modèle ne prévoit rien ce jour, et le jour ne compte alors ni dans R
   ni dans les jours payés), sinon `heuresParJour`.
+  **Plafond hebdomadaire** : pour les jours sans créneau de travail (C, A, O, M, S), les heures dues
+  ajoutées à R dans une semaine (lun → dim, dans le mois) ne dépassent pas
+  `max(0, H − heures planifiées de travail de la semaine hors dimanche et fériés)`. Le plafond est
+  réparti dans l'ordre des jours, jamais plus de `hdu(j)` pour un jour. Il ne change rien pour les
+  jours payés (mêmes heures dans R et dans la base), mais il est décisif pour S : sans modèle,
+  `heuresParJour` pour chaque jour du lundi au samedi retiendrait 72 h à Rachel (36 h/sem), soit
+  125,00 $ au lieu de 153,85 $.
+- **Congé sans solde (S)** : le contrat est suspendu, aucun jour n'est dû, **même un férié**. Un jour
+  S sans heures faites est traité avant la règle des fériés : ses heures dues entrent dans R (sur un
+  créneau de travail elles y sont déjà, sauf un férié, compté en HS planifiées) et rien n'est payé.
+  Mois entier en S avec un férié → 0 ; semaine S contenant un férié → 160,00 $ (pas 168,00 $).
   *Pourquoi S entre dans R* (relecture 2026-09-23) : la génération automatique du planning ne pose
   aucun créneau pendant un congé approuvé, et le congé sans solde est codé S. Sans ses heures dans
   R, `t` monte et paie le congé : 208 $ au lieu de 192 $ pour 2 jours S, 400,00 $ au lieu de
@@ -72,7 +83,12 @@ dont tous les jours ouvrables hors fériés sont codés C, A, M, O, F ou S — p
 d'embauche**, le **mois de fin de contrat** (fin avant le dernier jour du mois : tous les CDD de la
 brigade y passent, et R ne couvrirait que les jours restants, soit le mois entier payé), ou si la fiche
 n'a **pas d'heures hebdomadaires** (seuil HS inconnu), le mois entier retombe sur l'ancienne référence
-(`H × 52/12`), avec un motif daté. Un planning à moitié publié payerait sinon ~866 $ au
+(`H × 52/12`), avec un motif : daté pour l'embauche et la fin de contrat (« Embauche le 15/09/2026 :
+mois incomplet », « Fin de contrat le 28/09/2026 : mois incomplet »), avec les semaines pour un planning
+incomplet (« Planning incomplet : semaine du 21/09 sans créneau »), non daté sinon (« Heures
+hebdomadaires du contrat non renseignées », « Aucune heure planifiée ce mois », ce dernier quand R ≤ 0).
+Une date de fin de contrat antérieure au mois calculé est ignorée (le contrat ne couvre pas ce mois).
+`dateFinContrat` est une date pure (minuit UTC). Un planning à moitié publié payerait sinon ~866 $ au
 lieu de 200 $. Le repli est visible : `PayrollLine.sourceReference` (`PLANNING` | `CONTRAT_REPLI`) +
 `motifReference`, badge sur l'écran Paie, mention sur le bulletin (« Heures planifiées » /
 « Heures contrat (repli) »).

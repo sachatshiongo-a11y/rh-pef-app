@@ -234,6 +234,62 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(netSalaire(r, 2)).toBeCloseTo(366.67, 2);
   });
 
+  // ── Plafond hebdomadaire des heures dues sans créneau : max(0, H − heures planifiées de la semaine) ──
+  it("Rachel (36 h/sem, 12 h/j, sans modèle), semaine S sans créneau → retenue plafonnée à 36 h : 153,85", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 20;
+    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !s(d) ? 12 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (s(d) && lunSam(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(156); // 120 h planifiées + 36 h retenues (et non 72)
+    expect(baseNette(r)).toBeCloseTo((120 * 200) / 156, 10); // 153,85, jamais 125,00
+  });
+
+  it("40 h/sem, 8 h/j du lundi au vendredi, sans modèle, semaine S sans créneau → 160,73", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 20;
+    const h = (d: Date) => (dow(d) >= 1 && dow(d) <= 5 && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 208, heuresHebdomadaires: 40, heuresParJour: 8,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (s(d) && lunSam(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.heuresReference).toBe(176);
+    expect(baseNette(r)).toBeCloseTo((136 * 208) / 176, 10); // 160,73, jamais 153,74
+  });
+
+  it("Rachel, mardi 15 travaillé puis S du 16 au 19 sans créneau → plafond = 36 − 12 h : 169,23", () => {
+    const s = (d: Date) => jour(d) >= 16 && jour(d) <= 19;
+    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !s(d) ? 12 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (s(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.heuresReference).toBe(156); // 132 h planifiées + 24 h retenues (mer., jeu.)
+    expect(baseNette(r)).toBeCloseTo((132 * 200) / 156, 10);
+  });
+
+  it("Rachel, semaine de congé PAYÉ sans créneau → plafond neutre : 200,00", () => {
+    const c = (d: Date) => jour(d) >= 14 && jour(d) <= 20;
+    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !c(d) ? 12 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (c(d) && lunSam(d) ? "C" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.heuresReference).toBe(156);
+    expect(r.affichage.heuresPayeesNonTravaillees).toBe(36);
+    expect(baseNette(r)).toBeCloseTo(200, 10);
+  });
+
+  // ── Congé sans solde un jour férié : contrat suspendu, rien n'est dû ──
+  it("mois entier en congé sans solde avec un férié → 0,00", () => {
+    const r = calculerReferenceMois(type6j({ heures: () => 0, faites: () => 0, code: (d) => (lunSam(d) ? "S" : null) }, { joursFeries: new Set(["2026-09-15"]) }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(208);
+    expect(baseNette(r)).toBe(0);
+  });
+
+  it("semaine de congé sans solde contenant un férié → 160,00 (le férié n'est pas payé)", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 19;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (!lunSam(d) ? null : s(d) ? "S" : "P") }, { joursFeries: new Set(["2026-09-15"]) }));
+    expect(r.heuresReference).toBe(208);
+    expect(r.affichage.joursPayesNonTravailles).toBe(0);
+    expect(baseNette(r)).toBeCloseTo(160, 10);
+  });
+
   it("jour payé sur un jour de repos du modèle (hdu = 0) → ni jour ni heure payés en plus", () => {
     const h = (d: Date) => (dow(d) >= 1 && dow(d) <= 5 && (jour(d) < 14 || jour(d) > 19) ? 8 : 0);
     const r = calculerReferenceMois(entrees({ salaireMensuel: 176, heuresHebdomadaires: 48, heuresParJour: 8,
@@ -273,6 +329,12 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2026-09-30T00:00:00Z") })).source).toBe("PLANNING");
     expect(calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2027-03-31T00:00:00Z") })).source).toBe("PLANNING");
     expect(calculerReferenceMois(type6j({}, { dateFinContrat: null })).source).toBe("PLANNING");
+  });
+
+  it("contrat terminé AVANT le mois calculé → date ignorée, pas de repli trompeur", () => {
+    const r = calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2026-08-31T00:00:00Z") }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.motif).toBeNull();
   });
 
   it("heures hebdomadaires du contrat non renseignées → repli, motif juste", () => {

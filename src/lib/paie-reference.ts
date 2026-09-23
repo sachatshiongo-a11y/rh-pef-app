@@ -46,7 +46,8 @@ export type EntreesReference = {
   heuresHebdomadaires: number;
   heuresParJour: number;
   dateEmbauche: Date;
-  /** Fin du contrat en cours (date PURE) ; absente ou `null` = pas de fin connue (CDI). */
+  /** Fin du contrat en cours ; absente ou `null` = pas de fin connue (CDI). Date PURE (minuit UTC)
+   *  OBLIGATOIREMENT : une heure locale (ex. 23:00 UTC la veille) ferait replier à tort. */
   dateFinContrat?: Date | null;
   joursFeries: Set<string>; // "AAAA-MM-JJ"
   /** Décompte d'aujourd'hui (max(codes C, congés approuvés)) — sert au seul affichage en mode contrat. */
@@ -120,9 +121,11 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
       `Embauche le ${jjmm(d)}/${d.getUTCFullYear()} : mois incomplet`);
   }
 
-  // ── Repli : mois de fin de contrat (avant le dernier jour du mois) ────────────────────────────
+  // ── Repli : mois de fin de contrat (fin DANS le mois, avant son dernier jour) ─────────────────
+  // Une fin antérieure au mois est ignorée : le contrat ne couvre pas ce mois, un motif « fin le
+  // 31/08 » sur la paie de septembre tromperait.
   const finMois = new Date(Date.UTC(e.annee, e.mois, 0));
-  if (e.dateFinContrat != null && e.dateFinContrat.getTime() < finMois.getTime()) {
+  if (e.dateFinContrat != null && e.dateFinContrat.getTime() >= debutMois.getTime() && e.dateFinContrat.getTime() < finMois.getTime()) {
     const d = e.dateFinContrat;
     return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI",
       `Fin de contrat le ${jjmm(d)}/${d.getUTCFullYear()} : mois incomplet`);
@@ -164,6 +167,25 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
   });
   let R = hsPlan.heuresTotalesMois - hsPlan.hs30 - hsPlan.hs60 - hsPlan.hs100;
 
+  // Plafond hebdomadaire des heures dues SANS créneau de travail (C, A, O, M, S) : une semaine ne
+  // peut pas devoir plus que H. Sans modèle, hdu retombe sur `heuresParJour` pour chaque jour
+  // lun→sam : sans plafond, une semaine S retiendrait 72 h à qui n'en doit que 36. Neutre pour les
+  // jours payés (mêmes heures dans R et dans la base), décisif pour S. Réparti dans l'ordre des jours.
+  const plafondSemaine = new Map<string, number>();
+  for (const [lundi, js] of semaines) {
+    const planifiees = js
+      .filter((j) => j.date.getUTCDay() !== 0 && !e.joursFeries.has(iso(j.date)))
+      .reduce((acc, j) => acc + j.heuresPlanifiees, 0);
+    plafondSemaine.set(lundi, Math.max(0, e.heuresHebdomadaires - planifiees));
+  }
+  const hduSansCreneau = (j: JourReference) => {
+    const cle = iso(lundiDe(j.date));
+    const reste = plafondSemaine.get(cle) ?? 0;
+    const h = Math.min(hdu(j), reste);
+    plafondSemaine.set(cle, reste - h);
+    return h;
+  };
+
   let heuresPayees100 = 0;
   let heuresMaladie = 0;
   let heuresConge = 0;
@@ -171,7 +193,16 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
   let heuresBaseFerieTravaille = 0; // base d'un férié dû travaillé : déjà payée par le forfait
   for (const j of e.jours) {
     if (j.date.getUTCDay() === 0) continue; // dimanche : jamais dans la référence
-    if (e.joursFeries.has(iso(j.date))) {
+    const ferie = e.joursFeries.has(iso(j.date));
+    // Congé sans solde, AVANT les fériés : le contrat est suspendu, aucun jour n'est dû, même férié.
+    // Ses heures dues entrent dans R, rien à la base (sinon t monterait et paierait le congé). Sur un
+    // créneau de travail elles sont déjà dans R, sauf un férié (compté en HS dans hsPlan).
+    if (j.code === "S" && j.heuresFaites <= 0) {
+      if (j.heuresPlanifiees <= 0) R += hduSansCreneau(j);
+      else if (ferie) R += j.heuresPlanifiees;
+      continue;
+    }
+    if (ferie) {
       const h = hdu(j);
       if (h <= 0) continue; // férié tombant un jour de repos : rien à payer au forfait
       R += h;
@@ -182,12 +213,9 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     }
     if (j.heuresFaites > 0 || j.code == null) continue;
     const payeCent = PAYES_100.has(j.code);
-    const h = hdu(j);
-    if (h <= 0) continue; // jour de repos du modèle : ni dû, ni payé
-    // Congé sans solde sans créneau de travail : ses heures dues entrent dans R, rien à la base
-    // (sinon t monterait et paierait le congé). Sur un créneau de travail, il est déjà dans R.
-    if (j.code === "S") { if (j.heuresPlanifiees <= 0) R += h; continue; }
     if (!payeCent && j.code !== "M") continue;
+    const h = j.heuresPlanifiees > 0 ? j.heuresPlanifiees : hduSansCreneau(j);
+    if (h <= 0) continue; // jour de repos du modèle, ou semaine déjà à H : ni dû, ni payé
     if (j.heuresPlanifiees <= 0) R += h; // sinon déjà dans les heures planifiées
     if (payeCent) { heuresPayees100 += h; joursPayes++; if (j.code === "C") heuresConge += h; }
     else heuresMaladie += h;
