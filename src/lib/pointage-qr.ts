@@ -20,6 +20,13 @@ export const RAYON_DEFAUT_M = 150;
 export const PRECISION_MAX_M = 300;
 /** Précision maximale acceptée quand la Direction règle la position du restaurant. */
 export const PRECISION_REGLAGE_MAX_M = 100;
+/**
+ * Refus d'imprimer l'affiche ou d'en changer le code tant que la position du restaurant n'est pas
+ * réglée (sans elle, `enregistrerScan` refuse chaque scan). Ici, et pas côté serveur, pour que
+ * l'écran des réglages dise EXACTEMENT la même chose que le refus.
+ */
+export const MESSAGE_POSITION_NON_REGLEE =
+  "Réglez d'abord la position du restaurant : sans elle, chaque scan de l'affiche serait refusé.";
 /** Un second scan avant ce délai après l'arrivée déclenche la confirmation « double scan ». */
 export const DELAI_DOUBLE_SCAN_MS = 5 * 60_000;
 
@@ -63,15 +70,18 @@ export function urlAffiche(origine: string, code: string): string {
   return `${origine}/scan?c=${encodeURIComponent(code)}`;
 }
 
-/** Relit le code d'une affiche depuis le contenu scanné. `null` si ce n'est pas notre affiche. */
-export function lireCodeDepuisQr(contenu: string, origine: string): string | null {
+/**
+ * Relit le code d'une affiche depuis le contenu scanné. `null` si ce n'est pas notre affiche : une
+ * origine hors de `origines` (cf. `originesAcceptees` dans `pointage-origines.ts`), un autre chemin.
+ */
+export function lireCodeDepuisQr(contenu: string, origines: readonly string[]): string | null {
   let url: URL;
   try {
     url = new URL(contenu);
   } catch {
     return null;
   }
-  if (url.origin !== origine || url.pathname !== "/scan") return null;
+  if (!origines.includes(url.origin) || url.pathname !== "/scan") return null;
   return url.searchParams.get("c");
 }
 

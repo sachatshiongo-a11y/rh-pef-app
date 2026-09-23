@@ -18,6 +18,7 @@ import jsQR from "jsqr";
 import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
 import { confirmerDepart, scannerAffiche } from "@/app/pointage/actions";
 import type { PositionScan } from "@/lib/pointage-qr";
+import { originesAcceptees } from "@/lib/pointage-origines";
 import {
   CONTRAINTES_CAMERA,
   DELAI_MAX_POSITION_MS,
@@ -179,7 +180,7 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
         const image = ctx.getImageData(0, 0, taille.largeur, taille.hauteur);
         const qr = jsQR(image.data, taille.largeur, taille.hauteur, { inversionAttempts: "dontInvert" });
         if (qr) {
-          const lecture = lectureQr(qr.data, window.location.origin);
+          const lecture = lectureQr(qr.data, originesAcceptees(window.location.origin));
           if ("code" in lecture) {
             arrete = true;
             arreterPistes(flux); // tout de suite, sans attendre le rendu suivant

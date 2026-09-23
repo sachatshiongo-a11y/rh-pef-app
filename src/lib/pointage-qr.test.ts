@@ -52,12 +52,18 @@ describe("code d'affiche", () => {
 describe("lecture du QR", () => {
   const O = "https://rh.patesenfolie.cd";
   it("relit le code de sa propre affiche", () =>
-    expect(lireCodeDepuisQr(urlAffiche(O, "XyZ_-9"), O)).toBe("XyZ_-9"));
+    expect(lireCodeDepuisQr(urlAffiche(O, "XyZ_-9"), [O])).toBe("XyZ_-9"));
+  it("accepte chacune des origines de la liste", () => {
+    const R = "https://rh-pef.onrender.com";
+    expect(lireCodeDepuisQr(urlAffiche(O, "XyZ"), [R, O])).toBe("XyZ");
+    expect(lireCodeDepuisQr(urlAffiche(R, "XyZ"), [R, O])).toBe("XyZ");
+  });
   it("refuse une autre origine, un autre chemin, un texte quelconque", () => {
-    expect(lireCodeDepuisQr("https://exemple.com/scan?c=XyZ", O)).toBeNull();
-    expect(lireCodeDepuisQr(`${O}/autre?c=XyZ`, O)).toBeNull();
-    expect(lireCodeDepuisQr(`${O}/scan`, O)).toBeNull();
-    expect(lireCodeDepuisQr("bonjour", O)).toBeNull();
+    expect(lireCodeDepuisQr("https://exemple.com/scan?c=XyZ", [O])).toBeNull();
+    expect(lireCodeDepuisQr(`${O}/autre?c=XyZ`, [O])).toBeNull();
+    expect(lireCodeDepuisQr(`${O}/scan`, [O])).toBeNull();
+    expect(lireCodeDepuisQr("bonjour", [O])).toBeNull();
+    expect(lireCodeDepuisQr(urlAffiche(O, "XyZ"), [])).toBeNull();
   });
 });
 

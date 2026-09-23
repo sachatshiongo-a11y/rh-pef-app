@@ -64,22 +64,26 @@ describe("les messages exacts de la conception", () => {
 
 describe("lectureQr : un QR étranger est refusé, on continue de viser", () => {
   it("notre affiche → son code", () => {
-    expect(lectureQr(`${ORIGINE}/scan?c=Abc_123-x`, ORIGINE)).toEqual({ code: "Abc_123-x" });
+    expect(lectureQr(`${ORIGINE}/scan?c=Abc_123-x`, [ORIGINE])).toEqual({ code: "Abc_123-x" });
   });
 
   it("autre site, même chemin → pas l'affiche", () => {
-    expect(lectureQr("https://exemple.com/scan?c=Abc", ORIGINE)).toEqual({ avis: MESSAGE_QR_ETRANGER });
+    expect(lectureQr("https://exemple.com/scan?c=Abc", [ORIGINE])).toEqual({ avis: MESSAGE_QR_ETRANGER });
   });
 
   it("autre chemin, texte libre, lien de paiement… → pas l'affiche", () => {
-    expect(lectureQr(`${ORIGINE}/paie?c=Abc`, ORIGINE)).toEqual({ avis: MESSAGE_QR_ETRANGER });
-    expect(lectureQr("Bonjour", ORIGINE)).toEqual({ avis: MESSAGE_QR_ETRANGER });
-    expect(lectureQr("", ORIGINE)).toEqual({ avis: MESSAGE_QR_ETRANGER });
+    expect(lectureQr(`${ORIGINE}/paie?c=Abc`, [ORIGINE])).toEqual({ avis: MESSAGE_QR_ETRANGER });
+    expect(lectureQr("Bonjour", [ORIGINE])).toEqual({ avis: MESSAGE_QR_ETRANGER });
+    expect(lectureQr("", [ORIGINE])).toEqual({ avis: MESSAGE_QR_ETRANGER });
+  });
+
+  it("l'affiche officielle lue depuis l'autre adresse de l'application → son code", () => {
+    expect(lectureQr(`${ORIGINE}/scan?c=Abc`, ["https://rh-pef.onrender.com", ORIGINE])).toEqual({ code: "Abc" });
   });
 
   it("notre chemin mais sans code (ou code vide) → pas l'affiche", () => {
-    expect(lectureQr(`${ORIGINE}/scan`, ORIGINE)).toEqual({ avis: MESSAGE_QR_ETRANGER });
-    expect(lectureQr(`${ORIGINE}/scan?c=`, ORIGINE)).toEqual({ avis: MESSAGE_QR_ETRANGER });
+    expect(lectureQr(`${ORIGINE}/scan`, [ORIGINE])).toEqual({ avis: MESSAGE_QR_ETRANGER });
+    expect(lectureQr(`${ORIGINE}/scan?c=`, [ORIGINE])).toEqual({ avis: MESSAGE_QR_ETRANGER });
   });
 });
 

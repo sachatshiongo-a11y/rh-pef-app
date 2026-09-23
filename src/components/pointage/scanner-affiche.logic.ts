@@ -93,8 +93,8 @@ export function arreterPistes(flux: { getTracks(): { stop(): void }[] } | null |
 }
 
 /** Ce que veut dire un QR lu : le code de NOTRE affiche, ou un avis (et on continue de viser). */
-export function lectureQr(contenu: string, origine: string): { code: string } | { avis: string } {
-  const code = lireCodeDepuisQr(contenu, origine);
+export function lectureQr(contenu: string, origines: readonly string[]): { code: string } | { avis: string } {
+  const code = lireCodeDepuisQr(contenu, origines);
   return code ? { code } : { avis: MESSAGE_QR_ETRANGER };
 }
 
