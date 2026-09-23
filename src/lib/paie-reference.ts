@@ -14,6 +14,7 @@ export type CodeAvertissementPaie =
   | "TAUX_MOIS_SUPERIEUR_HS"
   | "SAISIE_ANTICIPEE"
   | "PRESENCE_SANS_CRENEAU"
+  | "PRESENCE_SANS_HEURES"
   | "PLANNING_MODIFIE_APRES_HEURES";
 
 export type AvertissementPaie = { code: CodeAvertissementPaie; message: string };
