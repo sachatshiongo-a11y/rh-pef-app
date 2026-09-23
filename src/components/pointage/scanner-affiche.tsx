@@ -11,6 +11,8 @@
 //   • la caméra est libérée (toutes les pistes arrêtées) dès qu'un code d'affiche est lu, au
 //     démontage, et quand la page passe en arrière-plan — cf. `cameraDoitTourner`.
 // Aucun bouton ne pointe sans scan : sans caméra, le recours est l'appareil photo du téléphone.
+// Et aucun scan ne pointe sans geste quand le code arrive par l'adresse (`/scan?c=…`) : on attend
+// « Pointer maintenant » (cf. `phaseInitiale`).
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -23,6 +25,8 @@ import {
   CONTRAINTES_CAMERA,
   DELAI_MAX_POSITION_MS,
   INTERVALLE_LECTURE_MS,
+  LIBELLE_POINTER_MAINTENANT,
+  MESSAGE_ATTENTE_GESTE,
   MESSAGE_CONNEXION_PERDUE,
   OPTIONS_GEOLOCALISATION,
   PAUSE_DEFAUT_MIN,
@@ -36,6 +40,7 @@ import {
   lectureQr,
   messageCameraIndisponible,
   pauseLue,
+  phaseApresGeste,
   phaseInitiale,
   positionAReprendre,
   positionDepuisCoordonnees,
@@ -136,21 +141,18 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     [envoyerCode],
   );
 
-  // La position est demandée dès l'ouverture, EN PARALLÈLE de la visée : elle est prête au scan.
-  // Chemin /scan?c=… : le code vient de l'appareil photo du téléphone, on l'envoie aussitôt — et
-  // on le retire de l'adresse, pour qu'un rechargement de l'onglet (Safari restaure les onglets
-  // des heures plus tard) ne pointe pas un départ à l'insu du salarié.
+  // La position est demandée dès l'ouverture, EN PARALLÈLE de la visée (ou de l'attente du geste) :
+  // elle est prête au scan. Chemin /scan?c=… : RIEN n'est envoyé ici — la phase initiale est
+  // ATTENTE, l'envoi ne part qu'au geste « Pointer maintenant ». Le code est aussi retiré de
+  // l'adresse, pour qu'un rechargement de l'onglet (Safari restaure les onglets des heures plus
+  // tard) ne ramène pas l'affiche lue.
   const initialise = useRef(false);
   useEffect(() => {
     if (initialise.current) return;
     initialise.current = true;
-    if (codeInitial) {
-      window.history.replaceState(window.history.state, "", window.location.pathname);
-      void envoyerCode(codeInitial); // la phase initiale est déjà ENVOI
-    } else {
-      void positionFraiche();
-    }
-  }, [codeInitial, envoyerCode, positionFraiche]);
+    if (codeInitial) window.history.replaceState(window.history.state, "", window.location.pathname);
+    void positionFraiche();
+  }, [codeInitial, positionFraiche]);
 
   // La boucle de lecture appelle toujours la DERNIÈRE version de `codeLu` sans relancer la caméra.
   const codeLuRef = useRef(codeLu);
@@ -222,6 +224,15 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     };
   }, [camera]);
 
+  // Un double appui avant le rendu suivant n'envoie qu'une fois.
+  const gesteFait = useRef(false);
+  const pointerMaintenant = (code: string) => {
+    if (gesteFait.current) return;
+    gesteFait.current = true;
+    setEtat((e) => phaseApresGeste(e));
+    void envoyerCode(code);
+  };
+
   const reviser = () => {
     setPause(String(PAUSE_DEFAUT_MIN));
     setEtat({ phase: "VISEE", avis: null });
@@ -276,6 +287,18 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     );
   }
 
+  if (etat.phase === "ATTENTE") {
+    const code = etat.code;
+    return (
+      <div className="space-y-3">
+        <Avis ton="neutre">{MESSAGE_ATTENTE_GESTE}</Avis>
+        <BoutonValider type="button" onClick={() => pointerMaintenant(code)} className={CLASSES_BOUTON_PLEIN}>
+          {LIBELLE_POINTER_MAINTENANT}
+        </BoutonValider>
+      </div>
+    );
+  }
+
   if (etat.phase === "ENVOI") {
     return (
       <div role="status" className="flex flex-col items-center gap-2 rounded-2xl border bg-background px-4 py-8 text-center">
@@ -289,13 +312,25 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
   const ecran = etat.ecran;
   switch (ecran.type) {
     case "ARRIVEE":
-    case "DEPART_CONFIRME":
       return (
         <div className="space-y-3">
           <Avis ton="succes">
             <span className="block text-base font-semibold">{ecran.titre}</span>
-            {ecran.type === "DEPART_CONFIRME" && <span className="mt-1 block">{ecran.detail}</span>}
           </Avis>
+          <AvertissementPosition avertissement={ecran.avertissement} motif={ecran.motif} />
+        </div>
+      );
+
+    case "DEPART_CONFIRME":
+      // Congé approuvé ce jour : le départ est clos mais les heures ne sont pas comptées — encadré
+      // d'attention, jamais le vert d'une journée enregistrée.
+      return (
+        <div className="space-y-3">
+          <Avis ton="succes">
+            <span className="block text-base font-semibold">{ecran.titre}</span>
+            {ecran.heuresComptees && <span className="mt-1 block">{ecran.detail}</span>}
+          </Avis>
+          {!ecran.heuresComptees && <Avis ton="attention">{ecran.detail}</Avis>}
           <AvertissementPosition avertissement={ecran.avertissement} motif={ecran.motif} />
         </div>
       );

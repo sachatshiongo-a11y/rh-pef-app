@@ -5,7 +5,10 @@ import {
   DELAI_MAX_POSITION_MS,
   FRAICHEUR_POSITION_MS,
   INTERVALLE_LECTURE_MS,
+  LIBELLE_POINTER_MAINTENANT,
+  MESSAGE_ATTENTE_GESTE,
   MESSAGE_CONNEXION_PERDUE,
+  MESSAGE_DEPART_JOUR_DE_CONGE,
   MESSAGE_HORS_RESTAURANT,
   MESSAGE_JOURNEE_COMPLETE,
   MESSAGE_QR_ETRANGER,
@@ -21,6 +24,7 @@ import {
   lectureQr,
   messageCameraIndisponible,
   pauseLue,
+  phaseApresGeste,
   phaseInitiale,
   positionAReprendre,
   positionDepuisCoordonnees,
@@ -100,13 +104,28 @@ describe("cameraDoitTourner : la caméra ne vit QUE pendant la visée, page au p
     expect(cameraDoitTourner({ phase: "VISEE", avis: MESSAGE_QR_ETRANGER }, true)).toBe(true));
 });
 
-describe("phaseInitiale : /scan?c=… saute la caméra", () => {
+describe("phaseInitiale : /scan?c=… saute la caméra, mais ne pointe JAMAIS sans geste", () => {
   it("sans code → la caméra", () => {
     expect(phaseInitiale()).toEqual({ phase: "VISEE", avis: null });
     expect(phaseInitiale("")).toEqual({ phase: "VISEE", avis: null });
   });
-  it("avec le code de l'affiche → directement la position puis l'envoi", () =>
-    expect(phaseInitiale("Abc")).toEqual({ phase: "ENVOI" }));
+  it("avec le code de l'affiche → l'ATTENTE du geste, pas l'envoi (un lien ouvert par mégarde ne pointe rien)", () => {
+    const p = phaseInitiale("Abc");
+    expect(p).toEqual({ phase: "ATTENTE", code: "Abc" });
+    expect(p.phase).not.toBe("ENVOI");
+  });
+  it("pendant l'attente, la caméra ne tourne pas", () =>
+    expect(cameraDoitTourner(phaseInitiale("Abc"), true)).toBe(false));
+  it("le geste « Pointer maintenant » fait passer de l'attente à l'envoi — et seulement de l'attente", () => {
+    expect(phaseApresGeste(phaseInitiale("Abc"))).toEqual({ phase: "ENVOI" });
+    const visee: Phase = { phase: "VISEE", avis: null };
+    expect(phaseApresGeste(visee)).toBe(visee);
+  });
+  it("le message d'attente dit que rien n'est encore enregistré, et nomme le bouton", () => {
+    expect(MESSAGE_ATTENTE_GESTE).toMatch(/Rien n'est encore enregistré/);
+    expect(MESSAGE_ATTENTE_GESTE).toContain(`« ${LIBELLE_POINTER_MAINTENANT} »`);
+    expect(LIBELLE_POINTER_MAINTENANT).toBe("Pointer maintenant");
+  });
 });
 
 describe("arreterPistes : TOUTES les pistes sont arrêtées", () => {
@@ -259,13 +278,28 @@ describe("ecranApresConfirmation : la pause validée", () => {
   }) as Extract<Ecran, { type: "DEPART_A_CONFIRMER" }>;
 
   it("départ pointé à l'heure du scan, heures nettes, avertissement conservé", () => {
-    expect(ecranApresConfirmation({ heureFin: DEPART_17H05, heures: 8.55 }, attente)).toEqual({
+    expect(ecranApresConfirmation({ heureFin: DEPART_17H05, heures: 8.55, presencesEcrites: true }, attente)).toEqual({
       type: "DEPART_CONFIRME",
       titre: "Départ pointé à 17 h 05.",
       detail: "8,55 h de travail, pause déduite. Journée enregistrée dans vos présences et vos heures.",
+      heuresComptees: true,
       avertissement: MESSAGE_HORS_RESTAURANT,
       motif: "à 2,3 km",
     });
+  });
+
+  it("congé approuvé entre l'arrivée et le départ : l'écran ne prétend PAS que la journée est enregistrée", () => {
+    const e = ecranApresConfirmation({ heureFin: DEPART_17H05, heures: 8.55, presencesEcrites: false }, attente);
+    expect(e).toEqual({
+      type: "DEPART_CONFIRME",
+      titre: "Départ pointé à 17 h 05.",
+      detail: "Un congé est approuvé pour ce jour : vos heures n'ont pas été comptées dans vos présences.",
+      heuresComptees: false,
+      avertissement: MESSAGE_HORS_RESTAURANT,
+      motif: "à 2,3 km",
+    });
+    expect(e).toMatchObject({ detail: MESSAGE_DEPART_JOUR_DE_CONGE });
+    expect((e as { detail: string }).detail).not.toMatch(/enregistrée dans vos présences/);
   });
 
   it("un refus garde l'écran de la pause, avec le message, pour réessayer", () => {

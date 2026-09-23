@@ -19,6 +19,16 @@ export const MESSAGE_QR_ETRANGER = "Ce n'est pas l'affiche de pointage.";
 export const MESSAGE_JOURNEE_COMPLETE = "Votre journée est déjà complète.";
 export const MESSAGE_HORS_RESTAURANT =
   "Pointage enregistré. Votre position n'a pas pu confirmer que vous êtes au restaurant : la Direction le vérifiera.";
+/**
+ * `/scan?c=…` ouvert (appareil photo, mais aussi un lien reçu, l'historique, un retour de connexion) :
+ * RIEN n'est envoyé tant que le salarié n'a pas appuyé sur « Pointer maintenant ».
+ */
+export const MESSAGE_ATTENTE_GESTE =
+  "Affiche de pointage lue. Rien n'est encore enregistré : appuyez sur « Pointer maintenant » pour pointer votre arrivée ou votre départ.";
+export const LIBELLE_POINTER_MAINTENANT = "Pointer maintenant";
+/** Départ clos, mais un congé approuvé couvre ce jour : rien n'a été écrit aux présences ni aux heures. */
+export const MESSAGE_DEPART_JOUR_DE_CONGE =
+  "Un congé est approuvé pour ce jour : vos heures n'ont pas été comptées dans vos présences.";
 /** La requête n'a pas abouti : on ne sait pas si le serveur l'a reçue. Un nouveau scan le dira. */
 export const MESSAGE_CONNEXION_PERDUE =
   "La connexion a échoué avant la réponse. Scannez de nouveau l'affiche pour savoir où en est votre pointage.";
@@ -52,7 +62,15 @@ export type Ecran =
       motif: string | null;
       erreur: string | null;
     }
-  | { type: "DEPART_CONFIRME"; titre: string; detail: string; avertissement: string | null; motif: string | null }
+  | {
+      type: "DEPART_CONFIRME";
+      titre: string;
+      detail: string;
+      /** Faux quand un congé approuvé a primé : départ clos, mais rien aux présences ni aux heures. */
+      heuresComptees: boolean;
+      avertissement: string | null;
+      motif: string | null;
+    }
   | { type: "COMPLETE"; titre: string }
   | { type: "INFO"; titre: string }
   | { type: "ERREUR"; titre: string };
@@ -60,12 +78,23 @@ export type Ecran =
 export type Phase =
   | { phase: "VISEE"; avis: string | null } // caméra ouverte ; `avis` = QR étranger vu
   | { phase: "CAMERA_INDISPONIBLE"; message: string }
-  | { phase: "ENVOI" } // code lu : position puis serveur
+  | { phase: "ATTENTE"; code: string } // code reçu par l'adresse : on attend le geste du salarié
+  | { phase: "ENVOI" } // code lu (ou geste fait) : position puis serveur
   | { phase: "ECRAN"; ecran: Ecran };
 
-/** Sans code → la caméra ; avec le code de l'affiche (`/scan?c=…`) → directement l'envoi. */
+/**
+ * Sans code → la caméra ; avec le code de l'affiche (`/scan?c=…`) → l'ATTENTE du geste, JAMAIS
+ * l'envoi direct. Un lien ouvert par mégarde (partagé sur WhatsApp, rouvert depuis l'historique,
+ * rejoué par `/login?retour=…`) pointerait sinon un départ qui fige l'heure, sans annulation
+ * possible. La position peut être demandée pendant l'attente ; l'envoi ne part qu'au geste.
+ */
 export function phaseInitiale(codeInitial?: string): Phase {
-  return codeInitial ? { phase: "ENVOI" } : { phase: "VISEE", avis: null };
+  return codeInitial ? { phase: "ATTENTE", code: codeInitial } : { phase: "VISEE", avis: null };
+}
+
+/** Le geste « Pointer maintenant » : de l'attente à l'envoi. Toute autre phase reste inchangée. */
+export function phaseApresGeste(p: Phase): Phase {
+  return p.phase === "ATTENTE" ? { phase: "ENVOI" } : p;
 }
 
 /**
@@ -183,16 +212,24 @@ export function ecranDepartRenonce(question: Extract<Ecran, { type: "DEPART_TROP
   return { type: "INFO", titre: `Rien n'a été enregistré : votre arrivée de ${question.heureArrivee} reste pointée.` };
 }
 
-/** Après la pause validée : le départ pointé (à l'heure du SCAN), ou l'écran de pause avec le refus. */
+/**
+ * Après la pause validée : le départ pointé (à l'heure du SCAN), ou l'écran de pause avec le refus.
+ * L'écran dit ce que le serveur a RÉELLEMENT écrit : « Journée enregistrée dans vos présences »
+ * seulement si `presencesEcrites` ; sinon (congé approuvé ce jour) il dit que les heures n'ont pas
+ * été comptées.
+ */
 export function ecranApresConfirmation(
-  r: { heureFin: string; heures: number } | { erreur: string },
+  r: { heureFin: string; heures: number; presencesEcrites: boolean } | { erreur: string },
   attente: Extract<Ecran, { type: "DEPART_A_CONFIRMER" }>,
 ): Ecran {
   if ("erreur" in r) return { ...attente, erreur: r.erreur };
   return {
     type: "DEPART_CONFIRME",
     titre: `Départ pointé à ${heure(r.heureFin)}.`,
-    detail: `${formaterNombre(r.heures, { maximumFractionDigits: 2 })} h de travail, pause déduite. Journée enregistrée dans vos présences et vos heures.`,
+    detail: r.presencesEcrites
+      ? `${formaterNombre(r.heures, { maximumFractionDigits: 2 })} h de travail, pause déduite. Journée enregistrée dans vos présences et vos heures.`
+      : MESSAGE_DEPART_JOUR_DE_CONGE,
+    heuresComptees: r.presencesEcrites,
     avertissement: attente.avertissement,
     motif: attente.motif,
   };
