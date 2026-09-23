@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { dateDuJourKinshasa, heuresNettes } from "@/lib/pointage-jour";
+import { appliquerAuxPresences, employeLieAuCompte, refusSiPaieValideeOuConge } from "@/lib/pointage-presences";
 
 export type ResultatPointage = { ok: boolean; message?: string };
 
@@ -20,34 +21,7 @@ async function tenter(fn: () => Promise<void>): Promise<ResultatPointage> {
 /** L'employé lié au compte connecté (le pointage est TOUJOURS pour soi-même). */
 async function moiEmploye() {
   const user = await verifySession();
-  const u = await prisma.user.findUnique({ where: { id: user.id }, select: { employeeId: true } });
-  if (!u?.employeeId)
-    throw new Error("Votre compte n'est pas encore lié à une fiche employé. Demandez à la Direction de faire le lien.");
-  return { userId: user.id, employeeId: u.employeeId };
-}
-
-/** Écrit un jour pointé dans Présences (code P/F) + Heures — mêmes garde-fous que l'import IVMS. */
-async function appliquerAuxPresences(employeeId: string, date: Date, heures: number) {
-  const mois = date.getUTCMonth() + 1;
-  const annee = date.getUTCFullYear();
-  const run = await prisma.payrollRun.findUnique({ where: { mois_annee: { mois, annee } }, select: { statut: true } });
-  if (run?.statut === "VALIDE")
-    throw new Error(`La paie de ${String(mois).padStart(2, "0")}/${annee} est validée (figée) : pointage impossible.`);
-  // Congé approuvé ce jour : le congé prime, on n'écrit ni présence ni heures.
-  const conge = await prisma.leaveRequest.findFirst({
-    where: { employeeId, statut: "APPROUVE", dateDebut: { lte: date }, dateFin: { gte: date } },
-    select: { id: true },
-  });
-  if (conge) return;
-
-  await prisma.overtimeEntry.upsert({
-    where: { employeeId_date: { employeeId, date } },
-    update: { heuresTravaillees: heures },
-    create: { employeeId, date, heuresTravaillees: heures },
-  });
-  const ferie = await prisma.jourFerie.findFirst({ where: { date }, select: { id: true } });
-  const presence = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
-  if (!presence) await prisma.attendance.create({ data: { employeeId, date, code: ferie ? "F" : "P" } });
+  return { userId: user.id, employeeId: await employeLieAuCompte(prisma, user.id) };
 }
 
 /** Pointer l'arrivée (une fois par jour). */
@@ -56,16 +30,8 @@ export async function pointerArrivee(): Promise<ResultatPointage> {
     const { userId, employeeId } = await moiEmploye();
     const now = new Date();
     const date = dateDuJourKinshasa(now);
-    const mois = date.getUTCMonth() + 1;
-    const annee = date.getUTCFullYear();
 
-    const run = await prisma.payrollRun.findUnique({ where: { mois_annee: { mois, annee } }, select: { statut: true } });
-    if (run?.statut === "VALIDE") throw new Error("La paie du mois est validée : pointage impossible.");
-    const conge = await prisma.leaveRequest.findFirst({
-      where: { employeeId, statut: "APPROUVE", dateDebut: { lte: date }, dateFin: { gte: date } },
-      select: { id: true },
-    });
-    if (conge) throw new Error("Vous êtes en congé approuvé aujourd'hui — pas de pointage.");
+    await refusSiPaieValideeOuConge(prisma, employeeId, date);
     const deja = await prisma.pointage.findUnique({ where: { employeeId_date: { employeeId, date } } });
     if (deja) throw new Error("Vous avez déjà pointé votre arrivée aujourd'hui.");
 
@@ -88,7 +54,7 @@ export async function pointerDepart(formData: FormData): Promise<ResultatPointag
     const fin = new Date();
     const heures = heuresNettes(p.heureDebut, fin, pauseMinutes);
     await prisma.pointage.update({ where: { id: p.id }, data: { heureFin: fin, pauseMinutes } });
-    await appliquerAuxPresences(employeeId, date, heures);
+    await appliquerAuxPresences(prisma, employeeId, date, heures);
     revalidatePath("/pointer");
     revalidatePath("/espace/pointer");
     revalidatePath("/presences");
@@ -120,7 +86,7 @@ export async function saisirHoraireManuel(formData: FormData): Promise<ResultatP
       update: { heureDebut: debut, heureFin: fin, pauseMinutes, source: "APP", creeParId: userId },
       create: { employeeId, date, heureDebut: debut, heureFin: fin, pauseMinutes, source: "APP", creeParId: userId },
     });
-    await appliquerAuxPresences(employeeId, date, heures);
+    await appliquerAuxPresences(prisma, employeeId, date, heures);
     revalidatePath("/pointer");
     revalidatePath("/espace/pointer");
     revalidatePath("/presences");
