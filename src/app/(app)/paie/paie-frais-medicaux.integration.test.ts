@@ -21,7 +21,7 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule: () => {}, requireRole: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 
-const { calculerPaieDuMois, changerStatutPaie } = await import("./actions");
+const { calculerPaieDuMois, changerStatutPaie, changerStatutEnLot } = await import("./actions");
 const { rafraichirPaieDuMois } = await import("@/lib/paie-refresh");
 
 let prisma: PrismaClient;
@@ -95,5 +95,25 @@ describe("#1 — frais médicaux jamais perdus au rafraîchissement d'un brouill
     expect(Number(emp.fraisMedicauxMoisCourant)).toBe(0);
     const ligne = await ligneDuMois();
     expect(Number(ligne.fraisMedicauxUSD)).toBe(25); // toujours le montant figé, jamais réappliqué en plus
+  });
+});
+
+describe("« Valider » en lot n'annule jamais un paiement", () => {
+  it("une ligne PAYÉE cochée par mégarde reste PAYÉE : ni bulletin refigé, ni frais médicaux touchés", async () => {
+    const l = await ligneDuMois();
+    await changerStatutPaie(l.id, fd({ versStatut: "PAYE" }));
+    const payee = await ligneDuMois();
+    expect(payee.statutPaiement).toBe("PAYE");
+    const transitionsAvant = await prisma.transitionPaie.count({ where: { payrollLineId: l.id } });
+
+    expect(await changerStatutEnLot([l.id], "VALIDE")).toBe(0);
+
+    const apres = await ligneDuMois();
+    expect(apres.statutPaiement).toBe("PAYE");
+    expect(apres.datePaiement?.getTime()).toBe(payee.datePaiement?.getTime());
+    expect(await prisma.transitionPaie.count({ where: { payrollLineId: l.id } })).toBe(transitionsAvant);
+    // Ligne par ligne, annuler le paiement reste possible (réouverture tracée).
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    expect((await ligneDuMois()).statutPaiement).toBe("VALIDE");
   });
 });

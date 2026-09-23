@@ -28,6 +28,13 @@ export function transitionAutorisee(de: PaymentStatus, vers: PaymentStatus): boo
   return TRANSITIONS[de]?.includes(vers) ?? false;
 }
 
+/** Transition autorisée dans une ACTION GROUPÉE. « Valider » en lot ne vaut jamais « annuler le
+ *  paiement » : une ligne PAYÉE cochée par mégarde repasserait en VALIDÉ sans rien dire (bulletin
+ *  refigé, frais médicaux remis à zéro). Annuler un paiement reste possible, ligne par ligne. */
+export function transitionAutoriseeEnLot(de: PaymentStatus, vers: PaymentStatus): boolean {
+  return transitionAutorisee(de, vers) && !(de === "PAYE" && vers === "VALIDE");
+}
+
 export function prochainsEtats(de: PaymentStatus): PaymentStatus[] {
   return TRANSITIONS[de] ?? [];
 }
