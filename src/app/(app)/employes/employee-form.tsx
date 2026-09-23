@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Employee } from "@prisma/client";
 import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
 import type { ParametresPaie } from "@/lib/payroll";
+import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 import { SimulationSalaire, lireValeursSimulation, type ValeursSimulation } from "./simulation-salaire";
 
 function toDateInput(d: Date | string | undefined) {
@@ -312,7 +313,7 @@ function SalaireHoraire({
       <p className="col-span-2 -mt-1 text-xs text-muted-foreground">
         Heures/mois = heures/semaine × 52/12 (≈ 4,33 semaines). Taux horaire = salaire mensuel ÷
         heures/mois. « Heures/jour » sert de seuil quotidien d&apos;heures supplémentaires. Enregistrés :
-        salaire mensuel, heures/semaine, heures/jour.
+        salaire mensuel, heures/semaine, heures/jour. {MENTION_REFERENCE_PLANNING}
         {salaireEstNet && (
           <>
             <br />

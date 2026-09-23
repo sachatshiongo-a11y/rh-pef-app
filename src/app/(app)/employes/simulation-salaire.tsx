@@ -8,6 +8,7 @@ import {
   type LignePaie,
 } from "@/lib/payroll";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD, type LigneNet } from "@/lib/paie-net";
+import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 
 // Simulation de bulletin EN DIRECT dans le formulaire employé : mois « type » (heures
 // contractuelles, sans heures supp. ni absences), avec le VRAI moteur de paie (CNSS, barème
@@ -203,6 +204,7 @@ export function SimulationSalaire({
         Estimation d&apos;un mois « type » : heures contractuelles, sans heures supp., absences,
         primes ni acomptes. Le bulletin réel suivra les présences saisies.
       </p>
+      <p className="mt-2 text-xs text-muted-foreground">{MENTION_REFERENCE_PLANNING}</p>
     </Panneau>
   );
 }

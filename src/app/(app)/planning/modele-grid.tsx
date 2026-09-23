@@ -7,6 +7,7 @@ import { Avatar } from "@/components/avatar";
 import { useJourMobile } from "@/components/jour-mobile";
 import { saisirModele } from "./actions";
 import { paletteDe, dureeShift, type ShiftDTO } from "./creneaux";
+import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 
 const COUCHES = [
   { v: 0, l: "Chaque semaine" },
@@ -16,7 +17,8 @@ const COUCHES = [
 
 const money = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 const fmtH = (h: number) => (Number.isInteger(h) ? `${h}h` : `${h.toFixed(1).replace(".", ",")}h`);
-// 52/12 semaines par mois (précis) pour l'estimation mensuelle, cohérent avec le calcul de paie.
+// 52/12 semaines par mois (précis) pour l'estimation mensuelle SUR LE CONTRAT (la paie de la
+// brigade suit le planning du mois).
 const SEMAINES_PAR_MOIS = 52 / 12;
 
 // Lundi → dimanche ; v = jourSemaine (0=dim … 6=sam).
@@ -201,6 +203,8 @@ export function ModeleGrid({
           {employees.length === 0 && <p className="rounded-lg border p-4 text-center text-sm text-muted-foreground">Aucun employé actif.</p>}
         </div>
       </div>
+
+      <p className="mt-2 text-xs text-muted-foreground">{MENTION_REFERENCE_PLANNING}</p>
 
       {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
 
