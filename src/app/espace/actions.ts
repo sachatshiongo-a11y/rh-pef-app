@@ -40,7 +40,9 @@ export async function supprimerMaNotification(id: string) {
 export async function changerMonMotDePasse(formData: FormData) {
   return formulaireLisible("/espace/mot-de-passe", async () => {
     const user = await verifySession();
-    if (user.role !== "EMPLOYE") throw new Error("Accès refusé.");
+    // Un compte EMPLOYE, ou tout compte relié à une fiche employé (ex. un compte Stock à identifiant
+    // matricule, qui reçoit lui aussi un mot de passe temporaire par « Nouvelle fiche »).
+    if (user.role !== "EMPLOYE" && !estSalarie(user)) throw new Error("Accès refusé.");
     const mdp = String(formData.get("motDePasse") ?? "");
     const confirmation = String(formData.get("confirmation") ?? "");
     if (mdp.length < 6) throw new Error("Le mot de passe doit faire au moins 6 caractères.");
@@ -48,7 +50,8 @@ export async function changerMonMotDePasse(formData: FormData) {
 
     await changerMotDePasseAdmin(user.id, mdp);
     await prisma.user.update({ where: { id: user.id }, data: { motDePasseTemporaire: false } });
-    redirect("/espace");
+    // EMPLOYE : son espace, comme avant. Les autres ont plusieurs espaces : le sélecteur les oriente.
+    redirect(user.role === "EMPLOYE" ? "/espace" : "/entree");
   });
 }
 
