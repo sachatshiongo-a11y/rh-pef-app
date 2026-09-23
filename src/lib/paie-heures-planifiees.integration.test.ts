@@ -18,6 +18,9 @@ vi.mock("@/lib/prisma", () => ({
 }));
 const { calculerLignesPaie } = await import("./paie-batch");
 const { rafraichirPaieDuMois } = await import("./paie-refresh");
+const { calculerBulletinLive } = await import("./bulletin-live");
+const { ApercuBulletinCard } = await import("@/app/(app)/employes/[id]/apercu-bulletin");
+const { renderToStaticMarkup } = await import("react-dom/server");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -198,6 +201,47 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(l.sourceReference).toBe("PLANNING");
     expect(baseNette(l)).toBe("208.00");
     expect(l.avertissementsPaie).toEqual([{ code: "CDD_ECHU_POURSUIVI", message: "CDD échu le 01/09/2026 sans renouvellement enregistré : le salarié a continué à travailler." }]);
+  });
+
+  // Spec §5 « Un seul calcul » : la fiche et le lot lisent les MÊMES données par le MÊME chemin. On
+  // compare chaque salarié du fichier (Martine, semaine à cheval, férié hors mois, congé sans solde
+  // recodé, fin de CDD, CDD échu…), en septembre (nouvelle règle) ET en juillet (ancienne règle).
+  it("l'aperçu de la fiche (bulletin-live) est égal au lot, au centime, avertissements compris", async () => {
+    expect(Object.values(ids).filter(Boolean)).toHaveLength(9);
+    for (const mois of [9, 7]) {
+      const { lignes } = await calculerLignesPaie(mois, 2026);
+      for (const [nom, id] of Object.entries(ids)) {
+        const lot = lignes.find((l) => l.employee.id === id)!.data;
+        const live = (await calculerBulletinLive(id, mois, 2026))!;
+        const argent = (x: { salNetUSD: number; salBrutUSD: number; remuneration100: number; remuneration2_3: number; cnssSalarieUSD: number; iprCalculeUSD: number; allocFamilialeUSD: number }) =>
+          [x.salNetUSD, x.salBrutUSD, x.remuneration100, x.remuneration2_3, x.cnssSalarieUSD, x.iprCalculeUSD, x.allocFamilialeUSD].map((n) => Number(n).toFixed(2));
+        expect(argent(live.ligne), `${nom} ${mois}/2026`).toEqual(argent(lot));
+        expect(live.transportUSD.toFixed(2), `${nom} ${mois}/2026`).toBe(lot.transportUSD.toFixed(2));
+        expect([live.heuresTravaillees, live.hs30, live.hs60, live.hs100], `${nom} ${mois}/2026`).toEqual([lot.heuresTravaillees, lot.heuresSupp30, lot.heuresSupp60, lot.heuresSupp100]);
+        expect(live.reference, `${nom} ${mois}/2026`).toMatchObject({
+          heuresReference: lot.heuresContractuelles,
+          source: lot.sourceReference,
+          motif: lot.motifReference,
+          avertissements: lot.avertissementsPaie,
+        });
+      }
+    }
+    // La comparaison des avertissements n'est pas vide : les cas signalés arrivent jusqu'à la fiche.
+    expect((await calculerBulletinLive(ids.sansSolde, 9, 2026))!.reference.avertissements.map((a) => a.code)).toEqual(["CONGE_SANS_SOLDE_RECODE"]);
+    expect((await calculerBulletinLive(ids.cddEchu, 9, 2026))!.reference.avertissements.map((a) => a.code)).toEqual(["CDD_ECHU_POURSUIVI"]);
+    expect((await calculerBulletinLive(ids.martine, 9, 2026))!.ligne.salNetUSD.toFixed(2)).not.toBe("369.23");
+  });
+
+  it("la carte d'aperçu dit la référence et affiche les avertissements", async () => {
+    const martine = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.martine, 9, 2026))!, periode: "septembre 2026" }));
+    // La ligne de référence elle-même (« 216h » seul figure déjà dans « Travaillées »).
+    expect(martine).toMatch(/Heures planifiées<\/span><span[^>]*>216h</);
+    const vide = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.semaineVide, 9, 2026))!, periode: "septembre 2026" }));
+    expect(vide).toContain("Heures contrat (repli)");
+    expect(vide).toContain("Planning incomplet : semaine du 21/09 sans créneau");
+    const juillet = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.martine, 7, 2026))!, periode: "juillet 2026" }));
+    expect(juillet).toMatch(/Heures \/ mois<\/span><span[^>]*>234h</);
+    expect(juillet).not.toContain("Heures planifiées");
   });
 
   it("persistance : la ligne enregistrée porte la source, le motif et les avertissements", async () => {

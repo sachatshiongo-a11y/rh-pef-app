@@ -11,9 +11,9 @@ import {
   resumerPresences,
   type CodePresence,
 } from "@/lib/payroll";
-import { calculerReferenceMois, type AvertissementPaie, type SourceReference } from "@/lib/paie-reference";
-import { avertissementCddEchu, detecterAvertissementsSaisie } from "@/lib/paie-avertissements";
+import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
+import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
 import type { Employee } from "@prisma/client";
 
 /** Champs numériques d'une PayrollLine produits par le calcul (hors payrollRunId/employeeId). */
@@ -183,40 +183,17 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
     const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant) + (fraisMedParEmp.get(employee.id) ?? 0);
 
     const estStage = typeContrat === "STAGE";
-    // Paie sur heures planifiées (spec 2026-09-23) : brigade en CDD/CDI seulement. Tous les autres
-    // passent `referencePlanningDepuis: null` → ancienne règle, à l'identique.
-    const estBrigadePlanning = employee.categorie === "BRIGADE" && !estStage && typeContrat !== "JOURNALIER";
     const joursCongePris = estStage ? 0 : Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
-    // `chargerJoursMois` rend une entrée pour CHAQUE id demandé : une absence serait un défaut
-    // d'assemblage, jamais un « mois vide » à payer sur l'ancienne règle en silence.
-    const joursEmp = joursParEmp.get(employee.id);
-    if (!joursEmp) throw new Error(`Jours du mois introuvables pour le salarié ${employee.id}`);
-    const ref = calculerReferenceMois({
-      annee,
+    // Référence d'heures et avertissements : le MÊME chemin que l'aperçu de la fiche (bulletin-live.ts).
+    const { ref, avertissements: avertissementsPaie } = calculerReferenceSalarie({
       mois,
-      // `JoursEmploye` passé EN ENTIER : sans les jours hors du mois, les fériés de la plage élargie
-      // (jamais ceux du seul mois), les congés sans solde et la fin de contrat, le plafond des
-      // semaines à cheval, les fériés d'un congé sans solde et le repli de fin de CDD seraient faux.
-      jours: joursEmp.jours,
-      joursHorsMois: joursEmp.joursHorsMois,
-      joursFeries: joursEmp.joursFeries,
-      joursCongeSansSolde: joursEmp.joursCongeSansSolde,
-      dateFinContrat: joursEmp.dateFinContrat,
-      salaireMensuel: Number(employee.salaireMensuel),
-      heuresHebdomadaires: Number(employee.heuresHebdomadaires),
-      heuresParJour: Number(employee.heuresParJour),
-      dateEmbauche: new Date(employee.dateEmbauche),
+      annee,
+      employee,
+      typeContrat,
+      joursEmp: joursParEmp.get(employee.id),
       joursCongePris,
-      referencePlanningDepuis: estBrigadePlanning ? (parametres.referencePlanningDepuis ?? null) : null,
-      params: parametres,
+      parametres,
     });
-    const avertissementsPaie: AvertissementPaie[] = estBrigadePlanning
-      ? [
-          ...ref.avertissements,
-          ...detecterAvertissementsSaisie(joursEmp.saisie, { referencePlanning: ref.source === "PLANNING" }),
-          ...avertissementCddEchu(joursEmp.cddEchuLe),
-        ]
-      : [];
     const nombreAbsences = codes.filter((c) => c === "A" || c === "N" || c === "S").length;
 
     const joursPresenceP = codes.filter((c) => c === "P").length;

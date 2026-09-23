@@ -4,13 +4,15 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerEcheancePret } from "@/lib/prets";
 import {
-  calculerHeuresSupp,
   calculerPaieBrigade,
   calculerPaieBackoffice,
   calculerPaieStage,
   type CodePresence,
   type LignePaie,
 } from "@/lib/payroll";
+import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
+import { chargerJoursMois } from "@/lib/paie-reference-donnees";
+import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
 
 export type ApercuBulletin = {
   ligne: LignePaie;
@@ -29,6 +31,15 @@ export type ApercuBulletin = {
   // Indemnité de transport du mois, incluse dans `ligne.salNetUSD` mais non isolée par le moteur
   // (LignePaie) — exposée ici pour dériver le salaire net hors transport (@/lib/paie-net).
   transportUSD: number;
+  // Référence d'heures du mois (spec 2026-09-23) : la MÊME que la ligne de paie du lot
+  // (`heuresContractuelles`, `sourceReference`, `motifReference`, `avertissementsPaie`).
+  reference: {
+    source: SourceReference;
+    motif: string | null;
+    heuresReference: number;
+    tauxMois: number;
+    avertissements: AvertissementPaie[];
+  };
 };
 
 /**
@@ -65,82 +76,40 @@ export async function calculerBulletinLive(
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  // BUG CONNU documenté (Tier 2, #4 — NON corrigé, montants impactés) : `overtimeEntries` est filtré
-  // strictement par mois calendaire, alors que `calculerHeuresSupp` regroupe par vraies semaines
+  // BUG CONNU documenté (Tier 2, #4 — NON corrigé, montants impactés) : les heures faites ne sont
+  // données à `calculerHeuresSupp` que pour les jours DU MOIS, alors qu'il regroupe par vraies semaines
   // lundi→dimanche → une semaine à cheval sur deux mois sous-évalue les heures supp. de chaque côté.
-  // Voir l'explication complète et la piste de correction recommandée dans paie-batch.ts (même fenêtre
-  // de requête, même moteur `calculerHeuresSupp`).
-  const [attendances, overtimeEntries, joursFeriesDuMois, primesDuMois, fraisMedDuMois, acomptesDuMois, creneauxMois, pretsEnCours, avantagesDuMois] =
+  // Voir l'explication complète et la piste de correction recommandée dans paie-batch.ts (même
+  // assemblage `chargerJoursMois`, même moteur `calculerHeuresSupp`).
+  const [attendances, primesDuMois, fraisMedDuMois, acomptesDuMois, pretsEnCours, avantagesDuMois, joursParEmp] =
     await Promise.all([
       prisma.attendance.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
-      prisma.overtimeEntry.findMany({ where: { employeeId, date: { gte: debutMois, lte: finMois } } }),
-      prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.prime.findMany({ where: { employeeId, mois, annee } }),
       prisma.fraisMedical.findMany({ where: { employeeId, mois, annee } }),
       prisma.acompteSalaire.findMany({ where: { employeeId, mois, annee, statut: "APPROUVE" } }),
-      prisma.planningCreneau.findMany({
-        where: { employeeId, date: { gte: debutMois, lte: finMois } },
-        include: { shift: { select: { tauxHoraireUSD: true } } },
-      }),
       prisma.pretPersonnel.findMany({ where: { employeeId, statut: "EN_COURS" }, include: { retenues: true } }),
       // Informatifs : jamais injectés dans le moteur, uniquement remontés pour l'affichage.
       prisma.avantageNature.findMany({ where: { employeeId, mois, annee } }),
+      // Jours du mois (créneaux, modèle, codes, heures), jours hors du mois des semaines à cheval,
+      // fériés de la plage élargie, congés sans solde, fin de contrat : même assemblage que le lot.
+      chargerJoursMois(mois, annee, [employeeId]),
     ]);
 
-  const joursFeries = new Set(joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10)));
   const codes = attendances.map((a) => a.code as CodePresence);
 
-  // Option A — taux horaire effectif (pondéré par les heures selon le taux du rôle de chaque jour).
-  // Heures/mois = heures/semaine × 52/12 (précis, indépendant du nb de jours travaillés/jour).
-  const heuresHebdo = Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6;
-  const heuresMoisContrat = (heuresHebdo * 52) / 12;
-  const tauxDefaut = Number(employee.salaireMensuel) / heuresMoisContrat;
-  const tauxRoleParJour = new Map<string, number>();
-  for (const c of creneauxMois) {
-    if (c.shift?.tauxHoraireUSD != null)
-      tauxRoleParJour.set(new Date(c.date).toISOString().slice(0, 10), Number(c.shift.tauxHoraireUSD));
-  }
-  let sommeH = 0;
-  let sommeHT = 0;
-  for (const o of overtimeEntries) {
-    const h = Number(o.heuresTravaillees);
-    if (h <= 0) continue;
-    const iso = new Date(o.date).toISOString().slice(0, 10);
-    sommeH += h;
-    sommeHT += h * (tauxRoleParJour.get(iso) ?? tauxDefaut);
-  }
-  const salaireHoraire = sommeH > 0 ? sommeHT / sommeH : tauxDefaut;
-  const salaireJournalier = salaireHoraire * Number(employee.heuresParJour);
-
-  const hs = calculerHeuresSupp({
-    jours: overtimeEntries.map((o) => ({ date: new Date(o.date), heuresTravaillees: Number(o.heuresTravaillees) })),
-    heuresParJourContrat: Number(employee.heuresParJour),
-    heuresHebdoContrat: Number(employee.heuresHebdomadaires),
-    // Majorations HS sur le taux PAR DÉFAUT (inchangées) ; seule la base multi-rôles varie (Option
-    // A). DÉCISION (à faire confirmer par le client, 2026-07-22) : la PRIME d'heures supp. est donc
-    // valorisée sur le taux horaire CONTRACTUEL par défaut de l'employé, pas sur le taux pondéré du
-    // rôle réellement tenu le jour concerné — cohérent avec « prime calculée sur la base
-    // contractuelle », mais à valider explicitement si un employé multi-rôles fait ses heures supp.
-    // sur un rôle mieux (ou moins bien) rémunéré que son rôle par défaut. Voir même décision dans
-    // paie-batch.ts.
-    salaireHoraire: tauxDefaut,
-    joursFeries,
-    params: parametres,
+  // Référence d'heures, base et heures supp. : le MÊME chemin que paie-batch.ts
+  // (`calculerReferenceSalarie`). `joursCongePris` ne sert qu'à l'indemnité de congé affichée par le
+  // lot en mode contrat, que l'aperçu n'expose pas : 0, sans effet sur aucun montant.
+  const { ref, avertissements } = calculerReferenceSalarie({
+    mois,
+    annee,
+    employee,
+    typeContrat,
+    joursEmp: joursParEmp.get(employeeId),
+    joursCongePris: 0,
+    parametres,
   });
-
-  // Partage jours travaillés / jours payés non travaillés (§8).
-  const codeParJour = new Map<string, string>();
-  for (const a of attendances) codeParJour.set(new Date(a.date).toISOString().slice(0, 10), a.code);
-  const heureParJour = new Map<string, number>();
-  for (const o of overtimeEntries)
-    heureParJour.set(new Date(o.date).toISOString().slice(0, 10), Number(o.heuresTravaillees));
-  let joursPayesNonTravailles = 0;
-  let joursMaladie = 0;
-  for (const [iso, code] of codeParJour) {
-    if ((heureParJour.get(iso) ?? 0) > 0) continue;
-    if (code === "O" || code === "A" || code === "C" || code === "F") joursPayesNonTravailles++;
-    else if (code === "M") joursMaladie++;
-  }
+  const hs = ref.hs;
 
   const joursPresenceP = codes.filter((c) => c === "P").length;
   const transportUSD =
@@ -173,12 +142,7 @@ export async function calculerBulletinLive(
     : employee.categorie === "BRIGADE"
       ? calculerPaieBrigade(
           {
-            salaireJournalier,
-            salaireHoraire,
-            heuresNormales: hs.heuresTotalesMois - hs.hs30 - hs.hs60 - hs.hs100,
-            joursPayesNonTravailles,
-            joursPayes2_3: joursMaladie,
-            hsValorisee: hs.hsValorisee,
+            ...ref.moteur,
             transportMoisUSD: transportUSD,
             enfants: employee.enfants,
             fraisMedicauxUSD,
@@ -217,5 +181,12 @@ export async function calculerBulletinLive(
     acompteUSD,
     tauxChangeCDF: parametres.tauxChangeCDF,
     transportUSD,
+    reference: {
+      source: ref.source,
+      motif: ref.motif,
+      heuresReference: ref.heuresReference,
+      tauxMois: ref.tauxMois,
+      avertissements,
+    },
   };
 }

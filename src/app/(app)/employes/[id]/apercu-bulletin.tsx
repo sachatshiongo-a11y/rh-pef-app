@@ -1,6 +1,7 @@
 import type { ApercuBulletin } from "@/lib/bulletin-live";
 import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 
 function fmtUSD(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -73,6 +74,16 @@ export function ApercuBulletinCard({ apercu, periode }: { apercu: ApercuBulletin
             <span className="text-muted-foreground">Travaillées · HS 30/60/100</span>
             <span className="font-medium">{fmtH(apercu.heuresTravaillees)}h · {fmtH(apercu.hs30)}/{fmtH(apercu.hs60)}/{fmtH(apercu.hs100)}</span>
           </div>
+          {/* Référence d'heures du mois : la même que la ligne du lot de paie (spec 2026-09-23). */}
+          <div className="flex items-center justify-between px-3 py-1.5 text-sm">
+            <span className="text-muted-foreground">{LIBELLE_SOURCE_REFERENCE[apercu.reference.source]}</span>
+            <span className="font-medium">{fmtH(apercu.reference.heuresReference)}h</span>
+          </div>
+          {apercu.reference.avertissements.length > 0 && (
+            <ul className="mx-3 mb-2 space-y-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              {apercu.reference.avertissements.map((a, i) => <li key={i}>{a.message}</li>)}
+            </ul>
+          )}
         </div>
       </div>
 
