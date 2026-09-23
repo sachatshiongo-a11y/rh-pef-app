@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { dateDuJourKinshasa, lireDatePaiement } from "./date-paiement";
+import { jourKinshasaISO, lireDatePaiement } from "./date-paiement";
 
 // Même instant piège que heure-kinshasa.test.ts : 23 h 30 UTC = 00 h 30 à Kinshasa le lendemain.
 const MINUIT_ET_DEMIE_A_KINSHASA = new Date("2026-09-22T23:30:00.000Z"); // 23/09 00 h 30 à Kinshasa
 
-describe("dateDuJourKinshasa", () => {
+describe("jourKinshasaISO", () => {
   it("un instant juste après minuit à Kinshasa reste encore la veille en UTC : le jour doit être celui de Kinshasa", () => {
-    expect(dateDuJourKinshasa(MINUIT_ET_DEMIE_A_KINSHASA)).toBe("2026-09-23");
+    expect(jourKinshasaISO(MINUIT_ET_DEMIE_A_KINSHASA)).toBe("2026-09-23");
   });
 });
 

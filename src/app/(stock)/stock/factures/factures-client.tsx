@@ -5,7 +5,7 @@ import { useMemo, useState, useTransition } from "react";
 import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEnLot } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
-import { dateDuJourKinshasa } from "@/lib/date-paiement";
+import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 
 export type FactureRow = {
@@ -40,19 +40,29 @@ function badgeEcheance(f: FactureRow): { texte: string; cls: string } | null {
 
 const sommaireCls = "flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden";
 
+// « 3 factures réglées sur 4 sélectionnées : 1 était déjà réglée. » — le règlement en lot est
+// verrouillé ligne par ligne côté serveur (voir marquerPayeesEnLot) : si une facture sélectionnée
+// a été réglée entre-temps par ailleurs, elle est simplement exclue, jamais réglée deux fois. On
+// le DIT plutôt que de vider la sélection comme si tout était passé.
+function messageEcartLot(reglees: number, demandees: number): string {
+  const manquantes = demandees - reglees;
+  return `${reglees} facture${reglees > 1 ? "s" : ""} réglée${reglees > 1 ? "s" : ""} sur ${demandees} sélectionnée${demandees > 1 ? "s" : ""} : ${manquantes} était${manquantes > 1 ? "ent" : ""} déjà réglée${manquantes > 1 ? "s" : ""}.`;
+}
+
 export function FacturesUI({ groupes, annees, estDirection = true, ouvert = false }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; estDirection?: boolean; ouvert?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null); // écart honnête du lot, pas une erreur
   const [sel, setSel] = useState<Set<string>>(new Set());
   // « Marquer payée » demande la date au choix (préremplie à aujourd'hui, heure de Kinshasa),
   // un seul geste de confirmation ensuite — à l'unité (une facture à la fois) et en lot.
   const [datePickerId, setDatePickerId] = useState<string | null>(null);
-  const [dateChoisie, setDateChoisie] = useState(() => dateDuJourKinshasa());
+  const [dateChoisie, setDateChoisie] = useState(() => jourKinshasaISO());
   const [lotDatePicker, setLotDatePicker] = useState(false);
-  const [lotDate, setLotDate] = useState(() => dateDuJourKinshasa());
+  const [lotDate, setLotDate] = useState(() => jourKinshasaISO());
 
   const run = (fn: () => Promise<unknown>, onSuccess?: () => void) => {
-    setErreur(null);
+    setErreur(null); setInfo(null);
     startTransition(async () => {
       const r = await fn();
       if (estErreur(r)) setErreur(r.erreur);
@@ -71,6 +81,16 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
   const clear = () => { setSel(new Set()); setLotDatePicker(false); };
   const selIds = [...sel];
   const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE"));
+
+  const confirmerLot = () => {
+    setErreur(null); setInfo(null);
+    startTransition(async () => {
+      const r = await marquerPayeesEnLot(selNonReglees, lotDate);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
+      clear();
+    });
+  };
 
   const liste = (factures: FactureRow[]) => (
     <ul className="divide-y border-t">
@@ -114,7 +134,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                         type="date"
                         value={dateChoisie}
                         onChange={(e) => setDateChoisie(e.target.value)}
-                        max={dateDuJourKinshasa()}
+                        max={jourKinshasaISO()}
                         aria-label="Date de paiement"
                         className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
                       />
@@ -122,7 +142,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                       <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
                     </span>
                   ) : (
-                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(dateDuJourKinshasa()); }}>Marquer payée</BoutonValider>
+                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); }}>Marquer payée</BoutonValider>
                   )
                 )}
                 {estDirection && (
@@ -140,6 +160,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
   return (
     <div className="space-y-2">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</p>}
 
       {/* Barre d'actions groupées — sélection multiple par cases à cocher. */}
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
@@ -162,21 +183,18 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                     type="date"
                     value={lotDate}
                     onChange={(e) => setLotDate(e.target.value)}
-                    max={dateDuJourKinshasa()}
+                    max={jourKinshasaISO()}
                     className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
                   />
                 </label>
-                <BoutonValider
-                  onClick={() => run(() => marquerPayeesEnLot(selNonReglees, lotDate), clear)}
-                  disabled={isPending || selNonReglees.length === 0}
-                >
+                <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
                   Confirmer ({selNonReglees.length})
                 </BoutonValider>
                 <BoutonNeutre onClick={() => setLotDatePicker(false)}>Annuler</BoutonNeutre>
               </span>
             ) : (
               <BoutonValider
-                onClick={() => { setLotDatePicker(true); setLotDate(dateDuJourKinshasa()); }}
+                onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); }}
                 disabled={isPending || selNonReglees.length === 0}
               >
                 Marquer payées ({selNonReglees.length})

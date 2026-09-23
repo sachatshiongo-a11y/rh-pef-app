@@ -10,8 +10,11 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 // serveur ET (si besoin un jour) par un composant client pour une validation d'affichage —
 // mais la validation qui COMPTE reste toujours celle faite ici, côté serveur.
 
+// Nommée `jourKinshasaISO` (et non `dateDuJourKinshasa`) : une autre branche définit déjà
+// `dateDuJourKinshasa(d?)` dans `src/lib/pointage-jour.ts`, qui renvoie une `Date` — même nom,
+// autre type de retour, piège garanti à la fusion. Celle-ci reste une chaîne `YYYY-MM-DD`.
 /** Aujourd'hui, heure de Kinshasa, en `YYYY-MM-DD`. */
-export function dateDuJourKinshasa(maintenant: Date = new Date()): string {
+export function jourKinshasaISO(maintenant: Date = new Date()): string {
   return jourCivilKinshasa(maintenant).toISOString().slice(0, 10);
 }
 
@@ -28,7 +31,7 @@ function commeJourISO(d: Date | string): string {
  * Renvoie la date validée en `YYYY-MM-DD`, ou jette une `Error` au message lisible par l'utilisateur.
  */
 export function lireDatePaiement(saisie: string | null | undefined, dateFacture: Date | string | null | undefined, maintenant: Date = new Date()): string {
-  const aujourdHui = dateDuJourKinshasa(maintenant);
+  const aujourdHui = jourKinshasaISO(maintenant);
   const s = (saisie ?? "").trim();
   if (!s) return aujourdHui;
 

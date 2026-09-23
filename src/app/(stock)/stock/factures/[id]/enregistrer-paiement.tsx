@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { enregistrerPaiement } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
-import { dateDuJourKinshasa } from "@/lib/date-paiement";
+import { jourKinshasaISO } from "@/lib/date-paiement";
+import { BoutonValider } from "@/components/action-buttons";
 
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
@@ -28,11 +29,7 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
   };
 
   if (!ouvert) {
-    return (
-      <button onClick={() => setOuvert(true)} className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
-        + Paiement / Avoir
-      </button>
-    );
+    return <BoutonValider onClick={() => setOuvert(true)}>+ Paiement / Avoir</BoutonValider>;
   }
 
   const equivalent = devise === "CDF" && taux > 0 && Number(montant) > 0 ? (Number(montant) / taux).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
@@ -63,7 +60,7 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
       {equivalent && <span className="pb-2 text-xs text-muted-foreground">≈ {equivalent} $ (taux {taux.toLocaleString("fr-FR")})</span>}
 
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Date
-        <input name="date" type="date" defaultValue={dateDuJourKinshasa()} max={dateDuJourKinshasa()} className={inp} />
+        <input name="date" type="date" defaultValue={jourKinshasaISO()} max={jourKinshasaISO()} className={inp} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Mode
         <input name="modePaiement" placeholder="Espèces, virement…" className={`${inp} w-32`} />

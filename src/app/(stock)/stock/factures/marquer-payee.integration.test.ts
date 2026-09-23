@@ -76,10 +76,11 @@ describe("marquerPayee — date au choix", () => {
 });
 
 describe("marquerPayeesEnLot — même date pour tout le lot, tout ou rien", () => {
-  it("toutes les factures et tous les paiements du lot portent la date choisie", async () => {
+  it("toutes les factures et tous les paiements du lot portent la date choisie ; reglees = demandees", async () => {
     const f1 = await creerFacture({ fournisseurNom: "A", date: new Date("2026-09-01T00:00:00.000Z") });
     const f2 = await creerFacture({ fournisseurNom: "B", date: new Date("2026-09-05T00:00:00.000Z") });
-    await marquerPayeesEnLot([f1.id, f2.id], "2026-09-10");
+    const r = await marquerPayeesEnLot([f1.id, f2.id], "2026-09-10");
+    expect(r).toMatchObject({ reglees: 2, demandees: 2 });
     for (const id of [f1.id, f2.id]) {
       const relu = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
       expect(relu.statut).toBe("REGLEE");
@@ -111,5 +112,26 @@ describe("marquerPayeesEnLot — même date pour tout le lot, tout ou rien", () 
     const relu = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id: f.id } });
     expect(relu.statut).toBe("A_REGLER");
     expect(await prisma.paiement.count({ where: { factureId: f.id } })).toBe(0);
+  }, 60_000);
+
+  it("une facture du lot a été réglée entre-temps (par ailleurs) : le lot règle les AUTRES, renvoie le nombre réellement réglé, et n'écrit aucun second paiement sur celle déjà réglée", async () => {
+    const f1 = await creerFacture({ fournisseurNom: "A", date: new Date("2026-09-01T00:00:00.000Z") });
+    const f2 = await creerFacture({ fournisseurNom: "B", date: new Date("2026-09-01T00:00:00.000Z") });
+    // Simule un règlement concurrent qui gagne la course : f2 est déjà réglée AVANT l'appel au lot.
+    await marquerPayee(f2.id, "2026-09-05");
+    const paiementsAvant = await prisma.paiement.count({ where: { factureId: f2.id } });
+    expect(paiementsAvant).toBe(1);
+
+    const r = await marquerPayeesEnLot([f1.id, f2.id], "2026-09-10");
+    expect(r).toMatchObject({ reglees: 1, demandees: 2 });
+
+    const r1 = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id: f1.id } });
+    expect(r1.statut).toBe("REGLEE");
+    expect(r1.datePaiement?.toISOString().slice(0, 10)).toBe("2026-09-10");
+
+    // f2 : inchangée par le lot (toujours sa date de règlement d'origine), aucun second paiement créé.
+    const r2 = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id: f2.id } });
+    expect(r2.datePaiement?.toISOString().slice(0, 10)).toBe("2026-09-05");
+    expect(await prisma.paiement.count({ where: { factureId: f2.id } })).toBe(paiementsAvant);
   }, 60_000);
 });
