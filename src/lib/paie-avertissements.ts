@@ -58,7 +58,7 @@ export function avertissementCddEchu(cddEchuLe: Date | null): AvertissementPaie[
 
 const CODES: ReadonlySet<string> = new Set<AvertissementPaie["code"]>([
   "REPLI_CONTRAT", "TAUX_ROLE_IGNORE", "TAUX_MOIS_SUPERIEUR_HS", "SAISIE_ANTICIPEE", "PRESENCE_SANS_CRENEAU", "PRESENCE_SANS_HEURES", "PLANNING_MODIFIE_APRES_HEURES",
-  "CDD_ECHU_POURSUIVI",
+  "CDD_ECHU_POURSUIVI", "CONGE_SANS_SOLDE_RECODE",
 ]);
 
 /** Relit la colonne JSON `PayrollLine.avertissementsPaie` : ne garde que les entrées bien formées

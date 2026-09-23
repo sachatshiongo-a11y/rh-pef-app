@@ -3,18 +3,29 @@ import "server-only";
 // Assemble, depuis la base, les JOURS du mois dont la paie a besoin (spec 2026-09-23 §5) :
 // `JourReference` pour `calculerReferenceMois` (paie-reference.ts) et `JourSaisie` pour
 // `detecterAvertissementsSaisie` (paie-avertissements.ts), plus la fin du contrat qui couvre le
-// mois (`dateFinContrat`, ou `cddEchuLe` si elle est suivie de travail) et les jours de congé sans
-// solde approuvé (`joursCongeSansSolde`). Appelé par paie-batch.ts ET bulletin-live.ts : un seul assemblage,
+// mois (`dateFinContrat`, ou `cddEchuLe` si elle est suivie de travail), les jours de congé sans
+// solde approuvé (`joursCongeSansSolde`), et, pour les semaines À CHEVAL sur deux mois, les jours hors
+// du mois (`joursHorsMois`) et les fériés de toute la plage (`joursFeries`). Appelé par paie-batch.ts ET bulletin-live.ts : un seul assemblage,
 // sinon la fiche et la paie divergent. Une seule lecture par table pour tout l'effectif.
 import { prisma } from "@/lib/prisma";
 import { dureeShift } from "@/lib/duree-shift";
-import { pariteSemaine } from "@/lib/dates-fr";
+import { lundiDe, pariteSemaine } from "@/lib/dates-fr";
 import type { CodePresence } from "@/lib/payroll";
 import type { JourReference } from "@/lib/paie-reference";
 import type { JourSaisie } from "@/lib/paie-avertissements";
 
 export type JoursEmploye = {
   jours: JourReference[];
+  /** Jours des semaines à cheval qui tombent HORS du mois (lundi de la première semaine → veille du
+   *  1er ; lendemain du dernier jour → dimanche de la dernière semaine), même forme que `jours`. À
+   *  passer tel quel à `calculerReferenceMois` (`joursHorsMois`) : plafond de la semaine entière. */
+  joursHorsMois: JourReference[];
+  /** Fériés "AAAA-MM-JJ" de la plage ÉLARGIE (lundi de la première semaine → dimanche de la
+   *  dernière), le même objet pour tous les salariés. À passer à `calculerReferenceMois`
+   *  (`joursFeries`) À LA PLACE des fériés du seul mois : un férié hors du mois compte dans le
+   *  plafond de la semaine. Pour `calculerHeuresSupp` et l'ancienne règle, les dates hors du mois
+   *  sont sans effet (ils ne lisent que les jours qu'on leur donne). */
+  joursFeries: Set<string>;
   saisie: JourSaisie[];
   /** Fin du contrat qui couvre le mois, date PURE (minuit UTC) ; `null` pour un CDI, une fin
    *  postérieure au mois, ou sans contrat enregistré. À passer tel quel à `calculerReferenceMois`
@@ -26,8 +37,9 @@ export type JoursEmploye = {
    *  au-delà de son terme vaut CDI de fait, le salarié fait son planning et touche son net. Dans ce
    *  cas `dateFinContrat` vaut `null` ; l'avertissement vient de `avertissementCddEchu`. */
   cddEchuLe: Date | null;
-  /** Dates pures "AAAA-MM-JJ" du mois couvertes par un congé APPROUVÉ de type non payé (tauxPct 0),
-   *  tous jours civils compris (dimanches, fériés). À passer tel quel à `calculerReferenceMois`. */
+  /** Dates pures "AAAA-MM-JJ" de la plage ÉLARGIE (celle de `joursFeries`) couvertes par un congé
+   *  APPROUVÉ de type non payé (tauxPct 0), tous jours civils compris (dimanches, fériés). À passer tel
+   *  quel à `calculerReferenceMois` : la liste fait foi pour tous ses jours. */
   joursCongeSansSolde: string[];
 };
 
@@ -55,31 +67,39 @@ function finDeContrat(contrats: { dateFin: Date | null }[], finMois: Date): Date
 
 /**
  * Jours du mois `mois`/`annee` pour chaque salarié demandé — TOUS les jours du mois, un par jour,
- * même sans aucune donnée (un salarié sans rien reçoit des jours vides).
+ * même sans aucune donnée (un salarié sans rien reçoit des jours vides) — plus les jours hors du mois
+ * des semaines à cheval. Créneaux, présences, heures, congés et fériés sont lus dans les MÊMES
+ * requêtes, bornées du lundi de la première semaine au dimanche de la dernière.
  */
 export async function chargerJoursMois(mois: number, annee: number, employeeIds: string[]): Promise<Map<string, JoursEmploye>> {
   const debut = new Date(Date.UTC(annee, mois - 1, 1));
   const fin = new Date(Date.UTC(annee, mois, 0));
-  const dansMois = { gte: debut, lte: fin };
-  const [creneaux, modeles, presences, heures, contrats, conges, typesConge] = await Promise.all([
+  // Plage ÉLARGIE aux semaines civiles entières (lun → dim) : le plafond hebdomadaire se calcule sur
+  // la semaine entière, partagée entre les deux mois (paie-reference.ts).
+  const debutPlage = lundiDe(debut);
+  const finPlage = new Date(lundiDe(fin).getTime() + 6 * 86_400_000);
+  const dansPlage = { gte: debutPlage, lte: finPlage };
+  const [creneaux, modeles, presences, heures, contrats, conges, typesConge, feries] = await Promise.all([
     prisma.planningCreneau.findMany({
-      where: { employeeId: { in: employeeIds }, date: dansMois },
+      where: { employeeId: { in: employeeIds }, date: dansPlage },
       select: { employeeId: true, date: true, updatedAt: true, shift: { select: { heureDebut: true, heureFin: true, dureeHeures: true, systeme: true, tauxHoraireUSD: true } } },
     }),
     prisma.planningModele.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, jour: true, semaine: true, shiftId: true } }),
-    prisma.attendance.findMany({ where: { employeeId: { in: employeeIds }, date: dansMois }, select: { employeeId: true, date: true, code: true, createdAt: true } }),
-    prisma.overtimeEntry.findMany({ where: { employeeId: { in: employeeIds }, date: dansMois }, select: { employeeId: true, date: true, heuresTravaillees: true, createdAt: true, updatedAt: true } }),
+    prisma.attendance.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, code: true, createdAt: true } }),
+    prisma.overtimeEntry.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, heuresTravaillees: true, createdAt: true, updatedAt: true } }),
     prisma.contrat.findMany({
       where: { employeeId: { in: employeeIds }, dateDebut: { lte: fin }, OR: [{ dateFin: null }, { dateFin: { gte: debut } }] },
       select: { employeeId: true, dateFin: true },
     }),
     prisma.leaveRequest.findMany({
-      where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
+      where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateDebut: { lte: finPlage }, dateFin: { gte: debutPlage } },
       select: { employeeId: true, type: true, dateDebut: true, dateFin: true },
     }),
     // Lien congé → type par le NOM (pas de clé étrangère), comme `poserCodesConge`.
     prisma.typeConge.findMany({ select: { nom: true, tauxPct: true } }),
+    prisma.jourFerie.findMany({ where: { date: dansPlage }, select: { date: true } }),
   ]);
+  const joursFeries = new Set(feries.map((f) => iso(f.date)));
   // `PlanningModele.shiftId` n'a pas de relation Prisma : on lit ses shifts à part.
   const shiftsModele = new Map(
     (await prisma.shift.findMany({
@@ -101,58 +121,66 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
   // `poserCodesConge`). Un type à `tauxPct` null (« Autre », À VALIDER) ou introuvable ne compte PAS :
   // un férié payé à tort se voit sur le bulletin et se corrige, un férié retenu à tort est une
   // retenue silencieuse. Tous les jours civils du congé dans le mois, fériés et dimanches compris :
-  // `calculerReferenceMois` n'en lit que les fériés.
+  // la liste fait foi pour tous ses jours dans `calculerReferenceMois`.
   const tauxParType = new Map(typesConge.map((t) => [t.nom, t.tauxPct]));
   const sansSoldePar = new Map<string, Set<string>>();
   for (const l of conges) {
     if (tauxParType.get(l.type) !== 0) continue;
     const jours = sansSoldePar.get(l.employeeId) ?? sansSoldePar.set(l.employeeId, new Set()).get(l.employeeId)!;
-    const de = Math.max(datePure(l.dateDebut).getTime(), debut.getTime());
-    const a = Math.min(datePure(l.dateFin).getTime(), fin.getTime());
+    const de = Math.max(datePure(l.dateDebut).getTime(), debutPlage.getTime());
+    const a = Math.min(datePure(l.dateFin).getTime(), finPlage.getTime());
     for (let t = de; t <= a; t += 86_400_000) jours.add(iso(new Date(t)));
   }
 
-  const nbJours = fin.getUTCDate();
+  /** Un jour pour un salarié : `JourReference` + les données brutes qui servent à la saisie. */
+  const lireJour = (employeeId: string, mods: typeof modeles, date: Date) => {
+    const c = creneauPar.get(cle(employeeId, date));
+    const p = presencePar.get(cle(employeeId, date));
+    const h = heuresPar.get(cle(employeeId, date));
+    const heuresPlanifiees = c ? heuresTravail(c.shift) : 0;
+    const heuresFaites = h ? Number(h.heuresTravaillees) : 0;
+    // Modèle du jour : couche de la parité (semaine A/B) puis couche 0 « chaque semaine » — même
+    // ordre que le pré-remplissage des heures (presences/actions.ts).
+    let heuresModele: number | null = null;
+    if (mods.length > 0) {
+      const jour = date.getUTCDay();
+      const m = mods.find((x) => x.jour === jour && x.semaine === pariteSemaine(date)) ?? mods.find((x) => x.jour === jour && x.semaine === 0);
+      const s = m ? shiftsModele.get(m.shiftId) : undefined;
+      heuresModele = s ? heuresTravail(s) : 0;
+    }
+    const ref: JourReference = {
+      date,
+      heuresPlanifiees,
+      aUnCreneau: c != null,
+      heuresModele,
+      code: (p?.code ?? null) as CodePresence | null,
+      heuresFaites,
+      tauxRole: c?.shift.tauxHoraireUSD != null ? Number(c.shift.tauxHoraireUSD) : null,
+    };
+    return { ref, c, p, h };
+  };
+
   const sortie = new Map<string, JoursEmploye>();
   for (const employeeId of employeeIds) {
     const mods = modelesPar.get(employeeId) ?? [];
     const jours: JourReference[] = [];
+    const joursHorsMois: JourReference[] = [];
     const saisie: JourSaisie[] = [];
     const joursTravailles: Date[] = []; // créneau de TRAVAIL (non système), présence P ou heures faites
-    for (let n = 1; n <= nbJours; n++) {
-      const date = new Date(Date.UTC(annee, mois - 1, n));
-      const c = creneauPar.get(cle(employeeId, date));
-      const p = presencePar.get(cle(employeeId, date));
-      const h = heuresPar.get(cle(employeeId, date));
-      const heuresPlanifiees = c ? heuresTravail(c.shift) : 0;
-      const heuresFaites = h ? Number(h.heuresTravaillees) : 0;
-      // Modèle du jour : couche de la parité (semaine A/B) puis couche 0 « chaque semaine » — même
-      // ordre que le pré-remplissage des heures (presences/actions.ts).
-      let heuresModele: number | null = null;
-      if (mods.length > 0) {
-        const jour = date.getUTCDay();
-        const m = mods.find((x) => x.jour === jour && x.semaine === pariteSemaine(date)) ?? mods.find((x) => x.jour === jour && x.semaine === 0);
-        const s = m ? shiftsModele.get(m.shiftId) : undefined;
-        heuresModele = s ? heuresTravail(s) : 0;
-      }
-      if ((c != null && !c.shift.systeme) || p?.code === "P" || heuresFaites > 0) joursTravailles.push(date);
-      jours.push({
-        date,
-        heuresPlanifiees,
-        aUnCreneau: c != null,
-        heuresModele,
-        code: (p?.code ?? null) as CodePresence | null,
-        heuresFaites,
-        tauxRole: c?.shift.tauxHoraireUSD != null ? Number(c.shift.tauxHoraireUSD) : null,
-      });
+    for (let t = debutPlage.getTime(); t <= finPlage.getTime(); t += 86_400_000) {
+      const date = new Date(t);
+      const { ref, c, p, h } = lireJour(employeeId, mods, date);
+      if (t < debut.getTime() || t > fin.getTime()) { joursHorsMois.push(ref); continue; }
+      if ((c != null && !c.shift.systeme) || p?.code === "P" || ref.heuresFaites > 0) joursTravailles.push(date);
+      jours.push(ref);
       saisie.push({
         date,
         code: p?.code ?? null,
         codeSaisiLe: p?.createdAt ?? null,
-        heuresFaites,
+        heuresFaites: ref.heuresFaites,
         heuresSaisiesLe: h?.createdAt ?? null,
         heuresModifieesLe: h?.updatedAt ?? null,
-        heuresPlanifiees,
+        heuresPlanifiees: ref.heuresPlanifiees,
         creneauModifieLe: c?.updatedAt ?? null,
       });
     }
@@ -161,6 +189,8 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
     const poursuivi = finContrat != null && joursTravailles.some((j) => j.getTime() > finContrat.getTime());
     sortie.set(employeeId, {
       jours,
+      joursHorsMois,
+      joursFeries,
       saisie,
       dateFinContrat: poursuivi ? null : finContrat,
       cddEchuLe: poursuivi ? finContrat : null,

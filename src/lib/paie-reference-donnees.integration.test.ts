@@ -40,6 +40,7 @@ let presence29Id: string;
 let heures29Id: string;
 let congesId: string;
 let ssFerieId: string;
+let chevalId: string;
 const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const SAMEDI_A = pariteSemaine(d("2026-09-19")); // couche du modèle posée pour le samedi 19, pas le 12
 
@@ -65,6 +66,7 @@ beforeAll(async () => {
   heures29Id = await creer("H29-PEF", "Heures Après La Fin");
   congesId = await creer("CGS-PEF", "Congés Divers");
   ssFerieId = await creer("SSF-PEF", "Sans Solde Sur Férié");
+  chevalId = await creer("CHV-PEF", "Semaine À Cheval");
 
   const journee = await prisma.shift.create({ data: { nom: "Journée", heureDebut: "08:00", heureFin: "17:00" } });
   const admin = await prisma.shift.create({ data: { nom: "Admin", heureDebut: "09:30", heureFin: "13:00", dureeHeures: 3.5, tauxHoraireUSD: 4 } });
@@ -108,6 +110,26 @@ beforeAll(async () => {
     demande(congesId, "Type Disparu", "2026-09-26", "2026-09-26"),
     demande(congesId, "Congé sans solde", "2026-08-30", "2026-09-02"), // à cheval sur août
     demande(ssFerieId, "Congé sans solde", "2026-09-14", "2026-09-19"),
+    demande(chevalId, "Congé sans solde", "2026-09-30", "2026-10-03"), // à cheval sur octobre
+    demande(chevalId, "Congé sans solde", "2026-10-06", "2026-10-06"), // hors de la plage de septembre
+  ] });
+  // Semaines à cheval de septembre (lun 31/08 → dim 06/09, lun 28/09 → dim 04/10) : des données HORS
+  // du mois, et d'autres juste après la plage (lundi 05/10) qui ne doivent pas être lues.
+  await prisma.planningCreneau.createMany({ data: [
+    { employeeId: chevalId, date: d("2026-08-31"), shiftId: huit.id },
+    { employeeId: chevalId, date: d("2026-08-30"), shiftId: huit.id }, // dimanche d'avant : hors plage
+    { employeeId: chevalId, date: d("2026-10-02"), shiftId: huit.id },
+    { employeeId: chevalId, date: d("2026-10-05"), shiftId: huit.id }, // lundi d'après : hors plage
+  ] });
+  await prisma.attendance.createMany({ data: [
+    { employeeId: chevalId, date: d("2026-08-31"), code: "P" },
+    { employeeId: chevalId, date: d("2026-10-01"), code: "S" },
+  ] });
+  await prisma.overtimeEntry.create({ data: { employeeId: chevalId, date: d("2026-08-31"), heuresTravaillees: 8 } });
+  await prisma.jourFerie.createMany({ data: [
+    { date: d("2026-08-30"), designation: "Férié fictif hors plage", annee: 2026 },
+    { date: d("2026-10-03"), designation: "Férié fictif à cheval", annee: 2026 },
+    { date: d("2026-10-05"), designation: "Férié fictif hors plage", annee: 2026 },
   ] });
   // Bout en bout : planning complet sauf la semaine du congé sans solde, dont les jours ouvrables
   // portent S (posé par `poserCodesConge`, qui saute le férié du 16 : il arrive SANS code).
@@ -201,7 +223,7 @@ describe("chargerJoursMois — fin du contrat qui couvre le mois", () => {
     const m = await chargerJoursMois(9, 2026, [fin28Id, fin30Id]);
     const reference = (id: string) => calculerReferenceMois({
       annee: 2026, mois: 9, jours: m.get(id)!.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
-      dateEmbauche: d("2025-01-06"), dateFinContrat: m.get(id)!.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: m.get(id)!.joursCongeSansSolde,
+      dateEmbauche: d("2025-01-06"), dateFinContrat: m.get(id)!.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: m.get(id)!.joursCongeSansSolde, joursHorsMois: m.get(id)!.joursHorsMois,
       referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
     });
     const r28 = reference(fin28Id);
@@ -245,7 +267,7 @@ describe("chargerJoursMois — CDD échu mais poursuivi (décision du contrôleu
     const e = (await chargerJoursMois(9, 2026, [echu01Id])).get(echu01Id)!;
     const r = calculerReferenceMois({
       annee: 2026, mois: 9, jours: e.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
-      dateEmbauche: d("2025-01-06"), dateFinContrat: e.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: e.joursCongeSansSolde,
+      dateEmbauche: d("2025-01-06"), dateFinContrat: e.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: e.joursCongeSansSolde, joursHorsMois: e.joursHorsMois,
       referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
     });
     expect(r.source).toBe("PLANNING");
@@ -257,7 +279,7 @@ describe("chargerJoursMois — jours de congé sans solde approuvé", () => {
   it("seul un congé APPROUVÉ à tauxPct 0 compte, tous jours civils du mois, férié compris", async () => {
     const liste = (await chargerJoursMois(9, 2026, [congesId])).get(congesId)!.joursCongeSansSolde;
     expect(liste).toEqual([
-      "2026-09-01", "2026-09-02", // congé à cheval sur août : seuls les jours de septembre
+      "2026-08-31", "2026-09-01", "2026-09-02", // congé à cheval sur août : 31/08 est dans la semaine du 1er
       "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19",
     ]);
     // Rien pour : congé annuel (21-22), EN_ATTENTE (23), REFUSÉE (24), « Autre » à tauxPct null (25),
@@ -265,8 +287,9 @@ describe("chargerJoursMois — jours de congé sans solde approuvé", () => {
     expect((await chargerJoursMois(9, 2026, [sansId])).get(sansId)!.joursCongeSansSolde).toEqual([]);
   });
 
-  it("le même congé à cheval, lu en août : seuls les jours d'août (dimanche 30 compris)", async () => {
-    expect((await chargerJoursMois(8, 2026, [congesId])).get(congesId)!.joursCongeSansSolde).toEqual(["2026-08-30", "2026-08-31"]);
+  it("le même congé à cheval, lu en août : août (dimanche 30 compris) + la fin de la semaine du 31/08", async () => {
+    // Plage d'août : lun 27/07 → dim 06/09.
+    expect((await chargerJoursMois(8, 2026, [congesId])).get(congesId)!.joursCongeSansSolde).toEqual(["2026-08-30", "2026-08-31", "2026-09-01", "2026-09-02"]);
   });
 
   it("bout en bout : un férié pris dans un congé sans solde n'est pas payé ; sans la liste, il le serait", async () => {
@@ -275,7 +298,7 @@ describe("chargerJoursMois — jours de congé sans solde approuvé", () => {
     expect(e.joursCongeSansSolde).toContain("2026-09-16");
     const reference = (joursCongeSansSolde: string[]) => calculerReferenceMois({
       annee: 2026, mois: 9, jours: e.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
-      dateEmbauche: d("2025-01-06"), dateFinContrat: e.dateFinContrat, joursFeries: new Set(["2026-09-16"]), joursCongePris: 0, joursCongeSansSolde,
+      dateEmbauche: d("2025-01-06"), dateFinContrat: e.dateFinContrat, joursFeries: new Set(["2026-09-16"]), joursCongePris: 0, joursCongeSansSolde, joursHorsMois: e.joursHorsMois,
       referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
     });
     const avec = reference(e.joursCongeSansSolde);
@@ -283,5 +306,20 @@ describe("chargerJoursMois — jours de congé sans solde approuvé", () => {
     expect(avec.affichage.heuresPayeesNonTravaillees).toBe(0);
     // Témoin : sans la liste, le férié du 16 serait payé au forfait (8 h).
     expect(reference([]).affichage.heuresPayeesNonTravaillees).toBe(8);
+  });
+});
+
+describe("chargerJoursMois — semaines à cheval : lecture élargie au lundi → dimanche", () => {
+  it("jours hors du mois, fériés et congés sans solde de la plage, rien au-delà", async () => {
+    const e = (await chargerJoursMois(9, 2026, [chevalId])).get(chevalId)!;
+    expect(e.jours).toHaveLength(30); // le mois, et lui seul
+    expect(e.saisie).toHaveLength(30);
+    expect(e.joursHorsMois.map((j) => j.date.toISOString().slice(0, 10))).toEqual(["2026-08-31", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
+    const hors = (iso: string) => e.joursHorsMois.find((j) => j.date.toISOString().slice(0, 10) === iso)!;
+    expect(hors("2026-08-31")).toMatchObject({ heuresPlanifiees: 8, aUnCreneau: true, code: "P", heuresFaites: 8 });
+    expect(hors("2026-10-01")).toMatchObject({ heuresPlanifiees: 0, aUnCreneau: false, code: "S" });
+    expect(hors("2026-10-02")).toMatchObject({ heuresPlanifiees: 8, aUnCreneau: true, code: null });
+    expect([...e.joursFeries].sort()).toEqual(["2026-10-03"]);
+    expect(e.joursCongeSansSolde).toEqual(["2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03"]);
   });
 });

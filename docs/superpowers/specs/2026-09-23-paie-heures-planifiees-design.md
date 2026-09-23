@@ -44,24 +44,40 @@ pas), un mois donné :
   « chaque semaine » ; 0 si le modèle ne prévoit rien ce jour, et le jour ne compte alors ni dans R
   ni dans les jours payés), sinon `heuresParJour`.
   **Plafond hebdomadaire, au prorata** : sont concernés les jours non travaillés et sans créneau de
-  travail (hors dimanche) qui sont dus : C, A, O, F, M, S, et les **fériés** (codés ou non). Leurs
-  heures dues ajoutées à R dans une semaine (lun → dim, dans le mois) ne dépassent pas
-  `plafond = max(0, Hsem − heures planifiées de travail de la semaine hors fériés)`, où
-  `Hsem = H × (jours lun → sam de la semaine qui sont dans le mois) / 6` (une semaine tronquée par le
-  mois ne doit qu'une part de H). Chaque jour reçoit `hdu(j) × min(1, plafond / Σ hdu de ces jours)`,
-  soit un **prorata** : l'argent ne dépend jamais de l'ordre des codes dans la semaine. Rachel,
+  travail (hors dimanche) qui sont dus : C, A, O, F, M, S (ou jour de `joursCongeSansSolde`), et les
+  **fériés** (codés ou non). Le plafond se calcule sur la **semaine civile entière** (lun → dim), les
+  deux mois confondus : `C = max(0, H − heures planifiées de travail de toute la semaine, lun → sam,
+  hors fériés)`. `D_mois` = Σ hdu de ces jours dans le mois, `D_hors` = même somme sur les jours de la
+  semaine qui tombent hors du mois (mêmes règles ; un jour hors mois sans code ni créneau vaut 0 : repos
+  inconnu, pas un jour dû). Part du mois : `P = C × D_mois / (D_mois + D_hors)`, soit C quand
+  `D_hors = 0`. Chaque jour du mois reçoit `hdu(j) × min(1, P / D_mois)`, soit un **prorata** :
+  l'argent ne dépend jamais de l'ordre des codes dans la semaine, ni de la date où le mois coupe la
+  semaine ; les retenues des deux mois sur une semaine à cheval, additionnées, ne dépassent jamais C.
+  La borne `min(1, ·)` empêche une semaine qui a de la marge de gonfler les heures dues. Les jours
+  hors du mois (`joursHorsMois`), leurs fériés et leurs congés sans solde viennent de
+  `chargerJoursMois`, qui lit la plage lundi de la première semaine → dimanche de la dernière. Rachel,
   C lun-mer puis S jeu-sam, ou l'inverse : 176,92 $ dans les deux cas (18 h payées, 18 h retenues).
   Pour une semaine d'un seul code payé, le plafond ne change rien (mêmes heures dans R et dans la
   base). Pour S, il est décisif : sans modèle, compter `heuresParJour` pour chaque jour du lundi au
   samedi retiendrait 72 h à Rachel (36 h/sem), soit 125,00 $ au lieu de 153,85 $. Un férié consomme
-  le plafond comme les autres jours (Rachel, semaine S + férié hors congé : 161,54 $, pas 157,14 $). La
-  semaine tronquée de Rachel, en S du lundi 28 au mercredi 30/09, donne 177,78 $ (plafond 18 h), et
-  non 160,00 $.
+  le plafond comme les autres jours (Rachel, semaine S + férié hors congé : 161,54 $, pas 157,14 $).
+  Semaines à cheval (Rachel, 36 h, mar/jeu/sam 12 h) : S le jeudi 3/09, lundi 31/08 sans code →
+  C = 36 − 24 = 12 h retenues, 184,62 $ (l'ancien `H × n/6` donnait 192,00 $) ; S du 28/09 au 3/10 →
+  septembre et octobre retiennent 18 h chacun (177,78 $), 36 h en tout ; S du 28 au 30/09 et octobre
+  sans code → septembre retient 36 h (160,00 $). 40 h lun-ven, S le mercredi 30/09 → 190,91 $, octobre
+  planifié ou non.
 - **Congé sans solde** : le contrat est suspendu, aucun jour n'est dû, **même un férié**. Est traité
-  comme S un jour non travaillé codé S, **ou un férié qui figure dans `joursCongeSansSolde`** (dates
-  couvertes par un congé APPROUVÉ de type non payé, fériés compris, fournies par l'appelant). La
-  précision est nécessaire parce que `poserCodesConge` (`conges-presences.ts`) saute les fériés : un
-  férié pris pendant un congé sans solde arrive sans code, ou F, et serait payé. Ce jour est traité
+  comme S un jour non travaillé codé S, **ou tout jour non travaillé qui figure dans
+  `joursCongeSansSolde`** (dates couvertes par un congé APPROUVÉ de type non payé, fériés compris,
+  fournies par l'appelant), **quel que soit son code** : la liste fait foi. Un jour de la liste
+  travaillé est payé comme travaillé. La précision est nécessaire parce que `poserCodesConge`
+  (`conges-presences.ts`) saute les fériés (un férié pris pendant un congé sans solde arrive sans code,
+  ou F), et qu'un S peut être effacé à la main (ADMIN, MANAGER) ou manquer au rattrapage : ces jours
+  seraient payés (208,00 $ au lieu de 200,00 $ pour un S effacé). Un jour de la liste non travaillé
+  dont le code n'est pas S déclenche l'avertissement `CONGE_SANS_SOLDE_RECODE` (« Congé sans solde
+  approuvé mais code C le 16/09 : traité comme sans solde », « … mais sans code … ») ; les fériés et
+  dimanches sans code, et les fériés codés F, sont le cas normal et n'en déclenchent pas. Un jour de
+  la liste non travaillé compte aussi comme S pour la semaine couverte (§3). Ce jour est traité
   avant la règle des fériés : ses heures dues entrent dans R (sur un créneau de travail elles y sont
   déjà, sauf un férié compté en HS planifiées) et rien n'est payé. Semaine S contenant un férié →
   160,00 $ et mois entier S avec un férié → 0, **à condition que l'appelant fournisse
@@ -91,7 +107,8 @@ injustifiée → 0 ; un congé n'est jamais payé deux fois (cas Syntyche : 200,
 ## 3. Repli, visible
 
 Si **une semaine** du mois n'a aucun créneau pour le salarié (créneaux système compris ; sauf semaine
-dont tous les jours ouvrables hors fériés sont codés C, A, M, O, F ou S — pas N), si c'est le **mois
+dont tous les jours ouvrables hors fériés sont codés C, A, M, O, F ou S, un jour non travaillé de
+`joursCongeSansSolde` valant S — pas N), si c'est le **mois
 d'embauche**, le **mois de fin de contrat** (fin avant le dernier jour du mois : tous les CDD de la
 brigade y passent, et R ne couvrirait que les jours restants, soit le mois entier payé), ou si la fiche
 n'a **pas d'heures hebdomadaires** (seuil HS inconnu), le mois entier retombe sur l'ancienne référence

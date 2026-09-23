@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { calculerPaieBrigade, type CodePresence, type ParametresPaie } from "@/lib/payroll";
 import { calculerReferenceMois, type EntreesReference, type JourReference, type ResultatReference } from "./paie-reference";
+import { lireAvertissements } from "./paie-avertissements";
 
 // Paramètres = ceux de l'exercice 2026 en production (mêmes valeurs que payroll-reference.test.ts),
 // salaires saisis en NET (interrupteur actif en production depuis 2026-07-22).
@@ -29,19 +30,25 @@ type Gabarit = {
 };
 function joursDuMois(annee: number, mois: number, g: Gabarit): JourReference[] {
   const n = new Date(Date.UTC(annee, mois, 0)).getUTCDate();
-  return Array.from({ length: n }, (_, i) => {
-    const date = new Date(Date.UTC(annee, mois - 1, i + 1));
-    const hp = g.heures?.(date) ?? 0;
-    return {
-      date,
-      heuresPlanifiees: hp,
-      aUnCreneau: g.creneau ? g.creneau(date) : hp > 0,
-      heuresModele: g.modele ? g.modele(date) : null,
-      code: g.code?.(date) ?? null,
-      heuresFaites: g.faites?.(date) ?? 0,
-      tauxRole: g.tauxRole?.(date) ?? null,
-    };
-  });
+  return Array.from({ length: n }, (_, i) => jourDe(new Date(Date.UTC(annee, mois - 1, i + 1)), g));
+}
+/** Jours HORS du mois (semaines à cheval), bornes "AAAA-MM-JJ" incluses. */
+function joursEntre(de: string, a: string, g: Gabarit): JourReference[] {
+  const sortie: JourReference[] = [];
+  for (let t = Date.parse(`${de}T00:00:00Z`); t <= Date.parse(`${a}T00:00:00Z`); t += 86_400_000) sortie.push(jourDe(new Date(t), g));
+  return sortie;
+}
+function jourDe(date: Date, g: Gabarit): JourReference {
+  const hp = g.heures?.(date) ?? 0;
+  return {
+    date,
+    heuresPlanifiees: hp,
+    aUnCreneau: g.creneau ? g.creneau(date) : hp > 0,
+    heuresModele: g.modele ? g.modele(date) : null,
+    code: g.code?.(date) ?? null,
+    heuresFaites: g.faites?.(date) ?? 0,
+    tauxRole: g.tauxRole?.(date) ?? null,
+  };
 }
 const jour = (d: Date) => d.getUTCDate();
 const dow = (d: Date) => d.getUTCDay(); // 0 = dimanche
@@ -50,7 +57,7 @@ const lunSam = (d: Date) => dow(d) !== 0;
 function entrees(e: Partial<EntreesReference> & Pick<EntreesReference, "jours" | "salaireMensuel" | "heuresHebdomadaires" | "heuresParJour">): EntreesReference {
   return {
     annee: 2026, mois: 9, dateEmbauche: new Date("2025-01-06T00:00:00Z"), joursFeries: new Set(),
-    joursCongePris: 0, joursCongeSansSolde: [], referencePlanningDepuis: 202609, params: PARAMS, ...e,
+    joursCongePris: 0, joursCongeSansSolde: [], joursHorsMois: [], referencePlanningDepuis: 202609, params: PARAMS, ...e,
   };
 }
 /** Base NETTE (avant reconstitution du brut) que le moteur va payer. */
@@ -295,13 +302,81 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(baseNette(r)).toBeCloseTo((126 * 200) / 156, 10); // 161,54, jamais 157,14
   });
 
-  it("Rachel, S du lundi 28 au mercredi 30 (semaine tronquée) → plafond 36 × 3/6 = 18 h : 177,78", () => {
-    const s = (d: Date) => jour(d) >= 28;
-    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !s(d) ? 12 : 0);
-    const r = calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12,
-      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (s(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
-    expect(r.heuresReference).toBe(162); // 144 h + 18 h (et non 36)
-    expect(baseNette(r)).toBeCloseTo((144 * 200) / 162, 10); // 177,78, jamais 160,00
+  // ── Semaine à cheval sur deux mois : la semaine CIVILE entière fixe le plafond, partagé au prorata ──
+  const TRAV_RACHEL = (d: Date) => [2, 4, 6].includes(dow(d)); // mardi, jeudi, samedi, 12 h
+  const rachelCheval = (mois: number, sDansMois: (d: Date) => boolean, horsMois: JourReference[], modele = false) => {
+    const h = (d: Date) => (TRAV_RACHEL(d) && !sDansMois(d) ? 12 : 0);
+    return calculerReferenceMois(entrees({ mois, salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12, joursHorsMois: horsMois,
+      jours: joursDuMois(2026, mois, { heures: h, faites: h, modele: modele ? (d) => (TRAV_RACHEL(d) ? 12 : 0) : undefined, code: (d) => (sDansMois(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
+  };
+  const planningRachel = (d: Date) => (TRAV_RACHEL(d) ? 12 : 0);
+
+  it("Rachel, S le jeudi 3/09, lundi 31/08 sans code → plafond de la semaine entière (36 − 24 = 12 h) : 184,62", () => {
+    const hors = (modele: boolean) => [
+      ...joursEntre("2026-08-31", "2026-08-31", { modele: modele ? () => 0 : undefined }), // lundi : ni code, ni créneau
+      ...joursEntre("2026-10-01", "2026-10-04", { heures: planningRachel, faites: planningRachel, modele: modele ? planningRachel : undefined, code: (d) => (TRAV_RACHEL(d) ? "P" : null) }),
+    ];
+    for (const modele of [false, true]) {
+      const r = rachelCheval(9, (d) => jour(d) === 3, hors(modele), modele);
+      expect(r.source).toBe("PLANNING");
+      expect(r.heuresReference).toBe(156); // 144 h planifiées + 12 h retenues (et non 6)
+      expect(baseNette(r)).toBeCloseTo((144 * 200) / 156, 10); // 184,62, jamais 192,00
+      expect(netSalaire(r, 0)).toBeCloseTo(184.62, 2);
+    }
+  });
+
+  it("40 h, lun-ven 8 h, S le mercredi 30/09 → 190,91, octobre planifié ou non", () => {
+    const h = (d: Date) => (dow(d) >= 1 && dow(d) <= 5 && !(jour(d) === 30 && d.getUTCMonth() === 8) ? 8 : 0);
+    const cas = (hors: JourReference[]) => calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 40, heuresParJour: 8, joursHorsMois: hors,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (jour(d) === 30 ? "S" : h(d) > 0 ? "P" : null) }) }));
+    const avant = joursEntre("2026-08-31", "2026-08-31", { heures: h, faites: h, code: () => "P" });
+    // Octobre planifié : jeudi 1er et vendredi 2 → C = 40 − 32 = 8 h, tout au mercredi 30.
+    const planifie = cas([...avant, ...joursEntre("2026-10-01", "2026-10-04", { heures: h, faites: h, code: (d) => (h(d) > 0 ? "P" : null) })]);
+    // Octobre non planifié : C = 40 − 16 = 24 h, borné à hdu (8 h) par min(1, ·).
+    const nonPlanifie = cas([...avant, ...joursEntre("2026-10-01", "2026-10-04", {})]);
+    for (const r of [planifie, nonPlanifie]) {
+      expect(r.heuresReference).toBe(176); // 168 h planifiées + 8 h retenues
+      expect(baseNette(r)).toBeCloseTo((168 * 200) / 176, 10); // 190,91, jamais 195,35
+      expect(netSalaire(r, 0)).toBeCloseTo(190.91, 2);
+    }
+  });
+
+  it("Rachel, congé sans solde du lun 28/09 au sam 3/10 → septembre 18 h (177,78) + octobre 18 h = 36 h", () => {
+    const septS = (d: Date) => d.getUTCMonth() === 8 && jour(d) >= 28;
+    const octS = (d: Date) => d.getUTCMonth() === 9 && jour(d) <= 3;
+    const sans = { code: (d: Date) => (lunSam(d) ? "S" as const : null) };
+    const septembre = rachelCheval(9, septS, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", sans),
+    ]);
+    const octobre = rachelCheval(10, octS, [
+      ...joursEntre("2026-09-28", "2026-09-30", sans),
+      ...joursEntre("2026-11-01", "2026-11-01", {}),
+    ]);
+    expect(septembre.heuresReference).toBe(162); // 144 h planifiées + 18 h (la moitié de la semaine)
+    expect(baseNette(septembre)).toBeCloseTo((144 * 200) / 162, 10); // 177,78
+    expect(octobre.heuresReference).toBe(162); // 144 h planifiées (14 j − jeu. 1er − sam. 3) + 18 h
+    expect(baseNette(octobre)).toBeCloseTo((144 * 200) / 162, 10);
+    // Somme des deux retenues = le plafond de la semaine entière, jamais 54 ni 72 h.
+    expect((septembre.heuresReference - 144) + (octobre.heuresReference - 144)).toBeCloseTo(36, 10);
+  });
+
+  it("Rachel, S du 28 au 30/09, jeudi 1er et samedi 3/10 travaillés → C = 36 − 24 = 12 h : 184,62", () => {
+    const r = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", { heures: planningRachel, faites: planningRachel, code: (d) => (TRAV_RACHEL(d) ? "P" : null) }),
+    ]);
+    expect(r.heuresReference).toBe(156); // 144 h + 12 h : les heures planifiées d'octobre réduisent le plafond
+    expect(baseNette(r)).toBeCloseTo((144 * 200) / 156, 10); // 184,62, jamais 160,00
+  });
+
+  it("Rachel, S du 28 au 30/09, octobre sans code → septembre retient la semaine entière (36 h) : 160,00", () => {
+    const r = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", {}),
+    ]);
+    expect(r.heuresReference).toBe(180); // 144 h + 36 h
+    expect(baseNette(r)).toBeCloseTo((144 * 200) / 180, 10); // 160,00
   });
 
   // ── Férié dans un congé sans solde APPROUVÉ : arrive SANS code (conges-presences saute les fériés) ──
@@ -313,6 +388,7 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(r.heuresReference).toBe(208);
     expect(r.affichage.joursPayesNonTravailles).toBe(0);
     expect(baseNette(r)).toBeCloseTo(160, 10);
+    expect(r.avertissements.filter((a) => a.code === "CONGE_SANS_SOLDE_RECODE")).toEqual([]); // férié sans code : normal
   });
 
   it("mois entier en congé sans solde, férié sans code mais couvert par le congé → 0,00", () => {
@@ -322,6 +398,44 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(r.source).toBe("PLANNING");
     expect(r.heuresReference).toBe(208);
     expect(baseNette(r)).toBe(0);
+    expect(r.avertissements.filter((a) => a.code === "CONGE_SANS_SOLDE_RECODE")).toEqual([]); // fériés et dimanches sans code
+  });
+
+  // ── La liste des congés sans solde approuvés fait foi pour TOUS ses jours (décision (b)) ──
+  const RECODE = "CONGE_SANS_SOLDE_RECODE";
+  it("S effacé le mercredi 16, jour dans la liste → traité comme S : 200,00, signalé", () => {
+    const h = (d: Date) => (lunSam(d) && jour(d) !== 16 ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (h(d) > 0 ? "P" : null) }, { joursCongeSansSolde: ["2026-09-16"] }));
+    expect(r.heuresReference).toBe(208);
+    expect(baseNette(r)).toBeCloseTo(200, 10); // jamais 208,00
+    expect(r.avertissements).toEqual([{ code: RECODE, message: "Congé sans solde approuvé mais sans code le 16/09 : traité comme sans solde" }]);
+    expect(lireAvertissements(JSON.parse(JSON.stringify(r.avertissements)))).toEqual(r.avertissements); // relu depuis la colonne JSON
+  });
+
+  it("jour de la liste TRAVAILLÉ → payé comme travaillé, rien à signaler", () => {
+    const r = calculerReferenceMois(type6j({}, { joursCongeSansSolde: ["2026-09-16"] }));
+    expect(baseNette(r)).toBeCloseTo(208, 10);
+    expect(r.avertissements.filter((a) => a.code === RECODE)).toEqual([]);
+  });
+
+  it("C posé à la main sur deux jours de la liste → traités comme S : 192,00, signalés ensemble", () => {
+    const c = (d: Date) => jour(d) === 16 || jour(d) === 17;
+    const h = (d: Date) => (lunSam(d) && !c(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (c(d) ? "C" : h(d) > 0 ? "P" : null) }, { joursCongeSansSolde: ["2026-09-16", "2026-09-17"] }));
+    expect(r.affichage.heuresPayeesNonTravaillees).toBe(0);
+    expect(baseNette(r)).toBeCloseTo(192, 10); // jamais 208,00
+    expect(r.avertissements).toEqual([{ code: RECODE, message: "Congé sans solde approuvé mais code C les 16/09, 17/09 (2 j) : traité comme sans solde" }]);
+  });
+
+  it("semaine du congé sans créneau, codes effacés, jours dans la liste → semaine couverte, pas de repli", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 20;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (h(d) > 0 ? "P" : null) },
+      { joursCongeSansSolde: ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"] }));
+    expect(r.source).toBe("PLANNING");
+    expect(baseNette(r)).toBeCloseTo(160, 10);
+    // Dimanche 20 sans code : cas normal, absent du message.
+    expect(r.avertissements).toEqual([{ code: RECODE, message: "Congé sans solde approuvé mais sans code les 14/09, 15/09, 16/09, 17/09, 18/09, 19/09 (6 j) : traité comme sans solde" }]);
   });
 
   // ── Congé sans solde un jour férié : contrat suspendu, rien n'est dû ──
