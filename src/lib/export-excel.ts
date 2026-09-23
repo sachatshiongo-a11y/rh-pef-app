@@ -24,6 +24,14 @@ export type FeuilleExcel = {
 };
 
 /**
+ * Indices des colonnes de montant d'un tableau, repérées par leur EN-TÊTE (« … $ », « … CDF »),
+ * jamais par leur position : ajouter ou déplacer une colonne ne décale aucun total.
+ */
+export function colonnesDeMontant(entete: string[]): number[] {
+  return entete.flatMap((h, i) => (/(\$|CDF)$/.test(h.trim()) ? [i] : []));
+}
+
+/**
  * Construit un classeur Excel harmonisé : police Optima partout, logo en haut à droite, bloc
  * d'en-tête (société, période, date d'export) et ligne de colonnes mise en valeur. Une ou
  * plusieurs feuilles. Remplace l'ancienne génération via SheetJS (qui ne gérait ni police ni image).
