@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { pariteSemaine, dureeShift } from "@/app/(app)/planning/creneaux";
+import { pariteSemaine } from "@/lib/dates-fr";
+import { dureeShift } from "@/lib/duree-shift";
 
 /**
  * Jours couverts par un congé APPROUVÉ, pour un lot (employé, date) donné.
