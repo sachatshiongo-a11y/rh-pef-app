@@ -6,12 +6,17 @@ import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise }
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
 import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
+import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
+import { formaterNombre } from "@/lib/montant";
 
 registerPdfFonts();
 
 const WD = ["D", "L", "M", "M", "J", "V", "S"];
 
 const fmtJour = (d: Date) => new Date(d).toLocaleDateString("fr-FR");
+/** Heures ou jours : virgule décimale française, séparateur de milliers compatible avec la police
+ * (formateur partagé, jamais l'espace fine U+202F absente d'Optima). « 173,33 », jamais « 173.33 ». */
+const fmtQte = (n: number) => formaterNombre(n, { maximumFractionDigits: 2 });
 /** Jours ouvrables (hors dimanche ET hors jours fériés), bornes incluses — même règle que le reste de l'app. */
 function joursOuvrables(debut: Date, fin: Date, feries: Set<string>): number {
   let n = 0;
@@ -85,6 +90,11 @@ const styles = StyleSheet.create({
   trTotal: { backgroundColor: pdfColors.goldLight },
   trSection: { backgroundColor: "#f3efe6" },
   tdBold: { fontWeight: 700, color: pdfColors.brownDark },
+  // Motif du repli sur le contrat (paie sur heures planifiées) : une ligne sobre sous les totaux, DANS
+  // le cadre du tableau. Ce cadre est étiré à la hauteur du calendrier, d'ordinaire plus haut que les
+  // rubriques : la ligne occupe cet espace libre et n'allonge pas la page. Seule exception : un mois où
+  // les rubriques dépassent déjà le calendrier (toutes les rubriques optionnelles à la fois).
+  motifRepli: { fontSize: 6.5, color: pdfColors.textMuted, paddingVertical: 3, paddingHorizontal: 4, borderTop: `0.5 solid ${pdfColors.border}` },
 
   // largeurs de colonnes
   cDesig: { width: "38%" },
@@ -272,6 +282,14 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   const totHS = hs30 + hs60 + hs100;
   const heuresNormales = heuresTravaillees - totHS;
   const heuresContractuelles = Number(ligne.heuresContractuelles);
+  // Paie sur heures planifiées (2026-09-23) : la case dit d'où viennent les heures du mois. Une ligne
+  // antérieure (source CONTRAT par défaut en base) garde « Heures / mois ».
+  const libelleHeuresMois = LIBELLE_SOURCE_REFERENCE[ligne.sourceReference] ?? LIBELLE_SOURCE_REFERENCE.CONTRAT;
+  // Repli sur le contrat : le motif (embauche, fin de contrat, semaine sans créneau…) est imprimé en
+  // entier, jamais tronqué ; il n'existe que pour un repli.
+  const motifRepli = ligne.sourceReference === "CONTRAT_REPLI" && ligne.motifReference ? ligne.motifReference : null;
+  // Jours payés non travaillés comptés en HEURES depuis le 2026-09-23 (0 = ligne antérieure : base en jours).
+  const heuresPayeesNonTravaillees = Number(ligne.heuresPayeesNonTravaillees ?? 0);
 
   // Salaire de base affiché en BRUT (2026-07-22, décision client), cohérent avec « Salaire brut
   // imposable » plus bas. `employee.salaireMensuel` est la valeur SAISIE sur la fiche — un NET
@@ -341,7 +359,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         <Recap label="Catégorie" value={employee.categorie === "BRIGADE" ? "Brigade" : "Back-office"} />
         <Recap label="Salaire de base" value={m(salaireBaseAffiche)} />
         <Recap label="Taux horaire" value={m(tauxHoraire)} />
-        <Recap label="Heures / mois" value={`${heuresContractuelles} h`} />
+        <Recap label={libelleHeuresMois} value={`${fmtQte(heuresContractuelles)} h`} />
         <View style={[styles.recapCell, { borderRight: "0" }]}>
           <Text style={styles.recapLabel}>Personnes à charge</Text>
           <Text style={styles.recapValue}>{employee.enfants}</Text>
@@ -368,25 +386,29 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             <>
               <Row
                 designation="Salaire de base (heures travaillées)"
-                base={`${heuresNormales} h`}
+                base={`${fmtQte(heuresNormales)} h`}
                 taux={m(tauxHoraire)}
                 montant={m(Number(ligne.remuneration100) - Number(ligne.remunerationJoursPayesUSD))}
               />
               <Row
                 designation="Jours payés non travaillés (congés, fériés, repos)"
-                base={`${Number(ligne.joursPayesNonTravailles ?? 0)} j`}
-                taux={m(tauxHoraire * Number(employee.heuresParJour))}
+                base={
+                  heuresPayeesNonTravaillees > 0
+                    ? `${fmtQte(heuresPayeesNonTravaillees)} h (${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0))} j)`
+                    : `${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0))} j`
+                }
+                taux={m(heuresPayeesNonTravaillees > 0 ? tauxHoraire : tauxHoraire * Number(employee.heuresParJour))}
                 montant={m(Number(ligne.remunerationJoursPayesUSD))}
               />
             </>
           ) : (
-            <Row designation="Salaire de base" base={`${heuresNormales} h`} taux={m(tauxHoraire)} montant={m(Number(ligne.remuneration100))} />
+            <Row designation="Salaire de base" base={`${fmtQte(heuresNormales)} h`} taux={m(tauxHoraire)} montant={m(Number(ligne.remuneration100))} />
           )}
           {Number(ligne.remuneration2_3) > 0 && (
             <Row designation="Indemnité maladie (2/3)" montant={m(Number(ligne.remuneration2_3))} />
           )}
           {totHS > 0 && (
-            <Row designation="Heures supplémentaires" base={`${totHS} h`} montant={m(Number(ligne.hsValorisee))} />
+            <Row designation="Heures supplémentaires" base={`${fmtQte(totHS)} h`} montant={m(Number(ligne.hsValorisee))} />
           )}
           <Row designation="Frais de transport (non imposable)" montant={m(Number(ligne.transportUSD))} />
           {/* Primes détaillées (une ligne par prime) UNIQUEMENT si leur somme correspond au montant
@@ -425,6 +447,11 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
             partEmp={m(totalPatronal)}
             total
           />
+          {motifRepli && (
+            <Text style={styles.motifRepli}>
+              {LIBELLE_SOURCE_REFERENCE.CONTRAT_REPLI} : {motifRepli}
+            </Text>
+          )}
         </View>
 
         {/* Colonne calendrier */}
