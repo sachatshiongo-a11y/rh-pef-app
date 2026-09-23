@@ -3,20 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
+import { dateDuJourKinshasa, heuresNettes } from "@/lib/pointage-jour";
 
 export type ResultatPointage = { ok: boolean; message?: string };
-
-/** Jour courant en heure de Kinshasa (UTC+1, sans changement d'heure) → DATE à minuit UTC. */
-function jourKinshasa(d = new Date()): Date {
-  const k = new Date(d.getTime() + 3_600_000);
-  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
-}
-
-/** Heures nettes payables = (départ − arrivée) − pause saisie par l'employé, ≥ 0. */
-function heuresNettes(debut: Date, fin: Date, pauseMinutes: number): number {
-  const h = (fin.getTime() - debut.getTime()) / 3_600_000 - pauseMinutes / 60;
-  return Math.max(0, Math.round(h * 100) / 100);
-}
 
 /** Exécute une action de pointage en renvoyant un résultat clair (les messages lancés restent lisibles en prod). */
 async function tenter(fn: () => Promise<void>): Promise<ResultatPointage> {
@@ -66,7 +55,7 @@ export async function pointerArrivee(): Promise<ResultatPointage> {
   return tenter(async () => {
     const { userId, employeeId } = await moiEmploye();
     const now = new Date();
-    const date = jourKinshasa(now);
+    const date = dateDuJourKinshasa(now);
     const mois = date.getUTCMonth() + 1;
     const annee = date.getUTCFullYear();
 
@@ -91,7 +80,7 @@ export async function pointerDepart(formData: FormData): Promise<ResultatPointag
   return tenter(async () => {
     const { employeeId } = await moiEmploye();
     const pauseMinutes = Math.max(0, Math.min(600, Number(formData.get("pauseMinutes") ?? 0) || 0));
-    const date = jourKinshasa();
+    const date = dateDuJourKinshasa();
     const p = await prisma.pointage.findUnique({ where: { employeeId_date: { employeeId, date } } });
     if (!p) throw new Error("Aucune arrivée pointée aujourd'hui.");
     if (p.heureFin) throw new Error("Vous avez déjà pointé votre départ aujourd'hui.");
