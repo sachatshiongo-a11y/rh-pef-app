@@ -140,8 +140,9 @@ export async function modifierContrat(id: string, formData: FormData) {
 
 /**
  * Fige l'exemplaire PDF du contrat — c'est lui qui FAIT FOI ensuite (plus de régénération).
- * Normalement déclenché par l'acceptation numérique du salarié ; cette action permet à la
- * Direction de le figer elle-même (indispensable quand l'espace salarié est désactivé).
+ * Normalement déclenché par la signature du salarié, qui vaut acceptation (`lib/signer-document.ts`) ;
+ * cette action permet à la Direction de le figer elle-même (un figeage qui a échoué, ou un contrat
+ * que personne n'a encore signé).
  * Un contrat déjà figé ne peut être remplacé que par un Admin.
  */
 export async function figerContrat(id: string) {

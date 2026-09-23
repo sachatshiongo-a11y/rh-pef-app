@@ -3,12 +3,13 @@ import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
 /**
- * L'ÉCRAN ET LE DOCUMENT DISENT LA MÊME CHOSE — dans les DEUX ordres.
+ * L'ÉCRAN ET LE DOCUMENT DISENT LA MÊME CHOSE.
  *
- * `contrat-buffer` sert l'exemplaire FIGÉ dès que `pdfAccepteUrl` existe. Cet exemplaire est
- * produit AU MOMENT DE L'ACCEPTATION : si le salarié accepte d'abord et signe ensuite, il ne
- * porte pas le tracé, et le contrat remis restait muet pendant que la fiche affichait
- * « Signé le … ». Ici on couvre les deux enchaînements possibles.
+ * `contrat-buffer` sert l'exemplaire FIGÉ (`pdfAccepteUrl`) quand il est l'exemplaire accepté, et
+ * régénère sinon. Depuis le 2026-09-23, SIGNER VAUT ACCEPTATION : la signature pose `accepteLe`
+ * au même instant, retire l'ancien exemplaire figé, et un nouveau est figé juste après — il porte
+ * le tracé. Restent en base des contrats signés AVANT cette règle (signature tracée, acceptation
+ * au clic ou exemplaire figé antérieurs) : leur exemplaire figé est muet et ne doit pas être servi.
  */
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 vi.mock("@/lib/prisma", () => ({
@@ -22,7 +23,7 @@ vi.mock("@/lib/prisma", () => ({
 
 // L'exemplaire figé est un CONTENU RECONNAISSABLE, pas un PDF : s'il est servi, on le voit tout
 // de suite (et `pdf-parse` ne saurait pas le lire — c'est précisément ce qu'on veut détecter).
-const FIGE = Buffer.from("%PDF-EXEMPLAIRE-FIGE-SANS-TRACE");
+const FIGE = Buffer.from("%PDF-EXEMPLAIRE-FIGE");
 const TRACE = pngMinuscule();
 vi.mock("@/lib/storage", () => ({
   lireFichier: async (chemin: string) => (chemin.includes("signatures/") ? TRACE : FIGE),
@@ -81,18 +82,83 @@ const signer = (contratId: string) =>
     mode: "ESPACE_SALARIE", presenteParId: null,
   });
 
-/** Ce que fait `accepterMonContrat` : horodate l'acceptation et fige l'exemplaire du moment. */
-const accepterEtFiger = (contratId: string) =>
+/** L'ancien clic « Lu et approuvé » (supprimé le 2026-09-23) : horodate et fige l'exemplaire du moment. */
+const accepterEtFiger = (contratId: string, quand = new Date()) =>
   prisma.contrat.update({
     where: { id: contratId },
-    data: { accepteLe: new Date(), pdfAccepteUrl: `/fichiers/contrats/${contratId}.pdf` },
+    data: { accepteLe: quand, pdfAccepteUrl: `/fichiers/contrats/${contratId}.pdf` },
   });
 
-describe("contrat signé : l'exemplaire figé ne peut pas rendre le document muet", () => {
-  it("ACCEPTER puis SIGNER → le contrat servi porte le tracé et la mention, pas l'exemplaire figé", async () => {
+/** Ce que fait `lib/signer-document.ts` après la signature : fige l'exemplaire (qui porte le tracé). */
+const figerApresSignature = (contratId: string) =>
+  prisma.contrat.update({ where: { id: contratId }, data: { pdfAccepteUrl: `/fichiers/contrats/${contratId}.pdf` } });
+
+/**
+ * Une signature tracée d'AVANT la règle « signer vaut acceptation » : la signature existe, mais le
+ * contrat n'a pas été touché — on remet donc ses champs d'acceptation tels qu'ils étaient.
+ */
+async function signerAvantLaRegle(contratId: string) {
+  const { accepteLe, pdfAccepteUrl } = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId } });
+  await signer(contratId);
+  await prisma.contrat.update({ where: { id: contratId }, data: { accepteLe, pdfAccepteUrl } });
+}
+
+describe("signer vaut acceptation : l'exemplaire figé est celui de la signature", () => {
+  it("SIGNER pose accepteLe = signeLe et retire l'exemplaire figé antérieur (muet)", async () => {
     const c = await creerContrat();
-    await accepterEtFiger(c.id);
+    await prisma.contrat.update({ where: { id: c.id }, data: { pdfAccepteUrl: `/fichiers/contrats/${c.id}.pdf` } }); // figé par la Direction
     await signer(c.id);
+
+    const relu = await prisma.contrat.findUniqueOrThrow({ where: { id: c.id } });
+    const sig = await prisma.signatureElectronique.findUniqueOrThrow({ where: { cible_cibleId: { cible: "CONTRAT", cibleId: c.id } } });
+    expect(relu.accepteLe?.getTime()).toBe(sig.signeLe.getTime());
+    expect(relu.pdfAccepteUrl, "l'exemplaire figé AVANT la signature (sans tracé) est resté en place").toBeNull();
+
+    const pdf = await genererContratPdf(c.id);
+    expect(pdf!.buffer.equals(FIGE)).toBe(false);
+    expect(await texteDu(pdf!.buffer)).toContain("Signé électroniquement par Claire Signature");
+  }, 90_000);
+
+  it("signé PUIS figé → l'exemplaire figé fait foi (il porte le tracé)", async () => {
+    const c = await creerContrat();
+    await signer(c.id);
+    await figerApresSignature(c.id);
+
+    const pdf = await genererContratPdf(c.id);
+    expect(pdf!.buffer.equals(FIGE), "l'exemplaire figé par la signature n'est pas servi : on régénère").toBe(true);
+  }, 60_000);
+
+  it("signature devenue OBSOLÈTE → pas l'exemplaire figé : les conditions actuelles, « à resigner »", async () => {
+    // Le salarié invité à resigner doit lire ce qu'il va signer, pas la version d'avant.
+    const c = await creerContrat();
+    await signer(c.id);
+    await figerApresSignature(c.id);
+    await prisma.contrat.update({ where: { id: c.id }, data: { salaireMensuel: 450, pdfAccepteObsolete: true } });
+
+    const pdf = await genererContratPdf(c.id);
+    expect(pdf!.buffer.equals(FIGE), "l'ancien exemplaire est servi à un salarié invité à resigner").toBe(false);
+    const t = await texteDu(pdf!.buffer);
+    expect(t).toContain("Document modifié après signature");
+    expect(t).toContain("450");
+  }, 90_000);
+
+  it("un contrat signé n'écrit pas DEUX FOIS son acceptation", async () => {
+    // La mention de signature est la formulation la plus précise ; la ligne historique
+    // « Accepté numériquement le … » dit exactement le même fait et doit s'effacer devant elle.
+    const c = await creerContrat();
+    await signer(c.id);
+
+    const t = await texteDu((await genererContratPdf(c.id))!.buffer);
+    expect(t).toContain("Signé électroniquement par Claire Signature");
+    expect(t, "l'acceptation est écrite deux fois sur le même document").not.toContain("Accepté numériquement le");
+  }, 90_000);
+});
+
+describe("contrats d'AVANT la règle : l'exemplaire figé ne peut pas rendre le document muet", () => {
+  it("ACCEPTÉ d'un clic puis SIGNÉ → le contrat servi porte le tracé et la mention, pas l'exemplaire figé", async () => {
+    const c = await creerContrat();
+    await accepterEtFiger(c.id, new Date("2026-09-22T08:00:00Z"));
+    await signerAvantLaRegle(c.id);
 
     const pdf = await genererContratPdf(c.id);
     expect(pdf).not.toBeNull();
@@ -103,26 +169,14 @@ describe("contrat signé : l'exemplaire figé ne peut pas rendre le document mue
     expect(await texteDu(pdf!.buffer)).toContain("Signé électroniquement par Claire Signature");
   }, 90_000);
 
-  it("SIGNER puis ACCEPTER → le contrat servi porte aussi le tracé et la mention", async () => {
+  it("SIGNÉ puis ACCEPTÉ d'un clic → le contrat servi porte aussi le tracé et la mention", async () => {
     const c = await creerContrat();
-    await signer(c.id);
+    await signerAvantLaRegle(c.id);
     await accepterEtFiger(c.id);
 
     const pdf = await genererContratPdf(c.id);
     expect(pdf!.buffer.equals(FIGE)).toBe(false);
     expect(await texteDu(pdf!.buffer)).toContain("Signé électroniquement par Claire Signature");
-  }, 90_000);
-
-  it("un contrat signé n'écrit pas DEUX FOIS son acceptation", async () => {
-    // La mention de signature est la formulation la plus précise ; la ligne historique
-    // « Accepté numériquement le … » dit exactement le même fait et doit s'effacer devant elle.
-    const c = await creerContrat();
-    await accepterEtFiger(c.id);
-    await signer(c.id);
-
-    const t = await texteDu((await genererContratPdf(c.id))!.buffer);
-    expect(t).toContain("Signé électroniquement par Claire Signature");
-    expect(t, "l'acceptation est écrite deux fois sur le même document").not.toContain("Accepté numériquement le");
   }, 90_000);
 
   it("un contrat accepté mais JAMAIS signé garde sa ligne « Accepté numériquement le … »", async () => {

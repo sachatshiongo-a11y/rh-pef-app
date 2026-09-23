@@ -23,9 +23,14 @@ vi.mock("@/lib/auth", () => ({
   },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+const N = vi.hoisted(() => ({ direction: [] as string[] }));
 vi.mock("@/lib/storage", () => ({ televerserFichier: async () => S.traceUrl }));
+// Le rendu du PDF est couvert par `lib/pdf/contrat-signature.integration.test.ts`.
+vi.mock("@/lib/pdf/contrat-buffer", () => ({
+  genererContratPdf: async () => ({ buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x" }),
+}));
 vi.mock("@/lib/notifications", () => ({
-  creerNotification: async () => {},
+  creerNotification: async (n: { message: string }) => { N.direction.push(n.message); },
   notifierSalarie: async () => {},
   compteSalarieDe: async () => null,
 }));
@@ -117,5 +122,33 @@ describe("faireSignerDocument — Direction", () => {
     });
     expect(sig?.mode).toBe("PRESENTIEL");
     expect(sig?.presenteParId).toBe(adminId);
+  });
+});
+
+describe("faireSignerDocument — un contrat signé en présentiel vaut acceptation", () => {
+  it("pose accepteLe = signeLe (relu en base), sans notifier la Direction qui tenait l'appareil", async () => {
+    const contrat = await prisma.contrat.create({
+      data: { employeeId: empId, type: "CDD", dateDebut: new Date("2026-01-01"), dateFin: new Date("2026-12-31"), heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Test", statut: "ACTIF" },
+    });
+    N.direction.length = 0;
+
+    const res = await faireSignerDocument("CONTRAT", contrat.id, PNG_VALIDE);
+    expect(res).toBeUndefined();
+
+    const [relu, sig] = await Promise.all([
+      prisma.contrat.findUniqueOrThrow({ where: { id: contrat.id } }),
+      prisma.signatureElectronique.findUniqueOrThrow({ where: { cible_cibleId: { cible: "CONTRAT", cibleId: contrat.id } } }),
+    ]);
+    expect(sig.mode).toBe("PRESENTIEL");
+    expect(relu.accepteLe, "contrat signé en présentiel sans acceptation").not.toBeNull();
+    expect(relu.accepteLe!.getTime(), "l'acceptation n'est pas l'instant de la signature").toBe(sig.signeLe.getTime());
+    expect(relu.pdfAccepteUrl, "l'exemplaire qui fait foi n'a pas été figé").toBe(S.traceUrl);
+    expect(N.direction, "la Direction présente a été notifiée de son propre geste").toEqual([]);
+
+    // Déjà signé → refus, acceptation inchangée.
+    const encore = await faireSignerDocument("CONTRAT", contrat.id, PNG_VALIDE);
+    expect(encore).toMatchObject({ erreur: "Ce document est déjà signé." });
+    const apres = await prisma.contrat.findUniqueOrThrow({ where: { id: contrat.id } });
+    expect(apres.accepteLe!.getTime()).toBe(relu.accepteLe!.getTime());
   });
 });

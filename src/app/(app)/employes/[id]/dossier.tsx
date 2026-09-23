@@ -237,8 +237,12 @@ export function DossierEmploye({
               </p>
             )}
 
-            {/* L'exemplaire qui fait foi a été figé, puis les conditions ont été corrigées. */}
-            {c.pdfAccepteObsolete && (
+            {/* L'exemplaire qui fait foi a été figé, puis les conditions ont été corrigées.
+                Sauf quand la signature est « à resigner » : `contrat-buffer` ne sert alors PAS
+                l'exemplaire figé (le salarié doit lire les conditions actuelles avant de
+                resigner), et le bouton « À resigner » dit déjà ce qu'il reste à faire — ce
+                bandeau affirmerait le contraire de ce que le PDF montre. */}
+            {c.pdfAccepteObsolete && etatsSignatureContrats[c.id]?.etat !== "A_RESIGNER" && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2">
                 <p className="text-xs font-medium text-destructive">
                   ⚠ L&apos;exemplaire figé ne reflète plus ces conditions (corrigées depuis). C&apos;est pourtant lui qui est servi et qui fait foi.
@@ -375,9 +379,10 @@ export function DossierEmploye({
             {/* Fichier du contrat + attestation + génération PDF */}
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
               <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
-              {/* Une signature valide vaut acceptation : le bouton de signature porte déjà la date,
-                  cette pastille ferait doublon. Et « exemplaire figé » serait faux pour un contrat
-                  signé, dont le PDF est désormais régénéré pour porter le tracé. */}
+              {/* Signer VAUT acceptation (2026-09-23) : la signature pose `accepteLe` au même
+                  instant, et le bouton de signature porte déjà « Signé le … » — cette pastille
+                  ferait doublon. Elle ne subsiste que pour un contrat accepté sans aucune
+                  signature en base (cas résorbé par la migration du lot 2). */}
               {c.accepteLe && (etatsSignatureContrats[c.id]?.etat ?? "A_SIGNER") === "A_SIGNER" && (
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800" title={c.pdfAccepteUrl ? "Le PDF servi est l'exemplaire figé au moment de l'acceptation — il fait foi." : undefined}>
                   Accepté par le salarié le {d(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}

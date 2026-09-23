@@ -6,7 +6,8 @@ import type { CibleSignature } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
-import { documentSignable, enregistrerSignature, decoderTrace } from "@/lib/signature";
+import { documentSignable, decoderTrace } from "@/lib/signature";
+import { signerDocument } from "@/lib/signer-document";
 import { televerserFichier } from "@/lib/storage";
 import { journaliser } from "@/lib/audit";
 import { notifierSalarie, compteSalarieDe } from "@/lib/notifications";
@@ -57,7 +58,9 @@ export const faireSignerDocument = actionLisible(
       "image/png"
     );
 
-    await enregistrerSignature(prisma, {
+    // Pour un contrat, c'est le SALARIÉ qui trace, sur l'appareil qu'on lui tend : sa signature vaut
+    // acceptation exactement comme depuis son espace — même chemin, `lib/signer-document.ts`.
+    await signerDocument({
       cible,
       cibleId,
       employeeId: etat.employeeId,

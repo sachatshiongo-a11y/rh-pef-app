@@ -281,3 +281,41 @@ describe("enregistrerSignature — l'invariant « déjà signé » est tenu par 
     expect(lignes[0].traceUrl).toBe(gagnants[0].url);
   }, 30_000);
 });
+
+describe("enregistrerSignature — signature et acceptation d'un contrat s'écrivent ensemble ou pas du tout", () => {
+  it("si l'acceptation échoue, la signature N'EST PAS enregistrée (une seule transaction)", async () => {
+    // Une panne APRÈS l'écriture de la signature et PENDANT celle de l'acceptation : un déclencheur
+    // Postgres refuse toute mise à jour de CE contrat. Sans transaction, la signature resterait en
+    // base, orpheline de son acceptation — le contrat afficherait « Signé le … » sans être accepté.
+    const { id: contratId } = await prisma.contrat.create({
+      data: {
+        employeeId: empId, type: "CDD", dateDebut: new Date("2026-01-01"), dateFin: new Date("2026-12-31"),
+        heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Test", statut: "ACTIF",
+      },
+    });
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION panne_acceptation() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'panne simulée'; END $$ LANGUAGE plpgsql`
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER panne_acceptation BEFORE UPDATE ON "public"."Contrat" FOR EACH ROW WHEN (OLD."id" = '${contratId}') EXECUTE FUNCTION panne_acceptation()`
+    );
+    try {
+      await expect(
+        enregistrerSignature(prisma, {
+          cible: "CONTRAT", cibleId: contratId, employeeId: empId,
+          traceUrl: "https://storage.test/signatures/CONTRAT/panne.png",
+          mode: "ESPACE_SALARIE", presenteParId: null,
+        })
+      ).rejects.toThrow(/panne simulée/);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER panne_acceptation ON "public"."Contrat"`);
+    }
+
+    const sig = await prisma.signatureElectronique.findUnique({
+      where: { cible_cibleId: { cible: "CONTRAT", cibleId: contratId } },
+    });
+    expect(sig, "signature enregistrée sans acceptation").toBeNull();
+    const contrat = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId } });
+    expect(contrat.accepteLe).toBeNull();
+  });
+});
