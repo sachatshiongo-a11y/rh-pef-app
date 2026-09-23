@@ -19,7 +19,7 @@
 - L'heure d'un pointage est **celle du serveur** au moment du scan. Jamais une heure envoyée par le téléphone.
 - Rayon par défaut **150 m** ; plafond de précision **300 m** ; précision exigée pour régler la position du restaurant : **≤ 100 m** ; double scan : **moins de 5 minutes** après l'arrivée → confirmation.
 - Le décodeur QR tourne **sans worker** (aucun fichier supplémentaire servi derrière le garde d'authentification).
-- Tout texte qui finit dans un PDF passe par `formaterNombre()` / `normaliserEspaces()` de `@/lib/montant` (U+202F absent de la police → texte barré). Aucun symbole hors police (ex. « ⚠ »). Dans les fichiers de test, écrire ` `, jamais le caractère littéral.
+- Tout texte qui finit dans un PDF passe par `formaterNombre()` / `normaliserEspaces()` de `@/lib/montant` (U+202F absent de la police → texte barré). Aucun symbole hors police (ex. « ⚠ »). Dans les fichiers de test, écrire `\u202F`, jamais le caractère littéral.
 - Actions groupées partout où une liste le permet (cases + barre d'actions). Boutons de décision : composants de `@/components/action-buttons` (`BoutonValider`, `BoutonNeutre`, `BoutonDanger`, `CLASSES_NEUTRE`…), jamais de couleurs peintes à la main.
 - Chaque garde-fou est **falsifié** : casser le code de production, montrer le test ROUGE en nommant le défaut, remettre, montrer VERT. Les deux sorties vont dans le rapport de tâche.
 - Commits en français, à l'impératif, terminés par `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
