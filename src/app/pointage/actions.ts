@@ -31,9 +31,12 @@ export const scannerAffiche = actionLisible(
   },
 );
 
-/** Confirmer le départ scanné en saisissant la pause → la journée est close et alimente la paie. */
+/**
+ * Confirmer le départ scanné en saisissant la pause → la journée est close et alimente la paie
+ * (sauf congé approuvé ce jour : `presencesEcrites` faux, l'écran le dit).
+ */
 export const confirmerDepart = actionLisible(
-  async (entree: { scanId: string; pauseMinutes: number }): Promise<{ heureFin: string; heures: number }> => {
+  async (entree: { scanId: string; pauseMinutes: number }): Promise<{ heureFin: string; heures: number; presencesEcrites: boolean }> => {
     const user = await verifySession();
     const employeeId = await employeLieAuCompte(prisma, user.id);
     const r = await confirmerDepartScan(prisma, { employeeId, scanId: String(entree.scanId), pauseMinutes: entree.pauseMinutes });

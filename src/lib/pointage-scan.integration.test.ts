@@ -23,7 +23,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-const { enregistrerScan, confirmerDepartScan } = await import("./pointage-scan");
+const { enregistrerScan, confirmerDepartScan, MESSAGE_DEPART_AUTRE_JOUR } = await import("./pointage-scan");
 const { scannerAffiche, confirmerDepart } = await import("@/app/pointage/actions");
 
 const MESSAGE_AFFICHE = "Cette affiche n'est plus valable, demandez la nouvelle à la Direction.";
@@ -328,8 +328,9 @@ describe("confirmerDepartScan — la pause, puis la clôture", () => {
     const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
     if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
 
-    const r = await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30 });
+    const r = await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30, maintenant: plus(ARRIVEE, 8 * 60 + 5) });
     expect(r.heures).toBe(7.5);
+    expect(r.presencesEcrites).toBe(true);
 
     const heures = await prisma.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId, date: JOUR } } });
     expect(Number(heures?.heuresTravaillees)).toBe(7.5);
@@ -343,7 +344,7 @@ describe("confirmerDepartScan — la pause, puis la clôture", () => {
     const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 12 * 60) });
     if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
 
-    const r = await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 5000 });
+    const r = await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 5000, maintenant: plus(ARRIVEE, 12 * 60) });
     expect(r.heures).toBe(2); // 12 h − 10 h
     expect((await base(employeeId)).pointages[0].pauseMinutes).toBe(600);
   });
@@ -353,9 +354,11 @@ describe("confirmerDepartScan — la pause, puis la clôture", () => {
     await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
     const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
     if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
-    await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30 });
+    await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30, maintenant: plus(ARRIVEE, 8 * 60) });
 
-    await expect(confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 0 })).rejects.toThrow(/déjà/);
+    await expect(
+      confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 0, maintenant: plus(ARRIVEE, 8 * 60 + 1) }),
+    ).rejects.toThrow(/déjà/);
     expect((await base(employeeId)).pointages[0].pauseMinutes).toBe(30);
   });
 
@@ -364,7 +367,7 @@ describe("confirmerDepartScan — la pause, puis la clôture", () => {
     await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
     const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
     if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
-    await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30 });
+    await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30, maintenant: plus(ARRIVEE, 8 * 60) });
     const avant = await base(employeeId);
 
     const r = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 9 * 60) });
@@ -388,6 +391,52 @@ describe("confirmerDepartScan — la pause, puis la clôture", () => {
     expect(b.pointages[0].heureFin).toBeNull();
     expect(await prisma.overtimeEntry.count({ where: { employeeId: collegue.employeeId } })).toBe(0);
     expect(await prisma.attendance.count({ where: { employeeId: collegue.employeeId } })).toBe(0);
+  });
+
+  it("congé approuvé entre l'arrivée et le départ → départ clos, RIEN aux présences, et la réponse le dit", async () => {
+    const { employeeId, userId } = await nouvelEmploye();
+    await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
+    const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
+    if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
+    // La Direction approuve un congé couvrant ce jour pendant que le salarié tape sa pause.
+    await prisma.leaveRequest.create({
+      data: { employeeId, type: "Congé annuel", dateDebut: JOUR, dateFin: JOUR, nbJours: 1, statut: "APPROUVE" },
+    });
+
+    const r = await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30, maintenant: plus(ARRIVEE, 8 * 60 + 2) });
+    expect(r).toEqual({ heureFin: plus(ARRIVEE, 8 * 60).toISOString(), heures: 7.5, presencesEcrites: false });
+    expect((await base(employeeId)).pointages[0].heureFin).toEqual(plus(ARRIVEE, 8 * 60));
+    expect(await prisma.overtimeEntry.count({ where: { employeeId } })).toBe(0);
+    expect(await prisma.attendance.count({ where: { employeeId } })).toBe(0);
+  });
+
+  it("un départ d'un AUTRE jour (Kinshasa) ne se confirme plus : refus, rien d'écrit, les heures corrigées par la Direction restent", async () => {
+    const { employeeId, userId } = await nouvelEmploye();
+    await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
+    const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
+    if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
+    // Entre-temps, la Direction a saisi 6 h pour ce jour dans Présences & heures.
+    await prisma.overtimeEntry.create({ data: { employeeId, date: JOUR, heuresTravaillees: 6 } });
+
+    // 23 h 30 UTC le 15 = 0 h 30 le 16 à Kinshasa : même jour UTC, mais AUTRE jour à Kinshasa.
+    await expect(
+      confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30, maintenant: new Date("2026-09-15T23:30:00Z") }),
+    ).rejects.toThrow(MESSAGE_DEPART_AUTRE_JOUR);
+    const b = await base(employeeId);
+    expect(b.pointages[0].heureFin).toBeNull();
+    expect(b.pointages[0].pauseMinutes).toBe(0);
+    const heures = await prisma.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId, date: JOUR } } });
+    expect(Number(heures?.heuresTravaillees)).toBe(6);
+  });
+
+  it("le même jour à Kinshasa, jusqu'à 23 h 59, la confirmation passe", async () => {
+    const { employeeId, userId } = await nouvelEmploye();
+    await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
+    const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
+    if (d.etat !== "DEPART_A_CONFIRMER") throw new Error(`état inattendu : ${d.etat}`);
+    // 22 h 59 UTC le 15 = 23 h 59 le 15 à Kinshasa.
+    const r = await confirmerDepartScan(prisma, { employeeId, scanId: d.scanId, pauseMinutes: 30, maintenant: new Date("2026-09-15T22:59:00Z") });
+    expect(r.presencesEcrites).toBe(true);
   });
 
   it("confirmer un scan d'ARRIVÉE comme un départ → refus, rien d'écrit", async () => {

@@ -33,8 +33,12 @@ export async function refusSiPaieValideeOuConge(client: Client, employeeId: stri
   if (conge) throw new Error("Vous êtes en congé approuvé aujourd'hui — pas de pointage.");
 }
 
-/** Écrit un jour pointé dans Présences (code P/F) + Heures — mêmes garde-fous que l'import IVMS. */
-export async function appliquerAuxPresences(client: Client, employeeId: string, date: Date, heures: number): Promise<void> {
+/**
+ * Écrit un jour pointé dans Présences (code P/F) + Heures — mêmes garde-fous que l'import IVMS.
+ * Renvoie `true` si les présences et les heures ont été écrites, `false` si un congé approuvé
+ * couvre ce jour (le congé prime : rien n'est écrit) — l'écran doit alors le dire.
+ */
+export async function appliquerAuxPresences(client: Client, employeeId: string, date: Date, heures: number): Promise<boolean> {
   const mois = date.getUTCMonth() + 1;
   const annee = date.getUTCFullYear();
   const run = await client.payrollRun.findUnique({ where: { mois_annee: { mois, annee } }, select: { statut: true } });
@@ -45,7 +49,7 @@ export async function appliquerAuxPresences(client: Client, employeeId: string, 
     where: { employeeId, statut: "APPROUVE", dateDebut: { lte: date }, dateFin: { gte: date } },
     select: { id: true },
   });
-  if (conge) return;
+  if (conge) return false;
 
   await client.overtimeEntry.upsert({
     where: { employeeId_date: { employeeId, date } },
@@ -55,4 +59,5 @@ export async function appliquerAuxPresences(client: Client, employeeId: string, 
   const ferie = await client.jourFerie.findFirst({ where: { date }, select: { id: true } });
   const presence = await client.attendance.findUnique({ where: { employeeId_date: { employeeId, date } } });
   if (!presence) await client.attendance.create({ data: { employeeId, date, code: ferie ? "F" : "P" } });
+  return true;
 }

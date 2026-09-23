@@ -184,31 +184,49 @@ async function scanner(
   });
 }
 
+/** Un départ d'un autre jour ne se confirme plus : la Direction a pu corriger ces heures depuis. */
+export const MESSAGE_DEPART_AUTRE_JOUR =
+  "Ce départ a été scanné un autre jour : il ne peut plus être confirmé ici, la journée n'a pas été close. Pour les heures de ce jour, adressez-vous à la Direction.";
+
 /**
  * Clôt la journée : `heureFin` = l'instant du SCAN de départ (jamais l'heure de la confirmation),
  * pause bornée 0-600 min, heures nettes écrites aux présences — le tout dans une transaction.
+ *
+ * Seulement LE JOUR MÊME (Kinshasa) : un identifiant de scan ancien (onglet resté ouvert, requête
+ * rejouée) ne doit pas réécrire des heures que la Direction a corrigées entre-temps.
+ *
+ * `presencesEcrites` : faux quand un congé a été approuvé pour ce jour entre l'arrivée et le départ.
+ * Le départ est clos, mais rien n'est écrit aux présences ni aux heures (le congé prime) — l'écran
+ * le dit, au lieu d'annoncer une journée enregistrée.
  */
 export async function confirmerDepartScan(
   client: PrismaClient,
-  p: { employeeId: string; scanId: string; pauseMinutes: number },
-): Promise<{ heureFin: string; heures: number }> {
+  p: {
+    employeeId: string;
+    scanId: string;
+    pauseMinutes: number;
+    maintenant?: Date; // injection pour les tests UNIQUEMENT : en production, l'heure du serveur
+  },
+): Promise<{ heureFin: string; heures: number; presencesEcrites: boolean }> {
   const pauseMinutes = Math.round(Math.max(0, Math.min(600, Number(p.pauseMinutes) || 0)));
   const scan = await client.scanPointage.findUnique({ where: { id: p.scanId }, include: { pointage: true } });
   // Même message pour « inexistant », « d'un collègue » et « pas un départ » : rien ne se devine.
   if (!scan || scan.employeeId !== p.employeeId || scan.pointage.employeeId !== p.employeeId || scan.moment !== "DEPART")
     throw new Error("Ce départ est introuvable.");
   if (scan.pointage.heureFin) throw new Error("Votre départ est déjà confirmé.");
+  if (scan.pointage.date.getTime() !== dateDuJourKinshasa(p.maintenant ?? new Date()).getTime())
+    throw new Error(MESSAGE_DEPART_AUTRE_JOUR);
 
   const heureFin = scan.instant;
   const heures = heuresNettes(scan.pointage.heureDebut, heureFin, pauseMinutes);
-  await client.$transaction(async (tx) => {
+  const presencesEcrites = await client.$transaction(async (tx) => {
     // `heureFin: null` dans le filtre : deux confirmations simultanées, une seule clôt.
     const clos = await tx.pointage.updateMany({
       where: { id: scan.pointageId, heureFin: null },
       data: { heureFin, pauseMinutes },
     });
     if (clos.count === 0) throw new Error("Votre départ est déjà confirmé.");
-    await appliquerAuxPresences(tx, p.employeeId, scan.pointage.date, heures);
+    return appliquerAuxPresences(tx, p.employeeId, scan.pointage.date, heures);
   });
-  return { heureFin: heureFin.toISOString(), heures };
+  return { heureFin: heureFin.toISOString(), heures, presencesEcrites };
 }
