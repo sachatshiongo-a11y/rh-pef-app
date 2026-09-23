@@ -7,7 +7,12 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { estErreur } from "@/lib/action-lisible";
 import { formaterNombre } from "@/lib/montant";
-import { lireCoordonneesSaisies, MESSAGE_POSITION_NON_REGLEE, PRECISION_REGLAGE_MAX_M } from "@/lib/pointage-qr";
+import {
+  coordonneesSaisissables,
+  lireCoordonneesSaisies,
+  MESSAGE_POSITION_NON_REGLEE,
+  PRECISION_REGLAGE_MAX_M,
+} from "@/lib/pointage-qr";
 import { changerCodeAffiche, reglerPositionRestaurant, reglerRayon } from "./pointage-actions";
 
 // Paramètres → Pointage : la position du restaurant (GPS sur place, ou coordonnées copiées depuis
@@ -17,8 +22,6 @@ import { changerCodeAffiche, reglerPositionRestaurant, reglerRayon } from "./poi
 
 const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
 const CLASSES_ENREGISTRER = `${CLASSES_GEOMETRIE} bg-primary text-primary-foreground hover:bg-primary/90`;
-
-const coord = (x: number) => formaterNombre(x, { minimumFractionDigits: 4, maximumFractionDigits: 6 });
 
 export type ReglagesPointage = {
   lat: number | null;
@@ -121,8 +124,8 @@ export function PointageReglages({ reglages }: { reglages: ReglagesPointage }) {
         <h3 className="font-medium">Position du restaurant</h3>
         {positionReglee ? (
           <p>
-            Latitude <b className="tabular-nums">{coord(reglages.lat!)}</b> · Longitude{" "}
-            <b className="tabular-nums">{coord(reglages.lng!)}</b>
+            {/* Au format du champ de saisie (point décimal) : se recopie tel quel. */}
+            Latitude, longitude <b className="select-all tabular-nums">{coordonneesSaisissables(reglages.lat!, reglages.lng!)}</b>
             {reglages.mesure && <span className="text-muted-foreground"> · {reglages.mesure}</span>}{" "}
             <a
               href={`https://www.google.com/maps?q=${reglages.lat},${reglages.lng}`}

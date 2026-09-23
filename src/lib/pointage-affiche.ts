@@ -28,22 +28,29 @@ export async function exigerPositionReglee(client: Client): Promise<{ code: stri
  * inutilisables — c'est le rôle de « Changer le code »), ou, s'il n'y en a aucun, un nouveau.
  * L'écriture est conditionnelle (`pointageCode` encore nul) : deux impressions simultanées ne
  * créent qu'un code, et toutes deux impriment celui-là.
+ *
+ * La création du code et sa ligne au journal sont dans UNE transaction : pas de code créé sans
+ * trace de son auteur (`auteurId` est donc obligatoire), comme `changerCodeAffiche`.
  */
-export async function codeAfficheAImprimer(client: PrismaClient, auteurId?: string): Promise<string> {
-  const { code } = await exigerPositionReglee(client);
-  if (code) return code;
-  const cree = await client.config.updateMany({
-    where: { id: "singleton", pointageCode: null },
-    data: { pointageCode: genererCodeAffiche() },
-  });
-  if (cree.count === 1 && auteurId) {
-    // Le code est un secret : il n'est JAMAIS écrit au journal, seulement l'événement.
-    await journaliser(client, {
-      entite: "Config", entiteId: "singleton", champ: "pointageCode",
-      ancienneValeur: "aucun", nouvelleValeur: "code créé à la première impression de l'affiche", userId: auteurId,
+export async function codeAfficheAImprimer(client: PrismaClient, auteurId: string): Promise<string> {
+  return client.$transaction(async (tx) => {
+    const { code } = await exigerPositionReglee(tx);
+    if (code) return code;
+    const cree = await tx.config.updateMany({
+      where: { id: "singleton", pointageCode: null },
+      data: { pointageCode: genererCodeAffiche() },
     });
-  }
-  const relu = await client.config.findUniqueOrThrow({ where: { id: "singleton" }, select: { pointageCode: true } });
-  if (!relu.pointageCode) throw new Error("Le code de l'affiche n'a pas pu être créé. Réessayez.");
-  return relu.pointageCode;
+    if (cree.count === 1) {
+      // Le code est un secret : il n'est JAMAIS écrit au journal, seulement l'événement.
+      await journaliser(tx, {
+        entite: "Config", entiteId: "singleton", champ: "pointageCode",
+        ancienneValeur: "aucun", nouvelleValeur: "code créé à la première impression de l'affiche", userId: auteurId,
+      });
+    }
+    // Perdant d'une impression simultanée : `updateMany` a attendu la fin de la transaction du
+    // gagnant (verrou de ligne) puis n'a rien écrit ; cette relecture voit le code qu'il a créé.
+    const relu = await tx.config.findUniqueOrThrow({ where: { id: "singleton" }, select: { pointageCode: true } });
+    if (!relu.pointageCode) throw new Error("Le code de l'affiche n'a pas pu être créé. Réessayez.");
+    return relu.pointageCode;
+  });
 }

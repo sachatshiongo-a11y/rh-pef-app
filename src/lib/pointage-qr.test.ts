@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   distanceMetres, verdictPosition, urlAffiche, lireCodeDepuisQr,
-  lireCoordonneesSaisies, libelleMotif, resumePointagesSemaine, scanAVerifier,
+  coordonneesSaisissables, lireCoordonneesSaisies, libelleMotif, resumePointagesSemaine, scanAVerifier,
 } from "./pointage-qr";
 import { codesEgaux, genererCodeAffiche } from "./pointage-code";
 
@@ -74,6 +74,22 @@ describe("coordonnées saisies", () => {
     expect(lireCoordonneesSaisies("95, 15")).toBeNull();
     expect(lireCoordonneesSaisies("-4.3, 190")).toBeNull();
     expect(lireCoordonneesSaisies("Kinshasa")).toBeNull();
+  });
+});
+
+describe("coordonneesSaisissables : l'affichage se recopie dans le champ", () => {
+  it("point décimal, virgule entre latitude et longitude", () => {
+    expect(coordonneesSaisissables(-4.3217, 15.3125)).toBe("-4.3217, 15.3125");
+    expect(coordonneesSaisissables(-4.321712, 15.312543)).toBe("-4.321712, 15.312543");
+  });
+  it("jamais la virgule décimale française, six décimales au plus, sans zéros de fin", () => {
+    expect(coordonneesSaisissables(-4.3217, 15.3125)).not.toMatch(/\d,\d/);
+    expect(coordonneesSaisissables(-4.32171249, 15)).toBe("-4.321712, 15");
+  });
+  it("ce qui est affiché se relit à l'identique par le champ de saisie", () => {
+    for (const [lat, lng] of [[-4.3217, 15.3125], [-4.321712, 15.312543], [0.5, -0.25], [-90, 180]]) {
+      expect(lireCoordonneesSaisies(coordonneesSaisissables(lat, lng))).toEqual({ lat, lng });
+    }
   });
 });
 

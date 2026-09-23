@@ -95,6 +95,17 @@ export function lireCoordonneesSaisies(texte: string): Coordonnees | null {
   return { lat, lng };
 }
 
+/**
+ * Les coordonnées du restaurant AU FORMAT DE SAISIE (« -4.3217, 15.3125 » : point décimal, virgule
+ * entre les deux) — pour qu'on puisse les recopier telles quelles dans le champ, que relit
+ * `lireCoordonneesSaisies`. Jamais la virgule décimale française (« -4,3217 ») : elle ne se relit pas.
+ * Six décimales au plus (colonnes Decimal(9, 6)), zéros de fin retirés.
+ */
+export function coordonneesSaisissables(lat: number, lng: number): string {
+  const f = (x: number) => x.toFixed(6).replace(/\.?0+$/, "");
+  return `${f(lat)}, ${f(lng)}`;
+}
+
 /** Libellé lisible du motif d'un verdict « à vérifier » (affiché au Suivi de la Direction). */
 export function libelleMotif(v: VerdictPosition): string {
   if (v.verdict === "AU_RESTAURANT") return "au restaurant";

@@ -244,8 +244,23 @@ describe("imprimer l'affiche", () => {
   it("deux impressions simultanées sans code n'en créent qu'un, le même pour les deux", async () => {
     await regler({ lat: RESTAURANT.lat, lng: RESTAURANT.lng, code: null });
     const { codeAfficheAImprimer } = await import("@/lib/pointage-affiche");
-    const [a, b] = await Promise.all([codeAfficheAImprimer(prisma), codeAfficheAImprimer(prisma)]);
+    const journalAvant = await journalDe("pointageCode");
+    const [a, b] = await Promise.all([codeAfficheAImprimer(prisma, adminId), codeAfficheAImprimer(prisma, adminId)]);
     expect(a).toBe(b);
     expect((await etat()).code).toBe(a);
+    // Un seul code créé → une seule ligne de plus au journal, au nom de son auteur.
+    const journalApres = await journalDe("pointageCode");
+    expect(journalApres.length).toBe(journalAvant.length + 1);
+    expect(journalApres).toContainEqual({ userId: adminId, ancienneValeur: "aucun", nouvelleValeur: "code créé à la première impression de l'affiche" });
+  });
+
+  it("création du code et journal sont UNE transaction : si le journal échoue, aucun code n'est créé", async () => {
+    await regler({ lat: RESTAURANT.lat, lng: RESTAURANT.lng, code: null });
+    const { codeAfficheAImprimer } = await import("@/lib/pointage-affiche");
+    const avant = await etat();
+    // Auteur inexistant : la ligne du journal viole sa clé étrangère vers User.
+    await expect(codeAfficheAImprimer(prisma, "auteur-inexistant")).rejects.toThrow();
+    expect(await etat()).toEqual(avant);
+    expect(avant.code).toBeNull();
   });
 });
