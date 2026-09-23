@@ -27,7 +27,7 @@ async function lire(pdf: Buffer): Promise<{ texte: string; pages: number }> {
   return { texte: pages.map((p) => p.text).join("\n").replace(/\s+/g, " "), pages: total };
 }
 
-/** Tous les caractères que le générateur produit (50 000 tirages : aucun ne manque en pratique). */
+/** Tous les caractères que le générateur produit (5 000 mots de passe, soit 50 000 caractères tirés : aucun ne manque en pratique). */
 function caracteresDesMotsDePasse(): string[] {
   const vus = new Set<string>();
   for (let i = 0; i < 5000; i++) for (const c of genererMotDePasseTemporaire()) vus.add(c);

@@ -30,6 +30,19 @@ function nomDepuisEntetes(headers: Headers, defaut: string): string {
 }
 
 /**
+ * Ce que veut dire la fin de `navigator.share`. Fonction PURE (ce dépôt n'a pas de DOM en test).
+ * Une ANNULATION (AbortError) n'est PAS un enregistrement : le fichier n'est allé nulle part. La
+ * confondre avec un succès ferait croire à l'écran des comptes en lot que les fiches — seul
+ * exemplaire des mots de passe — sont enregistrées. Toute autre erreur : on tente le repli.
+ */
+export type IssuePartage = "partage" | "annule" | "repli";
+
+export function issuePartage(r: { ok: true } | { erreur: unknown }): IssuePartage {
+  if ("ok" in r) return "partage";
+  return (r.erreur as Error | null)?.name === "AbortError" ? "annule" : "repli";
+}
+
+/**
  * Le GESTE D'ENREGISTREMENT d'un fichier déjà en mémoire, partagé par `TelechargerLien` (fichier
  * récupéré par `fetch`) et par les écrans qui reçoivent un document dans la réponse d'une action
  * serveur (ex. fiches de connexion, Paramètres → Espace salarié) :
@@ -38,8 +51,12 @@ function nomDepuisEntetes(headers: Headers, defaut: string): string {
  *   2) sinon (ou si le partage échoue autrement que par une annulation) : téléchargement classique
  *      via un lien blob invisible.
  * À appeler depuis un geste de l'utilisateur (un clic) : iOS refuse le partage hors geste.
+ *
+ * Renvoie `false` si l'utilisateur a ANNULÉ la feuille de partage (rien n'est enregistré), `true`
+ * si la feuille s'est conclue ou si le lien de téléchargement a été déclenché. `true` ne prouve
+ * pas que le fichier est sur le disque (le navigateur ne le dit pas) : seulement qu'il est parti.
  */
-export async function enregistrerFichier(blob: Blob, nom: string): Promise<void> {
+export async function enregistrerFichier(blob: Blob, nom: string): Promise<boolean> {
   const type = blob.type || "application/octet-stream";
   const file = new File([blob], nom, { type });
 
@@ -52,13 +69,16 @@ export async function enregistrerFichier(blob: Blob, nom: string): Promise<void>
     share?: (data?: ShareData) => Promise<void>;
   };
   if (tactile && nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+    let issue: IssuePartage;
     try {
       await nav.share({ files: [file], title: nom });
-      return;
+      issue = issuePartage({ ok: true });
     } catch (err) {
-      // Annulé par l'utilisateur → on s'arrête. Autre erreur → on tente le repli.
-      if ((err as Error)?.name === "AbortError") return;
+      issue = issuePartage({ erreur: err });
     }
+    // Annulé par l'utilisateur → on s'arrête, RIEN n'est enregistré. Autre erreur → repli.
+    if (issue === "partage") return true;
+    if (issue === "annule") return false;
   }
 
   // 2) Ordinateur : téléchargement classique.
@@ -70,6 +90,7 @@ export async function enregistrerFichier(blob: Blob, nom: string): Promise<void>
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return true;
 }
 
 /**

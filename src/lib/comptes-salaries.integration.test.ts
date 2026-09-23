@@ -273,13 +273,14 @@ describe("creerComptesEnLot (Paramètres → Espace salarié)", () => {
     expect(await prisma.user.findMany({ where: { employeeId: { in: [a.id, b.id] } }, orderBy: { email: "asc" } })).toEqual(avant);
   }, 60_000);
 
-  it("PDF impossible à produire : l'erreur nomme les comptes créés et le recours, les comptes restent", async () => {
+  it("PDF impossible à produire : l'erreur nomme les comptes créés, le recours ET les non-créés ; les comptes restent", async () => {
     const a = await salarie("Sans Fiche");
+    const parti = await salarie("Sans Fiche Parti", { actif: false });
     PDF.enPanne = true;
-    expect(await creerComptesEnLot([a.id])).toEqual({
+    expect(await creerComptesEnLot([a.id, parti.id])).toEqual({
       erreur:
         "Les comptes de Sans Fiche ont été créés, mais les fiches n'ont pas pu être produites : " +
-        "réinitialisez leur mot de passe depuis leur fiche employé.",
+        "réinitialisez leur mot de passe depuis leur fiche employé. Non créés : Sans Fiche Parti (n'est plus actif).",
     });
     expect(await prisma.user.findUnique({ where: { employeeId: a.id } })).not.toBeNull();
   });

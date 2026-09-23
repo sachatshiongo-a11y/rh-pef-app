@@ -45,10 +45,12 @@ export const creerComptesEnLot = actionLisible(async (employeeIds: string[]): Pr
     });
   } catch {
     // Les comptes existent, mais leurs mots de passe sont perdus avec ce PDF : le dire, nommer les
-    // salariés, et indiquer le seul recours (qui ne réécrit aucun autre compte).
+    // salariés, indiquer le seul recours (qui ne réécrit aucun autre compte), et ne pas perdre la
+    // liste des non-créés que l'écran aurait affichée.
+    const nonCrees = ignores.length > 0 ? ` Non créés : ${ignores.map((i) => `${i.nom} (${i.raison})`).join(", ")}.` : "";
     throw new Error(
       `Les comptes de ${crees.map((c) => c.nom).join(", ")} ont été créés, mais les fiches n'ont pas pu être produites : ` +
-        "réinitialisez leur mot de passe depuis leur fiche employé.",
+        `réinitialisez leur mot de passe depuis leur fiche employé.${nonCrees}`,
     );
   }
 

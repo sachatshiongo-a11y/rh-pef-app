@@ -46,8 +46,9 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieSansCompte[] }) {
   const [resultat, setResultat] = useState<Resultat | null>(null);
   const [enregistre, setEnregistre] = useState(false);
 
-  // Tant que les fiches n'ont pas été enregistrées une fois, quitter la page les perdrait (et avec
-  // elles les mots de passe) : le navigateur demande confirmation.
+  // Tant que les fiches n'ont pas été enregistrées une fois, fermer ou recharger l'onglet les
+  // perdrait (et avec elles les mots de passe) : le navigateur demande confirmation. Cette garde ne
+  // voit PAS la navigation interne (menu, liens) : l'écran le dit en toutes lettres.
   const pdfEnAttente = !!resultat?.pdf && !enregistre;
   useEffect(() => {
     if (!pdfEnAttente) return;
@@ -77,7 +78,18 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieSansCompte[] }) {
       return;
     setErreur(null);
     demarrer(async () => {
-      const r = await creerComptesEnLot(ids);
+      let r: Awaited<ReturnType<typeof creerComptesEnLot>>;
+      try {
+        r = await creerComptesEnLot(ids);
+      } catch {
+        // Réponse perdue (réseau coupé, serveur redémarré) : le serveur a pu créer des comptes
+        // dont les mots de passe ne nous parviendront jamais. Le dire, et montrer la liste à jour.
+        setErreur(
+          "La réponse du serveur est perdue : des comptes ont peut-être été créés. Rechargez la page pour voir qui a encore besoin d'un compte ; pour les comptes créés, réinitialisez le mot de passe depuis la fiche du salarié.",
+        );
+        router.refresh();
+        return;
+      }
       if (estErreur(r)) {
         setErreur(r.erreur);
         router.refresh(); // des comptes ont pu être créés avant l'erreur : la liste doit le montrer
@@ -99,8 +111,13 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieSansCompte[] }) {
   async function enregistrer() {
     if (!resultat?.pdf) return;
     try {
-      await enregistrerFichier(resultat.pdf, resultat.nomFichier);
-      setEnregistre(true);
+      // `false` = feuille de partage ANNULÉE : rien n'est enregistré, la garde de sortie reste.
+      if (await enregistrerFichier(resultat.pdf, resultat.nomFichier)) {
+        setErreur(null);
+        setEnregistre(true);
+      } else {
+        setErreur("Enregistrement annulé : les fiches ne sont pas enregistrées. Appuyez de nouveau sur « Enregistrer les fiches de connexion (PDF) ».");
+      }
     } catch {
       setErreur("L'enregistrement des fiches a échoué. Réessayez avec le même bouton : ne quittez pas cette page.");
     }
@@ -137,10 +154,15 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieSansCompte[] }) {
                 </button>
                 <span className="text-xs text-muted-foreground">
                   {enregistre
-                    ? "Fiches enregistrées. Imprimez-les, découpez-les, remettez chaque fiche en main propre."
+                    ? "Fiches envoyées à l'enregistrement. Vérifiez le fichier avant de quitter cette page."
                     : "Seul exemplaire des mots de passe : enregistrez-le avant de quitter cette page."}
                 </span>
               </div>
+              {/* La garde `beforeunload` ne voit que la fermeture ou le rechargement de l'onglet :
+                  ni le menu ni un lien interne. On le dit plutôt que de promettre une protection. */}
+              <p className="text-xs font-medium text-amber-800">
+                N&apos;ouvrez aucune autre page avant d&apos;avoir enregistré et vérifié le fichier.
+              </p>
             </>
           ) : (
             <p className="font-medium">Aucun compte créé.</p>
