@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { Client } from "pg";
 import { creerBaseTest } from "@/lib/test/db";
 
 // Le planning est une pièce de paie depuis le 2026-09-23 : tracé à chaque changement, verrouillé
@@ -17,6 +18,7 @@ const { ecrireCreneaux, PlanningVerrouilleError } = await import("./planning-ecr
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
+let url = "";
 let userId = "";
 let valide = "";
 let ouvert = "";
@@ -30,7 +32,7 @@ const journal = (employeeId: string, iso: string) =>
 
 beforeAll(async () => {
   const db = await creerBaseTest();
-  prisma = db.prisma; fermer = db.fermer; H.client = prisma;
+  prisma = db.prisma; fermer = db.fermer; url = db.url; H.client = prisma;
   userId = (await prisma.user.create({ data: { email: "planning@pef.cd", nom: "Direction", role: "ADMIN" } })).id;
   const base = { sexe: "F", etatCivil: "Célibataire", poste: "Serveur", secteur: "Salle", categorie: "BRIGADE" as const, salaireMensuel: 200, dateEmbauche: d("2025-01-06"), contrat: "CDD", enfants: 0 };
   valide = (await prisma.employee.create({ data: { ...base, matricule: "VA01-PEF", nom: "Martine Mutombo" } })).id;
@@ -68,6 +70,11 @@ describe("ecrireCreneaux — trace", () => {
     await ecrire([{ employeeId: ouvert, date: d("2026-09-12"), shiftId: matin }], { genereAuto: true });
     expect((await prisma.planningCreneau.findFirstOrThrow({ where: { employeeId: ouvert, date: d("2026-09-12") } })).genereAuto).toBe(true);
   });
+
+  it("supprimer un créneau absent : 0 changement, 0 entrée de journal", async () => {
+    expect(await ecrire([{ employeeId: ouvert, date: d("2026-09-22"), shiftId: null }])).toBe(0);
+    expect(await journal(ouvert, "2026-09-22")).toHaveLength(0);
+  });
 });
 
 describe("ecrireCreneaux — verrou", () => {
@@ -78,7 +85,7 @@ describe("ecrireCreneaux — verrou", () => {
     ]);
     await expect(tentative).rejects.toBeInstanceOf(PlanningVerrouilleError);
     await expect(ecrire([{ employeeId: valide, date: d("2026-09-15"), shiftId: matin }])).rejects.toThrow(
-      "Planning verrouillé : paie validée pour Martine Mutombo (septembre 2026). Rouvrir la ligne de paie avant de modifier ce planning.",
+      "Planning verrouillé : paie validée ou payée pour Martine Mutombo (septembre 2026). Rouvrir la ligne de paie avant de modifier ce planning.",
     );
     expect(await prisma.planningCreneau.count({ where: { date: d("2026-09-15") } })).toBe(0);
     expect(await journal(ouvert, "2026-09-15")).toHaveLength(0);
@@ -98,6 +105,86 @@ describe("ecrireCreneaux — verrou", () => {
 
   it("paie PAYÉE → refus aussi", async () => {
     await prisma.payrollLine.updateMany({ where: { employeeId: valide }, data: { statutPaiement: "PAYE" } });
-    await expect(ecrire([{ employeeId: valide, date: d("2026-09-20"), shiftId: null }])).rejects.toBeInstanceOf(PlanningVerrouilleError);
+    await expect(ecrire([{ employeeId: valide, date: d("2026-09-20"), shiftId: null }])).rejects.toThrow(
+      "Planning verrouillé : paie validée ou payée pour Martine Mutombo (septembre 2026). Rouvrir la ligne de paie avant de modifier ce planning.",
+    );
+  });
+
+  it("tout ou rien SANS transaction : client global, lot [ouvert, verrouillé] → rien d'écrit, ni créneau ni journal", async () => {
+    // Pas de $transaction ici : si le verrou était vérifié APRÈS les écritures, le créneau du
+    // salarié ouvert resterait en base (rien ne l'annulerait).
+    await expect(ecrireCreneaux(prisma, userId, [
+      { employeeId: ouvert, date: d("2026-09-21"), shiftId: matin },
+      { employeeId: valide, date: d("2026-09-21"), shiftId: matin },
+    ])).rejects.toBeInstanceOf(PlanningVerrouilleError);
+    expect(await prisma.planningCreneau.count({ where: { date: d("2026-09-21") } })).toBe(0);
+    expect(await journal(ouvert, "2026-09-21")).toHaveLength(0);
+    expect(await journal(valide, "2026-09-21")).toHaveLength(0);
+  });
+
+  it("concurrence : pendant l'écriture, la validation de la paie du salarié attend (verrou partagé sur la ligne)", async () => {
+    const externe = new Client({ connectionString: url });
+    await externe.connect();
+    let relacher!: () => void;
+    const relache = new Promise<void>((r) => { relacher = r; });
+    let ecrit!: () => void;
+    const aEcrit = new Promise<void>((r) => { ecrit = r; });
+    const ecriture = prisma.$transaction(async (tx) => {
+      await ecrireCreneaux(tx, userId, [{ employeeId: ouvert, date: d("2026-09-23"), shiftId: matin }]);
+      ecrit();
+      await relache; // transaction encore ouverte : le verrou partagé est tenu
+    });
+    try {
+      await aEcrit;
+      await externe.query("SET lock_timeout = '300ms'");
+      // La « validation » concurrente : même UPDATE que la validation d'une ligne de paie.
+      await expect(
+        externe.query(`UPDATE "public"."PayrollLine" SET "statutPaiement" = 'VALIDE' WHERE "employeeId" = $1`, [ouvert]),
+      ).rejects.toMatchObject({ code: "55P03" }); // lock_not_available : elle a dû attendre
+    } finally {
+      relacher();
+      await ecriture;
+      await externe.end();
+    }
+    expect((await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ouvert } })).statutPaiement).toBe("PAS_VALIDE");
+  });
+});
+
+describe("ecrireCreneaux — erreurs de programmation, levées avant toute lecture ou écriture", () => {
+  // Un client qui note chaque accès et refuse tout : l'erreur attendue doit sortir SANS l'avoir touché.
+  const espion = () => {
+    const acces: string[] = [];
+    const tx = new Proxy({}, { get: (_t, p) => { acces.push(String(p)); throw new Error(`client touché : ${String(p)}`); } });
+    return { acces, tx: tx as Prisma.TransactionClient };
+  };
+
+  it("opération en double (même salarié, même jour) → erreur, rien d'écrit", async () => {
+    await expect(ecrire([
+      { employeeId: ouvert, date: d("2026-09-18"), shiftId: matin },
+      { employeeId: ouvert, date: d("2026-09-18"), shiftId: soir },
+    ])).rejects.toThrow(`ecrireCreneaux : opération en double pour ${ouvert}|2026-09-18`);
+    expect(await prisma.planningCreneau.count({ where: { employeeId: ouvert, date: d("2026-09-18") } })).toBe(0);
+    expect(await journal(ouvert, "2026-09-18")).toHaveLength(0);
+    const { acces, tx } = espion();
+    await expect(ecrireCreneaux(tx, userId, [
+      { employeeId: ouvert, date: d("2026-09-18"), shiftId: matin },
+      { employeeId: ouvert, date: d("2026-09-18"), shiftId: null },
+    ])).rejects.toThrow(`ecrireCreneaux : opération en double pour ${ouvert}|2026-09-18`);
+    expect(acces).toEqual([]);
+  });
+
+  it("date qui n'est pas à minuit UTC (heure de Kinshasa, date invalide) → erreur, rien d'écrit", async () => {
+    const kinshasa = new Date("2026-09-19T00:00:00+01:00"); // = 18/09 23:00 UTC
+    await expect(ecrire([
+      { employeeId: ouvert, date: d("2026-09-19"), shiftId: matin },
+      { employeeId: ouvert, date: kinshasa, shiftId: matin },
+    ])).rejects.toThrow(`ecrireCreneaux : date non normalisée pour ${ouvert} (2026-09-18T23:00:00.000Z) : attendu minuit UTC`);
+    expect(await prisma.planningCreneau.count({ where: { employeeId: ouvert, date: { in: [d("2026-09-18"), d("2026-09-19")] } } })).toBe(0);
+    const { acces, tx } = espion();
+    await expect(ecrireCreneaux(tx, userId, [{ employeeId: ouvert, date: kinshasa, shiftId: matin }])).rejects.toThrow("date non normalisée");
+    await expect(ecrireCreneaux(tx, userId, [{ employeeId: ouvert, date: new Date("n'importe quoi"), shiftId: matin }])).rejects.toThrow(
+      `ecrireCreneaux : date non normalisée pour ${ouvert} (date invalide) : attendu minuit UTC`,
+    );
+    expect(acces).toEqual([]);
   });
 });
