@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { ScannerAffiche } from "@/components/pointage/scanner-affiche";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
-import { saisirHoraireManuel, type ResultatPointage } from "./pointer-actions";
 
 // L'écran « Pointer » : l'état du jour (cadran) et le SCANNER de l'affiche. Plus aucun bouton
-// « Pointer mon arrivée / mon départ » : on ne pointe qu'en scannant l'affiche du restaurant
-// (docs/superpowers/specs/2026-09-23-pointage-qr-design.md, §7).
+// « Pointer mon arrivée / mon départ », ni de saisie manuelle par le salarié : on ne pointe
+// qu'en scannant l'affiche du restaurant (docs/superpowers/specs/2026-09-23-pointage-qr-design.md,
+// §7). Un oubli de pointage se corrige uniquement par la Direction (Heures supp., Présences).
 
 type PointageVue = { heureDebut: string; heureFin: string | null; pauseMinutes: number } | null;
 
@@ -33,10 +32,6 @@ export function PointerClient({
   /** Instant ISO du départ SCANNÉ dont la pause n'est pas encore saisie (null sinon). */
   departScanne: string | null;
 }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
-  const [manuel, setManuel] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
   const enCours = !!pointage && !pointage.heureFin;
@@ -60,22 +55,6 @@ export function PointerClient({
   const ecoule = pauseAttendue && pointage
     ? new Date(departScanne!).getTime() - new Date(pointage.heureDebut).getTime()
     : elapsed;
-
-  const run = (fn: () => Promise<ResultatPointage>) => {
-    setErr(null);
-    start(async () => {
-      const r = await fn();
-      if (!r.ok) setErr(r.message ?? "Une erreur est survenue.");
-      else router.refresh();
-    });
-  };
-
-  const soumettreManuel = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    run(() => saisirHoraireManuel(fd));
-    setManuel(false);
-  };
 
   const heuresNettes = termine && pointage
     ? Math.max(0, (new Date(pointage.heureFin!).getTime() - new Date(pointage.heureDebut).getTime()) / 3_600_000 - pointage.pauseMinutes / 60)
@@ -122,10 +101,6 @@ export function PointerClient({
             )}
           </div>
 
-          {err && (
-            <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>
-          )}
-
           {termine && (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center text-sm font-medium text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
               ✓ Journée enregistrée dans vos présences et vos heures.
@@ -134,39 +109,9 @@ export function PointerClient({
         </div>
       </div>
 
-      {/* Horaire manuel (oubli) */}
-      <div className="rounded-2xl border bg-card">
-        <button
-          onClick={() => setManuel((v) => !v)}
-          className="flex w-full items-center justify-between px-5 py-3 text-sm font-medium"
-        >
-          <span>+ Ajouter un horaire manuel (oubli)</span>
-          <span className="text-muted-foreground">{manuel ? "−" : "+"}</span>
-        </button>
-        {manuel && (
-          <form onSubmit={soumettreManuel} className="grid grid-cols-2 gap-3 border-t p-5">
-            <label className="col-span-2 flex flex-col gap-1 text-xs">
-              Jour
-              <input name="date" type="date" required className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              Arrivée
-              <input name="heureDebut" type="time" required className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
-            </label>
-            <label className="flex flex-col gap-1 text-xs">
-              Départ
-              <input name="heureFin" type="time" required className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
-            </label>
-            <label className="col-span-2 flex flex-col gap-1 text-xs">
-              Pause (minutes)
-              <input name="pauseMinutes" type="number" min={0} max={600} step={5} defaultValue={30} className="rounded-md border border-input bg-background px-3 py-2 text-sm" />
-            </label>
-            <button type="submit" disabled={pending} className="col-span-2 rounded-md bg-primary py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
-              Enregistrer cet horaire
-            </button>
-          </form>
-        )}
-      </div>
+      <p className="px-1 text-center text-xs text-muted-foreground">
+        Oubli de pointage ? Prévenez la Direction, qui corrigera vos heures.
+      </p>
 
       <p className="px-1 text-center text-xs text-muted-foreground">
         Votre pointage alimente automatiquement vos présences et vos heures — comme la pointeuse.

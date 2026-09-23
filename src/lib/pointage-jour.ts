@@ -1,5 +1,5 @@
-// Le JOUR et les HEURES du pointage — fonctions pures, partagées entre le scan QR et les actions
-// existantes (`pointer-actions.ts`). Ne pas confondre avec `heure-kinshasa.ts` : `jourKinshasa()`
+// Le JOUR et les HEURES du pointage — fonctions pures, utilisées par le scan QR (seul chemin de
+// pointage). Ne pas confondre avec `heure-kinshasa.ts` : `jourKinshasa()`
 // là-bas RENVOIE UNE CHAÎNE d'affichage (« JJ/MM/AAAA ») ; ici `dateDuJourKinshasa` renvoie une
 // vraie DATE (minuit UTC du jour de Kinshasa), la forme stockée en base pour `Pointage.date`.
 
