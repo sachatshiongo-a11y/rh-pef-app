@@ -101,6 +101,19 @@ Puis vérifier dans Planning → « Shifts par poste » qu'aucun poste ne reste 
 6 jours consécutifs au maximum) qui n'existaient pas. Ne pas régénérer un mois déjà validé sans
 l'avoir décidé.
 
+## Sécurité de la base : ce que les migrations imposent (2026-09-23)
+
+Depuis la migration `20260923150000_rls_partout`, une base reconstruite par les seules migrations est
+protégée comme la production : RLS activée (sans politique) sur toutes les tables de `public`, `stock`
+et `exploitation` ; aucun droit pour `anon`, `authenticated` ni `PUBLIC` sur ces schémas.
+Le garde-fou `src/lib/migrations.integration.test.ts` rejoue toutes les migrations sur un Postgres qui
+simule Supabase et rougit si une future migration oublie la RLS ou ouvre un droit.
+
+**Conséquence durable à connaître** : les futures fonctions SQL créées par `postgres` ne sont plus
+exécutables par `PUBLIC`, dans TOUS les schémas. Une fonction destinée à un autre rôle (par exemple un
+« hook » d'authentification Supabase) demande un `GRANT EXECUTE … TO <rôle>` explicite — ce que Supabase
+recommande de toute façon.
+
 ## Ce qui reste à décider avec toi
 
 1. **Où héberger le serveur** (VPS Europe conseillé, ou serveur local restaurant). Nécessite tes
