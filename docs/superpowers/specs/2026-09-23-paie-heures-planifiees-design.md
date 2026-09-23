@@ -36,10 +36,17 @@ pas), un mois donné :
   gabarit `PlanningModele`), durée par `dureeShift` (à déplacer de `src/app/(app)/planning/creneaux.ts`
   vers `src/lib/`). Créneaux système (Repos, Congé, Férié) = 0 h. Dimanche : jamais dans la référence.
 - **Référence R** = heures planifiées passées dans `calculerHeuresSupp` (même découpage lun → dim, même
-  seuil H), MOINS les HS planifiées, PLUS les heures dues (`hdu`) des jours payés non travaillés sans
-  créneau de travail (C, A, O, M) et des fériés hors dimanche. `hdu(j)` = durée du créneau de travail
-  s'il y en a un, sinon durée du modèle pour ce jour (couche A/B puis « chaque semaine »), sinon
-  `heuresParJour`.
+  seuil H), MOINS les HS planifiées, PLUS les heures dues (`hdu`) des jours sans heures faites et
+  sans créneau de travail codés C, A, O, F, M (payés) ou **S** (congé sans solde : dans R, jamais
+  payé), et des fériés hors dimanche. `N` n'ajoute rien (sur un jour non planifié il est sans effet ;
+  sur un jour planifié ses heures sont déjà dans R et retenues faute d'heures faites). `hdu(j)` =
+  durée du créneau de travail s'il y en a un, sinon durée du modèle pour ce jour (couche A/B puis
+  « chaque semaine » ; 0 si le modèle ne prévoit rien ce jour, et le jour ne compte alors ni dans R
+  ni dans les jours payés), sinon `heuresParJour`.
+  *Pourquoi S entre dans R* (relecture 2026-09-23) : la génération automatique du planning ne pose
+  aucun créneau pendant un congé approuvé, et le congé sans solde est codé S. Sans ses heures dans
+  R, `t` monte et paie le congé : 208 $ au lieu de 192 $ pour 2 jours S, 400,00 $ au lieu de
+  366,67 $ pour Martine.
 - **Taux du mois `t = S / R`** (varie d'un mois à l'autre : c'est la mensualisation).
 - **Base payée** = `t × (heures normales faites + hdu des jours payés non travaillés)`
   `+ t × ⅔ × hdu des jours de maladie`. Un jour avec des heures faites n'est jamais compté aussi comme
@@ -61,8 +68,11 @@ injustifiée → 0 ; un congé n'est jamais payé deux fois (cas Syntyche : 200,
 ## 3. Repli, visible
 
 Si **une semaine** du mois n'a aucun créneau pour le salarié (créneaux système compris ; sauf semaine
-entièrement couverte par des codes d'absence), ou si c'est le **mois d'embauche**, le mois entier
-retombe sur l'ancienne référence (`H × 52/12`). Un planning à moitié publié payerait sinon ~866 $ au
+dont tous les jours ouvrables hors fériés sont codés C, A, M, O, F ou S — pas N), si c'est le **mois
+d'embauche**, le **mois de fin de contrat** (fin avant le dernier jour du mois : tous les CDD de la
+brigade y passent, et R ne couvrirait que les jours restants, soit le mois entier payé), ou si la fiche
+n'a **pas d'heures hebdomadaires** (seuil HS inconnu), le mois entier retombe sur l'ancienne référence
+(`H × 52/12`), avec un motif daté. Un planning à moitié publié payerait sinon ~866 $ au
 lieu de 200 $. Le repli est visible : `PayrollLine.sourceReference` (`PLANNING` | `CONTRAT_REPLI`) +
 `motifReference`, badge sur l'écran Paie, mention sur le bulletin (« Heures planifiées » /
 « Heures contrat (repli) »).

@@ -46,6 +46,8 @@ export type EntreesReference = {
   heuresHebdomadaires: number;
   heuresParJour: number;
   dateEmbauche: Date;
+  /** Fin du contrat en cours (date PURE) ; absente ou `null` = pas de fin connue (CDI). */
+  dateFinContrat?: Date | null;
   joursFeries: Set<string>; // "AAAA-MM-JJ"
   /** Décompte d'aujourd'hui (max(codes C, congés approuvés)) — sert au seul affichage en mode contrat. */
   joursCongePris: number;
@@ -91,7 +93,10 @@ export type ResultatReference = {
 };
 
 const PAYES_100: ReadonlySet<string> = new Set(["C", "A", "O", "F"]);
-const CODES_SEMAINE_COUVERTE: ReadonlySet<string> = new Set(["C", "A", "M", "O", "F"]);
+/** Codes qui « couvrent » une semaine sans créneau : leurs heures dues entrent dans R (payées ou
+ *  non). S y est (ses heures entrent dans R sans rien à la base) ; N non : sur un jour non planifié,
+ *  il est sans effet, donc une semaine en N sans créneau ne peut pas fixer R → repli. */
+const CODES_SEMAINE_COUVERTE: ReadonlySet<string> = new Set(["C", "A", "M", "O", "F", "S"]);
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const jjmm = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 const virgule = (n: number, dec: number) => n.toFixed(dec).replace(".", ",");
@@ -113,6 +118,19 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     const d = e.dateEmbauche;
     return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI",
       `Embauche le ${jjmm(d)}/${d.getUTCFullYear()} : mois incomplet`);
+  }
+
+  // ── Repli : mois de fin de contrat (avant le dernier jour du mois) ────────────────────────────
+  const finMois = new Date(Date.UTC(e.annee, e.mois, 0));
+  if (e.dateFinContrat != null && e.dateFinContrat.getTime() < finMois.getTime()) {
+    const d = e.dateFinContrat;
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI",
+      `Fin de contrat le ${jjmm(d)}/${d.getUTCFullYear()} : mois incomplet`);
+  }
+
+  // ── Repli : pas d'horaire hebdomadaire au contrat (seuil des HS inconnu → R indéfinie) ───────
+  if (!(e.heuresHebdomadaires > 0)) {
+    return ancienneRegle(e, t0, heuresContrat, joursFaits, "CONTRAT_REPLI", "Heures hebdomadaires du contrat non renseignées");
   }
 
   // ── Repli : une semaine sans aucun créneau ──────────────────────────────────────────────────
@@ -164,8 +182,12 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     }
     if (j.heuresFaites > 0 || j.code == null) continue;
     const payeCent = PAYES_100.has(j.code);
+    const h = hdu(j);
+    if (h <= 0) continue; // jour de repos du modèle : ni dû, ni payé
+    // Congé sans solde sans créneau de travail : ses heures dues entrent dans R, rien à la base
+    // (sinon t monterait et paierait le congé). Sur un créneau de travail, il est déjà dans R.
+    if (j.code === "S") { if (j.heuresPlanifiees <= 0) R += h; continue; }
     if (!payeCent && j.code !== "M") continue;
-    const h = j.heuresPlanifiees > 0 ? j.heuresPlanifiees : hdu(j);
     if (j.heuresPlanifiees <= 0) R += h; // sinon déjà dans les heures planifiées
     if (payeCent) { heuresPayees100 += h; joursPayes++; if (j.code === "C") heuresConge += h; }
     else heuresMaladie += h;

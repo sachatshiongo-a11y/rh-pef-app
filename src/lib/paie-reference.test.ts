@@ -183,16 +183,67 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(baseNette(r)).toBe(0);
   });
 
-  it("une semaine sans créneau, même en congé SANS SOLDE → repli sur le contrat", () => {
+  it("une semaine sans créneau, en absence INJUSTIFIÉE → repli sur le contrat", () => {
     const r = calculerReferenceMois(type6j({
       heures: (d) => (lunSam(d) && (jour(d) < 21 || jour(d) > 27) ? 8 : 0),
       faites: (d) => (lunSam(d) && (jour(d) < 21 || jour(d) > 27) ? 8 : 0),
-      code: (d) => (!lunSam(d) ? null : jour(d) >= 21 && jour(d) <= 27 ? "S" : "P"),
+      code: (d) => (!lunSam(d) ? null : jour(d) >= 21 && jour(d) <= 27 ? "N" : "P"),
     }));
     expect(r.source).toBe("CONTRAT_REPLI");
     expect(r.motif).toBe("Planning incomplet : semaine du 21/09 sans créneau");
     expect(r.avertissements).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
     expect(r.heuresReference).toBe(208);
+  });
+
+  // ── Congé SANS SOLDE (S) : ses heures dues entrent dans R, rien dans la base (jamais payé) ──
+  it("congé sans solde 2 jours SANS créneau → retenus : 192,00 (comme l'ancienne règle)", () => {
+    const s = (d: Date) => jour(d) === 16 || jour(d) === 17;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (!lunSam(d) ? null : s(d) ? "S" : "P") }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(208);
+    expect(baseNette(r)).toBeCloseTo(192, 10);
+    const avant = calculerReferenceMois({ ...type6j({ heures: h, faites: h, code: (d) => (!lunSam(d) ? null : s(d) ? "S" : "P") }), referencePlanningDepuis: null });
+    expect(baseNette(avant)).toBeCloseTo(192, 10);
+  });
+
+  it("semaine entière en congé sans solde sur des créneaux système « Congé » → 160,00", () => {
+    const s = (d: Date) => jour(d) >= 21 && jour(d) <= 26;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, creneau: lunSam, faites: h, code: (d) => (!lunSam(d) ? null : s(d) ? "S" : "P") }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(208);
+    expect(baseNette(r)).toBeCloseTo(160, 10);
+  });
+
+  it("semaine entière en congé sans solde SANS aucun créneau → semaine couverte, 160,00", () => {
+    const s = (d: Date) => jour(d) >= 21 && jour(d) <= 27;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (!lunSam(d) ? null : s(d) ? "S" : "P") }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(208);
+    expect(baseNette(r)).toBeCloseTo(160, 10);
+  });
+
+  it("Martine, 2 jours de congé sans solde (9 h) sans créneau → 366,67 $, jamais 400,00 $", () => {
+    const m = martine();
+    const s = (d: Date) => jour(d) === 16 || jour(d) === 17;
+    const r = calculerReferenceMois({ ...m, jours: m.jours.map((j) => (s(j.date) ? { ...j, heuresPlanifiees: 0, aUnCreneau: false, heuresFaites: 0, code: "S" as const } : j)) });
+    expect(r.heuresReference).toBe(216);
+    expect(baseNette(r)).toBeCloseTo((198 * 400) / 216, 10);
+    expect(netSalaire(r, 2)).toBeCloseTo(366.67, 2);
+  });
+
+  it("jour payé sur un jour de repos du modèle (hdu = 0) → ni jour ni heure payés en plus", () => {
+    const h = (d: Date) => (dow(d) >= 1 && dow(d) <= 5 && (jour(d) < 14 || jour(d) > 19) ? 8 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 176, heuresHebdomadaires: 48, heuresParJour: 8,
+      jours: joursDuMois(2026, 9, { heures: h, modele: (d) => (dow(d) >= 1 && dow(d) <= 5 ? 8 : 0), faites: h,
+        code: (d) => (!lunSam(d) ? null : jour(d) >= 14 && jour(d) <= 19 ? "C" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(176);
+    expect(r.affichage.joursPayesNonTravailles).toBe(5); // le samedi 19 (0 h au modèle) ne compte pas
+    expect(r.affichage.heuresPayeesNonTravaillees).toBe(40);
+    expect(baseNette(r)).toBeCloseTo(176, 10);
   });
 
   it("maladie deux jours planifiés → payés aux deux tiers", () => {
@@ -209,6 +260,25 @@ describe("paie sur heures planifiées — propriétés", () => {
     const r = calculerReferenceMois(type6j({}, { dateEmbauche: new Date("2026-09-15T00:00:00Z") }));
     expect(r.source).toBe("CONTRAT_REPLI");
     expect(r.motif).toBe("Embauche le 15/09/2026 : mois incomplet");
+  });
+
+  it("mois de fin de contrat → repli, motif daté", () => {
+    const r = calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2026-09-28T00:00:00Z") }));
+    expect(r.source).toBe("CONTRAT_REPLI");
+    expect(r.motif).toBe("Fin de contrat le 28/09/2026 : mois incomplet");
+    expect(r.avertissements).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Fin de contrat le 28/09/2026 : mois incomplet" }]);
+  });
+
+  it("contrat qui finit le dernier jour du mois, ou plus tard → pas de repli", () => {
+    expect(calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2026-09-30T00:00:00Z") })).source).toBe("PLANNING");
+    expect(calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2027-03-31T00:00:00Z") })).source).toBe("PLANNING");
+    expect(calculerReferenceMois(type6j({}, { dateFinContrat: null })).source).toBe("PLANNING");
+  });
+
+  it("heures hebdomadaires du contrat non renseignées → repli, motif juste", () => {
+    const r = calculerReferenceMois(type6j({}, { heuresHebdomadaires: 0 }));
+    expect(r.source).toBe("CONTRAT_REPLI");
+    expect(r.motif).toBe("Heures hebdomadaires du contrat non renseignées");
   });
 
   it("avant la date d'effet (août 2026) ou sans date d'effet → ancienne règle, sans avertissement", () => {
