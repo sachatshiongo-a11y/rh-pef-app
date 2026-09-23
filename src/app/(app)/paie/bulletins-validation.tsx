@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { StatusActions } from "./status-actions";
+import { BadgeReference, ListeAvertissements } from "./avertissements-paie";
 import { Avatar } from "@/components/avatar";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { VisionneuseDocument } from "@/components/visionneuse-document";
@@ -73,6 +74,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   <Avatar nom={r.nom} taille={32} photoUrl={r.photoUrl} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{r.nom}</p>
+                    <BadgeReference sourceReference={r.sourceReference} motifReference={r.motifReference} avertissements={r.avertissements} />
                     <p className="text-xs text-muted-foreground">Salaire net : {money(r.salaireNetUSD)}</p>
                   </div>
                 </div>
@@ -80,6 +82,8 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   {LIBELLE_STATUT[r.statutPaiement]}
                 </span>
               </div>
+              {/* Avertissements en clair : pas d'infobulle au doigt, le détail doit se lire ici. */}
+              <ListeAvertissements avertissements={r.avertissements} className="mt-2" />
               {/* Aperçu léger dépliable (HTML instantané, pas de PDF) */}
               <details className="group mt-2 border-t pt-2">
                 <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-primary [&::-webkit-details-marker]:hidden">
@@ -125,7 +129,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 </TelechargerLien>
                 {peutValider && (
                   <div className="ml-auto">
-                    <StatusActions payrollLineId={r.id} statut={r.statutPaiement} peutValider={peutValider} modePaiementDefaut={r.modePaiementDefaut} />
+                    <StatusActions payrollLineId={r.id} statut={r.statutPaiement} peutValider={peutValider} modePaiementDefaut={r.modePaiementDefaut} avertissements={r.avertissements} nom={r.nom} />
                   </div>
                 )}
               </div>
@@ -164,6 +168,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   <Avatar nom={r.nom} taille={28} photoUrl={r.photoUrl} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{r.nom}</p>
+                    <BadgeReference sourceReference={r.sourceReference} motifReference={r.motifReference} avertissements={r.avertissements} />
                     <p className="text-xs text-muted-foreground">{money(r.salaireNetUSD)}</p>
                   </div>
                 </div>
@@ -211,10 +216,12 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
               </TelechargerLien>
             )}
             {sel && peutValider && (
-              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} peutValider={peutValider} modePaiementDefaut={sel.modePaiementDefaut} />
+              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} peutValider={peutValider} modePaiementDefaut={sel.modePaiementDefaut} avertissements={sel.avertissements} nom={sel.nom} />
             )}
           </div>
         </div>
+        {/* Liste complète des avertissements du salarié affiché, au-dessus de l'aperçu PDF. */}
+        {sel && <ListeAvertissements avertissements={sel.avertissements} className="mx-3 mt-2" />}
         {sel ? (
           <>
             {/* Aperçu inline : ordinateur seulement. Sur mobile il prend trop de place et se lit

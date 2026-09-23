@@ -16,6 +16,9 @@ import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { chargerParametresPaie } from "@/lib/config";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { lireAvertissements } from "@/lib/paie-avertissements";
+import { BadgeReference } from "./avertissements-paie";
+import { messageConfirmationValidation } from "./avertissements-validation";
 
 // Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
 // bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
@@ -101,6 +104,9 @@ export default async function PaiePage({
         cnssUSD: Number(l.cnssSalarieUSD),
         iprUSD: Number(l.iprCalculeUSD),
         acompteUSD: Number(l.acompteUSD),
+        sourceReference: l.sourceReference,
+        motifReference: l.motifReference,
+        avertissements: lireAvertissements(l.avertissementsPaie),
       }))
     : (apercu!.lignes).map((l) => ({
         id: `apercu-${l.employee.id}`,
@@ -124,11 +130,17 @@ export default async function PaiePage({
         cnssUSD: l.data.cnssSalarieUSD,
         iprUSD: l.data.iprCalculeUSD,
         acompteUSD: l.data.acompteUSD,
+        sourceReference: l.data.sourceReference,
+        motifReference: l.data.motifReference,
+        avertissements: l.data.avertissementsPaie,
       }));
   const brigade = rows.filter((r) => r.categorie === "BRIGADE");
   const backoffice = rows.filter((r) => r.categorie === "BACKOFFICE");
 
   const nbPasValide = rows.filter((r) => r.statutPaiement === "PAS_VALIDE").length;
+  // La clôture valide d'un coup tous les « pas validé » : elle rappelle leurs avertissements,
+  // comme la validation d'une ligne ou d'un lot (jamais bloquant).
+  const avertissementsCloture = messageConfirmationValidation(rows.filter((r) => r.statutPaiement === "PAS_VALIDE"));
 
   // Éléments de rémunération (détail par salarié), par type — toujours à jour (persisté ou aperçu).
   const remuLignes: LigneRemu[] = run
@@ -295,7 +307,7 @@ export default async function PaiePage({
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
                 variante="valider"
-                message={`Clôturer la paie de ${periode} ? Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».`}
+                message={`Clôturer la paie de ${periode} ? Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
                 Clôturer la paie ({nbPasValide})
               </ConfirmSubmitButton>
@@ -488,6 +500,7 @@ function ApercuGroupe({ titre, rows }: { titre: string; rows: PaieRow[] }) {
                 <td className="px-3 py-2">
                   <span className="font-medium">{r.nom}</span>
                   <span className="ml-1 font-mono text-xs text-muted-foreground">{r.matricule}</span>
+                  <BadgeReference sourceReference={r.sourceReference} motifReference={r.motifReference} avertissements={r.avertissements} />
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{usd(r.baseUSD)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{usd(r.hsUSD)}</td>

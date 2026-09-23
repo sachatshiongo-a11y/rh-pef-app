@@ -9,6 +9,9 @@ import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import type { PaymentStatus, ModePaiement } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
+import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
+import { BadgeReference } from "./avertissements-paie";
+import { lignesAValiderDuLot, messageConfirmationValidation } from "./avertissements-validation";
 
 export type PaieRow = {
   id: string;
@@ -33,6 +36,10 @@ export type PaieRow = {
   cnssUSD: number;
   iprUSD: number;
   acompteUSD: number;
+  // Référence d'heures du mois (paie sur heures planifiées, 2026-09-23) et avertissements.
+  sourceReference: SourceReference;
+  motifReference: string | null;
+  avertissements: AvertissementPaie[];
 };
 
 function money(n: number) {
@@ -88,6 +95,12 @@ export function PaieBulk({
   function lancer(versStatut: PaymentStatus) {
     const ids = [...selection];
     if (ids.length === 0) return;
+    // Validation : montrer les avertissements des lignes qui vont réellement être validées, sans
+    // jamais bloquer (« Annuler » ne fait rien, « OK » valide). Sur toutes les lignes, filtre ignoré.
+    if (versStatut === "VALIDE") {
+      const message = messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], selection));
+      if (message && !window.confirm(message)) return;
+    }
     // Au paiement : mode forcé si choisi, sinon null → le serveur suit la fiche de chaque employé.
     const mode = versStatut === "PAYE" ? (modeBulk || null) : null;
     setErreur(null);
@@ -220,6 +233,7 @@ function Groupe({
                 <td className="px-3 py-2 font-mono text-xs">{l.matricule}</td>
                 <td className="px-3 py-2">
                   <EmployeeName id={l.employeeId} nom={l.nom} photoUrl={l.photoUrl} />
+                  <BadgeReference sourceReference={l.sourceReference} motifReference={l.motifReference} avertissements={l.avertissements} />
                 </td>
                 <td className="px-3 py-2 text-right">{money(l.salBrutUSD)}</td>
                 <td className="px-3 py-2 text-right">{money(l.salaireNetUSD)}</td>
@@ -244,6 +258,8 @@ function Groupe({
                     peutValider={estAdmin}
                     peutPreparer={peutGerer}
                     modePaiementDefaut={l.modePaiementDefaut}
+                    avertissements={l.avertissements}
+                    nom={l.nom}
                   />
                 </td>
               </tr>
