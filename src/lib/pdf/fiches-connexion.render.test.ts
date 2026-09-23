@@ -7,7 +7,7 @@ import { qrLuSurLaPage } from "@/lib/test/qr-pdf";
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 const { genererMotDePasseTemporaire } = await import("@/lib/espace-employe");
-const { genererFichesConnexionPdf, FICHES_PAR_PAGE } = await import("./fiches-connexion");
+const { genererFichesConnexionPdf, genererFichesIndividuellesPdf, FICHES_PAR_PAGE } = await import("./fiches-connexion");
 
 /**
  * Les fiches de connexion, relues sur le PDF PRODUIT : chaque matricule et chaque mot de passe
@@ -106,5 +106,86 @@ describe("fiches de connexion (PDF A4, à découper)", () => {
 
   it("refuse de produire un document vide", async () => {
     await expect(genererFichesConnexionPdf({ fiches: [], urlApplication: ORIGINE_AFFICHE })).rejects.toThrow("Aucune fiche");
+  });
+});
+
+describe("fiche INDIVIDUELLE (une page A6 par salarié, envoyée seule)", () => {
+  let individuelles: Buffer[];
+  beforeAll(async () => {
+    individuelles = await genererFichesIndividuellesPdf({ fiches, urlApplication: ORIGINE_AFFICHE });
+  }, 120_000);
+
+  it("une fiche par salarié, dans l'ordre reçu", () => {
+    expect(individuelles).toHaveLength(fiches.length);
+  });
+
+  it("chaque PDF tient sur UNE page A6 à l'italienne et ne porte QUE son salarié", async () => {
+    for (const [i, pdf] of individuelles.entries()) {
+      const { texte, pages } = await lire(pdf);
+      expect(pages).toBe(1);
+      const f = fiches[i];
+      expect(texte).toContain(f.nom);
+      expect(texte).toContain(f.matricule);
+      expect(texte).toContain(f.motDePasse);
+      expect(texte.split("À changer à la première connexion.").length - 1).toBe(1);
+      expect(texte).toContain(new URL(ORIGINE_AFFICHE).host);
+      // Rien d'un autre salarié : ni son matricule, ni surtout son mot de passe.
+      for (const autre of fiches.filter((_, j) => j !== i)) {
+        expect(texte).not.toContain(autre.matricule);
+        expect(texte).not.toContain(autre.motDePasse);
+      }
+    }
+    // A6 paysage = 419,53 × 297,64 pt.
+    const boite = individuelles[0].toString("latin1").match(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
+    expect(Number(boite?.[1])).toBeCloseTo(419.53, 1);
+    expect(Number(boite?.[2])).toBeCloseTo(297.64, 1);
+  }, 120_000);
+
+  it("le mot de passe le plus large s'affiche EN ENTIER : ni sous le QR, ni hors de la page", async () => {
+    // Le texte extrait ne le prouve pas : un mot de passe trop large reste entier dans le PDF mais
+    // passe SOUS le QR (vu à l'échelle 1,9 : « WWWMM-WMW… »). On mesure donc les positions : aucun
+    // texte de la colonne des identifiants ne dépasse le bord gauche du bloc QR, dont l'adresse
+    // écrite dessous (centrée, plus étroite que le QR) donne une borne prudente.
+    const nomLong = fiches.reduce((a, f) => (f.nom.length > a.nom.length ? f : a));
+    const [pdf] = await genererFichesIndividuellesPdf({
+      fiches: [{ ...nomLong, motDePasse: "WWWMM-WMWMW" }], // les glyphes les plus larges de l'alphabet
+      urlApplication: ORIGINE_AFFICHE,
+    });
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(pdf), useSystemFonts: false }).promise;
+    const page = await doc.getPage(1);
+    const [, , largeurPage, hauteurPage] = page.view;
+    const items = (await page.getTextContent()).items.flatMap((i) => ("str" in i ? [{ str: i.str, transform: i.transform as number[], width: i.width }] : []));
+    const bloc = (texte: string) => {
+      const i = items.find((x) => x.str.includes(texte));
+      if (!i) throw new Error(`texte absent de la page : ${texte}`);
+      return { gauche: i.transform[4], droite: i.transform[4] + i.width, bas: i.transform[5] };
+    };
+    const bordQr = bloc(new URL(ORIGINE_AFFICHE).host).gauche;
+    for (const texte of ["WWWMM-WMWMW", nomLong.matricule, "À changer à la première connexion."])
+      expect(bloc(texte).droite, texte).toBeLessThan(bordQr);
+    for (const i of items) {
+      expect(i.transform[4] + i.width, i.str).toBeLessThanOrEqual(largeurPage);
+      expect(i.transform[5], i.str).toBeGreaterThan(0);
+      expect(i.transform[5], i.str).toBeLessThan(hauteurPage);
+    }
+    await doc.destroy();
+  }, 60_000);
+
+  it("n'embarque qu'Optima : aucune police de repli, mots de passe compris", () => {
+    for (const pdf of individuelles) {
+      const polices = policesDuPdf(pdf);
+      expect(polices.length).toBeGreaterThan(0);
+      expect(polices.filter((p) => !estEmbarquee(p))).toEqual([]);
+    }
+  });
+
+  it("le QR se relit sur la page entière et ouvre l'application officielle", async () => {
+    expect(await qrLuSurLaPage(individuelles[0])).toBe(ORIGINE_AFFICHE);
+    expect(await qrLuSurLaPage(individuelles[individuelles.length - 1])).toBe(ORIGINE_AFFICHE);
+  }, 60_000);
+
+  it("refuse de produire un lot vide", async () => {
+    await expect(genererFichesIndividuellesPdf({ fiches: [], urlApplication: ORIGINE_AFFICHE })).rejects.toThrow("Aucune fiche");
   });
 });

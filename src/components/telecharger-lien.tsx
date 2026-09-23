@@ -42,6 +42,24 @@ export function issuePartage(r: { ok: true } | { erreur: unknown }): IssuePartag
   return (r.erreur as Error | null)?.name === "AbortError" ? "annule" : "repli";
 }
 
+type NavigateurPartage = Navigator & {
+  canShare?: (data?: ShareData) => boolean;
+  share?: (data?: ShareData) => Promise<void>;
+};
+
+/**
+ * Vrai si `enregistrerFichier` ouvrira la feuille de partage native (et donc WhatsApp, Messages…)
+ * pour ce fichier ; faux si elle le TÉLÉCHARGERA. Réservé au tactile : sur ordinateur (y compris
+ * PWA installée), `canShare` peut renvoyer true mais le partage se termine sans rien télécharger
+ * → « rien ne se passe ». À n'appeler que côté client (après le montage).
+ */
+export function partageDeFichierPossible(file: File): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const tactile = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  const nav = navigator as NavigateurPartage;
+  return tactile && !!nav.canShare && !!nav.share && nav.canShare({ files: [file] });
+}
+
 /**
  * Le GESTE D'ENREGISTREMENT d'un fichier déjà en mémoire, partagé par `TelechargerLien` (fichier
  * récupéré par `fetch`) et par les écrans qui reçoivent un document dans la réponse d'une action
@@ -52,23 +70,20 @@ export function issuePartage(r: { ok: true } | { erreur: unknown }): IssuePartag
  *      via un lien blob invisible.
  * À appeler depuis un geste de l'utilisateur (un clic) : iOS refuse le partage hors geste.
  *
- * Renvoie `false` si l'utilisateur a ANNULÉ la feuille de partage (rien n'est enregistré), `true`
- * si la feuille s'est conclue ou si le lien de téléchargement a été déclenché. `true` ne prouve
- * pas que le fichier est sur le disque (le navigateur ne le dit pas) : seulement qu'il est parti.
+ * Renvoie le chemin RÉELLEMENT pris : « partage » (la feuille s'est conclue), « telechargement »
+ * (lien de téléchargement déclenché, y compris en repli après un partage en échec), « annule »
+ * (feuille fermée par l'utilisateur : rien n'est enregistré). Ni l'un ni l'autre ne prouve que le
+ * fichier est arrivé (le navigateur ne le dit pas) : seulement qu'il est parti.
  */
-export async function enregistrerFichier(blob: Blob, nom: string): Promise<boolean> {
+export type IssueEnregistrement = "partage" | "telechargement" | "annule";
+
+export async function enregistrerFichier(blob: Blob, nom: string): Promise<IssueEnregistrement> {
   const type = blob.type || "application/octet-stream";
   const file = new File([blob], nom, { type });
 
   // 1) Mobile TACTILE uniquement : partage natif (n'ouvre pas la webview, pas de piège).
-  //    Sur desktop (y compris PWA installée), `canShare` peut renvoyer true mais le partage se
-  //    termine sans rien télécharger → « rien ne se passe ». On réserve donc le partage au tactile.
-  const tactile = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-  const nav = navigator as Navigator & {
-    canShare?: (data?: ShareData) => boolean;
-    share?: (data?: ShareData) => Promise<void>;
-  };
-  if (tactile && nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+  const nav = navigator as NavigateurPartage;
+  if (partageDeFichierPossible(file) && nav.share) {
     let issue: IssuePartage;
     try {
       await nav.share({ files: [file], title: nom });
@@ -77,8 +92,7 @@ export async function enregistrerFichier(blob: Blob, nom: string): Promise<boole
       issue = issuePartage({ erreur: err });
     }
     // Annulé par l'utilisateur → on s'arrête, RIEN n'est enregistré. Autre erreur → repli.
-    if (issue === "partage") return true;
-    if (issue === "annule") return false;
+    if (issue === "partage" || issue === "annule") return issue;
   }
 
   // 2) Ordinateur : téléchargement classique.
@@ -90,7 +104,7 @@ export async function enregistrerFichier(blob: Blob, nom: string): Promise<boole
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
-  return true;
+  return "telechargement";
 }
 
 /**
