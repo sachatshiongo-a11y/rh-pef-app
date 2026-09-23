@@ -1,12 +1,16 @@
-// Le JOUR et les HEURES du pointage — fonctions pures, utilisées par le scan QR (seul chemin de
-// pointage). Ne pas confondre avec `heure-kinshasa.ts` : `jourKinshasa()`
-// là-bas RENVOIE UNE CHAÎNE d'affichage (« JJ/MM/AAAA ») ; ici `dateDuJourKinshasa` renvoie une
-// vraie DATE (minuit UTC du jour de Kinshasa), la forme stockée en base pour `Pointage.date`.
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
-/** Jour courant en heure de Kinshasa (UTC+1, sans changement d'heure) → DATE à minuit UTC. */
+// Le JOUR et les HEURES du pointage — fonctions pures, utilisées par le scan QR (seul chemin de
+// pointage). Ne pas confondre avec `jourKinshasa()` de `heure-kinshasa.ts`, qui RENVOIE UNE CHAÎNE
+// d'affichage (« JJ/MM/AAAA ») ; ici `dateDuJourKinshasa` renvoie une vraie DATE (minuit UTC du jour
+// de Kinshasa), la forme stockée en base pour `Pointage.date`.
+
+/**
+ * Jour courant en heure de Kinshasa → DATE à minuit UTC. Simple renvoi vers `jourCivilKinshasa` :
+ * `heure-kinshasa.ts` reste le SEUL endroit qui convertit un instant en jour de Kinshasa.
+ */
 export function dateDuJourKinshasa(d: Date = new Date()): Date {
-  const k = new Date(d.getTime() + 3_600_000);
-  return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
+  return jourCivilKinshasa(d);
 }
 
 /** Heures nettes payables = (départ − arrivée) − pause saisie par l'employé, jamais négatif. */

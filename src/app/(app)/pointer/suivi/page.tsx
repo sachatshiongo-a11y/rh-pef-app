@@ -4,15 +4,10 @@ import { verifySession, requireRole } from "@/lib/auth";
 import { verdictDe } from "@/lib/pointage-scan";
 import { libelleMotif, scanAVerifier } from "@/lib/pointage-qr";
 import { resumeSemaineCourante } from "@/lib/pointage-suivi";
+import { jourKinshasaISO } from "@/lib/date-paiement";
+import { heureKinshasa } from "@/lib/heure-kinshasa";
 import { SuiviBulk, type LigneSuivi } from "./suivi-bulk";
 import type { SourcePointage } from "@prisma/client";
-
-const TZ = "Africa/Lagos"; // UTC+1 = heure de Kinshasa (sans changement d'heure)
-const hhmm = (d: Date) => d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
-const jourKinshasaISO = () => {
-  const k = new Date(Date.now() + 3_600_000);
-  return `${k.getUTCFullYear()}-${String(k.getUTCMonth() + 1).padStart(2, "0")}-${String(k.getUTCDate()).padStart(2, "0")}`;
-};
 
 // « QR », « manuel », « appli (ancien) » (brief) — IVMS n'arrive jamais sur ce modèle en pratique
 // (réservé à l'import de présences), mais un libellé neutre évite un badge vide si ça change.
@@ -77,8 +72,8 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
       nom: e.nom,
       photoUrl: e.photoUrl,
       pointageId: p?.id ?? null,
-      arriveeLabel: p ? hhmm(p.heureDebut) : "—",
-      departLabel: p?.heureFin ? hhmm(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : "—",
+      arriveeLabel: p ? heureKinshasa(p.heureDebut) : "—",
+      departLabel: p?.heureFin ? heureKinshasa(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : "—",
       pauseLabel: p ? `${p.pauseMinutes} min` : "—",
       heuresLabel: heures !== null ? `${heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—",
       statut,
@@ -152,8 +147,11 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
       <SuiviBulk lignes={lignes} />
 
       <p className="mt-3 text-xs text-muted-foreground">
-        Les heures affichées sont nettes (départ − arrivée − pause) et sont déjà reportées dans les Présences et les Heures.
-        La saisie manuelle des horaires se fait toujours depuis la fiche de l&apos;employé.
+        Les heures affichées sont nettes (départ − arrivée − pause) et sont déjà reportées dans les Présences et les Heures,
+        sauf un jour de congé approuvé (le congé prime).{" "}
+        <Link href="/presences" className="text-primary underline">
+          Pour saisir ou corriger des heures : Présences &amp; heures →
+        </Link>
       </p>
     </div>
   );
