@@ -238,7 +238,7 @@ export async function demanderEchange(formData: FormData) {
 
 /** Le COLLÈGUE concerné accepte ou refuse l'échange. Accepter peut finaliser (si Direction OK). */
 export async function repondreEchange(id: string, accepte: boolean) {
-  const { employeeId } = await exigerSalarie();
+  const { userId, employeeId } = await exigerSalarie();
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
   if (!e || e.statut !== "EN_ATTENTE" || e.collegueId !== employeeId) return;
 
@@ -249,8 +249,11 @@ export async function repondreEchange(id: string, accepte: boolean) {
     if (uA) await notifierSalarie(uA, { type: "PLANNING", message: "Votre proposition d'échange de shift a été refusée par le collègue.", lien: "/espace/echanges", refId: `${id}:rep` });
   } else {
     await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "ACCEPTE" } });
-    const fait = await finaliserEchangeSiComplet(id);
-    if (!fait) {
+    const { fait, erreur } = await finaliserEchangeSiComplet(id, userId);
+    if (erreur) {
+      // Planning verrouillé (paie validée) : l'échange reste en attente, la Direction est prévenue.
+      await creerNotification({ type: "AUTRE", message: `Échange de shift accepté mais bloqué : ${erreur}`, lien: "/a-valider", refId: id });
+    } else if (!fait) {
       // En attente de la Direction : on la relance.
       const noms = await prisma.employee.findMany({ where: { id: { in: [e.demandeurId, e.collegueId] } }, select: { nom: true } });
       await creerNotification({ type: "AUTRE", message: `Échange de shift accepté par le collègue — ${noms.map((n) => n.nom).join(" ↔ ")}. À valider.`, lien: "/a-valider", refId: id });

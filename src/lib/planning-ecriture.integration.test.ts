@@ -14,7 +14,7 @@ vi.mock("@/lib/prisma", () => ({
     },
   }),
 }));
-const { ecrireCreneaux, PlanningVerrouilleError } = await import("./planning-ecriture");
+const { ecrireCreneaux, PlanningVerrouilleError, estInterblocage, messageErreurPlanning, MESSAGE_INTERBLOCAGE } = await import("./planning-ecriture");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -135,7 +135,8 @@ describe("ecrireCreneaux — verrou", () => {
       await relache; // transaction encore ouverte : le verrou partagé est tenu
     });
     try {
-      await aEcrit;
+      // Course avec `ecriture` : si la transaction échoue avant d'avoir écrit, le test échoue au lieu de rester bloqué.
+      await Promise.race([aEcrit, ecriture]);
       await externe.query("SET lock_timeout = '300ms'");
       // La « validation » concurrente : même UPDATE que la validation d'une ligne de paie.
       await expect(
@@ -147,6 +148,52 @@ describe("ecrireCreneaux — verrou", () => {
       await externe.end();
     }
     expect((await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ouvert } })).statutPaiement).toBe("PAS_VALIDE");
+  });
+
+  it("interblocage RÉEL avec une validation de paie → reconnu (40P01) et traduit en message lisible", async () => {
+    // Deux lignes de paie ouvertes : l'écriture du planning les prend (FOR SHARE) dans un ordre,
+    // la « validation » concurrente les met à jour dans l'autre. Postgres annule l'écriture du
+    // planning (son délai de détection est le plus court) : c'est CETTE erreur, telle que Prisma
+    // la rend, que les actions doivent reconnaître.
+    const base = { sexe: "F", etatCivil: "Célibataire", poste: "Serveur", secteur: "Salle", categorie: "BRIGADE" as const, salaireMensuel: 200, dateEmbauche: d("2025-01-06"), contrat: "CDD", enfants: 0 };
+    const autre = (await prisma.employee.create({ data: { ...base, matricule: "IB01-PEF", nom: "Ida Bolamba" } })).id;
+    const run = await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 } });
+    const montants = { salBrutUSD: 0, cnssSalarieUSD: 0, netImposableUSD: 0, iprCalculeUSD: 0, allocFamilialeUSD: 0, salNetUSD: 0, salNetCDF: 0, cnssPatronalUSD: 0, coutEmployeurUSD: 0, coutEmployeurCDF: 0 };
+    await prisma.payrollLine.create({ data: { ...montants, payrollRunId: run.id, employeeId: autre, statutPaiement: "PAS_VALIDE" } });
+
+    const externe = new Client({ connectionString: url });
+    await externe.connect();
+    let continuer!: () => void;
+    const suite = new Promise<void>((r) => { continuer = r; });
+    let premier!: () => void;
+    const aPremier = new Promise<void>((r) => { premier = r; });
+    const ecriture = prisma.$transaction(async (tx) => {
+      await ecrireCreneaux(tx, userId, [{ employeeId: ouvert, date: d("2026-09-24"), shiftId: matin }]); // FOR SHARE ligne « ouvert »
+      premier();
+      await suite;
+      await ecrireCreneaux(tx, userId, [{ employeeId: autre, date: d("2026-09-24"), shiftId: matin }]); // attend la ligne « autre »
+    }, { timeout: 20_000 });
+    const resultat = ecriture.then(() => null, (e: unknown) => e);
+    try {
+      await Promise.race([aPremier, ecriture]);
+      await externe.query("BEGIN");
+      await externe.query("SET LOCAL deadlock_timeout = '10s'"); // la validation n'est jamais la victime
+      await externe.query(`UPDATE "public"."PayrollLine" SET "statutPaiement" = 'VALIDE' WHERE "employeeId" = $1`, [autre]);
+      continuer();
+      await new Promise((r) => setTimeout(r, 200)); // l'écriture attend maintenant la ligne « autre »
+      const croisee = externe.query(`UPDATE "public"."PayrollLine" SET "statutPaiement" = 'VALIDE' WHERE "employeeId" = $1`, [ouvert]);
+      const erreur = await resultat;
+      await croisee;
+      await externe.query("ROLLBACK");
+      expect(estInterblocage(erreur)).toBe(true);
+      expect(messageErreurPlanning(erreur)).toBe(MESSAGE_INTERBLOCAGE);
+    } finally {
+      continuer();
+      await resultat;
+      await externe.end();
+    }
+    // L'écriture du planning a été annulée en bloc.
+    expect(await prisma.planningCreneau.count({ where: { date: d("2026-09-24") } })).toBe(0);
   });
 });
 

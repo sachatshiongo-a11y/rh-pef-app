@@ -126,9 +126,13 @@ export function AutoPlanningForm({
               <button disabled={isPending} className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
                 {isPending ? "Génération…" : "Générer le planning"}
               </button>
-              {resume && (
-                <div className={`space-y-1.5 rounded-md border p-2 text-xs ${resume.trous.length > 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+              {resume?.erreur && (
+                <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{resume.erreur}</p>
+              )}
+              {resume && !resume.erreur && (
+                <div className={`space-y-1.5 rounded-md border p-2 text-xs ${resume.trous.length > 0 || resume.salariesIgnores ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
                   <p className="font-medium">{resume.crees} créneau(x) créé(s).</p>
+                  {resume.salariesIgnores && <p className="font-medium">{resume.salariesIgnores}</p>}
 
                   {resume.trous.length === 0 && resume.crees > 0 && <p>Tous les besoins sont couverts ✅</p>}
 

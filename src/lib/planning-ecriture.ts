@@ -23,6 +23,38 @@ export class PlanningVerrouilleError extends Error {
   }
 }
 
+/** Message affiché quand Postgres a dû annuler l'écriture pour sortir d'un interblocage. */
+export const MESSAGE_INTERBLOCAGE = "La paie est en cours de validation : réessayez dans un instant.";
+
+/**
+ * Vrai si `e` est un interblocage Postgres (40P01) ou le conflit de transaction que Prisma en tire
+ * (P2034). Selon le chemin (requête brute, requête du client, adaptateur `pg`), le code est porté
+ * par `e.code`, `e.meta.code` ou `e.meta.driverAdapterError.cause.originalCode` : on fouille ces
+ * seuls champs, sans jamais lire le texte du message.
+ */
+export function estInterblocage(e: unknown): boolean {
+  const vus = new Set<unknown>();
+  const fouiller = (x: unknown, profondeur: number): boolean => {
+    if (x === null || typeof x !== "object" || profondeur > 6 || vus.has(x)) return false;
+    vus.add(x);
+    const o = x as Record<string, unknown>;
+    if (o.code === "40P01" || o.originalCode === "40P01" || o.code === "P2034") return true;
+    return ["meta", "cause", "driverAdapterError"].some((k) => fouiller(o[k], profondeur + 1));
+  };
+  return fouiller(e, 0);
+}
+
+/**
+ * Message lisible pour les refus attendus d'une écriture du planning (planning verrouillé,
+ * interblocage avec une validation de paie), `null` pour toute autre erreur (à relancer). Les
+ * actions le RENVOIENT comme une valeur : Next masque le message des erreurs levées en production.
+ */
+export function messageErreurPlanning(e: unknown): string | null {
+  if (e instanceof PlanningVerrouilleError) return e.message;
+  if (estInterblocage(e)) return MESSAGE_INTERBLOCAGE;
+  return null;
+}
+
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const cle = (employeeId: string, d: Date) => `${employeeId}|${iso(d)}`;
 const JOUR_MS = 86_400_000;
@@ -84,7 +116,8 @@ export async function verrousPlanning(tx: Prisma.TransactionClient, operations: 
  * Applique `operations` au planning dans la transaction `tx` : contrôle des opérations (dates à
  * minuit UTC, au plus une par (salarié, jour)), puis verrou (rien n'est écrit si un seul
  * (salarié, mois) est verrouillé, même hors transaction), puis écriture, puis une entrée de
- * journal par créneau RÉELLEMENT changé. Renvoie le nombre de créneaux changés.
+ * journal par créneau RÉELLEMENT changé. Renvoie le nombre de créneaux changés (le seul retrait du
+ * marqueur ✨ ne compte pas : le shift, donc la paie, ne change pas).
  */
 export async function ecrireCreneaux(
   tx: Prisma.TransactionClient,
@@ -98,11 +131,13 @@ export async function ecrireCreneaux(
 
   const existants = operations.length === 0 ? [] : await tx.planningCreneau.findMany({
     where: { OR: operations.map((o) => ({ employeeId: o.employeeId, date: o.date })) },
-    select: { employeeId: true, date: true, shiftId: true },
+    select: { employeeId: true, date: true, shiftId: true, genereAuto: true },
   });
   const avant = new Map(existants.map((e) => [cle(e.employeeId, e.date), e.shiftId]));
+  const marques = new Set(existants.filter((e) => e.genereAuto).map((e) => cle(e.employeeId, e.date)));
   const genereAuto = opts.genereAuto ?? false;
 
+  const aDemarquer: OperationCreneau[] = [];
   const aEffacer: OperationCreneau[] = [];
   const aCreer: OperationCreneau[] = [];
   const aModifier: OperationCreneau[] = [];
@@ -110,7 +145,12 @@ export async function ecrireCreneaux(
   for (const o of operations) {
     const k = cle(o.employeeId, o.date);
     const ancien = avant.get(k) ?? null;
-    if (ancien === o.shiftId) continue;
+    if (ancien === o.shiftId) {
+      // Même shift ressaisi À LA MAIN sur un créneau ✨ généré : il devient une décision humaine, on
+      // retire le marqueur. Ce n'est pas un changement de planning : pas d'entrée de journal.
+      if (ancien !== null && !genereAuto && marques.has(k)) aDemarquer.push(o);
+      continue;
+    }
     if (o.shiftId === null) aEffacer.push(o);
     else if (ancien === null) aCreer.push(o);
     else aModifier.push(o);
@@ -127,6 +167,12 @@ export async function ecrireCreneaux(
     await tx.planningCreneau.update({
       where: { employeeId_date: { employeeId: o.employeeId, date: o.date } },
       data: { shiftId: o.shiftId!, genereAuto },
+    });
+  }
+  if (aDemarquer.length > 0) {
+    await tx.planningCreneau.updateMany({
+      where: { OR: aDemarquer.map((o) => ({ employeeId: o.employeeId, date: o.date })) },
+      data: { genereAuto: false },
     });
   }
   await journaliserPlusieurs(tx, journal);

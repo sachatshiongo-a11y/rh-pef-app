@@ -22,7 +22,9 @@ function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 }
 
-export default async function AValiderPage() {
+export default async function AValiderPage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
+  // Refus renvoyé par une approbation (planning verrouillé par une paie validée ou payée).
+  const { erreur } = await searchParams;
   const user = await verifySession();
   const peutValider = user.role === "ADMIN";
   const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
@@ -113,6 +115,9 @@ export default async function AValiderPage() {
 
   return (
     <div className="max-w-5xl">
+      {erreur && (
+        <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>
+      )}
       {/* En-tête façon Factorial : titre à gauche, grande carte compteur à droite */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>

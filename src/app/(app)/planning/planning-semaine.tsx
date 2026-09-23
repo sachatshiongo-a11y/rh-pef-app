@@ -160,12 +160,19 @@ export function PlanningSemaine({
 
   // Édition optimiste : on garde les changements localement en attendant la revalidation serveur.
   const [edits, setEdits] = useState<Record<string, string>>({});
+  // Refus du serveur (planning verrouillé par une paie validée, ou validation en cours) : affiché
+  // au-dessus du planning, l'édition optimiste correspondante est annulée.
+  const [erreurPlanning, setErreurPlanning] = useState<string | null>(null);
   const shiftDe = (empId: string, iso: string) => edits[`${empId}_${iso}`] ?? creneauMap[`${empId}_${iso}`] ?? "";
   const dureeDe = (empId: string, iso: string) => { const s = parId.get(shiftDe(empId, iso)); return s ? dureeShift(s) : 0; };
 
   const setCreneau = (empId: string, iso: string, shiftId: string) => {
     setEdits((x) => ({ ...x, [`${empId}_${iso}`]: shiftId }));
-    start(() => saisirCreneau(empId, iso, shiftId));
+    start(async () => {
+      const r = await saisirCreneau(empId, iso, shiftId);
+      setErreurPlanning(r.erreur ?? null);
+      if (r.erreur) setEdits((x) => { const n = { ...x }; delete n[`${empId}_${iso}`]; return n; });
+    });
     setMenu(null);
   };
 
@@ -205,7 +212,11 @@ export function PlanningSemaine({
     }
     if (entrees.length === 0) return;
     setEdits((x) => ({ ...x, ...patch }));
-    start(() => saisirCreneauxEnLot(entrees));
+    start(async () => {
+      const r = await saisirCreneauxEnLot(entrees);
+      setErreurPlanning(r.erreur ?? null);
+      if (r.erreur) setEdits((x) => { const n = { ...x }; for (const k of Object.keys(patch)) delete n[k]; return n; });
+    });
   };
 
   // ---- Agrégats ----
@@ -237,6 +248,9 @@ export function PlanningSemaine({
 
   return (
     <div>
+      {erreurPlanning && (
+        <p role="alert" className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreurPlanning}</p>
+      )}
       {/* ---------- BUREAU ---------- */}
       <div className="hidden lg:block">
         {/* Outils de la vue semaine (§3-§5) : lecture, regroupement (masqué en lecture « Par shift »,
