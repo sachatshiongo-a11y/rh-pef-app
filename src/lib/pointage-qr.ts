@@ -108,6 +108,19 @@ export function libelleMotif(v: VerdictPosition): string {
     : `à ${formaterNombre(Math.round(d))} m`;
 }
 
+/**
+ * Le scan d'un moment donné (arrivée/départ) encore « à vérifier » — un scan A_VERIFIER SANS
+ * `verifieLe`. C'est cette fonction, et elle seule, qui décide si le badge « À vérifier » du
+ * Suivi s'affiche pour ce moment : un scan A_VERIFIER déjà vérifié, ou un scan AU_RESTAURANT, ne
+ * doit plus jamais ressortir. `undefined` si aucun scan de ce moment n'attend d'être vérifié.
+ */
+export function scanAVerifier<S extends { moment: "ARRIVEE" | "DEPART"; verdict: "AU_RESTAURANT" | "A_VERIFIER"; verifieLe?: unknown }>(
+  scans: S[],
+  moment: "ARRIVEE" | "DEPART",
+): S | undefined {
+  return scans.find((s) => s.moment === moment && s.verdict === "A_VERIFIER" && !s.verifieLe);
+}
+
 /** Compteur de la semaine pour le Suivi : combien de scans restent « à vérifier », jamais NaN. */
 export function resumeSemaine(scans: { verdict: "AU_RESTAURANT" | "A_VERIFIER" }[]): { total: number; aVerifier: number; pourcent: number } {
   const total = scans.length;

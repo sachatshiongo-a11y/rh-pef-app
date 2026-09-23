@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   distanceMetres, verdictPosition, urlAffiche, lireCodeDepuisQr,
-  lireCoordonneesSaisies, libelleMotif, resumeSemaine,
+  lireCoordonneesSaisies, libelleMotif, resumeSemaine, scanAVerifier,
 } from "./pointage-qr";
 import { codesEgaux, genererCodeAffiche } from "./pointage-code";
 
@@ -93,4 +93,22 @@ describe("libellés et résumé", () => {
       .toEqual({ total: 4, aVerifier: 1, pourcent: 25 }));
   it("semaine vide : 0 %, jamais NaN", () =>
     expect(resumeSemaine([])).toEqual({ total: 0, aVerifier: 0, pourcent: 0 }));
+});
+
+describe("scanAVerifier — le badge « À vérifier » du Suivi", () => {
+  it("trouve le scan A_VERIFIER pas encore vérifié, du bon moment", () => {
+    const scans = [
+      { moment: "ARRIVEE" as const, verdict: "A_VERIFIER" as const, verifieLe: null },
+      { moment: "DEPART" as const, verdict: "AU_RESTAURANT" as const, verifieLe: null },
+    ];
+    expect(scanAVerifier(scans, "ARRIVEE")).toBe(scans[0]);
+    expect(scanAVerifier(scans, "DEPART")).toBeUndefined(); // AU_RESTAURANT : rien à vérifier
+  });
+  it("ignore un scan A_VERIFIER déjà vérifié (`verifieLe` posé)", () => {
+    const scans = [{ moment: "ARRIVEE" as const, verdict: "A_VERIFIER" as const, verifieLe: new Date() }];
+    expect(scanAVerifier(scans, "ARRIVEE")).toBeUndefined();
+  });
+  it("aucun scan de ce moment → undefined", () => {
+    expect(scanAVerifier([], "DEPART")).toBeUndefined();
+  });
 });

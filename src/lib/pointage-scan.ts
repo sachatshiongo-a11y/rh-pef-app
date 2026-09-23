@@ -60,9 +60,11 @@ function champsScan(p: PositionScan, v: VerdictPosition) {
 
 /**
  * Le verdict d'un scan TEL QU'ENREGISTRÉ (distance et précision arrondies au mètre) : le même objet
- * au premier scan et à un rescan du départ, qui renvoie CE scan tel qu'il a été jugé.
+ * au premier scan et à un rescan du départ, qui renvoie CE scan tel qu'il a été jugé. Exportée :
+ * le Suivi de la Direction (`pointer/suivi`) la réutilise pour reconstruire le motif lisible
+ * (`libelleMotif`) d'un scan déjà en base, plutôt que d'écrire une seconde reconstitution.
  */
-function verdictDe(s: ScanPointage): VerdictPosition {
+export function verdictDe(s: Pick<ScanPointage, "verdict" | "motif" | "distanceM" | "precisionM">): VerdictPosition {
   if (s.verdict === "AU_RESTAURANT") return { verdict: "AU_RESTAURANT", distanceM: s.distanceM ?? 0 };
   const motif = s.motif ?? "POSITION_INDISPONIBLE";
   return motif === "PRECISION_INSUFFISANTE"

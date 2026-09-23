@@ -1,13 +1,27 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
-import { Avatar } from "@/components/avatar";
+import { verdictDe } from "@/lib/pointage-scan";
+import { libelleMotif, scanAVerifier } from "@/lib/pointage-qr";
+import { resumeSemaineCourante } from "@/lib/pointage-suivi";
+import { SuiviBulk, type LigneSuivi } from "./suivi-bulk";
+import type { SourcePointage } from "@prisma/client";
 
 const TZ = "Africa/Lagos"; // UTC+1 = heure de Kinshasa (sans changement d'heure)
 const hhmm = (d: Date) => d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
 const jourKinshasaISO = () => {
   const k = new Date(Date.now() + 3_600_000);
   return `${k.getUTCFullYear()}-${String(k.getUTCMonth() + 1).padStart(2, "0")}-${String(k.getUTCDate()).padStart(2, "0")}`;
+};
+
+// « QR », « manuel », « appli (ancien) » (brief) — IVMS n'arrive jamais sur ce modèle en pratique
+// (réservé à l'import de présences), mais un libellé neutre évite un badge vide si ça change.
+const LABEL_SOURCE: Record<SourcePointage, string> = {
+  QR: "QR",
+  MANUEL: "manuel",
+  APP: "appli (ancien)",
+  IVMS_RAPPORT: "IVMS",
+  IVMS_API: "IVMS",
 };
 
 export default async function SuiviPointagesPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
@@ -21,7 +35,7 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
     weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
   });
 
-  const [employees, pointages] = await Promise.all([
+  const [employees, pointages, semaine] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -29,36 +43,64 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
     }),
     prisma.pointage.findMany({
       where: { date },
-      select: { employeeId: true, heureDebut: true, heureFin: true, pauseMinutes: true },
+      select: {
+        id: true, employeeId: true, heureDebut: true, heureFin: true, pauseMinutes: true, source: true,
+        scans: {
+          orderBy: { instant: "asc" },
+          select: { id: true, moment: true, verdict: true, motif: true, distanceM: true, precisionM: true, verifieLe: true },
+        },
+      },
     }),
+    // « Cette semaine » = la semaine EN COURS (maintenant), pas celle du jour affiché : c'est une
+    // mesure glissante (§3 de la conception), indépendante du sélecteur de date ci-dessous.
+    resumeSemaineCourante(prisma),
   ]);
   const parEmp = new Map(pointages.map((p) => [p.employeeId, p]));
 
-  const lignes = employees.map((e) => {
+  const lignesBrutes = employees.map((e) => {
     const p = parEmp.get(e.id);
     const heures = p?.heureFin
       ? Math.max(0, (p.heureFin.getTime() - p.heureDebut.getTime()) / 3_600_000 - p.pauseMinutes / 60)
       : null;
-    const statut = !p ? "ABSENT" : p.heureFin ? "TERMINE" : "EN_COURS";
-    return { ...e, p, heures, statut };
+    const statut: LigneSuivi["statut"] = !p ? "ABSENT" : p.heureFin ? "TERMINE" : "EN_COURS";
+
+    const scans = p?.scans ?? [];
+    // « À vérifier » se DÉRIVE des scans (un scan A_VERIFIER sans `verifieLe`) — jamais un booléen
+    // recopié sur Pointage, même règle que la signature électronique. `scanAVerifier` est la
+    // fonction pure testée dans `pointage-qr.test.ts` ; on ne la réécrit pas ici.
+    const badgeArriveeScan = scanAVerifier(scans, "ARRIVEE");
+    const badgeDepartScan = scanAVerifier(scans, "DEPART");
+    const departScanneSansPause = !p?.heureFin && scans.some((s) => s.moment === "DEPART");
+
+    const ligne: LigneSuivi = {
+      employeeId: e.id,
+      nom: e.nom,
+      photoUrl: e.photoUrl,
+      pointageId: p?.id ?? null,
+      arriveeLabel: p ? hhmm(p.heureDebut) : "—",
+      departLabel: p?.heureFin ? hhmm(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : "—",
+      pauseLabel: p ? `${p.pauseMinutes} min` : "—",
+      heuresLabel: heures !== null ? `${heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—",
+      statut,
+      sourceLabel: p ? LABEL_SOURCE[p.source] : null,
+      badgeArrivee: badgeArriveeScan ? `À vérifier · ${libelleMotif(verdictDe(badgeArriveeScan))}` : null,
+      badgeDepart: badgeDepartScan ? `À vérifier · ${libelleMotif(verdictDe(badgeDepartScan))}` : null,
+      aVerifier: !!badgeArriveeScan || !!badgeDepartScan,
+    };
+    return { ligne, statut, heures };
   });
-  const nbTermine = lignes.filter((l) => l.statut === "TERMINE").length;
-  const nbEnCours = lignes.filter((l) => l.statut === "EN_COURS").length;
-  const nbAbsent = lignes.filter((l) => l.statut === "ABSENT").length;
-  const totalHeures = lignes.reduce((s, l) => s + (l.heures ?? 0), 0);
+  const lignes: LigneSuivi[] = lignesBrutes.map((l) => l.ligne);
+
+  const nbTermine = lignesBrutes.filter((l) => l.statut === "TERMINE").length;
+  const nbEnCours = lignesBrutes.filter((l) => l.statut === "EN_COURS").length;
+  const nbAbsent = lignesBrutes.filter((l) => l.statut === "ABSENT").length;
+  const totalHeures = lignesBrutes.reduce((s, l) => s + (l.heures ?? 0), 0);
 
   const autreJour = (delta: number) => {
     const d = new Date(`${jour}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() + delta);
     return `/pointer/suivi?date=${d.toISOString().slice(0, 10)}`;
   };
-
-  const BADGE: Record<string, string> = {
-    TERMINE: "bg-emerald-100 text-emerald-800",
-    EN_COURS: "bg-amber-100 text-amber-800",
-    ABSENT: "bg-muted text-muted-foreground",
-  };
-  const LABEL: Record<string, string> = { TERMINE: "Terminé", EN_COURS: "En cours", ABSENT: "Pas pointé" };
 
   return (
     <div className="max-w-4xl">
@@ -68,6 +110,18 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
           <p className="text-sm capitalize text-muted-foreground">{dateLabel}</p>
         </div>
         <Link href="/pointer" className="text-sm text-primary underline">← Ma pointeuse</Link>
+      </div>
+
+      <div className="mb-4 rounded-lg border bg-card px-3 py-2 text-sm">
+        {semaine.total === 0 ? (
+          <span className="text-muted-foreground">Cette semaine : aucun pointage par QR pour l&apos;instant.</span>
+        ) : (
+          <>
+            Cette semaine : <span className="font-semibold tabular-nums">{semaine.aVerifier}</span>{" "}
+            pointage{semaine.aVerifier > 1 ? "s" : ""} à vérifier sur{" "}
+            <span className="font-semibold tabular-nums">{semaine.total}</span> ({semaine.pourcent} %)
+          </>
+        )}
       </div>
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -94,35 +148,11 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full min-w-[40rem] text-sm">
-          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
-              <th>Employé</th><th>Arrivée</th><th>Départ</th><th className="text-right">Pause</th><th className="text-right">Heures</th><th>Statut</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lignes.map((l) => (
-              <tr key={l.id} className="border-t">
-                <td className="px-3 py-2">
-                  <Link href={`/employes/${l.id}`} className="flex items-center gap-2 font-medium hover:underline">
-                    <Avatar nom={l.nom} taille={26} photoUrl={l.photoUrl} />
-                    <span className="truncate">{l.nom}</span>
-                  </Link>
-                </td>
-                <td className="px-3 py-2 tabular-nums">{l.p ? hhmm(l.p.heureDebut) : "—"}</td>
-                <td className="px-3 py-2 tabular-nums">{l.p?.heureFin ? hhmm(l.p.heureFin) : "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{l.p ? `${l.p.pauseMinutes} min` : "—"}</td>
-                <td className="px-3 py-2 text-right font-medium tabular-nums">{l.heures !== null ? `${l.heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—"}</td>
-                <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${BADGE[l.statut]}`}>{LABEL[l.statut]}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <SuiviBulk lignes={lignes} />
 
       <p className="mt-3 text-xs text-muted-foreground">
-        Lecture seule. Les heures affichées sont nettes (départ − arrivée − pause) et sont déjà reportées dans les Présences et les Heures.
+        Les heures affichées sont nettes (départ − arrivée − pause) et sont déjà reportées dans les Présences et les Heures.
+        La saisie manuelle des horaires se fait toujours depuis la fiche de l&apos;employé.
       </p>
     </div>
   );
