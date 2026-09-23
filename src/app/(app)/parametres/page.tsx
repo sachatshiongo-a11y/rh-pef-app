@@ -14,6 +14,7 @@ import {
 import { UsersAdmin, type UserRow } from "./users-admin";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
 import { PointageReglages } from "./pointage-reglages";
+import { ComptesEnLot } from "./comptes-lot";
 import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 
@@ -22,7 +23,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 
-  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding, dernierReglagePosition] = await Promise.all([
+  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding, dernierReglagePosition, salariesSansCompte] = await Promise.all([
     prisma.config.findUniqueOrThrow({ where: { id: "singleton" } }),
     prisma.exerciceFiscal.findFirst({
       where: { actif: true },
@@ -43,6 +44,12 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
       where: { entite: "Config", entiteId: "singleton", champ: "pointagePosition" },
       orderBy: { date: "desc" },
       select: { nouvelleValeur: true },
+    }),
+    // Comptes en lot (section « Espace salarié ») : les salariés actifs qui n'ont aucun compte.
+    prisma.employee.findMany({
+      where: { actif: true, compte: null },
+      orderBy: { nom: "asc" },
+      select: { id: true, nom: true, matricule: true, photoUrl: true },
     }),
   ]);
   // Valeur affichée = valeur saisie, sinon valeur par défaut (theme.ts).
@@ -165,7 +172,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           Ouvre un espace personnel aux salariés : ils se connectent avec leur <b>matricule</b> pour
           consulter leur <b>planning publié</b>, leur <b>dossier</b> et leurs <b>documents</b>, et
           déposer leurs <b>demandes de congé</b> (à valider par la Direction). Les comptes se créent
-          ensuite sur chaque fiche employé. <b>Désactivé par défaut.</b>
+          ensuite sur chaque fiche employé, ou en lot ci-dessous. <b>Désactivé par défaut.</b>
         </p>
         <form action={basculerEspaceEmploye} className="flex flex-wrap items-center gap-3">
           <input type="hidden" name="actif" value={config.espaceEmployeActif ? "0" : "1"} />
@@ -178,6 +185,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
             </button>
           )}
         </form>
+        {config.espaceEmployeActif && <ComptesEnLot salaries={salariesSansCompte} />}
       </Section>
 
       <Section title="Pointage par QR code">

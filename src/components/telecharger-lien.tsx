@@ -30,6 +30,49 @@ function nomDepuisEntetes(headers: Headers, defaut: string): string {
 }
 
 /**
+ * Le GESTE D'ENREGISTREMENT d'un fichier déjà en mémoire, partagé par `TelechargerLien` (fichier
+ * récupéré par `fetch`) et par les écrans qui reçoivent un document dans la réponse d'une action
+ * serveur (ex. fiches de connexion, Paramètres → Espace salarié) :
+ *   1) sur mobile TACTILE : `navigator.share({ files })` = feuille native « Enregistrer dans
+ *      Fichiers / Partager » en superposition (ne quitte pas l'app installée) ;
+ *   2) sinon (ou si le partage échoue autrement que par une annulation) : téléchargement classique
+ *      via un lien blob invisible.
+ * À appeler depuis un geste de l'utilisateur (un clic) : iOS refuse le partage hors geste.
+ */
+export async function enregistrerFichier(blob: Blob, nom: string): Promise<void> {
+  const type = blob.type || "application/octet-stream";
+  const file = new File([blob], nom, { type });
+
+  // 1) Mobile TACTILE uniquement : partage natif (n'ouvre pas la webview, pas de piège).
+  //    Sur desktop (y compris PWA installée), `canShare` peut renvoyer true mais le partage se
+  //    termine sans rien télécharger → « rien ne se passe ». On réserve donc le partage au tactile.
+  const tactile = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  const nav = navigator as Navigator & {
+    canShare?: (data?: ShareData) => boolean;
+    share?: (data?: ShareData) => Promise<void>;
+  };
+  if (tactile && nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: nom });
+      return;
+    } catch (err) {
+      // Annulé par l'utilisateur → on s'arrête. Autre erreur → on tente le repli.
+      if ((err as Error)?.name === "AbortError") return;
+    }
+  }
+
+  // 2) Ordinateur : téléchargement classique.
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nom;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/**
  * Téléchargement fiable, y compris en PWA mobile installée (iOS/Android).
  *
  * Le simple `<a href>` (même en `target="_blank"` ou avec `download`) NAVIGUE vers le PDF dans la
@@ -71,36 +114,7 @@ export function TelechargerLien({
       if (verdict === "erreur") throw new Error(String(res.status));
       const blob = await res.blob();
       const nom = nomFichier ?? nomDepuisEntetes(res.headers, "document.pdf");
-      const type = blob.type || "application/octet-stream";
-      const file = new File([blob], nom, { type });
-
-      // 1) Mobile TACTILE uniquement : partage natif (n'ouvre pas la webview, pas de piège).
-      //    Sur desktop (y compris PWA installée), `canShare` peut renvoyer true mais le partage se
-      //    termine sans rien télécharger → « rien ne se passe ». On réserve donc le partage au tactile.
-      const tactile = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-      const nav = navigator as Navigator & {
-        canShare?: (data?: ShareData) => boolean;
-        share?: (data?: ShareData) => Promise<void>;
-      };
-      if (tactile && nav.canShare && nav.share && nav.canShare({ files: [file] })) {
-        try {
-          await nav.share({ files: [file], title: nom });
-          return;
-        } catch (err) {
-          // Annulé par l'utilisateur → on s'arrête. Autre erreur → on tente le repli.
-          if ((err as Error)?.name === "AbortError") return;
-        }
-      }
-
-      // 2) Ordinateur : téléchargement classique.
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = nom;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      await enregistrerFichier(blob, nom);
     } catch {
       window.open(href, "_blank", "noopener,noreferrer");
     } finally {
