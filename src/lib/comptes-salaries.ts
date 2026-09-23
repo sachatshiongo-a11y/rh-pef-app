@@ -99,7 +99,7 @@ export const MESSAGE_COMPTE_PAR_EMAIL = "compte par adresse e-mail — géré da
 /** Réinitialisation à moitié faite : l'Auth a changé le mot de passe, la base ou le journal non. */
 export class ReinitialisationInachevee extends Error {
   constructor(cause: unknown) {
-    super("Mot de passe changé mais non enregistré : l'ancien ne marche plus, refaites “Nouvelle fiche” pour ce salarié.", { cause });
+    super("Mot de passe changé mais non enregistré : l'ancien ne marche plus, réinitialisez à nouveau ce salarié (« Nouvelle fiche » dans Paramètres, ou « Réinitialiser le mot de passe » sur sa fiche).", { cause });
     this.name = "ReinitialisationInachevee";
   }
 }

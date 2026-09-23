@@ -439,7 +439,7 @@ describe("reinitialiserCompteSalarie — le seul chemin de réinitialisation", (
       expect(mdp, modele).toBeTruthy(); // l'Auth l'a bien changé : l'ancien ne marche plus
       expect(err, modele).toBeInstanceOf(Error);
       expect((err as Error).message, modele).toBe(
-        "Mot de passe changé mais non enregistré : l'ancien ne marche plus, refaites “Nouvelle fiche” pour ce salarié.",
+        "Mot de passe changé mais non enregistré : l'ancien ne marche plus, réinitialisez à nouveau ce salarié (« Nouvelle fiche » dans Paramètres, ou « Réinitialiser le mot de passe » sur sa fiche).",
       );
       expect(JSON.stringify({ message: (err as Error).message, sortie }), modele).not.toContain(mdp);
     }
@@ -574,7 +574,7 @@ describe("nouvellesFichesEnLot (Paramètres → Espace salarié, « Nouvelle fic
       expect(r.fiches).toEqual([]);
       expect(r.ignores).toEqual([
         { nom: "NF Manager", raison: "ni compte salarié ni compte Stock — géré dans Utilisateurs & accès" },
-        { nom: "NF Moitié", raison: "Mot de passe changé mais non enregistré : l'ancien ne marche plus, refaites “Nouvelle fiche” pour ce salarié." },
+        { nom: "NF Moitié", raison: "Mot de passe changé mais non enregistré : l'ancien ne marche plus, réinitialisez à nouveau ce salarié (« Nouvelle fiche » dans Paramètres, ou « Réinitialiser le mot de passe » sur sa fiche)." },
       ]);
     } finally {
       H.client = prisma;
