@@ -14,6 +14,8 @@ const S = vi.hoisted(() => ({ chemins: [] as string[] }));
 // désactivent ponctuellement pour prouver que l'interrupteur bloque bien un appel DIRECT à
 // l'action, indépendamment du rendu de page.
 const F = vi.hoisted(() => ({ espaceEmployeActif: true }));
+// Ce que la Direction reçoit (cloche + e-mail + push) : on retient chaque message.
+const N = vi.hoisted(() => ({ direction: [] as { message: string; lien?: string }[] }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, p) => {
@@ -41,15 +43,24 @@ vi.mock("@/lib/espace-employe", () => ({
   estMatricule: (s: string) => !s.includes("@"),
   genererMotDePasseTemporaire: () => "TEST-PASS",
 }));
+// Le RENDU du PDF est couvert par `lib/pdf/contrat-signature.integration.test.ts` ; ici on vérifie
+// seulement que la signature d'un contrat FIGE un exemplaire (et que son échec ne défait rien).
+const P = vi.hoisted(() => ({ enPanne: false }));
+vi.mock("@/lib/pdf/contrat-buffer", () => ({
+  genererContratPdf: async () => {
+    if (P.enPanne) throw new Error("rendu PDF en panne");
+    return { buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x", figeable: true };
+  },
+}));
 vi.mock("@/lib/notifications", () => ({
-  creerNotification: async () => {},
+  creerNotification: async (n: { message: string; lien?: string }) => { N.direction.push(n); },
   notifierSalarie: async () => {},
   compteSalarieDe: async () => null,
   supprimerNotificationsPour: async () => {},
 }));
 
 const { signerMonDocument } = await import("./signature-actions");
-const { accepterMonContrat, repondreEchange } = await import("./actions");
+const { repondreEchange } = await import("./actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -222,13 +233,18 @@ describe("garde espaceEmployeActif — un appel DIRECT à l'action est bloqué, 
     }
   });
 
-  it("espace désactivé → accepterMonContrat est refusé, accepteLe n'est PAS mis à jour", async () => {
+  it("espace désactivé → signer son contrat est refusé : ni signature, ni acceptation", async () => {
     F.espaceEmployeActif = false;
     try {
-      await expect(accepterMonContrat(contratActifId)).rejects.toThrow();
+      const res = await signerMonDocument("CONTRAT", contratActifId, PNG_VALIDE);
+      expect(res).toMatchObject({ erreur: "Accès refusé." });
 
       const contrat = await prisma.contrat.findUnique({ where: { id: contratActifId }, select: { accepteLe: true } });
-      expect(contrat?.accepteLe).toBeNull();
+      expect(contrat?.accepteLe, "espace fermé : l'acceptation a été écrite quand même").toBeNull();
+      const sig = await prisma.signatureElectronique.findUnique({
+        where: { cible_cibleId: { cible: "CONTRAT", cibleId: contratActifId } },
+      });
+      expect(sig).toBeNull();
     } finally {
       F.espaceEmployeActif = true;
     }
@@ -270,5 +286,142 @@ describe("garde espaceEmployeActif — un appel DIRECT à l'action est bloqué, 
     } finally {
       F.espaceEmployeActif = true;
     }
+  });
+});
+
+// SIGNER VAUT ACCEPTATION FORMELLE (décision de la Direction, 2026-09-23). Chaque assertion RELIT
+// la base : c'est `Contrat.accepteLe` qui fait foi, pas ce que l'action renvoie.
+describe("signer un contrat depuis l'espace vaut acceptation", () => {
+  const relire = async (contratId: string) => {
+    const [contrat, sig] = await Promise.all([
+      prisma.contrat.findUniqueOrThrow({ where: { id: contratId } }),
+      prisma.signatureElectronique.findUnique({ where: { cible_cibleId: { cible: "CONTRAT", cibleId: contratId } } }),
+    ]);
+    return { contrat, sig };
+  };
+  const nouveauContrat = (employeeId: string) =>
+    prisma.contrat.create({
+      data: {
+        employeeId, type: "CDD", dateDebut: new Date("2026-01-01"), dateFin: new Date("2026-12-31"),
+        heuresHebdo: 48, salaireMensuel: 350, devise: "USD", poste: "Test", statut: "ACTIF",
+      },
+    });
+
+  it("pose accepteLe = signeLe (même instant), fige l'exemplaire et prévient la Direction", async () => {
+    N.direction.length = 0;
+    const res = await signerMonDocument("CONTRAT", contratActifId, PNG_VALIDE);
+    expect(res).toBeUndefined();
+
+    const { contrat, sig } = await relire(contratActifId);
+    expect(sig).not.toBeNull();
+    expect(contrat.accepteLe, "contrat signé sans acceptation").not.toBeNull();
+    expect(contrat.accepteLe!.getTime(), "l'acceptation n'est pas l'instant de la signature").toBe(sig!.signeLe.getTime());
+    expect(contrat.pdfAccepteUrl, "l'exemplaire qui fait foi n'a pas été figé").toBe(`/fichiers/contrats/${contratActifId}-${sig!.signeLe.getTime()}.pdf`);
+    expect(contrat.pdfAccepteObsolete).toBe(false);
+    expect(N.direction.map((n) => n.message)).toEqual(["Salarié A a signé son contrat (CDI)."]);
+    expect(N.direction[0].lien).toBe(`/employes/${empId}?tab=contrats`);
+  });
+
+  it("RE-signer après obsolescence est l'acceptation de la NOUVELLE version : accepteLe avance", async () => {
+    const avant = await relire(contratActifId);
+    // La Direction corrige le salaire : la signature devient « à resigner » à la lecture suivante.
+    await prisma.contrat.update({ where: { id: contratActifId }, data: { salaireMensuel: 320 } });
+    const { chargerSignature } = await import("@/lib/signature");
+    expect((await chargerSignature(prisma, "CONTRAT", contratActifId))?.obsolete).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 5)); // deux instants distincts à la milliseconde
+    const res = await signerMonDocument("CONTRAT", contratActifId, PNG_VALIDE);
+    expect(res).toBeUndefined();
+
+    const apres = await relire(contratActifId);
+    expect(apres.sig!.obsolete).toBe(false);
+    expect(apres.contrat.accepteLe!.getTime(), "la re-signature n'a pas mis l'acceptation à jour").toBe(apres.sig!.signeLe.getTime());
+    expect(apres.contrat.accepteLe!.getTime()).toBeGreaterThan(avant.contrat.accepteLe!.getTime());
+  });
+
+  it("déjà signé (et à jour) → refus, accepteLe INCHANGÉ", async () => {
+    const avant = await relire(contratActifId);
+    const res = await signerMonDocument("CONTRAT", contratActifId, PNG_VALIDE);
+    expect(res).toMatchObject({ erreur: "Ce document est déjà signé." });
+
+    const apres = await relire(contratActifId);
+    expect(apres.contrat.accepteLe!.getTime(), "un refus a déplacé l'acceptation").toBe(avant.contrat.accepteLe!.getTime());
+    expect(apres.sig!.signeLe.getTime()).toBe(avant.sig!.signeLe.getTime());
+  });
+
+  it("le contrat d'un COLLÈGUE → refus, son contrat n'est pas accepté", async () => {
+    const c = await nouveauContrat(collegueId);
+    const res = await signerMonDocument("CONTRAT", c.id, PNG_VALIDE);
+    expect(res).toMatchObject({ erreur: "Ce document ne vous appartient pas." });
+
+    const { contrat, sig } = await relire(c.id);
+    expect(contrat.accepteLe, "le contrat d'un collègue a été accepté à sa place").toBeNull();
+    expect(sig).toBeNull();
+  });
+
+  it("signer un BULLETIN ou une DEMANDE DE CONGÉ ne modifie aucun contrat", async () => {
+    // Deux documents neufs du salarié, et un contrat actif qui n'a jamais été signé.
+    const c = await nouveauContrat(empId);
+    const run = await prisma.payrollRun.create({ data: { mois: 7, annee: 2026, statut: "VALIDE", tauxChangeUtilise: 2800 } });
+    const ligne = await prisma.payrollLine.create({
+      data: {
+        payrollRunId: run.id, employeeId: empId, statutPaiement: "VALIDE",
+        transportUSD: 15, salBrutUSD: 300, cnssSalarieUSD: 15, netImposableUSD: 285, iprCalculeUSD: 10,
+        allocFamilialeUSD: 0, salNetUSD: 290, salNetCDF: 812000, cnssPatronalUSD: 36, coutEmployeurUSD: 336, coutEmployeurCDF: 940800,
+      },
+    });
+    const demande = await prisma.leaveRequest.create({
+      data: { employeeId: empId, type: "Congé annuel", dateDebut: new Date("2026-10-05"), dateFin: new Date("2026-10-09"), nbJours: 5, statut: "APPROUVE" },
+    });
+    const photo = async () => JSON.stringify(await prisma.contrat.findMany({ orderBy: { id: "asc" } }));
+    const avant = await photo();
+
+    expect(await signerMonDocument("BULLETIN", ligne.id, PNG_VALIDE)).toBeUndefined();
+    expect(await signerMonDocument("DEMANDE_CONGE", demande.id, PNG_VALIDE)).toBeUndefined();
+
+    expect(await photo(), "signer un bulletin ou un congé a modifié un contrat").toBe(avant);
+    expect((await relire(c.id)).contrat.accepteLe).toBeNull();
+  });
+
+  it("le figeage de l'exemplaire en panne ne bloque JAMAIS l'acceptation", async () => {
+    const c = await nouveauContrat(empId);
+    P.enPanne = true;
+    try {
+      const res = await signerMonDocument("CONTRAT", c.id, PNG_VALIDE);
+      expect(res, "une panne du rendu PDF a fait échouer la signature").toBeUndefined();
+    } finally {
+      P.enPanne = false;
+    }
+    const { contrat, sig } = await relire(c.id);
+    expect(contrat.accepteLe!.getTime()).toBe(sig!.signeLe.getTime());
+    expect(contrat.pdfAccepteUrl, "à défaut de figeage, le contrat est régénéré à la volée").toBeNull();
+  });
+
+  it("un contrat accepté d'un CLIC avant ce lot reste accepté, à sa date d'origine", async () => {
+    // Exactement ce que la migration 20260923090000 a écrit : acceptation au clic + signature
+    // reprise SANS tracé, empreinte vide, à la date d'acceptation.
+    const acceptation = new Date("2026-07-20T08:40:00.000Z");
+    const c = await nouveauContrat(empId);
+    await prisma.contrat.update({ where: { id: c.id }, data: { accepteLe: acceptation, pdfAccepteUrl: `/fichiers/contrats/${c.id}.pdf` } });
+    await prisma.signatureElectronique.create({
+      data: {
+        cible: "CONTRAT", cibleId: c.id, employeeId: empId, traceUrl: null, signeLe: acceptation,
+        mode: "ESPACE_SALARIE", donnees: {}, empreinte: "", obsolete: false,
+      },
+    });
+    // Même si ses conditions ont bougé depuis, il ne bascule ni en « à signer » ni en « à resigner ».
+    await prisma.contrat.update({ where: { id: c.id }, data: { salaireMensuel: 999 } });
+
+    const { chargerSignature, etatSignature } = await import("@/lib/signature");
+    expect(etatSignature(await chargerSignature(prisma, "CONTRAT", c.id)).etat).toBe("SIGNE");
+
+    // ...et une tentative de signature ne le ré-accepte pas.
+    const res = await signerMonDocument("CONTRAT", c.id, PNG_VALIDE);
+    expect(res).toMatchObject({ erreur: "Ce document est déjà signé." });
+    const { contrat, sig } = await relire(c.id);
+    expect(contrat.accepteLe!.getTime(), "l'acceptation d'origine a été déplacée").toBe(acceptation.getTime());
+    expect(contrat.pdfAccepteUrl, "l'exemplaire figé d'origine a été retiré").toBe(`/fichiers/contrats/${c.id}.pdf`);
+    expect(sig!.traceUrl).toBeNull();
+    expect(sig!.obsolete).toBe(false);
   });
 });

@@ -7,10 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { actionLisible } from "@/lib/action-lisible";
-import { documentSignable, enregistrerSignature, decoderTrace } from "@/lib/signature";
+import { documentSignable, decoderTrace } from "@/lib/signature";
+import { signerDocument } from "@/lib/signer-document";
 import { televerserFichier } from "@/lib/storage";
 import { journaliser } from "@/lib/audit";
-import { creerNotification } from "@/lib/notifications";
 
 function pagesConcernees(cible: CibleSignature): string[] {
   switch (cible) {
@@ -63,7 +63,9 @@ export const signerMonDocument = actionLisible(
       "image/png"
     );
 
-    await enregistrerSignature(prisma, {
+    // Signature + (contrat) acceptation, figeage de l'exemplaire et notification de la Direction :
+    // le même chemin que la signature en présentiel, cf. `lib/signer-document.ts`.
+    await signerDocument({
       cible,
       cibleId,
       employeeId: etat.employeeId,
@@ -78,14 +80,6 @@ export const signerMonDocument = actionLisible(
       champ: "signature",
       nouvelleValeur: "ESPACE_SALARIE",
       userId: user.id,
-    });
-
-    const emp = await prisma.employee.findUnique({ where: { id: etat.employeeId }, select: { nom: true } });
-    await creerNotification({
-      type: "AUTRE",
-      message: `${emp?.nom ?? "Un salarié"} a signé son document (${cible}) depuis son espace.`,
-      lien: "/a-valider",
-      refId: `signature:${cible}:${cibleId}`,
     });
 
     for (const page of pagesConcernees(cible)) revalidatePath(page);

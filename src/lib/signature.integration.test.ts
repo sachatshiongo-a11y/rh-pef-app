@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import type { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Client } from "pg";
 import { creerBaseTest } from "@/lib/test/db";
 import { empreinteDe, instantaneBulletin } from "@/lib/signature-document";
 
@@ -19,6 +21,7 @@ vi.mock("@/lib/prisma", () => ({
 const { documentSignable, enregistrerSignature, chargerSignature } = await import("@/lib/signature");
 
 let prisma: PrismaClient;
+let url: string;
 let fermer: () => Promise<void>;
 let empId: string;
 let presentateurId: string;
@@ -30,7 +33,7 @@ let contratActifId: string;
 
 beforeAll(async () => {
   const db = await creerBaseTest();
-  prisma = db.prisma; fermer = db.fermer; H.client = prisma;
+  prisma = db.prisma; url = db.url; fermer = db.fermer; H.client = prisma;
 
   const emp = await prisma.employee.create({
     data: {
@@ -281,3 +284,108 @@ describe("enregistrerSignature — l'invariant « déjà signé » est tenu par 
     expect(lignes[0].traceUrl).toBe(gagnants[0].url);
   }, 30_000);
 });
+
+describe("enregistrerSignature — signature et acceptation d'un contrat s'écrivent ensemble ou pas du tout", () => {
+  it("si l'acceptation échoue, la signature N'EST PAS enregistrée (une seule transaction)", async () => {
+    // Une panne APRÈS l'écriture de la signature et PENDANT celle de l'acceptation : un déclencheur
+    // Postgres refuse toute mise à jour de CE contrat. Sans transaction, la signature resterait en
+    // base, orpheline de son acceptation — le contrat afficherait « Signé le … » sans être accepté.
+    const { id: contratId } = await prisma.contrat.create({
+      data: {
+        employeeId: empId, type: "CDD", dateDebut: new Date("2026-01-01"), dateFin: new Date("2026-12-31"),
+        heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Test", statut: "ACTIF",
+      },
+    });
+    await prisma.$executeRawUnsafe(
+      `CREATE OR REPLACE FUNCTION panne_acceptation() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'panne simulée'; END $$ LANGUAGE plpgsql`
+    );
+    await prisma.$executeRawUnsafe(
+      `CREATE TRIGGER panne_acceptation BEFORE UPDATE ON "public"."Contrat" FOR EACH ROW WHEN (OLD."id" = '${contratId}') EXECUTE FUNCTION panne_acceptation()`
+    );
+    try {
+      await expect(
+        enregistrerSignature(prisma, {
+          cible: "CONTRAT", cibleId: contratId, employeeId: empId,
+          traceUrl: "https://storage.test/signatures/CONTRAT/panne.png",
+          mode: "ESPACE_SALARIE", presenteParId: null,
+        })
+      ).rejects.toThrow(/panne simulée/);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER panne_acceptation ON "public"."Contrat"`);
+    }
+
+    const sig = await prisma.signatureElectronique.findUnique({
+      where: { cible_cibleId: { cible: "CONTRAT", cibleId: contratId } },
+    });
+    expect(sig, "signature enregistrée sans acceptation").toBeNull();
+    const contrat = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId } });
+    expect(contrat.accepteLe).toBeNull();
+  });
+});
+
+describe("enregistrerSignature — deux signatures CONCURRENTES d'un même contrat", () => {
+  it("un seul gagnant ; le contrat porte l'acceptation du GAGNANT, jamais celle du perdant", async () => {
+    // DÉTERMINISTE : une connexion externe tient le verrou de la ligne Contrat. Les deux signatures
+    // partent, et on attend de VOIR deux transactions bloquées avant de relâcher — la course a donc
+    // réellement lieu, et elle passe par la mise à jour du contrat (ce que l'essai sur un congé,
+    // plus haut, n'exerce jamais).
+    const { id: contratId } = await prisma.contrat.create({
+      data: {
+        employeeId: empId, type: "CDD", dateDebut: new Date("2026-02-01"), dateFin: new Date("2026-12-31"),
+        heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Test", statut: "ACTIF",
+      },
+    });
+    const externe = new Client({ connectionString: url });
+    await externe.connect();
+    const second = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+    // Connexions ouvertes AVANT la course : sinon l'ouverture de la seconde se mêle au chronométrage.
+    await Promise.all([prisma.$queryRaw`SELECT 1`, second.$queryRaw`SELECT 1`]);
+    try {
+      await externe.query("BEGIN");
+      await externe.query(`SELECT 1 FROM "public"."Contrat" WHERE "id" = $1 FOR UPDATE`, [contratId]);
+
+      // DEUX clients, chacun sa connexion — comme deux requêtes servies en parallèle en production.
+      // Un seul client sérialiserait les écritures hors transaction de son côté, et la course ne
+      // toucherait jamais Postgres.
+      const signer = (trace: string, client: PrismaClient) =>
+        enregistrerSignature(client, {
+          cible: "CONTRAT", cibleId: contratId, employeeId: empId,
+          traceUrl: `https://storage.test/signatures/CONTRAT/${trace}.png`, mode: "ESPACE_SALARIE", presenteParId: null,
+        });
+      const course = Promise.allSettled([signer("a", prisma), signer("b", second)]);
+
+      let bloquees = 0;
+      for (let i = 0; i < 200 && bloquees < 2; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+        const { rows } = await externe.query(
+          `SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()`
+        );
+        bloquees = rows[0].n;
+      }
+      expect(bloquees, "les deux signatures n'ont pas été en vol en même temps : la course n'a pas eu lieu").toBe(2);
+      await externe.query("COMMIT");
+
+      const resultats = await course;
+      const gagnants = resultats.filter((r) => r.status === "fulfilled");
+      const perdants = resultats.filter((r) => r.status === "rejected");
+      expect(gagnants).toHaveLength(1);
+      expect(perdants).toHaveLength(1);
+      expect(((perdants[0] as PromiseRejectedResult).reason as Error).message).toBe("Ce document est déjà signé.");
+
+      const sig = await prisma.signatureElectronique.findUniqueOrThrow({
+        where: { cible_cibleId: { cible: "CONTRAT", cibleId: contratId } },
+      });
+      const contrat = await prisma.contrat.findUniqueOrThrow({ where: { id: contratId } });
+      expect(
+        contrat.accepteLe?.getTime(),
+        "le contrat porte l'acceptation du PERDANT (ou aucune) : signature et acceptation divergent"
+      ).toBe(sig.signeLe.getTime());
+      expect(sig.signeLe.getTime()).toBe((gagnants[0] as PromiseFulfilledResult<{ signeLe: Date }>).value.signeLe.getTime());
+    } finally {
+      await externe.query("ROLLBACK").catch(() => {});
+      await externe.end();
+      await second.$disconnect();
+    }
+  }, 30_000);
+});
+

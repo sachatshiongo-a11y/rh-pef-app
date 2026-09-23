@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { CibleSignature, ModeSignature } from "@prisma/client";
 import {
   canonique,
@@ -11,6 +11,7 @@ import {
   type Instantane,
 } from "@/lib/signature-document";
 import { normaliserEspaces } from "@/lib/montant";
+import { dateHeureKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
 import { lireFichier } from "@/lib/storage";
 import type { SignatureImprimable } from "@/lib/pdf/layout";
 
@@ -213,23 +214,6 @@ export async function chargerSignature(
 }
 
 /**
- * Écrit une signature : refuse si le document n'est pas signable, refuse si une signature NON
- * obsolète existe déjà (un document déjà signé et à jour ne se re-signe pas en silence). Une
- * signature obsolète peut être remplacée (la Direction a corrigé le document, le salarié re-signe
- * la version à jour).
- *
- * L'invariant « une seule signature non obsolète par document » est tenu par la BASE, pas par une
- * lecture applicative : un `findUnique` suivi d'un `upsert` séparé laisse une fenêtre entre lecture
- * et écriture (double-clic, renvoi réseau) où deux appels concurrents peuvent tous les deux lire
- * « pas de signature valide » et le second écraserait alors une signature qui vient d'être posée.
- * Deux écritures conditionnelles à la place :
- *  1. `updateMany` filtré sur `obsolete: true` — ne touche RIEN si la ligne n'est plus obsolète
- *     (un concurrent l'a déjà remplacée entre-temps) : la condition est réévaluée par Postgres au
- *     moment de l'écriture, pas au moment d'une lecture qui peut être périmée.
- *  2. Sinon `create` — et c'est la contrainte d'unicité `[cible, cibleId]` de la base qui tranche
- *     entre deux créations concurrentes : le perdant reçoit `P2002`, traduit en refus métier.
- */
-/**
  * Décode le tracé envoyé par le navigateur. NE JAMAIS faire confiance au client : ce n'est pas
  * parce que le composant `CadreSignature` n'exporte que du PNG qu'un appel direct de l'action
  * (contournant l'UI) ne pourrait pas envoyer autre chose — un SVG (vecteur, peut contenir du
@@ -248,116 +232,135 @@ export function decoderTrace(dataUrl: string): Buffer {
   return buf;
 }
 
+export type ParamsSignature = {
+  cible: CibleSignature;
+  cibleId: string;
+  employeeId: string;
+  traceUrl: string | null;
+  mode: ModeSignature;
+  presenteParId: string | null;
+};
+
+/**
+ * Écrit une signature : refuse si le document n'est pas signable, refuse si une signature NON
+ * obsolète existe déjà (un document déjà signé et à jour ne se re-signe pas en silence). Une
+ * signature obsolète peut être remplacée (la Direction a corrigé le document, le salarié re-signe
+ * la version à jour).
+ *
+ * L'invariant « une seule signature non obsolète par document » est tenu par la BASE, pas par une
+ * lecture applicative : un `findUnique` suivi d'un `upsert` séparé laisse une fenêtre entre lecture
+ * et écriture (double-clic, renvoi réseau) où deux appels concurrents peuvent tous les deux lire
+ * « pas de signature valide » et le second écraserait alors une signature qui vient d'être posée.
+ * Deux écritures conditionnelles à la place :
+ *  1. `updateMany` filtré sur `obsolete: true` — ne touche RIEN si la ligne n'est plus obsolète
+ *     (un concurrent l'a déjà remplacée entre-temps) : la condition est réévaluée par Postgres au
+ *     moment de l'écriture, pas au moment d'une lecture qui peut être périmée.
+ *  2. Sinon `create` — et c'est la contrainte d'unicité `[cible, cibleId]` de la base qui tranche
+ *     entre deux créations concurrentes : le perdant reçoit `P2002`, traduit en refus métier.
+ *
+ * SIGNER UN CONTRAT VAUT ACCEPTATION FORMELLE (décision de la Direction, 2026-09-23). La même
+ * écriture pose `Contrat.accepteLe` = l'horodatage de la signature — le MÊME instant que
+ * `signeLe`, jamais un second `new Date()`. Une re-signature après obsolescence est l'acceptation
+ * de la NOUVELLE version : `accepteLe` prend la nouvelle date.
+ *
+ * C'est ICI, et nulle part ailleurs, que l'acceptation s'écrit : les deux actions (espace salarié,
+ * présentiel) passent par cette fonction, aucune ne peut l'oublier.
+ *
+ * COHÉRENCE : signature et acceptation sont écrites dans UNE transaction. Sans elle, une coupure
+ * entre les deux écritures laissait un contrat signé sans acceptation (ou l'inverse), et aucune
+ * relecture ne saurait plus dire lequel des deux fait foi. Les deux écritures conditionnelles
+ * ci-dessus gardent leur rôle à l'intérieur : sous READ COMMITTED, `updateMany` attend le verrou de
+ * ligne d'un concurrent puis réévalue `obsolete: true`, et l'index unique fait attendre le second
+ * `create` jusqu'au commit du premier avant de lever `P2002` — qui annule alors TOUTE la
+ * transaction du perdant, acceptation comprise.
+ *
+ * Le même geste retire l'exemplaire figé précédent (`pdfAccepteUrl`) : il ne correspond plus à ce
+ * qui vient d'être accepté. L'appelant fige le nouvel exemplaire APRÈS la transaction
+ * (`lib/signer-document.ts`) — rendu PDF et stockage n'ont rien à faire dans une transaction, et
+ * leur échec ne doit jamais défaire l'acceptation. À défaut de figeage, le contrat est simplement
+ * régénéré à la volée, avec le tracé.
+ *
+ * Les signatures de bulletin et de congé ne touchent à aucun contrat.
+ *
+ * Renvoie l'horodatage écrit, pour que l'appelant n'en fabrique pas un second.
+ */
 export async function enregistrerSignature(
-  client: ClientSignature,
-  params: {
-    cible: CibleSignature;
-    cibleId: string;
-    employeeId: string;
-    traceUrl: string | null;
-    mode: ModeSignature;
-    presenteParId: string | null;
-  }
-): Promise<void> {
-  const instantane = await instantaneDe(client, params.cible, params.cibleId);
-  if (!instantane) {
-    throw new Error("Document introuvable.");
-  }
+  client: PrismaClient,
+  params: ParamsSignature
+): Promise<{ signeLe: Date }> {
+  return client.$transaction(async (tx) => {
+    const instantane = await instantaneDe(tx, params.cible, params.cibleId);
+    if (!instantane) {
+      throw new Error("Document introuvable.");
+    }
 
-  const etat = await documentSignable(client, params.cible, params.cibleId);
-  if (!etat.ok) {
-    throw new Error(etat.raison);
-  }
+    const etat = await documentSignable(tx, params.cible, params.cibleId);
+    if (!etat.ok) {
+      throw new Error(etat.raison);
+    }
 
-  // Contrôle immédiat : donne un message rapide dans le cas NON concurrent (l'écrasante majorité
-  // des appels). Ce n'est PAS ce sur quoi repose l'invariant — voir les deux écritures ci-dessous.
-  const existante = await client.signatureElectronique.findUnique({
-    where: { cible_cibleId: { cible: params.cible, cibleId: params.cibleId } },
-  });
-  if (existante && !existante.obsolete) {
-    throw new Error("Ce document est déjà signé.");
-  }
-
-  const donnees = JSON.parse(canonique(instantane)) as Prisma.InputJsonValue;
-  const empreinte = empreinteDe(instantane);
-  const champs = {
-    employeeId: params.employeeId,
-    traceUrl: params.traceUrl,
-    mode: params.mode,
-    presenteParId: params.presenteParId,
-    donnees,
-    empreinte,
-    signeLe: new Date(),
-    obsolete: false,
-  };
-
-  // 1. Remplacement atomique d'une signature obsolète.
-  const remplacees = await client.signatureElectronique.updateMany({
-    where: { cible: params.cible, cibleId: params.cibleId, obsolete: true },
-    data: champs,
-  });
-  if (remplacees.count === 1) {
-    return;
-  }
-
-  // 2. Aucune ligne obsolète à remplacer : soit il n'existait aucune signature, soit elle existe
-  // et n'est PAS obsolète — dans les deux cas on tente une création, et c'est la contrainte
-  // d'unicité de la base qui décide.
-  try {
-    await client.signatureElectronique.create({
-      data: { cible: params.cible, cibleId: params.cibleId, ...champs },
+    // Contrôle immédiat : donne un message rapide dans le cas NON concurrent (l'écrasante majorité
+    // des appels). Ce n'est PAS ce sur quoi repose l'invariant — voir les deux écritures ci-dessous.
+    const existante = await tx.signatureElectronique.findUnique({
+      where: { cible_cibleId: { cible: params.cible, cibleId: params.cibleId } },
     });
-  } catch (erreur) {
-    if (erreur instanceof Prisma.PrismaClientKnownRequestError && erreur.code === "P2002") {
+    if (existante && !existante.obsolete) {
       throw new Error("Ce document est déjà signé.");
     }
-    throw erreur;
-  }
+
+    const donnees = JSON.parse(canonique(instantane)) as Prisma.InputJsonValue;
+    const empreinte = empreinteDe(instantane);
+    const signeLe = new Date();
+    const champs = {
+      employeeId: params.employeeId,
+      traceUrl: params.traceUrl,
+      mode: params.mode,
+      presenteParId: params.presenteParId,
+      donnees,
+      empreinte,
+      signeLe,
+      obsolete: false,
+    };
+
+    // 1. Remplacement atomique d'une signature obsolète.
+    const remplacees = await tx.signatureElectronique.updateMany({
+      where: { cible: params.cible, cibleId: params.cibleId, obsolete: true },
+      data: champs,
+    });
+
+    // 2. Aucune ligne obsolète à remplacer : soit il n'existait aucune signature, soit elle existe
+    // et n'est PAS obsolète — dans les deux cas on tente une création, et c'est la contrainte
+    // d'unicité de la base qui décide.
+    if (remplacees.count !== 1) {
+      try {
+        await tx.signatureElectronique.create({
+          data: { cible: params.cible, cibleId: params.cibleId, ...champs },
+        });
+      } catch (erreur) {
+        if (erreur instanceof Prisma.PrismaClientKnownRequestError && erreur.code === "P2002") {
+          throw new Error("Ce document est déjà signé.");
+        }
+        throw erreur;
+      }
+    }
+
+    // 3. Signer un contrat, c'est l'accepter — dans la même transaction, au même instant.
+    if (params.cible === "CONTRAT") {
+      await tx.contrat.update({
+        where: { id: params.cibleId },
+        data: { accepteLe: signeLe, pdfAccepteUrl: null, pdfAccepteObsolete: false },
+      });
+    }
+
+    return { signeLe };
+  });
 }
 
 // --- CE QUE LE DOCUMENT IMPRIME ------------------------------------------------------------
 
 export type { SignatureImprimable };
 
-/**
- * Date et heure de KINSHASA (UTC+1, pas d'heure d'été) au format `JJ/MM/AAAA à HH h MM`.
- *
- * ⚠️ Construite morceau par morceau (`formatToParts`), et JAMAIS par la méthode `toLocaleString`
- * avec la locale fr-FR (écrite ici séparément à dessein : le garde-fou
- * `lib/pdf/glyphes-manquants.test.ts` cherche cette chaîne littérale dans tout fichier qui
- * alimente un PDF, et ce module en alimente trois) :
- * depuis ICU 72, Intl fr-FR insère une ESPACE FINE INSÉCABLE (U+202F) entre l'heure et les
- * minutes comme entre les milliers d'un montant. Optima, la police embarquée dans nos PDF, n'a
- * aucun glyphe pour ce caractère : react-pdf se rabat sur Helvetica, qui dessine une barre noire
- * en travers — le défaut corrigé dans tout ce dépôt le 2026-09-22 sur les montants. La sortie
- * repasse malgré tout par `normaliserEspaces` en dernier geste : ceinture ET bretelles, car un
- * changement de version d'ICU peut réintroduire l'espace fine là où on ne l'attend pas.
- */
-function dateHeureKinshasa(d: Date): string {
-  const morceaux = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Africa/Kinshasa",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23", // minuit s'écrit « 00 h 00 », jamais « 24 h 00 »
-  }).formatToParts(d);
-  const p = (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
-  return `${p("day")}/${p("month")}/${p("year")} à ${p("hour")} h ${p("minute")}`;
-}
-
-/** Le seul jour, heure de Kinshasa — `JJ/MM/AAAA`. Mêmes précautions que `dateHeureKinshasa`. */
-function jourKinshasa(d: Date): string {
-  const morceaux = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Africa/Kinshasa",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).formatToParts(d);
-  const p = (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
-  return normaliserEspaces(`${p("day")}/${p("month")}/${p("year")}`);
-}
+// Les dates imprimées et affichées sont à l'heure de Kinshasa : `lib/heure-kinshasa.ts`.
 
 /**
  * LA PHRASE IMPRIMÉE SOUS LE TRAIT — elle dit la vérité sur le geste, jamais une formule passe-partout.

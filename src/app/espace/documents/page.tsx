@@ -5,9 +5,9 @@ import { envoyerMonCertificat } from "../actions";
 import { Icone } from "@/components/icones";
 import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
-import { AccepterContrat } from "./accepter-contrat";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { signerMonDocument } from "../signature-actions";
@@ -153,9 +153,11 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
         ) : (
           <ul className="divide-y">
             {contrats.map((c) => {
-              // UNE signature valide VAUT acceptation à l'écran : « Lu et approuvé » disparaît, et
-              // l'acceptation n'est plus écrite deux fois (le badge « Signé le … » la porte déjà).
-              // ⚠️ Rien n'est écrit en base : `accepteLe` reste ce qu'il est, seule la vue change.
+              // SIGNER VAUT ACCEPTATION FORMELLE (2026-09-23) : la signature pose `accepteLe` au même
+              // instant (`enregistrerSignature`), et l'ancien clic « Lu et approuvé » n'existe plus.
+              // L'écran ne dit donc l'acceptation qu'UNE fois, par le badge « Signé le … ». La ligne
+              // « accepté le … » ne subsiste que pour un contrat accepté sans aucune signature en
+              // base — cas que la migration du lot 2 a normalement résorbé.
               const sigC = etatSignature(sigContrats.get(c.id));
               const signe = sigC.etat !== "A_SIGNER";
               return (
@@ -164,12 +166,11 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                   <p className="text-sm font-medium">{c.type} · {c.poste}</p>
                   <p className="text-xs text-muted-foreground">
                     {fr(c.dateDebut)} → {c.dateFin ? fr(c.dateFin) : "indéterminé"}
-                    {c.accepteLe && !signe ? <span className="text-emerald-700"> · accepté le {fr(c.accepteLe)}</span> : null}
+                    {c.accepteLe && !signe ? <span className="text-emerald-700"> · accepté le {jourKinshasa(c.accepteLe)}</span> : null}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3 text-sm">
                   <ContratViewerButton href={`/espace/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} className="text-primary underline" />
-                  {c.statut === "ACTIF" && !c.accepteLe && !signe && <AccepterContrat id={c.id} />}
                   {c.statut === "ACTIF" && (
                     <BoutonSigner
                       cible="CONTRAT"
