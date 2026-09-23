@@ -42,6 +42,24 @@ export function issuePartage(r: { ok: true } | { erreur: unknown }): IssuePartag
   return (r.erreur as Error | null)?.name === "AbortError" ? "annule" : "repli";
 }
 
+type NavigateurPartage = Navigator & {
+  canShare?: (data?: ShareData) => boolean;
+  share?: (data?: ShareData) => Promise<void>;
+};
+
+/**
+ * Vrai si `enregistrerFichier` ouvrira la feuille de partage native (et donc WhatsApp, Messages…)
+ * pour ce fichier ; faux si elle le TÉLÉCHARGERA. Réservé au tactile : sur ordinateur (y compris
+ * PWA installée), `canShare` peut renvoyer true mais le partage se termine sans rien télécharger
+ * → « rien ne se passe ». À n'appeler que côté client (après le montage).
+ */
+export function partageDeFichierPossible(file: File): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const tactile = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+  const nav = navigator as NavigateurPartage;
+  return tactile && !!nav.canShare && !!nav.share && nav.canShare({ files: [file] });
+}
+
 /**
  * Le GESTE D'ENREGISTREMENT d'un fichier déjà en mémoire, partagé par `TelechargerLien` (fichier
  * récupéré par `fetch`) et par les écrans qui reçoivent un document dans la réponse d'une action
@@ -61,14 +79,8 @@ export async function enregistrerFichier(blob: Blob, nom: string): Promise<boole
   const file = new File([blob], nom, { type });
 
   // 1) Mobile TACTILE uniquement : partage natif (n'ouvre pas la webview, pas de piège).
-  //    Sur desktop (y compris PWA installée), `canShare` peut renvoyer true mais le partage se
-  //    termine sans rien télécharger → « rien ne se passe ». On réserve donc le partage au tactile.
-  const tactile = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-  const nav = navigator as Navigator & {
-    canShare?: (data?: ShareData) => boolean;
-    share?: (data?: ShareData) => Promise<void>;
-  };
-  if (tactile && nav.canShare && nav.share && nav.canShare({ files: [file] })) {
+  const nav = navigator as NavigateurPartage;
+  if (partageDeFichierPossible(file) && nav.share) {
     let issue: IssuePartage;
     try {
       await nav.share({ files: [file], title: nom });
