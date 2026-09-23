@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
+import { peutChangerSonMotDePasse } from "@/lib/mot-de-passe-temporaire";
 import { calculerJoursOuvrables } from "@/lib/payroll";
 import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
@@ -40,9 +41,15 @@ export async function supprimerMaNotification(id: string) {
 export async function changerMonMotDePasse(formData: FormData) {
   return formulaireLisible("/espace/mot-de-passe", async () => {
     const user = await verifySession();
-    // Un compte EMPLOYE, ou tout compte relié à une fiche employé (ex. un compte Stock à identifiant
-    // matricule, qui reçoit lui aussi un mot de passe temporaire par « Nouvelle fiche »).
-    if (user.role !== "EMPLOYE" && !estSalarie(user)) throw new Error("Accès refusé.");
+    // Un compte EMPLOYE, comme avant ; tout autre compte seulement pour remplacer le mot de passe
+    // TEMPORAIRE d'une fiche (ex. un compte Stock à identifiant matricule) : ce formulaire ne
+    // demande pas l'ancien mot de passe. Cf. peutChangerSonMotDePasse.
+    const [espaceOuvert, compte] = await Promise.all([
+      espaceEmployeActif(),
+      prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true } }),
+    ]);
+    const regle = { role: user.role, employeeId: user.employeeId, motDePasseTemporaire: compte?.motDePasseTemporaire ?? false, espaceOuvert };
+    if (!peutChangerSonMotDePasse(regle)) throw new Error("Accès refusé.");
     const mdp = String(formData.get("motDePasse") ?? "");
     const confirmation = String(formData.get("confirmation") ?? "");
     if (mdp.length < 6) throw new Error("Le mot de passe doit faire au moins 6 caractères.");

@@ -14,7 +14,7 @@
 // JAMAIS dans une URL (pas de lien « wa.me/?text=… ») : il ne voyage que dans le fichier. Rien n'est
 // envoyé automatiquement : sur iPhone, la feuille de partage exige un geste de l'utilisateur.
 
-import { useEffect, useMemo, useState, useSyncExternalStore, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BoutonNeutre, BoutonValider, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { Avatar } from "@/components/avatar";
@@ -23,6 +23,7 @@ import { EmployeeName } from "@/components/employee-name";
 import { enregistrerFichier, partageDeFichierPossible } from "@/components/telecharger-lien";
 import { estErreur } from "@/lib/action-lisible";
 import { creerComptesEnLot, nouvellesFichesEnLot } from "./comptes-lot-actions";
+import { apresEnregistrement, libelleEnvoiFiche, type EnvoiFiche } from "./envoi-fiches";
 
 /** Même union que `EtatCompteSalarie` (src/lib/comptes-salaries.ts, module serveur). */
 export type EtatCompteLigne = "SANS_COMPTE" | "ACTIF" | "DESACTIVE" | "PAR_EMAIL";
@@ -83,8 +84,13 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
   const [enCours, demarrer] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [resultat, setResultat] = useState<Resultat | null>(null);
-  const [envoyees, setEnvoyees] = useState<Set<string>>(new Set());
+  // Par salarié, le chemin réellement pris par son dernier envoi (partage ou téléchargement).
+  const [envoyees, setEnvoyees] = useState<Map<string, EnvoiFiche>>(new Map());
   const [plancheEnregistree, setPlancheEnregistree] = useState(false);
+  // Un seul partage à la fois : un second `navigator.share` pendant le premier échouerait et
+  // retomberait sur un téléchargement. Le verrou couvre le double appui avant le rendu suivant.
+  const [envoiEnCours, setEnvoiEnCours] = useState(false);
+  const verrouEnvoi = useRef(false);
   // Libellé du bouton d'envoi : connu seulement côté client (feuille de partage ou téléchargement) ;
   // « Télécharger » au rendu serveur, sans écart d'hydratation.
   const partage = useSyncExternalStore(sAbonnerAucun, partageSurCetAppareil, () => false);
@@ -161,40 +167,58 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
         planche: r.plancheBase64 ? pdfDepuisBase64(r.plancheBase64) : null,
         ignores: r.ignores,
       });
-      setEnvoyees(new Set());
+      setEnvoyees(new Map());
       setPlancheEnregistree(false);
       clear();
       router.refresh();
     });
   }
 
-  async function envoyer(f: FicheRecue) {
+  /** Exécute un enregistrement seul, bouton désactivé le temps qu'il dure. */
+  async function unEnvoiALaFois(geste: () => Promise<void>) {
+    if (verrouEnvoi.current) return;
+    verrouEnvoi.current = true;
+    setEnvoiEnCours(true);
     try {
-      // `false` = feuille de partage ANNULÉE : rien n'est parti, la fiche reste « à envoyer ».
-      if (await enregistrerFichier(f.pdf, f.nomFichier)) {
-        setErreur(null);
-        setEnvoyees((s) => new Set(s).add(f.employeeId));
-      } else {
-        setErreur(`Envoi annulé : la fiche de ${f.nom} n'est pas partie. Appuyez de nouveau sur son bouton.`);
-      }
-    } catch {
-      setErreur(`L'envoi de la fiche de ${f.nom} a échoué. Réessayez avec le même bouton : ne quittez pas cette page.`);
+      await geste();
+    } finally {
+      verrouEnvoi.current = false;
+      setEnvoiEnCours(false);
     }
   }
 
-  async function enregistrerPlanche() {
-    if (!resultat?.planche) return;
-    try {
-      const date = new Date().toISOString().slice(0, 10);
-      if (await enregistrerFichier(resultat.planche, `Fiches de connexion ${date}.pdf`)) {
-        setErreur(null);
-        setPlancheEnregistree(true);
-      } else {
-        setErreur("Enregistrement annulé : la planche n'est pas enregistrée.");
+  function envoyer(f: FicheRecue) {
+    return unEnvoiALaFois(async () => {
+      try {
+        const issue = await enregistrerFichier(f.pdf, f.nomFichier);
+        setEnvoyees((m) => {
+          const etat = apresEnregistrement(m.get(f.employeeId), issue);
+          return etat === m.get(f.employeeId) || !etat ? m : new Map(m).set(f.employeeId, etat);
+        });
+        // Feuille de partage ANNULÉE : rien n'est parti, la fiche garde son état.
+        setErreur(issue === "annule" ? `Envoi annulé : la fiche de ${f.nom} n'est pas partie. Appuyez de nouveau sur son bouton.` : null);
+      } catch {
+        setErreur(`L'envoi de la fiche de ${f.nom} a échoué. Réessayez avec le même bouton : ne quittez pas cette page.`);
       }
-    } catch {
-      setErreur("L'enregistrement de la planche a échoué. Réessayez avec le même bouton : ne quittez pas cette page.");
-    }
+    });
+  }
+
+  function enregistrerPlanche() {
+    const planche = resultat?.planche;
+    if (!planche) return;
+    return unEnvoiALaFois(async () => {
+      try {
+        const date = new Date().toISOString().slice(0, 10);
+        if ((await enregistrerFichier(planche, `Fiches de connexion ${date}.pdf`)) !== "annule") {
+          setErreur(null);
+          setPlancheEnregistree(true);
+        } else {
+          setErreur("Enregistrement annulé : la planche n'est pas enregistrée.");
+        }
+      } catch {
+        setErreur("L'enregistrement de la planche a échoué. Réessayez avec le même bouton : ne quittez pas cette page.");
+      }
+    });
   }
 
   const libelleEnvoi = partage ? "Envoyer par WhatsApp" : "Télécharger la fiche";
@@ -228,7 +252,8 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
               </p>
               <ul className="divide-y rounded-md border">
                 {resultat.fiches.map((f) => {
-                  const envoyee = envoyees.has(f.employeeId);
+                  const etatEnvoi = envoyees.get(f.employeeId);
+                  const envoyee = etatEnvoi !== undefined;
                   return (
                     <li key={f.employeeId} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                       {/* Avatar + nom SANS lien, par exception : ouvrir la fiche du salarié ici
@@ -241,9 +266,14 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
                         </span>
                       </span>
                       <span className={`text-xs font-medium ${envoyee ? "text-emerald-700" : "text-amber-700"}`}>
-                        {envoyee ? (partage ? "✓ Envoyée" : "✓ Téléchargée") : "À envoyer"}
+                        {libelleEnvoiFiche(etatEnvoi)}
                       </span>
-                      <button type="button" onClick={() => envoyer(f)} className={envoyee ? CLASSES_NEUTRE : CLASSES_PRINCIPAL}>
+                      <button
+                        type="button"
+                        onClick={() => envoyer(f)}
+                        disabled={envoiEnCours}
+                        className={envoyee ? CLASSES_NEUTRE : CLASSES_PRINCIPAL}
+                      >
                         {envoyee ? `${libelleEnvoi} à nouveau` : libelleEnvoi}
                       </button>
                     </li>
@@ -256,7 +286,7 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
                   : "Sur ordinateur, la fiche est téléchargée : envoyez-la ensuite au salarié par WhatsApp Web ou depuis votre téléphone."}
               </p>
               <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-                <BoutonNeutre type="button" onClick={enregistrerPlanche}>
+                <BoutonNeutre type="button" onClick={enregistrerPlanche} disabled={envoiEnCours}>
                   Toutes les fiches (PDF à imprimer, 8 par page)
                 </BoutonNeutre>
                 {plancheEnregistree && <span className="text-xs text-emerald-700">✓ Planche enregistrée</span>}

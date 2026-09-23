@@ -11,7 +11,7 @@ import { changerMotDePasseAdmin, creerUtilisateurAuth, supprimerUtilisateurAuth 
 // serveur qui l'appellent : ce module ne connaît ni la session ni Next.
 
 /** Pourquoi un compte n'a pas été créé ou réinitialisé, quand ce n'est pas une panne. */
-export type MotifRefusCompte = "INTROUVABLE" | "INACTIF" | "COMPTE_EXISTANT" | "SANS_COMPTE" | "COMPTE_PAR_EMAIL";
+export type MotifRefusCompte = "INTROUVABLE" | "INACTIF" | "COMPTE_EXISTANT" | "SANS_COMPTE" | "COMPTE_PAR_EMAIL" | "ROLE_NON_SALARIE";
 
 export class RefusCompteSalarie extends Error {
   constructor(
@@ -96,17 +96,28 @@ export function etatCompteSalarie(matricule: string, compte: { email: string; ac
 
 export const MESSAGE_COMPTE_PAR_EMAIL = "compte par adresse e-mail — géré dans Utilisateurs & accès";
 
+/** Réinitialisation à moitié faite : l'Auth a changé le mot de passe, la base ou le journal non. */
+export class ReinitialisationInachevee extends Error {
+  constructor(cause: unknown) {
+    super("Mot de passe changé mais non enregistré : l'ancien ne marche plus, refaites “Nouvelle fiche” pour ce salarié.", { cause });
+    this.name = "ReinitialisationInachevee";
+  }
+}
+
 /**
  * Nouveau mot de passe TEMPORAIRE pour le compte d'un salarié : l'ancien cesse de fonctionner, le
  * compte est (ré)activé et le changement sera exigé à la connexion suivante.
  *
- * Éligible : un compte LIÉ au salarié dont l'identifiant de connexion est son matricule, quel que
- * soit son rôle (EMPLOYE, ou STOCK à identifiant matricule). Refusés : pas de compte ; compte à
- * identifiant e-mail (rien n'est modifié — la fiche porterait un identifiant qui ne connecte pas).
+ * Éligible : un compte LIÉ au salarié, de rôle EMPLOYE ou STOCK, dont l'identifiant de connexion
+ * est son matricule. Refusés, sans rien modifier : pas de compte ; un autre rôle (Direction,
+ * Manager, Compta… : ces comptes se gèrent dans Utilisateurs & accès) ; compte à identifiant
+ * e-mail (la fiche porterait un identifiant qui ne connecte pas).
  * L'activité du salarié n'est PAS vérifiée ici (la fiche employé ne la vérifiait pas) : le lot la
  * vérifie, lui, avant d'appeler.
  *
- * Le mot de passe n'est renvoyé qu'à l'appelant — jamais stocké, jamais écrit au journal.
+ * Le mot de passe n'est renvoyé qu'à l'appelant — jamais stocké, jamais écrit au journal. Si la
+ * base ou le journal échoue APRÈS le changement côté Auth, l'erreur le dit : l'ancien mot de passe
+ * ne fonctionne plus et le nouveau est perdu.
  */
 export async function reinitialiserCompteSalarie(
   client: PrismaClient,
@@ -114,10 +125,15 @@ export async function reinitialiserCompteSalarie(
 ): Promise<CompteSalarieCree> {
   const compte = await client.user.findUnique({
     where: { employeeId: p.employeeId },
-    select: { id: true, email: true, employe: { select: { id: true, nom: true, matricule: true } } },
+    select: { id: true, email: true, role: true, employe: { select: { id: true, nom: true, matricule: true } } },
   });
   if (!compte?.employe) throw new RefusCompteSalarie("SANS_COMPTE", "Aucun compte salarié pour cet employé.");
   const emp = compte.employe;
+  if (compte.role !== "EMPLOYE" && compte.role !== "STOCK")
+    throw new RefusCompteSalarie(
+      "ROLE_NON_SALARIE",
+      "Ce compte n'est ni un compte salarié ni un compte Stock : il se gère dans Paramètres → Utilisateurs & accès.",
+    );
   if (!identifiantEstLeMatricule(compte.email, emp.matricule))
     throw new RefusCompteSalarie(
       "COMPTE_PAR_EMAIL",
@@ -127,15 +143,19 @@ export async function reinitialiserCompteSalarie(
   const motDePasse = genererMotDePasseTemporaire();
   // L'Auth d'abord : si elle échoue, rien n'a changé côté application.
   await changerMotDePasseAdmin(compte.id, motDePasse);
-  await client.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true } });
-
-  await journaliser(client, {
-    entite: "User",
-    entiteId: compte.id,
-    champ: "reinitialisation",
-    nouvelleValeur: "mot de passe temporaire régénéré",
-    userId: p.auteurId,
-  });
+  try {
+    await client.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true } });
+    await journaliser(client, {
+      entite: "User",
+      entiteId: compte.id,
+      champ: "reinitialisation",
+      nouvelleValeur: "mot de passe temporaire régénéré",
+      userId: p.auteurId,
+    });
+  } catch (e) {
+    // Le mot de passe n'est plus rendu à personne : le dire, sans jamais le citer.
+    throw new ReinitialisationInachevee(e);
+  }
   return { employeeId: emp.id, nom: emp.nom, matricule: emp.matricule, motDePasse };
 }
 
@@ -151,6 +171,7 @@ const RAISON_REFUS: Record<MotifRefusCompte, string> = {
   COMPTE_EXISTANT: "a déjà un compte (non modifié)",
   SANS_COMPTE: "n'a pas de compte (utilisez « Créer les comptes »)",
   COMPTE_PAR_EMAIL: MESSAGE_COMPTE_PAR_EMAIL,
+  ROLE_NON_SALARIE: "ni compte salarié ni compte Stock — géré dans Utilisateurs & accès",
 };
 
 /** Première ligne d'un message d'erreur, bornée : une erreur Prisma tient sur des dizaines de lignes. */
@@ -183,7 +204,12 @@ async function traiterEnLot(
     try {
       resultat.crees.push(await traiter(employeeId, parId.get(employeeId)));
     } catch (e) {
-      const raison = e instanceof RefusCompteSalarie ? RAISON_REFUS[e.motif] : `échec ${verbeEchec} : ${resumeErreur(e)}`;
+      const raison =
+        e instanceof RefusCompteSalarie
+          ? RAISON_REFUS[e.motif]
+          : e instanceof ReinitialisationInachevee
+            ? e.message // déjà complet : « échec » dirait le contraire de ce qui s'est passé
+            : `échec ${verbeEchec} : ${resumeErreur(e)}`;
       resultat.ignores.push({ nom: parId.get(employeeId)?.nom ?? "(salarié introuvable)", raison });
     }
   }

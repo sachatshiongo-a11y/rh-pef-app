@@ -89,7 +89,7 @@ async function salarie(nom: string, opts: { actif?: boolean } = {}) {
 /** Un compte déjà en place, dans un état qu'une réinitialisation changerait forcément. */
 async function compteExistant(
   emp: { id: string; matricule: string; nom: string },
-  opts: { role?: "EMPLOYE" | "STOCK"; email?: string; actif?: boolean } = {},
+  opts: { role?: "EMPLOYE" | "STOCK" | "MANAGER" | "COMPTA" | "ADMIN"; email?: string; actif?: boolean } = {},
 ) {
   return prisma.user.create({
     data: {
@@ -108,6 +108,23 @@ async function texteDuPdf(b64: string): Promise<string> {
 async function nombreDePages(b64: string): Promise<number> {
   const { PDFParse } = await import("pdf-parse");
   return (await new PDFParse({ data: new Uint8Array(Buffer.from(b64, "base64")) }).getText()).total;
+}
+
+/** Un client dont UNE opération tombe en panne ; tout le reste passe par la vraie base. */
+function clientEnPanne(modele: "user" | "journalAudit", operation: string): PrismaClient {
+  return new Proxy(prisma, {
+    get: (t, p) => {
+      const v = Reflect.get(t, p);
+      if (p !== modele) return typeof v === "function" ? v.bind(t) : v;
+      return new Proxy(v as object, {
+        get: (m, q) => {
+          if (q === operation) return async () => { throw new Error("connexion perdue"); };
+          const f = Reflect.get(m, q);
+          return typeof f === "function" ? f.bind(m) : f;
+        },
+      });
+    },
+  });
 }
 
 /** Une ligne de résultat, SANS son PDF : ce que l'écran reçoit en clair. */
@@ -395,6 +412,39 @@ describe("reinitialiserCompteSalarie — le seul chemin de réinitialisation", (
     expect(await prisma.user.findUnique({ where: { employeeId: e.id } })).toBeNull();
   });
 
+  it("compte MANAGER ou COMPTA relié et identifié par matricule : refusé, RIEN n'est modifié", async () => {
+    for (const role of ["MANAGER", "COMPTA"] as const) {
+      const e = await salarie(`Rôle ${role}`);
+      const avant = await compteExistant(e, { role, actif: true });
+      const err = await reinitialiserCompteSalarie(prisma, { employeeId: e.id, auteurId: adminId }).catch((x) => x);
+      expect(err, role).toBeInstanceOf(RefusCompteSalarie);
+      expect(err, role).toMatchObject({
+        motif: "ROLE_NON_SALARIE",
+        message: "Ce compte n'est ni un compte salarié ni un compte Stock : il se gère dans Paramètres → Utilisateurs & accès.",
+      });
+      expect(await prisma.user.findUniqueOrThrow({ where: { id: avant.id } })).toEqual(avant); // base relue
+      expect(await prisma.journalAudit.count({ where: { entiteId: avant.id } })).toBe(0);
+    }
+    expect(AUTH.changementsMotDePasse).toBe(0);
+  });
+
+  it("la base ou le journal échoue APRÈS l'Auth : l'erreur dit la vérité, sans le mot de passe", async () => {
+    for (const [modele, operation] of [["user", "update"], ["journalAudit", "create"]] as const) {
+      const e = await salarie(`Moitié ${modele}`);
+      const compte = await compteExistant(e);
+      const { resultat: err, console: sortie } = await consoleDurant(() =>
+        reinitialiserCompteSalarie(clientEnPanne(modele, operation), { employeeId: e.id, auteurId: adminId }).catch((x) => x),
+      );
+      const mdp = AUTH.motsDePasseParId.get(compte.id)!;
+      expect(mdp, modele).toBeTruthy(); // l'Auth l'a bien changé : l'ancien ne marche plus
+      expect(err, modele).toBeInstanceOf(Error);
+      expect((err as Error).message, modele).toBe(
+        "Mot de passe changé mais non enregistré : l'ancien ne marche plus, refaites “Nouvelle fiche” pour ce salarié.",
+      );
+      expect(JSON.stringify({ message: (err as Error).message, sortie }), modele).not.toContain(mdp);
+    }
+  });
+
   it("l'Auth refuse le changement : la ligne applicative n'est pas touchée", async () => {
     const e = await salarie("Panne Auth Réinit");
     const avant = await compteExistant(e);
@@ -511,6 +561,26 @@ describe("nouvellesFichesEnLot (Paramètres → Espace salarié, « Nouvelle fic
       expect(reponseEnClair).not.toContain(mdp);
     }
   }, 60_000);
+
+  it("un compte MANAGER est nommé avec sa raison ; une réinitialisation à moitié faite dit la vérité", async () => {
+    const m = await salarie("NF Manager");
+    const compteM = await compteExistant(m, { role: "MANAGER", actif: true });
+    const x = await salarie("NF Moitié");
+    await compteExistant(x);
+    H.client = clientEnPanne("journalAudit", "create");
+    try {
+      const r = await nouvellesFichesEnLot([m.id, x.id]);
+      if ("erreur" in r) throw new Error(r.erreur);
+      expect(r.fiches).toEqual([]);
+      expect(r.ignores).toEqual([
+        { nom: "NF Manager", raison: "ni compte salarié ni compte Stock — géré dans Utilisateurs & accès" },
+        { nom: "NF Moitié", raison: "Mot de passe changé mais non enregistré : l'ancien ne marche plus, refaites “Nouvelle fiche” pour ce salarié." },
+      ]);
+    } finally {
+      H.client = prisma;
+    }
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: compteM.id } })).toEqual(compteM);
+  });
 
   it("PDF impossible à produire : l'erreur dit que les anciens mots de passe ne fonctionnent plus", async () => {
     const a = await salarie("NF Sans Fiche");
