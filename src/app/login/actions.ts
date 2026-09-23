@@ -10,6 +10,7 @@ import {
   genererJetonReinitialisation, verifierJeton, consommerJeton, changerMotDePasseAdmin,
 } from "@/lib/securite-connexion";
 import { emailInterneMatricule, estMatricule, espaceEmployeActif } from "@/lib/espace-employe";
+import { retourValide } from "@/lib/retour-connexion";
 
 export type LoginState = { error?: string } | undefined;
 
@@ -55,7 +56,9 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   }
 
   await effacerEchecs(email);
-  redirect("/entree");
+  // Retour au scan de l'affiche s'il a amené ici — revalidé côté serveur : le champ caché vient
+  // du navigateur, donc de n'importe qui (seul `/scan?…` passe, jamais une autre adresse).
+  redirect(retourValide(formData.get("retour")) ?? "/entree");
 }
 
 export async function logout() {

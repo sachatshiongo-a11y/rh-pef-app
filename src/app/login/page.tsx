@@ -1,8 +1,11 @@
 import Image from "next/image";
+import { retourValide } from "@/lib/retour-connexion";
 import { LoginForm } from "./login-form";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reinitialise?: string }> }) {
-  const { reinitialise } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reinitialise?: string; retour?: string | string[] }> }) {
+  const { reinitialise, retour: retourBrut } = await searchParams;
+  // Seul le retour vers le scan de l'affiche est honoré (src/lib/retour-connexion.ts).
+  const retour = retourValide(retourBrut);
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
       <div className="w-full max-w-sm rounded-lg border bg-background p-8 shadow-sm">
@@ -15,12 +18,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           className="mx-auto mb-4 h-auto w-48"
         />
         <p className="mb-6 text-center text-sm text-muted-foreground">
-          Connectez-vous à votre compte
+          {retour ? "Connectez-vous pour enregistrer votre pointage" : "Connectez-vous à votre compte"}
         </p>
         {reinitialise && (
           <p className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-center text-sm text-emerald-800">Mot de passe changé — connectez-vous.</p>
         )}
-        <LoginForm />
+        <LoginForm retour={retour} />
         <p className="mt-6 text-center text-xs text-muted-foreground">
           Besoin d&apos;aide ? <a href="mailto:info@patesenfolie.cd" className="underline hover:text-foreground">Contactez la direction</a>
         </p>

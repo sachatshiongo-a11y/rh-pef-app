@@ -105,6 +105,33 @@ enum ModePaiement {
   @@schema("public")
 }
 
+/// Un scan de l'affiche = une arrivée ou un départ (cf. docs/superpowers/specs/2026-09-23-pointage-qr-design.md).
+enum MomentScan {
+  ARRIVEE
+  DEPART
+
+  @@schema("public")
+}
+
+/// « À vérifier » se dérive des scans (un scan A_VERIFIER sans `verifieLe`) — aucun booléen recopié
+/// sur `Pointage`, même règle que la signature électronique.
+enum VerdictScan {
+  AU_RESTAURANT
+  A_VERIFIER
+
+  @@schema("public")
+}
+
+/// Motif d'un scan A_VERIFIER — rempli seulement dans ce cas.
+enum MotifScan {
+  LOIN
+  POSITION_REFUSEE
+  POSITION_INDISPONIBLE
+  PRECISION_INSUFFISANTE
+
+  @@schema("public")
+}
+
 // Compte utilisateur applicatif, lié au user Supabase Auth (id = auth.users.id)
 model User {
   id         String    @id @default(uuid())
@@ -126,6 +153,7 @@ model User {
   actionsAudit       JournalAudit[]
   pushSubscriptions  PushSubscription[]
   signaturesPresentees  SignatureElectronique[] @relation("SignaturePresenteePar")
+  scansVerifies      ScanPointage[]     @relation("ScanVerifiePar")
 
   @@schema("public")
 }
@@ -158,6 +186,12 @@ model Config {
   // pour les enfants aux études). Ne sert QU'À SIGNALER un écart avec le compteur `Employee.enfants` ;
   // ne modifie JAMAIS un calcul de paie (décision 2026-08-16).
   ageLimiteEnfantACharge Int @default(18)
+  // Pointage par QR : position du restaurant (nulle tant que non réglée) et rayon de tolérance ;
+  // code de l'affiche (aléatoire, nul tant qu'aucune affiche n'a été produite).
+  pointageLatitude  Decimal? @db.Decimal(9, 6)
+  pointageLongitude Decimal? @db.Decimal(9, 6)
+  pointageRayonM    Int      @default(150)
+  pointageCode      String?
   updatedAt     DateTime @updatedAt
 
   @@schema("public")
@@ -320,6 +354,7 @@ model Employee {
   famille              MembreFamille[]
   avantagesNature      AvantageNature[]
   signatures            SignatureElectronique[]
+  scansPointage        ScanPointage[]
 
   @@schema("public")
 }
@@ -825,6 +860,7 @@ enum SourcePointage {
   IVMS_RAPPORT
   IVMS_API
   APP // pointage self-service depuis l'application (l'employé pointe lui-même)
+  QR // pointage par QR code et position (l'employé scanne l'affiche du restaurant)
 
   @@schema("public")
 }
@@ -845,8 +881,38 @@ model Pointage {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
+  scans ScanPointage[]
+
   @@unique([employeeId, date])
   @@index([date])
+  @@schema("public")
+}
+
+/// Historique de chaque scan de l'affiche QR, jamais réécrit : un pointage (arrivée/départ) peut
+/// avoir plusieurs scans (ex. refusé puis réessayé). Le verdict « à vérifier » se dérive d'ici
+/// (scan A_VERIFIER sans `verifieLe`) — aucun booléen recopié sur `Pointage`.
+model ScanPointage {
+  id          String       @id @default(uuid())
+  pointageId  String
+  pointage    Pointage     @relation(fields: [pointageId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  moment      MomentScan
+  instant     DateTime
+  latitude    Decimal?     @db.Decimal(9, 6)
+  longitude   Decimal?     @db.Decimal(9, 6)
+  precisionM  Int?
+  distanceM   Int?
+  verdict     VerdictScan
+  motif       MotifScan?
+  verifieParId String?
+  verifiePar   User?       @relation("ScanVerifiePar", fields: [verifieParId], references: [id], onDelete: SetNull)
+  verifieLe    DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@index([pointageId])
+  @@index([employeeId, instant])
+  @@index([verdict, verifieLe])
   @@schema("public")
 }
 

@@ -13,6 +13,8 @@ import {
 } from "./actions";
 import { UsersAdmin, type UserRow } from "./users-admin";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
+import { PointageReglages } from "./pointage-reglages";
+import { ComptesEnLot } from "./comptes-lot";
 import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 
@@ -21,7 +23,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 
-  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding] = await Promise.all([
+  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding, dernierReglagePosition, salariesSansCompte] = await Promise.all([
     prisma.config.findUniqueOrThrow({ where: { id: "singleton" } }),
     prisma.exerciceFiscal.findFirst({
       where: { actif: true },
@@ -36,6 +38,19 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     prisma.paramEntreprise.findUnique({ where: { id: "singleton" } }),
     prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } }),
+    // Comment la position du restaurant a été réglée (« précision ±12 m » / « saisie manuelle ») :
+    // la Config ne garde que les coordonnées, le journal garde la manière.
+    prisma.journalAudit.findFirst({
+      where: { entite: "Config", entiteId: "singleton", champ: "pointagePosition" },
+      orderBy: { date: "desc" },
+      select: { nouvelleValeur: true },
+    }),
+    // Comptes en lot (section « Espace salarié ») : les salariés actifs qui n'ont aucun compte.
+    prisma.employee.findMany({
+      where: { actif: true, compte: null },
+      orderBy: { nom: "asc" },
+      select: { id: true, nom: true, matricule: true, photoUrl: true },
+    }),
   ]);
   // Valeur affichée = valeur saisie, sinon valeur par défaut (theme.ts).
   const ent = (k: keyof typeof entrepriseDefaut, saved?: string | null) => (saved ?? "") || (entrepriseDefaut[k] as string) || "";
@@ -49,6 +64,8 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
     employeNom: u.employe?.nom ?? null,
   }));
   const typeCongeRows: TypeCongeRow[] = typesConges.map((t) => ({ id: t.id, nom: t.nom, joursPayes: t.joursPayes, tauxPct: t.tauxPct, compteDansSolde: t.compteDansSolde, systeme: t.systeme, actif: t.actif }));
+
+  const mesurePosition = dernierReglagePosition?.nouvelleValeur?.match(/\(([^)]+)\)$/)?.[1] ?? null;
 
   if (!estAdmin) {
     return (
@@ -155,7 +172,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           Ouvre un espace personnel aux salariés : ils se connectent avec leur <b>matricule</b> pour
           consulter leur <b>planning publié</b>, leur <b>dossier</b> et leurs <b>documents</b>, et
           déposer leurs <b>demandes de congé</b> (à valider par la Direction). Les comptes se créent
-          ensuite sur chaque fiche employé. <b>Désactivé par défaut.</b>
+          ensuite sur chaque fiche employé, ou en lot ci-dessous. <b>Désactivé par défaut.</b>
         </p>
         <form action={basculerEspaceEmploye} className="flex flex-wrap items-center gap-3">
           <input type="hidden" name="actif" value={config.espaceEmployeActif ? "0" : "1"} />
@@ -168,6 +185,18 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
             </button>
           )}
         </form>
+        {config.espaceEmployeActif && <ComptesEnLot salaries={salariesSansCompte} />}
+      </Section>
+
+      <Section title="Pointage par QR code">
+        <PointageReglages
+          reglages={{
+            lat: config.pointageLatitude === null ? null : Number(config.pointageLatitude),
+            lng: config.pointageLongitude === null ? null : Number(config.pointageLongitude),
+            mesure: mesurePosition,
+            rayonM: config.pointageRayonM,
+          }}
+        />
       </Section>
 
       <Section title="Paramètres opérationnels">

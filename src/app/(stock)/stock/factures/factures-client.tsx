@@ -5,6 +5,8 @@ import { useMemo, useState, useTransition } from "react";
 import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEnLot } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
+import { jourKinshasaISO } from "@/lib/date-paiement";
+import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 
 export type FactureRow = {
   id: string;
@@ -38,16 +40,33 @@ function badgeEcheance(f: FactureRow): { texte: string; cls: string } | null {
 
 const sommaireCls = "flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden";
 
+// « 3 factures réglées sur 4 sélectionnées : 1 était déjà réglée. » — le règlement en lot est
+// verrouillé ligne par ligne côté serveur (voir marquerPayeesEnLot) : si une facture sélectionnée
+// a été réglée entre-temps par ailleurs, elle est simplement exclue, jamais réglée deux fois. On
+// le DIT plutôt que de vider la sélection comme si tout était passé.
+function messageEcartLot(reglees: number, demandees: number): string {
+  const manquantes = demandees - reglees;
+  return `${reglees} facture${reglees > 1 ? "s" : ""} réglée${reglees > 1 ? "s" : ""} sur ${demandees} sélectionnée${demandees > 1 ? "s" : ""} : ${manquantes} était${manquantes > 1 ? "ent" : ""} déjà réglée${manquantes > 1 ? "s" : ""}.`;
+}
+
 export function FacturesUI({ groupes, annees, estDirection = true, ouvert = false }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; estDirection?: boolean; ouvert?: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null); // écart honnête du lot, pas une erreur
   const [sel, setSel] = useState<Set<string>>(new Set());
+  // « Marquer payée » demande la date au choix (préremplie à aujourd'hui, heure de Kinshasa),
+  // un seul geste de confirmation ensuite — à l'unité (une facture à la fois) et en lot.
+  const [datePickerId, setDatePickerId] = useState<string | null>(null);
+  const [dateChoisie, setDateChoisie] = useState(() => jourKinshasaISO());
+  const [lotDatePicker, setLotDatePicker] = useState(false);
+  const [lotDate, setLotDate] = useState(() => jourKinshasaISO());
 
-  const run = (fn: () => Promise<unknown>) => {
-    setErreur(null);
+  const run = (fn: () => Promise<unknown>, onSuccess?: () => void) => {
+    setErreur(null); setInfo(null);
     startTransition(async () => {
       const r = await fn();
       if (estErreur(r)) setErreur(r.erreur);
+      else onSuccess?.();
     });
   };
 
@@ -59,9 +78,19 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
     return acc;
   }, [annees, groupes]);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const clear = () => setSel(new Set());
+  const clear = () => { setSel(new Set()); setLotDatePicker(false); };
   const selIds = [...sel];
   const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE"));
+
+  const confirmerLot = () => {
+    setErreur(null); setInfo(null);
+    startTransition(async () => {
+      const r = await marquerPayeesEnLot(selNonReglees, lotDate);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
+      clear();
+    });
+  };
 
   const liste = (factures: FactureRow[]) => (
     <ul className="divide-y border-t">
@@ -99,7 +128,22 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                 )}
                 <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
                 {f.statut !== "REGLEE" && (
-                  <button onClick={() => run(() => marquerPayee(f.id))} disabled={isPending} className="rounded-md border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Marquer payée</button>
+                  datePickerId === f.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <input
+                        type="date"
+                        value={dateChoisie}
+                        onChange={(e) => setDateChoisie(e.target.value)}
+                        max={jourKinshasaISO()}
+                        aria-label="Date de paiement"
+                        className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+                      />
+                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie), () => setDatePickerId(null))} disabled={isPending}>Confirmer</BoutonValider>
+                      <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
+                    </span>
+                  ) : (
+                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); }}>Marquer payée</BoutonValider>
+                  )
                 )}
                 {estDirection && (
                   <button onClick={() => { if (confirm("Supprimer cette facture ?")) run(() => supprimerFacture(f.id)); }} disabled={isPending} title="Supprimer" className="rounded-md border px-2 py-1 text-xs text-destructive hover:bg-destructive/10">✕</button>
@@ -116,6 +160,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
   return (
     <div className="space-y-2">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</p>}
 
       {/* Barre d'actions groupées — sélection multiple par cases à cocher. */}
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
@@ -131,13 +176,30 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
         <span className="text-sm text-muted-foreground">{sel.size} sélectionnée(s)</span>
         {sel.size > 0 && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => run(async () => { const r = await marquerPayeesEnLot(selNonReglees); if (!estErreur(r)) clear(); return r; })}
-              disabled={isPending || selNonReglees.length === 0}
-              className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-            >
-              ✓ Marquer payées ({selNonReglees.length})
-            </button>
+            {lotDatePicker ? (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <label className="flex items-center gap-1 text-xs text-muted-foreground">Date de paiement
+                  <input
+                    type="date"
+                    value={lotDate}
+                    onChange={(e) => setLotDate(e.target.value)}
+                    max={jourKinshasaISO()}
+                    className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+                  />
+                </label>
+                <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
+                  Confirmer ({selNonReglees.length})
+                </BoutonValider>
+                <BoutonNeutre onClick={() => setLotDatePicker(false)}>Annuler</BoutonNeutre>
+              </span>
+            ) : (
+              <BoutonValider
+                onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); }}
+                disabled={isPending || selNonReglees.length === 0}
+              >
+                Marquer payées ({selNonReglees.length})
+              </BoutonValider>
+            )}
             {estDirection && (
               <button
                 onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { const r = await supprimerFacturesEnLot(selIds); if (!estErreur(r)) clear(); return r; }); }}

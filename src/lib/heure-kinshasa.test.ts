@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dateHeureKinshasa, jourKinshasa, jourCivilKinshasa } from "./heure-kinshasa";
+import { dateHeureKinshasa, heureKinshasa, jourKinshasa, jourCivilKinshasa } from "./heure-kinshasa";
 
 // Le serveur tourne en UTC, Kinshasa en UTC+1 : entre minuit et une heure à Kinshasa, l'instant
 // est encore la VEILLE en UTC. C'est la fenêtre où un formatage « à l'heure du serveur » ment.
@@ -18,5 +18,12 @@ describe("heure de Kinshasa", () => {
 
   it("aucune espace fine insécable (absente d'Optima) dans ce qui part au PDF", () => {
     expect(dateHeureKinshasa(MINUIT_ET_DEMIE_A_KINSHASA)).not.toMatch(/[  ]/);
+    expect(heureKinshasa(MINUIT_ET_DEMIE_A_KINSHASA)).not.toMatch(/[\u202F\u00A0]/);
+  });
+
+  it("l'heure seule, à la façon de l'écran de pointage : « 8 h 02 », sans zéro devant l'heure", () => {
+    expect(heureKinshasa(new Date("2026-09-23T07:02:00.000Z"))).toBe("8 h 02");
+    expect(heureKinshasa(new Date("2026-09-23T16:45:00.000Z"))).toBe("17 h 45");
+    expect(heureKinshasa(MINUIT_ET_DEMIE_A_KINSHASA)).toBe("0 h 30"); // pas « 24 h 30 », pas la veille UTC
   });
 });

@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getJwksKeys } from "@/lib/supabase/jwks";
+import { retourPourChemin, retourValide } from "@/lib/retour-connexion";
 
 /**
  * Les SEULES pages atteignables sans être connecté. Tout le reste est redirigé vers /login.
@@ -67,12 +68,25 @@ export async function updateSession(request: NextRequest) {
   if (!estAuthentifie && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    // Le scan de l'affiche fait avec l'appareil photo du téléphone arrive souvent SANS session
+    // (Safari ≠ application installée) : on mémorise `/scan?c=…` pour y revenir après la
+    // connexion. Seul ce chemin est mémorisé (src/lib/retour-connexion.ts : pas de redirection
+    // ouverte) ; le code quitte alors l'adresse de connexion, il ne voyage que dans `retour`.
+    const retour = retourPourChemin(request.nextUrl.pathname, request.nextUrl.search);
+    if (retour) url.search = `?retour=${encodeURIComponent(retour)}`;
     return NextResponse.redirect(url);
   }
 
   if (estAuthentifie && request.nextUrl.pathname === "/login") {
+    // Déjà connecté : un retour permis (le scan) est honoré, sinon le résolveur d'entrée.
+    const retour = retourValide(request.nextUrl.searchParams.get("retour"));
     const url = request.nextUrl.clone();
-    url.pathname = "/entree";
+    if (retour) {
+      url.pathname = "/scan";
+      url.search = retour.slice("/scan".length); // `retour` est canonique : « /scan?… »
+    } else {
+      url.pathname = "/entree";
+    }
     return NextResponse.redirect(url);
   }
 
