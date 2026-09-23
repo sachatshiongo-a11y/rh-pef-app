@@ -1,8 +1,10 @@
 -- Pointage par QR : l'employé scanne l'affiche du restaurant. Ajoute la source « QR », l'historique
 -- de chaque scan (ScanPointage, jamais réécrit) et le réglage (position, rayon, code de l'affiche)
 -- sur la Config du restaurant.
--- Séparé de la création de table : PostgreSQL interdit d'utiliser une valeur d'enum
--- nouvellement ajoutée dans la même transaction que son ajout.
+-- `ADD VALUE 'QR'` est dans CE fichier, donc dans la MÊME transaction que la suite : PostgreSQL
+-- interdit d'employer une valeur d'enum dans la transaction qui l'ajoute. Sans effet ici, puisque
+-- rien plus bas n'emploie 'QR' (ni DEFAULT, ni donnée) ; une migration qui voudrait l'employer
+-- devrait être un fichier distinct.
 ALTER TYPE "public"."SourcePointage" ADD VALUE IF NOT EXISTS 'QR';
 
 -- CreateEnum
@@ -57,3 +59,8 @@ ALTER TABLE "public"."ScanPointage" ADD CONSTRAINT "ScanPointage_employeeId_fkey
 
 -- AddForeignKey
 ALTER TABLE "public"."ScanPointage" ADD CONSTRAINT "ScanPointage_verifieParId_fkey" FOREIGN KEY ("verifieParId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Même protection que les autres tables sensibles : RLS activée SANS règle. L'application se
+-- connecte avec le rôle `postgres` (rolbypassrls = true) et n'est pas affectée ; tout accès direct
+-- (API Data, clé anon via PostgREST) est refusé.
+ALTER TABLE "public"."ScanPointage" ENABLE ROW LEVEL SECURITY;
