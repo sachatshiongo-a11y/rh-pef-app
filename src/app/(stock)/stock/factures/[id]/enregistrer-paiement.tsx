@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { enregistrerPaiement } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
+import { dateDuJourKinshasa } from "@/lib/date-paiement";
 
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
@@ -62,7 +63,7 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
       {equivalent && <span className="pb-2 text-xs text-muted-foreground">≈ {equivalent} $ (taux {taux.toLocaleString("fr-FR")})</span>}
 
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Date
-        <input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} />
+        <input name="date" type="date" defaultValue={dateDuJourKinshasa()} max={dateDuJourKinshasa()} className={inp} />
       </label>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Mode
         <input name="modePaiement" placeholder="Espèces, virement…" className={`${inp} w-32`} />
