@@ -9,28 +9,17 @@ import {
   lierUtilisateurEmploye,
 } from "./user-actions";
 import { estErreur } from "@/lib/action-lisible";
+import { ROLE_LIBELLE, ROLE_DESCRIPTION, ROLES_ATTRIBUABLES, roleModifiableIci } from "@/lib/roles";
+import type { Role } from "@prisma/client";
 
 export type UserRow = {
   id: string;
   email: string;
   nom: string;
-  role: string;
+  role: Role;
   actif: boolean;
   employeeId: string | null;
   employeNom: string | null;
-};
-
-const ROLE_LABEL: Record<string, string> = {
-  ADMIN: "Direction",
-  MANAGER: "RH",
-  VIEWER: "Consultation",
-  STOCK: "Stock",
-};
-const ROLE_DESC: Record<string, string> = {
-  ADMIN: "Accès total : RH, paie, paramètres ET Stock & Achats",
-  MANAGER: "Saisit les demandes et vérifie les bulletins, mais ne valide rien",
-  VIEWER: "Consultation seule",
-  STOCK: "Espace Stock & Achats uniquement (aucun accès RH ni paie)",
 };
 
 const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
@@ -83,21 +72,27 @@ export function UsersAdmin({
                 <td className="px-3 py-2 font-medium">{u.nom}</td>
                 <td className="px-3 py-2 text-muted-foreground">{u.email}</td>
                 <td className="px-3 py-2">
-                  <select
-                    defaultValue={u.role}
-                    disabled={isPending}
-                    onChange={(e) => {
-                      const fd = new FormData();
-                      fd.set("role", e.target.value);
-                      action(() => definirRoleUtilisateur(u.id, fd));
-                    }}
-                    className="rounded border border-input bg-background px-2 py-1 text-xs"
-                  >
-                    {Object.keys(ROLE_LABEL).map((r) => (
-                      <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                    ))}
-                  </select>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">{ROLE_DESC[u.role]}</p>
+                  {roleModifiableIci(u.role) ? (
+                    <select
+                      defaultValue={u.role}
+                      disabled={isPending}
+                      onChange={(e) => {
+                        const fd = new FormData();
+                        fd.set("role", e.target.value);
+                        action(() => definirRoleUtilisateur(u.id, fd));
+                      }}
+                      className="rounded border border-input bg-background px-2 py-1 text-xs"
+                    >
+                      {ROLES_ATTRIBUABLES.map((r) => (
+                        <option key={r} value={r}>{ROLE_LIBELLE[r]}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    // Jamais une liste modifiable pour un rôle qu'elle ne contient pas : le navigateur
+                    // afficherait sa PREMIÈRE option (« Direction ») à la place du vrai rôle.
+                    <span className="inline-block rounded border border-dashed px-2 py-1 text-xs">{ROLE_LIBELLE[u.role]}</span>
+                  )}
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{ROLE_DESCRIPTION[u.role]}</p>
                 </td>
                 <td className="px-3 py-2">
                   <select
@@ -165,8 +160,8 @@ export function UsersAdmin({
         <input name="email" type="email" placeholder="Email" required className={inputCls} />
         <input name="password" type="text" placeholder="Mot de passe (8+)" minLength={8} required className={inputCls} />
         <select name="role" defaultValue="MANAGER" className={inputCls}>
-          {Object.keys(ROLE_LABEL).map((r) => (
-            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+          {ROLES_ATTRIBUABLES.map((r) => (
+            <option key={r} value={r}>{ROLE_LIBELLE[r]}</option>
           ))}
         </select>
         <button disabled={isPending} className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
