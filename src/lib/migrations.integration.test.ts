@@ -11,17 +11,28 @@ import { Client } from "pg";
 //
 // Pourquoi. Tous les autres tests construisent leur base par `prisma db push` (src/lib/test/db.ts) :
 // ils partent du schéma Prisma et ignorent le SQL des migrations (les rares tests rangés dans un
-// dossier de migration n'en exécutent qu'un fragment, sur une base « db push »). Or c'est ce SQL, et lui seul, qui
-// reconstruit une base réelle (restauration, nouveau client, démonstration). Le 2026-09-23, on a
-// mesuré qu'une base reconstruite ainsi laissait 53 tables SANS RLS (Employee, User, PayrollLine,
-// tout le schéma `stock`…) et, sur Supabase, les ouvrait aux rôles publics `anon`/`authenticated`
-// — alors que la production, corrigée à la main, était fermée. Ce test rejoue les migrations sur
-// une base « Supabase neuve » simulée et exige qu'on retombe sur l'état de la production.
+// dossier de migration n'en exécutent qu'un fragment, sur une base « db push »). Or c'est ce SQL,
+// et lui seul, qui reconstruit une base réelle (restauration, nouveau client, démonstration). Le
+// 2026-09-23, on a mesuré qu'une base reconstruite ainsi laissait 53 tables SANS RLS (Employee,
+// User, PayrollLine, 19 tables de `stock`…) et, sur Supabase, les ouvrait aux rôles publics
+// `anon`/`authenticated` — alors que la production, corrigée à la main, était fermée. Ce test
+// rejoue les migrations sur une base « Supabase neuve » simulée et exige qu'on retombe sur l'état
+// de la production.
+//
+// La simulation est FIDÈLE sur le point qui compte : comme sur Supabase, le superutilisateur est
+// `supabase_admin`, et les migrations sont jouées par `postgres`, NON superutilisateur (BYPASSRLS,
+// CREATEROLE). Un `postgres` superutilisateur masquerait les refus (« must be owner of table »),
+// les REVOKE qui n'émettent qu'un WARNING, et les ALTER DEFAULT PRIVILEGES interdits.
+//
+// On mesure des droits EFFECTIFS (has_table_privilege, has_function_privilege…), pas seulement les
+// lignes accordées nommément : un droit donné à PUBLIC est un droit d'anon (une fonction de
+// `public` exécutable par PUBLIC est appelable par la clé anon via /rpc).
 //
 // POUR L'AVENIR : toute NOUVELLE migration qui crée une table dans `public`, `stock` ou
-// `exploitation` sans `ALTER TABLE … ENABLE ROW LEVEL SECURITY` (ou qui accorde un droit à
-// anon/authenticated) fait rougir ce test, par construction : il rejoue TOUTES les migrations
-// présentes dans le dossier, y compris celles écrites après lui, et vérifie TOUTES les tables.
+// `exploitation` sans `ALTER TABLE … ENABLE ROW LEVEL SECURITY`, ou qui accorde un droit à
+// anon/authenticated/PUBLIC sur une table, une séquence, une fonction ou ces schémas, fait rougir
+// ce test, par construction : il rejoue TOUTES les migrations présentes dans le dossier, y compris
+// celles écrites après lui, et vérifie TOUS les objets.
 //
 // SÉCURITÉ ABSOLUE — le `.env` de ce dépôt pointe la base de PRODUCTION et `prisma.config.ts` fait
 // `import "dotenv/config"`. Ce test ne passe donc JAMAIS par la configuration du dépôt :
@@ -34,8 +45,8 @@ const RACINE = path.resolve(__dirname, "../..");
 const PRISMA_BIN = path.join(RACINE, "node_modules", ".bin", "prisma");
 const SCHEMA = path.join(RACINE, "prisma", "schema.prisma");
 const MIGRATIONS = path.join(RACINE, "prisma", "migrations");
+const MIGRATION_RLS = path.join(MIGRATIONS, "20260923150000_rls_partout", "migration.sql");
 const SCHEMAS_APP = ["public", "stock", "exploitation"];
-const ROLES_PUBLICS = ["anon", "authenticated"];
 
 /** Garde bloquante : lève si l'URL ne vise pas une base locale. Appelée avant CHAQUE commande. */
 function exigerUrlLocale(url: string): void {
@@ -44,13 +55,24 @@ function exigerUrlLocale(url: string): void {
   }
 }
 
-/** Une base jetable : son Postgres embarqué, son dossier, SA configuration Prisma, un client. */
-type Base = { pg: EmbeddedPostgres; dir: string; url: string; config: string; client: Client };
+/**
+ * Une base jetable. `client` est connecté en `postgres` (le rôle qui joue les migrations, comme en
+ * production) ; `admin` en superutilisateur, pour préparer la simulation.
+ */
+type Base = { pg: EmbeddedPostgres; dir: string; url: string; config: string; client: Client; admin: Client };
 
-async function demarrerBase(): Promise<Base> {
+/**
+ * `supabase: true` : superutilisateur `supabase_admin`, `postgres` NON superutilisateur, rôles
+ * publics et privilèges par défaut de Supabase. `supabase: false` : Postgres ordinaire, où
+ * `postgres` est le superutilisateur et où les rôles Supabase n'existent pas.
+ */
+async function demarrerBase(supabase: boolean): Promise<Base> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pef-migrations-"));
   const port = 55000 + Math.floor(Math.random() * 4000);
-  const url = `postgresql://postgres:postgres@localhost:${port}/migdb`;
+  const superU = supabase ? "supabase_admin" : "postgres";
+  const urlAdmin = `postgresql://${superU}:admin@localhost:${port}/migdb`;
+  const url = `postgresql://postgres:${supabase ? "postgres" : "admin"}@localhost:${port}/migdb`;
+  exigerUrlLocale(urlAdmin);
   exigerUrlLocale(url);
 
   // Configuration Prisma À PART : aucun import (donc aucun dotenv), URL jetable écrite en dur.
@@ -61,18 +83,38 @@ async function demarrerBase(): Promise<Base> {
     datasource: { url },
   }, null, 2)};\n`);
 
-  const pg = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: "postgres", password: "postgres", port, persistent: false, onLog: () => {} });
+  const pg = new EmbeddedPostgres({ databaseDir: path.join(dir, "data"), user: superU, password: "admin", port, persistent: false, onLog: () => {} });
   await pg.initialise();
   await pg.start();
   await pg.createDatabase("migdb");
-  const client = new Client({ connectionString: url });
-  await client.connect();
-  return { pg, dir, url, config, client };
+  const admin = new Client({ connectionString: urlAdmin });
+  await admin.connect();
+
+  if (supabase) {
+    // Simule une base Supabase NEUVE — le scénario dangereux : les rôles publics existent, ont
+    // USAGE sur `public` et reçoivent par défaut TOUS les droits sur ce que `postgres` y crée.
+    await admin.query(`
+      CREATE ROLE postgres LOGIN PASSWORD 'postgres' NOSUPERUSER BYPASSRLS CREATEROLE CREATEDB;
+      CREATE ROLE anon NOLOGIN;
+      CREATE ROLE authenticated NOLOGIN;
+      CREATE ROLE service_role NOLOGIN BYPASSRLS;
+      GRANT ALL ON DATABASE migdb TO postgres;
+      GRANT USAGE, CREATE ON SCHEMA public TO postgres;
+      GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES    TO postgres, anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres, anon, authenticated, service_role;
+    `);
+  }
+  const client = supabase ? new Client({ connectionString: url }) : admin;
+  if (supabase) await client.connect();
+  return { pg, dir, url, config, client, admin };
 }
 
 async function arreterBase(b: Base | undefined): Promise<void> {
   if (!b) return;
-  await b.client.end().catch(() => {});
+  if (b.client !== b.admin) await b.client.end().catch(() => {});
+  await b.admin.end().catch(() => {});
   await b.pg.stop().catch(() => {});
   fs.rmSync(b.dir, { recursive: true, force: true });
 }
@@ -96,51 +138,54 @@ async function lignesSur<T>(b: Base, sql: string): Promise<T[]> {
   return (await b.client.query(sql)).rows as T[];
 }
 
-/** Tables de public/stock/exploitation dont la RLS n'est pas « ENABLE sans FORCE ». */
+/** Joue le SQL de la migration RLS en `postgres` et renvoie les WARNING émis (il n'en faut aucun). */
+async function rejouerMigrationRls(b: Base): Promise<string[]> {
+  exigerUrlLocale(b.url);
+  const avertissements: string[] = [];
+  const surNotice = (n: { severity?: string; message?: string }) => {
+    if (n.severity === "WARNING") avertissements.push(n.message ?? "");
+  };
+  b.client.on("notice", surNotice);
+  try {
+    await b.client.query(fs.readFileSync(MIGRATION_RLS, "utf8"));
+  } finally {
+    b.client.off("notice", surNotice);
+  }
+  return avertissements;
+}
+
+/** Tables de public/stock/exploitation avec leur état RLS. */
 const SQL_TABLES = `
   SELECT format('%I.%I', n.nspname, c.relname) AS nom, c.relrowsecurity AS rls, c.relforcerowsecurity AS force
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname IN ('public', 'stock', 'exploitation') AND c.relkind IN ('r', 'p')
   ORDER BY 1`;
 
-let sb: Base; // la base « Supabase neuve » simulée
-/** Nom de la première table (ordre alphabétique) d'un schéma ayant une colonne `id`. */
-async function premiereTable(schema: string): Promise<string> {
-  const r = await lignesSur<{ t: string }>(sb, `
-    SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = '${schema}' AND c.relkind = 'r'
-      AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'id')
-    ORDER BY 1 LIMIT 1`);
-  return r[0].t;
-}
-const prisma = (args: string[]) => prismaSur(sb, args);
-const lignes = <T>(sql: string) => lignesSur<T>(sb, sql);
-
-/** Droits DIRECTS d'anon/authenticated sur les objets des schémas de l'application. */
-const SQL_DROITS_PUBLICS = `
-  WITH roles AS (SELECT oid, rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))
-  SELECT format('%s sur %s %I.%I', r.rolname, CASE c.relkind WHEN 'S' THEN 'séquence' ELSE 'table' END, n.nspname, c.relname) AS droit
-  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a JOIN roles r ON r.oid = a.grantee
-  WHERE n.nspname IN ('public', 'stock', 'exploitation')
+/**
+ * Droits EFFECTIFS d'anon/authenticated — accordés nommément, via PUBLIC, sur l'objet ou sur une
+ * colonne — dans les schémas de l'application. USAGE sur `public` est toléré (défaut Supabase).
+ */
+const SQL_DROITS_EFFECTIFS = `
+  WITH roles(r) AS (SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated'))
+  SELECT format('%s sur table %I.%I', r, n.nspname, c.relname) AS droit
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, roles
+  WHERE n.nspname IN ('public', 'stock', 'exploitation') AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+    AND (has_table_privilege(r, c.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+         OR has_any_column_privilege(r, c.oid, 'SELECT,INSERT,UPDATE,REFERENCES'))
   UNION ALL
-  SELECT format('%s sur colonne %I.%I.%I', r.rolname, n.nspname, c.relname, att.attname)
-  FROM pg_attribute att JOIN pg_class c ON c.oid = att.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace,
-       aclexplode(att.attacl) a JOIN roles r ON r.oid = a.grantee
-  WHERE n.nspname IN ('public', 'stock', 'exploitation')
+  SELECT format('%s sur séquence %I.%I', r, n.nspname, c.relname)
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, roles
+  WHERE n.nspname IN ('public', 'stock', 'exploitation') AND c.relkind = 'S'
+    AND has_sequence_privilege(r, c.oid, 'USAGE,SELECT,UPDATE')
   UNION ALL
-  SELECT format('%s sur fonction %s', r.rolname, p.oid::regprocedure)
-  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace, aclexplode(p.proacl) a JOIN roles r ON r.oid = a.grantee
-  WHERE n.nspname IN ('public', 'stock', 'exploitation')
+  SELECT format('%s sur fonction %s', r, p.oid::regprocedure)
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace, roles
+  WHERE n.nspname IN ('public', 'stock', 'exploitation') AND has_function_privilege(r, p.oid, 'EXECUTE')
   UNION ALL
-  SELECT format('%s sur schéma %I (%s)', r.rolname, n.nspname, a.privilege_type)
-  FROM pg_namespace n, aclexplode(n.nspacl) a JOIN roles r ON r.oid = a.grantee
-  WHERE n.nspname IN ('stock', 'exploitation')
-  ORDER BY 1`;
-
-/** Droits accordés à `role` sur un objet créé APRÈS les migrations (effet des privilèges par défaut). */
-const SQL_DROITS_OBJET = (role: string, oidSql: string, colonneAcl: string, catalogue: string) => `
-  SELECT a.privilege_type FROM ${catalogue} o, aclexplode(o.${colonneAcl}) a
-  WHERE o.oid = ${oidSql} AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = '${role}')
+  SELECT format('%s sur schéma %I', r, n.nspname)
+  FROM pg_namespace n, roles
+  WHERE (n.nspname IN ('stock', 'exploitation') AND has_schema_privilege(r, n.oid, 'USAGE,CREATE'))
+     OR (n.nspname = 'public' AND has_schema_privilege(r, n.oid, 'CREATE'))
   ORDER BY 1`;
 
 /** État observable après migration — sert à prouver qu'un 2e passage ne change rien. */
@@ -149,34 +194,44 @@ const SQL_INSTANTANE = `
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname IN ('public', 'stock', 'exploitation') AND c.relkind IN ('r', 'p', 'S')
   UNION ALL
-  SELECT n.nspname, '(défauts ' || d.defaclobjtype::text || ')', NULL, NULL, d.defaclacl::text
-  FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+  SELECT n.nspname, p.oid::regprocedure::text, NULL, NULL, p.proacl::text
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname IN ('public', 'stock', 'exploitation')
+  UNION ALL
+  SELECT coalesce(n.nspname, '(global)'), '(défauts ' || d.defaclobjtype::text || ')', NULL, NULL, d.defaclacl::text
+  FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
   UNION ALL
   SELECT nspname, '(schéma)', NULL, NULL, nspacl::text FROM pg_namespace WHERE nspname IN ('public', 'stock', 'exploitation')
   ORDER BY 1, 2`;
 
-beforeAll(async () => {
-  sb = await demarrerBase();
+let sb: Base; // la base « Supabase neuve » simulée
+const prisma = (args: string[]) => prismaSur(sb, args);
+const lignes = <T>(sql: string) => lignesSur<T>(sb, sql);
 
-  // Simule une base Supabase NEUVE — le scénario dangereux : les rôles publics existent, ont
-  // USAGE sur `public` et reçoivent par défaut TOUS les droits sur ce que `postgres` y crée.
+/** Nom de la première table (ordre alphabétique) d'un schéma ayant une colonne `id`. */
+async function premiereTable(schema: string): Promise<string> {
+  const r = await lignes<{ t: string }>(`
+    SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = '${schema}' AND c.relkind = 'r'
+      AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'id')
+    ORDER BY 1 LIMIT 1`);
+  return r[0].t;
+}
+
+beforeAll(async () => {
+  sb = await demarrerBase(true);
+  // Témoin : la simulation mord-elle ? Une table et une fonction créées maintenant par `postgres`
+  // DOIVENT être ouvertes à anon. Sinon, tous les « aucun droit » ci-dessous seraient vrais pour
+  // une mauvaise raison.
   await sb.client.query(`
-    CREATE ROLE anon NOLOGIN;
-    CREATE ROLE authenticated NOLOGIN;
-    CREATE ROLE service_role NOLOGIN BYPASSRLS;
-    GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES    TO anon, authenticated, service_role;
-    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
-  `);
-  // Témoin : la simulation mord-elle ? Une table créée maintenant DOIT être ouverte à anon.
-  // Sinon, tous les « aucun droit » ci-dessous seraient vrais pour une mauvaise raison.
-  await sb.client.query(`CREATE TABLE public.temoin_simulation (id int)`);
-  const temoin = await lignes<{ privilege_type: string }>(
-    SQL_DROITS_OBJET("anon", "'public.temoin_simulation'::regclass", "relacl", "pg_class"),
-  );
-  if (temoin.length === 0) throw new Error("Simulation Supabase inopérante : la table témoin n'accorde rien à anon");
-  await sb.client.query(`DROP TABLE public.temoin_simulation`);
+    CREATE TABLE public.temoin_simulation (id int);
+    CREATE FUNCTION public.temoin_simulation_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';`);
+  const temoin = await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS);
+  const vu = temoin.map((t) => t.droit).join("\n");
+  if (!vu.includes("anon sur table public.temoin_simulation") || !vu.includes("anon sur fonction temoin_simulation_fn()")) {
+    throw new Error(`Simulation Supabase inopérante : le témoin n'est pas ouvert à anon (${vu})`);
+  }
+  await sb.client.query(`DROP TABLE public.temoin_simulation; DROP FUNCTION public.temoin_simulation_fn();`);
 
   prisma(["migrate", "deploy"]);
 }, 600_000);
@@ -189,6 +244,19 @@ describe("migrations rejouées sur une base Supabase neuve", () => {
     expect(() => exigerUrlLocale("postgresql://postgres:x@localhost.evil.com:5432/postgres")).toThrow(/REFUS/);
     expect(() => exigerUrlLocale("postgresql://postgres:x@127.0.0.1:5432/db?host=prod.example.com")).toThrow(/REFUS/);
     expect(() => exigerUrlLocale(sb.url)).not.toThrow();
+  });
+
+  it("sont jouées par un `postgres` NON superutilisateur, BYPASSRLS, propriétaire de tout", async () => {
+    const moi = await lignes<{ u: string; su: boolean; bypass: boolean }>(
+      `SELECT rolname AS u, rolsuper AS su, rolbypassrls AS bypass FROM pg_roles WHERE rolname = current_user`,
+    );
+    expect(moi[0]).toEqual({ u: "postgres", su: false, bypass: true });
+    const autres = await lignes<{ o: string }>(`
+      SELECT format('%I.%I (%s)', n.nspname, c.relname, pg_get_userbyid(c.relowner)) AS o
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname IN ('public', 'stock', 'exploitation') AND c.relowner <> 'postgres'::regrole
+      ORDER BY 1`);
+    expect(autres.map((a) => a.o)).toEqual([]);
   });
 
   it("sont TOUTES appliquées, sans échec", async () => {
@@ -220,82 +288,102 @@ describe("migrations rejouées sur une base Supabase neuve", () => {
     expect(politiques.map((r) => r.p)).toEqual([]);
   });
 
-  it("ne laissent AUCUN droit à anon/authenticated sur tables, séquences, fonctions et schémas stock/exploitation", async () => {
-    const droits = await lignes<{ droit: string }>(SQL_DROITS_PUBLICS);
+  it("ne laissent AUCUN droit effectif à anon/authenticated (nommément ou via PUBLIC)", async () => {
+    const droits = await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS);
     expect(droits.map((d) => d.droit)).toEqual([]);
   });
 
-  it("laissent USAGE sur public (défaut Supabase) et les droits de service_role intacts", async () => {
-    const usage = await lignes<{ anon: boolean; service: boolean }>(`
+  it("laissent USAGE sur public (défaut Supabase) et les droits de postgres/service_role intacts", async () => {
+    const r = await lignes<{ anon: boolean; service: boolean; pgTable: boolean; serviceTable: boolean }>(`
       SELECT has_schema_privilege('anon', 'public', 'USAGE') AS anon,
-             has_schema_privilege('service_role', 'public', 'USAGE') AS service`);
-    expect(usage[0]).toEqual({ anon: true, service: true });
-    const service = await lignes<{ privilege_type: string }>(
-      SQL_DROITS_OBJET("service_role", `'public."Employee"'::regclass`, "relacl", "pg_class"),
-    );
-    expect(service.map((s) => s.privilege_type)).toContain("SELECT");
+             has_schema_privilege('service_role', 'public', 'USAGE') AS service,
+             has_table_privilege('postgres', 'public."Employee"', 'SELECT,INSERT,UPDATE,DELETE') AS "pgTable",
+             has_table_privilege('service_role', 'public."Employee"', 'SELECT') AS "serviceTable"`);
+    expect(r[0]).toEqual({ anon: true, service: true, pgTable: true, serviceTable: true });
   });
 
   it("n'accordent rien à anon/authenticated sur une table, séquence ou fonction créée APRÈS", async () => {
     for (const schema of SCHEMAS_APP) {
-      await sb.client.query(`CREATE TABLE ${schema}.apres_migrations (id serial PRIMARY KEY)`);
-      await sb.client.query(`CREATE FUNCTION ${schema}.apres_migrations_fn() RETURNS int LANGUAGE sql AS 'SELECT 1'`);
-      const objets: [string, string, string][] = [
-        [`'${schema}.apres_migrations'::regclass`, "relacl", "pg_class"],
-        [`'${schema}.apres_migrations_id_seq'::regclass`, "relacl", "pg_class"],
-        [`'${schema}.apres_migrations_fn()'::regprocedure`, "proacl", "pg_proc"],
-      ];
+      await sb.client.query(`
+        CREATE TABLE ${schema}.apres_migrations (id serial PRIMARY KEY);
+        CREATE FUNCTION ${schema}.apres_migrations_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';`);
       try {
-        for (const role of ROLES_PUBLICS) {
-          for (const [oid, acl, cat] of objets) {
-            const droits = await lignes<{ privilege_type: string }>(SQL_DROITS_OBJET(role, oid, acl, cat));
-            expect(droits.map((d) => d.privilege_type), `${role} sur ${oid}`).toEqual([]);
-          }
-        }
+        const droits = await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS);
+        expect(droits.map((d) => d.droit), `objets créés après, schéma ${schema}`).toEqual([]);
+        // postgres (propriétaire) garde tout ; service_role garde ses défauts Supabase dans public.
+        const garde = await lignes<{ pg: boolean; sr: boolean }>(`
+          SELECT has_function_privilege('postgres', '${schema}.apres_migrations_fn()', 'EXECUTE')
+             AND has_table_privilege('postgres', '${schema}.apres_migrations', 'SELECT,INSERT') AS pg,
+                 has_function_privilege('service_role', '${schema}.apres_migrations_fn()', 'EXECUTE')
+             AND has_table_privilege('service_role', '${schema}.apres_migrations', 'SELECT') AS sr`);
+        expect(garde[0].pg).toBe(true);
+        if (schema === "public") expect(garde[0].sr).toBe(true);
       } finally {
-        // Nettoyage même en cas d'échec : sinon le test d'idempotence rougirait en cascade.
+        // Nettoyage même en cas d'échec : sinon les tests suivants rougiraient en cascade.
         await sb.client.query(`DROP FUNCTION ${schema}.apres_migrations_fn(); DROP TABLE ${schema}.apres_migrations`);
       }
     }
-    // Et service_role garde son privilège par défaut dans public (rien ne lui a été retiré).
-    await sb.client.query(`CREATE TABLE public.apres_migrations_service (id int)`);
-    const service = await lignes<{ privilege_type: string }>(
-      SQL_DROITS_OBJET("service_role", "'public.apres_migrations_service'::regclass", "relacl", "pg_class"),
-    );
-    await sb.client.query(`DROP TABLE public.apres_migrations_service`);
-    expect(service.map((s) => s.privilege_type)).toContain("SELECT");
   });
 
-  it("la migration RLS partout est idempotente (un 2e passage ne change rien)", async () => {
+  it("la migration RLS partout est idempotente (un 2e passage ne change rien, sans WARNING)", async () => {
     const avant = await lignes(SQL_INSTANTANE);
-    const sql = fs.readFileSync(path.join(MIGRATIONS, "20260923150000_rls_partout", "migration.sql"), "utf8");
-    await sb.client.query(sql);
+    expect(await rejouerMigrationRls(sb)).toEqual([]);
     expect(await lignes(SQL_INSTANTANE)).toEqual(avant);
   });
 
-  it("la migration RLS partout retire aussi un droit accordé à la main (fonction, séquence, schéma, colonne)", async () => {
-    // Les migrations ne créent aujourd'hui ni fonction ni droit explicite : sans ce test, les
-    // branches « fonctions », « schémas » et le chemin séquence de la migration ne seraient
-    // jamais exécutées. On pose donc ces droits à la main, puis on rejoue la migration.
-    const sql = fs.readFileSync(path.join(MIGRATIONS, "20260923150000_rls_partout", "migration.sql"), "utf8");
+  it("la migration RLS partout retire un droit posé à la main (nommé ou via PUBLIC, sur fonction, séquence, schéma, colonne)", async () => {
+    // Les migrations ne créent aujourd'hui ni fonction ni droit explicite : sans ce test, ces
+    // branches de la migration ne seraient jamais exécutées. On pose donc ces droits à la main.
     const tableExploitation = await premiereTable("exploitation");
+    const tableStock = await premiereTable("stock");
     await sb.client.query(`
-      CREATE FUNCTION public.fn_ouverte() RETURNS int LANGUAGE sql AS 'SELECT 1';
-      GRANT EXECUTE ON FUNCTION public.fn_ouverte() TO anon, authenticated;
+      CREATE FUNCTION public.fn_ouverte() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1';
+      GRANT EXECUTE ON FUNCTION public.fn_ouverte() TO anon, authenticated, PUBLIC;
+      CREATE FUNCTION stock.fn_ouverte() RETURNS int LANGUAGE sql AS 'SELECT 1';
+      GRANT EXECUTE ON FUNCTION stock.fn_ouverte() TO PUBLIC;
       CREATE SEQUENCE stock.seq_ouverte;
       GRANT ALL ON SEQUENCE stock.seq_ouverte TO anon;
       GRANT USAGE, CREATE ON SCHEMA stock, exploitation TO anon, authenticated;
       GRANT SELECT ("id") ON exploitation."${tableExploitation}" TO authenticated;
+      GRANT SELECT, UPDATE ON stock."${tableStock}" TO PUBLIC;
     `);
     try {
-      const poses = (await lignes<{ droit: string }>(SQL_DROITS_PUBLICS)).map((d) => d.droit).join("\n");
-      for (const genre of ["sur fonction", "sur séquence", "sur schéma stock", "sur schéma exploitation", "sur colonne"]) {
-        expect(poses, `la pose « ${genre} » n'a pas mordu`).toContain(genre);
+      const poses = (await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS)).map((d) => d.droit).join("\n");
+      for (const attendu of [
+        "anon sur fonction fn_ouverte()", "anon sur fonction stock.fn_ouverte()", "anon sur séquence stock.seq_ouverte",
+        "anon sur schéma stock", "authenticated sur schéma exploitation",
+        `authenticated sur table exploitation."${tableExploitation}"`, `anon sur table stock."${tableStock}"`,
+      ]) {
+        expect(poses, `la pose « ${attendu} » n'a pas mordu`).toContain(attendu);
       }
-      await sb.client.query(sql);
-      expect((await lignes<{ droit: string }>(SQL_DROITS_PUBLICS)).map((d) => d.droit)).toEqual([]);
+      expect(await rejouerMigrationRls(sb)).toEqual([]);
+      expect((await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS)).map((d) => d.droit)).toEqual([]);
+      const garde = await lignes<{ ok: boolean }>(
+        `SELECT has_function_privilege('postgres', 'public.fn_ouverte()', 'EXECUTE') AS ok`,
+      );
+      expect(garde[0].ok).toBe(true);
     } finally {
-      await sb.client.query(`DROP FUNCTION public.fn_ouverte(); DROP SEQUENCE stock.seq_ouverte;`);
+      await sb.client.query(`
+        DROP FUNCTION public.fn_ouverte(); DROP FUNCTION stock.fn_ouverte(); DROP SEQUENCE stock.seq_ouverte;
+        REVOKE ALL ON stock."${tableStock}" FROM PUBLIC;`);
+    }
+  });
+
+  it("la migration RLS partout ne casse pas sur une table de `public` appartenant à un autre rôle (ex. PostGIS)", async () => {
+    // PostGIS installé dans `public` y crée `spatial_ref_sys`, propriétaire `supabase_admin` :
+    // `postgres` ne peut ni y activer la RLS ni en retirer les droits. La migration doit l'ignorer
+    // sans échouer (et sans WARNING), au lieu de bloquer le déploiement d'un nouveau client.
+    await sb.admin.query(`
+      CREATE TABLE public.spatial_ref_sys (srid int PRIMARY KEY);
+      GRANT SELECT ON public.spatial_ref_sys TO anon, PUBLIC;`);
+    try {
+      expect(await rejouerMigrationRls(sb)).toEqual([]);
+      const t = await lignes<{ rls: boolean }>(
+        `SELECT relrowsecurity AS rls FROM pg_class WHERE oid = 'public.spatial_ref_sys'::regclass`,
+      );
+      expect(t[0].rls).toBe(false); // pas à nous : laissée telle quelle
+    } finally {
+      await sb.admin.query(`DROP TABLE public.spatial_ref_sys`);
     }
   });
 });
@@ -305,7 +393,7 @@ describe("migrations rejouées sur un Postgres ORDINAIRE (sans les rôles Supaba
   // n'y existent pas. La migration ne doit pas casser, et la RLS doit quand même s'y appliquer.
   let ord: Base;
   beforeAll(async () => {
-    ord = await demarrerBase();
+    ord = await demarrerBase(false);
     prismaSur(ord, ["migrate", "deploy"]);
   }, 600_000);
   afterAll(() => arreterBase(ord));

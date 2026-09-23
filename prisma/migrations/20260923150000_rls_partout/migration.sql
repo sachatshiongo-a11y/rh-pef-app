@@ -17,24 +17,33 @@
 -- modifiables par quiconque détient la clé publique du projet. Cette migration ferme ce trou.
 --
 -- L'application n'est PAS affectée : elle se connecte avec le rôle `postgres` (non superutilisateur,
--- mais BYPASSRLS et propriétaire des tables). Rien n'est retiré à `postgres` ni à `service_role`.
+-- mais BYPASSRLS et propriétaire des tables). Rien n'est retiré à `postgres` ni à `service_role`,
+-- sauf ce que `service_role` tenait de PUBLIC (EXECUTE sur une fonction nouvelle hors de `public`).
 --
--- IDEMPOTENTE et SANS EFFET sur la production (qui a déjà tout cela) : chaque boucle ne vise que ce
--- qui MANQUE (table sans RLS, droit effectivement présent dans l'ACL), donc aucune instruction n'y
--- est exécutée ; seuls les ALTER DEFAULT PRIVILEGES s'exécutent, et retirent ce qui n'y est déjà
--- plus. Sur un Postgres ORDINAIRE (bases de test : les rôles Supabase n'existent pas), seule la RLS
--- s'applique ; le reste est sauté rôle par rôle.
+-- IDEMPOTENTE : chaque boucle ne vise que ce qui MANQUE (table sans RLS, droit effectivement
+-- présent dans l'ACL). Sur la production, qui a déjà tout cela, aucun ALTER TABLE ni REVOKE n'est
+-- exécuté ; seuls les ALTER DEFAULT PRIVILEGES s'exécutent (voir 4 : le seul effet NOUVEAU est que
+-- les FUTURES fonctions de `postgres` ne sont plus exécutables par PUBLIC). Sur un Postgres
+-- ORDINAIRE (bases de test : rôles Supabase absents), seule la RLS s'applique.
 --
 -- PÉRIMÈTRE STRICT : schémas `public`, `stock`, `exploitation` uniquement. Les schémas de Supabase
 -- (auth, storage, realtime, cron, vault, net, extensions…) ne sont jamais touchés. L'USAGE sur le
 -- schéma `public` est laissé tel quel (valeur Supabase par défaut, présente en production).
+-- N'agit QUE sur les objets dont le rôle courant est membre du propriétaire, et JAMAIS sur un objet
+-- d'extension : une table de `public` appartenant à un autre rôle (ex. PostGIS installé dans
+-- `public` crée `spatial_ref_sys`, propriétaire `supabase_admin`) ferait sinon ÉCHOUER le
+-- déploiement (« must be owner of table »), et un REVOKE sur un objet d'autrui n'émet qu'un
+-- WARNING en laissant le droit.
 --
 -- Garde-fou : src/lib/migrations.integration.test.ts rejoue TOUTES les migrations sur une base
--- « Supabase neuve » simulée et vérifie chacun de ces points.
+-- « Supabase neuve » simulée (migrations jouées par un `postgres` NON superutilisateur) et vérifie
+-- les droits EFFECTIFS d'anon/authenticated (y compris ceux qui passent par PUBLIC).
 DO $$
 DECLARE
-  r        record;
-  role_nom text;
+  r              record;
+  role_nom       text;
+  cibles         oid[];
+  supabase       boolean := EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('anon', 'authenticated'));
 BEGIN
   -- 1. RLS (ENABLE, jamais FORCE, aucune politique) sur toute table qui ne l'a pas encore.
   --    Inclut `_prisma_migrations` (elle l'a en production).
@@ -45,74 +54,101 @@ BEGIN
     WHERE n.nspname IN ('public', 'stock', 'exploitation')
       AND c.relkind IN ('r', 'p')
       AND NOT c.relrowsecurity
+      AND pg_has_role(c.relowner, 'USAGE')
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_depend d
+        WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e'
+      )
   LOOP
     EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', r.nspname, r.relname);
   END LOOP;
 
+  IF NOT supabase THEN
+    RETURN;
+  END IF;
+
+  -- Rôles dont on retire les droits : anon, authenticated et PUBLIC (oid 0 dans les ACL). Un droit
+  -- accordé à PUBLIC est un droit d'anon : une fonction de `public` exécutable par PUBLIC est
+  -- appelable par la clé anon via /rpc.
+  cibles := ARRAY(SELECT oid FROM pg_roles WHERE rolname IN ('anon', 'authenticated')) || 0::oid;
+
+  -- 2a. Tables, vues, séquences : REVOKE ALL là où un rôle ciblé a un droit, sur l'objet OU sur
+  --     l'une de ses colonnes (REVOKE ALL ON TABLE retire aussi les droits de colonne).
+  FOR r IN
+    SELECT n.nspname, c.relname, c.relkind, a.grantee
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN LATERAL (
+      SELECT x.grantee FROM aclexplode(c.relacl) x
+      UNION
+      SELECT x.grantee FROM pg_attribute att, aclexplode(att.attacl) x WHERE att.attrelid = c.oid
+    ) a
+    WHERE n.nspname IN ('public', 'stock', 'exploitation')
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+      AND a.grantee = ANY (cibles)
+      AND pg_has_role(c.relowner, 'USAGE')
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_depend d
+        WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e'
+      )
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON %s %I.%I FROM %s',
+      CASE WHEN r.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+      r.nspname, r.relname,
+      CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END
+    );
+  END LOOP;
+
+  -- 2b. Fonctions et procédures. Une ACL NULL vaut « valeur par défaut », qui accorde EXECUTE à
+  --     PUBLIC : elle est donc visée aussi.
+  FOR r IN
+    SELECT DISTINCT p.oid::regprocedure AS signature, a.grantee
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL (
+      SELECT x.grantee FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) x
+    ) a
+    WHERE n.nspname IN ('public', 'stock', 'exploitation')
+      AND a.grantee = ANY (cibles)
+      AND pg_has_role(p.proowner, 'USAGE')
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_depend d
+        WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e'
+      )
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON ROUTINE %s FROM %s', r.signature,
+      CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END
+    );
+  END LOOP;
+
+  -- 2c. Droits sur les schémas `stock` et `exploitation` (PAS sur `public`, volontairement).
+  FOR r IN
+    SELECT DISTINCT n.nspname, a.grantee
+    FROM pg_namespace n, aclexplode(n.nspacl) a
+    WHERE n.nspname IN ('stock', 'exploitation')
+      AND a.grantee = ANY (cibles)
+      AND pg_has_role(n.nspowner, 'USAGE')
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON SCHEMA %I FROM %s', r.nspname,
+      CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END
+    );
+  END LOOP;
+
+  -- 3. Privilèges par défaut du propriétaire `postgres` dans ces schémas : les FUTURES
+  --    tables/séquences/fonctions n'accorderont plus rien à anon ni à authenticated.
   FOREACH role_nom IN ARRAY ARRAY['anon', 'authenticated'] LOOP
     CONTINUE WHEN NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_nom);
-
-    -- 2a. Tables, vues, séquences : REVOKE ALL là où le rôle a un droit direct, sur l'objet OU sur
-    --     l'une de ses colonnes (REVOKE ALL ON TABLE retire aussi les droits de colonne).
-    FOR r IN
-      SELECT n.nspname, c.relname, c.relkind
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname IN ('public', 'stock', 'exploitation')
-        AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
-        AND (
-          EXISTS (
-            SELECT 1 FROM aclexplode(c.relacl) a
-            WHERE a.grantee = (SELECT oid FROM pg_roles WHERE rolname = role_nom)
-          )
-          OR EXISTS (
-            SELECT 1 FROM pg_attribute att, aclexplode(att.attacl) a
-            WHERE att.attrelid = c.oid
-              AND a.grantee = (SELECT oid FROM pg_roles WHERE rolname = role_nom)
-          )
-        )
-    LOOP
-      EXECUTE format(
-        'REVOKE ALL ON %s %I.%I FROM %I',
-        CASE WHEN r.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
-        r.nspname, r.relname, role_nom
-      );
-    END LOOP;
-
-    -- 2b. Fonctions et procédures.
-    FOR r IN
-      SELECT p.oid::regprocedure AS signature
-      FROM pg_proc p
-      JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE n.nspname IN ('public', 'stock', 'exploitation')
-        AND EXISTS (
-          SELECT 1 FROM aclexplode(p.proacl) a
-          WHERE a.grantee = (SELECT oid FROM pg_roles WHERE rolname = role_nom)
-        )
-    LOOP
-      EXECUTE format('REVOKE ALL ON ROUTINE %s FROM %I', r.signature, role_nom);
-    END LOOP;
-
-    -- 2c. USAGE sur `stock` et `exploitation` (PAS sur `public`, volontairement).
-    FOR r IN
-      SELECT n.nspname
-      FROM pg_namespace n
-      WHERE n.nspname IN ('stock', 'exploitation')
-        AND EXISTS (
-          SELECT 1 FROM aclexplode(n.nspacl) a
-          WHERE a.grantee = (SELECT oid FROM pg_roles WHERE rolname = role_nom)
-        )
-    LOOP
-      EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I', r.nspname, role_nom);
-    END LOOP;
-
-    -- 3. Privilèges par défaut du propriétaire `postgres` : les FUTURES tables/séquences/fonctions
-    --    de ces schémas n'accorderont plus rien à ce rôle.
-    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
-      EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public, stock, exploitation REVOKE ALL ON TABLES FROM %I', role_nom);
-      EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public, stock, exploitation REVOKE ALL ON SEQUENCES FROM %I', role_nom);
-      EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public, stock, exploitation REVOKE ALL ON FUNCTIONS FROM %I', role_nom);
-    END IF;
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public, stock, exploitation REVOKE ALL ON TABLES FROM %I', role_nom);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public, stock, exploitation REVOKE ALL ON SEQUENCES FROM %I', role_nom);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public, stock, exploitation REVOKE ALL ON FUNCTIONS FROM %I', role_nom);
   END LOOP;
+
+  -- 4. EXECUTE accordé à PUBLIC sur toute nouvelle fonction : c'est un défaut GLOBAL de Postgres,
+  --    qu'une clause IN SCHEMA ne peut pas retirer. Sans schéma, donc. `postgres` (propriétaire)
+  --    et `service_role` (privilèges par défaut de Supabase dans `public`) gardent les leurs.
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 END
 $$;
