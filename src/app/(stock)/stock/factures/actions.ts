@@ -13,6 +13,7 @@ import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
+import { lireDatePaiement } from "@/lib/date-paiement";
 import { Prisma } from "@prisma/client";
 
 
@@ -384,8 +385,11 @@ async function appliquerReglement(userId: string, id: string, p: {
   dateStr?: string; mode?: string | null; note?: string | null; type?: "PAIEMENT" | "AVOIR";
 }) {
   const type = p.type ?? "PAIEMENT";
-  const dateStr = p.dateStr ?? AUJ();
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
+  // Règle unique de la date de paiement (src/lib/date-paiement.ts) : absente ⇒ aujourd'hui à
+  // Kinshasa, refuse une date future ou antérieure à la date de LA FACTURE — validée ici, côté
+  // serveur, quel que soit le chemin (formulaire détaillé, unité, lot).
+  const dateStr = lireDatePaiement(p.dateStr, f.date, new Date());
   const reste = Number(f.resteAPayerUSD);
   if (p.montant <= 0) throw new Error("Le montant doit être supérieur à 0.");
   if (p.montant > reste + 0.009) throw new Error(`Le ${type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${p.montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
@@ -412,13 +416,16 @@ async function appliquerReglement(userId: string, id: string, p: {
   revalidatePath(`/stock/factures/${id}`);
 }
 
-/** Marque une facture comme réglée : un paiement du reste à payer, daté d'aujourd'hui. */
-export const marquerPayee = actionLisible(async (id: string) => {
+/**
+ * Marque une facture comme réglée : un paiement du reste à payer, daté au choix (défaut :
+ * aujourd'hui à Kinshasa — voir `appliquerReglement`/`lireDatePaiement`).
+ */
+export const marquerPayee = actionLisible(async (id: string, dateStr?: string) => {
   const user = await garde();
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id }, select: { resteAPayerUSD: true } });
   const reste = Number(f.resteAPayerUSD);
   if (reste <= 0.001) return; // déjà soldée
-  await appliquerReglement(user.id, id, { montant: reste, note: "Marquée payée" });
+  await appliquerReglement(user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
 });
 
 /** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit). */
@@ -428,7 +435,7 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
   const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
   const saisi = dec(formData.get("montant"));
   if (saisi <= 0) throw new Error("Le montant doit être supérieur à 0.");
-  const dateStr = String(formData.get("date") ?? "").trim() || AUJ();
+  const dateStr = String(formData.get("date") ?? "").trim() || undefined; // validé/défaulté dans appliquerReglement
   const mode = String(formData.get("modePaiement") ?? "").trim() || null;
   const note = String(formData.get("note") ?? "").trim() || null;
   if (type === "AVOIR" && !note) throw new Error("Indiquez le motif de l'avoir (ex. retour marchandise).");
@@ -446,26 +453,68 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
   await appliquerReglement(user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
 });
 
-/** Marque plusieurs factures comme réglées d'un coup (réglé = montant, reste = 0, payée aujourd'hui). */
-export const marquerPayeesEnLot = actionLisible(async (ids: string[]) => {
+/**
+ * Marque plusieurs factures comme réglées d'un coup (réglé = montant, reste = 0), datées TOUTES
+ * de la même date de paiement au choix (défaut : aujourd'hui à Kinshasa). Si l'une des factures
+ * ENCORE À RÉGLER À CE MOMENT a une date de facture postérieure à la date choisie, le lot ENTIER
+ * est refusé — nommant la fautive — plutôt que d'en régler une partie en silence.
+ *
+ * Tout se passe dans UNE transaction interactive, avec `SELECT … FOR UPDATE` : lire puis valider
+ * les factures AVANT `$transaction` (comme avant) laissait une fenêtre où un règlement concurrent
+ * sur l'une d'elles (unité, avoir, autre lot) passait entre les deux — les clauses `WHERE`
+ * l'écartaient alors en silence à l'écriture, et l'appelant n'avait aucun moyen de savoir que le
+ * lot n'était pas passé en entier. Le verrou bloque le concurrent jusqu'à la fin de CETTE
+ * transaction, et la lecture qui compte est celle faite SOUS le verrou, pas celle d'avant. Renvoie
+ * le nombre réellement réglé (`reglees`) à côté du nombre demandé (`demandees`) : l'écart se dit
+ * à l'écran plutôt que de vider la sélection en silence.
+ */
+export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string): Promise<{ reglees: number; demandees: number }> => {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
-  if (uniq.length === 0) return;
-  // Deux requêtes en transaction : trace des paiements (le reste de chaque facture), puis règlement.
-  const [, n] = await prisma.$transaction([
-    prisma.$executeRaw`
-      INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "modePaiement", "note", "creeParId")
-      SELECT gen_random_uuid(), "id", now(), "resteAPayerUSD", "modePaiement", 'Marquée payée (lot)', ${user.id}
+  if (uniq.length === 0) return { reglees: 0, demandees: 0 };
+
+  const maintenant = new Date();
+
+  const reglees = await prisma.$transaction(async (tx) => {
+    // Verrouille les lignes du lot encore à régler : un règlement concurrent sur l'une d'elles
+    // attend la fin de cette transaction plutôt que de créer une situation incohérente ; ce qui
+    // n'est déjà plus « à régler » ici est simplement exclu du décompte, jamais supposé réglé.
+    const facs = await tx.$queryRaw<{ id: string; date: Date | null; fournisseurNom: string; numero: string | null }[]>`
+      SELECT "id", "date", "fournisseurNom", "numero"
       FROM "stock"."FactureFournisseur"
-      WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE' AND "resteAPayerUSD" > 0`,
-    prisma.$executeRaw`
+      WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE' AND "resteAPayerUSD" > 0
+      FOR UPDATE`;
+    if (facs.length === 0) return 0;
+
+    for (const f of facs) {
+      try {
+        lireDatePaiement(dateStr, f.date, maintenant);
+      } catch (e) {
+        const nom = f.numero ? `${f.fournisseurNom} (n° ${f.numero})` : f.fournisseurNom;
+        throw new Error(`${nom} : ${e instanceof Error ? e.message : "date de paiement invalide"}`);
+      }
+    }
+    const date = new Date(lireDatePaiement(dateStr, null, maintenant));
+    const facIds = facs.map((f) => f.id);
+
+    await tx.$executeRaw`
+      INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "modePaiement", "note", "creeParId")
+      SELECT gen_random_uuid(), "id", ${date}, "resteAPayerUSD", "modePaiement", 'Marquée payée (lot)', ${user.id}
+      FROM "stock"."FactureFournisseur"
+      WHERE "id" IN (${Prisma.join(facIds)})`;
+    await tx.$executeRaw`
       UPDATE "stock"."FactureFournisseur"
-      SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = now()
-      WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE'`,
-  ]);
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${n} facture(s) réglée(s)`, userId: user.id });
-  revalidatePath("/stock/factures");
-  revalidatePath("/stock");
+      SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = ${date}
+      WHERE "id" IN (${Prisma.join(facIds)})`;
+    return facIds.length;
+  });
+
+  if (reglees > 0) {
+    await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${reglees} facture(s) réglée(s)`, userId: user.id });
+    revalidatePath("/stock/factures");
+    revalidatePath("/stock");
+  }
+  return { reglees, demandees: uniq.length };
 });
 
 /** Supprime plusieurs factures d'un coup (Direction) — reprend le stock entré par chacune. */
