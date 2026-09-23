@@ -50,7 +50,7 @@ const lunSam = (d: Date) => dow(d) !== 0;
 function entrees(e: Partial<EntreesReference> & Pick<EntreesReference, "jours" | "salaireMensuel" | "heuresHebdomadaires" | "heuresParJour">): EntreesReference {
   return {
     annee: 2026, mois: 9, dateEmbauche: new Date("2025-01-06T00:00:00Z"), joursFeries: new Set(),
-    joursCongePris: 0, referencePlanningDepuis: 202609, params: PARAMS, ...e,
+    joursCongePris: 0, joursCongeSansSolde: [], referencePlanningDepuis: 202609, params: PARAMS, ...e,
   };
 }
 /** Base NETTE (avant reconstitution du brut) que le moteur va payer. */
@@ -271,6 +271,57 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(r.heuresReference).toBe(156);
     expect(r.affichage.heuresPayeesNonTravaillees).toBe(36);
     expect(baseNette(r)).toBeCloseTo(200, 10);
+  });
+
+  // ── Prorata : l'argent ne dépend jamais de l'ordre des codes dans la semaine ──
+  it("Rachel, C lun-mer + S jeu-sam, ou S puis C, sans créneau → 176,92 dans les deux ordres", () => {
+    const semaine = (d: Date) => jour(d) >= 14 && jour(d) <= 19;
+    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !(jour(d) >= 14 && jour(d) <= 20) ? 12 : 0);
+    const rachelMixte = (avant: CodePresence, apres: CodePresence) => calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (semaine(d) ? (jour(d) <= 16 ? avant : apres) : h(d) > 0 ? "P" : null) }) }));
+    for (const r of [rachelMixte("C", "S"), rachelMixte("S", "C")]) {
+      expect(r.heuresReference).toBe(156); // 120 h planifiées + 36 h (18 payées, 18 retenues)
+      expect(r.affichage.heuresPayeesNonTravaillees).toBeCloseTo(18, 10);
+      expect(baseNette(r)).toBeCloseTo((138 * 200) / 156, 10);
+    }
+  });
+
+  it("Rachel, semaine S avec un férié SANS code et hors congé → le férié consomme le plafond : 161,54", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 20;
+    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !s(d) ? 12 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12, joursFeries: new Set(["2026-09-15"]),
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (s(d) && lunSam(d) && jour(d) !== 15 ? "S" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.heuresReference).toBe(156); // 120 h + 36 h réparties sur 6 jours (et non 120 + 12 + 36)
+    expect(baseNette(r)).toBeCloseTo((126 * 200) / 156, 10); // 161,54, jamais 157,14
+  });
+
+  it("Rachel, S du lundi 28 au mercredi 30 (semaine tronquée) → plafond 36 × 3/6 = 18 h : 177,78", () => {
+    const s = (d: Date) => jour(d) >= 28;
+    const h = (d: Date) => ([2, 4, 6].includes(dow(d)) && !s(d) ? 12 : 0);
+    const r = calculerReferenceMois(entrees({ salaireMensuel: 200, heuresHebdomadaires: 36, heuresParJour: 12,
+      jours: joursDuMois(2026, 9, { heures: h, faites: h, code: (d) => (s(d) ? "S" : h(d) > 0 ? "P" : null) }) }));
+    expect(r.heuresReference).toBe(162); // 144 h + 18 h (et non 36)
+    expect(baseNette(r)).toBeCloseTo((144 * 200) / 162, 10); // 177,78, jamais 160,00
+  });
+
+  // ── Férié dans un congé sans solde APPROUVÉ : arrive SANS code (conges-presences saute les fériés) ──
+  it("semaine de congé sans solde, férié sans code mais couvert par le congé → 160,00", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 19;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const r = calculerReferenceMois(type6j({ heures: h, faites: h, code: (d) => (!lunSam(d) ? null : jour(d) === 15 ? null : s(d) ? "S" : "P") },
+      { joursFeries: new Set(["2026-09-15"]), joursCongeSansSolde: ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19"] }));
+    expect(r.heuresReference).toBe(208);
+    expect(r.affichage.joursPayesNonTravailles).toBe(0);
+    expect(baseNette(r)).toBeCloseTo(160, 10);
+  });
+
+  it("mois entier en congé sans solde, férié sans code mais couvert par le congé → 0,00", () => {
+    const tous = joursDuMois(2026, 9, {}).map((j) => j.date.toISOString().slice(0, 10));
+    const r = calculerReferenceMois(type6j({ heures: () => 0, faites: () => 0, code: (d) => (lunSam(d) && jour(d) !== 15 ? "S" : null) },
+      { joursFeries: new Set(["2026-09-15"]), joursCongeSansSolde: tous }));
+    expect(r.source).toBe("PLANNING");
+    expect(r.heuresReference).toBe(208);
+    expect(baseNette(r)).toBe(0);
   });
 
   // ── Congé sans solde un jour férié : contrat suspendu, rien n'est dû ──

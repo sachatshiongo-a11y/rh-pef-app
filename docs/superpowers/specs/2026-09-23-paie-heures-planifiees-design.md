@@ -43,17 +43,29 @@ pas), un mois donné :
   durée du créneau de travail s'il y en a un, sinon durée du modèle pour ce jour (couche A/B puis
   « chaque semaine » ; 0 si le modèle ne prévoit rien ce jour, et le jour ne compte alors ni dans R
   ni dans les jours payés), sinon `heuresParJour`.
-  **Plafond hebdomadaire** : pour les jours sans créneau de travail (C, A, O, M, S), les heures dues
-  ajoutées à R dans une semaine (lun → dim, dans le mois) ne dépassent pas
-  `max(0, H − heures planifiées de travail de la semaine hors dimanche et fériés)`. Le plafond est
-  réparti dans l'ordre des jours, jamais plus de `hdu(j)` pour un jour. Il ne change rien pour les
-  jours payés (mêmes heures dans R et dans la base), mais il est décisif pour S : sans modèle,
-  `heuresParJour` pour chaque jour du lundi au samedi retiendrait 72 h à Rachel (36 h/sem), soit
-  125,00 $ au lieu de 153,85 $.
-- **Congé sans solde (S)** : le contrat est suspendu, aucun jour n'est dû, **même un férié**. Un jour
-  S sans heures faites est traité avant la règle des fériés : ses heures dues entrent dans R (sur un
-  créneau de travail elles y sont déjà, sauf un férié, compté en HS planifiées) et rien n'est payé.
-  Mois entier en S avec un férié → 0 ; semaine S contenant un férié → 160,00 $ (pas 168,00 $).
+  **Plafond hebdomadaire, au prorata** : sont concernés les jours non travaillés et sans créneau de
+  travail (hors dimanche) qui sont dus : C, A, O, F, M, S, et les **fériés** (codés ou non). Leurs
+  heures dues ajoutées à R dans une semaine (lun → dim, dans le mois) ne dépassent pas
+  `plafond = max(0, Hsem − heures planifiées de travail de la semaine hors fériés)`, où
+  `Hsem = H × (jours lun → sam de la semaine qui sont dans le mois) / 6` (une semaine tronquée par le
+  mois ne doit qu'une part de H). Chaque jour reçoit `hdu(j) × min(1, plafond / Σ hdu de ces jours)`,
+  soit un **prorata** : l'argent ne dépend jamais de l'ordre des codes dans la semaine. Rachel,
+  C lun-mer puis S jeu-sam, ou l'inverse : 176,92 $ dans les deux cas (18 h payées, 18 h retenues).
+  Pour une semaine d'un seul code payé, le plafond ne change rien (mêmes heures dans R et dans la
+  base). Pour S, il est décisif : sans modèle, compter `heuresParJour` pour chaque jour du lundi au
+  samedi retiendrait 72 h à Rachel (36 h/sem), soit 125,00 $ au lieu de 153,85 $. Un férié consomme
+  le plafond comme les autres jours (Rachel, semaine S + férié hors congé : 161,54 $, pas 157,14 $). La
+  semaine tronquée de Rachel, en S du lundi 28 au mercredi 30/09, donne 177,78 $ (plafond 18 h), et
+  non 160,00 $.
+- **Congé sans solde** : le contrat est suspendu, aucun jour n'est dû, **même un férié**. Est traité
+  comme S un jour non travaillé codé S, **ou un férié qui figure dans `joursCongeSansSolde`** (dates
+  couvertes par un congé APPROUVÉ de type non payé, fériés compris, fournies par l'appelant). La
+  précision est nécessaire parce que `poserCodesConge` (`conges-presences.ts`) saute les fériés : un
+  férié pris pendant un congé sans solde arrive sans code, ou F, et serait payé. Ce jour est traité
+  avant la règle des fériés : ses heures dues entrent dans R (sur un créneau de travail elles y sont
+  déjà, sauf un férié compté en HS planifiées) et rien n'est payé. Semaine S contenant un férié →
+  160,00 $ et mois entier S avec un férié → 0, **à condition que l'appelant fournisse
+  `joursCongeSansSolde`**. Sans cette liste, le férié non codé est payé : 168,00 $ et 8,00 $.
   *Pourquoi S entre dans R* (relecture 2026-09-23) : la génération automatique du planning ne pose
   aucun créneau pendant un congé approuvé, et le congé sans solde est codé S. Sans ses heures dans
   R, `t` monte et paie le congé : 208 $ au lieu de 192 $ pour 2 jours S, 400,00 $ au lieu de

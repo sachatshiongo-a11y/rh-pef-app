@@ -50,6 +50,11 @@ export type EntreesReference = {
    *  OBLIGATOIREMENT : une heure locale (ex. 23:00 UTC la veille) ferait replier à tort. */
   dateFinContrat?: Date | null;
   joursFeries: Set<string>; // "AAAA-MM-JJ"
+  /** Dates pures "AAAA-MM-JJ" couvertes par un congé APPROUVÉ de type non payé, FÉRIÉS COMPRIS
+   *  (rempli par l'appelant). `poserCodesConge` saute les fériés : un férié pris dans un congé sans
+   *  solde arrive sans code (ou F) ; s'il figure ici et n'est pas travaillé, il est traité comme S
+   *  (dans R, jamais payé). Seuls les fériés sont lus : les autres jours portent déjà le code S. */
+  joursCongeSansSolde: string[];
   /** Décompte d'aujourd'hui (max(codes C, congés approuvés)) — sert au seul affichage en mode contrat. */
   joursCongePris: number;
   /** AAAAMM à partir duquel la règle s'applique ; `null` = jamais (ancienne règle partout). */
@@ -98,6 +103,8 @@ const PAYES_100: ReadonlySet<string> = new Set(["C", "A", "O", "F"]);
  *  non). S y est (ses heures entrent dans R sans rien à la base) ; N non : sur un jour non planifié,
  *  il est sans effet, donc une semaine en N sans créneau ne peut pas fixer R → repli. */
 const CODES_SEMAINE_COUVERTE: ReadonlySet<string> = new Set(["C", "A", "M", "O", "F", "S"]);
+/** Jours lun→sam d'une semaine : même convention que `heuresParJour × 6` (repli des heures hebdo). */
+const JOURS_OUVRABLES_SEMAINE = 6;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const jjmm = (d: Date) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 const virgule = (n: number, dec: number) => n.toFixed(dec).replace(".", ",");
@@ -167,24 +174,32 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
   });
   let R = hsPlan.heuresTotalesMois - hsPlan.hs30 - hsPlan.hs60 - hsPlan.hs100;
 
-  // Plafond hebdomadaire des heures dues SANS créneau de travail (C, A, O, M, S) : une semaine ne
-  // peut pas devoir plus que H. Sans modèle, hdu retombe sur `heuresParJour` pour chaque jour
-  // lun→sam : sans plafond, une semaine S retiendrait 72 h à qui n'en doit que 36. Neutre pour les
-  // jours payés (mêmes heures dans R et dans la base), décisif pour S. Réparti dans l'ordre des jours.
-  const plafondSemaine = new Map<string, number>();
+  // Congé sans solde : code S, ou férié couvert par un congé sans solde approuvé (arrivé sans code).
+  const congeSansSolde = new Set(e.joursCongeSansSolde);
+  const estSansSolde = (j: JourReference) =>
+    j.heuresFaites <= 0 && (j.code === "S" || (e.joursFeries.has(iso(j.date)) && congeSansSolde.has(iso(j.date))));
+  // Jours qui puisent au plafond : ni dimanche, ni créneau de travail, ni heures faites, et dus à un
+  // titre ou un autre (congé sans solde, férié, C, A, O, F, M).
+  const puiseAuPlafond = (j: JourReference) =>
+    j.date.getUTCDay() !== 0 && j.heuresPlanifiees <= 0 && j.heuresFaites <= 0 &&
+    (estSansSolde(j) || e.joursFeries.has(iso(j.date)) || (j.code != null && (PAYES_100.has(j.code) || j.code === "M")));
+
+  // Plafond hebdomadaire de ces heures dues : une semaine (lun→dim, dans le mois) ne peut pas devoir
+  // plus que Hsem = H × (jours lun→sam de la semaine dans le mois / 6), moins ses heures planifiées.
+  // Sans modèle, hdu retombe sur `heuresParJour` pour chaque jour lun→sam : sans plafond, une semaine
+  // S retiendrait 72 h à qui n'en doit que 36. Réparti AU PRORATA de hdu (jamais au-delà de hdu) :
+  // l'argent ne dépend pas de l'ordre des codes dans la semaine. Neutre pour les jours payés (mêmes
+  // heures dans R et dans la base), décisif pour S.
+  const facteurSemaine = new Map<string, number>();
   for (const [lundi, js] of semaines) {
-    const planifiees = js
-      .filter((j) => j.date.getUTCDay() !== 0 && !e.joursFeries.has(iso(j.date)))
-      .reduce((acc, j) => acc + j.heuresPlanifiees, 0);
-    plafondSemaine.set(lundi, Math.max(0, e.heuresHebdomadaires - planifiees));
+    const lunSam = js.filter((j) => j.date.getUTCDay() !== 0);
+    const hSemaine = (e.heuresHebdomadaires * lunSam.length) / JOURS_OUVRABLES_SEMAINE;
+    const planifiees = lunSam.filter((j) => !e.joursFeries.has(iso(j.date))).reduce((acc, j) => acc + j.heuresPlanifiees, 0);
+    const plafond = Math.max(0, hSemaine - planifiees);
+    const demande = js.filter(puiseAuPlafond).reduce((acc, j) => acc + hdu(j), 0);
+    facteurSemaine.set(lundi, demande > 0 ? Math.min(1, plafond / demande) : 0);
   }
-  const hduSansCreneau = (j: JourReference) => {
-    const cle = iso(lundiDe(j.date));
-    const reste = plafondSemaine.get(cle) ?? 0;
-    const h = Math.min(hdu(j), reste);
-    plafondSemaine.set(cle, reste - h);
-    return h;
-  };
+  const hduSansCreneau = (j: JourReference) => hdu(j) * (facteurSemaine.get(iso(lundiDe(j.date))) ?? 0);
 
   let heuresPayees100 = 0;
   let heuresMaladie = 0;
@@ -197,13 +212,14 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     // Congé sans solde, AVANT les fériés : le contrat est suspendu, aucun jour n'est dû, même férié.
     // Ses heures dues entrent dans R, rien à la base (sinon t monterait et paierait le congé). Sur un
     // créneau de travail elles sont déjà dans R, sauf un férié (compté en HS dans hsPlan).
-    if (j.code === "S" && j.heuresFaites <= 0) {
+    if (estSansSolde(j)) {
       if (j.heuresPlanifiees <= 0) R += hduSansCreneau(j);
       else if (ferie) R += j.heuresPlanifiees;
       continue;
     }
     if (ferie) {
-      const h = hdu(j);
+      // Non travaillé sans créneau : puise au plafond comme les autres jours dus.
+      const h = puiseAuPlafond(j) ? hduSansCreneau(j) : hdu(j);
       if (h <= 0) continue; // férié tombant un jour de repos : rien à payer au forfait
       R += h;
       heuresPayees100 += h; // chômé et payé, codé F ou non

@@ -154,7 +154,7 @@ describe("chargerJoursMois — fin du contrat qui couvre le mois", () => {
     const m = await chargerJoursMois(9, 2026, [fin28Id, fin30Id]);
     const reference = (id: string) => calculerReferenceMois({
       annee: 2026, mois: 9, jours: m.get(id)!.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
-      dateEmbauche: d("2025-01-06"), dateFinContrat: m.get(id)!.dateFinContrat, joursFeries: new Set(), joursCongePris: 0,
+      dateEmbauche: d("2025-01-06"), dateFinContrat: m.get(id)!.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: [],
       referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
     });
     const r28 = reference(fin28Id);
