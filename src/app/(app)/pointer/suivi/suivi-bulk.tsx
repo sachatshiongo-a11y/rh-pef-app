@@ -54,7 +54,8 @@ export function SuiviBulk({ lignes }: { lignes: LigneSuivi[] }) {
   function toggle(id: string) {
     setSelection((s) => {
       const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
       return n;
     });
   }

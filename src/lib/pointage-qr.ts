@@ -121,10 +121,19 @@ export function scanAVerifier<S extends { moment: "ARRIVEE" | "DEPART"; verdict:
   return scans.find((s) => s.moment === moment && s.verdict === "A_VERIFIER" && !s.verifieLe);
 }
 
-/** Compteur de la semaine pour le Suivi : combien de scans restent « à vérifier », jamais NaN. */
-export function resumeSemaine(scans: { verdict: "AU_RESTAURANT" | "A_VERIFIER" }[]): { total: number; aVerifier: number; pourcent: number } {
-  const total = scans.length;
-  const aVerifier = scans.filter((s) => s.verdict === "A_VERIFIER").length;
-  const pourcent = total === 0 ? 0 : Math.round((aVerifier / total) * 100);
-  return { total, aVerifier, pourcent };
+/**
+ * Compteur de la semaine pour le Suivi : parmi les POINTAGES de la semaine ayant au moins un scan
+ * (chacun compte pour UN, jamais pour ses deux scans arrivée+départ), combien n'ont PAS confirmé
+ * la présence au restaurant — au moins un de leurs scans est A_VERIFIER, indépendamment de
+ * `verifieLe` (c'est une mesure de la fiabilité de la position, pas du travail de vérification
+ * restant à faire). Un pointage sans aucun scan (source MANUEL/APP) n'entre ni au numérateur ni au
+ * dénominateur : `resumeSemaineCourante` ne lui donne même pas de ligne. Jamais NaN.
+ */
+export function resumePointagesSemaine(
+  pointages: { verdicts: ("AU_RESTAURANT" | "A_VERIFIER")[] }[]
+): { total: number; horsRestaurant: number; pourcent: number } {
+  const total = pointages.length;
+  const horsRestaurant = pointages.filter((p) => p.verdicts.includes("A_VERIFIER")).length;
+  const pourcent = total === 0 ? 0 : Math.round((horsRestaurant / total) * 100);
+  return { total, horsRestaurant, pourcent };
 }

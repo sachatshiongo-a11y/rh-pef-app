@@ -117,9 +117,10 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
           <span className="text-muted-foreground">Cette semaine : aucun pointage par QR pour l&apos;instant.</span>
         ) : (
           <>
-            Cette semaine : <span className="font-semibold tabular-nums">{semaine.aVerifier}</span>{" "}
-            pointage{semaine.aVerifier > 1 ? "s" : ""} à vérifier sur{" "}
-            <span className="font-semibold tabular-nums">{semaine.total}</span> ({semaine.pourcent} %)
+            Cette semaine : <span className="font-semibold tabular-nums">{semaine.horsRestaurant}</span>{" "}
+            pointage{semaine.horsRestaurant > 1 ? "s" : ""} sur{" "}
+            <span className="font-semibold tabular-nums">{semaine.total}</span> sans présence confirmée au
+            restaurant ({semaine.pourcent} %)
           </>
         )}
       </div>

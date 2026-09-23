@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   distanceMetres, verdictPosition, urlAffiche, lireCodeDepuisQr,
-  lireCoordonneesSaisies, libelleMotif, resumeSemaine, scanAVerifier,
+  lireCoordonneesSaisies, libelleMotif, resumePointagesSemaine, scanAVerifier,
 } from "./pointage-qr";
 import { codesEgaux, genererCodeAffiche } from "./pointage-code";
 
@@ -88,11 +88,23 @@ describe("libellés et résumé", () => {
   });
   it("précision insuffisante porte le ± en mètres", () =>
     expect(libelleMotif({ verdict: "A_VERIFIER", motif: "PRECISION_INSUFFISANTE", distanceM: null, precisionM: 900 })).toBe("précision ±900 m"));
-  it("résume la semaine", () =>
-    expect(resumeSemaine([{ verdict: "A_VERIFIER" }, { verdict: "AU_RESTAURANT" }, { verdict: "AU_RESTAURANT" }, { verdict: "AU_RESTAURANT" }]))
-      .toEqual({ total: 4, aVerifier: 1, pourcent: 25 }));
-  it("semaine vide : 0 %, jamais NaN", () =>
-    expect(resumeSemaine([])).toEqual({ total: 0, aVerifier: 0, pourcent: 0 }));
+});
+
+describe("resumePointagesSemaine — par POINTAGE, jamais par scan", () => {
+  it("un pointage compte pour UN, même avec deux scans (arrivée + départ)", () => {
+    // A : arrivée + départ, tous deux à vérifier. B : arrivée seule, à vérifier. C : arrivée +
+    // départ, tous deux au restaurant. Compter par scan donnerait 3 sur 5 (60 %) ; par pointage,
+    // 2 pointages sur 3 n'ont pas confirmé la présence (67 %) — l'exemple de la relecture.
+    const A: { verdicts: ("AU_RESTAURANT" | "A_VERIFIER")[] } = { verdicts: ["A_VERIFIER", "A_VERIFIER"] };
+    const B: { verdicts: ("AU_RESTAURANT" | "A_VERIFIER")[] } = { verdicts: ["A_VERIFIER"] };
+    const C: { verdicts: ("AU_RESTAURANT" | "A_VERIFIER")[] } = { verdicts: ["AU_RESTAURANT", "AU_RESTAURANT"] };
+    expect(resumePointagesSemaine([A, B, C])).toEqual({ total: 3, horsRestaurant: 2, pourcent: 67 });
+  });
+  it("un seul scan A_VERIFIER sur un pointage suffit à le compter hors restaurant", () =>
+    expect(resumePointagesSemaine([{ verdicts: ["AU_RESTAURANT", "A_VERIFIER"] }]))
+      .toEqual({ total: 1, horsRestaurant: 1, pourcent: 100 }));
+  it("aucun pointage : 0 %, jamais NaN", () =>
+    expect(resumePointagesSemaine([])).toEqual({ total: 0, horsRestaurant: 0, pourcent: 0 }));
 });
 
 describe("scanAVerifier — le badge « À vérifier » du Suivi", () => {
