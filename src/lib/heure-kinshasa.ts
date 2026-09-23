@@ -35,6 +35,15 @@ export function dateHeureKinshasa(d: Date): string {
   return normaliserEspaces(`${p("day")}/${p("month")}/${p("year")} à ${p("hour")} h ${p("minute")}`);
 }
 
+/**
+ * L'heure seule, heure de Kinshasa, `H h MM` sans zéro devant l'heure (« 8 h 02 », « 0 h 30 ») —
+ * la forme des écrans de pointage (« Arrivée pointée à 8 h 02. »).
+ */
+export function heureKinshasa(d: Date): string {
+  const p = morceauxKinshasa(d, true);
+  return normaliserEspaces(`${Number(p("hour"))} h ${p("minute")}`);
+}
+
 /** Le seul jour, heure de Kinshasa, `JJ/MM/AAAA`. */
 export function jourKinshasa(d: Date): string {
   const p = morceauxKinshasa(d, false);

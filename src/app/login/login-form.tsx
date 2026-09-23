@@ -3,12 +3,14 @@
 import { useActionState, useState } from "react";
 import { login } from "./actions";
 
-export function LoginForm() {
+/** `retour` : chemin déjà validé par la page (`retourValide`) ; l'action le revalide de son côté. */
+export function LoginForm({ retour }: { retour?: string | null }) {
   const [state, action, pending] = useActionState(login, undefined);
   const [visible, setVisible] = useState(false);
 
   return (
     <form action={action} className="flex flex-col gap-4">
+      {retour && <input type="hidden" name="retour" value={retour} />}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="email" className="text-sm font-medium">
           Email ou matricule

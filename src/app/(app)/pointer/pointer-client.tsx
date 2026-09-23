@@ -3,12 +3,17 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
-import { pointerArrivee, pointerDepart, saisirHoraireManuel, type ResultatPointage } from "./pointer-actions";
+import { ScannerAffiche } from "@/components/pointage/scanner-affiche";
+import { heureKinshasa } from "@/lib/heure-kinshasa";
+import { saisirHoraireManuel, type ResultatPointage } from "./pointer-actions";
+
+// L'écran « Pointer » : l'état du jour (cadran) et le SCANNER de l'affiche. Plus aucun bouton
+// « Pointer mon arrivée / mon départ » : on ne pointe qu'en scannant l'affiche du restaurant
+// (docs/superpowers/specs/2026-09-23-pointage-qr-design.md, §7).
 
 type PointageVue = { heureDebut: string; heureFin: string | null; pauseMinutes: number } | null;
 
-const hhmm = (iso: string) =>
-  new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" }); // UTC+1
+const hhmm = (iso: string) => heureKinshasa(new Date(iso));
 const dureeH = (ms: number) => {
   const min = Math.max(0, Math.floor(ms / 60000));
   return `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
@@ -19,31 +24,42 @@ export function PointerClient({
   photoUrl,
   dateLabel,
   pointage,
+  departScanne,
 }: {
   nom: string;
   photoUrl: string | null;
   dateLabel: string;
   pointage: PointageVue;
+  /** Instant ISO du départ SCANNÉ dont la pause n'est pas encore saisie (null sinon). */
+  departScanne: string | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
-  const [pause, setPause] = useState(30);
   const [manuel, setManuel] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
   const enCours = !!pointage && !pointage.heureFin;
   const termine = !!pointage && !!pointage.heureFin;
+  const pauseAttendue = enCours && !!departScanne;
+  // Le scanner n'est monté que si la journée restait à pointer À L'OUVERTURE : il ne disparaît
+  // donc pas sous les yeux du salarié quand son départ vient d'être validé (l'écran de confirmation
+  // et l'éventuel avertissement de position restent affichés), et la caméra ne s'ouvre jamais
+  // pour une journée déjà complète.
+  const [scannerOuvert] = useState(!termine);
 
-  // Compteur en direct pendant le service.
+  // Compteur en direct pendant le service ; figé à l'heure du départ scanné.
   useEffect(() => {
-    if (!enCours || !pointage) return;
+    if (!enCours || !pointage || departScanne) return;
     const deb = new Date(pointage.heureDebut).getTime();
     const tick = () => setElapsed(Date.now() - deb);
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [enCours, pointage]);
+  }, [enCours, pointage, departScanne]);
+  const ecoule = pauseAttendue && pointage
+    ? new Date(departScanne!).getTime() - new Date(pointage.heureDebut).getTime()
+    : elapsed;
 
   const run = (fn: () => Promise<ResultatPointage>) => {
     setErr(null);
@@ -76,17 +92,28 @@ export function PointerClient({
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="space-y-5 p-5">
+          {/* Le scan de l'affiche : le SEUL chemin pour pointer. */}
+          {scannerOuvert && <ScannerAffiche />}
+
           {/* Cadran */}
-          <div className="mb-5 flex flex-col items-center rounded-2xl border bg-background py-7">
+          <div className="flex flex-col items-center rounded-2xl border bg-background py-7">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">
-              {termine ? "Journée pointée" : enCours ? "Temps écoulé aujourd'hui" : "Aujourd'hui"}
+              {termine ? "Journée pointée" : pauseAttendue ? "Départ scanné, pause à saisir" : enCours ? "Temps écoulé aujourd'hui" : "Aujourd'hui"}
             </span>
             <span className="mt-1 text-4xl font-bold tabular-nums">
-              {termine ? `${heuresNettes.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : enCours ? dureeH(elapsed) : "0h 00m"}
+              {termine ? `${heuresNettes.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : enCours ? dureeH(ecoule) : "0h 00m"}
             </span>
             {enCours && pointage && (
-              <span className="mt-1 text-xs text-muted-foreground">Arrivée pointée à {hhmm(pointage.heureDebut)}</span>
+              <span className="mt-1 text-xs text-muted-foreground">
+                Arrivée pointée à {hhmm(pointage.heureDebut)}
+                {departScanne && ` · départ scanné à ${hhmm(departScanne)}`}
+              </span>
+            )}
+            {pauseAttendue && (
+              <span className="mt-2 px-4 text-center text-xs text-muted-foreground">
+                Scannez de nouveau l&apos;affiche pour saisir votre pause et clore la journée.
+              </span>
             )}
             {termine && pointage && (
               <span className="mt-1 text-xs text-muted-foreground">
@@ -96,49 +123,7 @@ export function PointerClient({
           </div>
 
           {err && (
-            <p className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>
-          )}
-
-          {/* Actions selon l'état */}
-          {!pointage && (
-            <button
-              onClick={() => run(pointerArrivee)}
-              disabled={pending}
-              className="w-full rounded-2xl bg-primary py-4 text-base font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-50"
-            >
-              {pending ? "…" : "→ Pointer l'arrivée"}
-            </button>
-          )}
-
-          {enCours && (
-            <div className="space-y-3">
-              <label className="flex items-center justify-between gap-3 rounded-xl border bg-background px-4 py-3 text-sm">
-                <span className="font-medium">Ma pause du jour</span>
-                <span className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    max={600}
-                    step={5}
-                    value={pause}
-                    onChange={(e) => setPause(Math.max(0, Math.min(600, Number(e.target.value) || 0)))}
-                    className="w-20 rounded-md border border-input bg-background px-2 py-1 text-right tabular-nums"
-                  />
-                  <span className="text-muted-foreground">min</span>
-                </span>
-              </label>
-              <button
-                onClick={() => {
-                  const fd = new FormData();
-                  fd.set("pauseMinutes", String(pause));
-                  run(() => pointerDepart(fd));
-                }}
-                disabled={pending}
-                className="w-full rounded-2xl border-2 border-primary py-4 text-base font-semibold text-primary transition hover:bg-primary/5 disabled:opacity-50"
-              >
-                {pending ? "…" : "■ Pointer le départ"}
-              </button>
-            </div>
+            <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</p>
           )}
 
           {termine && (
