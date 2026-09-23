@@ -7,7 +7,8 @@ import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import type { Role } from "@prisma/client";
 
-const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "STOCK"];
+import { ROLES_ATTRIBUABLES, roleModifiableIci } from "@/lib/roles";
+const ROLES: readonly Role[] = ROLES_ATTRIBUABLES;
 
 /** Crée un utilisateur : compte Supabase Auth (email + mot de passe) + profil applicatif (rôle). */
 export const creerUtilisateur = actionLisible(async (formData: FormData) => {
@@ -56,6 +57,14 @@ export const definirRoleUtilisateur = actionLisible(async (userId: string, formD
   requireRole(admin, ["ADMIN"]);
   const role = String(formData.get("role") ?? "") as Role;
   if (!ROLES.includes(role)) throw new Error("Rôle invalide.");
+
+  // Un compte salarié (ou tout rôle non attribuable ici) ne change pas de rôle depuis cet écran :
+  // l'écran l'affiche en lecture seule, et le serveur ne fait pas confiance à l'écran. Sans cette
+  // garde, « corriger » un salarié affiché à tort « Direction » lui donnait réellement des droits.
+  const cible = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (!cible) throw new Error("Utilisateur introuvable.");
+  if (!roleModifiableIci(cible.role))
+    throw new Error("Ce compte est un compte salarié : son accès se gère depuis la fiche du salarié.");
 
   await prisma.user.update({ where: { id: userId }, data: { role } });
   invaliderProfil(userId);
