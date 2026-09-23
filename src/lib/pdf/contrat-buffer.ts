@@ -77,9 +77,13 @@ export async function genererContratPdf(
     salaireBrut = `${formaterNombre(brut, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${contrat.devise}`;
   }
 
+  // « Fait à Kinshasa, le … » : signé et à jour → le jour de l'acceptation (= la signature, même
+  // instant) ; sinon — jamais signé, ou « à resigner » — le jour de la génération.
+  const faitLe = vue && !vue.obsolete ? (contrat.accepteLe ?? vue.signeLe) : null;
+
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(
-    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature, signatureSalarie }),
+    ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, faitLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature, signatureSalarie }),
   );
   return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
 }

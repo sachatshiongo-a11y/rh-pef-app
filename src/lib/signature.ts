@@ -11,6 +11,7 @@ import {
   type Instantane,
 } from "@/lib/signature-document";
 import { normaliserEspaces } from "@/lib/montant";
+import { dateHeureKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
 import { lireFichier } from "@/lib/storage";
 import type { SignatureImprimable } from "@/lib/pdf/layout";
 
@@ -359,45 +360,7 @@ export async function enregistrerSignature(
 
 export type { SignatureImprimable };
 
-/**
- * Date et heure de KINSHASA (UTC+1, pas d'heure d'été) au format `JJ/MM/AAAA à HH h MM`.
- *
- * ⚠️ Construite morceau par morceau (`formatToParts`), et JAMAIS par la méthode `toLocaleString`
- * avec la locale fr-FR (écrite ici séparément à dessein : le garde-fou
- * `lib/pdf/glyphes-manquants.test.ts` cherche cette chaîne littérale dans tout fichier qui
- * alimente un PDF, et ce module en alimente trois) :
- * depuis ICU 72, Intl fr-FR insère une ESPACE FINE INSÉCABLE (U+202F) entre l'heure et les
- * minutes comme entre les milliers d'un montant. Optima, la police embarquée dans nos PDF, n'a
- * aucun glyphe pour ce caractère : react-pdf se rabat sur Helvetica, qui dessine une barre noire
- * en travers — le défaut corrigé dans tout ce dépôt le 2026-09-22 sur les montants. La sortie
- * repasse malgré tout par `normaliserEspaces` en dernier geste : ceinture ET bretelles, car un
- * changement de version d'ICU peut réintroduire l'espace fine là où on ne l'attend pas.
- */
-function dateHeureKinshasa(d: Date): string {
-  const morceaux = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Africa/Kinshasa",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23", // minuit s'écrit « 00 h 00 », jamais « 24 h 00 »
-  }).formatToParts(d);
-  const p = (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
-  return `${p("day")}/${p("month")}/${p("year")} à ${p("hour")} h ${p("minute")}`;
-}
-
-/** Le seul jour, heure de Kinshasa — `JJ/MM/AAAA`. Mêmes précautions que `dateHeureKinshasa`. */
-function jourKinshasa(d: Date): string {
-  const morceaux = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Africa/Kinshasa",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).formatToParts(d);
-  const p = (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
-  return normaliserEspaces(`${p("day")}/${p("month")}/${p("year")}`);
-}
+// Les dates imprimées et affichées sont à l'heure de Kinshasa : `lib/heure-kinshasa.ts`.
 
 /**
  * LA PHRASE IMPRIMÉE SOUS LE TRAIT — elle dit la vérité sur le geste, jamais une formule passe-partout.

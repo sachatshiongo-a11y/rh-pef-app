@@ -19,6 +19,7 @@ import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
 import type { Echeancier } from "@/lib/prets";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { PretForm } from "./pret-form";
 import { listeEnProse } from "@/lib/texte";
 import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
@@ -385,7 +386,7 @@ export function DossierEmploye({
                   signature en base (cas résorbé par la migration du lot 2). */}
               {c.accepteLe && (etatsSignatureContrats[c.id]?.etat ?? "A_SIGNER") === "A_SIGNER" && (
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800" title={c.pdfAccepteUrl ? "Le PDF servi est l'exemplaire figé au moment de l'acceptation — il fait foi." : undefined}>
-                  Accepté par le salarié le {d(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}
+                  Accepté par le salarié le {jourKinshasa(c.accepteLe)}{c.pdfAccepteUrl ? " · exemplaire figé" : ""}
                 </span>
               )}
               {peutModifier && c.statut === "ACTIF" && (
@@ -571,7 +572,8 @@ export function DossierEmploye({
                 </div>
                 <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-2">
                   <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
-                  {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {d(c.accepteLe)}</span>}
+                  {/* Un INSTANT : jour de Kinshasa, sinon la veille de la date du PDF entre minuit et une heure. */}
+                  {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {jourKinshasa(c.accepteLe)}</span>}
                   {c.documentUrl && (
                     <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>
                   )}

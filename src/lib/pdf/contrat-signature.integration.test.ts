@@ -196,3 +196,44 @@ describe("contrats d'AVANT la règle : l'exemplaire figé ne peut pas rendre le 
     expect(pdf!.buffer.equals(FIGE), "sans signature tracée, l'exemplaire figé reste celui qui fait foi").toBe(true);
   }, 60_000);
 });
+
+describe("« Fait à Kinshasa, le … » : la date de la signature, à l'heure de Kinshasa", () => {
+  // 1er avril à 00 h 30 à Kinshasa, encore le 31 mars en UTC (l'heure du serveur). Loin
+  // d'« aujourd'hui » à dessein : une date de signature égale au jour du test laisserait passer
+  // un contrat daté du jour de génération.
+  const INSTANT = new Date("2026-03-31T23:30:00.000Z");
+  const aujourdhui = () =>
+    new Intl.DateTimeFormat("fr-FR", { timeZone: "Africa/Kinshasa", day: "numeric", month: "long", year: "numeric" })
+      .format(new Date()).replace(/^1 /, "1er ");
+
+  async function signerA(contratId: string, quand: Date) {
+    await signer(contratId);
+    // Même instant sur les deux lignes, comme l'écrit `enregistrerSignature`.
+    await prisma.signatureElectronique.update({ where: { cible_cibleId: { cible: "CONTRAT", cibleId: contratId } }, data: { signeLe: quand } });
+    await prisma.contrat.update({ where: { id: contratId }, data: { accepteLe: quand } });
+  }
+
+  it("contrat signé (à jour) → le jour de la signature à Kinshasa, pas le jour de génération ni la veille UTC", async () => {
+    const c = await creerContrat();
+    await signerA(c.id, INSTANT);
+
+    const t = await texteDu((await genererContratPdf(c.id))!.buffer);
+    expect(t, "le contrat signé porte la date du jour de génération, ou la veille UTC").toContain("Fait à Kinshasa, le 1er avril 2026");
+  }, 90_000);
+
+  it("signature OBSOLÈTE → la date du jour, comme un contrat jamais signé", async () => {
+    const c = await creerContrat();
+    await signerA(c.id, INSTANT);
+    await prisma.contrat.update({ where: { id: c.id }, data: { salaireMensuel: 480 } });
+
+    const t = await texteDu((await genererContratPdf(c.id))!.buffer);
+    expect(t).toContain(`Fait à Kinshasa, le ${aujourdhui()}`);
+  }, 90_000);
+
+  it("contrat jamais signé → la date du jour à Kinshasa", async () => {
+    const c = await creerContrat();
+    const t = await texteDu((await genererContratPdf(c.id))!.buffer);
+    expect(t).toContain(`Fait à Kinshasa, le ${aujourdhui()}`);
+  }, 90_000);
+});
+

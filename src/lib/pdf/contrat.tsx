@@ -5,6 +5,7 @@ import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRI
 import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
 import { listeEnProse } from "@/lib/texte";
 import { formaterNombre } from "@/lib/montant";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
@@ -59,7 +60,7 @@ export type ParamsContrat = { preavisDemission: number | null; preavisLicencieme
  * Contrat de travail (PDF, modèle RDC) auto-rempli depuis la fiche + les termes du contrat.
  * ⚠️ Modèle générique — à FAIRE VALIDER par un juriste avant usage réel (comme les barèmes de paie).
  */
-export function ContratDocument({ employee, contrat, params, salaireEstNet, salaireBrut, accepteLe, fonctions, entreprise = entrepriseDefaut, logo, signature, signatureSalarie }: { employee: Employee; contrat: Contrat; params: ParamsContrat; salaireEstNet: boolean; salaireBrut?: string | null; accepteLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null; /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */ signatureSalarie?: SignatureImprimable }) {
+export function ContratDocument({ employee, contrat, params, salaireEstNet, salaireBrut, accepteLe, faitLe, fonctions, entreprise = entrepriseDefaut, logo, signature, signatureSalarie }: { employee: Employee; contrat: Contrat; params: ParamsContrat; salaireEstNet: boolean; salaireBrut?: string | null; accepteLe?: Date | null; /** Date du « Fait à Kinshasa, le … » : celle de la signature à jour ; absente = aujourd'hui. */ faitLe?: Date | null; fonctions?: string | null; entreprise?: typeof entrepriseDefaut; logo?: ImageSrc; signature?: ImageSrc | null; /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */ signatureSalarie?: SignatureImprimable }) {
   // Signature de la Direction : téléversée (paramètres) si fournie, sinon celle groupée dans le projet.
   const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
   const femme = (employee.sexe ?? "").toUpperCase().startsWith("F");
@@ -201,7 +202,10 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
           signature est précédée de la mention manuscrite «&nbsp;Lu et approuvé&nbsp;».
         </Text>
 
-        <Text style={styles.lieuDate}>Fait à Kinshasa, le {fr(new Date())}</Text>
+        {/* Le texte est celui du juriste ; la DATE vient de notre code. Un contrat signé (signature
+            à jour) est fait le jour de sa signature, pas le jour où on le réimprime — et ce jour
+            est celui de KINSHASA, pas celui du serveur en UTC. */}
+        <Text style={styles.lieuDate}>Fait à Kinshasa, le {fr(jourCivilKinshasa(faitLe ?? new Date()))}</Text>
 
         <View style={styles.signatures} wrap={false}>
           {/* Employeur : signature de la Direction dans un espace fixe, puis la ligne. */}

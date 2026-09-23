@@ -7,6 +7,7 @@ import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer"
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { signerMonDocument } from "../signature-actions";
@@ -165,7 +166,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                   <p className="text-sm font-medium">{c.type} · {c.poste}</p>
                   <p className="text-xs text-muted-foreground">
                     {fr(c.dateDebut)} → {c.dateFin ? fr(c.dateFin) : "indéterminé"}
-                    {c.accepteLe && !signe ? <span className="text-emerald-700"> · accepté le {fr(c.accepteLe)}</span> : null}
+                    {c.accepteLe && !signe ? <span className="text-emerald-700"> · accepté le {jourKinshasa(c.accepteLe)}</span> : null}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3 text-sm">
