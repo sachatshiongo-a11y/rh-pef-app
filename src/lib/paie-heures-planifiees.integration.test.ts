@@ -239,6 +239,12 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     const vide = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.semaineVide, 9, 2026))!, periode: "septembre 2026" }));
     expect(vide).toContain("Heures contrat (repli)");
     expect(vide).toContain("Planning incomplet : semaine du 21/09 sans créneau");
+    // Espace salarié : même carte, SANS les alertes de gestion (CDD échu, planning incomplet…).
+    const videSalarie = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.semaineVide, 9, 2026))!, periode: "septembre 2026", avecAvertissements: false }));
+    expect(videSalarie).toContain("Heures contrat (repli)");
+    expect(videSalarie).not.toContain("Planning incomplet");
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync("src/app/espace/paie/page.tsx", "utf8")).toMatch(/<ApercuBulletinCard[^>]*avecAvertissements=\{false\}/);
     const juillet = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.martine, 7, 2026))!, periode: "juillet 2026" }));
     expect(juillet).toMatch(/Heures \/ mois<\/span><span[^>]*>234h</);
     expect(juillet).not.toContain("Heures planifiées");
