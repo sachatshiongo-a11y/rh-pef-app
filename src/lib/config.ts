@@ -84,5 +84,8 @@ export async function chargerParametresPaie(): Promise<ParametresPaie> {
     // (jamais `requis()`, qui lèverait une erreur bloquant toute la paie sur les bases n'ayant pas
     // encore ce paramètre seedé).
     salairesSaisisEnNet: optionnel("salaires_saisis_en_net") === 1,
+    // Date d'effet de la paie sur heures planifiées (AAAAMM). Absente ou vide = ancienne règle :
+    // `optionnel`, jamais `requis`, pour ne bloquer aucune base pas encore migrée.
+    referencePlanningDepuis: optionnel("paie_reference_planning_depuis"),
   };
 }

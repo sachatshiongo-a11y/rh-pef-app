@@ -67,6 +67,14 @@ const PARAMS: {
       "base de prod existante n'est jamais basculée automatiquement (upsert `update: {}` ne réécrit " +
       "jamais une valeur déjà présente).",
   },
+  {
+    cle: "paie_reference_planning_depuis",
+    valeur: 202609,
+    unite: "AAAAMM",
+    libelle: "Paie brigade — référence = heures planifiées à partir du mois (AAAAMM)",
+    source: "Décision Direction 2026-09-23",
+    commentaire: "Vide = ancienne règle (heures/semaine × 52/12) pour tous les mois.",
+  },
 ];
 
 // Barème IPR DGI — tranches ANNUELLES en CDF.
