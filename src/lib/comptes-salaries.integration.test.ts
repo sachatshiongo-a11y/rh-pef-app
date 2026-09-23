@@ -548,4 +548,14 @@ describe("l'écran des comptes en lot", () => {
     expect(source).toContain('"Chaque fiche contient un mot de passe : envoyez-la au seul salarié concerné, ou remettez-la-lui en main propre."');
     expect(source).toContain("{AVERTISSEMENT_FICHES}");
   });
+
+  it("le mot de passe ne voyage que dans le fichier : aucun lien WhatsApp, aucun texte pré-rempli", () => {
+    // Un lien « wa.me/?text=… » ou « whatsapp://send?text=… » mettrait le mot de passe dans une URL
+    // (historique, journaux du serveur de WhatsApp, aperçu du lien). L'écran partage le PDF seul.
+    for (const f of ["src/app/(app)/parametres/comptes-lot.tsx", "src/app/(app)/parametres/comptes-lot-actions.ts"]) {
+      const source = fs.readFileSync(path.join(process.cwd(), f), "utf8").replace(/^\s*\/\/.*$/gm, ""); // hors commentaires
+      expect(source, f).not.toMatch(/wa\.me|api\.whatsapp|whatsapp:\/\/|[?&]text=/i);
+      expect(source, f).not.toMatch(/share\(\s*\{[^}]*\b(text|url)\s*:/); // un partage ne porte que `files`
+    }
+  });
 });
