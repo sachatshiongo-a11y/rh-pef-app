@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerEcheancePret } from "@/lib/prets";
 import {
-  calculerHeuresSupp,
   calculerJoursOuvrables,
   calculerPaieBackoffice,
   calculerPaieBrigade,
@@ -12,10 +11,10 @@ import {
   resumerPresences,
   type CodePresence,
 } from "@/lib/payroll";
+import { calculerReferenceMois, type AvertissementPaie, type SourceReference } from "@/lib/paie-reference";
+import { avertissementCddEchu, detecterAvertissementsSaisie } from "@/lib/paie-avertissements";
+import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import type { Employee } from "@prisma/client";
-
-// Conversion PRÉCISE heures/semaine → heures/mois : 52 semaines ÷ 12 mois = 4,3333 (aucune estimation).
-const SEMAINES_PAR_MOIS = 52 / 12;
 
 /** Champs numériques d'une PayrollLine produits par le calcul (hors payrollRunId/employeeId). */
 export type DonneesLignePaie = {
@@ -30,6 +29,12 @@ export type DonneesLignePaie = {
   hsValorisee: number;
   heuresTravaillees: number;
   heuresContractuelles: number;
+  /** D'où vient `heuresContractuelles` : heures planifiées, contrat, ou repli sur le contrat. */
+  sourceReference: SourceReference;
+  motifReference: string | null;
+  heuresPayeesNonTravaillees: number;
+  /** Avertissements de calcul et de saisie (jamais bloquants), figés avec la ligne. */
+  avertissementsPaie: AvertissementPaie[];
   heuresSupp30: number;
   heuresSupp60: number;
   heuresSupp100: number;
@@ -78,15 +83,16 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
-  // BUG CONNU documenté le 2026-07-22 (Tier 2, #4 — NON corrigé, montants impactés) : `overtimeEntries`
-  // est filtré STRICTEMENT par mois calendaire. `calculerHeuresSupp` (payroll.ts) regroupe pourtant les
+  // BUG CONNU documenté le 2026-07-22 (Tier 2, #4 — NON corrigé, montants impactés) : les heures faites
+  // ne sont données à `calculerHeuresSupp` que pour les jours DU MOIS (`jours` de `chargerJoursMois`,
+  // qui lit pourtant la semaine entière pour le seul plafond de la référence). `calculerHeuresSupp` (payroll.ts) regroupe pourtant les
   // heures par VRAIES semaines lundi→dimanche (`numeroSemaineDuMois`, déjà correct EN INTRA-mois). Une
   // semaine à cheval sur deux mois est donc scindée : le seuil hebdomadaire contractuel qui déclenche
   // les heures supp. (30 %/60 %) repart de zéro de CHAQUE côté de la coupure → sous-évaluation possible
   // des heures supp. sur ces semaines-charnières (ex. semaine du 27 juin au 3 juillet : les heures du
   // 27-30 juin ne « comptent » pas pour le seuil de la semaine côté juillet, et inversement).
   // Piste de correction recommandée (NON implémentée ici — risquée sans tests dédiés) : élargir la
-  // fenêtre de chargement de `overtimeEntries`/`attendances` aux semaines complètes qui chevauchent le
+  // fenêtre des heures faites passées à `calculerHeuresSupp` aux semaines complètes qui chevauchent le
   // mois (du lundi de la semaine du 1er au dimanche de la semaine du dernier jour — cf. `lundiDe` dans
   // `src/lib/dates-fr.ts`), puis faire évoluer `calculerHeuresSupp` pour qu'il attribue les heures supp.
   // JOUR PAR JOUR (cumul chronologique dans la semaine) au lieu d'un agrégat hebdomadaire, afin de ne
@@ -96,12 +102,11 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   // un changement de signature/algorithme du moteur central (`calculerHeuresSupp`), couvert par
   // `payroll.test.ts` et `payroll-reference.test.ts` : à faire dans un lot dédié avec de nouveaux tests
   // de semaines-charnières, plutôt qu'un correctif partiel ici.
-  const [employees, joursFeriesDuMois, attendances, overtimeEntries, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours, avantagesDuMois] =
+  const [employees, joursFeriesDuMois, attendances, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours, avantagesDuMois] =
     await Promise.all([
       prisma.employee.findMany({ where: { actif: true } }),
       prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-      prisma.overtimeEntry.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
       prisma.prime.findMany({ where: { mois, annee } }),
       prisma.acompteSalaire.findMany({ where: { mois, annee, statut: "APPROUVE" } }),
       prisma.leaveRequest.findMany({ where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } } }),
@@ -151,37 +156,15 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   const acomptesParEmp = new Map<string, number>();
   for (const a of acomptesDuMois) acomptesParEmp.set(a.employeeId, (acomptesParEmp.get(a.employeeId) ?? 0) + Number(a.montantUSD));
 
-  const joursFeries = new Set(joursFeriesDuMois.map((j) => new Date(j.date).toISOString().slice(0, 10)));
-
   const codesParEmp = new Map<string, CodePresence[]>();
-  const codeParJour = new Map<string, Map<string, string>>();
   for (const a of attendances) {
     (codesParEmp.get(a.employeeId) ?? codesParEmp.set(a.employeeId, []).get(a.employeeId)!).push(a.code as CodePresence);
-    const iso = new Date(a.date).toISOString().slice(0, 10);
-    (codeParJour.get(a.employeeId) ?? codeParJour.set(a.employeeId, new Map()).get(a.employeeId)!).set(iso, a.code);
-  }
-  const heuresParEmp = new Map<string, { date: Date; heuresTravaillees: number }[]>();
-  const heureParJour = new Map<string, Map<string, number>>();
-  for (const o of overtimeEntries) {
-    (heuresParEmp.get(o.employeeId) ?? heuresParEmp.set(o.employeeId, []).get(o.employeeId)!).push({ date: new Date(o.date), heuresTravaillees: Number(o.heuresTravaillees) });
-    const iso = new Date(o.date).toISOString().slice(0, 10);
-    (heureParJour.get(o.employeeId) ?? heureParJour.set(o.employeeId, new Map()).get(o.employeeId)!).set(iso, Number(o.heuresTravaillees));
   }
 
-  // Option A — paie multi-rôles : taux horaire du rôle de chaque jour (planning).
-  const [creneauxMois, shiftsAvecTaux] = await Promise.all([
-    prisma.planningCreneau.findMany({ where: { date: { gte: debutMois, lte: finMois } }, select: { employeeId: true, date: true, shiftId: true } }),
-    prisma.shift.findMany({ select: { id: true, tauxHoraireUSD: true } }),
-  ]);
-  const tauxParShift = new Map<string, number>();
-  for (const s of shiftsAvecTaux) if (s.tauxHoraireUSD != null) tauxParShift.set(s.id, Number(s.tauxHoraireUSD));
-  const tauxRoleParJour = new Map<string, Map<string, number>>();
-  for (const c of creneauxMois) {
-    const t = tauxParShift.get(c.shiftId);
-    if (t == null) continue;
-    const iso = new Date(c.date).toISOString().slice(0, 10);
-    (tauxRoleParJour.get(c.employeeId) ?? tauxRoleParJour.set(c.employeeId, new Map()).get(c.employeeId)!).set(iso, t);
-  }
+  // Jours du mois (créneaux, modèle, codes, heures, horodatages), jours hors du mois des semaines à
+  // cheval, fériés de la plage élargie, congés sans solde, fin de contrat : même assemblage que
+  // bulletin-live.ts — la référence d'heures et la base viennent de `calculerReferenceMois`.
+  const joursParEmp = await chargerJoursMois(mois, annee, employees.map((e) => e.id));
 
   const lignes: LigneCalculee[] = [];
 
@@ -192,20 +175,6 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
 
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);
-    const heuresHebdo = Number(employee.heuresHebdomadaires) || Number(employee.heuresParJour) * 6;
-    const heuresMoisContrat = heuresHebdo * SEMAINES_PAR_MOIS;
-    const tauxDefaut = Number(employee.salaireMensuel) / heuresMoisContrat;
-    const rolesEmp = tauxRoleParJour.get(employee.id);
-    const heuresEmp = heureParJour.get(employee.id) ?? new Map<string, number>();
-    let sommeH = 0;
-    let sommeHT = 0;
-    for (const [iso, h] of heuresEmp) {
-      if (h <= 0) continue;
-      sommeH += h;
-      sommeHT += h * (rolesEmp?.get(iso) ?? tauxDefaut);
-    }
-    const salaireHoraire = sommeH > 0 ? sommeHT / sommeH : tauxDefaut;
-    const salaireJournalier = salaireHoraire * Number(employee.heuresParJour);
     // Frais médicaux : solde « saisie manuelle du mois » (employee.fraisMedicauxMoisCourant) +
     // entrées durables de la table FraisMedical (avec certificat) pour ce mois. La saisie manuelle
     // n'est remise à zéro qu'au moment où la ligne est VALIDÉE (voir appliquerTransitionPaie dans
@@ -213,43 +182,48 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
     // (bug corrigé le 2026-07-22 : le montant disparaissait silencieusement avant validation).
     const fraisMedicauxUSD = Number(employee.fraisMedicauxMoisCourant) + (fraisMedParEmp.get(employee.id) ?? 0);
 
-    const hs = calculerHeuresSupp({
-      jours: heuresParEmp.get(employee.id) ?? [],
-      heuresParJourContrat: Number(employee.heuresParJour),
-      heuresHebdoContrat: Number(employee.heuresHebdomadaires),
-      // Majorations HS sur le taux PAR DÉFAUT (inchangées) ; seule la base multi-rôles varie
-      // (Option A, ci-dessus). DÉCISION (à faire confirmer par le client, 2026-07-22) : la PRIME
-      // d'heures supp. est donc valorisée sur le taux horaire CONTRACTUEL par défaut de l'employé,
-      // pas sur le taux pondéré du rôle réellement tenu le jour concerné — cohérent avec « prime
-      // calculée sur la base contractuelle », mais à valider explicitement pour un employé
-      // multi-rôles qui ferait ses heures supp. sur un rôle mieux (ou moins bien) rémunéré que son
-      // rôle par défaut. Même décision documentée dans bulletin-live.ts.
-      salaireHoraire: tauxDefaut,
-      joursFeries,
+    const estStage = typeContrat === "STAGE";
+    // Paie sur heures planifiées (spec 2026-09-23) : brigade en CDD/CDI seulement. Tous les autres
+    // passent `referencePlanningDepuis: null` → ancienne règle, à l'identique.
+    const estBrigadePlanning = employee.categorie === "BRIGADE" && !estStage && typeContrat !== "JOURNALIER";
+    const joursCongePris = estStage ? 0 : Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
+    // `chargerJoursMois` rend une entrée pour CHAQUE id demandé : une absence serait un défaut
+    // d'assemblage, jamais un « mois vide » à payer sur l'ancienne règle en silence.
+    const joursEmp = joursParEmp.get(employee.id);
+    if (!joursEmp) throw new Error(`Jours du mois introuvables pour le salarié ${employee.id}`);
+    const ref = calculerReferenceMois({
+      annee,
+      mois,
+      // `JoursEmploye` passé EN ENTIER : sans les jours hors du mois, les fériés de la plage élargie
+      // (jamais ceux du seul mois), les congés sans solde et la fin de contrat, le plafond des
+      // semaines à cheval, les fériés d'un congé sans solde et le repli de fin de CDD seraient faux.
+      jours: joursEmp.jours,
+      joursHorsMois: joursEmp.joursHorsMois,
+      joursFeries: joursEmp.joursFeries,
+      joursCongeSansSolde: joursEmp.joursCongeSansSolde,
+      dateFinContrat: joursEmp.dateFinContrat,
+      salaireMensuel: Number(employee.salaireMensuel),
+      heuresHebdomadaires: Number(employee.heuresHebdomadaires),
+      heuresParJour: Number(employee.heuresParJour),
+      dateEmbauche: new Date(employee.dateEmbauche),
+      joursCongePris,
+      referencePlanningDepuis: estBrigadePlanning ? (parametres.referencePlanningDepuis ?? null) : null,
       params: parametres,
     });
-
-    const estStage = typeContrat === "STAGE";
-    const joursCongePris = estStage ? 0 : Math.max(codes.filter((c) => c === "C").length, joursCongeParEmp.get(employee.id) ?? 0);
-    const indemniteCongesUSD = joursCongePris * salaireJournalier;
+    const avertissementsPaie: AvertissementPaie[] = estBrigadePlanning
+      ? [
+          ...ref.avertissements,
+          ...detecterAvertissementsSaisie(joursEmp.saisie, { referencePlanning: ref.source === "PLANNING" }),
+          ...avertissementCddEchu(joursEmp.cddEchuLe),
+        ]
+      : [];
     const nombreAbsences = codes.filter((c) => c === "A" || c === "N" || c === "S").length;
-    const heuresContractuelles = Math.round(heuresMoisContrat * 100) / 100;
 
     const joursPresenceP = codes.filter((c) => c === "P").length;
     const transportUSD =
       employee.categorie === "BRIGADE"
         ? (Number(employee.transportJourCDF) * joursPresenceP) / parametres.tauxChangeCDF
         : Number(employee.transportMoisUSD);
-
-    const codesJours = codeParJour.get(employee.id) ?? new Map<string, string>();
-    const heuresJours = heureParJour.get(employee.id) ?? new Map<string, number>();
-    let joursPayesNonTravailles = 0;
-    let joursMaladie = 0;
-    for (const [iso, code] of codesJours) {
-      if ((heuresJours.get(iso) ?? 0) > 0) continue;
-      if (code === "O" || code === "A" || code === "C" || code === "F") joursPayesNonTravailles++;
-      else if (code === "M") joursMaladie++;
-    }
 
     const primesUSD = primesParEmp.get(employee.id) ?? 0;
     const acompteUSD = acomptesParEmp.get(employee.id) ?? 0;
@@ -264,12 +238,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         : employee.categorie === "BRIGADE"
         ? calculerPaieBrigade(
             {
-              salaireJournalier,
-              salaireHoraire,
-              heuresNormales: hs.heuresTotalesMois - hs.hs30 - hs.hs60 - hs.hs100,
-              joursPayesNonTravailles,
-              joursPayes2_3: joursMaladie,
-              hsValorisee: hs.hsValorisee,
+              ...ref.moteur,
               transportMoisUSD: transportUSD,
               enfants: employee.enfants,
               fraisMedicauxUSD,
@@ -301,20 +270,25 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
         // Part « jours payés non travaillés » de la rémunération 100 % (brigade uniquement :
         // back-office = salaire fixe, stage = indemnité forfaitaire).
         joursPayesNonTravailles:
-          estStage || employee.categorie !== "BRIGADE" ? 0 : joursPayesNonTravailles,
+          estStage || employee.categorie !== "BRIGADE" ? 0 : ref.affichage.joursPayesNonTravailles,
         remunerationJoursPayesUSD:
           estStage || employee.categorie !== "BRIGADE"
             ? 0
-            : Math.round(salaireJournalier * joursPayesNonTravailles * facteur * 100) / 100,
+            : Math.round(ref.affichage.montantJoursPayesNet * facteur * 100) / 100,
         remuneration2_3: ligne.remuneration2_3,
-        hsValorisee: estStage ? 0 : Math.round(hs.hsValorisee * facteur * 100) / 100,
-        heuresTravaillees: hs.heuresTotalesMois,
-        heuresContractuelles,
-        heuresSupp30: estStage ? 0 : hs.hs30,
-        heuresSupp60: estStage ? 0 : hs.hs60,
-        heuresSupp100: estStage ? 0 : hs.hs100,
+        hsValorisee: estStage ? 0 : Math.round(ref.moteur.hsValorisee * facteur * 100) / 100,
+        heuresTravaillees: ref.hs.heuresTotalesMois,
+        heuresContractuelles: ref.heuresReference,
+        sourceReference: ref.source,
+        motifReference: ref.motif,
+        heuresPayeesNonTravaillees:
+          estStage || employee.categorie !== "BRIGADE" ? 0 : ref.affichage.heuresPayeesNonTravaillees,
+        avertissementsPaie,
+        heuresSupp30: estStage ? 0 : ref.hs.hs30,
+        heuresSupp60: estStage ? 0 : ref.hs.hs60,
+        heuresSupp100: estStage ? 0 : ref.hs.hs100,
         joursCongePris,
-        indemniteCongesUSD: Math.round(indemniteCongesUSD * facteur * 100) / 100,
+        indemniteCongesUSD: Math.round(ref.affichage.indemniteCongesNet * facteur * 100) / 100,
         fraisMedicauxUSD,
         transportUSD,
         primesUSD: ligne.primesUSD,

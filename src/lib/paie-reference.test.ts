@@ -379,6 +379,49 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(baseNette(r)).toBeCloseTo((144 * 200) / 180, 10); // 160,00
   });
 
+  // ── Semaine à cheval sur le mois SUIVANT encore non planifié : la retenue est calculée sur ce mois seul ──
+  const CHEVAL = "SEMAINE_A_CHEVAL_NON_PLANIFIEE";
+  const MESSAGE_CHEVAL = "Semaine du 28/09 à cheval sur le mois suivant, encore non planifié : la retenue de la semaine est calculée sur ce mois seul.";
+  it("Rachel, S du 28 au 30/09, octobre vierge → signalé (160,00 au lieu de 184,62 si octobre était planifié)", () => {
+    const r = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", {}),
+    ]);
+    expect(baseNette(r)).toBeCloseTo((144 * 200) / 180, 10);
+    expect(r.avertissements).toEqual([{ code: CHEVAL, message: MESSAGE_CHEVAL }]);
+    expect(lireAvertissements(JSON.parse(JSON.stringify(r.avertissements)))).toEqual(r.avertissements); // relu depuis la colonne JSON
+    // Jours d'octobre absents (appel sans `joursHorsMois`) : vierges par convention, même signalement.
+    expect(rachelCheval(9, (d) => jour(d) >= 28, []).avertissements).toEqual([{ code: CHEVAL, message: MESSAGE_CHEVAL }]);
+  });
+
+  it("Rachel, S du 28 au 30/09, octobre planifié (créneaux) ou seulement codé (S) → rien à signaler", () => {
+    const planifie = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-04", { heures: planningRachel }), // créneaux posés, rien de fait encore
+    ]);
+    expect(baseNette(planifie)).toBeCloseTo((144 * 200) / 156, 10); // 184,62
+    expect(planifie.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+    const code = rachelCheval(9, (d) => jour(d) >= 28, [
+      ...joursEntre("2026-08-31", "2026-08-31", {}),
+      ...joursEntre("2026-10-01", "2026-10-01", { code: () => "S" }), // un seul code suffit : octobre est entamé
+    ]);
+    expect(code.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+  });
+
+  it("semaine S entièrement dans le mois, ou dernière semaine sans heure due → rien à signaler", () => {
+    // Rachel, semaine S du 14 au 19/09 (aucun jour hors du mois), octobre vierge.
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 19;
+    const milieu = rachelCheval(9, s, []);
+    expect(milieu.heuresReference).toBe(156);
+    expect(milieu.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+    // Martine : la semaine du 28/09 est entièrement travaillée (D_mois = 0), octobre vierge.
+    expect(calculerReferenceMois(martine()).avertissements).toEqual([]);
+    // Octobre 2026 finit un samedi : sa dernière semaine n'a que le dimanche 1er/11 hors du mois.
+    const oct = rachelCheval(10, (d) => jour(d) >= 26, []);
+    expect(oct.source).toBe("PLANNING");
+    expect(oct.avertissements.filter((a) => a.code === CHEVAL)).toEqual([]);
+  });
+
   // ── Férié dans un congé sans solde APPROUVÉ : arrive SANS code (conges-presences saute les fériés) ──
   it("semaine de congé sans solde, férié sans code mais couvert par le congé → 160,00", () => {
     const s = (d: Date) => jour(d) >= 14 && jour(d) <= 19;
@@ -436,6 +479,20 @@ describe("paie sur heures planifiées — propriétés", () => {
     expect(baseNette(r)).toBeCloseTo(160, 10);
     // Dimanche 20 sans code : cas normal, absent du message.
     expect(r.avertissements).toEqual([{ code: RECODE, message: "Congé sans solde approuvé mais sans code les 14/09, 15/09, 16/09, 17/09, 18/09, 19/09 (6 j) : traité comme sans solde" }]);
+  });
+
+  it("férié du congé codé F à la main → traité comme S (160,00), et signalé ; sans code → rien", () => {
+    const s = (d: Date) => jour(d) >= 14 && jour(d) <= 19;
+    const h = (d: Date) => (lunSam(d) && !s(d) ? 8 : 0);
+    const liste = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19"];
+    const cas = (code15: CodePresence | null) => calculerReferenceMois(type6j(
+      { heures: h, faites: h, code: (d) => (!lunSam(d) ? null : jour(d) === 15 ? code15 : s(d) ? "S" : "P") },
+      { joursFeries: new Set(["2026-09-15"]), joursCongeSansSolde: liste }));
+    const f = cas("F");
+    expect(baseNette(f)).toBeCloseTo(160, 10); // le F n'est pas payé : jamais 168,00
+    expect(f.affichage.joursPayesNonTravailles).toBe(0);
+    expect(f.avertissements).toEqual([{ code: RECODE, message: "Congé sans solde approuvé mais code F le 15/09 : traité comme sans solde" }]);
+    expect(cas(null).avertissements.filter((a) => a.code === RECODE)).toEqual([]); // férié sans code : normal
   });
 
   // ── Congé sans solde un jour férié : contrat suspendu, rien n'est dû ──

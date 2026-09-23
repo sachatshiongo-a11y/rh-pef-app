@@ -17,7 +17,8 @@ export type CodeAvertissementPaie =
   | "PRESENCE_SANS_HEURES"
   | "PLANNING_MODIFIE_APRES_HEURES"
   | "CDD_ECHU_POURSUIVI"
-  | "CONGE_SANS_SOLDE_RECODE";
+  | "CONGE_SANS_SOLDE_RECODE"
+  | "SEMAINE_A_CHEVAL_NON_PLANIFIEE";
 
 export type AvertissementPaie = { code: CodeAvertissementPaie; message: string };
 
@@ -290,20 +291,35 @@ export function calculerReferenceMois(e: EntreesReference): ResultatReference {
     avertissements.push({ code: "TAUX_ROLE_IGNORE", message: `Taux de rôle ignoré (paie sur le planning) : ${joursRole.map((j) => jjmm(j.date)).join(", ")}` });
   }
   // Jour de la liste des congés sans solde, non travaillé, sans le code S : traité comme S, signalé.
-  // Un férié ou un dimanche sans code est le cas normal (`poserCodesConge` les saute), comme un férié
-  // codé F (le code des fériés) : rien à signaler.
+  // Un férié ou un dimanche SANS code est le cas normal (`poserCodesConge` les saute) : rien à
+  // signaler. Un F, lui, se pose à la main et dit « férié payé » : le logiciel l'écarte, il le dit.
   const recodes = new Map<string, Date[]>();
   for (const j of e.jours) {
     if (!congeSansSolde.has(iso(j.date)) || j.heuresFaites > 0 || j.code === "S") continue;
     const ferie = e.joursFeries.has(iso(j.date));
     if (j.code == null && (ferie || j.date.getUTCDay() === 0)) continue;
-    if (j.code === "F" && ferie) continue;
     const libelle = j.code == null ? "sans code" : `code ${j.code}`;
     (recodes.get(libelle) ?? recodes.set(libelle, []).get(libelle)!).push(j.date);
   }
   for (const [libelle, dates] of recodes) {
     const quand = dates.length === 1 ? `le ${jjmm(dates[0])}` : `les ${dates.map(jjmm).join(", ")} (${dates.length} j)`;
     avertissements.push({ code: "CONGE_SANS_SOLDE_RECODE", message: `Congé sans solde approuvé mais ${libelle} ${quand} : traité comme sans solde` });
+  }
+  // Semaine à cheval sur le mois SUIVANT, encore vierge de l'autre côté : des heures dues puisent au
+  // plafond dans ce mois (D_mois > 0), mais aucun jour hors du mois (lun → sam) n'a ni créneau ni
+  // code. Le plafond est alors calculé sur ce mois seul (D_hors = 0, rien de planifié en face) : la
+  // retenue changerait si le mois suivant était planifié (Rachel, S du 28 au 30/09 : 160,00 au lieu
+  // de 184,62). Un jour absent de `joursHorsMois` compte comme vierge (même convention que le
+  // plafond). Un mois qui finit un samedi ou un dimanche n'a aucune semaine à cheval de ce côté.
+  const lundiFin = lundiDe(finMois);
+  const samediFinT = lundiFin.getTime() + 5 * 86_400_000;
+  if (samediFinT > finMoisT) {
+    const cle = iso(lundiFin);
+    const horsLunSam = (horsParSemaine.get(cle) ?? []).filter((j) => j.date.getUTCDay() !== 0);
+    const vierge = horsLunSam.every((j) => !j.aUnCreneau && j.code == null);
+    if (vierge && heuresDues(semaines.get(cle) ?? []) > 0) {
+      avertissements.push({ code: "SEMAINE_A_CHEVAL_NON_PLANIFIEE", message: `Semaine du ${jjmm(lundiFin)} à cheval sur le mois suivant, encore non planifié : la retenue de la semaine est calculée sur ce mois seul.` });
+    }
   }
   const seuilHs = t0 * (1 + e.params.hsMajTranche1);
   if (t > seuilHs) {

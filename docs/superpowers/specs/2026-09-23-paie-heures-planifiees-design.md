@@ -65,7 +65,11 @@ pas), un mois donné :
   C = 36 − 24 = 12 h retenues, 184,62 $ (l'ancien `H × n/6` donnait 192,00 $) ; S du 28/09 au 3/10 →
   septembre et octobre retiennent 18 h chacun (177,78 $), 36 h en tout ; S du 28 au 30/09 et octobre
   sans code → septembre retient 36 h (160,00 $). 40 h lun-ven, S le mercredi 30/09 → 190,91 $, octobre
-  planifié ou non.
+  planifié ou non. Quand la semaine à cheval sur le mois SUIVANT a des heures dues dans le mois
+  (D_mois > 0) et que ses jours hors du mois (lun → sam) n'ont encore ni créneau ni code,
+  l'avertissement `SEMAINE_A_CHEVAL_NON_PLANIFIEE` le dit (« Semaine du 28/09 à cheval sur le mois
+  suivant, encore non planifié : la retenue de la semaine est calculée sur ce mois seul. ») : Rachel,
+  S du 28 au 30/09, retient 160,00 $ au lieu de 184,62 $ si octobre avait été planifié.
 - **Congé sans solde** : le contrat est suspendu, aucun jour n'est dû, **même un férié**. Est traité
   comme S un jour non travaillé codé S, **ou tout jour non travaillé qui figure dans
   `joursCongeSansSolde`** (dates couvertes par un congé APPROUVÉ de type non payé, fériés compris,
@@ -76,7 +80,8 @@ pas), un mois donné :
   seraient payés (208,00 $ au lieu de 200,00 $ pour un S effacé). Un jour de la liste non travaillé
   dont le code n'est pas S déclenche l'avertissement `CONGE_SANS_SOLDE_RECODE` (« Congé sans solde
   approuvé mais code C le 16/09 : traité comme sans solde », « … mais sans code … ») ; les fériés et
-  dimanches sans code, et les fériés codés F, sont le cas normal et n'en déclenchent pas. Un jour de
+  dimanches SANS code sont le cas normal et n'en déclenchent pas ; un férié codé F (posé à la main,
+  « férié payé ») en déclenche un, puisque le logiciel l'écarte. Un jour de
   la liste non travaillé compte aussi comme S pour la semaine couverte (§3). Ce jour est traité
   avant la règle des fériés : ses heures dues entrent dans R (sur un créneau de travail elles y sont
   déjà, sauf un férié compté en HS planifiées) et rien n'est payé. Semaine S contenant un férié →
