@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
-import { classeurExcel } from "@/lib/export-excel";
+import { classeurExcel, colonnesDeMontant } from "@/lib/export-excel";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
 /**
@@ -67,7 +67,8 @@ export async function GET(request: Request) {
   const buf = await classeurExcel({
     titre: "Livre de paie",
     periode,
-    feuilles: [{ nom: "Paie", entete, lignes: rows }],
+    // Une ligne « Total » en bas de chaque colonne de montant (Direction, 2026-09-23).
+    feuilles: [{ nom: "Paie", entete, lignes: rows, totauxCols: colonnesDeMontant(entete) }],
   });
   return new Response(new Uint8Array(buf), {
     headers: {
