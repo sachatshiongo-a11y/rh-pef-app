@@ -17,6 +17,11 @@ import { PointageReglages } from "./pointage-reglages";
 import { ComptesEnLot } from "./comptes-lot";
 import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
+import { lireMoisEffet } from "@/lib/config";
+
+// Date d'effet de la paie sur heures planifiées : saisie ici en texte libre, relue par
+// `lireMoisEffet` (config.ts). Une valeur mal formée vaut « ancienne règle partout » : l'écran le dit.
+const CLE_MOIS_EFFET = "paie_reference_planning_depuis";
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<{ erreur?: string; msg?: string }> }) {
   const user = await verifySession();
@@ -293,13 +298,26 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
                   {p.source ? ` · ${p.source}` : ""}
                   {p.commentaire ? ` — ${p.commentaire}` : ""}
                 </p>
+                {p.cle === CLE_MOIS_EFFET && (
+                  <p className="text-xs text-muted-foreground">
+                    Format AAAAMM, ex. 202609. Vide = ancienne règle pour tous les mois.
+                  </p>
+                )}
+                {p.cle === CLE_MOIS_EFFET && p.valeur !== null && lireMoisEffet(Number(p.valeur)) === null && (
+                  <p className="text-xs text-destructive">
+                    Valeur invalide : ignorée, l&apos;ancienne règle s&apos;applique à tous les mois.
+                  </p>
+                )}
               </div>
               <input
                 name="valeur"
                 type="text"
                 inputMode="decimal"
                 defaultValue={p.valeur === null ? "" : p.valeur.toString()}
-                placeholder="vide = inconnu"
+                placeholder={p.cle === CLE_MOIS_EFFET ? "ex. 202609" : "vide = inconnu"}
+                // Le navigateur refuse l'envoi d'un AAAAMM mal formé (vide reste permis).
+                pattern={p.cle === CLE_MOIS_EFFET ? "(20[0-9]{2}|2100)(0[1-9]|1[0-2])" : undefined}
+                title={p.cle === CLE_MOIS_EFFET ? "Format AAAAMM, ex. 202609" : undefined}
                 className="w-32 rounded-md border border-input bg-background px-2 py-1 text-right"
               />
               <span className="w-16 text-xs text-muted-foreground">{p.unite}</span>

@@ -3,7 +3,8 @@ import "server-only";
 // Assemble, depuis la base, les JOURS du mois dont la paie a besoin (spec 2026-09-23 §5) :
 // `JourReference` pour `calculerReferenceMois` (paie-reference.ts) et `JourSaisie` pour
 // `detecterAvertissementsSaisie` (paie-avertissements.ts), plus la fin du contrat qui couvre le
-// mois (`dateFinContrat`). Appelé par paie-batch.ts ET bulletin-live.ts : un seul assemblage,
+// mois (`dateFinContrat`, ou `cddEchuLe` si elle est suivie de travail) et les jours de congé sans
+// solde approuvé (`joursCongeSansSolde`). Appelé par paie-batch.ts ET bulletin-live.ts : un seul assemblage,
 // sinon la fiche et la paie divergent. Une seule lecture par table pour tout l'effectif.
 import { prisma } from "@/lib/prisma";
 import { dureeShift } from "@/lib/duree-shift";
@@ -19,6 +20,15 @@ export type JoursEmploye = {
    *  postérieure au mois, ou sans contrat enregistré. À passer tel quel à `calculerReferenceMois`
    *  (`dateFinContrat`) : sans elle, le mois de fin d'un CDD n'est jamais replié sur le contrat. */
   dateFinContrat: Date | null;
+  /** Fin de contrat IGNORÉE (date PURE) : un CDD échu dans le mois mais suivi, APRÈS sa fin et dans
+   *  le mois, d'un créneau de travail, d'une présence P ou d'heures faites. Décision du contrôleur
+   *  (2026-09-23, cas Myriam Bumbakini, CDD fini le 01/09 et 25 créneaux ensuite) : un CDD poursuivi
+   *  au-delà de son terme vaut CDI de fait, le salarié fait son planning et touche son net. Dans ce
+   *  cas `dateFinContrat` vaut `null` ; l'avertissement vient de `avertissementCddEchu`. */
+  cddEchuLe: Date | null;
+  /** Dates pures "AAAA-MM-JJ" du mois couvertes par un congé APPROUVÉ de type non payé (tauxPct 0),
+   *  tous jours civils compris (dimanches, fériés). À passer tel quel à `calculerReferenceMois`. */
+  joursCongeSansSolde: string[];
 };
 
 type ShiftDuree = { heureDebut: string | null; heureFin: string | null; dureeHeures: { toString(): string } | null; systeme: boolean };
@@ -51,7 +61,7 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
   const debut = new Date(Date.UTC(annee, mois - 1, 1));
   const fin = new Date(Date.UTC(annee, mois, 0));
   const dansMois = { gte: debut, lte: fin };
-  const [creneaux, modeles, presences, heures, contrats] = await Promise.all([
+  const [creneaux, modeles, presences, heures, contrats, conges, typesConge] = await Promise.all([
     prisma.planningCreneau.findMany({
       where: { employeeId: { in: employeeIds }, date: dansMois },
       select: { employeeId: true, date: true, updatedAt: true, shift: { select: { heureDebut: true, heureFin: true, dureeHeures: true, systeme: true, tauxHoraireUSD: true } } },
@@ -63,6 +73,12 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
       where: { employeeId: { in: employeeIds }, dateDebut: { lte: fin }, OR: [{ dateFin: null }, { dateFin: { gte: debut } }] },
       select: { employeeId: true, dateFin: true },
     }),
+    prisma.leaveRequest.findMany({
+      where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateDebut: { lte: fin }, dateFin: { gte: debut } },
+      select: { employeeId: true, type: true, dateDebut: true, dateFin: true },
+    }),
+    // Lien congé → type par le NOM (pas de clé étrangère), comme `poserCodesConge`.
+    prisma.typeConge.findMany({ select: { nom: true, tauxPct: true } }),
   ]);
   // `PlanningModele.shiftId` n'a pas de relation Prisma : on lit ses shifts à part.
   const shiftsModele = new Map(
@@ -81,12 +97,28 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
   const contratsPar = new Map<string, typeof contrats>();
   for (const c of contrats) (contratsPar.get(c.employeeId) ?? contratsPar.set(c.employeeId, []).get(c.employeeId)!).push(c);
 
+  // Congé SANS SOLDE = type à `tauxPct === 0` EXACTEMENT (même règle que le code S de
+  // `poserCodesConge`). Un type à `tauxPct` null (« Autre », À VALIDER) ou introuvable ne compte PAS :
+  // un férié payé à tort se voit sur le bulletin et se corrige, un férié retenu à tort est une
+  // retenue silencieuse. Tous les jours civils du congé dans le mois, fériés et dimanches compris :
+  // `calculerReferenceMois` n'en lit que les fériés.
+  const tauxParType = new Map(typesConge.map((t) => [t.nom, t.tauxPct]));
+  const sansSoldePar = new Map<string, Set<string>>();
+  for (const l of conges) {
+    if (tauxParType.get(l.type) !== 0) continue;
+    const jours = sansSoldePar.get(l.employeeId) ?? sansSoldePar.set(l.employeeId, new Set()).get(l.employeeId)!;
+    const de = Math.max(datePure(l.dateDebut).getTime(), debut.getTime());
+    const a = Math.min(datePure(l.dateFin).getTime(), fin.getTime());
+    for (let t = de; t <= a; t += 86_400_000) jours.add(iso(new Date(t)));
+  }
+
   const nbJours = fin.getUTCDate();
   const sortie = new Map<string, JoursEmploye>();
   for (const employeeId of employeeIds) {
     const mods = modelesPar.get(employeeId) ?? [];
     const jours: JourReference[] = [];
     const saisie: JourSaisie[] = [];
+    const joursTravailles: Date[] = []; // créneau de TRAVAIL (non système), présence P ou heures faites
     for (let n = 1; n <= nbJours; n++) {
       const date = new Date(Date.UTC(annee, mois - 1, n));
       const c = creneauPar.get(cle(employeeId, date));
@@ -103,6 +135,7 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
         const s = m ? shiftsModele.get(m.shiftId) : undefined;
         heuresModele = s ? heuresTravail(s) : 0;
       }
+      if ((c != null && !c.shift.systeme) || p?.code === "P" || heuresFaites > 0) joursTravailles.push(date);
       jours.push({
         date,
         heuresPlanifiees,
@@ -123,7 +156,16 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
         creneauModifieLe: c?.updatedAt ?? null,
       });
     }
-    sortie.set(employeeId, { jours, saisie, dateFinContrat: finDeContrat(contratsPar.get(employeeId) ?? [], fin) });
+    // Fin de contrat suivie de travail dans le mois : ignorée (CDD poursuivi = CDI de fait), signalée.
+    const finContrat = finDeContrat(contratsPar.get(employeeId) ?? [], fin);
+    const poursuivi = finContrat != null && joursTravailles.some((j) => j.getTime() > finContrat.getTime());
+    sortie.set(employeeId, {
+      jours,
+      saisie,
+      dateFinContrat: poursuivi ? null : finContrat,
+      cddEchuLe: poursuivi ? finContrat : null,
+      joursCongeSansSolde: [...(sansSoldePar.get(employeeId) ?? [])].sort(),
+    });
   }
   return sortie;
 }

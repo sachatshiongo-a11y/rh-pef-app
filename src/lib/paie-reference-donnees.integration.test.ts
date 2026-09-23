@@ -34,6 +34,12 @@ let cdiId: string;
 let transformeId: string;
 let finAnterieureId: string;
 let finPosterieureId: string;
+let echu01Id: string;
+let repos29Id: string;
+let presence29Id: string;
+let heures29Id: string;
+let congesId: string;
+let ssFerieId: string;
 const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const SAMEDI_A = pariteSemaine(d("2026-09-19")); // couche du modèle posée pour le samedi 19, pas le 12
 
@@ -53,21 +59,60 @@ beforeAll(async () => {
   transformeId = await creer("TRF-PEF", "CDD Devenu CDI");
   finAnterieureId = await creer("ANT-PEF", "Renouvelé Par Avenant");
   finPosterieureId = await creer("POS-PEF", "Fin En Décembre");
+  echu01Id = await creer("E01-PEF", "CDD Échu Poursuivi"); // cas réel : Myriam Bumbakini
+  repos29Id = await creer("R29-PEF", "Repos Après La Fin");
+  presence29Id = await creer("P29-PEF", "Présente Après La Fin");
+  heures29Id = await creer("H29-PEF", "Heures Après La Fin");
+  congesId = await creer("CGS-PEF", "Congés Divers");
+  ssFerieId = await creer("SSF-PEF", "Sans Solde Sur Férié");
 
   const journee = await prisma.shift.create({ data: { nom: "Journée", heureDebut: "08:00", heureFin: "17:00" } });
   const admin = await prisma.shift.create({ data: { nom: "Admin", heureDebut: "09:30", heureFin: "13:00", dureeHeures: 3.5, tauxHoraireUSD: 4 } });
   // Shift système portant une durée (modifiable dans l'écran des shifts) : il reste 0 h de travail.
   const conge = await prisma.shift.create({ data: { nom: "Congé", systeme: true, dureeHeures: 8 } });
   const huit = await prisma.shift.create({ data: { nom: "Huit heures", heureDebut: "08:00", heureFin: "16:00" } });
+  const repos = await prisma.shift.create({ data: { nom: "Repos", systeme: true } });
   await prisma.planningCreneau.createMany({ data: [
     { employeeId: avecId, date: d("2026-09-14"), shiftId: journee.id },
     { employeeId: avecId, date: d("2026-09-15"), shiftId: conge.id },
     { employeeId: avecId, date: d("2026-09-16"), shiftId: admin.id },
   ] });
-  // Planning COMPLET de septembre (lun→sam, 8 h) pour les deux CDD : seule la date de fin les sépare.
+  // Planning COMPLET de septembre (lun→sam, 8 h) pour le CDD du 30/09 et le CDD échu le 01/09 ; celui
+  // du 28/09 s'arrête le 28 (lundi, créneau LE jour de la fin) : rien après sa fin, il se replie.
   const lunSam: Date[] = [];
   for (let n = 1; n <= 30; n++) { const j = new Date(Date.UTC(2026, 8, n)); if (j.getUTCDay() !== 0) lunSam.push(j); }
-  await prisma.planningCreneau.createMany({ data: [fin28Id, fin30Id].flatMap((employeeId) => lunSam.map((date) => ({ employeeId, date, shiftId: huit.id }))) });
+  await prisma.planningCreneau.createMany({ data: [
+    ...[fin30Id, echu01Id].flatMap((employeeId) => lunSam.map((date) => ({ employeeId, date, shiftId: huit.id }))),
+    ...lunSam.filter((date) => date.getUTCDate() <= 28).map((date) => ({ employeeId: fin28Id, date, shiftId: huit.id })),
+    // Après la fin du 28/09 : un créneau SYSTÈME seul (Repos) ne prouve aucun travail.
+    { employeeId: repos29Id, date: d("2026-09-29"), shiftId: repos.id },
+  ] });
+  // Après la fin du 28/09 : une présence P sans créneau, ou des heures faites sans rien d'autre.
+  await prisma.attendance.create({ data: { employeeId: presence29Id, date: d("2026-09-29"), code: "P" } });
+  await prisma.overtimeEntry.create({ data: { employeeId: heures29Id, date: d("2026-09-29"), heuresTravaillees: 8 } });
+
+  // Congés : lien au type par le NOM. Sans solde = tauxPct 0 exactement ; « Autre » à valider = null.
+  await prisma.typeConge.createMany({ data: [
+    { nom: "Congé sans solde", tauxPct: 0 },
+    { nom: "Congé annuel", tauxPct: 100 },
+    { nom: "Autre", tauxPct: null },
+  ] });
+  const demande = (employeeId: string, type: string, debut: string, finIso: string, statut: "APPROUVE" | "EN_ATTENTE" | "REFUSE" = "APPROUVE") =>
+    ({ employeeId, type, dateDebut: d(debut), dateFin: d(finIso), nbJours: 1, statut });
+  await prisma.leaveRequest.createMany({ data: [
+    demande(congesId, "Congé sans solde", "2026-09-14", "2026-09-19"), // couvre le férié (fictif) du 16
+    demande(congesId, "Congé annuel", "2026-09-21", "2026-09-22"),
+    demande(congesId, "Congé sans solde", "2026-09-23", "2026-09-23", "EN_ATTENTE"),
+    demande(congesId, "Congé sans solde", "2026-09-24", "2026-09-24", "REFUSE"),
+    demande(congesId, "Autre", "2026-09-25", "2026-09-25"),
+    demande(congesId, "Type Disparu", "2026-09-26", "2026-09-26"),
+    demande(congesId, "Congé sans solde", "2026-08-30", "2026-09-02"), // à cheval sur août
+    demande(ssFerieId, "Congé sans solde", "2026-09-14", "2026-09-19"),
+  ] });
+  // Bout en bout : planning complet sauf la semaine du congé sans solde, dont les jours ouvrables
+  // portent S (posé par `poserCodesConge`, qui saute le férié du 16 : il arrive SANS code).
+  await prisma.planningCreneau.createMany({ data: lunSam.filter((date) => date.getUTCDate() < 14 || date.getUTCDate() > 19).map((date) => ({ employeeId: ssFerieId, date, shiftId: huit.id })) });
+  await prisma.attendance.createMany({ data: ["14", "15", "17", "18", "19"].map((n) => ({ employeeId: ssFerieId, date: d(`2026-09-${n}`), code: "S" })) });
   await prisma.planningModele.createMany({ data: [
     { employeeId: avecId, jour: 4, semaine: 0, shiftId: journee.id }, // jeudi, chaque semaine
     { employeeId: avecId, jour: 6, semaine: SAMEDI_A, shiftId: journee.id }, // samedi, une semaine sur deux
@@ -89,6 +134,8 @@ beforeAll(async () => {
     { ...contrat, employeeId: finAnterieureId, type: "CDD", dateDebut: d("2026-03-01"), dateFin: d("2026-08-31"), statut: "EXPIRE" },
     { ...contrat, employeeId: finAnterieureId, type: "CDD", dateDebut: d("2026-09-01"), dateFin: d("2026-09-20") },
     { ...contrat, employeeId: finPosterieureId, type: "CDD", dateDebut: d("2026-03-01"), dateFin: d("2026-12-31") },
+    { ...contrat, employeeId: echu01Id, type: "CDD", dateDebut: d("2026-03-01"), dateFin: d("2026-09-01") },
+    ...[repos29Id, presence29Id, heures29Id].map((employeeId) => ({ ...contrat, employeeId, type: "CDD" as const, dateDebut: d("2026-03-01"), dateFin: d("2026-09-28") })),
   ] });
 }, 120_000);
 afterAll(async () => { await fermer?.(); });
@@ -154,7 +201,7 @@ describe("chargerJoursMois — fin du contrat qui couvre le mois", () => {
     const m = await chargerJoursMois(9, 2026, [fin28Id, fin30Id]);
     const reference = (id: string) => calculerReferenceMois({
       annee: 2026, mois: 9, jours: m.get(id)!.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
-      dateEmbauche: d("2025-01-06"), dateFinContrat: m.get(id)!.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: [],
+      dateEmbauche: d("2025-01-06"), dateFinContrat: m.get(id)!.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: m.get(id)!.joursCongeSansSolde,
       referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
     });
     const r28 = reference(fin28Id);
@@ -163,5 +210,78 @@ describe("chargerJoursMois — fin du contrat qui couvre le mois", () => {
     const r30 = reference(fin30Id);
     expect(r30.source).toBe("PLANNING");
     expect(r30.motif).toBeNull();
+  });
+});
+
+describe("chargerJoursMois — CDD échu mais poursuivi (décision du contrôleur)", () => {
+  it("fin le 01/09 puis créneaux de travail : fin ignorée, cddEchuLe = 01/09", async () => {
+    const e = (await chargerJoursMois(9, 2026, [echu01Id])).get(echu01Id)!;
+    expect(e.dateFinContrat).toBeNull();
+    expect(e.cddEchuLe?.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("fin le 28/09 sans rien après (créneau le 28 lui-même) : inchangé", async () => {
+    const e = (await chargerJoursMois(9, 2026, [fin28Id])).get(fin28Id)!;
+    expect(e.dateFinContrat?.toISOString()).toBe("2026-09-28T00:00:00.000Z");
+    expect(e.cddEchuLe).toBeNull();
+  });
+
+  it("fin le 28/09 et seulement un créneau SYSTÈME (Repos) après : inchangé", async () => {
+    const e = (await chargerJoursMois(9, 2026, [repos29Id])).get(repos29Id)!;
+    expect(e.dateFinContrat?.toISOString()).toBe("2026-09-28T00:00:00.000Z");
+    expect(e.cddEchuLe).toBeNull();
+  });
+
+  it("fin le 28/09 et une présence P le 29 sans créneau, ou des heures le 29 : fin ignorée", async () => {
+    const m = await chargerJoursMois(9, 2026, [presence29Id, heures29Id]);
+    for (const id of [presence29Id, heures29Id]) {
+      expect(m.get(id)!.dateFinContrat).toBeNull();
+      expect(m.get(id)!.cddEchuLe?.toISOString()).toBe("2026-09-28T00:00:00.000Z");
+    }
+  });
+
+  it("bout en bout : le CDD échu le 01/09 et poursuivi est payé sur son planning, sans motif de fin", async () => {
+    const params = await chargerParametresPaie();
+    const e = (await chargerJoursMois(9, 2026, [echu01Id])).get(echu01Id)!;
+    const r = calculerReferenceMois({
+      annee: 2026, mois: 9, jours: e.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
+      dateEmbauche: d("2025-01-06"), dateFinContrat: e.dateFinContrat, joursFeries: new Set(), joursCongePris: 0, joursCongeSansSolde: e.joursCongeSansSolde,
+      referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
+    });
+    expect(r.source).toBe("PLANNING");
+    expect(r.motif).toBeNull();
+  });
+});
+
+describe("chargerJoursMois — jours de congé sans solde approuvé", () => {
+  it("seul un congé APPROUVÉ à tauxPct 0 compte, tous jours civils du mois, férié compris", async () => {
+    const liste = (await chargerJoursMois(9, 2026, [congesId])).get(congesId)!.joursCongeSansSolde;
+    expect(liste).toEqual([
+      "2026-09-01", "2026-09-02", // congé à cheval sur août : seuls les jours de septembre
+      "2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19",
+    ]);
+    // Rien pour : congé annuel (21-22), EN_ATTENTE (23), REFUSÉE (24), « Autre » à tauxPct null (25),
+    // type introuvable (26).
+    expect((await chargerJoursMois(9, 2026, [sansId])).get(sansId)!.joursCongeSansSolde).toEqual([]);
+  });
+
+  it("le même congé à cheval, lu en août : seuls les jours d'août (dimanche 30 compris)", async () => {
+    expect((await chargerJoursMois(8, 2026, [congesId])).get(congesId)!.joursCongeSansSolde).toEqual(["2026-08-30", "2026-08-31"]);
+  });
+
+  it("bout en bout : un férié pris dans un congé sans solde n'est pas payé ; sans la liste, il le serait", async () => {
+    const params = await chargerParametresPaie();
+    const e = (await chargerJoursMois(9, 2026, [ssFerieId])).get(ssFerieId)!;
+    expect(e.joursCongeSansSolde).toContain("2026-09-16");
+    const reference = (joursCongeSansSolde: string[]) => calculerReferenceMois({
+      annee: 2026, mois: 9, jours: e.jours, salaireMensuel: 300, heuresHebdomadaires: 48, heuresParJour: 8,
+      dateEmbauche: d("2025-01-06"), dateFinContrat: e.dateFinContrat, joursFeries: new Set(["2026-09-16"]), joursCongePris: 0, joursCongeSansSolde,
+      referencePlanningDepuis: params.referencePlanningDepuis ?? null, params,
+    });
+    const avec = reference(e.joursCongeSansSolde);
+    expect(avec.source).toBe("PLANNING");
+    expect(avec.affichage.heuresPayeesNonTravaillees).toBe(0);
+    // Témoin : sans la liste, le férié du 16 serait payé au forfait (8 h).
+    expect(reference([]).affichage.heuresPayeesNonTravaillees).toBe(8);
   });
 });

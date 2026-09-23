@@ -35,6 +35,15 @@ describe("paramètre paie_reference_planning_depuis", () => {
     await prisma.parametreLegal.create({ data: { exerciceId, cle: "paie_reference_planning_depuis", valeur: 202609, unite: "AAAAMM", libelle: "test" } });
     expect((await chargerParametresPaie()).referencePlanningDepuis).toBe(202609);
   });
+  it("mal formé (« 9 », « 202613 ») → null, ancienne règle partout", async () => {
+    // « 9 » ferait sinon passer juin et juillet (lignes PAS_VALIDE) sur la nouvelle règle.
+    for (const valeur of [9, 202613]) {
+      await prisma.parametreLegal.update({ where: { exerciceId_cle: { exerciceId, cle: "paie_reference_planning_depuis" } }, data: { valeur } });
+      expect((await chargerParametresPaie()).referencePlanningDepuis).toBeNull();
+    }
+    await prisma.parametreLegal.update({ where: { exerciceId_cle: { exerciceId, cle: "paie_reference_planning_depuis" } }, data: { valeur: 202609 } });
+    expect((await chargerParametresPaie()).referencePlanningDepuis).toBe(202609);
+  });
   it("le seed de test sait le poser", async () => {
     const db2 = await creerBaseTest();
     try {

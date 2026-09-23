@@ -44,8 +44,21 @@ export function detecterAvertissementsSaisie(jours: JourSaisie[], opts: { refere
   return sortie;
 }
 
+/**
+ * CDD échu mais poursuivi (décision du contrôleur, 2026-09-23) : l'assemblage (`chargerJoursMois`)
+ * ignore une fin de contrat suivie de travail dans le mois et rend sa date dans `cddEchuLe`. La
+ * paie se calcule alors comme pour un CDI de fait ; cet avertissement dit à la Direction qu'aucun
+ * renouvellement n'est enregistré. Rien si `cddEchuLe` est `null`.
+ */
+export function avertissementCddEchu(cddEchuLe: Date | null): AvertissementPaie[] {
+  if (cddEchuLe == null) return [];
+  const date = `${jjmm(cddEchuLe)}/${cddEchuLe.getUTCFullYear()}`;
+  return [{ code: "CDD_ECHU_POURSUIVI", message: `CDD échu le ${date} sans renouvellement enregistré : le salarié a continué à travailler.` }];
+}
+
 const CODES: ReadonlySet<string> = new Set<AvertissementPaie["code"]>([
   "REPLI_CONTRAT", "TAUX_ROLE_IGNORE", "TAUX_MOIS_SUPERIEUR_HS", "SAISIE_ANTICIPEE", "PRESENCE_SANS_CRENEAU", "PRESENCE_SANS_HEURES", "PLANNING_MODIFIE_APRES_HEURES",
+  "CDD_ECHU_POURSUIVI",
 ]);
 
 /** Relit la colonne JSON `PayrollLine.avertissementsPaie` : ne garde que les entrées bien formées

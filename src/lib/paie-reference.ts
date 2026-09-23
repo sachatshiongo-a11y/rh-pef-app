@@ -15,7 +15,8 @@ export type CodeAvertissementPaie =
   | "SAISIE_ANTICIPEE"
   | "PRESENCE_SANS_CRENEAU"
   | "PRESENCE_SANS_HEURES"
-  | "PLANNING_MODIFIE_APRES_HEURES";
+  | "PLANNING_MODIFIE_APRES_HEURES"
+  | "CDD_ECHU_POURSUIVI";
 
 export type AvertissementPaie = { code: CodeAvertissementPaie; message: string };
 

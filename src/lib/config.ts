@@ -4,6 +4,22 @@ import { prisma } from "@/lib/prisma";
 import type { ParametresPaie } from "@/lib/payroll";
 
 /**
+ * Mois d'effet AAAAMM (`paie_reference_planning_depuis`), saisi en texte libre dans Paramètres.
+ * N'accepte qu'un ENTIER AAAAMM avec 2000 ≤ AAAA ≤ 2100 et 1 ≤ MM ≤ 12 ; tout le reste (décimal,
+ * « 9 », « 202613 », « 202600 », NaN, vide) vaut `null`, c'est-à-dire l'ancienne règle partout.
+ * La comparaison `annee*100+mois >= depuis` de `calculerReferenceMois` ferait sinon passer TOUS
+ * les mois (« 9 ») ou aucun avant 2027 (« 202613 ») sans que personne ne le voie. Pure.
+ */
+export function lireMoisEffet(v: number | null | undefined): number | null {
+  if (v == null || !Number.isInteger(v)) return null;
+  const annee = Math.floor(v / 100);
+  const mois = v % 100;
+  if (annee < 2000 || annee > 2100) return null;
+  if (mois < 1 || mois > 12) return null;
+  return v;
+}
+
+/**
  * Charge l'ensemble des paramètres de paie :
  * — opérationnels (taux de change, mois/année courants) depuis Config ;
  * — légaux (CNSS, IPR, INPP, ONEM, HS...) depuis ParametreLegal de l'exercice fiscal actif,
@@ -84,8 +100,9 @@ export async function chargerParametresPaie(): Promise<ParametresPaie> {
     // (jamais `requis()`, qui lèverait une erreur bloquant toute la paie sur les bases n'ayant pas
     // encore ce paramètre seedé).
     salairesSaisisEnNet: optionnel("salaires_saisis_en_net") === 1,
-    // Date d'effet de la paie sur heures planifiées (AAAAMM). Absente ou vide = ancienne règle :
-    // `optionnel`, jamais `requis`, pour ne bloquer aucune base pas encore migrée.
-    referencePlanningDepuis: optionnel("paie_reference_planning_depuis"),
+    // Date d'effet de la paie sur heures planifiées (AAAAMM). Absente, vide ou MAL FORMÉE = ancienne
+    // règle : `optionnel`, jamais `requis`, pour ne bloquer aucune base pas encore migrée ; et
+    // `lireMoisEffet`, parce qu'une saisie libre de « 9 » ferait passer juin et juillet en planning.
+    referencePlanningDepuis: lireMoisEffet(optionnel("paie_reference_planning_depuis")),
   };
 }

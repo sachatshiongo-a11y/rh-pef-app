@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detecterAvertissementsSaisie, lireAvertissements, type JourSaisie } from "./paie-avertissements";
+import { avertissementCddEchu, detecterAvertissementsSaisie, lireAvertissements, type JourSaisie } from "./paie-avertissements";
 
 const j = (iso: string, e: Partial<JourSaisie> = {}): JourSaisie => ({
   date: new Date(`${iso}T00:00:00Z`), code: "P", codeSaisiLe: new Date(`${iso}T18:00:00Z`), heuresFaites: 8,
@@ -63,5 +63,19 @@ describe("lireAvertissements", () => {
     expect(lireAvertissements([ok, okPresenceSansHeures, { code: "INCONNU", message: "?" }, { code: "SAISIE_ANTICIPEE" }, null, 3])).toEqual([ok, okPresenceSansHeures]);
     expect(lireAvertissements(null)).toEqual([]);
     expect(lireAvertissements({})).toEqual([]);
+  });
+});
+
+describe("avertissementCddEchu", () => {
+  it("CDD échu le 01/09 et poursuivi (Myriam Bumbakini) → message daté, relu par lireAvertissements", () => {
+    const a = avertissementCddEchu(new Date("2026-09-01T00:00:00Z"));
+    expect(a).toEqual([
+      { code: "CDD_ECHU_POURSUIVI", message: "CDD échu le 01/09/2026 sans renouvellement enregistré : le salarié a continué à travailler." },
+    ]);
+    // La colonne JSON le relit : un code absent de CODES disparaîtrait de l'écran sans bruit.
+    expect(lireAvertissements(a)).toEqual(a);
+  });
+  it("pas de fin ignorée → aucun avertissement", () => {
+    expect(avertissementCddEchu(null)).toEqual([]);
   });
 });
