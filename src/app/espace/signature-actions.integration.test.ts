@@ -49,7 +49,7 @@ const P = vi.hoisted(() => ({ enPanne: false }));
 vi.mock("@/lib/pdf/contrat-buffer", () => ({
   genererContratPdf: async () => {
     if (P.enPanne) throw new Error("rendu PDF en panne");
-    return { buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x" };
+    return { buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x", figeable: true };
   },
 }));
 vi.mock("@/lib/notifications", () => ({
@@ -316,7 +316,7 @@ describe("signer un contrat depuis l'espace vaut acceptation", () => {
     expect(sig).not.toBeNull();
     expect(contrat.accepteLe, "contrat signé sans acceptation").not.toBeNull();
     expect(contrat.accepteLe!.getTime(), "l'acceptation n'est pas l'instant de la signature").toBe(sig!.signeLe.getTime());
-    expect(contrat.pdfAccepteUrl, "l'exemplaire qui fait foi n'a pas été figé").toBe(`/fichiers/contrats/${contratActifId}.pdf`);
+    expect(contrat.pdfAccepteUrl, "l'exemplaire qui fait foi n'a pas été figé").toBe(`/fichiers/contrats/${contratActifId}-${sig!.signeLe.getTime()}.pdf`);
     expect(contrat.pdfAccepteObsolete).toBe(false);
     expect(N.direction.map((n) => n.message)).toEqual(["Salarié A a signé son contrat (CDI)."]);
     expect(N.direction[0].lien).toBe(`/employes/${empId}?tab=contrats`);

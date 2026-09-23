@@ -28,7 +28,7 @@ export async function signerDocument(params: ParamsSignature): Promise<void> {
   const { signeLe } = await enregistrerSignature(prisma, params);
 
   if (params.cible === "CONTRAT") {
-    await figerExemplaireSigne(params.cibleId);
+    await figerExemplaireSigne(params.cibleId, signeLe);
   }
 
   if (params.mode === "ESPACE_SALARIE") {
@@ -44,13 +44,28 @@ export async function signerDocument(params: ParamsSignature): Promise<void> {
  *
  * `ignorerFige` : la transaction vient de retirer l'ancien exemplaire, mais on ne s'en remet pas à
  * cet ordre pour ne jamais recopier un PDF sans tracé.
+ *
+ * Trois refus, tous silencieux pour le salarié (la signature et l'acceptation sont déjà écrites) :
+ *  - le tracé n'a pas pu être relu du stockage (`figeable` faux) : on ne fige pas un PDF muet, que
+ *    `contrat-buffer` servirait ensuite pour toujours ; `pdfAccepteUrl` reste null et le contrat
+ *    est régénéré — avec le tracé — à chaque lecture ;
+ *  - une signature PLUS RÉCENTE est passée entre-temps (re-signature pendant un figeage lent) :
+ *    l'écriture est conditionnée à `accepteLe` = l'instant de CETTE signature, elle ne touche alors
+ *    rien, et l'exemplaire de la re-signature n'est jamais écrasé ;
+ *  - pour la même raison, chaque figeage a SON fichier (chemin horodaté) : le stockage écrit en
+ *    upsert, un chemin fixe laisserait le PDF lent remplacer le récent sous la même URL.
  */
-async function figerExemplaireSigne(contratId: string): Promise<void> {
+// Exportée pour le test de course (un figeage lent qui arrive après une re-signature) ; seul
+// `signerDocument` l'appelle en production.
+export async function figerExemplaireSigne(contratId: string, signeLe: Date): Promise<void> {
   try {
     const pdf = await genererContratPdf(contratId, { ignorerFige: true });
-    if (!pdf) return;
-    const url = await televerserFichier(`contrats/${contratId}.pdf`, pdf.buffer, "application/pdf");
-    await prisma.contrat.update({ where: { id: contratId }, data: { pdfAccepteUrl: url, pdfAccepteObsolete: false } });
+    if (!pdf || !pdf.figeable) return;
+    const url = await televerserFichier(`contrats/${contratId}-${signeLe.getTime()}.pdf`, pdf.buffer, "application/pdf");
+    await prisma.contrat.updateMany({
+      where: { id: contratId, accepteLe: signeLe },
+      data: { pdfAccepteUrl: url, pdfAccepteObsolete: false },
+    });
   } catch {
     // Le figeage ne doit jamais bloquer l'acceptation : à défaut, le contrat reste généré à la
     // volée (avec le tracé), et la Direction peut toujours « Figer l'exemplaire » depuis la fiche.

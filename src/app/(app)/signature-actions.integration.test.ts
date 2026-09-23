@@ -27,7 +27,7 @@ const N = vi.hoisted(() => ({ direction: [] as string[] }));
 vi.mock("@/lib/storage", () => ({ televerserFichier: async () => S.traceUrl }));
 // Le rendu du PDF est couvert par `lib/pdf/contrat-signature.integration.test.ts`.
 vi.mock("@/lib/pdf/contrat-buffer", () => ({
-  genererContratPdf: async () => ({ buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x" }),
+  genererContratPdf: async () => ({ buffer: Buffer.from("%PDF-FIGE"), nomFichier: "c.pdf", employeeId: "x", figeable: true }),
 }));
 vi.mock("@/lib/notifications", () => ({
   creerNotification: async (n: { message: string }) => { N.direction.push(n.message); },

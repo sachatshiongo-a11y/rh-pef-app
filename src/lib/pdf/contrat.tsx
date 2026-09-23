@@ -5,7 +5,7 @@ import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRI
 import { pdfColors, entreprise as entrepriseDefaut } from "./theme";
 import { listeEnProse } from "@/lib/texte";
 import { formaterNombre } from "@/lib/montant";
-import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { dateHeureKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 type ImageSrc = string | { data: Buffer; format: "png" | "jpg" };
 
@@ -47,7 +47,6 @@ const styles = StyleSheet.create({
 
 const fr = (d: Date | string | null | undefined) =>
   d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).replace(/^1 /, "1er ") : "—";
-const frDT = (d: Date | string) => new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) + " à " + new Date(d).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
 const TYPE_LABEL: Record<string, string> = {
   CDI: "à durée indéterminée (CDI)", CDD: "à durée déterminée (CDD)",
@@ -227,7 +226,8 @@ export function ContratDocument({ employee, contrat, params, salaireEstNet, sala
                 était là) : dès qu'elle existe, cette ligne historique s'efface, sinon un contrat
                 repris par la migration écrivait trois fois le même fait. Sans signature, elle
                 reste le seul témoin des contrats acceptés d'un clic avant ce lot. */}
-            {accepteLe && !signatureSalarie?.mention && <Text style={styles.accepte}>Accepté numériquement le {frDT(accepteLe)}</Text>}
+            {/* Un INSTANT : heure de Kinshasa, même format que la mention de signature. */}
+            {accepteLe && !signatureSalarie?.mention && <Text style={styles.accepte}>Accepté numériquement le {dateHeureKinshasa(accepteLe)}</Text>}
             {signatureSalarie?.mention && <Text style={styles.mentionSign}>{signatureSalarie.mention}</Text>}
           </View>
         </View>

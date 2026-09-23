@@ -16,7 +16,18 @@ import { chargerSignature, signatureImprimable } from "@/lib/signature";
 export async function genererContratPdf(
   contratId: string,
   opts?: { ignorerFige?: boolean },
-): Promise<{ buffer: Buffer; nomFichier: string; employeeId: string } | null> {
+): Promise<{
+  buffer: Buffer;
+  nomFichier: string;
+  employeeId: string;
+  /**
+   * Ce PDF peut-il devenir l'exemplaire qui FAIT FOI ? Non quand le contrat porte une signature
+   * tracée À JOUR mais que le tracé n'a pas pu être lu (`lireFichier` renvoie null en silence si le
+   * stockage flanche) : figé, ce PDF sans paraphe serait servi pour toujours comme l'exemplaire
+   * signé. Mieux vaut ne rien figer — la régénération, elle, retentera la lecture à chaque fois.
+   */
+  figeable: boolean;
+} | null> {
   const contrat = await prisma.contrat.findUnique({ where: { id: contratId }, include: { employee: true } });
   if (!contrat) return null;
 
@@ -37,13 +48,19 @@ export async function genererContratPdf(
   //    exemplaire figé, s'il existe, date d'un clic antérieur et serait muet), ou une signature
   //    OBSOLÈTE — le salarié invité à resigner doit lire les conditions ACTUELLES, avec la mention
   //    « à resigner », et non l'exemplaire de la version qu'il avait signée.
+  //
+  // Sans aucune signature, l'exemplaire figé par la Direction ne fait foi que tant que les
+  // conditions n'ont pas été corrigées depuis (`pdfAccepteObsolete`) : sinon le salarié lirait
+  // l'ancien contrat (300 $) et signerait le nouveau (450 $) — la signature porte sur les données
+  // ACTUELLES (`instantaneContrat`), le document montré doit être le même.
   const figeFaitFoi =
-    !vue ||
-    vue.traceUrl === null ||
-    (!vue.obsolete && contrat.accepteLe !== null && contrat.accepteLe.getTime() === vue.signeLe.getTime());
+    vue === null
+      ? !contrat.pdfAccepteObsolete
+      : vue.traceUrl === null ||
+        (!vue.obsolete && contrat.accepteLe !== null && contrat.accepteLe.getTime() === vue.signeLe.getTime());
   if (contrat.pdfAccepteUrl && !opts?.ignorerFige && figeFaitFoi) {
     const fige = await lireFichier(contrat.pdfAccepteUrl);
-    if (fige) return { buffer: fige, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
+    if (fige) return { buffer: fige, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId, figeable: true };
   }
 
   // `image` n'est non nul que si la signature est à jour ET porte un tracé (`traceAAfficher`).
@@ -85,5 +102,11 @@ export async function genererContratPdf(
   const buffer = await renderPdfBuffer(
     ContratDocument({ employee: contrat.employee, contrat, params, salaireEstNet, salaireBrut, accepteLe: contrat.accepteLe, faitLe, fonctions: fiche?.descriptionPoste ?? null, entreprise: ent.entreprise, logo: ent.logo, signature: ent.signature, signatureSalarie }),
   );
-  return { buffer, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId };
+  const traceAttendu = !!vue && vue.traceUrl !== null && !vue.obsolete;
+  return {
+    buffer,
+    nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`,
+    employeeId: contrat.employeeId,
+    figeable: !traceAttendu || !!signatureSalarie?.image,
+  };
 }

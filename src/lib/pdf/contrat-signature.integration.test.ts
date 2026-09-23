@@ -25,12 +25,18 @@ vi.mock("@/lib/prisma", () => ({
 // de suite (et `pdf-parse` ne saurait pas le lire — c'est précisément ce qu'on veut détecter).
 const FIGE = Buffer.from("%PDF-EXEMPLAIRE-FIGE");
 const TRACE = pngMinuscule();
+// `traceIllisible` : le stockage flanche à la lecture du tracé (`lireFichier` renvoie null en
+// silence, comme le vrai). `televerses` retient chaque dépôt de fichier.
+const ST = vi.hoisted(() => ({ traceIllisible: false, televerses: [] as string[] }));
 vi.mock("@/lib/storage", () => ({
-  lireFichier: async (chemin: string) => (chemin.includes("signatures/") ? TRACE : FIGE),
-  televerserFichier: async (chemin: string) => `/fichiers/${chemin}`,
+  lireFichier: async (chemin: string) =>
+    chemin.includes("signatures/") ? (ST.traceIllisible ? null : TRACE) : FIGE,
+  televerserFichier: async (chemin: string) => { ST.televerses.push(chemin); return `/fichiers/${chemin}`; },
 }));
+vi.mock("@/lib/notifications", () => ({ creerNotification: async () => {} }));
 
 const { genererContratPdf } = await import("./contrat-buffer");
+const { signerDocument, figerExemplaireSigne } = await import("@/lib/signer-document");
 const { enregistrerSignature } = await import("@/lib/signature");
 
 /** Un vrai PNG 2×2, décodable par @react-pdf/renderer (un en-tête suivi de zéros le ferait planter). */
@@ -234,6 +240,90 @@ describe("« Fait à Kinshasa, le … » : la date de la signature, à l'heure d
     const c = await creerContrat();
     const t = await texteDu((await genererContratPdf(c.id))!.buffer);
     expect(t).toContain(`Fait à Kinshasa, le ${aujourdhui()}`);
+  }, 90_000);
+});
+
+describe("jamais montrer un contrat et en faire signer un autre", () => {
+  it("figé par la Direction, JAMAIS signé, puis salaire corrigé → les conditions actuelles, pas l'ancien exemplaire", async () => {
+    // Exactement le scénario du relecteur : figé à 300 $, corrigé à 450 $. La signature porterait
+    // sur 450 $ (`instantaneContrat` relit les données) : le salarié doit lire 450 $.
+    const c = await creerContrat();
+    await prisma.contrat.update({ where: { id: c.id }, data: { pdfAccepteUrl: `/fichiers/contrats/${c.id}.pdf` } });
+    await prisma.contrat.update({ where: { id: c.id }, data: { salaireMensuel: 450, pdfAccepteObsolete: true } });
+
+    const pdf = await genererContratPdf(c.id);
+    expect(pdf!.buffer.equals(FIGE), "l'exemplaire à 300 $ est servi alors que la signature porterait sur 450 $").toBe(false);
+    expect(await texteDu(pdf!.buffer)).toContain("450");
+  }, 90_000);
+});
+
+describe("figeage après signature : jamais un exemplaire muet, jamais un exemplaire périmé", () => {
+  const params = (contratId: string) => ({
+    cible: "CONTRAT" as const, cibleId: contratId, employeeId: empId,
+    traceUrl: `/fichiers/signatures/contrat/${contratId}-${Math.random()}.png`,
+    mode: "ESPACE_SALARIE" as const, presenteParId: null,
+  });
+  const relire = (id: string) => prisma.contrat.findUniqueOrThrow({ where: { id } });
+
+  it("tracé lisible → l'exemplaire est figé à un chemin propre à CETTE signature, et c'est lui qui est servi", async () => {
+    const c = await creerContrat();
+    await signerDocument(params(c.id));
+
+    const relu = await relire(c.id);
+    expect(relu.pdfAccepteUrl).toBe(`/fichiers/contrats/${c.id}-${relu.accepteLe!.getTime()}.pdf`);
+    expect((await genererContratPdf(c.id))!.buffer.equals(FIGE)).toBe(true);
+  }, 90_000);
+
+  it("tracé ILLISIBLE pendant le figeage → rien n'est figé ; le contrat reste régénéré, avec le tracé une fois relu", async () => {
+    const c = await creerContrat();
+    ST.traceIllisible = true;
+    try {
+      await signerDocument(params(c.id));
+    } finally {
+      ST.traceIllisible = false;
+    }
+
+    const relu = await relire(c.id);
+    expect(relu.accepteLe, "la panne a défait l'acceptation").not.toBeNull();
+    expect(relu.pdfAccepteUrl, "un exemplaire SANS tracé a été figé : il serait servi pour toujours").toBeNull();
+    const pdf = await genererContratPdf(c.id);
+    expect(pdf!.buffer.equals(FIGE)).toBe(false);
+    expect(await texteDu(pdf!.buffer)).toContain("Signé électroniquement par Claire Signature");
+  }, 90_000);
+
+  it("un figeage LENT de la 1re signature, arrivé après la re-signature, n'écrase rien", async () => {
+    const c = await creerContrat();
+    await signerDocument(params(c.id));
+    const premiere = (await relire(c.id)).accepteLe!;
+
+    // Le contrat est corrigé, la signature devient obsolète, le salarié re-signe.
+    await prisma.contrat.update({ where: { id: c.id }, data: { salaireMensuel: 410 } });
+    await genererContratPdf(c.id); // la lecture constate l'obsolescence
+    await new Promise((r) => setTimeout(r, 5));
+    await signerDocument(params(c.id));
+    const apresReSignature = await relire(c.id);
+    expect(apresReSignature.accepteLe!.getTime()).toBeGreaterThan(premiere.getTime());
+
+    // ...et seulement maintenant le figeage de la PREMIÈRE signature aboutit.
+    ST.televerses.length = 0;
+    await figerExemplaireSigne(c.id, premiere);
+
+    const final = await relire(c.id);
+    expect(final.pdfAccepteUrl, "le figeage périmé a remplacé l'exemplaire de la re-signature").toBe(apresReSignature.pdfAccepteUrl);
+    expect(
+      `/fichiers/${ST.televerses[0]}`,
+      "le figeage périmé a écrit au MÊME chemin que l'exemplaire en vigueur : il en a écrasé le contenu",
+    ).not.toBe(apresReSignature.pdfAccepteUrl);
+  }, 120_000);
+});
+
+describe("« Accepté numériquement le … » : un instant, à l'heure de Kinshasa", () => {
+  it("une acceptation à 00 h 30 à Kinshasa (23 h 30 UTC la veille) s'imprime au bon jour et à la bonne heure", async () => {
+    const c = await creerContrat();
+    await prisma.contrat.update({ where: { id: c.id }, data: { accepteLe: new Date("2026-03-31T23:30:00.000Z") } });
+
+    const t = await texteDu((await genererContratPdf(c.id))!.buffer);
+    expect(t, "l'acceptation est imprimée à l'heure du serveur (UTC)").toContain("Accepté numériquement le 01/04/2026 à 00 h 30");
   }, 90_000);
 });
 

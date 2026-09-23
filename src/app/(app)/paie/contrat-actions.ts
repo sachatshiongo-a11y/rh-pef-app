@@ -154,6 +154,9 @@ export async function figerContrat(id: string) {
   // ignorerFige : on régénère depuis les données courantes (sinon on recopierait l'ancien exemplaire).
   const pdf = await genererContratPdf(id, { ignorerFige: true });
   if (!pdf) return;
+  // Contrat signé dont le tracé n'a pas pu être relu : figer ce PDF sans paraphe le servirait pour
+  // toujours comme l'exemplaire signé. On refuse, la Direction réessaiera.
+  if (!pdf.figeable) throw new Error("Le tracé de la signature est momentanément illisible : l'exemplaire n'a pas été figé. Réessayez.");
   const url = await televerserFichier(`contrats/${id}.pdf`, pdf.buffer, "application/pdf");
   await prisma.contrat.update({ where: { id }, data: { pdfAccepteUrl: url, pdfAccepteObsolete: false } });
   await journaliser(prisma, {
