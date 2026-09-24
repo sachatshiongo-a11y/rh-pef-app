@@ -1,8 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useState, useTransition } from "react";
 import { creerBonCommande, modifierBonCommande } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
+import { lireSaisieNombre } from "@/lib/nombre";
+
+/** Texte de ligne → valeur de case (« 12.500 » reçu du serveur → 12,5 affiché). */
+const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
+/**
+ * Valeur de case → texte de ligne : écriture à POINT (« 2.5 »), celle que produisait l'ancien
+ * champ number. Les montants (`Number(l.quantite) * Number(l.prix)`) et ce qui part au serveur
+ * (champs cachés ligne_quantite / ligne_prix) sont donc inchangés, virgule tapée ou non.
+ */
+const texteDe = (v: number | null) => (v === null ? "" : String(v));
 
 type Art = { id: string; designation: string; prix: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
@@ -32,6 +44,8 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
   };
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const ajouterLigne = useCallback(() => setLignes((ls) => [...ls, vide()]), []);
+  const { racine, onEntreeDerniereLigne } = useLigneSuivante(lignes.length, ajouterLigne);
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
     maj(i, { articleId, designation: a ? a.designation : "", prix: a?.prix ?? "", uniteParCarton: a?.uniteParCarton ?? "" });
@@ -59,7 +73,9 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
       </div>
 
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
-        <table className="w-full min-w-[48rem] text-sm">
+        {/* Tableur : Entrée descend (et ajoute une ligne en bas) sans envoyer le bon ; Tab reste celui
+            du navigateur, pour passer aussi par l'article et la désignation. */}
+        <table ref={racine} data-tableur="" data-tableur-tab="natif" className="w-full min-w-[48rem] text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-2 py-2">Article (catalogue)</th>
@@ -82,7 +98,11 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                   <input type="hidden" name="ligne_uniteParCarton" value={l.uniteParCarton} />
                 </td>
                 <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full`} placeholder="Désignation" /></td>
-                <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
+                <td className="px-2 py-1">
+                  <input type="hidden" name="ligne_quantite" value={l.quantite} />
+                  <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} className={`${inp} w-24 text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
+                </td>
                 <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
                   {(() => {
                     const upc = Number(l.uniteParCarton) || 0, q = Number(l.quantite) || 0;
@@ -92,16 +112,15 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                   })()}
                 </td>
                 <td className="px-2 py-1">
-                  <input
-                    name="ligne_prix"
-                    value={l.prix}
-                    onChange={(e) => maj(i, { prix: e.target.value })}
+                  <input type="hidden" name="ligne_prix" value={l.prix} />
+                  <CelluleNombre
+                    ligne={String(i)} col={1} valeur={nombreOuNull(l.prix)} onEnregistrer={(v) => maj(i, { prix: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne}
                     readOnly={!!l.articleId}
                     title={l.articleId ? "Prix fixé au catalogue (modifiable dans l'onglet Catalogue)" : "Prix libre"}
-                    type="number"
-                    step="0.0001"
-                    min="0"
+                    min={0}
                     className={`${inp} w-24 text-right ${l.articleId ? "bg-muted/50 text-muted-foreground" : ""}`}
+                    aria-label={`Prix unitaire, ligne ${i + 1}`}
                   />
                 </td>
                 <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
@@ -112,7 +131,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" onClick={() => setLignes((ls) => [...ls, vide()])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
+        <button type="button" onClick={ajouterLigne} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
         <div className="text-right">
           <span className="text-sm text-muted-foreground">Total : </span>
           <span className="text-lg font-semibold">{total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</span>

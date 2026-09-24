@@ -18,17 +18,18 @@ const TABLEURS: Record<string, string> = {
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": "Stock → Catalogue (stock min., prix, unités/carton)",
   "src/app/(app)/presences/temps-grid.tsx": "Présences & heures (heures par employé, vue mobile ; menu et actions groupées)",
   "src/app/(app)/planning/besoins-manager.tsx": "Planning → Effectifs requis (poste × jour, par shift)",
+  // Formulaires à lignes passés au comportement « Excel » (décision de la Direction, 2026-09-24).
+  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": "Stock → Nouveau bon de commande (quantité, prix des lignes)",
+  "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": "Stock → Nouvelle facture (quantité, prix des lignes)",
 };
 
 /**
- * Tableaux de FORMULAIRE, hors périmètre : on y saisit des lignes puis on envoie le tout avec un
- * bouton (lignes d'un bon de commande, d'une facture, d'une fiche technique ; un formulaire par
- * type de congé). Pas d'enregistrement case par case. À trancher avec la Direction ; tant qu'ils
- * sont ici, ils gardent leurs champs `type=number`.
+ * Tableaux de FORMULAIRE restés hors périmètre (décision de la Direction du 2026-09-24 : seuls
+ * le bon de commande et la facture passent au comportement « Excel ») : lignes d'une fiche
+ * technique ; un formulaire par type de congé. Tant qu'ils sont ici, ils gardent leurs champs
+ * `type=number`.
  */
 const FORMULAIRES_HORS_PERIMETRE: Record<string, string> = {
-  "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": "lignes d'un nouveau bon de commande",
-  "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": "lignes d'une nouvelle facture",
   "src/app/(stock)/stock/fiches/[id]/editer-fiche.tsx": "lignes d'une fiche technique",
   "src/app/(app)/parametres/types-conges-admin.tsx": "un formulaire « Enregistrer » par type de congé",
 };

@@ -54,7 +54,14 @@ type Props = Regles & {
   /** Valeur connue du serveur. Si elle change, la case l'adopte (sauf pendant une frappe dans la case). */
   valeur: number | null;
   onEnregistrer: Enregistreur;
+  /**
+   * Entrée sur la DERNIÈRE ligne de la grille (formulaires à lignes : bon de commande, facture) :
+   * appelé après validation de la case, pour ajouter une ligne comme Excel. Sans lui, on reste.
+   */
+  onEntreeDerniereLigne?: (cle: { ligne: string; col: number }) => void;
   disabled?: boolean;
+  /** Case lisible mais non modifiable (ex. prix fixé au catalogue) : sautée par la navigation. */
+  readOnly?: boolean;
   className?: string;
   placeholder?: string;
   name?: string;
@@ -100,6 +107,14 @@ function positionDe(cases: HTMLInputElement[][], el: HTMLInputElement): Position
   return null;
 }
 
+function estSurDerniereLigne(el: HTMLInputElement): boolean {
+  const racine = racineDe(el);
+  if (!racine) return false;
+  const { cases } = lireGrille(racine);
+  const p = positionDe(cases, el);
+  return p !== null && p.l === cases.length - 1;
+}
+
 function voisine(el: HTMLInputElement, vers: Deplacement): HTMLInputElement | null {
   const racine = racineDe(el);
   if (!racine) return null;
@@ -111,8 +126,8 @@ function voisine(el: HTMLInputElement, vers: Deplacement): HTMLInputElement | nu
 
 // ── La case ─────────────────────────────────────────────────────────────────
 export const CelluleNombre = memo(function CelluleNombre({
-  ligne, col, valeur, onEnregistrer, min, max, entier,
-  disabled, className, placeholder, name, title, "aria-label": ariaLabel,
+  ligne, col, valeur, onEnregistrer, onEntreeDerniereLigne, min, max, entier,
+  disabled, readOnly, className, placeholder, name, title, "aria-label": ariaLabel,
 }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   /** Dernière valeur tenue pour enregistrée (serveur, ou envoi réussi / en cours). */
@@ -266,8 +281,9 @@ export const CelluleNombre = memo(function CelluleNombre({
     if (it.auBord === "rester") {
       e.preventDefault(); // Entrée n'envoie jamais le formulaire englobant
       if (e.key === "Enter") {
-        validerOuRetablir(el, "sortie");
-        el.select();
+        validerOuRetablir(el, "sortie"); // saisie lisible ici : l'illisible a été retenu plus haut
+        if (!e.shiftKey && onEntreeDerniereLigne && estSurDerniereLigne(el)) onEntreeDerniereLigne({ ligne, col });
+        else el.select();
       }
     }
     // Tab au bout de la grille : le navigateur passe au champ suivant ; la sortie enregistre.
@@ -301,6 +317,7 @@ export const CelluleNombre = memo(function CelluleNombre({
       name={name}
       defaultValue={ecrireSaisieNombre(valeur)}
       disabled={disabled}
+      readOnly={readOnly}
       placeholder={placeholder}
       aria-label={ariaLabel}
       aria-invalid={signale || undefined}
