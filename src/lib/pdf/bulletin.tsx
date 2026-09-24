@@ -5,7 +5,7 @@ import { PdfHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
-import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
+import { salaireDeBaseUSD, salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 
@@ -323,8 +323,16 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
 
   // Base imposable/cotisable = brut SANS le transport (exonéré d'IPR et non cotisable). C'est sur
   // ce montant que CNSS/IPR/INPP/ONEM sont calculés ; l'afficher évite de laisser croire que le
-  // transport entre dans l'assiette imposable (2026-07-22).
+  // transport entre dans l'assiette imposable (2026-07-22). Depuis le 2026-09-24, le moteur arrondit
+  // chaque gain au centime et le brut en est la somme exacte : cette différence est donc, au
+  // centime, la somme des gains hors transport imprimés au-dessus.
   const baseImposable = Number(ligne.salBrutUSD) - Number(ligne.transportUSD);
+  // Salaire de base imprimé : voir `salaireDeBaseUSD` (lignes back-office antérieures au 2026-09-24).
+  const salaireBaseLigne = salaireDeBaseUSD(ligne, employee.categorie);
+  // Back-office : salaire mensuel fixe, pas payé aux heures. Ni base en heures ni taux sur la ligne
+  // (« 0 h × taux = 192,63 $ » serait une multiplication fausse) ; le taux horaire reste dans la case
+  // récapitulative.
+  const estBrigade = employee.categorie === "BRIGADE";
 
   const nbJours = new Date(Date.UTC(run.annee, run.mois, 0)).getUTCDate();
   const joursCal = Array.from({ length: nbJours }, (_, i) => {
@@ -410,7 +418,12 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
               />
             </>
           ) : (
-            <Row designation="Salaire de base" base={`${fmtQte(heuresNormales)} h`} taux={m(tauxHoraire)} montant={m(Number(ligne.remuneration100))} />
+            <Row
+              designation="Salaire de base"
+              base={estBrigade ? `${fmtQte(heuresNormales)} h` : undefined}
+              taux={estBrigade ? m(tauxHoraire) : undefined}
+              montant={m(salaireBaseLigne)}
+            />
           )}
           {Number(ligne.remuneration2_3) > 0 && (
             <Row designation="Indemnité maladie (2/3)" montant={m(Number(ligne.remuneration2_3))} />

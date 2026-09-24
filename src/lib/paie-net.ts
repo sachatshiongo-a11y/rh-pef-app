@@ -36,3 +36,27 @@ export function salaireNetCDF(l: LigneNet, tauxChangeCDF: number): number {
 export function totalVerseUSD(l: LigneNet): number {
   return n(l.salNetUSD);
 }
+
+/** Gains d'une ligne, tels que stockés (ou tels que le moteur les rend). */
+export type LigneGains = LigneNet & {
+  remuneration100: Montant;
+  remuneration2_3: Montant;
+  hsValorisee: Montant;
+  primesUSD: Montant;
+  salBrutUSD: Montant;
+};
+
+/**
+ * Salaire de base (part à 100 %) à AFFICHER. Depuis le 2026-09-24, le moteur le porte pour tous
+ * (`remuneration100`, au centime). Avant, une ligne BACK-OFFICE stockait 0 et le bulletin imprimait
+ * « Salaire de base 0,00 $ » sous un brut imposable positif. Pour ces lignes figées (jamais
+ * réécrites), la base affichée est ce que le brut contient d'autre que le transport, les primes,
+ * les heures supplémentaires et l'indemnité maladie — les lignes du bulletin s'additionnent alors
+ * au brut stocké. Une ligne brigade garde toujours son montant stocké.
+ */
+export function salaireDeBaseUSD(l: LigneGains, categorie: string): number {
+  const r100 = n(l.remuneration100);
+  if (categorie === "BRIGADE" || r100 !== 0) return r100;
+  const reste = n(l.salBrutUSD) - n(l.transportUSD) - n(l.primesUSD) - n(l.hsValorisee) - n(l.remuneration2_3);
+  return Math.round(reste * 100) / 100;
+}

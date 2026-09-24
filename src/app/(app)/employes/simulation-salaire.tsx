@@ -131,9 +131,9 @@ export function SimulationSalaire({
   }
 
   const chargesPatronales = ligne.cnssPatronalUSD + ligne.inppUSD + ligne.onemUSD;
-  // `LignePaie` (moteur) ne porte pas `transportUSD` : on le reconstitue avec la valeur locale
-  // déjà calculée ci-dessus pour dériver le salaire net (hors transport) et le total versé.
-  const ligneNet: LigneNet = { salNetUSD: ligne.salNetUSD, transportUSD };
+  // Le transport tel que le moteur l'a compté dans le brut (au centime) : le salaire net (hors
+  // transport) et le brut imposable se dérivent de montants qui s'additionnent.
+  const ligneNet: LigneNet = { salNetUSD: ligne.salNetUSD, transportUSD: ligne.transportUSD };
 
   return (
     <Panneau titre="Simulation du bulletin (mois type)">
@@ -147,9 +147,9 @@ export function SimulationSalaire({
         </p>
       )}
       <dl className="space-y-1 text-sm tabular-nums">
-        <Ligne label="Salaire brut imposable (hors transport)" val={usd(ligne.salBrutUSD - transportUSD)} gras />
-        {transportUSD > 0 && (
-          <Ligne label="Frais de transport (non imposable)" val={`+ ${usd(transportUSD)}`} />
+        <Ligne label="Salaire brut imposable (hors transport)" val={usd(ligne.salBrutUSD - ligne.transportUSD)} gras />
+        {ligne.transportUSD > 0 && (
+          <Ligne label="Frais de transport (non imposable)" val={`+ ${usd(ligne.transportUSD)}`} />
         )}
         {ligne.cnssSalarieUSD > 0 && <Ligne label="CNSS salarié" val={`− ${usd(ligne.cnssSalarieUSD)}`} rouge />}
         {ligne.iprCalculeUSD > 0 && <Ligne label="IPR (impôt)" val={`− ${usd(ligne.iprCalculeUSD)}`} rouge />}

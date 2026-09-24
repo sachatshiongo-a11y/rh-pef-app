@@ -15,7 +15,7 @@ import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { chargerParametresPaie } from "@/lib/config";
-import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { salaireDeBaseUSD, salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 import { lireAvertissements } from "@/lib/paie-avertissements";
 import { BadgeReference } from "./avertissements-paie";
 import { messageConfirmationValidation } from "./avertissements-validation";
@@ -84,7 +84,8 @@ export default async function PaiePage({
         totalVerseUSD: totalVerseUSD(l),
         statutPaiement: l.statutPaiement,
         modePaiementDefaut: modeDefaut(l.employee),
-        baseUSD: Number(l.remuneration100) + Number(l.remuneration2_3),
+        // Lignes back-office antérieures au 2026-09-24 : base 0 stockée → voir salaireDeBaseUSD.
+        baseUSD: salaireDeBaseUSD(l, l.employee.categorie) + Number(l.remuneration2_3),
         hsUSD: Number(l.hsValorisee),
         transportUSD: Number(l.transportUSD),
         primesUSD: Number(l.primesUSD),
@@ -137,7 +138,7 @@ export default async function PaiePage({
         employeeId: l.employeeId,
         nom: l.employee.nom,
         photoUrl: l.employee.photoUrl,
-        base: Number(l.remuneration100) + Number(l.remuneration2_3),
+        base: salaireDeBaseUSD(l, l.employee.categorie) + Number(l.remuneration2_3),
         hs: Number(l.hsValorisee),
         transport: Number(l.transportUSD),
         primes: Number(l.primesUSD),

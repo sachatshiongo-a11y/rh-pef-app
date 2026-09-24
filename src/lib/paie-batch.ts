@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerEcheancePret } from "@/lib/prets";
 import {
+  auCentime,
   calculerJoursOuvrables,
   calculerPaieBackoffice,
   calculerPaieBrigade,
@@ -251,9 +252,10 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
         remunerationJoursPayesUSD:
           estStage || employee.categorie !== "BRIGADE"
             ? 0
-            : Math.round(ref.affichage.montantJoursPayesNet * facteur * 100) / 100,
+            : auCentime(ref.affichage.montantJoursPayesNet * facteur),
         remuneration2_3: ligne.remuneration2_3,
-        hsValorisee: estStage ? 0 : Math.round(ref.moteur.hsValorisee * facteur * 100) / 100,
+        // Prime HS telle que le moteur l'a mise dans le brut (déjà au centime, 0 pour un stage).
+        hsValorisee: ligne.hsValorisee,
         heuresTravaillees: ref.hs.heuresTotalesMois,
         heuresContractuelles: ref.heuresReference,
         sourceReference: ref.source,
@@ -265,9 +267,11 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
         heuresSupp60: estStage ? 0 : ref.hs.hs60,
         heuresSupp100: estStage ? 0 : ref.hs.hs100,
         joursCongePris,
-        indemniteCongesUSD: Math.round(ref.affichage.indemniteCongesNet * facteur * 100) / 100,
-        fraisMedicauxUSD,
-        transportUSD,
+        indemniteCongesUSD: auCentime(ref.affichage.indemniteCongesNet * facteur),
+        // Montants tels que le moteur les a comptés, au centime (jamais la valeur non arrondie
+        // d'entrée : la base les arrondirait à part et le bulletin ne s'additionnerait plus).
+        fraisMedicauxUSD: ligne.fraisMedicauxUSD,
+        transportUSD: ligne.transportUSD,
         primesUSD: ligne.primesUSD,
         // Recopie brute, hors de toute formule : `ligne` (le moteur) ne le voit même pas.
         avantagesNatureUSD: avantagesParEmp.get(employee.id) ?? 0,

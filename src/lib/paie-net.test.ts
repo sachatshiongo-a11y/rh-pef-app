@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "./paie-net";
+import { salaireDeBaseUSD, salaireNetUSD, salaireNetCDF, totalVerseUSD } from "./paie-net";
 
 // Ligne RÉELLE de la paie de septembre 2026 (Aimée Mutita) : 368,50 versés dont 114,78 de transport.
 const aimee = { salNetUSD: 368.5, transportUSD: 114.78 };
@@ -63,5 +63,22 @@ describe("règle : hors moteur, personne ne lit salNetUSD sans passer par paie-n
     };
     parcourir(path.join(process.cwd(), "src"));
     expect(fautifs, "importer salaireNetUSD/totalVerseUSD de @/lib/paie-net").toEqual([]);
+  });
+});
+
+describe("salaireDeBaseUSD — le salaire de base imprimé s'additionne au brut", () => {
+  // Ligne RÉELLE figée de septembre 2026 (Gode, back-office) : remuneration100 = 0 stocké avant le
+  // 2026-09-24, brut 192,63 $ sans transport. Le bulletin imprimait « Salaire de base 0,00 $ ».
+  const gode = { remuneration100: "0.00", remuneration2_3: "0.00", hsValorisee: "0.00", primesUSD: "0.00", transportUSD: "0.00", salBrutUSD: "192.63", salNetUSD: "164.00" };
+  it("back-office figé (base 0 stockée) : base = brut − transport − primes − HS − maladie", () => {
+    expect(salaireDeBaseUSD(gode, "BACKOFFICE")).toBe(192.63);
+    expect(salaireDeBaseUSD({ ...gode, transportUSD: "25.00", salBrutUSD: "52.23", primesUSD: "0.00" }, "BACKOFFICE")).toBe(27.23);
+  });
+  it("back-office recalculé (base portée par le moteur) : montant stocké", () => {
+    expect(salaireDeBaseUSD({ ...gode, remuneration100: "192.63" }, "BACKOFFICE")).toBe(192.63);
+  });
+  it("brigade : toujours le montant stocké, jamais une différence", () => {
+    expect(salaireDeBaseUSD({ ...gode, remuneration100: "0.00", salBrutUSD: "50.00" }, "BRIGADE")).toBe(0);
+    expect(salaireDeBaseUSD({ ...gode, remuneration100: "174.88", salBrutUSD: "310.53", transportUSD: "135.65" }, "BRIGADE")).toBe(174.88);
   });
 });

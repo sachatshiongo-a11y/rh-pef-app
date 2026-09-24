@@ -28,8 +28,8 @@ export type ApercuBulletin = {
   avantagesNature: { nature: string; montantUSD: number }[];
   acompteUSD: number;
   tauxChangeCDF: number;
-  // Indemnité de transport du mois, incluse dans `ligne.salNetUSD` mais non isolée par le moteur
-  // (LignePaie) — exposée ici pour dériver le salaire net hors transport (@/lib/paie-net).
+  // Indemnité de transport du mois, incluse dans `ligne.salNetUSD` — la valeur du moteur
+  // (`ligne.transportUSD`, au centime), pour dériver le salaire net hors transport (@/lib/paie-net).
   transportUSD: number;
   // Référence d'heures du mois (spec 2026-09-23) : la MÊME que la ligne de paie du lot
   // (`heuresContractuelles`, `sourceReference`, `motifReference`, `avertissementsPaie`).
@@ -180,7 +180,8 @@ export async function calculerBulletinLive(
     avantagesNature: avantagesDuMois.map((a) => ({ nature: a.nature, montantUSD: Number(a.montantUSD) })),
     acompteUSD,
     tauxChangeCDF: parametres.tauxChangeCDF,
-    transportUSD,
+    // Le transport tel que le moteur l'a compté dans le brut, au centime.
+    transportUSD: ligne.transportUSD,
     reference: {
       source: ref.source,
       motif: ref.motif,

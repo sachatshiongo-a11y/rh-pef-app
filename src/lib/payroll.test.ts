@@ -13,6 +13,8 @@ import {
   tauxPrimeAnciennete,
   resumerPresences,
   reconstituerBrutDepuisNet,
+  reconstitutionNetAuCentime,
+  auCentime,
   type ParametresPaie,
 } from "./payroll";
 
@@ -111,7 +113,9 @@ describe("calculerPaieBrigade — chaîne complète paramétrée", () => {
 
     // IPR : 4 860 + (568 100 − 162 000) × 15% = 65 775 FC, réduction 1 pers. −2% → 64 459,5 FC
     const iprAttenduCDF = (4860 + (568_100 - 162_000) * 0.15) * 0.98;
-    expect(r.iprCalculeUSD).toBeCloseTo(iprAttenduCDF / 2300, 4);
+    // Argent au centime à la source (2026-09-24) : 64 459,5 FC ÷ 2 300 = 28,0259 $ → 28,03 $.
+    expect(iprAttenduCDF / 2300).toBeCloseTo(28.0259, 4);
+    expect(r.iprCalculeUSD).toBe(28.03);
 
     // Charges patronales : CNSS 13% = 33,8 $ ; INPP 3% = 7,8 $ ; ONEM 0,2% = 0,52 $
     expect(r.cnssPatronalUSD).toBeCloseTo(260 * 0.13, 6);
@@ -430,6 +434,33 @@ describe("reconstituerBrutDepuisNet — inversion net→brut (salaires saisis en
     }
   });
 
+  it("salaire net affiché = net promis AU CENTIME, transport compris (arrondis stockés à 2 décimales)", () => {
+    // Constat production 2026-09-24 : Myriam (200 $ nets, transport 260 000 FC) affichait 200,01 $.
+    // La base stocke total versé et transport ARRONDIS séparément ; le salaire net affiché est leur
+    // différence. Une dichotomie arrêtée à 0,005 $ de brut laissait jusqu'à ~0,4 centime de trop,
+    // qui basculait l'arrondi du total versé. Le net promis doit tomber juste au centime.
+    const c2 = (x: number) => Math.round(x * 100) / 100;
+    const transportsCDF = [0, 115_000, 130_000, 182_000, 208_000, 260_000];
+    let ecarts = 0;
+    for (const net of [150, 156, 200, 250, 300, 350, 400]) {
+      for (const enfants of [0, 1, 2]) {
+        for (const tcdf of transportsCDF) {
+          const transportUSD = tcdf / params.tauxChangeCDF;
+          const r = calculerPaieBackoffice({ salaireBaseUSD: net, transportUSD, enfants }, paramsNet);
+          const affiche = c2(c2(r.salNetUSD) - c2(transportUSD)) - enfants * params.allocFamilialeParEnfantUSD;
+          if (c2(affiche) !== net) ecarts++;
+        }
+      }
+    }
+    expect(ecarts).toBe(0);
+    // Brigade (paie aux heures, t = S/R) : même exigence, cas Myriam (156 h, 260 000 FC).
+    const b = calculerPaieBrigade({
+      salaireJournalier: 0, salaireHoraire: 200 / 156, heuresNormales: 156, joursPayesNonTravailles: 0,
+      joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: 260_000 / params.tauxChangeCDF, enfants: 0,
+    }, paramsNet);
+    expect(c2(c2(b.salNetUSD) - c2(260_000 / params.tauxChangeCDF))).toBe(200);
+  });
+
   it("round-trip tenu même avec plafond CNSS défini", () => {
     const avecPlafond: ParametresPaie = { ...paramsNet, plafondCnssMensuelCDF: 230_000 }; // = 100 $
     const r = calculerPaieBackoffice({ salaireBaseUSD: 300, transportUSD: 0, enfants: 0 }, avecPlafond);
@@ -459,8 +490,10 @@ describe("reconstituerBrutDepuisNet — inversion net→brut (salaires saisis en
     const avecHS = calculerPaieBrigade({ ...base, hsValorisee: 20 }, paramsNet);
     const netBaseCible = 1.25 * 208; // 260 $
     const rho = reconstituerBrutDepuisNet(netBaseCible, paramsNet, 0) / netBaseCible;
-    // Seule la part HS diffère entre les deux : 20 × ρ dans le brut.
-    expect(avecHS.salBrutUSD - sansHS.salBrutUSD).toBeCloseTo(20 * rho, 4);
+    // Seule la part HS diffère entre les deux : 20 × ρ dans le brut, arrondi au centime (2026-09-24 :
+    // la prime HS grossie est un montant d'argent, arrondi au moment où il est produit).
+    expect(avecHS.hsValorisee).toBe(Math.round(20 * rho * 100) / 100);
+    expect(avecHS.salBrutUSD - sansHS.salBrutUSD).toBeCloseTo(avecHS.hsValorisee, 6);
   });
 
   it("STAGE : aucune reconstitution (net = brut, sans cotisations) même flag actif", () => {
@@ -469,5 +502,144 @@ describe("reconstituerBrutDepuisNet — inversion net→brut (salaires saisis en
     expect(r.salNetUSD).toBeCloseTo(150, 6);
     expect(r.cnssSalarieUSD).toBe(0);
     expect(r.iprCalculeUSD).toBe(0);
+  });
+});
+
+describe("argent au centime, à la source (2026-09-24) — les lignes du bulletin s'additionnent", () => {
+  const paramsNet: ParametresPaie = { ...params, salairesSaisisEnNet: true };
+  // Ce que la base stocke : chaque montant à 2 décimales (numeric(12,2)), en centimes entiers ici
+  // pour comparer sans bruit flottant.
+  const ct = (x: number) => Math.round(x * 100);
+  const transportsCDF = [0, 115_000, 130_000, 182_000, 208_000, 260_000];
+
+  it("auCentime : demi-centime loin de zéro, sans bruit binaire (comme numeric(12,2))", () => {
+    expect(auCentime(1.005)).toBe(1.01);
+    expect(auCentime(174.8849)).toBe(174.88);
+    expect(auCentime(135.65217)).toBe(135.65);
+    expect(auCentime(-1.005)).toBe(-1.01);
+    expect(auCentime(0.1 + 0.2)).toBe(0.3);
+    expect(Object.is(auCentime(-0.001), 0)).toBe(true);
+  });
+
+  type Cas = { nom: string; ligne: ReturnType<typeof calculerPaieBrigade>; netPromis: number | null; netBase: number | null };
+
+  /** Balayage : nets 50 → 1 200 $, 0 à 3 enfants, transports réels, brigade et back-office. */
+  function balayage(): Cas[] {
+    const cas: Cas[] = [];
+    const nets = [150, 156, 200, 156.37];
+    for (let n = 50; n <= 1200; n += 23) nets.push(n);
+    for (const net of nets) {
+      for (const enfants of [0, 1, 2, 3]) {
+        for (const tcdf of transportsCDF) {
+          const transportUSD = tcdf / params.tauxChangeCDF;
+          const R = 156 + (net % 3) * 26; // 156, 182 ou 208 h
+          const t = net / R; // taux horaire (paie aux heures, t = S/R)
+          const j = t * 8; // salaire journalier
+          const brig = (e: Partial<Parameters<typeof calculerPaieBrigade>[0]>) =>
+            calculerPaieBrigade({ salaireJournalier: j, salaireHoraire: t, heuresNormales: R, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: transportUSD, enfants, ...e }, paramsNet);
+          const k = `${net} $ / ${enfants} enf. / ${tcdf} FC`;
+          cas.push({ nom: `back-office ${k}`, ligne: calculerPaieBackoffice({ salaireBaseUSD: net, transportUSD, enfants }, paramsNet), netPromis: net, netBase: net });
+          cas.push({ nom: `brigade complet ${k}`, ligne: brig({}), netPromis: net, netBase: net });
+          // Jours payés non travaillés (congés, fériés, repos) : payés à 100 %, le net promis tient.
+          cas.push({ nom: `brigade 3 j payés non travaillés ${k}`, ligne: brig({ heuresNormales: R - 24, joursPayesNonTravailles: 3 }), netPromis: net, netBase: net });
+          // Maladie aux 2/3 : 2 jours → net de base = (R − 16) × t + 2 × j × 2/3.
+          for (const m of [1, 2, 3, 5]) {
+            cas.push({ nom: `brigade maladie ${m} j ${k}`, ligne: brig({ heuresNormales: R - 8 * m, joursPayes2_3: m }), netPromis: null, netBase: (R - 8 * m) * t + m * j * (2 / 3) });
+          }
+          cas.push({ nom: `brigade HS ${k}`, ligne: brig({ hsValorisee: t * 7.5 }), netPromis: null, netBase: null });
+          cas.push({ nom: `brigade prime/acompte/prêt/frais ${k}`, ligne: brig({ primesUSD: 25, acompteUSD: 40, retenuePretUSD: 12.5, fraisMedicauxUSD: 7.3 }), netPromis: null, netBase: net });
+        }
+      }
+    }
+    return cas;
+  }
+
+  it("propriétés sur ~11 000 cas : brut = Σ gains, net = brut − retenues + allocations, coût = brut + charges, net promis exact", () => {
+    const fautes: string[] = [];
+    let nb = 0;
+    for (const { nom, ligne: l, netPromis, netBase } of balayage()) {
+      nb++;
+      // Chaque montant est déjà au centime : la base le stocke tel quel.
+      for (const [k, v] of Object.entries(l)) {
+        if (k !== "facteurReconstitution" && typeof v === "number" && Math.abs(v * 100 - Math.round(v * 100)) > 1e-6) fautes.push(`${nom} : ${k} = ${v} n'est pas au centime`);
+      }
+      const gains = ct(l.remuneration100) + ct(l.remuneration2_3) + ct(l.hsValorisee) + ct(l.transportUSD) + ct(l.primesUSD);
+      if (ct(l.salBrutUSD) !== gains) fautes.push(`${nom} : brut ${l.salBrutUSD} ≠ Σ gains ${gains / 100}`);
+      const net = ct(l.salBrutUSD) - ct(l.cnssSalarieUSD) - ct(l.iprCalculeUSD) + ct(l.allocFamilialeUSD) + ct(l.fraisMedicauxUSD) - ct(l.acompteUSD) - ct(l.retenuePretUSD);
+      if (ct(l.salNetUSD) !== net) fautes.push(`${nom} : net ${l.salNetUSD} ≠ ${net / 100}`);
+      if (ct(l.netImposableUSD) !== ct(l.salBrutUSD) - ct(l.transportUSD) - ct(l.cnssSalarieUSD)) fautes.push(`${nom} : base IPR`);
+      const cout = ct(l.salBrutUSD) + ct(l.cnssPatronalUSD) + ct(l.inppUSD) + ct(l.onemUSD);
+      if (ct(l.coutEmployeurUSD) !== cout) fautes.push(`${nom} : coût employeur`);
+      // Net de base (hors transport, allocation, frais médicaux, acompte, prêt ET primes : les
+      // primes ne sont pas grossies, leur part nette dépend de l'IPR) = cible au centime.
+      if (netBase !== null && l.primesUSD === 0) {
+        const netBaseObtenu = ct(l.salNetUSD) - ct(l.transportUSD) - ct(l.allocFamilialeUSD) - ct(l.fraisMedicauxUSD) + ct(l.acompteUSD) + ct(l.retenuePretUSD);
+        if (netBaseObtenu !== ct(netBase)) fautes.push(`${nom} : net de base ${netBaseObtenu / 100} ≠ ${auCentime(netBase)}`);
+      }
+      // Répartition sur G : r100 + r2_3 = G exactement (G = brut de base reconstitué, au centime).
+      if (netBase !== null && l.remuneration2_3 > 0) {
+        const enf = Number(nom.split(" / ")[1].split(" ")[0]);
+        const G = reconstituerBrutDepuisNet(auCentime(netBase), paramsNet, enf);
+        if (ct(l.remuneration100) + ct(l.remuneration2_3) !== ct(G)) fautes.push(`${nom} : r100 + r2_3 = ${(ct(l.remuneration100) + ct(l.remuneration2_3)) / 100} ≠ G ${G}`);
+      }
+      if (netPromis !== null) {
+        const horsTransportAlloc = ct(l.salNetUSD) - ct(l.transportUSD) - ct(l.allocFamilialeUSD);
+        if (horsTransportAlloc !== ct(netPromis)) fautes.push(`${nom} : net hors transport/alloc ${horsTransportAlloc / 100} ≠ ${netPromis}`);
+      }
+    }
+    expect(nb).toBeGreaterThan(10_000);
+    expect(fautes.slice(0, 10)).toEqual([]);
+  });
+
+  it("maladie aux 2/3 : r100 + r2_3 = G au centime, et le net de base tombe sur la cible", () => {
+    const t = 200 / 208, j = t * 8;
+    const l = calculerPaieBrigade({ salaireJournalier: j, salaireHoraire: t, heuresNormales: 192, joursPayesNonTravailles: 0, joursPayes2_3: 2, hsValorisee: 0, transportMoisUSD: 0, enfants: 1 }, paramsNet);
+    const cible = auCentime(192 * t + 2 * j * (2 / 3));
+    const G = reconstituerBrutDepuisNet(cible, paramsNet, 1);
+    expect(ct(l.remuneration100) + ct(l.remuneration2_3)).toBe(ct(G));
+    expect(ct(l.salNetUSD) - ct(l.allocFamilialeUSD)).toBe(ct(cible));
+  });
+
+  it("reconstitution : G est un nombre entier de centimes et le net obtenu est EXACTEMENT la cible", () => {
+    for (const net of [50, 150, 151.5, 200, 287.15, 999.99, 1200]) {
+      for (const enfants of [0, 1, 3]) {
+        const r = reconstitutionNetAuCentime(net, paramsNet, enfants);
+        expect(Math.abs(r.brutUSD * 100 - Math.round(r.brutUSD * 100))).toBeLessThan(1e-9);
+        expect(r.exact).toBe(true);
+        expect(ct(r.netObtenuUSD)).toBe(ct(net));
+        // Et c'est le PLUS PETIT G : le back-office de brut G − 1 centime (flag OFF) paie moins.
+        const moins = calculerPaieBackoffice({ salaireBaseUSD: r.brutUSD - 0.01, transportUSD: 0, enfants }, params);
+        expect(ct(moins.salNetUSD) - ct(moins.allocFamilialeUSD)).toBeLessThan(ct(net));
+      }
+    }
+  });
+
+  it("cas Deladri (sept. 2026) : 150 $ nets, 1 enfant, 208 h, 12 000 FC × 26 j = 312 000 FC de transport", () => {
+    const transport = (12_000 * 26) / params.tauxChangeCDF; // 135,652… $
+    const l = calculerPaieBrigade({ salaireJournalier: (150 / 208) * 8, salaireHoraire: 150 / 208, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: transport, enfants: 1 }, paramsNet);
+    expect(l.transportUSD).toBe(135.65);
+    // Brut imposable affiché (brut − transport) = salaire de base affiché, au centime.
+    expect(ct(l.salBrutUSD) - ct(l.transportUSD)).toBe(ct(l.remuneration100));
+    expect(l.remuneration100).toBe(174.88);
+    expect(l.salBrutUSD).toBe(310.53); // 174,88 + 135,65 (l'ancien moteur stockait 310,54)
+    // Salaire net (hors transport) 151,50 $ = 150 $ promis + 1,50 $ d'allocation familiale.
+    expect(ct(l.salNetUSD) - ct(l.transportUSD)).toBe(15_150);
+    // Totaux (gains + allocation) − retenues = total versé.
+    expect(ct(l.salBrutUSD) + ct(l.allocFamilialeUSD) - ct(l.cnssSalarieUSD) - ct(l.iprCalculeUSD)).toBe(ct(l.salNetUSD));
+    expect(l.salNetUSD).toBe(287.15);
+  });
+
+  it("cas Myriam (sept. 2026) : 200 $ nets, 0 enfant, 156 h, 260 000 FC → salaire net 200,00 $", () => {
+    const transport = 260_000 / params.tauxChangeCDF;
+    const l = calculerPaieBrigade({ salaireJournalier: (200 / 156) * 8, salaireHoraire: 200 / 156, heuresNormales: 156, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: transport, enfants: 0 }, paramsNet);
+    expect(ct(l.salNetUSD) - ct(l.transportUSD)).toBe(20_000);
+    expect(ct(l.salBrutUSD) - ct(l.transportUSD)).toBe(ct(l.remuneration100));
+  });
+
+  it("back-office : le salaire de base est porté par remuneration100 (plus de « Salaire de base 0,00 $ »)", () => {
+    const l = calculerPaieBackoffice({ salaireBaseUSD: 164, transportUSD: 0, enfants: 0 }, paramsNet);
+    expect(l.remuneration100).toBeGreaterThan(164);
+    expect(ct(l.salBrutUSD)).toBe(ct(l.remuneration100));
+    expect(l.salNetUSD).toBe(164);
   });
 });
