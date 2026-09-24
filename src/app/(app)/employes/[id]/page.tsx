@@ -15,7 +15,7 @@ import { Avatar } from "@/components/avatar";
 import { ajouterPrime, supprimerPrime, supprimerAcompte, demanderAcompte, ajouterFraisMedical, supprimerFraisMedical, ajouterAvantageNature, supprimerAvantageNature } from "../../paie/remuneration-actions";
 import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
-import { AbsencesCard, HeuresTravailleesCard } from "./fiche-cards";
+import { AbsencesCard, HeuresTravailleesCard, referenceHeuresCarte } from "./fiche-cards";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { lundiDe } from "@/lib/dates-fr";
 import { dureeShift, libelleShift } from "../../planning/creneaux";
@@ -506,14 +506,19 @@ export default async function FicheEmployePage({
           Employé intérimaire : salarié de l&apos;agence d&apos;intérim, payé par elle — aucun bulletin n&apos;est généré ici.
         </div>
       )}
-      {apercuBulletin && (
-        <HeuresTravailleesCard
-          periode={periodeLabel}
-          heuresTravaillees={apercuBulletin.heuresTravaillees}
-          heuresContractuelles={Math.round(heuresMoisContrat)}
-          heuresSupp={apercuBulletin.hs30 + apercuBulletin.hs60 + apercuBulletin.hs100}
-        />
-      )}
+      {apercuBulletin && (() => {
+        // Brigade : la référence de la paie (heures planifiées…), la même que l'aperçu en dessous.
+        const ref = referenceHeuresCarte({ categorie: employee.categorie, heuresMoisContrat, reference: apercuBulletin.reference });
+        return (
+          <HeuresTravailleesCard
+            periode={periodeLabel}
+            heuresTravaillees={apercuBulletin.heuresTravaillees}
+            heuresContractuelles={ref.heures}
+            libelleReference={ref.libelle}
+            heuresSupp={apercuBulletin.hs30 + apercuBulletin.hs60 + apercuBulletin.hs100}
+          />
+        );
+      })()}
       {apercuBulletin && <ApercuBulletinCard apercu={apercuBulletin} periode={periodeLabel} />}
 
       {/* Informations générales */}

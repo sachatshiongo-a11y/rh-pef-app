@@ -20,6 +20,7 @@ const { calculerLignesPaie } = await import("./paie-batch");
 const { rafraichirPaieDuMois } = await import("./paie-refresh");
 const { calculerBulletinLive } = await import("./bulletin-live");
 const { ApercuBulletinCard } = await import("@/app/(app)/employes/[id]/apercu-bulletin");
+const { HeuresTravailleesCard, referenceHeuresCarte } = await import("@/app/(app)/employes/[id]/fiche-cards");
 const { renderToStaticMarkup } = await import("react-dom/server");
 
 let prisma: PrismaClient;
@@ -274,6 +275,18 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     const juillet = renderToStaticMarkup(ApercuBulletinCard({ apercu: (await calculerBulletinLive(ids.martine, 7, 2026))!, periode: "juillet 2026" }));
     expect(juillet).toMatch(/Heures \/ mois<\/span><span[^>]*>234h</);
     expect(juillet).not.toContain("Heures planifiées");
+  });
+
+  it("la jauge d'heures de la fiche prend la référence de la paie : 216 h / 216 h, pas 216 h / 234 h en rouge", async () => {
+    const live = (await calculerBulletinLive(ids.martine, 9, 2026))!;
+    const ref = referenceHeuresCarte({ categorie: "BRIGADE", heuresMoisContrat: (54 * 52) / 12, reference: live.reference });
+    expect(ref).toEqual({ heures: 216, libelle: "Heures planifiées" });
+    const jauge = renderToStaticMarkup(HeuresTravailleesCard({
+      periode: "septembre 2026", heuresTravaillees: live.heuresTravaillees, heuresContractuelles: ref.heures,
+      libelleReference: ref.libelle, heuresSupp: live.hs30 + live.hs60 + live.hs100,
+    }));
+    expect(jauge).toMatch(/216h<\/span><span[^>]*>\/ 216h<\/span><span[^>]*>Heures planifiées</);
+    expect(jauge).not.toContain("text-red-600");
   });
 
   it("persistance : la ligne enregistrée porte la source, le motif et les avertissements", async () => {

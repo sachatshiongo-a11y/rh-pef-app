@@ -1,3 +1,6 @@
+import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
+import type { SourceReference } from "@/lib/paie-reference";
+
 // Cartes graphiques de la fiche employé (façon Factorial) : absences colorées + jauge d'heures.
 
 const MOIS_COURT = ["JAN", "FÉV", "MAR", "AVR", "MAI", "JUIN", "JUIL", "AOÛ", "SEP", "OCT", "NOV", "DÉC"];
@@ -84,17 +87,39 @@ export function AbsencesCard({ absences }: { absences: AbsenceItem[] }) {
   );
 }
 
-/** Jauge d'heures travaillées : normales + supplémentaires vs contractuelles, avec solde. */
+/**
+ * Référence d'heures de la jauge. Pour la BRIGADE, c'est celle de la paie (aperçu du bulletin :
+ * heures planifiées, contrat ou repli, avec son libellé) : la jauge ne peut pas dire « 216 h / 234 h,
+ * solde −18 h » en rouge juste au-dessus d'un aperçu qui paie le net entier sur 216 h planifiées
+ * (revue finale du 2026-09-24, point 3). Hors brigade, ou sans aperçu : les heures du contrat, comme
+ * avant (arrondies à l'heure, sans libellé).
+ */
+export function referenceHeuresCarte(e: {
+  categorie: string;
+  heuresMoisContrat: number;
+  reference: { source: SourceReference; heuresReference: number } | null | undefined;
+}): { heures: number; libelle: string | null } {
+  if (e.categorie === "BRIGADE" && e.reference) {
+    return { heures: e.reference.heuresReference, libelle: LIBELLE_SOURCE_REFERENCE[e.reference.source] };
+  }
+  return { heures: Math.round(e.heuresMoisContrat), libelle: null };
+}
+
+/** Jauge d'heures travaillées : normales + supplémentaires vs heures de référence, avec solde. */
 export function HeuresTravailleesCard({
   periode,
   heuresTravaillees,
   heuresContractuelles,
   heuresSupp,
+  libelleReference = null,
 }: {
   periode: string;
   heuresTravaillees: number;
+  /** Heures de référence du mois (voir `referenceHeuresCarte`). */
   heuresContractuelles: number;
   heuresSupp: number;
+  /** Libellé de la source (« Heures planifiées », « Heures contrat (repli) »…), ou null. */
+  libelleReference?: string | null;
 }) {
   const normales = Math.max(0, heuresTravaillees - heuresSupp);
   const base = Math.max(heuresContractuelles, heuresTravaillees, 1);
@@ -111,6 +136,7 @@ export function HeuresTravailleesCard({
       <div className="mb-2 flex items-baseline gap-2">
         <span className="text-3xl font-bold">{fmtH(heuresTravaillees)}h</span>
         <span className="text-lg text-muted-foreground">/ {fmtH(heuresContractuelles)}h</span>
+        {libelleReference && <span className="text-xs text-muted-foreground">{libelleReference}</span>}
         {heuresSupp > 0 && (
           <span className="ml-auto text-sm font-medium text-orange-600">+{fmtH(heuresSupp)}h supp.</span>
         )}
