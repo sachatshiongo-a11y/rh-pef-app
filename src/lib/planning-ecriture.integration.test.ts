@@ -150,6 +150,37 @@ describe("ecrireCreneaux — verrou", () => {
     expect((await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ouvert } })).statutPaiement).toBe("PAS_VALIDE");
   });
 
+  it("concurrence : pendant l'écriture, le recalcul de la paie attend (verrou partagé sur la run du mois, qui ne disparaît pas)", async () => {
+    // Le recalcul (paie-refresh.ts) supprime puis recrée les lignes non figées : un verrou sur elles
+    // ne le retient pas. La run du mois, elle, reste : l'écriture la lit FOR SHARE, le recalcul la
+    // prend FOR UPDATE.
+    const externe = new Client({ connectionString: url });
+    await externe.connect();
+    let relacher!: () => void;
+    const relache = new Promise<void>((r) => { relacher = r; });
+    let ecrit!: () => void;
+    const aEcrit = new Promise<void>((r) => { ecrit = r; });
+    const ecriture = prisma.$transaction(async (tx) => {
+      await ecrireCreneaux(tx, userId, [{ employeeId: ouvert, date: d("2026-09-25"), shiftId: soir }]);
+      ecrit();
+      await relache;
+    });
+    try {
+      await Promise.race([aEcrit, ecriture]);
+      await externe.query("SET lock_timeout = '300ms'");
+      await expect(
+        externe.query(`SELECT "id" FROM "public"."PayrollRun" WHERE "mois" = 9 AND "annee" = 2026 FOR UPDATE`),
+      ).rejects.toMatchObject({ code: "55P03" });
+      // Une run d'un mois NON touché par l'écriture reste libre.
+      await prisma.payrollRun.create({ data: { mois: 11, annee: 2026, tauxChangeUtilise: 2300 } });
+      await expect(externe.query(`SELECT "id" FROM "public"."PayrollRun" WHERE "mois" = 11 AND "annee" = 2026 FOR UPDATE`)).resolves.toBeDefined();
+    } finally {
+      relacher();
+      await ecriture;
+      await externe.end();
+    }
+  });
+
   it("interblocage RÉEL avec une validation de paie → reconnu (40P01) et traduit en message lisible", async () => {
     // Deux lignes de paie ouvertes : l'écriture du planning les prend (FOR SHARE) dans un ordre,
     // la « validation » concurrente les met à jour dans l'autre. Postgres annule l'écriture du

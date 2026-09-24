@@ -161,9 +161,25 @@ function controlerOperations(operations: OperationCreneau[]): void {
  * alors le statut validé. Le statut est filtré APRÈS la lecture : ne verrouiller que les lignes
  * déjà validées laisserait passer la validation d'une ligne encore ouverte. Hors transaction, le
  * verrou tombe à la fin de la requête ; seul un vrai `tx` protège de la course.
+ *
+ * AVANT les lignes, la `PayrollRun` de chaque mois touché est lue `FOR SHARE` (revue finale du
+ * 2026-09-24, point 4) : le recalcul de la paie (paie-refresh.ts) SUPPRIME puis recrée les lignes non
+ * figées, un verrou sur elles ne le retient donc pas ; la run, elle, ne disparaît pas, et le recalcul
+ * la prend `FOR UPDATE`. Il attend ainsi la fin de l'écriture du planning (et la voit), ou
+ * l'inverse. Toujours la run d'abord, puis les lignes, comme la validation et le recalcul : jamais
+ * d'interblocage entre eux.
  */
 export async function verrousPlanning(tx: Prisma.TransactionClient, operations: OperationCreneau[]): Promise<Verrou[]> {
   if (operations.length === 0) return [];
+  const moisTouches = [...new Set(operations.map((o) => `${o.date.getUTCFullYear()}|${o.date.getUTCMonth() + 1}`))].map((m) => {
+    const [annee, mois] = m.split("|");
+    return Prisma.sql`(${Number(annee)}::int, ${Number(mois)}::int)`;
+  });
+  await tx.$queryRaw`
+    SELECT r."id" FROM "public"."PayrollRun" r
+    WHERE (r."annee", r."mois") IN (VALUES ${Prisma.join(moisTouches)})
+    ORDER BY r."id"
+    FOR SHARE`;
   const paires = [...new Set(operations.map((o) => `${o.employeeId}|${o.date.getUTCFullYear()}|${o.date.getUTCMonth() + 1}`))].map((p) => {
     const [employeeId, annee, mois] = p.split("|");
     return Prisma.sql`(${employeeId}, ${Number(annee)}::int, ${Number(mois)}::int)`;

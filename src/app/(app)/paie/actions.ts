@@ -18,6 +18,9 @@ import {
   ValidationPaieRefuseeError,
   verrouillerRunExclusif,
 } from "@/lib/paie-validation";
+import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
+
+const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
 export async function calculerPaieDuMois() {
   const user = await verifySession();
@@ -25,7 +28,14 @@ export async function calculerPaieDuMois() {
 
   // Cœur partagé avec le rafraîchissement automatique de la page Paie (lib/paie-refresh) :
   // crée le run du mois si besoin et (re)calcule toutes les lignes non figées, avec audit.
-  await rafraichirPaieDuMois({ creerRun: true, userId: user.id });
+  // Le recalcul attend la fin d'une écriture du planning ou d'une validation en cours (verrou de la
+  // run) : une attente trop longue revient en message lisible, jamais en page d'erreur.
+  try {
+    await rafraichirPaieDuMois({ creerRun: true, userId: user.id });
+  } catch (e) {
+    if (!estAttenteVerrouTropLongue(e) && !estInterblocage(e)) throw e;
+    redirect(`/paie?erreur=${encodeURIComponent(MESSAGE_CALCUL_OCCUPE)}`);
+  }
 
   revalidatePath("/paie");
   revalidatePath("/accueil");

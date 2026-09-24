@@ -211,3 +211,39 @@ describe("valider une ligne revérifie son montant", () => {
     }
   });
 });
+
+describe("recalcul de la paie (paie-refresh) : verrou de la run du mois", () => {
+  it("une écriture du planning en cours fait attendre le recalcul, qui écrit ensuite le planning à jour", async () => {
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
+    const elodie = await brigade("EM01-PEF", "Élodie Mwamba");
+    await rafraichirPaieDuMois({ creerRun: false });
+    const avant = await ligne(elodie);
+    expect(avant.statutPaiement).toBe("PAS_VALIDE");
+
+    const externe = new Client({ connectionString: url });
+    await externe.connect();
+    let recalcul: Promise<unknown> | undefined;
+    try {
+      // Ce que fait désormais `ecrireCreneaux` : run du mois FOR SHARE, puis créneau écrit, transaction ouverte.
+      await externe.query("BEGIN");
+      await externe.query(`SELECT "id" FROM "public"."PayrollRun" WHERE "mois" = 9 AND "annee" = 2026 FOR SHARE`);
+      await externe.query(`DELETE FROM "public"."PlanningCreneau" WHERE "employeeId" = $1 AND "date" = $2`, [elodie, d(22)]);
+      let fini = false;
+      recalcul = rafraichirPaieDuMois({ creerRun: false }).finally(() => { fini = true; });
+      await new Promise((r) => setTimeout(r, 400));
+      expect(fini).toBe(false); // il attend la fin de l'écriture du planning
+      await externe.query("COMMIT");
+      await recalcul;
+    } finally {
+      await externe.query("ROLLBACK").catch(() => {});
+      await recalcul?.catch(() => {});
+      await externe.end();
+    }
+    // Le recalcul a lu le planning APRÈS l'écriture : 9 h de moins dans la référence.
+    const apres = await ligne(elodie);
+    expect(Number(apres.heuresContractuelles)).toBe(Number(avant.heuresContractuelles) - 9);
+    // Et la ligne enregistrée est exactement celle que la validation recalcule : elle passe.
+    await changerStatutPaie(apres.id, fd({ versStatut: "VALIDE" }));
+    expect((await ligne(elodie)).statutPaiement).toBe("VALIDE");
+  });
+});
