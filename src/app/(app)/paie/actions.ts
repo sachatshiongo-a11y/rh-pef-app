@@ -9,6 +9,7 @@ import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, transitionAutoriseeEnLot, roleRequisPour } from "@/lib/paie-etats";
 import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { calculerEcheancePret } from "@/lib/prets";
+import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-medicaux";
 import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import {
@@ -113,17 +114,24 @@ async function appliquerTransitionPaie(
     },
   });
 
+  // Frais médicaux de la fiche remis à zéro par CETTE transition : seulement une vraie validation
+  // (PAS_VALIDE → VALIDÉ). Annuler un paiement (PAYÉ → VALIDÉ) ne touche pas la fiche : la ligne
+  // reste figée et un montant saisi depuis pour un autre bulletin ne doit pas disparaître.
+  const fraisFiche = Number(ligne.employee.fraisMedicauxMoisCourant);
+  const remisAZero = versStatut === "VALIDE" && deStatut === "PAS_VALIDE" ? fraisFiche : 0;
+
   // Au passage en « Validé », on fige un snapshot immuable du bulletin (jamais écrasé ensuite).
   if (versStatut === "VALIDE") {
     const dernier = await tx.versionBulletin.findFirst({
       where: { payrollLineId },
       orderBy: { numeroVersion: "desc" },
     });
+    const validation: TraceValidation = { deStatut, fraisMedicauxFicheRemisAZeroUSD: remisAZero };
     await tx.versionBulletin.create({
       data: {
         payrollLineId,
         numeroVersion: (dernier?.numeroVersion ?? 0) + 1,
-        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun })),
+        snapshot: JSON.parse(JSON.stringify({ ligne, employe: ligne.employee, run: ligne.payrollRun, validation })),
         genreParId: userId,
       },
     });
@@ -156,10 +164,49 @@ async function appliquerTransitionPaie(
     // au moment où le bulletin est réellement validé (jamais sur un simple rafraîchissement de
     // brouillon), pour ne pas le réappliquer par erreur le mois suivant (double comptage). La table
     // durable `FraisMedical` (avec certificat, scopée mois/année) n'est pas concernée.
-    if (Number(ligne.employee.fraisMedicauxMoisCourant) !== 0) {
+    // Tracé au journal, et restitué à la fiche si la ligne est rouverte (voir plus bas).
+    if (remisAZero !== 0) {
       await tx.employee.update({
         where: { id: ligne.employeeId },
         data: { fraisMedicauxMoisCourant: 0 },
+      });
+      await journaliser(tx, {
+        entite: "Employee",
+        entiteId: ligne.employeeId,
+        champ: "fraisMedicauxMoisCourant",
+        ancienneValeur: remisAZero,
+        nouvelleValeur: 0,
+        userId,
+      });
+    }
+  }
+
+  // Réouverture (VALIDÉ → PAS_VALIDE) — décision Direction 2026-09-24 : les frais médicaux que la
+  // validation avait remis à zéro reviennent sur la fiche, dans la même transaction, et le recalcul
+  // les retrouve. Ajoutés (jamais écrasés) : un montant saisi depuis sur la fiche est conservé. La
+  // revalidation les remet à zéro une fois, comme toute validation : ni perte ni doublon.
+  if (deStatut === "VALIDE" && versStatut === "PAS_VALIDE") {
+    const [versions, transitions] = await Promise.all([
+      tx.versionBulletin.findMany({ where: { payrollLineId }, orderBy: { numeroVersion: "desc" }, select: { snapshot: true } }),
+      tx.transitionPaie.findMany({ where: { payrollLineId, versStatut: "VALIDE" }, select: { deStatut: true } }),
+    ]);
+    const aRestituer = fraisMedicauxARestituer(
+      versions.map((v) => v.snapshot as Parameters<typeof fraisMedicauxARestituer>[0][number]),
+      transitions.map((t) => t.deStatut),
+    );
+    if (aRestituer !== 0) {
+      const apres = await tx.employee.update({
+        where: { id: ligne.employeeId },
+        data: { fraisMedicauxMoisCourant: { increment: aRestituer } },
+        select: { fraisMedicauxMoisCourant: true },
+      });
+      await journaliser(tx, {
+        entite: "Employee",
+        entiteId: ligne.employeeId,
+        champ: "fraisMedicauxMoisCourant",
+        ancienneValeur: Number(apres.fraisMedicauxMoisCourant) - aRestituer,
+        nouvelleValeur: Number(apres.fraisMedicauxMoisCourant),
+        userId,
       });
     }
   }
