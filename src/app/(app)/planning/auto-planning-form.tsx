@@ -10,6 +10,7 @@ const LIBELLE_RAISON: Record<ResumeGeneration["trous"][number]["raison"], string
   TOUS_DEJA_PRIS: "tous déjà pris ce jour-là",
   TOUS_AU_REPOS: "tous au repos obligatoire",
   TOUS_AU_PLAFOND: "tous au plafond d'heures — cochez « autoriser le dépassement » pour couvrir",
+  PAIE_VERROUILLEE: "les disponibles ont une paie validée ou payée ce mois-là",
 };
 
 const LIBELLE_CAUSE: Record<ResumeGeneration["depassements"][number]["cause"], string> = {

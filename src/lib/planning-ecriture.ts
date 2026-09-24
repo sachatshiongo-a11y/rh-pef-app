@@ -26,6 +26,27 @@ export class PlanningVerrouilleError extends Error {
 /** Message affiché quand Postgres a dû annuler l'écriture pour sortir d'un interblocage. */
 export const MESSAGE_INTERBLOCAGE = "La paie est en cours de validation : réessayez dans un instant.";
 
+/** Message affiché quand une écriture concurrente a posé le même (salarié, jour) entre la lecture
+ *  et l'écriture (violation de l'unicité `employeeId_date`) : rien n'a été écrit. */
+export const MESSAGE_PLANNING_CHANGE = "Le planning a changé pendant l'enregistrement : réessayez.";
+
+/**
+ * Cherche un code d'erreur dans les seuls champs qui le portent, selon le chemin (requête brute,
+ * requête du client, adaptateur `pg`) : `e.code`, `e.originalCode`, puis `meta`, `cause`,
+ * `driverAdapterError` (profondeur bornée, protégé des cycles). Jamais le texte du message.
+ */
+function porteUnCode(e: unknown, codes: ReadonlySet<string>): boolean {
+  const vus = new Set<unknown>();
+  const fouiller = (x: unknown, profondeur: number): boolean => {
+    if (x === null || typeof x !== "object" || profondeur > 6 || vus.has(x)) return false;
+    vus.add(x);
+    const o = x as Record<string, unknown>;
+    if (codes.has(o.code as string) || codes.has(o.originalCode as string)) return true;
+    return ["meta", "cause", "driverAdapterError"].some((k) => fouiller(o[k], profondeur + 1));
+  };
+  return fouiller(e, 0);
+}
+
 /**
  * Vrai si `e` est un interblocage Postgres (40P01) ou le conflit de transaction que Prisma en tire
  * (P2034). Selon le chemin (requête brute, requête du client, adaptateur `pg`), le code est porté
@@ -33,26 +54,48 @@ export const MESSAGE_INTERBLOCAGE = "La paie est en cours de validation : réess
  * seuls champs, sans jamais lire le texte du message.
  */
 export function estInterblocage(e: unknown): boolean {
-  const vus = new Set<unknown>();
-  const fouiller = (x: unknown, profondeur: number): boolean => {
-    if (x === null || typeof x !== "object" || profondeur > 6 || vus.has(x)) return false;
-    vus.add(x);
-    const o = x as Record<string, unknown>;
-    if (o.code === "40P01" || o.originalCode === "40P01" || o.code === "P2034") return true;
-    return ["meta", "cause", "driverAdapterError"].some((k) => fouiller(o[k], profondeur + 1));
-  };
-  return fouiller(e, 0);
+  return porteUnCode(e, new Set(["40P01", "P2034"]));
+}
+
+/** Vrai si `e` est une violation d'unicité : P2002 (client Prisma) ou 23505 (Postgres). Dans une
+ *  écriture du planning, la seule unicité en jeu est (salarié, jour) : une course sur la même paire. */
+export function estConflitUnicite(e: unknown): boolean {
+  return porteUnCode(e, new Set(["P2002", "23505"]));
 }
 
 /**
  * Message lisible pour les refus attendus d'une écriture du planning (planning verrouillé,
- * interblocage avec une validation de paie), `null` pour toute autre erreur (à relancer). Les
- * actions le RENVOIENT comme une valeur : Next masque le message des erreurs levées en production.
+ * interblocage avec une validation de paie, course sur un même (salarié, jour)), `null` pour toute
+ * autre erreur (à relancer). Les actions le RENVOIENT comme une valeur : Next masque le message
+ * des erreurs levées en production.
  */
 export function messageErreurPlanning(e: unknown): string | null {
   if (e instanceof PlanningVerrouilleError) return e.message;
   if (estInterblocage(e)) return MESSAGE_INTERBLOCAGE;
+  if (estConflitUnicite(e)) return MESSAGE_PLANNING_CHANGE;
   return null;
+}
+
+/**
+ * Compte rendu d'une génération pour les (salarié, mois) figés, ou `undefined` s'il n'y en a pas :
+ * « Paie validée ou payée : Martine Mutombo (septembre 2026) — ses créneaux de ce mois n'ont pas
+ * été touchés ». Chaque salarié est nommé avec CHACUN de ses mois figés : ses autres jours de la
+ * période, eux, ont été planifiés.
+ */
+export function messageMoisFiges(verrous: Verrou[]): string | undefined {
+  if (verrous.length === 0) return undefined;
+  const tries = [...verrous].sort((a, b) => a.nom.localeCompare(b.nom, "fr") || a.annee - b.annee || a.mois - b.mois);
+  const parSalarie = new Map<string, { nom: string; mois: string[] }>();
+  for (const v of tries) {
+    const s = parSalarie.get(v.employeeId) ?? { nom: v.nom, mois: [] };
+    const libelle = `${MOIS_FR[v.mois - 1]} ${v.annee}`;
+    if (!s.mois.includes(libelle)) s.mois.push(libelle);
+    parSalarie.set(v.employeeId, s);
+  }
+  const salaries = [...parSalarie.values()];
+  const plusieursMois = new Set(tries.map((v) => `${v.annee}-${v.mois}`)).size > 1;
+  return `Paie validée ou payée : ${salaries.map((s) => `${s.nom} (${s.mois.join(", ")})`).join(", ")} — ` +
+    `${salaries.length > 1 ? "leurs" : "ses"} créneaux de ${plusieursMois ? "ces mois" : "ce mois"} n'ont pas été touchés`;
 }
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);

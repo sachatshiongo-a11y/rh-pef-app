@@ -14,10 +14,18 @@ const fr = (d: Date) => new Date(d).toLocaleDateString("fr-FR", { timeZone: "UTC
  * interblocage avec une validation de paie) → `{ fait: false, erreur }` : rien n'est écrit et
  * l'échange reste EN_ATTENTE.
  */
-export async function finaliserEchangeSiComplet(id: string, userId: string): Promise<{ fait: boolean; erreur?: string }> {
+export async function finaliserEchangeSiComplet(
+  id: string,
+  userId: string,
+  opts: { approbationDirection?: boolean } = {},
+): Promise<{ fait: boolean; erreur?: string }> {
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
   if (!e || e.statut !== "EN_ATTENTE") return { fait: false };
-  if (e.reponseCollegue !== "ACCEPTE" || e.reponseDirection !== "APPROUVE") return { fait: false };
+  // `approbationDirection` : la Direction approuve MAINTENANT. Sa réponse n'est écrite que DANS la
+  // transaction de la permutation — refusée (paie verrouillée), l'échange reste « en attente de la
+  // Direction » et l'espace salarié n'affiche jamais « Direction : approuvé » à tort.
+  const directionOk = opts.approbationDirection || e.reponseDirection === "APPROUVE";
+  if (e.reponseCollegue !== "ACCEPTE" || !directionOk) return { fait: false };
 
   // Dates relues de colonnes @db.Date : déjà à minuit UTC, comme l'exige `ecrireCreneaux`.
   const memeJour = new Date(e.demandeurDate).getTime() === new Date(e.collegueDate).getTime();
@@ -39,7 +47,7 @@ export async function finaliserEchangeSiComplet(id: string, userId: string): Pro
     // Transaction INTERACTIVE : le planning et le statut de l'échange passent ensemble, ou rien.
     await prisma.$transaction(async (tx) => {
       await ecrireCreneaux(tx, userId, operations);
-      await tx.echangeCreneau.update({ where: { id }, data: { statut: "APPROUVE" } });
+      await tx.echangeCreneau.update({ where: { id }, data: { statut: "APPROUVE", reponseDirection: "APPROUVE" } });
     });
   } catch (err) {
     const erreur = messageErreurPlanning(err);

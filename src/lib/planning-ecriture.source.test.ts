@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /**
@@ -58,11 +59,17 @@ function ecrituresDetectees(source: string): string[] {
   return REGLES.filter((r) => r.motif.test(source)).map((r) => r.nom);
 }
 
+/** Sources parcourues : TypeScript ET JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`) — un script JS
+ *  posé dans src/ écrirait aussi bien la table. Les fichiers de test sont exclus, quelle que soit
+ *  leur extension. */
+const SOURCE = /\.(?:ts|tsx|js|jsx|mjs|cjs)$/;
+const TEST = /\.test\.(?:ts|tsx|js|jsx|mjs|cjs)$/;
+
 function fichiers(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return fichiers(p);
-    return /\.(ts|tsx)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [p] : [];
+    return SOURCE.test(e.name) && !TEST.test(e.name) ? [p] : [];
   });
 }
 
@@ -77,6 +84,17 @@ describe("garde-fou : le planning ne s'écrit que par ecrireCreneaux", () => {
       .filter((x) => x.regles.length > 0)
       .map((x) => `${x.f} (${x.regles.join(", ")})`);
     expect(fautifs).toEqual([]);
+  });
+
+  it("le parcours lit aussi le JavaScript (.js, .jsx, .mjs, .cjs), jamais les tests", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "garde-planning-"));
+    try {
+      const noms = ["a.ts", "b.tsx", "c.js", "d.jsx", "e.mjs", "f.cjs", "g.test.ts", "h.test.js", "i.test.mjs", "j.json", "k.md"];
+      for (const n of noms) fs.writeFileSync(path.join(dir, n), "");
+      expect(fichiers(dir).map((f) => path.basename(f)).sort()).toEqual(["a.ts", "b.tsx", "c.js", "d.jsx", "e.mjs", "f.cjs"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("la réalité du dépôt : le seul chemin autorisé EST reconnu comme écrivant (sinon la règle ne voit plus rien)", () => {

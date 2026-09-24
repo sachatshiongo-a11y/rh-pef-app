@@ -37,6 +37,7 @@ let matin = "";
 let soir = "";
 const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
+const FIGE_MARTINE = "Paie validée ou payée : Martine Mutombo (septembre 2026) — ses créneaux de ce mois n'ont pas été touchés";
 const MESSAGE = "Planning verrouillé : paie validée ou payée pour Martine Mutombo (septembre 2026). Rouvrir la ligne de paie avant de modifier ce planning.";
 const creneau = (employeeId: string, iso: string) =>
   prisma.planningCreneau.findUnique({ where: { employeeId_date: { employeeId, date: d(iso) } } });
@@ -104,10 +105,10 @@ describe("saisie unitaire et en lot", () => {
 });
 
 describe("génération automatique", () => {
-  it("un salarié verrouillé dans la période → écarté et nommé ; les autres sont générés", async () => {
+  it("un salarié verrouillé ce mois-là → son jour n'est pas posé, son mois est nommé ; les autres sont générés", async () => {
     const r = await genererPlanningAuto("2026-09-14", "2026-09-14", fd({ modeles: "on" }));
     expect(r.erreur).toBeUndefined();
-    expect(r.salariesIgnores).toBe("1 salarié ignoré : paie validée ou payée (Martine Mutombo).");
+    expect(r.salariesIgnores).toBe(FIGE_MARTINE);
     expect(r.crees).toBe(1);
     expect(await creneau(valide, "2026-09-14")).toBeNull();
     expect((await creneau(ouvert, "2026-09-14"))?.genereAuto).toBe(true);
@@ -115,13 +116,13 @@ describe("génération automatique", () => {
   });
 
   it("le rapport de couverture dit vrai : un salarié verrouillé n'est pas compté comme couvrant un besoin", async () => {
-    // Besoin : 2 serveurs le lundi matin. Martine (verrouillée) est écartée AVANT le moteur : il
-    // n'en reste qu'une, le trou est annoncé. Écartée seulement APRÈS, le moteur l'aurait posée,
-    // l'écriture l'aurait retirée, et le rapport aurait affiché « tous les besoins couverts ».
+    // Besoin : 2 serveurs le lundi matin. Le jour de Martine (septembre verrouillé) est interdit
+    // DANS le moteur : il n'en reste qu'une, le trou est annoncé. Retirée seulement à l'écriture,
+    // le moteur l'aurait posée et le rapport aurait affiché « tous les besoins couverts ».
     const besoin = await prisma.besoinShift.create({ data: { shiftId: matin, poste: "Serveur", jourSemaine: 1, nombreRequis: 2 } });
     try {
       const r = await genererPlanningAuto("2026-09-28", "2026-09-28", fd({}));
-      expect(r.salariesIgnores).toBe("1 salarié ignoré : paie validée ou payée (Martine Mutombo).");
+      expect(r.salariesIgnores).toBe(FIGE_MARTINE);
       expect(r.trous.reduce((t, x) => t + x.manque, 0)).toBe(1);
       expect((await creneau(ouvert, "2026-09-28"))?.shiftId).toBe(matin);
       expect(await creneau(valide, "2026-09-28")).toBeNull();
@@ -134,7 +135,9 @@ describe("génération automatique", () => {
     await prisma.planningCreneau.createMany({ data: [valide, ouvert, ancienne].map((employeeId) => ({ employeeId, date: d("2026-09-15"), shiftId: soir })) });
     const r = await genererPlanningAuto("2026-09-14", "2026-09-15", fd({ modeles: "on", ecraser: "on" }));
     expect(r.erreur).toBeUndefined();
-    expect(r.salariesIgnores).toBe("2 salariés ignorés : paie validée ou payée (Esther Ngalula, Martine Mutombo).");
+    expect(r.salariesIgnores).toBe(
+      "Paie validée ou payée : Esther Ngalula (septembre 2026), Martine Mutombo (septembre 2026) — leurs créneaux de ce mois n'ont pas été touchés",
+    );
     expect(await creneau(ouvert, "2026-09-15")).toBeNull();
     expect((await creneau(valide, "2026-09-15"))?.shiftId).toBe(soir);
     expect((await creneau(ancienne, "2026-09-15"))?.shiftId).toBe(soir);
@@ -165,9 +168,57 @@ describe("génération automatique", () => {
   it("« écraser » : un jour à la fois effacé et reposé = UNE opération (la pose), une entrée de journal", async () => {
     const r = await genererPlanningAuto("2026-10-12", "2026-10-12", fd({ modeles: "on", ecraser: "on" }));
     expect(r.erreur).toBeUndefined();
+    // Une pose : celle de Rachel. Martine, déjà au bon shift, n'est ni réécrite ni comptée.
+    expect(r.crees).toBe(1);
     expect(await creneau(ouvert, "2026-10-12")).toMatchObject({ shiftId: matin, genereAuto: true });
     expect((await journal(ouvert, "2026-10-12")).map((e) => [e.ancienneValeur, e.nouvelleValeur])).toEqual([[soir, matin]]);
     expect(await journal(valide, "2026-10-12")).toHaveLength(1); // déjà au bon shift : pas réécrit
+  });
+});
+
+describe("génération automatique — semaine à cheval sur un mois verrouillé", () => {
+  it("28/09 → 04/10, septembre validé pour Martine : planifiée du 1er au 4 octobre, septembre intact et non journalisé", async () => {
+    // Ses créneaux de septembre (posés avant la validation) : lundi 28 et mardi 29, au soir (6 h).
+    await prisma.planningCreneau.createMany({ data: ["2026-09-28", "2026-09-29"].map((j) => ({ employeeId: valide, date: d(j), shiftId: soir })) });
+    const sp = await prisma.shiftPoste.create({ data: { poste: "Serveur", shiftId: matin, ordre: 0 } });
+    try {
+      const f = fd({ completer: "on" });
+      for (const j of [0, 1, 2, 3, 4, 5, 6]) f.append("jours", String(j));
+      const r = await genererPlanningAuto("2026-09-28", "2026-10-04", f);
+      expect(r.erreur).toBeUndefined();
+      expect(r.salariesIgnores).toBe(FIGE_MARTINE);
+      for (const j of ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]) {
+        expect(await creneau(valide, j)).toMatchObject({ shiftId: matin, genereAuto: true });
+        expect(await journal(valide, j)).toHaveLength(1);
+      }
+      for (const j of ["2026-09-28", "2026-09-29"]) {
+        expect(await creneau(valide, j)).toMatchObject({ shiftId: soir, genereAuto: false });
+        expect(await journal(valide, j)).toHaveLength(0);
+      }
+      expect(await creneau(valide, "2026-09-30")).toBeNull();
+      expect(await journal(valide, "2026-09-30")).toHaveLength(0);
+    } finally {
+      await prisma.shiftPoste.delete({ where: { id: sp.id } });
+    }
+  });
+
+  it("« écraser » avec septembre validé : les créneaux de Martine restent, et la couverture de ces jours les compte", async () => {
+    // Mardi 22/09 : Martine au matin (septembre validé). Besoin : 1 serveur le mardi matin. Il est
+    // déjà couvert par elle : Rachel ne doit pas être posée en plus (elle serait payée pour rien).
+    await prisma.planningCreneau.create({ data: { employeeId: valide, date: d("2026-09-22"), shiftId: matin } });
+    const besoin = await prisma.besoinShift.create({ data: { shiftId: matin, poste: "Serveur", jourSemaine: 2, nombreRequis: 1 } });
+    try {
+      const r = await genererPlanningAuto("2026-09-22", "2026-09-22", fd({ ecraser: "on" }));
+      expect(r.erreur).toBeUndefined();
+      expect(r.salariesIgnores).toBe(FIGE_MARTINE);
+      expect(r.trous).toEqual([]);
+      expect(r.crees).toBe(0);
+      expect(await creneau(ouvert, "2026-09-22")).toBeNull();
+      expect(await creneau(valide, "2026-09-22")).toMatchObject({ shiftId: matin, genereAuto: false });
+      expect(await journal(valide, "2026-09-22")).toHaveLength(0);
+    } finally {
+      await prisma.besoinShift.delete({ where: { id: besoin.id } });
+    }
   });
 });
 
@@ -197,8 +248,19 @@ describe("demandes approuvées par la Direction", () => {
       collegueId: valide, collegueDate: d("2026-09-12"), collegueShiftId: matin, reponseCollegue: "ACCEPTE",
     } });
     await expect(approuverEchange(e.id)).rejects.toThrow(`REDIRECT /a-valider?erreur=${encodeURIComponent(MESSAGE)}`);
-    expect((await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: e.id } })).statut).toBe("EN_ATTENTE");
+    // Ni appliqué ni « approuvé par la Direction » : l'espace salarié affiche toujours « en attente
+    // de la Direction », pas « Direction : approuvé ».
+    expect(await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: e.id } })).toMatchObject({ statut: "EN_ATTENTE", reponseDirection: "EN_ATTENTE" });
     expect(await creneau(valide, "2026-09-10")).toBeNull();
+  });
+
+  it("approuverEchange : collègue pas encore d'accord → seule l'approbation de la Direction s'écrit", async () => {
+    const e = await prisma.echangeCreneau.create({ data: {
+      demandeurId: ouvert, demandeurDate: d("2026-09-10"), demandeurShiftId: matin,
+      collegueId: valide, collegueDate: d("2026-09-12"), collegueShiftId: matin,
+    } });
+    await approuverEchange(e.id);
+    expect(await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: e.id } })).toMatchObject({ statut: "EN_ATTENTE", reponseDirection: "APPROUVE" });
   });
 
   it("approuverChangementShift : salarié verrouillé → renvoi vers /a-valider, demande en attente, rien d'écrit", async () => {
@@ -230,7 +292,7 @@ describe("demandes approuvées par la Direction", () => {
       collegueId: josee, collegueDate: d("2026-10-21"), collegueShiftId: soir, reponseCollegue: "ACCEPTE",
     } });
     await approuverEchange(e.id);
-    expect((await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: e.id } })).statut).toBe("APPROUVE");
+    expect(await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: e.id } })).toMatchObject({ statut: "APPROUVE", reponseDirection: "APPROUVE" });
     expect(await creneau(ouvert, "2026-10-20")).toBeNull();
     expect((await creneau(ouvert, "2026-10-21"))?.shiftId).toBe(soir);
     expect((await creneau(josee, "2026-10-20"))?.shiftId).toBe(matin);

@@ -8,6 +8,8 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { BoutonValider } from "@/components/action-buttons";
 import type { ModePaiement, PaymentStatus } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
+import type { AvertissementPaie } from "@/lib/paie-reference";
+import { lignesAValiderDuLot, messageConfirmationValidation } from "../paie/avertissements-validation";
 
 export type BulletinRow = {
   id: string;
@@ -16,6 +18,9 @@ export type BulletinRow = {
   nom: string;
   photoUrl?: string | null;
   montant: string;
+  statutPaiement: PaymentStatus;
+  // Rappelés avant de valider, comme sur l'écran Paie (jamais bloquants).
+  avertissements: AvertissementPaie[];
 };
 
 const MODES = [
@@ -49,6 +54,12 @@ export function BulletinsInbox({
   }
   function lancer(ids: string[]) {
     if (ids.length === 0) return;
+    // Validation (une ligne ou le lot) : mêmes avertissements et même boîte que l'écran Paie, sur les
+    // lignes qui vont réellement être validées. Rien à signaler → validation directe, sans boîte.
+    if (cible === "VALIDE") {
+      const message = messageConfirmationValidation(lignesAValiderDuLot(rows, new Set(ids)));
+      if (message && !window.confirm(message)) return;
+    }
     setErreur(null);
     startTransition(async () => {
       const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? (mode as ModePaiement) : null);

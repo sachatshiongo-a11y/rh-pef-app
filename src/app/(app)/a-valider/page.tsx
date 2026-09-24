@@ -7,6 +7,7 @@ import { Avatar } from "@/components/avatar";
 import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "../planning/actions";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { salaireNetUSD } from "@/lib/paie-net";
+import { lireAvertissements } from "@/lib/paie-avertissements";
 
 function joursAvant(date: Date): number {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
@@ -98,6 +99,8 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     nom: l.employee.nom,
     photoUrl: l.employee.photoUrl,
     montant: money(salaireNetUSD(l)),
+    statutPaiement: l.statutPaiement,
+    avertissements: lireAvertissements(l.avertissementsPaie),
   });
   const prepareRows = prepare.map(toRow);
   const valideRows = valide.map(toRow);

@@ -9,7 +9,7 @@ import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
-import { ecrireCreneaux, messageErreurPlanning, verrousPlanning, type OperationCreneau } from "@/lib/planning-ecriture";
+import { ecrireCreneaux, messageErreurPlanning, messageMoisFiges, verrousPlanning, type OperationCreneau, type Verrou } from "@/lib/planning-ecriture";
 import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
@@ -81,8 +81,8 @@ export type ResumeGeneration = {
   sousHeures: number;
   /** Refus de l'écriture (interblocage avec une validation de paie) : rien n'a été écrit. */
   erreur?: string;
-  /** « N salariés ignorés : paie validée ou payée (noms). » — salariés dont la paie d'un mois de la
-   *  période est validée ou payée : aucun de leurs créneaux de la période n'a été touché. */
+  /** « Paie validée ou payée : Martine Mutombo (septembre 2026) — ses créneaux de ce mois n'ont pas
+   *  été touchés » — chaque salarié avec le ou les mois figés ; ses autres jours sont planifiés. */
   salariesIgnores?: string;
   /** Besoins/modèles ignorés car pointant sur un shift désactivé ou supprimé — nom si résolu, sinon identifiant brut. */
   shiftsInconnus: string[];
@@ -126,7 +126,10 @@ export async function genererPlanningAuto(
       // servent qu'à l'équité (`estPenible` sur `entrees.historique`) — élargir n'a donc aucun effet
       // de bord sur la couverture.
       prisma.jourFerie.findMany({ where: { date: { gte: debutHistorique, lte: fin } } }),
-      prisma.planningCreneau.findMany({ where: { date: { gte: debut, lte: fin } }, select: { employeeId: true, date: true, shiftId: true } }),
+      prisma.planningCreneau.findMany({
+        where: { date: { gte: debut, lte: fin } },
+        select: { employeeId: true, date: true, shiftId: true, employee: { select: { poste: true } } },
+      }),
       prisma.planningCreneau.findMany({ where: { date: { gte: debutHistorique, lte: veilleDebut } }, select: { employeeId: true, date: true, shiftId: true } }),
       formData.get("modeles") === "on" ? prisma.planningModele.findMany() : Promise.resolve([]),
       prisma.besoinShift.findMany(),
@@ -138,19 +141,31 @@ export async function genererPlanningAuto(
       }),
     ]);
 
-  // Salariés dont la paie d'un mois de la période est VALIDÉE ou PAYÉE : écartés D'AVANCE du moteur
-  // (leur planning est une pièce de paie figée), pour qu'un seul salarié verrouillé ne fasse pas
-  // échouer la génération de toute l'équipe. Contrôle définitif sous verrou partagé plus bas.
+  // Paires (salarié, mois) dont la paie est VALIDÉE ou PAYÉE : seul CE mois de CE salarié est figé
+  // (pièce de paie), jamais toute la période — la semaine du 28/09 au 04/10 avec septembre validé
+  // planifie bien le salarié du 1er au 4 octobre. Tous les salariés restent dans le moteur, qui
+  // n'interdit que les jours des mois figés et compte leurs créneaux figés partout (couverture
+  // comprise). Contrôlés : actifs ET salariés ayant déjà un créneau sur la période (un parti dont
+  // « écraser » effacerait les créneaux). Contrôle définitif sous verrou partagé plus bas.
   const moisPeriode: Date[] = [];
   for (let m = new Date(Date.UTC(debut.getUTCFullYear(), debut.getUTCMonth(), 1)); m <= fin; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))) {
     moisPeriode.push(m);
   }
-  const verrousAvant = await verrousPlanning(
+  const cleMois = (employeeId: string, date: Date) => `${employeeId}|${date.getUTCFullYear()}|${date.getUTCMonth() + 1}`;
+  const verrous = new Map<string, Verrou>(); // `${employeeId}|${annee}|${mois}` → verrou
+  const noterVerrous = (vs: Verrou[]) => { for (const v of vs) verrous.set(`${v.employeeId}|${v.annee}|${v.mois}`, v); };
+  const estFige = (employeeId: string, date: Date) => verrous.has(cleMois(employeeId, date));
+  const aControler = [...new Set([...employes.map((e) => e.id), ...existants.map((x) => x.employeeId)])];
+  noterVerrous(await verrousPlanning(
     prisma,
-    employes.flatMap((e) => moisPeriode.map((date) => ({ employeeId: e.id, date, shiftId: null }))),
-  );
-  const ignores = new Map(verrousAvant.map((v) => [v.employeeId, v.nom]));
-  const employesLibres = employes.filter((e) => !ignores.has(e.id));
+    aControler.flatMap((employeeId) => moisPeriode.map((date) => ({ employeeId, date, shiftId: null }))),
+  ));
+  const figes = existants
+    .filter((x) => estFige(x.employeeId, x.date))
+    .map((x) => ({ employeeId: x.employeeId, date: x.date, shiftId: x.shiftId, poste: x.employee.poste }));
+  const existantsOuverts = existants
+    .filter((x) => !estFige(x.employeeId, x.date))
+    .map((x) => ({ employeeId: x.employeeId, date: x.date, shiftId: x.shiftId }));
 
   const shiftIdParam = String(formData.get("shiftId") ?? "").trim();
   const joursParam = formData.getAll("jours").map(Number).filter((n) => n >= 0 && n <= 6);
@@ -158,7 +173,7 @@ export async function genererPlanningAuto(
   const { creneaux, rapport } = genererPlanning({
     debut,
     fin,
-    employes: employesLibres.map((e) => ({
+    employes: employes.map((e) => ({
       id: e.id, nom: e.nom, poste: e.poste, secteur: e.secteur,
       heuresParJour: Number(e.heuresParJour), heuresHebdomadaires: Number(e.heuresHebdomadaires),
     })),
@@ -175,7 +190,9 @@ export async function genererPlanningAuto(
     modeles: modeles.map((m) => ({ employeeId: m.employeeId, jour: m.jour, semaine: m.semaine, shiftId: m.shiftId })),
     conges: conges.map((c) => ({ employeeId: c.employeeId, dateDebut: c.dateDebut, dateFin: c.dateFin })),
     feries: feries.map((f) => f.date),
-    existants,
+    existants: existantsOuverts,
+    figes,
+    moisVerrouilles: [...verrous.values()].map((v) => ({ employeeId: v.employeeId, annee: v.annee, mois: v.mois })),
     historique,
     options: {
       shiftId: shiftIdParam || undefined,
@@ -206,6 +223,8 @@ export async function genererPlanningAuto(
   });
   let posees = 0;
   try {
+    // Délai : pas de regroupement des `update` (une requête par créneau modifié) : le pire cas
+    // estimé à la relecture, environ 620 créneaux, tient sous DELAI_ECRITURE_PLANNING.
     posees = await prisma.$transaction(async (tx) => {
       const actuels = await tx.planningCreneau.findMany({
         where: { date: { gte: debut, lte: fin } },
@@ -222,13 +241,16 @@ export async function genererPlanningAuto(
           : []),
         ...nouveaux.map((c) => ({ employeeId: c.employeeId, date: c.date, shiftId: c.shiftId })),
       ];
-      // Contrôle définitif, sous verrou partagé (FOR SHARE) : attrape les salariés hors moteur
-      // (inactifs dont « écraser » effacerait les créneaux) et une validation survenue entre-temps.
-      const verrous = await verrousPlanning(tx, operations);
-      for (const v of verrous) ignores.set(v.employeeId, v.nom);
-      const aEcrire = operations.filter((o) => !ignores.has(o.employeeId));
-      await ecrireCreneaux(tx, user.id, aEcrire, { genereAuto: true });
-      return aEcrire.filter((o) => o.shiftId !== null).length;
+      // Contrôle définitif, sous verrou partagé (FOR SHARE) : attrape un créneau posé entre-temps
+      // chez un salarié parti, et une validation survenue entre-temps. Filtré PAR PAIRE (salarié,
+      // mois) : seules les opérations d'un mois verrouillé sont retirées, jamais le reste du salarié.
+      noterVerrous(await verrousPlanning(tx, operations));
+      const aEcrire = operations.filter((o) => !estFige(o.employeeId, o.date));
+      // Effacements puis poses, en deux appels (clés disjointes : un jour effacé ET reposé n'est
+      // qu'une pose) : le second renvoie le nombre de poses RÉELLEMENT changées — une pose identique
+      // à l'existant n'est ni écrite ni comptée.
+      await ecrireCreneaux(tx, user.id, aEcrire.filter((o) => o.shiftId === null), { genereAuto: true });
+      return ecrireCreneaux(tx, user.id, aEcrire.filter((o) => o.shiftId !== null), { genereAuto: true });
     }, { timeout: DELAI_ECRITURE_PLANNING });
   } catch (e) {
     const erreur = messageErreurPlanning(e);
@@ -236,11 +258,7 @@ export async function genererPlanningAuto(
     throw e;
   }
   revalidatePath("/planning");
-  const nomsIgnores = [...new Set(ignores.values())].sort((a, b) => a.localeCompare(b, "fr"));
-  const n = nomsIgnores.length;
-  const salariesIgnores = n === 0
-    ? undefined
-    : `${n} salarié${n > 1 ? "s" : ""} ignoré${n > 1 ? "s" : ""} : paie validée ou payée (${nomsIgnores.join(", ")}).`;
+  const salariesIgnores = messageMoisFiges([...verrous.values()]);
 
   // Identifiants → noms lisibles, uniquement pour l'affichage.
   const nomEmp = new Map(employes.map((e) => [e.id, e.nom]));
@@ -616,13 +634,21 @@ export async function approuverEchange(id: string) {
   requireRole(user, ["ADMIN", "MANAGER"]);
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
   if (!e || e.statut !== "EN_ATTENTE") return;
-  await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "APPROUVE" } });
-  const { fait, erreur } = await finaliserEchangeSiComplet(id, user.id);
-  if (erreur) redirect(`/a-valider?erreur=${encodeURIComponent(erreur)}`);
-  if (!fait) {
-    // En attente du collègue : le prévenir qu'il ne manque que sa réponse.
-    const uB = await compteSalarieDe(e.collegueId);
-    if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "La Direction a approuvé un échange de shift vous concernant — votre accord est attendu.", lien: "/espace/echanges", refId: `${id}:dir` });
+  // Collègue d'accord : l'approbation et la permutation passent ensemble, ou rien (refus du verrou
+  // de paie → la réponse de la Direction reste « en attente »). Sinon : seule l'approbation s'écrit.
+  if (e.reponseCollegue === "ACCEPTE") {
+    const { erreur } = await finaliserEchangeSiComplet(id, user.id, { approbationDirection: true });
+    if (erreur) redirect(`/a-valider?erreur=${encodeURIComponent(erreur)}`);
+  } else {
+    await prisma.echangeCreneau.update({ where: { id }, data: { reponseDirection: "APPROUVE" } });
+    // Le collègue a pu accepter entre-temps (sa finalisation n'a alors pas vu l'approbation).
+    const { fait, erreur } = await finaliserEchangeSiComplet(id, user.id);
+    if (erreur) redirect(`/a-valider?erreur=${encodeURIComponent(erreur)}`);
+    if (!fait) {
+      // En attente du collègue : le prévenir qu'il ne manque que sa réponse.
+      const uB = await compteSalarieDe(e.collegueId);
+      if (uB) await notifierSalarie(uB, { type: "PLANNING", message: "La Direction a approuvé un échange de shift vous concernant — votre accord est attendu.", lien: "/espace/echanges", refId: `${id}:dir` });
+    }
   }
   revalidatePath("/a-valider");
   revalidatePath("/espace/echanges");
