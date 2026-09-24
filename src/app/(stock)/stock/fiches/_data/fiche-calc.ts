@@ -8,6 +8,11 @@
 // sérialisable vers un composant client ET lisible par Decimal sans passer par le flottant.
 
 import type { FicheCalc, IngredientCalc, MotifSansPrix } from "@/lib/fiches/cout";
+import {
+  calculerDisponibilite, libelleRaison,
+  type ArticleDispo, type EtatDispo, type FicheDispo, type ResultatDisponibilite, type StockArticle,
+} from "@/lib/fiches/disponibilite";
+import { formaterNombre } from "@/lib/montant";
 
 /**
  * Article du catalogue, réduit à ce dont la fiche a besoin (prix en texte, pleine précision).
@@ -56,7 +61,7 @@ export type FicheVue = {
 export function nomLigne(
   ligne: LigneFiche,
   index: number,
-  articles: Map<string, ArticleOption>,
+  articles: Map<string, { designation: string }>,
   fiches: Map<string, { nom: string }>,
 ): string {
   if (ligne.articleId) return articles.get(ligne.articleId)?.designation ?? "Article supprimé du catalogue";
@@ -140,3 +145,89 @@ export function coef(v: number | null | undefined): string {
 }
 
 export const TYPE_LABEL: Record<string, string> = { PLAT: "Plat", BAR: "Bar" };
+
+// ─── Disponibilité selon le stock (passerelle vers `src/lib/fiches/disponibilite.ts`) ────────────
+
+/** Entrée du moteur de disponibilité pour une fiche (mêmes libellés que le coût). */
+export function versFicheDispo(
+  vue: FicheVue,
+  articles: Map<string, ArticleDispo>,
+  fiches: Map<string, { nom: string }>,
+): FicheDispo {
+  return {
+    id: vue.id,
+    nom: vue.nom,
+    nbPortions: vue.nbPortions,
+    estSousRecette: vue.estSousRecette,
+    rendementQuantite: vue.rendementQuantite || null,
+    rendementUnite: vue.rendementUnite || null,
+    ingredients: vue.lignes.map((l, i) => ({
+      nom: nomLigne(l, i, articles, fiches),
+      unite: l.unite,
+      quantite: l.quantite,
+      articleId: l.articleId,
+      sousFicheId: l.sousFicheId,
+    })),
+  };
+}
+
+/** Disponibilité de TOUTES les fiches, avec un seul contexte (fiches, articles, stock lus une fois). */
+export function disponibilitesDesFiches(
+  vues: FicheVue[],
+  articles: ArticleDispo[],
+  stocks: Record<string, StockArticle>,
+): Map<string, ResultatDisponibilite> {
+  const mapArticles = new Map(articles.map((a) => [a.id, a]));
+  const noms = new Map(vues.map((v) => [v.id, { nom: v.nom }]));
+  const fiches = new Map(vues.map((v) => [v.id, versFicheDispo(v, mapArticles, noms)]));
+  const contexte = { fiches, articles: mapArticles, stocks: new Map(Object.entries(stocks)) };
+  return new Map(vues.map((v) => [v.id, calculerDisponibilite(fiches.get(v.id)!, contexte)]));
+}
+
+/** Ce que la liste des fiches affiche de la disponibilité (sérialisable vers le client). */
+export type DispoRow = {
+  etat: EtatDispo;
+  portions: number | null;
+  limitant: string | null;
+  enRupture: string[];
+  raisons: string[];
+  /** Sous-recette : son rendement lisible (« 1 000 g »), sinon null. */
+  rendement: string | null;
+};
+
+export function resumerDispo(r: ResultatDisponibilite, vue: Pick<FicheVue, "estSousRecette" | "rendementQuantite" | "rendementUnite">): DispoRow {
+  const q = Number(vue.rendementQuantite);
+  return {
+    etat: r.etat,
+    portions: r.portions,
+    limitant: r.limitant,
+    enRupture: r.enRupture,
+    raisons: r.raisons.map(libelleRaison),
+    rendement: vue.estSousRecette && vue.rendementQuantite && Number.isFinite(q)
+      ? `${formaterNombre(q, { maximumFractionDigits: 3 })} ${vue.rendementUnite || "?"}`
+      : null,
+  };
+}
+
+export const DISPO_CLASSE: Record<EtatDispo, string> = {
+  DISPONIBLE: "bg-emerald-100 text-emerald-800",
+  RUPTURE: "bg-red-100 text-red-800",
+  A_VERIFIER: "bg-amber-100 text-amber-800",
+};
+
+/**
+ * Texte du badge de disponibilité. Un plat se lit en portions ; une sous-recette en rendements
+ * (« 3 × 1 000 g »). `detail` est l'ingrédient limitant (infobulle, et texte visible sur téléphone).
+ */
+export function badgeDispo(d: DispoRow, estSousRecette: boolean): { texte: string; detail: string | null } {
+  if (d.etat === "A_VERIFIER") {
+    const n = d.raisons.length;
+    return { texte: `À vérifier · ${d.raisons[0] ?? "raison inconnue"}${n > 1 ? ` · ${n} raisons` : ""}`, detail: null };
+  }
+  if (d.etat === "RUPTURE") return { texte: `En rupture · ${d.enRupture.join(", ")}`, detail: null };
+  const n = d.portions ?? 0;
+  const quantite = estSousRecette
+    ? d.rendement ? `${n} × ${d.rendement}` : `${n} fournée${n > 1 ? "s" : ""}`
+    : `${n} portion${n > 1 ? "s" : ""}`;
+  return { texte: `Disponible · ${quantite}`, detail: d.limitant ? `Limité par ${d.limitant}` : null };
+}
