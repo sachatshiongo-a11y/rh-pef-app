@@ -47,8 +47,8 @@ const EVT_COLLER = "tableur:coller";
 type DetailCollage = { texte: string; resultat: ResultatCase };
 
 /**
- * Case enregistrée : sa position, la valeur qu'elle avait avant (pour défaire un affichage
- * optimiste), et sa `donnee` telle qu'elle était AU MOMENT DE LA VALIDATION (ex. la date du jour
+ * Case enregistrée : sa position, `precedente` = la dernière valeur CONFIRMÉE par le serveur quand
+ * l'envoi part (pour défaire un affichage optimiste — jamais une valeur seulement envoyée), et sa `donnee` telle qu'elle était AU MOMENT DE LA VALIDATION (ex. la date du jour
  * de la colonne : si la semaine affichée change pendant l'envoi, l'écriture va à la bonne date).
  */
 export type ContexteCase = { ligne: string; col: number; precedente: number | null; donnee?: string };
@@ -150,6 +150,13 @@ export const CelluleNombre = memo(function CelluleNombre({
   const ref = useRef<HTMLInputElement>(null);
   /** Dernière valeur tenue pour enregistrée (serveur, ou envoi réussi / en cours). */
   const enregistree = useRef<number | null>(valeur);
+  /**
+   * Dernière valeur CONFIRMÉE par le serveur (valeur d'origine, ou envoi réussi). C'est la seule
+   * valeur de repli après un échec : jamais une valeur seulement envoyée. (Avant : 1 en base, 5
+   * puis 6 tapés, les deux envois en échec → la case retombait sur 5, jamais enregistré, et
+   * retaper 5 effaçait son signal rouge.) `enregistree` ≠ `confirmee` ⇔ un envoi est en attente.
+   */
+  const confirmee = useRef<number | null>(valeur);
   /** Envois de CETTE case, l'un après l'autre : le dernier tapé est le dernier écrit. */
   const file = useRef<Promise<void>>(Promise.resolve());
   const selectionAuClic = useRef(false);
@@ -190,26 +197,35 @@ export const CelluleNombre = memo(function CelluleNombre({
     marquerPropre();
     if (d.type === "inchange") {
       el.value = ecrireSaisieNombre(enregistree.current); // « 2,50 » → « 2,5 »
-      // Revenue à la valeur enregistrée : plus rien d'illisible ni en attente.
-      if (etatRef.current.type === "invalide" || etatRef.current.type === "erreur") poserEtat(OK);
+      // Revenue à la valeur enregistrée : plus rien d'illisible. Le signal d'échec, lui, ne tombe
+      // que si cette valeur est CONFIRMÉE par le serveur ; encore en route, la case reste signalée
+      // jusqu'à l'issue de son envoi.
+      const confirmeeAffichee = enregistree.current === confirmee.current;
+      if (etatRef.current.type === "invalide") poserEtat(confirmeeAffichee ? OK : { type: "enCours" });
+      else if (etatRef.current.type === "erreur" && confirmeeAffichee) poserEtat(OK);
       return d;
     }
     const v = d.valeur;
-    const precedente = enregistree.current;
     enregistree.current = v;
     el.value = ecrireSaisieNombre(v);
     poserEtat({ type: "enCours" });
-    const contexte: ContexteCase = { ligne, col, precedente, donnee }; // figé MAINTENANT
+    const donneeFigee = donnee; // figée MAINTENANT (ex. le jour de la colonne)
     const enregistrer = onEnregistrer;
     suivi.debut();
     file.current = file.current.then(async () => {
+      // `precedente` = la valeur confirmée au moment où CET envoi part (les envois de la case se
+      // suivent : l'issue du précédent est connue) — c'est elle que l'appelant rétablit en cas
+      // d'échec, jamais une valeur seulement envoyée.
+      const contexte: ContexteCase = { ligne, col, precedente: confirmee.current, donnee: donneeFigee };
       try {
         const r = await enregistrer(v, contexte);
         if (estErreur(r)) throw new Error(r.erreur);
+        confirmee.current = v;
         if (enregistree.current === v) poserEtat(OK);
       } catch (e) {
-        // La case redevient « à enregistrer » : repasser dans la case et valider réessaie.
-        if (enregistree.current === v) enregistree.current = precedente;
+        // La case redevient « à enregistrer » : repasser dans la case et valider réessaie. Le
+        // repli est la dernière valeur confirmée ; la saisie reste affichée, en rouge.
+        if (enregistree.current === v) enregistree.current = confirmee.current;
         poserEtat({ type: "erreur", message: `non enregistré — ${messageDe(e)} Revenez dans la case et validez pour réessayer.` });
       } finally {
         suivi.fin();
@@ -238,6 +254,7 @@ export const CelluleNombre = memo(function CelluleNombre({
   useEffect(() => {
     if (etatRef.current.type === "enCours" || etatRef.current.type === "erreur") return;
     enregistree.current = valeur;
+    confirmee.current = valeur;
     const el = ref.current;
     if (el && document.activeElement !== el && !modifiee.current) el.value = ecrireSaisieNombre(valeur);
   }, [valeur]);
