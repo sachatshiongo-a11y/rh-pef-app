@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
@@ -52,7 +53,7 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache }: { a:
         <td className="text-right tabular-nums text-muted-foreground">{qte(a.theorique)}</td>
         <td className="text-right">
           <input type="hidden" name="recon_articleId" value={a.id} />
-          <CelluleNombre name="recon_physique" ligne={a.id} col={0} valeur={num} onEnregistrer={setNum}
+          <CelluleNombre name="recon_physique" ligne={a.id} col={0} groupe={montrerCat ? undefined : a.categorie} quantite valeur={num} onEnregistrer={setNum}
             placeholder="0" className={`${inp} w-24 text-right`} aria-label={`Quantité physique — ${a.designation}`} />
         </td>
         <td className={`text-right font-medium tabular-nums ${couleurEcart}`}>
@@ -127,6 +128,7 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
         <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise</span>
       </div>
 
+      <ZoneTableur>
       <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
         <table data-tableur="" className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
@@ -152,6 +154,7 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
           </tbody>
         </table>
       </div>
+      </ZoneTableur>
     </form>
   );
 }

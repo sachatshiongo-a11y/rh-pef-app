@@ -7,6 +7,7 @@ import { act, createElement as h, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { CelluleNombre, type Enregistreur } from "./cellule-nombre";
 import { suivi } from "./suivi";
+import { ZoneTableur } from "./messages";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,29 +20,30 @@ import { suivi } from "./suivi";
 //   c : 7  8  9
 //   d : .  .  .     (vides)
 const LIGNES = [
-  { id: "a", v: [1, 2, 3] },
-  { id: "b", v: [4, 5, 6], desactivee: 1 },
-  { id: "x", v: [0, 0, 0], masquee: true },
-  { id: "c", v: [7, 8, 9] },
-  { id: "d", v: [null, null, null] },
+  { id: "a", v: [1, 2, 3], cat: "Catégorie 1" },
+  { id: "b", v: [4, 5, 6], desactivee: 1, cat: "Catégorie 1" },
+  { id: "x", v: [0, 0, 0], masquee: true, cat: "Catégorie 2" },
+  { id: "c", v: [7, 8, 9], cat: "Catégorie 2" },
+  { id: "d", v: [null, null, null], cat: "Catégorie 2" },
 ];
 
 let conteneur: HTMLDivElement;
 let racine: Root;
 let enregistrer: ReturnType<typeof vi.fn>;
 
-function grille(onEnregistrer: Enregistreur, valeurs?: Record<string, (number | null)[]>) {
-  return h("table", { "data-tableur": "" },
+function grille(onEnregistrer: Enregistreur, valeurs?: Record<string, (number | null)[]>, sans?: string) {
+  return h(ZoneTableur, null, h("table", { "data-tableur": "" },
     h("tbody", null,
-      LIGNES.map((l) => h(Fragment, { key: l.id },
+      LIGNES.filter((l) => l.id !== sans).map((l) => h(Fragment, { key: l.id },
         l.id === "x" && h("tr", null, h("td", { colSpan: 3 }, "Catégorie 2")),
         h("tr", { hidden: l.masquee || undefined },
           [0, 1, 2].map((c) => h("td", { key: c },
             h(CelluleNombre, {
-              ligne: l.id, col: c, valeur: (valeurs?.[l.id] ?? l.v)[c], onEnregistrer, min: 0,
+              ligne: l.id, col: c, valeur: (valeurs?.[l.id] ?? l.v)[c], onEnregistrer, min: 0, groupe: l.cat,
               disabled: l.desactivee === c, "aria-label": `${l.id}${c}`,
-            }))))))));
+            })))))))));
 }
+const zone = () => conteneur.querySelector('[role="status"]')!.textContent ?? "";
 
 beforeEach(() => {
   enregistrer = vi.fn(async () => {});
@@ -156,6 +158,17 @@ describe("CelluleNombre — clavier", () => {
     expect(active()).toBe("c1");
   });
 
+  it("↑ ↓ avec une saisie illisible : la case reste, en rouge, avec sa saisie (comme Entrée)", async () => {
+    const el = cas("a0");
+    focus(el);
+    taper(el, "abc");
+    await touche(el, "ArrowDown");
+    expect(active()).toBe("a0");
+    expect(el.value).toBe("abc");
+    expect(el.getAttribute("aria-invalid")).toBe("true");
+    expect(zone()).toContain("a0 : « abc » n'est pas un nombre.");
+  });
+
   it("↑ et ↓ ne changent jamais la valeur", async () => {
     const el = cas("a0");
     focus(el);
@@ -247,6 +260,7 @@ describe("CelluleNombre — enregistrement", () => {
     expect(el.getAttribute("aria-invalid")).toBe("true");
     expect(el.title).toContain("Base injoignable.");
     expect(suivi.etat().enErreur).toBe(1); // quitter la page demandera confirmation
+    expect(zone()).toContain("a0 : non enregistré — Base injoignable."); // en texte, lisible sur téléphone
     focus(el);
     await act(async () => el.blur()); // même texte : mais il n'est pas en base, on réessaie
     expect(enregistrer).toHaveBeenCalledTimes(2);
@@ -271,21 +285,45 @@ describe("CelluleNombre — collage d'un bloc Excel", () => {
     return act(async () => { el.dispatchEvent(ev); });
   }
 
-  it("remplit les cases à partir de la case active, en sautant désactivées et en-têtes, dans la limite de la grille", async () => {
-    await coller(cas("a1"), "10\t11\t12\r\n13\t14\r\n15\t16\r\n17\t18\r\n19\t20\r\n");
-    // a1, a2 ; b1 désactivée (13 non collé, pas décalé), b2 ; c1, c2 ; d1, d2 ; la 5e ligne sort.
-    expect(["a1", "a2", "b1", "b2", "c1", "c2", "d1", "d2"].map((n) => cas(n).value))
-      .toEqual(["10", "11", "5", "14", "15", "16", "17", "18"]);
-    expect(enregistrer).toHaveBeenCalledTimes(7);
+  it("remplit à partir de la case active, sans décaler sur les désactivées, et affiche un bilan", async () => {
+    await coller(cas("a1"), "10\t11\t12\r\n13\t14\r\n");
+    // a1, a2 ; b1 désactivée (13 non collé, pas décalé), b2 ; « 12 » sort de la grille.
+    expect(["a1", "a2", "b1", "b2"].map((n) => cas(n).value)).toEqual(["10", "11", "5", "14"]);
+    expect(enregistrer).toHaveBeenCalledTimes(3);
     expect(enregistrer).toHaveBeenCalledWith(14, { ligne: "b", col: 2, precedente: 6 });
+    expect(zone()).toContain("Collage : 3 cases remplacées, 0 effacée, 2 ignorées (2 hors grille ou non modifiables).");
   });
 
-  it("chaque case collée passe par la même validation (illisible refusé, inchangé ignoré)", async () => {
+  it("REFUSÉ, rien n'est écrit, s'il traverse une catégorie (ex. export Excel recollé)", async () => {
+    await coller(cas("b0"), "40\n70\n");
+    expect(enregistrer).not.toHaveBeenCalled();
+    expect([cas("b0").value, cas("c0").value]).toEqual(["4", "7"]);
+    expect(zone()).toContain("Le bloc collé traverse une catégorie : collez catégorie par catégorie.");
+  });
+
+  it("REFUSÉ s'il compte plus de lignes qu'il n'en reste", async () => {
+    await coller(cas("d0"), "1\n2\n");
+    expect(enregistrer).not.toHaveBeenCalled();
+    expect(zone()).toMatch(/2 lignes, mais il n'en reste que 1/);
+  });
+
+  it("une case vide du bloc n'efface JAMAIS une valeur existante", async () => {
+    await coller(cas("c0"), "\t80\t\r\n");
+    expect(["c0", "c1", "c2"].map((n) => cas(n).value)).toEqual(["7", "80", "9"]);
+    expect(enregistrer).toHaveBeenCalledTimes(1);
+    expect(zone()).toContain("2 vides — une case vide n'efface rien");
+  });
+
+  it("chaque case collée passe par la même validation (illisible refusé, inchangé ignoré, ambigu signalé)", async () => {
     await coller(cas("a0"), "1\tabc\t3,5");
     expect(cas("a1").value).toBe("2");
     expect(cas("a1").getAttribute("aria-invalid")).toBe("true");
     expect(enregistrer).toHaveBeenCalledTimes(1); // a0 inchangé (1), a2 : 3,5
     expect(enregistrer).toHaveBeenCalledWith(3.5, { ligne: "a", col: 2, precedente: 3 });
+    expect(zone()).toContain("1 refusée (illisible ou ambiguë");
+    expect(zone()).toContain("1 case déjà à la bonne valeur");
+    await coller(cas("c1"), "1,250\t2");
+    expect(zone()).toContain("1 valeur ambiguë (ex. « 1,250 ») lue comme décimale");
   });
 
   it("une seule valeur : collage ordinaire dans la case", async () => {
@@ -295,5 +333,55 @@ describe("CelluleNombre — collage d'un bloc Excel", () => {
     await act(async () => { el.dispatchEvent(ev); });
     expect(ev.defaultPrevented).toBe(false);
     expect(enregistrer).not.toHaveBeenCalled();
+  });
+});
+
+describe("CelluleNombre — aucune frappe en attente perdue", () => {
+  it("dès la frappe, la case entre dans le suivi (confirmation avant de quitter)", () => {
+    const el = cas("a0");
+    focus(el);
+    taper(el, "9");
+    expect(suivi.etat().modifiees).toBe(1);
+    expect(suivi.etat().ecoute).toBe(true);
+  });
+
+  it("une case qui disparaît avec une frappe en attente l'enregistre (ex. ligne filtrée)", async () => {
+    const el = cas("c1");
+    focus(el);
+    taper(el, "55");
+    await act(async () => racine.render(grille(enregistrer as Enregistreur, undefined, "c")));
+    expect(enregistrer).toHaveBeenCalledWith(55, { ligne: "c", col: 1, precedente: 8 });
+    expect(suivi.etat().modifiees).toBe(0);
+  });
+
+  it("une frappe illisible qui disparaît est signalée sous la grille, jamais avalée", async () => {
+    const el = cas("c1");
+    focus(el);
+    taper(el, "5,5,5");
+    await act(async () => racine.render(grille(enregistrer as Enregistreur, undefined, "c")));
+    expect(enregistrer).not.toHaveBeenCalled();
+    expect(zone()).toContain("c1 : saisie « 5,5,5 » NON enregistrée");
+  });
+
+  it("page masquée (téléphone verrouillé, onglet quitté) : la frappe en attente est enregistrée", async () => {
+    const el = cas("a2");
+    focus(el);
+    taper(el, "33");
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    try {
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    } finally {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    }
+    expect(enregistrer).toHaveBeenCalledWith(33, { ligne: "a", col: 2, precedente: 3 });
+    expect(suivi.etat().modifiees).toBe(0);
+  });
+
+  it("Échap retire la case du suivi", async () => {
+    const el = cas("a0");
+    focus(el);
+    taper(el, "9");
+    await touche(el, "Escape");
+    expect(suivi.etat().modifiees).toBe(0);
   });
 });

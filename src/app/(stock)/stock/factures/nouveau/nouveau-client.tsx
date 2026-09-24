@@ -5,6 +5,7 @@ import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from 
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
+import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur ou du PDF → 12,5 affiché). */
@@ -224,6 +225,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </span>
       </label>
 
+      <ZoneTableur>
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
         {/* Tableur : Entrée descend (et ajoute une ligne en bas) sans envoyer la facture ; Tab reste
             celui du navigateur, pour passer aussi par l'article, la désignation et l'unité. */}
@@ -254,7 +256,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
                 <td className="px-2 py-1">
                   <input type="hidden" name="ligne_quantite" value={l.quantite} />
                   <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })}
-                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} className={`${inp} w-24 text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} quantite className={`${inp} w-24 text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
                 </td>
                 <td className="px-2 py-1">
                   <input type="hidden" name="ligne_prix" value={l.prix} />
@@ -270,6 +272,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
           </tbody>
         </table>
       </div>
+      </ZoneTableur>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" onClick={ajouterLigne} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>

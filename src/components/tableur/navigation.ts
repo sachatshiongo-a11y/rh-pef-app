@@ -6,7 +6,7 @@
 // `grille[l][c]` vaut vrai si la case existe et accepte la saisie (ni désactivée ni en lecture
 // seule). Les lignes peuvent être de longueurs différentes : une case absente vaut faux.
 
-import { lireSaisieNombre } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
 
 export type Position = { l: number; c: number };
 export type Grille = ReadonlyArray<ReadonlyArray<boolean>>;
@@ -107,12 +107,15 @@ export function intentionClavier(t: Touche, curseur: Curseur): Intention {
   }
 }
 
-/** Règles d'une case numérique (bornes incluses). */
-export type Regles = { min?: number; max?: number; entier?: boolean };
+/**
+ * Règles d'une case numérique (bornes incluses). `quantite` : colonne de quantité de stock, où
+ * « 1,250 » (1,25 ou 1 250 ?) est refusé comme ambigu — de même dans les colonnes `entier`.
+ */
+export type Regles = { min?: number; max?: number; entier?: boolean; quantite?: boolean };
 
 export type Decision =
   | { type: "inchange" }
-  | { type: "enregistrer"; valeur: number | null }
+  | { type: "enregistrer"; valeur: number | null; ambigu?: true }
   | { type: "invalide"; message: string };
 
 const egales = (a: number | null, b: number | null) =>
@@ -124,15 +127,28 @@ const egales = (a: number | null, b: number | null) =>
  * s'il est lisible et dans les bornes, sinon le refuser avec un message. Vide = effacer.
  */
 export function decisionSortie(texte: string, enregistree: number | null, regles: Regles = {}): Decision {
-  const lu = lireSaisieNombre(texte);
-  if (!lu.ok) return { type: "invalide", message: `« ${texte.trim()} » n'est pas un nombre.` };
+  // L'écriture même de la valeur enregistrée (ex. « 1,125 » kg affiché) n'est jamais refusée.
+  if (texte.trim() === ecrireSaisieNombre(enregistree)) return { type: "inchange" };
+  const lu = lireSaisieNombre(texte, { ambigu: regles.entier || regles.quantite ? "refuser" : "decimal" });
+  if (!lu.ok) {
+    const t = texte.trim();
+    if (lu.raison === "illisible") return { type: "invalide", message: `« ${t} » n'est pas un nombre.` };
+    const decimal = lireSaisieNombre(t);
+    const commeDecimal = ecrireSaisieNombre(decimal.ok ? decimal.valeur : null);
+    const commeEntier = t.replace(/[.,]/, "");
+    return {
+      type: "invalide",
+      message: `« ${t} » est ambigu (${commeDecimal} ou ${commeEntier} ?) : écrivez ${commeEntier} pour l'entier, ou ${t.replace(/[.,]/, ",")}0 pour le décimal.`,
+    };
+  }
   const v = lu.valeur;
   if (v !== null) {
     if (regles.entier && !Number.isInteger(v)) return { type: "invalide", message: "Nombre entier attendu." };
     if (regles.min !== undefined && v < regles.min) return { type: "invalide", message: `Minimum : ${regles.min}.` };
     if (regles.max !== undefined && v > regles.max) return { type: "invalide", message: `Maximum : ${regles.max}.` };
   }
-  return egales(v, enregistree) ? { type: "inchange" } : { type: "enregistrer", valeur: v };
+  if (egales(v, enregistree)) return { type: "inchange" };
+  return lu.ambigu ? { type: "enregistrer", valeur: v, ambigu: true } : { type: "enregistrer", valeur: v };
 }
 
 /**
@@ -149,18 +165,65 @@ export function analyserCollage(texte: string): string[][] {
 /** Vrai si le bloc couvre plus d'une case (sinon, collage ordinaire dans la case). */
 export const estCollageMultiple = (bloc: string[][]) => bloc.length > 1 || (bloc[0]?.length ?? 0) > 1;
 
+export const MESSAGE_COLLAGE_CATEGORIE = "Le bloc collé traverse une catégorie : collez catégorie par catégorie. Rien n'a été collé.";
+
+export type PlanCollage =
+  | { type: "refus"; message: string }
+  | { type: "ok"; cibles: { l: number; c: number; texte: string }[]; vides: number; horsGrille: number };
+
 /**
- * Cases remplies par un collage à partir de la case active : la case (l + i, c + j) reçoit
- * bloc[i][j]. Ce qui dépasse la grille est ignoré ; une case désactivée garde sa valeur (la
- * valeur collée n'est pas décalée sur la voisine, pour que chaque nombre tombe sous sa colonne).
+ * Plan d'un collage à partir de la case active : la case (l + i, c + j) reçoit bloc[i][j].
+ *
+ * REFUSÉ en entier — rien n'est écrit — si le bloc compte plus de lignes qu'il n'en reste sous la
+ * case active, ou s'il franchit une ligne de catégorie (`groupes[l]` change) : un export Excel
+ * contient une ligne par catégorie, et le recoller décalerait sinon chaque valeur d'une ligne à
+ * chaque catégorie. Une case VIDE du bloc n'efface jamais rien : elle est ignorée (comptée).
+ * Les colonnes qui dépassent, et les cases désactivées, sont ignorées (comptées) — sans décaler
+ * la valeur sur la voisine, pour que chaque nombre tombe sous sa colonne.
  */
-export function ciblesCollage(g: Grille, depart: Position, bloc: string[][]): { l: number; c: number; texte: string }[] {
+export function planCollage(
+  g: Grille, groupes: ReadonlyArray<string | undefined>, depart: Position, bloc: string[][]
+): PlanCollage {
+  const reste = g.length - depart.l;
+  if (bloc.length > reste) {
+    return { type: "refus", message: `Le bloc collé compte ${bloc.length} lignes, mais il n'en reste que ${reste} à partir de cette case. Rien n'a été collé.` };
+  }
+  for (let i = 1; i < bloc.length; i++) {
+    if (groupes[depart.l + i] !== groupes[depart.l]) return { type: "refus", message: MESSAGE_COLLAGE_CATEGORIE };
+  }
   const cibles: { l: number; c: number; texte: string }[] = [];
+  let vides = 0, horsGrille = 0;
   bloc.forEach((ligne, i) =>
     ligne.forEach((texte, j) => {
       const l = depart.l + i, c = depart.c + j;
-      if (ok(g, l, c)) cibles.push({ l, c, texte });
+      if (texte.trim() === "") vides++;
+      else if (!ok(g, l, c)) horsGrille++;
+      else cibles.push({ l, c, texte });
     })
   );
-  return cibles;
+  return { type: "ok", cibles, vides, horsGrille };
+}
+
+/** Résultat de chaque case collée, pour le bilan. */
+export type ResultatCase = "remplacee" | "inchangee" | "illisible" | "ambigue";
+
+const pl = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
+
+/** « N cases remplacées, M effacées, K ignorées (…) » — affiché sous la grille après un collage. */
+export function bilanCollage(plan: { vides: number; horsGrille: number }, resultats: ResultatCase[]): string {
+  const n = (r: ResultatCase) => resultats.filter((x) => x === r).length;
+  const remplacees = n("remplacee") + n("ambigue");
+  const illisibles = n("illisible");
+  const ignorees = plan.vides + plan.horsGrille + illisibles;
+  const details = [
+    plan.vides && `${pl(plan.vides, "vide")} — une case vide n'efface rien`,
+    plan.horsGrille && `${plan.horsGrille} hors grille ou non modifiable${plan.horsGrille > 1 ? "s" : ""}`,
+    illisibles && `${illisibles} refusée${illisibles > 1 ? "s" : ""} (illisible ou ambiguë, signalée${illisibles > 1 ? "s" : ""} ci-dessous)`,
+  ].filter(Boolean);
+  let t = `Collage : ${pl(remplacees, "case")} remplacée${remplacees > 1 ? "s" : ""}, 0 effacée, ${ignorees} ignorée${ignorees > 1 ? "s" : ""}`;
+  if (details.length) t += ` (${details.join(", ")})`;
+  t += ".";
+  if (n("inchangee")) t += ` ${pl(n("inchangee"), "case")} déjà à la bonne valeur.`;
+  if (n("ambigue")) t += ` ${n("ambigue")} valeur${n("ambigue") > 1 ? "s" : ""} ambiguë${n("ambigue") > 1 ? "s" : ""} (ex. « 1,250 ») lue${n("ambigue") > 1 ? "s" : ""} comme décimale${n("ambigue") > 1 ? "s" : ""} : vérifiez.`;
+  return t;
 }

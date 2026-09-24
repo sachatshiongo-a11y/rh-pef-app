@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { definirBesoin } from "./actions";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 
 // Colonnes lundi→dimanche ; valeur = jourSemaine (0=dim … 6=sam).
 const COLONNES: { label: string; dow: number }[] = [
@@ -63,6 +64,7 @@ export function BesoinsManager({
         {shifts.map((s) => (
           <div key={s.id}>
             <div className="mb-1 text-sm font-semibold">{s.nom}</div>
+            <ZoneTableur>
             <div className="max-h-[70vh] overflow-auto">
               <table data-tableur="" className="text-sm">
                 <thead>
@@ -97,6 +99,7 @@ export function BesoinsManager({
                 </tbody>
               </table>
             </div>
+            </ZoneTableur>
           </div>
         ))}
       </div>

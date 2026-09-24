@@ -54,7 +54,7 @@ function taper(el: HTMLInputElement, texte: string) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
-const heures = (nom: string) => conteneur.querySelector<HTMLInputElement>(`[aria-label="Heures de ${nom}"]`)!;
+const heures = (nom: string) => conteneur.querySelector<HTMLInputElement>(`[aria-label^="Heures de ${nom} —"]`)!;
 
 describe("Présences mobile — heures", () => {
   it("taper « 7,5 » puis quitter la case : 1 seul appel, à la sortie, avec 7.5", async () => {
@@ -83,5 +83,26 @@ describe("Présences mobile — heures", () => {
 
   it("aucun champ type=number dans la grille (menu et actions groupées compris)", () => {
     expect(conteneur.querySelectorAll('input[type="number"]')).toHaveLength(0);
+  });
+
+  it("changer de jour avec une frappe en attente l'enregistre sur le jour QUITTÉ", async () => {
+    const c = heures("Bruno");
+    act(() => c.focus());
+    taper(c, "6");
+    const suivant = conteneur.querySelector<HTMLButtonElement>('[aria-label="Jour suivant"]')!;
+    await act(async () => suivant.click()); // au doigt, le bouton ne prend pas toujours le focus
+    expect(m.saisirHeures).toHaveBeenCalledTimes(1);
+    expect(m.saisirHeures).toHaveBeenCalledWith("e2", "2026-09-01", "6");
+    expect(heures("Bruno").getAttribute("aria-label")).toContain("2");
+  });
+
+  it("un échec d'enregistrement annule la valeur locale et reste signalé sous la liste", async () => {
+    m.saisirHeures.mockRejectedValueOnce(new Error("Réseau coupé."));
+    const c = heures("Bruno");
+    act(() => c.focus());
+    taper(c, "6");
+    await act(async () => c.blur());
+    expect(c.getAttribute("aria-invalid")).toBe("true");
+    expect(conteneur.querySelector('[role="status"]')!.textContent).toContain("Réseau coupé.");
   });
 });

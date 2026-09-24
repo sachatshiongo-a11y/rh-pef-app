@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  analyserCollage, ciblesCollage, decisionSortie, deplacer, estCollageMultiple, intentionClavier,
-  type Grille,
+  analyserCollage, bilanCollage, decisionSortie, deplacer, estCollageMultiple, intentionClavier, planCollage,
+  MESSAGE_COLLAGE_CATEGORIE, type Grille,
 } from "./navigation";
 import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
 
@@ -118,13 +118,28 @@ describe("lireSaisieNombre — saisie à la française", () => {
     expect(lireSaisieNombre("1 250")).toEqual({ ok: true, valeur: 1250 });
     expect(lireSaisieNombre("1 250")).toEqual({ ok: true, valeur: 1250 });
   });
+  it("espaces : seulement par groupes de 3 chiffres (« 1 250 » oui, « 1 5 » et « 2 5 » non)", () => {
+    expect(lireSaisieNombre("12 500 000")).toEqual({ ok: true, valeur: 12500000 });
+    for (const s of ["1 5", "2 5", "12 50", "1 2500", "1  250"]) expect(lireSaisieNombre(s), s).toEqual({ ok: false, raison: "illisible" });
+  });
+  it("« 1,250 » / « 1.250 » : ambigu — lu décimal et signalé par défaut, refusé sur demande", () => {
+    for (const s of ["1,250", "1.250", "12,500", "250.000", "-1,250"]) {
+      expect(lireSaisieNombre(s), s).toMatchObject({ ok: true, ambigu: true });
+      expect(lireSaisieNombre(s, { ambigu: "refuser" }), s).toEqual({ ok: false, raison: "ambigu" });
+    }
+    expect(lireSaisieNombre("1,250")).toEqual({ ok: true, valeur: 1.25, ambigu: true });
+    // Pas ambigus : autre nombre de décimales, zéro devant, ou milliers déjà marqués par des espaces.
+    for (const [s, v] of [["1,25", 1.25], ["1,2500", 1.25], ["0,250", 0.25], ["1250", 1250], ["1 250,500", 1250.5], ["1234,567", 1234.567]] as const) {
+      expect(lireSaisieNombre(s, { ambigu: "refuser" }), s).toEqual({ ok: true, valeur: v });
+    }
+  });
   it("vide = effacer (valeur null), pas zéro", () => {
     expect(lireSaisieNombre("")).toEqual({ ok: true, valeur: null });
     expect(lireSaisieNombre("   ")).toEqual({ ok: true, valeur: null });
   });
   it("invalide : signalé, jamais lu comme zéro", () => {
     for (const s of ["abc", "2,5,1", "1.250,5", "2..5", "1e3", "0x10", "Infinity", "12a", "-", ",", "5 kg"]) {
-      expect(lireSaisieNombre(s), s).toEqual({ ok: false });
+      expect(lireSaisieNombre(s), s).toEqual({ ok: false, raison: "illisible" });
     }
   });
   it("écriture relisible : virgule, sans exposant ni bruit de flottant", () => {
@@ -133,7 +148,7 @@ describe("lireSaisieNombre — saisie à la française", () => {
     expect(ecrireSaisieNombre(0.1 + 0.2)).toBe("0,3");
     expect(ecrireSaisieNombre(1e-7)).toBe("0,0000001");
     expect(ecrireSaisieNombre(null)).toBe("");
-    for (const n of [0, 3, 2.5, 1250.125, 0.001, 1e-7]) expect(lireSaisieNombre(ecrireSaisieNombre(n))).toEqual({ ok: true, valeur: n });
+    for (const n of [0, 3, 2.5, 1250.125, 0.001, 1e-7]) expect(lireSaisieNombre(ecrireSaisieNombre(n))).toMatchObject({ ok: true, valeur: n });
   });
 });
 
@@ -147,6 +162,14 @@ describe("decisionSortie — enregistrer seulement ce qui a changé", () => {
     expect(decisionSortie("3", 2.5)).toEqual({ type: "enregistrer", valeur: 3 });
     expect(decisionSortie("", 2.5)).toEqual({ type: "enregistrer", valeur: null });
     expect(decisionSortie("0", null)).toEqual({ type: "enregistrer", valeur: 0 });
+  });
+  it("colonnes entières ou de quantité : « 1,250 » refusé comme ambigu ; ailleurs lu décimal et marqué", () => {
+    expect(decisionSortie("1,250", null, { quantite: true })).toMatchObject({ type: "invalide", message: expect.stringMatching(/ambigu \(1,25 ou 1250 \?\)/) });
+    expect(decisionSortie("1.250", null, { entier: true })).toMatchObject({ type: "invalide" });
+    expect(decisionSortie("1,250", null)).toEqual({ type: "enregistrer", valeur: 1.25, ambigu: true });
+    // … mais l'écriture même d'une valeur enregistrée (1,125 kg) n'est jamais refusée.
+    expect(decisionSortie("1,125", 1.125, { quantite: true })).toEqual({ type: "inchange" });
+    expect(decisionSortie("1,1250", null, { quantite: true })).toEqual({ type: "enregistrer", valeur: 1.125 });
   });
   it("illisible ou hors bornes : refusé, avec un message", () => {
     expect(decisionSortie("abc", 1)).toMatchObject({ type: "invalide" });
@@ -169,13 +192,33 @@ describe("collage d'un bloc Excel", () => {
     expect(estCollageMultiple(analyserCollage("5\t6"))).toBe(true);
     expect(estCollageMultiple(analyserCollage("5\n6"))).toBe(true);
   });
-  it("remplit à partir de la case active, dans la limite de la grille, sans décaler sur les désactivées", () => {
-    const bloc = analyserCollage("a\tb\tc\td\ne\tf\tg\th\ni\tj\tk\tl\nm\tn\to\tp\nq\tr\ts\tt\n");
-    expect(ciblesCollage(G, { l: 0, c: 1 }, bloc)).toEqual([
-      { l: 0, c: 1, texte: "a" }, { l: 0, c: 2, texte: "b" }, // c, d : hors grille
-      /* l1 c1 désactivée : « e » perdu, pas décalé */ { l: 1, c: 2, texte: "f" },
-      /* l2 entièrement désactivée */
-      { l: 3, c: 1, texte: "m" }, // l3 n'a pas de 3e colonne ; la 5e ligne du bloc sort de la grille
-    ]);
+  const GROUPES = ["A", "A", "A", "B"]; // l3 est dans une autre catégorie
+  it("remplit à partir de la case active, sans décaler sur les désactivées ; colonnes en trop ignorées", () => {
+    const plan = planCollage(G, GROUPES, { l: 0, c: 1 }, analyserCollage("a\tb\tc\ne\tf\n"));
+    expect(plan).toEqual({
+      type: "ok",
+      cibles: [{ l: 0, c: 1, texte: "a" }, { l: 0, c: 2, texte: "b" }, { l: 1, c: 2, texte: "f" }],
+      vides: 0,
+      horsGrille: 2, // « c » dépasse la grille, « e » tombe sur la case désactivée (pas décalé)
+    });
+  });
+  it("REFUSÉ s'il traverse une catégorie (export Excel : une ligne par catégorie)", () => {
+    expect(planCollage(G, GROUPES, { l: 1, c: 0 }, analyserCollage("1\n2\n3\n"))).toEqual({ type: "refus", message: MESSAGE_COLLAGE_CATEGORIE });
+    expect(MESSAGE_COLLAGE_CATEGORIE).toMatch(/^Le bloc collé traverse une catégorie : collez catégorie par catégorie/);
+  });
+  it("REFUSÉ s'il compte plus de lignes qu'il n'en reste sous la case active", () => {
+    const plan = planCollage(G, [undefined, undefined, undefined, undefined], { l: 2, c: 0 }, analyserCollage("1\n2\n3"));
+    expect(plan).toMatchObject({ type: "refus" });
+    expect(plan.type === "refus" && plan.message).toMatch(/3 lignes.*il n'en reste que 2/);
+  });
+  it("une case vide du bloc n'efface jamais rien : ignorée et comptée", () => {
+    const plan = planCollage(G, GROUPES, { l: 0, c: 0 }, analyserCollage("\t5\t\n"));
+    expect(plan).toEqual({ type: "ok", cibles: [{ l: 0, c: 1, texte: "5" }], vides: 2, horsGrille: 0 });
+  });
+  it("bilan lisible : remplacées, 0 effacée, ignorées avec le détail, ambiguës signalées", () => {
+    expect(bilanCollage({ vides: 2, horsGrille: 1 }, ["remplacee", "ambigue", "illisible", "inchangee"])).toBe(
+      "Collage : 2 cases remplacées, 0 effacée, 4 ignorées (2 vides — une case vide n'efface rien, 1 hors grille ou non modifiable, 1 refusée (illisible ou ambiguë, signalée ci-dessous)). 1 case déjà à la bonne valeur. 1 valeur ambiguë (ex. « 1,250 ») lue comme décimale : vérifiez."
+    );
+    expect(bilanCollage({ vides: 0, horsGrille: 0 }, ["remplacee"])).toBe("Collage : 1 case remplacée, 0 effacée, 0 ignorée.");
   });
 });

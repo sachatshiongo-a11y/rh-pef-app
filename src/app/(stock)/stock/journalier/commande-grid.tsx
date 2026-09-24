@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { qte } from "@/lib/stock";
 import { saisirCommandeResto, saisirCommandeLegume, rafraichirJournalier } from "./actions";
 import { normTexte } from "@/lib/texte";
-import { estErreur, messageDe } from "@/lib/action-lisible";
+import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 
 export type CmdArticle = { id: string; designation: string; categorie: string };
 export type CmdJour = { iso: string; label: string };
@@ -34,12 +35,6 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
   // (une ligne masquée puis ré-affichée retrouve ce qui a été tapé) et font les totaux en direct.
   const [saisies, setSaisies] = useState<Record<string, number | null>>({});
   const [enCours, setEnCours] = useState(0);
-  const [erreur, setErreur] = useState<string | null>(null);
-
-  // L'enregistreur est UNIQUE et stable pour toute la grille (sinon chaque case se re-rendrait) :
-  // il lit jours et articles au moment de l'appel.
-  const courant = useRef({ jours, articles });
-  useLayoutEffect(() => { courant.current = { jours, articles }; });
 
   // Revalidation groupée : une fois la saisie au repos, et en quittant l'onglet.
   const aRafraichir = useRef(false);
@@ -53,24 +48,24 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
   }, []);
   useEffect(() => () => rafraichir(), [rafraichir]);
 
-  const onEnregistrer = useCallback(async (v: number | null, { ligne, col, precedente }: ContexteCase) => {
-    const { jours: js, articles: arts } = courant.current;
-    const jour = js[col];
-    const k = `${ligne}_${jour.iso}`;
+  // L'enregistreur est UNIQUE et stable pour toute la grille (sinon chaque case se re-rendrait).
+  // L'article (`ligne`) et la date (`donnee`) sont ceux FIGÉS à la validation de la case : si la
+  // semaine affichée change pendant l'envoi, la quantité va quand même à la bonne date.
+  const onEnregistrer = useCallback(async (v: number | null, { ligne, precedente, donnee: iso }: ContexteCase) => {
+    if (!iso) throw new Error("Date de la case inconnue.");
+    const k = `${ligne}_${iso}`;
     setSaisies((p) => ({ ...p, [k]: v }));
     setEnCours((n) => n + 1);
     clearTimeout(minuteur.current);
     try {
       const r = ligne.startsWith("legume:")
-        ? await saisirCommandeLegume(ligne.slice(7), jour.iso, v ?? 0)
-        : await saisirCommandeResto(ligne, jour.iso, v ?? 0);
+        ? await saisirCommandeLegume(ligne.slice(7), iso, v ?? 0)
+        : await saisirCommandeResto(ligne, iso, v ?? 0);
       if (estErreur(r)) throw new Error(r.erreur);
       aRafraichir.current = true;
     } catch (e) {
       setSaisies((p) => ({ ...p, [k]: precedente })); // le total ne compte que ce qui est en base
-      const nom = arts.find((a) => a.id === ligne)?.designation ?? ligne;
-      setErreur(`${nom} (${jour.label}) non enregistré : ${messageDe(e)}`);
-      throw e; // … et la case le montre en rouge
+      throw e; // … et la case le signale (en rouge, et en texte sous la grille avec article et jour)
     } finally {
       setEnCours((n) => n - 1);
       minuteur.current = setTimeout(rafraichir, REPOS_AVANT_RAFRAICHISSEMENT_MS);
@@ -93,12 +88,7 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
     <div className="space-y-2">
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
       <p className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</p>
-      {erreur && (
-        <p className="flex items-start justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <span>{erreur} La case est restée en rouge : revenez-y et validez pour réessayer.</span>
-          <button type="button" onClick={() => setErreur(null)} className="shrink-0 text-xs underline">Masquer</button>
-        </p>
-      )}
+      <ZoneTableur>
       <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
         <table data-tableur="" className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
@@ -130,6 +120,7 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
           )}
         </table>
       </div>
+      </ZoneTableur>
       {enCours > 0 && <p className="text-xs text-muted-foreground">Enregistrement…</p>}
     </div>
   );
@@ -155,7 +146,7 @@ const LigneCommande = memo(function LigneCommande({ a, jours, valeurs, peutModif
       <td className="sticky left-0 z-10 bg-background font-medium">{a.designation}</td>
       {jours.map((j, i) => (
         <td key={j.iso} className="text-right">
-          <CelluleNombre ligne={a.id} col={i} valeur={valeurs[i]} onEnregistrer={onEnregistrer} min={0}
+          <CelluleNombre ligne={a.id} col={i} donnee={j.iso} groupe={a.categorie} valeur={valeurs[i]} onEnregistrer={onEnregistrer} min={0} quantite
             disabled={!peutModifier} placeholder="—" className={inp} aria-label={`${a.designation} — ${j.label}`} />
         </td>
       ))}

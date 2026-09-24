@@ -7,6 +7,7 @@ import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, b
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 
 /** Valeur d'une case numérique à partir du texte reçu du serveur (« 12.5 », « » → null). */
@@ -325,6 +326,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </form>
       )}
 
+      <ZoneTableur>
       {/* Mobile : cartes éditables (une par article), groupées par catégorie. */}
       <div data-tableur="" data-tableur-tab="natif" className="space-y-2 lg:hidden">
         {affichees.map((a, i) => (
@@ -386,6 +388,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           )}
         </table>
       </div>
+      </ZoneTableur>
     </div>
   );
 }
@@ -437,7 +440,7 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
-      <td><CelluleNombre ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
+      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
       <td>
         <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
@@ -457,8 +460,8 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td><input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
       <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
-      <td><CelluleNombre ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
-      <td><CelluleNombre ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
+      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
+      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
     </tr>
   );
 });
@@ -495,7 +498,7 @@ const CarteArticle = memo(function CarteArticle({
           <span className={`rounded border px-1.5 py-1.5 text-right text-xs font-medium tabular-nums ${Number(a.quantite) < 0 ? "border-red-300 bg-red-50 text-red-700" : "border-input/40 bg-muted/40 text-muted-foreground"}`}>{a.quantite}</span>
         </label>
         <label className={champLabel}>Stock min.
-          <CelluleNombre ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
+          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
         </label>
         <label className={`${champLabel} col-span-2`}>Catégorie
           <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
@@ -524,10 +527,10 @@ const CarteArticle = memo(function CarteArticle({
           <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
         </label>
         <label className={champLabel}>Prix USD
-          <CelluleNombre ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
+          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
         </label>
         <label className={`${champLabel} col-span-2`}>Unités / carton
-          <CelluleNombre ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
+          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
         </label>
       </div>
     </div>

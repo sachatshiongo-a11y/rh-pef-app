@@ -9,10 +9,15 @@
 //    n'est jamais enregistrée : la case est signalée et, à la sortie, la valeur précédente revient.
 //  - Entrée ↓, Maj+Entrée ↑, Tab →, Maj+Tab ←, flèches (← → seulement au bord du texte), Échap
 //    annule la frappe ; à l'arrivée, le contenu est sélectionné pour que la frappe le remplace.
-//  - Collage d'un bloc Excel à partir de la case active.
+//  - Collage d'un bloc Excel à partir de la case active (refusé s'il franchit une catégorie).
 //  - Case NON CONTRÔLÉE : une frappe ne provoque aucun rendu React. L'enregistrement part à la
 //    sortie de la case (jamais par frappe), et seulement si la valeur a changé ; son état
 //    (en cours, échec) ne re-rend que cette case.
+//  - Une frappe non validée n'est jamais perdue en silence : la case entre dans le `suivi` dès la
+//    frappe, et elle est enregistrée si elle disparaît de l'écran (démontage : filtre, changement
+//    de jour…) ou si la page se masque ou se ferme.
+//  - Erreurs et refus s'affichent EN TEXTE sous la grille (`ZoneTableur`), avec le libellé de la
+//    case — l'infobulle `title` ne s'affiche pas sur un téléphone.
 //
 // La navigation ne connaît pas la grille : elle relit, au moment de la touche, les cases
 // présentes dans le DOM sous la racine `data-tableur` (à défaut, le <table> englobant). L'ordre
@@ -23,10 +28,11 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent
 import { ecrireSaisieNombre } from "@/lib/nombre";
 import { estErreur, messageDe } from "@/lib/action-lisible";
 import {
-  analyserCollage, ciblesCollage, decisionSortie, deplacer, estCollageMultiple, intentionClavier,
-  type Deplacement, type Position, type Regles,
+  analyserCollage, bilanCollage, decisionSortie, deplacer, estCollageMultiple, intentionClavier, planCollage,
+  type Decision, type Deplacement, type Position, type Regles, type ResultatCase,
 } from "./navigation";
 import { suivi } from "./suivi";
+import { useSignaleur } from "./messages";
 
 /** Attribut à poser sur l'élément qui contient une grille (souvent le <table>). */
 export const ATTR_TABLEUR = "data-tableur";
@@ -38,9 +44,14 @@ export const ATTR_TABLEUR = "data-tableur";
 export const ATTR_TAB_NATIF = "data-tableur-tab";
 
 const EVT_COLLER = "tableur:coller";
+type DetailCollage = { texte: string; resultat: ResultatCase };
 
-/** Case enregistrée : sa position, et la valeur qu'elle avait avant (pour défaire un affichage optimiste). */
-export type ContexteCase = { ligne: string; col: number; precedente: number | null };
+/**
+ * Case enregistrée : sa position, la valeur qu'elle avait avant (pour défaire un affichage
+ * optimiste), et sa `donnee` telle qu'elle était AU MOMENT DE LA VALIDATION (ex. la date du jour
+ * de la colonne : si la semaine affichée change pendant l'envoi, l'écriture va à la bonne date).
+ */
+export type ContexteCase = { ligne: string; col: number; precedente: number | null; donnee?: string };
 /**
  * Enregistre la valeur d'une case (null = case vidée). Un échec — promesse rejetée, ou résultat
  * `{ erreur }` d'une action « lisible » — est affiché sur la case, jamais avalé.
@@ -54,6 +65,10 @@ type Props = Regles & {
   /** Valeur connue du serveur. Si elle change, la case l'adopte (sauf pendant une frappe dans la case). */
   valeur: number | null;
   onEnregistrer: Enregistreur;
+  /** Donnée figée à la validation et rendue dans le contexte d'enregistrement (ex. date ISO du jour). */
+  donnee?: string;
+  /** Catégorie de la ligne : un collage ne franchit jamais une catégorie. */
+  groupe?: string;
   /**
    * Entrée sur la DERNIÈRE ligne de la grille (formulaires à lignes : bon de commande, facture) :
    * appelé après validation de la case, pour ajouter une ligne comme Excel. Sans lui, on reste.
@@ -66,6 +81,7 @@ type Props = Regles & {
   placeholder?: string;
   name?: string;
   title?: string;
+  /** Libellé de la case (article et jour) : lu à l'écran et repris dans les messages d'erreur. */
   "aria-label"?: string;
 };
 
@@ -81,6 +97,7 @@ function lireGrille(racine: HTMLElement) {
   const indexLigne = new Map<string, number>();
   const grille: boolean[][] = [];
   const cases: HTMLInputElement[][] = [];
+  const groupes: (string | undefined)[] = [];
   for (const el of racine.querySelectorAll<HTMLInputElement>("input[data-tableur-col]")) {
     if (el.closest("[hidden]")) continue; // ligne masquée par un filtre
     const cle = el.dataset.tableurLigne ?? "";
@@ -90,13 +107,14 @@ function lireGrille(racine: HTMLElement) {
       indexLigne.set(cle, l);
       grille.push([]);
       cases.push([]);
+      groupes.push(el.dataset.tableurGroupe);
     }
     const c = Number(el.dataset.tableurCol);
     grille[l][c] = !el.disabled && !el.readOnly;
     cases[l][c] = el;
   }
   for (const ligne of grille) for (let c = 0; c < ligne.length; c++) ligne[c] = ligne[c] === true; // trous → faux
-  return { grille, cases };
+  return { grille, cases, groupes };
 }
 
 function positionDe(cases: HTMLInputElement[][], el: HTMLInputElement): Position | null {
@@ -126,7 +144,7 @@ function voisine(el: HTMLInputElement, vers: Deplacement): HTMLInputElement | nu
 
 // ── La case ─────────────────────────────────────────────────────────────────
 export const CelluleNombre = memo(function CelluleNombre({
-  ligne, col, valeur, onEnregistrer, onEntreeDerniereLigne, min, max, entier,
+  ligne, col, valeur, onEnregistrer, donnee, groupe, onEntreeDerniereLigne, min, max, entier, quantite,
   disabled, readOnly, className, placeholder, name, title, "aria-label": ariaLabel,
 }: Props) {
   const ref = useRef<HTMLInputElement>(null);
@@ -138,25 +156,40 @@ export const CelluleNombre = memo(function CelluleNombre({
   const [etat, setEtatBrut] = useState<Etat>(OK);
   const etatRef = useRef<Etat>(OK);
   const monte = useRef(true);
+  /** Une frappe n'a pas encore été validée. */
+  const modifiee = useRef(false);
+  const [jeton] = useState(() => ({}));
+  const signaleur = useSignaleur();
+  const regles: Regles = { min, max, entier, quantite };
+  const cleMessage = `${ligne}|${col}|${donnee ?? ""}`;
+  const libelle = ariaLabel ?? `Ligne ${ligne}, colonne ${col + 1}`;
 
   const poserEtat = (e: Etat) => {
     const etaitErreur = etatRef.current.type === "erreur";
     const estErreurMaintenant = e.type === "erreur";
     if (monte.current && etaitErreur !== estErreurMaintenant) suivi.erreur(estErreurMaintenant);
     etatRef.current = e;
+    // La zone de messages reste montée même si la case a disparu : le message y reste.
+    signaleur?.signaler(cleMessage, e.type === "erreur" || e.type === "invalide" ? `${libelle} : ${e.message}` : null);
     if (monte.current) setEtatBrut(e);
   };
 
+  const marquerPropre = () => {
+    if (!modifiee.current) return;
+    modifiee.current = false;
+    suivi.propre(jeton);
+  };
+
   /** Valide le texte de la case : enregistre s'il le faut. Renvoie la décision prise. */
-  const valider = (texte: string) => {
-    const el = ref.current;
-    const d = decisionSortie(texte, enregistree.current, { min, max, entier });
+  const valider = (el: HTMLInputElement, texte: string): Decision => {
+    const d = decisionSortie(texte, enregistree.current, regles);
     if (d.type === "invalide") {
       poserEtat({ type: "invalide", message: d.message });
       return d;
     }
+    marquerPropre();
     if (d.type === "inchange") {
-      if (el) el.value = ecrireSaisieNombre(enregistree.current); // « 2,50 » → « 2,5 »
+      el.value = ecrireSaisieNombre(enregistree.current); // « 2,50 » → « 2,5 »
       // Revenue à la valeur enregistrée : plus rien d'illisible ni en attente.
       if (etatRef.current.type === "invalide" || etatRef.current.type === "erreur") poserEtat(OK);
       return d;
@@ -164,9 +197,9 @@ export const CelluleNombre = memo(function CelluleNombre({
     const v = d.valeur;
     const precedente = enregistree.current;
     enregistree.current = v;
-    if (el) el.value = ecrireSaisieNombre(v);
+    el.value = ecrireSaisieNombre(v);
     poserEtat({ type: "enCours" });
-    const contexte: ContexteCase = { ligne, col, precedente };
+    const contexte: ContexteCase = { ligne, col, precedente, donnee }; // figé MAINTENANT
     const enregistrer = onEnregistrer;
     suivi.debut();
     file.current = file.current.then(async () => {
@@ -177,7 +210,7 @@ export const CelluleNombre = memo(function CelluleNombre({
       } catch (e) {
         // La case redevient « à enregistrer » : repasser dans la case et valider réessaie.
         if (enregistree.current === v) enregistree.current = precedente;
-        poserEtat({ type: "erreur", message: `Non enregistré : ${messageDe(e)} Revenez dans la case et validez pour réessayer.` });
+        poserEtat({ type: "erreur", message: `non enregistré — ${messageDe(e)} Revenez dans la case et validez pour réessayer.` });
       } finally {
         suivi.fin();
       }
@@ -186,16 +219,18 @@ export const CelluleNombre = memo(function CelluleNombre({
   };
 
   // Sortie de case avec une saisie illisible : la valeur précédente revient, la case reste signalée.
-  const validerOuRetablir = (el: HTMLInputElement, origine: "sortie" | "collage") => {
+  const validerOuRetablir = (el: HTMLInputElement, origine: "sortie" | "collage"): Decision => {
     const texte = el.value;
-    const d = valider(texte);
+    const d = valider(el, texte);
     if (d.type === "invalide") {
       el.value = ecrireSaisieNombre(enregistree.current);
+      marquerPropre();
       poserEtat({
         type: "invalide",
-        message: `${origine === "collage" ? "Collage refusé" : "Saisie refusée"} (« ${texte.trim()} ») : ${d.message} Valeur précédente rétablie.`,
+        message: `${origine === "collage" ? "collage refusé" : "saisie refusée"} (« ${texte.trim()} ») — ${d.message} Valeur précédente rétablie.`,
       });
     }
+    return d;
   };
 
   // Valeur venue du serveur : adoptée, sauf pendant un envoi ou un échec (la case garde alors ce
@@ -204,30 +239,62 @@ export const CelluleNombre = memo(function CelluleNombre({
     if (etatRef.current.type === "enCours" || etatRef.current.type === "erreur") return;
     enregistree.current = valeur;
     const el = ref.current;
-    if (el && document.activeElement !== el) el.value = ecrireSaisieNombre(valeur);
+    if (el && document.activeElement !== el && !modifiee.current) el.value = ecrireSaisieNombre(valeur);
   }, [valeur]);
 
-  // Collage multi-cases : chaque case visée reçoit son texte et passe par la même validation.
-  const coller = useRef<(texte: string) => void>(() => {});
+  // Fonctions du DERNIER rendu, pour les appels hors événement React : collage reçu d'une autre
+  // case, page masquée ou fermée, démontage.
+  const actions = useRef({
+    coller: (_d: DetailCollage) => {},
+    validerEnPlace: () => {},
+    validerAuDepart: (_el: HTMLInputElement) => {},
+  });
   useLayoutEffect(() => {
-    coller.current = (texte: string) => {
-      const el = ref.current;
-      if (!el) return;
-      el.value = texte;
-      validerOuRetablir(el, "collage");
+    actions.current = {
+      coller: (detail) => {
+        const el = ref.current;
+        if (!el) return;
+        el.value = detail.texte;
+        const d = validerOuRetablir(el, "collage");
+        detail.resultat = d.type === "invalide" ? "illisible" : d.type === "inchange" ? "inchangee" : d.ambigu ? "ambigue" : "remplacee";
+      },
+      // Page masquée ou fermée : on enregistre la frappe en attente. Illisible : la case la garde,
+      // signalée (la confirmation avant de quitter reste active).
+      validerEnPlace: () => {
+        const el = ref.current;
+        if (el) valider(el, el.value);
+      },
+      // Case qui disparaît (filtre, changement de jour, ligne retirée) avec une frappe en attente.
+      validerAuDepart: (el) => {
+        const texte = el.value;
+        const d = valider(el, texte);
+        if (d.type === "invalide") {
+          marquerPropre();
+          poserEtat({ type: "invalide", message: `saisie « ${texte.trim()} » NON enregistrée — ${d.message}` });
+        }
+      },
     };
   });
+
   useEffect(() => {
     const el = ref.current;
     monte.current = true;
-    const surCollage = (ev: Event) => coller.current((ev as CustomEvent<string>).detail);
+    const surCollage = (ev: Event) => actions.current.coller((ev as CustomEvent<DetailCollage>).detail);
     el?.addEventListener(EVT_COLLER, surCollage);
     return () => {
       el?.removeEventListener(EVT_COLLER, surCollage);
+      if (el && modifiee.current) actions.current.validerAuDepart(el);
       if (etatRef.current.type === "erreur") suivi.erreur(false);
       monte.current = false;
     };
   }, []);
+
+  // La case entre dans le suivi dès la frappe (aucun rendu : rien que des refs).
+  const onChange = () => {
+    if (modifiee.current) return;
+    modifiee.current = true;
+    suivi.modifiee(jeton, () => actions.current.validerEnPlace());
+  };
 
   const onFocus = (e: FocusEvent<HTMLInputElement>) => {
     e.currentTarget.select(); // la frappe remplace le contenu, comme Excel
@@ -254,20 +321,20 @@ export const CelluleNombre = memo(function CelluleNombre({
     if (it.type === "annuler") {
       e.preventDefault();
       el.value = ecrireSaisieNombre(enregistree.current);
+      marquerPropre();
       if (etatRef.current.type === "invalide") poserEtat(OK);
       el.select();
       return;
     }
     if (e.key === "Tab" && racineDe(el)?.getAttribute(ATTR_TAB_NATIF) === "natif") return;
-    // Entrée et Tab valident : une saisie illisible retient la case (rien n'est perdu ; Échap rétablit).
-    if (e.key === "Enter" || e.key === "Tab") {
-      const d = decisionSortie(el.value, enregistree.current, { min, max, entier });
-      if (d.type === "invalide") {
-        e.preventDefault();
-        poserEtat({ type: "invalide", message: d.message });
-        el.select();
-        return;
-      }
+    // Quitter la case AU CLAVIER (Entrée, Tab, flèches) valide : une saisie illisible retient la
+    // case, en rouge avec sa saisie (rien n'est perdu ; Échap rétablit).
+    const d = decisionSortie(el.value, enregistree.current, regles);
+    if (d.type === "invalide") {
+      e.preventDefault();
+      poserEtat({ type: "invalide", message: d.message });
+      el.select();
+      return;
     }
     const cible = voisine(el, it.vers);
     if (cible) {
@@ -296,10 +363,20 @@ export const CelluleNombre = memo(function CelluleNombre({
     const racine = racineDe(el);
     if (!racine) return;
     e.preventDefault();
-    const { grille, cases } = lireGrille(racine);
+    const { grille, cases, groupes } = lireGrille(racine);
     const p = positionDe(cases, el);
     if (!p) return;
-    for (const t of ciblesCollage(grille, p, bloc)) cases[t.l][t.c].dispatchEvent(new CustomEvent(EVT_COLLER, { detail: t.texte }));
+    const plan = planCollage(grille, groupes, p, bloc);
+    if (plan.type === "refus") {
+      signaleur?.bilan(plan.message);
+      return;
+    }
+    const resultats = plan.cibles.map((t) => {
+      const detail: DetailCollage = { texte: t.texte, resultat: "illisible" };
+      cases[t.l][t.c].dispatchEvent(new CustomEvent(EVT_COLLER, { detail }));
+      return detail.resultat;
+    });
+    signaleur?.bilan(bilanCollage(plan, resultats));
     el.select();
   };
 
@@ -313,6 +390,7 @@ export const CelluleNombre = memo(function CelluleNombre({
       spellCheck={false}
       data-tableur-ligne={ligne}
       data-tableur-col={col}
+      data-tableur-groupe={groupe}
       data-etat={etat.type}
       name={name}
       defaultValue={ecrireSaisieNombre(valeur)}
@@ -323,6 +401,7 @@ export const CelluleNombre = memo(function CelluleNombre({
       aria-invalid={signale || undefined}
       aria-busy={etat.type === "enCours" || undefined}
       title={signale ? etat.message : title}
+      onChange={onChange}
       onFocus={onFocus}
       onMouseUp={onMouseUp}
       onBlur={onBlur}

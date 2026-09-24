@@ -14,8 +14,8 @@ import { saisirHeures, saisirHeuresEnLot } from "../heures-supp/actions";
 import { COULEUR_CODE_HEX } from "./attendance-colors";
 import { useJourMobile } from "@/components/jour-mobile";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
-import { messageDe } from "@/lib/action-lisible";
 import {
   calculerHeuresSupp,
   resumerPresences,
@@ -199,15 +199,22 @@ export function TempsGrid({
   // Case « heures » de la vue mobile (tableur partagé) : enregistrée à la sortie de la case —
   // avant, CHAQUE frappe envoyait l'action (et rechargeait /presences, /paie…). Un échec reste
   // affiché sur la case.
-  function enregistrerHeuresCase(v: number | null, { ligne: empId }: ContexteCase) {
-    const k = `${empId}_${jourMobile}`;
+  function enregistrerHeuresCase(v: number | null, { ligne: empId, precedente, donnee: iso }: ContexteCase) {
+    // Jour FIGÉ à la validation de la case (donnee = date ISO), même si l'on a changé de jour depuis.
+    const jour = iso ? isoDates.indexOf(iso) + 1 : jourMobile;
+    const k = `${empId}_${jour}`;
     setCellules((c) => ({ ...c, [k]: { ...(c[k] ?? { code: "" }), heures: v } }));
-    const jour = jourMobile;
     return saisirHeures(empId, isoDates[jour - 1], v === null ? "" : String(v)).catch((e: unknown) => {
-      // Visible même si l'on a changé de jour entre-temps (la case d'origine n'est plus affichée).
-      setNote(`Heures du ${jour} non enregistrées pour ${employees.find((x) => x.id === empId)?.nom ?? "un employé"} : ${messageDe(e)}`);
+      // Échec : la valeur locale est annulée (les totaux ne comptent pas des heures non
+      // enregistrées) ; la case reste en rouge et le message s'affiche sous la liste.
+      setCellules((c) => ({ ...c, [k]: { ...(c[k] ?? { code: "" }), heures: precedente } }));
       throw e;
     });
+  }
+  /** Changer de jour (vue mobile) : la case en cours de frappe est d'abord quittée — donc enregistrée. */
+  function changerJour(n: number) {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    setIdxMobile(n);
   }
   function validerMenu() {
     if (!pop) return;
@@ -416,8 +423,8 @@ export function TempsGrid({
       {/* ── Mobile : jour par jour ── */}
       <div className="lg:hidden">
         <div className="mb-3 flex items-center gap-2">
-          <button type="button" onClick={() => setIdxMobile(Math.max(0, idxMobile - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
-          <select value={idxMobile} onChange={(e) => setIdxMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+          <button type="button" onClick={() => changerJour(Math.max(0, idxMobile - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <select value={idxMobile} onChange={(e) => changerJour(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
             {days.map((d, i) => (
               <option key={d} value={i}>
                 {new Date(isoDates[d - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
@@ -425,8 +432,9 @@ export function TempsGrid({
               </option>
             ))}
           </select>
-          <button type="button" onClick={() => setIdxMobile(Math.min(days.length - 1, idxMobile + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+          <button type="button" onClick={() => changerJour(Math.min(days.length - 1, idxMobile + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
         </div>
+        <ZoneTableur>
         <div data-tableur="" className="space-y-2">
           {employees.map((emp) => {
             const c = cel(emp.id, jourMobile);
@@ -458,11 +466,11 @@ export function TempsGrid({
                       {CODES.map((x) => (<option key={x} value={x}>{x}</option>))}
                     </select>
                     <CelluleNombre
-                      key={jourMobile} ligne={emp.id} col={0} valeur={c.heures} min={0} max={24}
+                      key={jourMobile} ligne={emp.id} col={0} donnee={isoDates[jourMobile - 1]} valeur={c.heures} min={0} max={24}
                       onEnregistrer={enregistrerHeuresCase}
                       placeholder="h"
                       className="w-16 rounded-md border border-input bg-background px-2 py-2 text-right text-sm font-semibold"
-                      aria-label={`Heures de ${emp.nom}`}
+                      aria-label={`Heures de ${emp.nom} — ${new Date(isoDates[jourMobile - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", timeZone: "UTC" })}`}
                     />
                   </>
                 ) : (
@@ -473,6 +481,7 @@ export function TempsGrid({
           })}
           {employees.length === 0 && <EtatVide message="Aucun employé." />}
         </div>
+        </ZoneTableur>
         {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
         {note && <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">{note}</p>}
       </div>

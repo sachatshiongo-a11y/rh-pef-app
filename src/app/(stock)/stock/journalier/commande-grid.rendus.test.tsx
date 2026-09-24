@@ -29,6 +29,8 @@ vi.mock("./actions", () => ({
 import { CommandeGrid, type CmdArticle } from "./commande-grid";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// 1 246 champs rendus dans un DOM simulé : plusieurs secondes sur une machine chargée.
+vi.setConfig({ testTimeout: 30000 });
 
 const JOURS = Array.from({ length: 7 }, (_, i) => ({ iso: `2026-09-${String(21 + i).padStart(2, "0")}`, label: `J${i}` }));
 const NB = 178;
@@ -85,6 +87,8 @@ describe("Commande — coût d'une saisie (178 × 7)", () => {
     taper(c, "12");
     expect(appels.lignes).toBe(0);
     expect(appels.resto).toBe(0);
+    act(() => { c.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+    // (sans Échap, la frappe en attente serait enregistrée au démontage — c'est voulu, cf. C2)
   });
 
   it("valider une case : 1 appel serveur, pas de revalidation immédiate, seule sa ligne se re-rend", async () => {
@@ -146,5 +150,25 @@ describe("Commande — coût d'une saisie (178 × 7)", () => {
     expect(cellules()).toHaveLength(7);
     taper(recherche, "");
     expect(cellules()[7 * 3 + 1].value).toBe("7");
+  });
+
+  it("la date est figée à la validation : changer de semaine pendant l'envoi n'écrit pas ailleurs", async () => {
+    const { saisirCommandeResto } = await import("./actions");
+    const envoi = vi.mocked(saisirCommandeResto);
+    envoi.mockClear();
+    let liberer!: () => void;
+    envoi.mockImplementationOnce(() => new Promise((r) => { liberer = () => r({ ok: true } as never); }));
+    rendre(donnees());
+    const c = cellules()[7 * 5 + 2]; // Article 005, 3e jour de la semaine du 21
+    act(() => c.focus());
+    taper(c, "5");
+    await act(async () => { c.blur(); }); // envoi n°1 en attente
+    act(() => c.focus());
+    taper(c, "6");
+    await act(async () => { c.blur(); }); // envoi n°2 : attend le n°1 dans la file de la case
+    const suivante = JOURS.map((j, i) => ({ iso: `2026-09-${String(28 + i).padStart(2, "0")}`.replace("2026-09-31", "2026-10-01").replace("2026-09-32", "2026-10-02").replace("2026-09-33", "2026-10-03").replace("2026-09-34", "2026-10-04"), label: j.label }));
+    act(() => racine.render(createElement(CommandeGrid, { ...donnees(), jours: suivante, peutModifier: true })));
+    await act(async () => { liberer(); });
+    expect(envoi.mock.calls.map((a) => a.slice(0, 3))).toEqual([["art5", "2026-09-23", 5], ["art5", "2026-09-23", 6]]);
   });
 });
