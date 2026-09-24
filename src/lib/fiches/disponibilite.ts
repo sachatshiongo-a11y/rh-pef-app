@@ -13,6 +13,17 @@ import { uniteRendementIncoherente } from "@/lib/fiches/cout";
 //      convertible, pris dans une boucle ou dont la sous-recette n'a pas de rendement rend le plat
 //      « À vérifier », avec la raison et le nom de l'ingrédient (décision Direction 2026-09-24).
 //   3. Aucune valeur stockée : tout est recalculé à l'affichage.
+//   4. Stock FIGÉ annoncé (décision Direction 2026-09-24) : un stock du dépôt sans mouvement depuis
+//      plus de JOURS_MAX_SANS_MOUVEMENT jours (ou jamais mouvementé), ou un comptage du restaurant
+//      aussi ancien, ne fait pas foi — le plat passe « À vérifier ». (Constat : aucune sortie
+//      enregistrée au dépôt depuis juillet ; saumon fumé à 4,44 kg inchangé, « 111 portions ».)
+//      La date de référence (`aujourdhui`) est un PARAMÈTRE : la fonction reste pure et testable.
+
+/**
+ * Au-delà de ce nombre de jours sans mouvement au dépôt (ou sans comptage au restaurant), le stock
+ * ne fait plus foi. « Plus de 7 jours » : un stock mouvementé il y a exactement 7 jours compte encore.
+ */
+export const JOURS_MAX_SANS_MOUVEMENT = 7;
 
 /** Decimal à haute précision : les produits de fractions ne doivent jamais être arrondis en route. */
 const D = Decimal.clone({ precision: 60 });
@@ -48,8 +59,12 @@ export type StockRestaurant =
   | { etat: "OK"; quantite: string; dateComptage: string }
   | { etat: "UNITE_NON_CONVERTIBLE"; articleResto: string };
 
-/** `depot` = `Stock.quantite` (null : aucune ligne `Stock`) ; `restaurant` = null : aucun comptage rattaché. */
-export type StockArticle = { depot: string | null; restaurant: StockRestaurant | null };
+/**
+ * `depot` = `Stock.quantite` (null : aucune ligne `Stock`) ; `restaurant` = null : aucun comptage
+ * rattaché ; `dernierMouvement` = date (AAAA-MM-JJ) du plus récent `MouvementStock` de l'article,
+ * tous types, inventaire compris (null : jamais mouvementé).
+ */
+export type StockArticle = { depot: string | null; restaurant: StockRestaurant | null; dernierMouvement: string | null };
 
 export type ContexteDispo = {
   fiches: Map<string, FicheDispo>;
@@ -73,11 +88,17 @@ export type MotifDispo =
   | "SANS_SOURCE"
   | "QUANTITE_ILLISIBLE"
   | "QUANTITE_NON_RENSEIGNEE"
+  | "STOCK_NON_MIS_A_JOUR"
+  | "STOCK_JAMAIS_MIS_A_JOUR"
+  | "COMPTAGE_RESTAURANT_ANCIEN"
   | "PORTIONS_INVALIDES"
   | "AUCUN_INGREDIENT";
 
-/** `ingredient` : chemin lisible (« Sauce › Crème »), ou null quand la raison porte sur la fiche. */
-export type RaisonDispo = { motif: MotifDispo; ingredient: string | null };
+/**
+ * `ingredient` : chemin lisible (« Sauce › Crème »), ou null quand la raison porte sur la fiche.
+ * `depuis` (AAAA-MM-JJ) : pour un stock figé, la date du dernier mouvement ou comptage.
+ */
+export type RaisonDispo = { motif: MotifDispo; ingredient: string | null; depuis?: string | null };
 
 export type DetailArticleDispo = {
   articleId: string;
@@ -88,9 +109,13 @@ export type DetailArticleDispo = {
   depot: string | null;
   restaurant: string | null;
   dateComptage: string | null;
+  /** Date (AAAA-MM-JJ) du dernier mouvement de stock au dépôt ; null : jamais mouvementé. */
+  dernierMouvement: string | null;
   disponible: string | null;
   portions: number | null;
   motif: MotifDispo | null;
+  /** Stock figé : date du dernier mouvement ou comptage qui fait la raison. */
+  depuis: string | null;
 };
 
 export type DetailLigneDispo = {
@@ -124,15 +149,31 @@ export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   SANS_SOURCE: "ni article du stock ni sous-recette",
   QUANTITE_ILLISIBLE: "quantité illisible ou négative",
   QUANTITE_NON_RENSEIGNEE: "quantité non renseignée",
+  STOCK_NON_MIS_A_JOUR: "stock non mis à jour",
+  STOCK_JAMAIS_MIS_A_JOUR: "stock jamais mis à jour",
+  COMPTAGE_RESTAURANT_ANCIEN: "comptage du restaurant non mis à jour",
   PORTIONS_INVALIDES: "nombre de portions inexploitable",
   AUCUN_INGREDIENT: "aucun ingrédient",
 };
 
 /** « Crème fraîche : pas de stock enregistré », ou « Aucun ingrédient » quand la raison porte sur la fiche. */
 export function libelleRaison(r: RaisonDispo): string {
-  const texte = MOTIF_DISPO_LABEL[r.motif];
+  // Stock figé : « stock non mis à jour depuis le 10/07 ».
+  const texte = MOTIF_DISPO_LABEL[r.motif] + (r.depuis ? ` depuis le ${jjmm(r.depuis)}` : "");
   return r.ingredient ? `${r.ingredient} : ${texte}` : texte.charAt(0).toUpperCase() + texte.slice(1);
 }
+
+/** « 2026-07-10 » → « 10/07 » (date PURE, aucune conversion de fuseau). */
+const jjmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/** Jours civils entre deux dates PURES AAAA-MM-JJ (`jusquA` − `depuis`), calcul en UTC. */
+export function joursEntre(depuis: string, jusquA: string): number {
+  const t = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
+  return Math.round((t(jusquA) - t(depuis)) / 86_400_000);
+}
+
+/** Vrai si la date est plus ancienne que JOURS_MAX_SANS_MOUVEMENT jours à `aujourdhui`. */
+const perimee = (date: string, aujourdhui: string) => joursEntre(date, aujourdhui) > JOURS_MAX_SANS_MOUVEMENT;
 
 // ─── Fractions exactes ───────────────────────────────────────────────────────
 
@@ -274,21 +315,36 @@ function eclater(ing: IngredientDispo, mult: Fraction, chemin: string, enCours: 
   return out;
 }
 
-type StockLu = { depot: Dec | null; restaurant: Dec | null; dateComptage: string | null; total: Dec | null; motif: MotifDispo | null };
+type StockLu = {
+  depot: Dec | null; restaurant: Dec | null; dateComptage: string | null; dernierMouvement: string | null;
+  total: Dec | null; motif: MotifDispo | null; depuis: string | null;
+};
 
-function lireStock(articleId: string, ctx: ContexteDispo): StockLu {
+function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): StockLu {
   const s = ctx.stocks.get(articleId);
   const depot = s ? versD(s.depot) : null;
+  const dernierMouvement = s?.dernierMouvement ?? null;
   const r = s?.restaurant ?? null;
+  const base = { depot, dernierMouvement, depuis: null };
   if (r !== null && r.etat === "UNITE_NON_CONVERTIBLE") {
-    return { depot, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_RESTAURANT" };
+    return { ...base, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_RESTAURANT" };
   }
   const restaurant = r === null ? null : versD(r.quantite);
   const dateComptage = r === null ? null : r.dateComptage;
-  if (depot === null && restaurant === null) return { depot, restaurant, dateComptage, total: null, motif: "PAS_DE_STOCK" };
+  const lu = { ...base, restaurant, dateComptage };
+  if (depot === null && restaurant === null) return { ...lu, total: null, motif: "PAS_DE_STOCK" };
   const total = (depot ?? new D(0)).plus(restaurant ?? 0);
-  if (total.isNegative()) return { depot, restaurant, dateComptage, total, motif: "STOCK_NEGATIF" };
-  return { depot, restaurant, dateComptage, total, motif: null };
+  if (total.isNegative()) return { ...lu, total, motif: "STOCK_NEGATIF" };
+  // Stock figé : chaque part qui ENTRE dans le calcul doit être à jour. Le dépôt entre dans le
+  // calcul dès qu'il a une ligne `Stock` ; le restaurant, dès qu'un comptage rattaché existe.
+  if (depot !== null) {
+    if (dernierMouvement === null) return { ...lu, total, motif: "STOCK_JAMAIS_MIS_A_JOUR" };
+    if (perimee(dernierMouvement, aujourdhui)) return { ...lu, total, motif: "STOCK_NON_MIS_A_JOUR", depuis: dernierMouvement };
+  }
+  if (restaurant !== null && dateComptage !== null && perimee(dateComptage, aujourdhui)) {
+    return { ...lu, total, motif: "COMPTAGE_RESTAURANT_ANCIEN", depuis: dateComptage };
+  }
+  return { ...lu, total, motif: null };
 }
 
 // ─── API publique ────────────────────────────────────────────────────────────
@@ -296,8 +352,9 @@ function lireStock(articleId: string, ctx: ContexteDispo): StockLu {
 /**
  * Disponibilité d'une fiche. Un plat se compte en PORTIONS (quantités de la fiche ÷ nbPortions) ;
  * une sous-recette en RENDEMENTS (fournées entières). Fonction pure : aucune I/O, aucune exception.
+ * `aujourdhui` (AAAA-MM-JJ, jour civil de Kinshasa) : référence de la règle du stock figé.
  */
-export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo): ResultatDisponibilite {
+export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo, aujourdhui: string): ResultatDisponibilite {
   const raisons: RaisonDispo[] = [];
   const besoins = new Map<string, Fraction>(); // ordre d'insertion = ordre de la fiche
   const lignesBrutes: { articleIds: string[]; raisons: RaisonDispo[] }[] = [];
@@ -324,12 +381,12 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo): Re
   const articles: DetailArticleDispo[] = [];
   for (const [articleId, besoin] of besoins) {
     const art = ctx.articles.get(articleId)!; // eclater ne produit que des articles connus
-    const s = lireStock(articleId, ctx);
+    const s = lireStock(articleId, ctx, aujourdhui);
     // ⌊ disponible ÷ (besoin ÷ diviseur) ⌋ = ⌊ disponible × diviseur × den ÷ num ⌋ : UNE division.
     const portions = s.motif === null && s.total !== null
       ? s.total.times(diviseur).times(besoin.den).div(besoin.num).floor().toNumber()
       : null;
-    if (s.motif !== null) raisons.push({ motif: s.motif, ingredient: art.designation });
+    if (s.motif !== null) raisons.push({ motif: s.motif, ingredient: art.designation, ...(s.depuis ? { depuis: s.depuis } : {}) });
     articles.push({
       articleId,
       designation: art.designation,
@@ -338,9 +395,11 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo): Re
       depot: s.depot === null ? null : s.depot.toString(),
       restaurant: s.restaurant === null ? null : s.restaurant.toString(),
       dateComptage: s.dateComptage,
+      dernierMouvement: s.dernierMouvement,
       disponible: s.total === null ? null : s.total.toString(),
       portions,
       motif: s.motif,
+      depuis: s.depuis,
     });
   }
 

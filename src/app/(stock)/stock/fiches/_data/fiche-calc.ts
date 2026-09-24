@@ -171,17 +171,21 @@ export function versFicheDispo(
   };
 }
 
-/** Disponibilité de TOUTES les fiches, avec un seul contexte (fiches, articles, stock lus une fois). */
+/**
+ * Disponibilité de TOUTES les fiches, avec un seul contexte (fiches, articles, stock lus une fois).
+ * `aujourdhui` (AAAA-MM-JJ, Kinshasa) : référence de la règle du stock figé.
+ */
 export function disponibilitesDesFiches(
   vues: FicheVue[],
   articles: ArticleDispo[],
   stocks: Record<string, StockArticle>,
+  aujourdhui: string,
 ): Map<string, ResultatDisponibilite> {
   const mapArticles = new Map(articles.map((a) => [a.id, a]));
   const noms = new Map(vues.map((v) => [v.id, { nom: v.nom }]));
   const fiches = new Map(vues.map((v) => [v.id, versFicheDispo(v, mapArticles, noms)]));
   const contexte = { fiches, articles: mapArticles, stocks: new Map(Object.entries(stocks)) };
-  return new Map(vues.map((v) => [v.id, calculerDisponibilite(fiches.get(v.id)!, contexte)]));
+  return new Map(vues.map((v) => [v.id, calculerDisponibilite(fiches.get(v.id)!, contexte, aujourdhui)]));
 }
 
 /** Ce que la liste des fiches affiche de la disponibilité (sérialisable vers le client). */

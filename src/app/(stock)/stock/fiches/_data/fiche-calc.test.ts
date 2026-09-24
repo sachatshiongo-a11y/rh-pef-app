@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { calculerCout } from "@/lib/fiches/cout";
-import { construireContexte, disponibilitesDesFiches, resumerDispo, versFicheCalc, type ArticleOption, type FicheVue } from "./fiche-calc";
+import { badgeDispo, construireContexte, disponibilitesDesFiches, resumerDispo, versFicheCalc, type ArticleOption, type FicheVue } from "./fiche-calc";
 
 // Ces tests verrouillent la PASSERELLE entre l'écran et le moteur : ce que l'écran envoie doit
 // produire exactement les chiffres du moteur. Aucune formule n'est réimplémentée ici.
@@ -121,16 +121,23 @@ describe("passerelle écran → moteur de disponibilité", () => {
       id: "p1", nom: "Carbonara", nbPortions: 1,
       lignes: [{ id: "lp", articleId: null, sousFicheId: "s1", unite: "g", quantite: "250", ordre: 1 }],
     });
-    const r = disponibilitesDesFiches([sauce, plat], articles, { a1: { depot: "2", restaurant: null } });
+    const r = disponibilitesDesFiches([sauce, plat], articles, { a1: { depot: "2", restaurant: null, dernierMouvement: "2026-09-23" } }, "2026-09-24");
     expect(r.get("p1")).toMatchObject({ etat: "DISPONIBLE", portions: 8, limitant: "Crème" });
     expect(resumerDispo(r.get("s1")!, sauce)).toEqual({
       etat: "DISPONIBLE", portions: 2, limitant: "Crème", enRupture: [], raisons: [], rendement: "1 000 g",
     });
   });
 
+  it("liste des fiches : un stock figé met sa raison dans le badge « À vérifier »", () => {
+    const articles = [art("a1", "Saumon fumé", "kg", "30")];
+    const plat = fiche({ id: "p1", nom: "Filet de saumon", nbPortions: 1, lignes: [{ id: "l", articleId: "a1", sousFicheId: null, unite: "g", quantite: "40", ordre: 1 }] });
+    const d = resumerDispo(disponibilitesDesFiches([plat], articles, { a1: { depot: "4.44", restaurant: null, dernierMouvement: "2026-07-10" } }, "2026-09-24").get("p1")!, plat);
+    expect(badgeDispo(d, false).texte).toBe("À vérifier · Saumon fumé : stock non mis à jour depuis le 10/07");
+  });
+
   it("un article référencé mais absent du catalogue rend la fiche À vérifier, nommée par son repère", () => {
     const v = fiche({ id: "f1", nom: "Test", lignes: [{ id: "l1", articleId: "disparu", sousFicheId: null, unite: "g", quantite: "10", ordre: 1 }] });
-    const d = resumerDispo(disponibilitesDesFiches([v], [], {}).get("f1")!, v);
+    const d = resumerDispo(disponibilitesDesFiches([v], [], {}, "2026-09-24").get("f1")!, v);
     expect(d.etat).toBe("A_VERIFIER");
     expect(d.raisons).toEqual(["Article supprimé du catalogue : ni article du stock ni sous-recette"]);
   });

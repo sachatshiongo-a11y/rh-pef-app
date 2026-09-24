@@ -24,8 +24,13 @@ const vue = (lignes: FicheVue["lignes"]): FicheVue => ({
   actif: true, photoUrl: null, lignes,
 });
 const ligne = (id: string, articleId: string, unite: string, quantite: string, ordre: number) => ({ id, articleId, sousFicheId: null, unite, quantite, ordre });
-const rendre = (v: FicheVue, stocks: Record<string, { depot: string | null; restaurant: null | { etat: "OK"; quantite: string; dateComptage: string } }>) =>
-  renderToStaticMarkup(<EditerFiche vue={v} articles={articles} autresFiches={[]} contexte={[]} contexteDispo={[]} stocks={stocks} />);
+type StockTest = { depot: string | null; restaurant: null | { etat: "OK"; quantite: string; dateComptage: string }; dernierMouvement?: string | null };
+/** Par défaut, le stock a bougé la veille du jour de référence (24/09/2026) : il fait foi. */
+const rendre = (v: FicheVue, stocks: Record<string, StockTest>) =>
+  renderToStaticMarkup(
+    <EditerFiche vue={v} articles={articles} autresFiches={[]} contexte={[]} contexteDispo={[]} aujourdhui="2026-09-24"
+      stocks={Object.fromEntries(Object.entries(stocks).map(([k, s]) => [k, { dernierMouvement: "2026-09-23", ...s }]))} />,
+  );
 
 describe("page d'une fiche — disponibilité", () => {
   it("disponible : portions, ingrédient limitant nommé et mis en évidence, stock dépôt + restaurant", () => {
@@ -54,5 +59,19 @@ describe("page d'une fiche — disponibilité", () => {
     // Deux fois : dans le bloc « Disponibilité » ET dans la cellule de la ligne concernée.
     expect(html.split("Basilic : pas de stock enregistré").length - 1).toBe(2);
     expect(html).not.toContain("portion(s)");
+  });
+
+  it("stock figé : la date du dernier mouvement s'affiche à côté du stock, et la raison est écrite", () => {
+    const html = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1), ligne("l2", "oeuf", "pièce", "4", 2)]), {
+      farine: { depot: "2", restaurant: null, dernierMouvement: "2026-07-10" },
+      oeuf: { depot: "9", restaurant: null },
+    });
+    expect(html).toContain("dernier mouvement le 10/07/2026");
+    expect(html).toContain("dernier mouvement le 23/09/2026");
+    expect(html).toContain("Farine : stock non mis à jour depuis le 10/07");
+    expect(html).not.toContain("portion(s)");
+    const jamais = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1)]), { farine: { depot: "2", restaurant: null, dernierMouvement: null } });
+    expect(jamais).toContain("aucun mouvement enregistré");
+    expect(jamais).toContain("Farine : stock jamais mis à jour");
   });
 });
