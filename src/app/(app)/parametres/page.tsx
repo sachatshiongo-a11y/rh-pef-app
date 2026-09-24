@@ -15,6 +15,7 @@ import { UsersAdmin, type UserRow } from "./users-admin";
 import { TypesCongesAdmin, type TypeCongeRow } from "./types-conges-admin";
 import { PointageReglages } from "./pointage-reglages";
 import { ComptesEnLot } from "./comptes-lot";
+import { etatCompteSalarie } from "@/lib/comptes-salaries";
 import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import { lireMoisEffet } from "@/lib/config";
@@ -28,7 +29,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 
-  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding, dernierReglagePosition, salariesSansCompte] = await Promise.all([
+  const [config, exercice, joursFeries, users, typesConges, employesActifs, paramEnt, modeleOnboarding, dernierReglagePosition, salariesActifs] = await Promise.all([
     prisma.config.findUniqueOrThrow({ where: { id: "singleton" } }),
     prisma.exerciceFiscal.findFirst({
       where: { actif: true },
@@ -50,11 +51,12 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
       orderBy: { date: "desc" },
       select: { nouvelleValeur: true },
     }),
-    // Comptes en lot (section « Espace salarié ») : les salariés actifs qui n'ont aucun compte.
+    // Comptes et fiches de connexion (section « Espace salarié ») : TOUS les salariés actifs et
+    // l'état de leur compte — de quoi créer ceux qui manquent et renouveler la fiche des autres.
     prisma.employee.findMany({
-      where: { actif: true, compte: null },
+      where: { actif: true },
       orderBy: { nom: "asc" },
-      select: { id: true, nom: true, matricule: true, photoUrl: true },
+      select: { id: true, nom: true, matricule: true, photoUrl: true, telephone: true, compte: { select: { email: true, actif: true } } },
     }),
   ]);
   // Valeur affichée = valeur saisie, sinon valeur par défaut (theme.ts).
@@ -190,7 +192,18 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
             </button>
           )}
         </form>
-        {config.espaceEmployeActif && <ComptesEnLot salaries={salariesSansCompte} />}
+        {config.espaceEmployeActif && (
+          <ComptesEnLot
+            salaries={salariesActifs.map((e) => ({
+              id: e.id,
+              nom: e.nom,
+              matricule: e.matricule,
+              photoUrl: e.photoUrl,
+              telephone: e.telephone?.trim() || null,
+              etat: etatCompteSalarie(e.matricule, e.compte),
+            }))}
+          />
+        )}
       </Section>
 
       <Section title="Pointage par QR code">

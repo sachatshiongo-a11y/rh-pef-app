@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, estStock, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
+import { exigerMotDePassePersonnel } from "@/app/espace/garde";
 import { StockShell } from "./stock-shell";
 
 // Espace STOCK — coquille indépendante de l'espace RH. Garde de LECTURE : un compte sans
@@ -12,7 +13,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
   if (!estStock(user)) redirect("/entree");
 
   const [moi, nbAValider, notifs, urgents, espaceSalarieActif] = await Promise.all([
-    prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
+    prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true, employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
     chargerNotifications("STOCK"),
     // Comptage des articles urgents par domaine, agrégé en SQL — MÊME RÈGLE que niveauAlerte :
@@ -28,6 +29,15 @@ export default async function StockLayout({ children }: { children: React.ReactN
       GROUP BY a."domaine"`,
     espaceEmployeActif(),
   ]);
+
+  // Compte relié à une fiche avec un mot de passe temporaire (« Nouvelle fiche ») : il le change
+  // d'abord, comme un salarié — sauf espace salarié fermé, où la page de changement le refuserait.
+  exigerMotDePassePersonnel({
+    role: user.role,
+    employeeId: user.employeeId,
+    motDePasseTemporaire: moi?.motDePasseTemporaire ?? false,
+    espaceOuvert: espaceSalarieActif,
+  });
 
   // Badge persistant par catalogue, à la manière des « Demandes à valider ».
   const urgent: Record<"NOURRITURE" | "BOISSON" | "AUTRE", number> = { NOURRITURE: 0, BOISSON: 0, AUTRE: 0 };

@@ -5,9 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { actionLisible } from "@/lib/action-lisible";
-import { espaceEmployeActif, genererMotDePasseTemporaire } from "@/lib/espace-employe";
-import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
-import { creerCompteSalarie } from "@/lib/comptes-salaries";
+import { espaceEmployeActif } from "@/lib/espace-employe";
+import { creerCompteSalarie, reinitialiserCompteSalarie } from "@/lib/comptes-salaries";
 
 /**
  * Crée le compte de l'espace salarié d'un employé — Direction uniquement,
@@ -26,22 +25,24 @@ export const creerCompteEmploye = actionLisible(async (employeeId: string): Prom
   return { matricule, motDePasse };
 });
 
-/** Régénère un mot de passe temporaire pour un compte salarié existant (Direction). */
+/**
+ * Régénère un mot de passe temporaire pour un compte salarié existant (Direction). La
+ * réinitialisation elle-même est `reinitialiserCompteSalarie` — le même chemin que « Nouvelle
+ * fiche » (Paramètres → Espace salarié). Cet écran ne gère que les comptes au rôle EMPLOYE
+ * (c'est ce que la fiche employé affiche comme « compte salarié ») ; un compte STOCK à identifiant
+ * matricule se réinitialise depuis Paramètres.
+ */
 export const reinitialiserCompteEmploye = actionLisible(async (employeeId: string): Promise<{ matricule: string; motDePasse: string }> => {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   if (!(await espaceEmployeActif())) throw new Error("L'espace salarié n'est pas activé (Paramètres).");
 
-  const compte = await prisma.user.findUnique({ where: { employeeId }, include: { employe: { select: { matricule: true } } } });
+  const compte = await prisma.user.findUnique({ where: { employeeId }, select: { role: true } });
   if (!compte || compte.role !== "EMPLOYE") throw new Error("Aucun compte salarié pour cet employé.");
 
-  const motDePasse = genererMotDePasseTemporaire();
-  await changerMotDePasseAdmin(compte.id, motDePasse);
-  await prisma.user.update({ where: { id: compte.id }, data: { motDePasseTemporaire: true, actif: true } });
-
-  await journaliser(prisma, { entite: "User", entiteId: compte.id, champ: "reinitialisation", nouvelleValeur: "mot de passe temporaire régénéré", userId: user.id });
+  const { matricule, motDePasse } = await reinitialiserCompteSalarie(prisma, { employeeId, auteurId: user.id });
   revalidatePath(`/employes/${employeeId}`);
-  return { matricule: compte.employe?.matricule ?? "", motDePasse };
+  return { matricule, motDePasse };
 });
 
 /** Accorde / retire au salarié l'accès à l'espace Stock (cumul de rôles) — Direction. */

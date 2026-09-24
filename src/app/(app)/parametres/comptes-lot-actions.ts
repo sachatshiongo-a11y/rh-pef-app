@@ -1,62 +1,126 @@
 "use server";
 
-// Paramètres → Espace salarié : créer d'un coup les comptes des salariés actifs qui n'en ont pas,
-// et imprimer une fiche de connexion par salarié. Cf. docs/superpowers/specs/2026-09-23-pointage-qr-design.md §3.
+// Paramètres → Espace salarié : pour les salariés cochés, créer les comptes qui manquent
+// (« Créer les comptes ») ou donner un nouveau mot de passe temporaire aux comptes existants
+// (« Nouvelle fiche »), et produire UNE FICHE DE CONNEXION PAR SALARIÉ — un PDF à part, à envoyer
+// à ce salarié seul (WhatsApp) — plus la planche de toutes les fiches (8 par A4) pour qui imprime.
+// Cf. docs/superpowers/specs/2026-09-23-pointage-qr-design.md §3.
 //
-// Les mots de passe temporaires n'existent QU'UNE FOIS : dans le PDF renvoyé par cette action,
-// produit en mémoire. Ils ne sont ni stockés, ni journalisés, ni renvoyés ailleurs — `crees` ne
-// porte que le nom et le matricule.
+// Les mots de passe temporaires n'existent QU'UNE FOIS : dans les PDF renvoyés par ces actions,
+// produits en mémoire. Ils ne sont ni stockés, ni journalisés, ni renvoyés en clair : chaque ligne
+// du résultat ne porte en clair que le nom, le matricule et le téléphone.
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
 import { espaceEmployeActif } from "@/lib/espace-employe";
-import { creerComptesSalaries } from "@/lib/comptes-salaries";
-import { genererFichesConnexionPdf } from "@/lib/pdf/fiches-connexion";
+import { creerComptesSalaries, reinitialiserComptesSalaries, type ResultatLot } from "@/lib/comptes-salaries";
+import { genererFichesConnexionPdf, genererFichesIndividuellesPdf } from "@/lib/pdf/fiches-connexion";
 import { ORIGINE_AFFICHE } from "@/lib/pointage-origines";
 
-export type ResultatComptesEnLot = {
-  /** Les fiches de connexion (PDF en base64) ; null si aucun compte n'a été créé. */
-  pdfBase64: string | null;
-  crees: { nom: string; matricule: string }[];
-  /** Déjà un compte (non modifié), inactif, ou échec de ce compte-là. */
+/** La fiche d'UN salarié : son PDF (base64) ne porte que SON mot de passe. */
+export type FicheSalarie = {
+  employeeId: string;
+  nom: string;
+  matricule: string;
+  telephone: string | null;
+  ficheBase64: string;
+};
+
+export type ResultatFichesEnLot = {
+  /** Une par salarié créé/réinitialisé, dans l'ordre alphabétique. */
+  fiches: FicheSalarie[];
+  /** Toutes les fiches, 8 par A4, à imprimer et découper ; null si aucune fiche. */
+  plancheBase64: string | null;
+  /** Non traités : déjà un compte, pas de compte, compte par e-mail, inactif, ou échec de celui-là. */
   ignores: { nom: string; raison: string }[];
 };
 
-export const creerComptesEnLot = actionLisible(async (employeeIds: string[]): Promise<ResultatComptesEnLot> => {
+async function exigerDirection(employeeIds: string[]) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   if (!(await espaceEmployeActif())) throw new Error("L'espace salarié n'est pas activé (Paramètres).");
   if (!Array.isArray(employeeIds) || employeeIds.some((id) => typeof id !== "string" || !id))
     throw new Error("Sélection illisible. Rechargez la page et recommencez.");
   if (employeeIds.length === 0) throw new Error("Cochez au moins un salarié.");
+  return user;
+}
 
-  // Un échec n'arrête PAS le lot, et les comptes déjà créés restent : cf. creerComptesSalaries.
-  const { crees, ignores } = await creerComptesSalaries(prisma, { employeeIds, auteurId: user.id });
-  if (crees.length > 0) revalidatePath("/parametres");
-  if (crees.length === 0) return { pdfBase64: null, crees: [], ignores };
+/**
+ * Les fiches d'un lot déjà traité. Si le rendu échoue, les comptes restent créés/réinitialisés
+ * mais leurs mots de passe sont perdus avec les PDF : le dire, nommer les salariés, indiquer le
+ * recours, et ne pas perdre la liste des non-traités que l'écran aurait affichée.
+ */
+async function produireFiches(
+  lot: ResultatLot,
+  recours: (noms: string) => string,
+  libelleNonTraites: string,
+): Promise<ResultatFichesEnLot> {
+  const { crees, ignores } = lot;
+  if (crees.length === 0) return { fiches: [], plancheBase64: null, ignores };
 
-  let pdf: Buffer;
+  const telephones = new Map(
+    (
+      await prisma.employee.findMany({ where: { id: { in: crees.map((c) => c.employeeId) } }, select: { id: true, telephone: true } })
+    ).map((e) => [e.id, e.telephone?.trim() || null]),
+  );
+  const contenus = crees.map((c) => ({ nom: c.nom, matricule: c.matricule, motDePasse: c.motDePasse }));
+
+  let individuelles: Buffer[];
+  let planche: Buffer;
   try {
-    pdf = await genererFichesConnexionPdf({
-      fiches: crees.map((c) => ({ nom: c.nom, matricule: c.matricule, motDePasse: c.motDePasse })),
-      urlApplication: ORIGINE_AFFICHE,
-    });
+    individuelles = await genererFichesIndividuellesPdf({ fiches: contenus, urlApplication: ORIGINE_AFFICHE });
+    planche = await genererFichesConnexionPdf({ fiches: contenus, urlApplication: ORIGINE_AFFICHE });
+    if (individuelles.length !== crees.length) throw new Error("fiches incomplètes");
   } catch {
-    // Les comptes existent, mais leurs mots de passe sont perdus avec ce PDF : le dire, nommer les
-    // salariés, indiquer le seul recours (qui ne réécrit aucun autre compte), et ne pas perdre la
-    // liste des non-créés que l'écran aurait affichée.
-    const nonCrees = ignores.length > 0 ? ` Non créés : ${ignores.map((i) => `${i.nom} (${i.raison})`).join(", ")}.` : "";
-    throw new Error(
-      `Les comptes de ${crees.map((c) => c.nom).join(", ")} ont été créés, mais les fiches n'ont pas pu être produites : ` +
-        `réinitialisez leur mot de passe depuis leur fiche employé.${nonCrees}`,
-    );
+    const nonTraites = ignores.length > 0 ? ` ${libelleNonTraites} : ${ignores.map((i) => `${i.nom} (${i.raison})`).join(", ")}.` : "";
+    throw new Error(`${recours(crees.map((c) => c.nom).join(", "))}${nonTraites}`);
   }
 
   return {
-    pdfBase64: pdf.toString("base64"),
-    crees: crees.map((c) => ({ nom: c.nom, matricule: c.matricule })),
+    // `individuelles[i]` a été rendue depuis `crees[i]` et depuis lui seul.
+    fiches: crees.map((c, i) => ({
+      employeeId: c.employeeId,
+      nom: c.nom,
+      matricule: c.matricule,
+      telephone: telephones.get(c.employeeId) ?? null,
+      ficheBase64: individuelles[i].toString("base64"),
+    })),
+    plancheBase64: planche.toString("base64"),
     ignores,
   };
+}
+
+/** « Créer les comptes » : les salariés cochés SANS compte. Un compte existant n'est jamais touché. */
+export const creerComptesEnLot = actionLisible(async (employeeIds: string[]): Promise<ResultatFichesEnLot> => {
+  const user = await exigerDirection(employeeIds);
+  // Un échec n'arrête PAS le lot, et les comptes déjà créés restent : cf. creerComptesSalaries.
+  const lot = await creerComptesSalaries(prisma, { employeeIds, auteurId: user.id });
+  if (lot.crees.length > 0) revalidatePath("/parametres");
+  return produireFiches(
+    lot,
+    (noms) =>
+      `Les comptes de ${noms} ont été créés, mais les fiches n'ont pas pu être produites : ` +
+      `réinitialisez leur mot de passe depuis leur fiche employé.`,
+    "Non créés",
+  );
+});
+
+/**
+ * « Nouvelle fiche » : un NOUVEAU mot de passe temporaire pour les salariés cochés qui ont un
+ * compte à identifiant matricule — l'ancien mot de passe cesse aussitôt de fonctionner, et un
+ * compte désactivé est réactivé. L'écran le fait confirmer avant d'appeler.
+ */
+export const nouvellesFichesEnLot = actionLisible(async (employeeIds: string[]): Promise<ResultatFichesEnLot> => {
+  const user = await exigerDirection(employeeIds);
+  const lot = await reinitialiserComptesSalaries(prisma, { employeeIds, auteurId: user.id });
+  if (lot.crees.length > 0) revalidatePath("/parametres");
+  return produireFiches(
+    lot,
+    (noms) =>
+      `Les mots de passe de ${noms} ont été réinitialisés, mais les fiches n'ont pas pu être produites : ` +
+      `leurs anciens mots de passe ne fonctionnent plus. Relancez « Nouvelle fiche » pour eux.`,
+    "Non réinitialisés",
+  );
 });

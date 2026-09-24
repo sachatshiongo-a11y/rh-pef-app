@@ -1,15 +1,21 @@
-import { verifySession, estSalarie } from "@/lib/auth";
+import { verifySession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
+import { formulaireMotDePasseOuvert } from "@/lib/mot-de-passe-temporaire";
 import { redirect } from "next/navigation";
 import { changerMonMotDePasse } from "../actions";
 
 export default async function MotDePassePage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
   const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user)) redirect("/entree");
-  const compte = await prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true } });
-  const sp = await searchParams;
+  const [espaceOuvert, compte] = await Promise.all([
+    espaceEmployeActif(),
+    prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true } }),
+  ]);
   const premiereFois = compte?.motDePasseTemporaire ?? false;
+  // Même règle que l'action : hors EMPLOYE, le formulaire ne sert qu'au mot de passe temporaire.
+  if (!formulaireMotDePasseOuvert({ role: user.role, employeeId: user.employeeId, motDePasseTemporaire: premiereFois, espaceOuvert }))
+    redirect("/entree");
+  const sp = await searchParams;
 
   return (
     <div className="mx-auto min-h-screen max-w-md px-4 py-10">
