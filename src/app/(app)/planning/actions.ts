@@ -9,7 +9,7 @@ import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
-import { ecrireCreneaux, messageErreurPlanning, messageMoisFiges, verrousPlanning, type OperationCreneau, type Verrou } from "@/lib/planning-ecriture";
+import { ecrireCreneaux, ecrireModele, messageErreurPlanning, messageMoisFiges, modifierShiftEnBase, verrousPlanning, type OperationCreneau, type Verrou } from "@/lib/planning-ecriture";
 import { MOIS_FR, MOIS_FR_COURT } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 
@@ -53,15 +53,9 @@ export async function saisirModele(employeeId: string, jour: number, shiftId: st
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
   if (jour < 0 || jour > 6 || semaine < 0 || semaine > 2) return;
-  if (!shiftId) {
-    await prisma.planningModele.deleteMany({ where: { employeeId, jour, semaine } });
-  } else {
-    await prisma.planningModele.upsert({
-      where: { employeeId_jour_semaine: { employeeId, jour, semaine } },
-      update: { shiftId },
-      create: { employeeId, jour, semaine, shiftId },
-    });
-  }
+  // Le modèle donne les heures dues des jours de congé ou de maladie sans créneau : il touche la
+  // paie, chaque changement est donc journalisé (avant → après).
+  await prisma.$transaction((tx) => ecrireModele(tx, user.id, { employeeId, jour, semaine, shiftId: shiftId || null }));
   revalidatePath("/planning");
 }
 
@@ -427,17 +421,21 @@ export async function modifierShift(formData: FormData) {
     const nom = String(formData.get("nom") ?? "").trim();
     if (!nom) throw new Error("Le nom du shift est requis.");
 
-    await prisma.shift.update({
-      where: { id },
-      data: {
+    // La paie relit les heures du shift de chaque créneau à chaque calcul : les changer est refusé
+    // si le shift a servi à une paie validée ou payée, et journalisé sinon (planning-ecriture.ts).
+    try {
+      await prisma.$transaction((tx) => modifierShiftEnBase(tx, user.id, id, {
         nom,
+        couleur: String(formData.get("couleur") ?? "indigo"),
+        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
         heureDebut: lireHeure(formData.get("heureDebut")),
         heureFin: lireHeure(formData.get("heureFin")),
-        couleur: String(formData.get("couleur") ?? "indigo"),
         dureeHeures: lireNombre(formData.get("dureeHeures")),
-        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
-      },
-    });
+      }), { timeout: DELAI_ECRITURE_PLANNING });
+    } catch (e) {
+      const erreur = messageErreurPlanning(e);
+      throw erreur ? new Error(erreur) : e;
+    }
     revalidatePath("/planning");
 
   });
