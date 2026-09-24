@@ -7,11 +7,16 @@ import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { VignettePlat } from "@/components/vignette-plat";
 import { estErreur } from "@/lib/action-lisible";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
+import {
+  calculerDisponibilite,
+  type DetailArticleDispo, type DetailLigneDispo, type FicheDispo, type StockArticle,
+} from "@/lib/fiches/disponibilite";
 import { usd, qte } from "@/lib/stock";
 import {
-  MOTIF_LABEL, coef, pct, versFicheCalc,
+  MOTIF_LABEL, coef, pct, versFicheCalc, versFicheDispo, resumerDispo,
   type ArticleOption, type FicheVue, type LigneFiche,
 } from "../_data/fiche-calc";
+import { BlocDisponibilite, CellulePortions, CelluleStock } from "./disponibilite-fiche";
 import { ajouterIngredient, dupliquerFiches, modifierFiche, remplacerIngredients, supprimerFiches, supprimerIngredients } from "../actions";
 import { envoyerPhotoFiche, supprimerPhotoFiche } from "../photo-actions";
 import { dejaLeger, reduireImage } from "./reduire-photo";
@@ -37,12 +42,16 @@ const decoderSource = (v: string) => ({
  * même fonction que côté serveur — un seul chiffre possible pour une même fiche.
  */
 export function EditerFiche({
-  vue, articles, autresFiches, contexte,
+  vue, articles, autresFiches, contexte, contexteDispo, stocks,
 }: {
   vue: FicheVue;
   articles: ArticleOption[];
   autresFiches: AutreFiche[];
   contexte: FicheCalc[];
+  /** Autres fiches, pour éclater les sous-recettes (disponibilité). */
+  contexteDispo: FicheDispo[];
+  /** Stock dépôt + restaurant par article, lu une fois par la page. */
+  stocks: Record<string, StockArticle>;
 }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
@@ -64,6 +73,16 @@ export function EditerFiche({
   const resultat = calculerCout(versFicheCalc({ ...ent, lignes }, mapArticles, mapNoms), {
     fiches: new Map(contexte.map((f) => [f.id, f])),
   });
+  // Disponibilité : même principe que le coût, recalculée à chaque frappe sur l'état du formulaire.
+  // La fiche courante entre dans son propre contexte pour qu'une boucle passant par elle soit vue.
+  const ficheDispo = versFicheDispo({ ...ent, lignes }, mapArticles, mapNoms);
+  const dispo = calculerDisponibilite(ficheDispo, {
+    fiches: new Map([...contexteDispo.map((f) => [f.id, f] as const), [vue.id, ficheDispo] as const]),
+    articles: mapArticles,
+    stocks: new Map(Object.entries(stocks)),
+  });
+  const detailsArticles = new Map(dispo.articles.map((a) => [a.articleId, a]));
+  const ligneLimitante = dispo.limitantId ? lignes.findIndex((_, i) => dispo.lignes[i]?.articleIds.includes(dispo.limitantId!)) : -1;
   const coutConnu = resultat.lignes.some((l) => l.cout !== null);
   // `incomplet` couvre TROIS causes distinctes : des ingrédients non valorisés (le coût est alors
   // un minorant : ce qui manque ne peut qu'ajouter), une fiche sans aucun ingrédient (coût
@@ -266,6 +285,9 @@ export function EditerFiche({
         </button>
       </form>
 
+      {/* ── Disponibilité selon le stock ──────────────────────────────────── */}
+      <BlocDisponibilite dispo={dispo} estSousRecette={ent.estSousRecette} rendement={resumerDispo(dispo, ent).rendement} />
+
       {/* ── Ingrédients ──────────────────────────────────────────────────── */}
       <section className="space-y-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -292,7 +314,7 @@ export function EditerFiche({
         )}
 
         <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[52rem] text-sm">
+          <table className="w-full min-w-[64rem] text-sm">
             <thead className="bg-muted text-left">
               <tr>
                 <th className="w-8 px-2 py-2" />
@@ -300,6 +322,8 @@ export function EditerFiche({
                 <th className="px-2 py-2">Unité de conso.</th>
                 <th className="px-2 py-2 text-right">Quantité</th>
                 <th className="px-2 py-2 text-right">Coût HT</th>
+                <th className="px-2 py-2">Stock</th>
+                <th className="px-2 py-2">Portions possibles</th>
               </tr>
             </thead>
             <tbody>
@@ -316,10 +340,13 @@ export function EditerFiche({
                   selectionnee={sel.has(l.id)}
                   onToggle={() => toggle(l.id)}
                   onChange={(patch) => majLigne(l.id, patch)}
+                  dispoLigne={dispo.lignes[i]}
+                  detailsArticles={detailsArticles}
+                  limitante={i === ligneLimitante}
                 />
               ))}
               {lignes.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Aucun ingrédient. Ajoutez-en un ci-dessous.</td></tr>
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">Aucun ingrédient. Ajoutez-en un ci-dessous.</td></tr>
               )}
             </tbody>
           </table>
@@ -509,6 +536,7 @@ function PhotoPlat({
 
 function LigneIngredient({
   ligne, cout, article, sousFiche, articles, autresFiches, modifiee, selectionnee, onToggle, onChange,
+  dispoLigne, detailsArticles, limitante,
 }: {
   ligne: LigneFiche;
   cout: LigneCout | undefined;
@@ -520,10 +548,14 @@ function LigneIngredient({
   selectionnee: boolean;
   onToggle: () => void;
   onChange: (patch: Partial<LigneFiche>) => void;
+  dispoLigne: DetailLigneDispo | undefined;
+  detailsArticles: Map<string, DetailArticleDispo>;
+  limitante: boolean;
 }) {
   return (
     <tr className={`border-t align-top ${selectionnee ? "bg-primary/10" : modifiee ? "bg-amber-50/60" : ""}`}>
-      <td className="px-2 py-1.5">
+      {/* La ligne limitante est marquée d'un filet à gauche : il reste visible même sélectionnée. */}
+      <td className={`px-2 py-1.5 ${limitante ? "border-l-4 border-l-amber-500" : ""}`}>
         <input type="checkbox" checked={selectionnee} onChange={onToggle} aria-label="Sélectionner cet ingrédient" />
       </td>
       <td className="px-2 py-1.5">
@@ -562,6 +594,12 @@ function LigneIngredient({
           </span>
         )}
         {modifiee && <div className="text-[11px] text-amber-700">non enregistré</div>}
+      </td>
+      <td className="px-2 py-1.5">
+        <CelluleStock detail={ligne.articleId ? detailsArticles.get(ligne.articleId) : undefined} estSousRecette={!!ligne.sousFicheId} />
+      </td>
+      <td className="px-2 py-1.5">
+        <CellulePortions ligne={dispoLigne} details={detailsArticles} limitante={limitante} />
       </td>
     </tr>
   );

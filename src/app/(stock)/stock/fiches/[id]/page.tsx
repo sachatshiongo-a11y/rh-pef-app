@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { FilAriane } from "@/components/fil-ariane";
 import { verifySession, requireModule } from "@/lib/auth";
-import { chargerFichesVues, chargerArticlesSelectionnables } from "../_data/charger-fiche";
-import { versFicheCalc } from "../_data/fiche-calc";
+import { chargerFichesVues, chargerArticlesSelectionnables, chargerStocksDesFiches } from "../_data/charger-fiche";
+import { versFicheCalc, versFicheDispo } from "../_data/fiche-calc";
 import { EditerFiche } from "./editer-fiche";
 
 export default async function FicheDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -10,7 +10,7 @@ export default async function FicheDetailPage({ params }: { params: Promise<{ id
   const user = await verifySession();
   requireModule(user, "stock");
 
-  const [vues, articles] = await Promise.all([chargerFichesVues(), chargerArticlesSelectionnables()]);
+  const [vues, articles, stocks] = await Promise.all([chargerFichesVues(), chargerArticlesSelectionnables(), chargerStocksDesFiches()]);
   const vue = vues.find((v) => v.id === id);
   if (!vue) notFound();
 
@@ -19,6 +19,7 @@ export default async function FicheDetailPage({ params }: { params: Promise<{ id
   const mapArticles = new Map(articles.map((a) => [a.id, a]));
   const noms = new Map(vues.map((v) => [v.id, { nom: v.nom }]));
   const contexte = vues.filter((v) => v.id !== id).map((v) => versFicheCalc(v, mapArticles, noms));
+  const contexteDispo = vues.filter((v) => v.id !== id).map((v) => versFicheDispo(v, mapArticles, noms));
 
   const autresFiches = vues
     .filter((v) => v.id !== id)
@@ -35,6 +36,8 @@ export default async function FicheDetailPage({ params }: { params: Promise<{ id
         articles={articles}
         autresFiches={autresFiches}
         contexte={contexte}
+        contexteDispo={contexteDispo}
+        stocks={stocks}
       />
     </div>
   );
