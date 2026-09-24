@@ -117,8 +117,8 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   const user = await garde();
   if (articleRestoIds.length === 0) return { erreur: "Cochez au moins une proposition." };
   const [restos, catalogue] = await Promise.all([
-    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, articleStockId: true } }),
-    prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, actif: true } }),
+    prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, articleStockId: true, unite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, actif: true, unite: true } }),
   ]);
   const propositions = proposerRattachements(restos, catalogue);
   if (propositions.length === 0) {

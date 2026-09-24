@@ -56,6 +56,11 @@ const VOLUME_VERS_ML: Record<string, Decimal> = {
 // elles — seulement vers elles-mêmes (facteur 1).
 const UNITES_COMPTAGE = new Set(["pièce", "unité", "bouteille", "boîte", "paquet"]);
 
+/** Vrai si l'unité est absente (vide ou blanche) : « unité manquante ». */
+export function uniteManquante(unite: string | null | undefined): boolean {
+  return normaliserUnite(unite ?? "") === "";
+}
+
 /**
  * Facteur multiplicatif pour convertir une quantité exprimée en `uniteSource` vers `uniteCible`.
  * Renvoie `null` si la conversion est impossible (grandeurs différentes, unité inconnue,
@@ -64,6 +69,13 @@ const UNITES_COMPTAGE = new Set(["pièce", "unité", "bouteille", "boîte", "paq
 export function facteur(uniteSource: string, uniteCible: string): Decimal | null {
   const source = normaliserUnite(uniteSource);
   const cible = normaliserUnite(uniteCible);
+
+  // Une unité VIDE n'est pas une unité : c'est « unité manquante ». Deux unités vides ne sont
+  // donc pas « identiques » (facteur 1) — ce serait supposer que deux inconnues se valent.
+  // Placé AVANT l'identité ci-dessous. (Vérifié sur le classeur réel des fiches, 2026-09-24 :
+  // aucune ligne d'ingrédient n'a d'unité de consommation vide — la saisie l'exige — donc aucun
+  // coût de fiche ne change.)
+  if (source === "" || cible === "") return null;
 
   // Une unité rapportée à elle-même vaut toujours 1 — vrai par construction, que l'unité soit
   // connue du système ou non (ex. « 500 GR » consommé en « 500 GR » : un conditionnement acheté
