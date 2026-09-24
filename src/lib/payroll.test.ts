@@ -589,7 +589,7 @@ describe("argent au centime, à la source (2026-09-24) — les lignes du bulleti
     }
     expect(nb).toBeGreaterThan(10_000);
     expect(fautes.slice(0, 10)).toEqual([]);
-  });
+  }, 60_000); // ~11 000 cas : plus de 5 s sur une machine chargée
 
   it("maladie aux 2/3 : r100 + r2_3 = G au centime, et le net de base tombe sur la cible", () => {
     const t = 200 / 208, j = t * 8;
