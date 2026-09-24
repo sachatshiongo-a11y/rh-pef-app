@@ -4,6 +4,9 @@ import { changerStatutPaie } from "./actions";
 import { prochainsEtats } from "@/lib/paie-etats";
 import { BoutonValider, BTN_NEUTRE } from "@/components/action-buttons";
 import type { PaymentStatus, ModePaiement } from "@prisma/client";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import type { AvertissementPaie } from "@/lib/paie-reference";
+import { messageConfirmationValidation } from "./avertissements-validation";
 
 // Libellé d'une transition « en avant » (validation / paiement).
 const LABEL_AVANT: Record<PaymentStatus, string> = {
@@ -31,16 +34,22 @@ export function StatusActions({
   statut,
   peutValider,
   modePaiementDefaut = "ESPECES",
+  avertissements = [],
+  nom = "",
 }: {
   payrollLineId: string;
   statut: PaymentStatus;
   peutValider: boolean; // ADMIN
   peutPreparer?: boolean; // conservé pour compatibilité d'appel, non utilisé
   modePaiementDefaut?: ModePaiement; // pré-rempli depuis la fiche employé
+  avertissements?: AvertissementPaie[]; // montrés avant de valider, jamais bloquants
+  nom?: string;
 }) {
   if (!peutValider) return null;
   const cibles = prochainsEtats(statut);
   if (cibles.length === 0) return null;
+  // Rien à signaler → null : bouton de validation direct, sans boîte.
+  const confirmation = messageConfirmationValidation([{ nom, avertissements }]);
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -66,6 +75,8 @@ export function StatusActions({
             )}
             {reouverture ? (
               <button type="submit" className={BTN_NEUTRE}>↩ Rouvrir</button>
+            ) : vers === "VALIDE" && confirmation ? (
+              <ConfirmSubmitButton variante="valider" message={confirmation}>{LABEL_AVANT[vers]}</ConfirmSubmitButton>
             ) : (
               <BoutonValider type="submit">{LABEL_AVANT[vers]}</BoutonValider>
             )}

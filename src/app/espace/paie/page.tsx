@@ -88,7 +88,7 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
 
       {/* Aperçu du bulletin (réutilise la carte de la fiche RH) */}
       {apercu ? (
-        <ApercuBulletinCard apercu={apercu} periode={periode} />
+        <ApercuBulletinCard apercu={apercu} periode={periode} avecAvertissements={false} />
       ) : (
         <div className="rounded-2xl border bg-card p-5 text-sm text-muted-foreground">Aperçu du bulletin indisponible pour cette période.</div>
       )}

@@ -429,7 +429,7 @@ describe("reinitialiserCompteSalarie — le seul chemin de réinitialisation", (
   });
 
   it("la base ou le journal échoue APRÈS l'Auth : l'erreur dit la vérité, sans le mot de passe", async () => {
-    for (const [modele, operation] of [["user", "update"], ["journalAudit", "create"]] as const) {
+    for (const [modele, operation] of [["user", "update"], ["journalAudit", "createMany"]] as const) {
       const e = await salarie(`Moitié ${modele}`);
       const compte = await compteExistant(e);
       const { resultat: err, console: sortie } = await consoleDurant(() =>
@@ -567,7 +567,7 @@ describe("nouvellesFichesEnLot (Paramètres → Espace salarié, « Nouvelle fic
     const compteM = await compteExistant(m, { role: "MANAGER", actif: true });
     const x = await salarie("NF Moitié");
     await compteExistant(x);
-    H.client = clientEnPanne("journalAudit", "create");
+    H.client = clientEnPanne("journalAudit", "createMany");
     try {
       const r = await nouvellesFichesEnLot([m.id, x.id]);
       if ("erreur" in r) throw new Error(r.erreur);

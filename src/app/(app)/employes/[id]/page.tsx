@@ -24,6 +24,7 @@ import { TempsTravail } from "./temps-travail";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerPlafondAcompte, libelleSourcePlafond } from "@/lib/acompte-plafond";
 import { formaterUSD, formaterNombre } from "@/lib/montant";
+import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 import { construireEcheancier } from "@/lib/prets";
 import { CompositionFamiliale } from "../composition-familiale";
@@ -531,7 +532,7 @@ export default async function FicheEmployePage({
           <Info label="Ancienneté" value={`${anciennete} mois`} />
           <Info label="Seuil heures supp. (h/jour)" value={`${String(employee.heuresParJour)} h`} />
           <Info label="Heures / semaine" value={`${String(employee.heuresHebdomadaires)} h`} />
-          <Info label="Heures / mois (contractuelles)" value={`${Math.round(heuresMoisContrat * 10) / 10} h`} />
+          <Info label="Heures / mois (contrat)" value={`${Math.round(heuresMoisContrat * 10) / 10} h`} />
         </dl>
       </Section>
 
@@ -590,6 +591,9 @@ export default async function FicheEmployePage({
           <Info label={`Salaire mensuel${suffixeNet}`} value={formatMoney(Number(employee.salaireMensuel))} />
           <Info label={`Salaire journalier${suffixeNet}`} value={formatMoney(salaireJournalier)} />
           <Info label={`Salaire horaire${suffixeNet}`} value={formatMoney(salaireHoraire)} />
+          {employee.categorie === "BRIGADE" && (
+            <p className="col-span-full text-xs text-muted-foreground">{MENTION_REFERENCE_PLANNING}</p>
+          )}
           <Info
             label="Transport / jour"
             value={`${Number(employee.transportJourCDF).toLocaleString("fr-FR")} CDF`}

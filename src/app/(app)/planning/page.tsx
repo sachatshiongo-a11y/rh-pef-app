@@ -158,7 +158,8 @@ export default async function PlanningPage({
     ]);
     const modeleMap: Record<string, string> = {};
     for (const m of modeles) modeleMap[`${m.employeeId}_${m.jour}_${m.semaine}`] = m.shiftId;
-    // Taux horaire par défaut = salaire mensuel ÷ (heures/semaine × 52/12) — précis.
+    // Taux horaire CONTRACTUEL (estimation du modèle) = salaire mensuel ÷ (heures/semaine × 52/12).
+    // La paie de la brigade, elle, suit le planning du mois (paie-reference.ts).
     // Salaires en net (2026-07-22) : si le flag est actif, salaireMensuel est un NET → on grossit
     // par ρ (brut/net) pour afficher un taux BRUT cohérent avec le bulletin (approximation nominale).
     const tauxDefautParEmp: Record<string, number> = {};

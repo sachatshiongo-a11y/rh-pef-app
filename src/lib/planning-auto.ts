@@ -24,6 +24,11 @@ export type PolyvalencePlanning = { posteSource: string; posteCible: string };
 export type ModelePlanning = { employeeId: string; jour: number; semaine: number; shiftId: string };
 export type CongePlanning = { employeeId: string; dateDebut: Date; dateFin: Date };
 export type CreneauPlanning = { employeeId: string; date: Date; shiftId: string };
+/** Créneau figé : `poste` n'est lu que pour un salarié absent de `employes` (parti), afin que son
+ *  créneau, qui reste en place et sera payé, compte quand même dans la couverture. */
+export type CreneauFige = CreneauPlanning & { poste?: string };
+/** (salarié, mois) dont la paie est VALIDÉE ou PAYÉE. `mois` : 1 = janvier … 12 = décembre. */
+export type MoisVerrouille = { employeeId: string; annee: number; mois: number };
 
 export type OptionsGeneration = {
   /** Shift imposé par l'utilisateur (prioritaire sur la liste du poste). */
@@ -55,6 +60,15 @@ export type EntreesGeneration = {
   existants: CreneauPlanning[];
   /** Créneaux des 8 semaines PRÉCÉDANT la période — équité et jours consécutifs. */
   historique: CreneauPlanning[];
+  /**
+   * Créneaux existants des (salarié, mois) VERROUILLÉS (paie validée ou payée) : ils restent en
+   * place quoi qu'il arrive — et seront payés. Comptés PARTOUT (occupation, jours et heures de la
+   * semaine, couverture, équité, heures de la période), MÊME en mode « écraser », qui ne peut pas
+   * les effacer. Un créneau figé également présent dans `existants` n'est compté qu'une fois.
+   */
+  figes?: CreneauFige[];
+  /** Jours INTERDITS de pose : tout jour d'un de ces mois, pour ce salarié (paie verrouillée). */
+  moisVerrouilles?: MoisVerrouille[];
   options: OptionsGeneration;
 };
 
@@ -64,7 +78,8 @@ export type RaisonNonCouverture =
   | "TOUS_EN_CONGE"
   | "TOUS_DEJA_PRIS"
   | "TOUS_AU_REPOS"
-  | "TOUS_AU_PLAFOND";
+  | "TOUS_AU_PLAFOND"
+  | "PAIE_VERROUILLEE"; // les seuls encore libres ont une paie validée ou payée ce mois-là
 
 export type TrouCouverture = {
   date: Date;
@@ -180,6 +195,20 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   const estEnConge = (empId: string, d: Date) =>
     (congesParEmp.get(empId) ?? []).some((iv) => d.getTime() >= iv.debut && d.getTime() <= iv.fin);
 
+  // Paie verrouillée : aucun créneau posé sur un jour d'un mois validé ou payé du salarié. Ce n'est
+  // PAS un congé (ni TOUS_EN_CONGE ni les heures attendues ne doivent en être faussés).
+  const verrouilles = new Set((entrees.moisVerrouilles ?? []).map((v) => `${v.employeeId}_${v.annee}_${v.mois}`));
+  const estVerrouille = (empId: string, d: Date) => verrouilles.has(`${empId}_${d.getUTCFullYear()}_${d.getUTCMonth() + 1}`);
+
+  // Créneaux qui RESTENT en place après la génération : les figés toujours ; les autres existants
+  // seulement hors « écraser » (qui les efface). Un figé n'est jamais compté deux fois.
+  const figes = entrees.figes ?? [];
+  const clesFiges = new Set(figes.map((c) => `${c.employeeId}_${iso(c.date)}`));
+  const conserves: CreneauFige[] = [
+    ...figes,
+    ...(options.ecraser ? [] : entrees.existants.filter((ex) => !clesFiges.has(`${ex.employeeId}_${iso(ex.date)}`))),
+  ];
+
   // État courant : ce qui est déjà posé (existants conservés + historique) et ce qu'on ajoute.
   const occupe = new Set<string>(); // `${empId}_${isoJour}`
   const joursSemaine = new Map<string, number>(); // `${empId}_${lundiIso}` → nb de jours travaillés
@@ -205,13 +234,11 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     ajouter(heuresSemaine, `${h.employeeId}_${lundi}`, dureeParShift.get(h.shiftId) ?? 0);
   }
 
-  if (!options.ecraser) {
-    for (const ex of entrees.existants) {
-      const lundi = iso(lundiDeUTC(ex.date));
-      occupe.add(`${ex.employeeId}_${iso(ex.date)}`);
-      ajouter(joursSemaine, `${ex.employeeId}_${lundi}`, 1);
-      ajouter(heuresSemaine, `${ex.employeeId}_${lundi}`, dureeParShift.get(ex.shiftId) ?? 0);
-    }
+  for (const ex of conserves) {
+    const lundi = iso(lundiDeUTC(ex.date));
+    occupe.add(`${ex.employeeId}_${iso(ex.date)}`);
+    ajouter(joursSemaine, `${ex.employeeId}_${lundi}`, 1);
+    ajouter(heuresSemaine, `${ex.employeeId}_${lundi}`, dureeParShift.get(ex.shiftId) ?? 0);
   }
 
   /** Nombre de jours travaillés d'affilée qui se termineraient en `d` si on y posait un créneau. */
@@ -226,6 +253,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   const respecteContraintesDures = (empId: string, d: Date): boolean => {
     if (occupe.has(`${empId}_${iso(d)}`)) return false;
     if (estEnConge(empId, d)) return false;
+    if (estVerrouille(empId, d)) return false;
     const lundi = iso(lundiDeUTC(d));
     if ((joursSemaine.get(`${empId}_${lundi}`) ?? 0) >= JOURS_TRAVAILLES_MAX_PAR_SEMAINE) return false;
     if (serieAvec(empId, d) > JOURS_CONSECUTIFS_MAX) return false;
@@ -327,15 +355,15 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     empsParPoste.set(e.poste, l);
   }
 
-  // Couverture déjà acquise : modèles posés + créneaux existants conservés.
+  // Couverture déjà acquise : modèles posés + créneaux conservés (figés compris, même en « écraser »).
   const posteDe = new Map(entrees.employes.map((e) => [e.id, e.poste]));
   const couverture = new Map<string, number>(); // `${isoJour}_${shiftId}_${poste}`
-  const compterCouverture = (c: CreneauPlanning) => {
-    const p = posteDe.get(c.employeeId);
+  const compterCouverture = (c: CreneauFige) => {
+    const p = posteDe.get(c.employeeId) ?? c.poste;
     if (p) ajouter(couverture, `${iso(c.date)}_${c.shiftId}_${p}`, 1);
   };
   creneaux.forEach(compterCouverture);
-  if (!options.ecraser) entrees.existants.forEach(compterCouverture);
+  conserves.forEach(compterCouverture);
 
   // ── Équité ────────────────────────────────────────────────────────────────────────────────
   // Un DÉPARTAGE entre candidats disponibles, jamais un veto : l'équité ne peut pas empêcher de
@@ -355,7 +383,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     ajouter(shiftsPris, `${c.employeeId}_${c.shiftId}`, 1);
   };
   for (const h of entrees.historique) compterEquite(h, false);
-  if (!options.ecraser) for (const ex of entrees.existants) compterEquite(ex, true);
+  for (const ex of conserves) compterEquite(ex, true);
   for (const c of creneaux) compterEquite(c, true); // modèles déjà posés
 
   const ordonnerCandidats = (candidats: EmployePlanning[], d: Date) =>
@@ -406,7 +434,10 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
     if (libresAvant.length > 0) return "EFFECTIF_INSUFFISANT";
     if (candidats.every((e) => estEnConge(e.id, d))) return "TOUS_EN_CONGE";
     const dispos = candidats.filter((e) => !estEnConge(e.id, d));
-    if (dispos.every((e) => occupe.has(`${e.id}_${iso(d)}`))) return "TOUS_DEJA_PRIS";
+    const libres = dispos.filter((e) => !occupe.has(`${e.id}_${iso(d)}`));
+    if (libres.length === 0) return "TOUS_DEJA_PRIS";
+    // Ni en congé ni déjà pris, mais paie du mois validée ou payée : ce n'est pas du repos.
+    if (libres.every((e) => estVerrouille(e.id, d))) return "PAIE_VERROUILLEE";
     return "TOUS_AU_REPOS";
   };
 
@@ -516,9 +547,7 @@ export function genererPlanning(entrees: EntreesGeneration): ResultatGeneration 
   const proportionSemaines = joursPeriode.length / joursActifsParSemaine;
   const heuresTotales = new Map<string, number>();
   for (const c of creneaux) ajouter(heuresTotales, c.employeeId, dureeParShift.get(c.shiftId) ?? 0);
-  if (!options.ecraser) {
-    for (const ex of entrees.existants) ajouter(heuresTotales, ex.employeeId, dureeParShift.get(ex.shiftId) ?? 0);
-  }
+  for (const ex of conserves) ajouter(heuresTotales, ex.employeeId, dureeParShift.get(ex.shiftId) ?? 0);
   const sousHeures = entrees.employes
     .map((e) => ({
       employeeId: e.id,

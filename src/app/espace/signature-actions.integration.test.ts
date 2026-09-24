@@ -425,3 +425,61 @@ describe("signer un contrat depuis l'espace vaut acceptation", () => {
     expect(sig!.obsolete).toBe(false);
   });
 });
+
+// Le planning est une pièce de paie (2026-09-23) : un échange accepté depuis l'espace passe par
+// `ecrireCreneaux`, au nom du salarié qui accepte ; paie du mois validée → rien n'est permuté,
+// l'échange reste en attente et la Direction est prévenue du blocage.
+describe("repondreEchange — verrou de paie et trace du planning", () => {
+  it("mois dont la paie est validée → échange bloqué, planning inchangé, la Direction est prévenue", async () => {
+    const [shiftA, shiftB] = await Promise.all([
+      prisma.shift.create({ data: { nom: "Matin verrou", dureeHeures: 8, ordre: 10 } }),
+      prisma.shift.create({ data: { nom: "Soir verrou", dureeHeures: 8, ordre: 11 } }),
+    ]);
+    const date = new Date("2026-08-12T00:00:00.000Z"); // août : paies de A et B VALIDÉES
+    await prisma.planningCreneau.createMany({ data: [
+      { employeeId: collegueId, date, shiftId: shiftA.id },
+      { employeeId: empId, date, shiftId: shiftB.id },
+    ] });
+    const ech = await prisma.echangeCreneau.create({ data: {
+      demandeurId: collegueId, demandeurDate: date, demandeurShiftId: shiftA.id,
+      collegueId: empId, collegueDate: date, collegueShiftId: shiftB.id, reponseDirection: "APPROUVE",
+    } });
+    N.direction.length = 0;
+
+    await repondreEchange(ech.id, true);
+
+    const relu = await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: ech.id } });
+    expect([relu.statut, relu.reponseCollegue]).toEqual(["EN_ATTENTE", "ACCEPTE"]);
+    expect((await prisma.planningCreneau.findUniqueOrThrow({ where: { employeeId_date: { employeeId: collegueId, date } } })).shiftId).toBe(shiftA.id);
+    expect((await prisma.planningCreneau.findUniqueOrThrow({ where: { employeeId_date: { employeeId: empId, date } } })).shiftId).toBe(shiftB.id);
+    expect(N.direction.map((n) => [n.message, n.lien])).toEqual([[
+      "Échange de shift accepté mais bloqué : Planning verrouillé : paie validée ou payée pour Salarié A (août 2026), Salarié B (août 2026). Rouvrir la ligne de paie avant de modifier ce planning.",
+      "/a-valider",
+    ]]);
+  });
+
+  it("mois ouvert → échange appliqué et journalisé au nom du salarié qui accepte", async () => {
+    const [shiftA, shiftB] = await Promise.all([
+      prisma.shift.create({ data: { nom: "Matin ouvert", dureeHeures: 8, ordre: 12 } }),
+      prisma.shift.create({ data: { nom: "Soir ouvert", dureeHeures: 8, ordre: 13 } }),
+    ]);
+    const date = new Date("2026-09-15T00:00:00.000Z"); // septembre : paie en brouillon
+    await prisma.planningCreneau.createMany({ data: [
+      { employeeId: collegueId, date, shiftId: shiftA.id },
+      { employeeId: empId, date, shiftId: shiftB.id },
+    ] });
+    const ech = await prisma.echangeCreneau.create({ data: {
+      demandeurId: collegueId, demandeurDate: date, demandeurShiftId: shiftA.id,
+      collegueId: empId, collegueDate: date, collegueShiftId: shiftB.id, reponseDirection: "APPROUVE",
+    } });
+
+    await repondreEchange(ech.id, true);
+
+    expect((await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: ech.id } })).statut).toBe("APPROUVE");
+    expect((await prisma.planningCreneau.findUniqueOrThrow({ where: { employeeId_date: { employeeId: collegueId, date } } })).shiftId).toBe(shiftB.id);
+    expect((await prisma.planningCreneau.findUniqueOrThrow({ where: { employeeId_date: { employeeId: empId, date } } })).shiftId).toBe(shiftA.id);
+    const j = await prisma.journalAudit.findMany({ where: { entite: "PlanningCreneau", entiteId: { endsWith: "|2026-09-15" } } });
+    expect(j).toHaveLength(2);
+    expect(j.every((e) => e.userId === A.user.id)).toBe(true);
+  });
+});

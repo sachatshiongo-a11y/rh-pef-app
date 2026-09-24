@@ -975,6 +975,15 @@ model PayrollRun {
   @@schema("public")
 }
 
+/// D'où vient la référence d'heures d'une ligne de paie (spec 2026-09-23-paie-heures-planifiees).
+enum SourceReferencePaie {
+  PLANNING // heures planifiées du mois (brigade, à partir de la date d'effet)
+  CONTRAT // heures/semaine × 52/12 (mois antérieurs, back-office, stagiaires)
+  CONTRAT_REPLI // planning incomplet ou mois d'embauche : retombée visible sur le contrat
+
+  @@schema("public")
+}
+
 model PayrollLine {
   id           String     @id @default(uuid())
   payrollRunId String
@@ -998,7 +1007,17 @@ model PayrollLine {
 
   // Détail heures (snapshot au moment du calcul)
   heuresTravaillees    Decimal @default(0) @db.Decimal(6, 2)
-  heuresContractuelles Decimal @default(0) @db.Decimal(6, 2)
+  // Référence du mois (paie sur heures planifiées, 2026-09-23) : R en mode PLANNING, heures/sem ×
+  // 52/12 sinon. La SOURCE dit laquelle ; le MOTIF dit pourquoi un mois est retombé sur le contrat.
+  heuresContractuelles Decimal             @default(0) @db.Decimal(6, 2)
+  sourceReference      SourceReferencePaie @default(CONTRAT)
+  motifReference       String?
+  // Heures des jours payés non travaillés (congés, fériés dus, repos payés, absences payées) :
+  // la base du bulletin se lit en heures × taux. 0 = ligne antérieure au 2026-09-23.
+  heuresPayeesNonTravaillees Decimal @default(0) @db.Decimal(6, 2)
+  // Avertissements (repli, saisies d'avance, travail hors planning…) figés avec la ligne : une
+  // ligne validée garde la trace de ce que la Direction a vu en validant. Jamais bloquants.
+  avertissementsPaie Json @default("[]")
   heuresSupp30         Decimal @default(0) @db.Decimal(6, 2)
   heuresSupp60         Decimal @default(0) @db.Decimal(6, 2)
   heuresSupp100        Decimal @default(0) @db.Decimal(6, 2)

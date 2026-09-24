@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
-import { transitionAutorisee, roleRequisPour } from "@/lib/paie-etats";
+import { transitionAutorisee, transitionAutoriseeEnLot, roleRequisPour } from "@/lib/paie-etats";
 import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { calculerEcheancePret } from "@/lib/prets";
 import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
@@ -52,14 +52,15 @@ async function appliquerTransitionPaie(
   tx: Prisma.TransactionClient,
   payrollLineId: string,
   versStatut: PaymentStatus,
-  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null },
+  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean },
   userId: string
 ): Promise<boolean> {
   const ligne = await tx.payrollLine.findUnique({
     where: { id: payrollLineId },
     include: { employee: true, payrollRun: true },
   });
-  if (!ligne || !transitionAutorisee(ligne.statutPaiement, versStatut)) return false;
+  const autorisee = opts.enLot ? transitionAutoriseeEnLot : transitionAutorisee;
+  if (!ligne || !autorisee(ligne.statutPaiement, versStatut)) return false;
 
   const deStatut = ligne.statutPaiement;
   // Moyen de paiement : celui explicitement choisi, sinon le moyen de paiement de la fiche employé
@@ -190,7 +191,7 @@ export const changerStatutEnLot = actionLisible(async (
   const modifiees = await prisma.$transaction(async (tx) => {
     let n = 0;
     for (const id of payrollLineIds) {
-      if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement }, user.id)) n++;
+      if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true }, user.id)) n++;
     }
     return n;
   }, { timeout: 120_000 });

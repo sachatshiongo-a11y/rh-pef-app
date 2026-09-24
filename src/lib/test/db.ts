@@ -39,7 +39,7 @@ export async function creerBaseTest(): Promise<{ prisma: PrismaClient; url: stri
  * qui en ont besoin appellent ensuite `chargerParametresPaie()` pour lire les valeurs RÉELLEMENT
  * seedées plutôt que de les recopier une 2e fois en dur dans les assertions.
  */
-export async function seedParametresLegaux(prisma: PrismaClient, annee = 2026) {
+export async function seedParametresLegaux(prisma: PrismaClient, annee = 2026, options: { referencePlanningDepuis?: number } = {}) {
   const exercice = await prisma.exerciceFiscal.create({ data: { annee, actif: true } });
   await prisma.parametreLegal.createMany({
     data: [
@@ -72,5 +72,12 @@ export async function seedParametresLegaux(prisma: PrismaClient, annee = 2026) {
       { exerciceId: exercice.id, ordre: 4, plafondAnnuelCDF: null, taux: 0.4 },
     ],
   });
+  // Date d'effet de la paie sur heures planifiées : posée seulement si le test la demande — les
+  // tests existants (juillet 2026) restent ainsi sur l'ancienne règle sans le savoir.
+  if (options.referencePlanningDepuis != null) {
+    await prisma.parametreLegal.create({
+      data: { exerciceId: exercice.id, cle: "paie_reference_planning_depuis", valeur: options.referencePlanningDepuis, unite: "AAAAMM", libelle: "Paie brigade — référence = heures planifiées à partir du mois (AAAAMM)" },
+    });
+  }
   return exercice;
 }

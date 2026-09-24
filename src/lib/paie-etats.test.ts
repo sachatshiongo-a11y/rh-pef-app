@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { transitionAutorisee, prochainsEtats, roleRequisPour } from "./paie-etats";
+import { transitionAutorisee, transitionAutoriseeEnLot, prochainsEtats, roleRequisPour } from "./paie-etats";
 
 describe("machine à états de paie (3 états)", () => {
   it("suit le flux nominal Pas validé → Validé → Payé", () => {
@@ -30,5 +30,13 @@ describe("machine à états de paie (3 états)", () => {
     expect(prochainsEtats("PAS_VALIDE")).toEqual(["VALIDE"]);
     expect(prochainsEtats("VALIDE").sort()).toEqual(["PAS_VALIDE", "PAYE"]);
     expect(prochainsEtats("PAYE")).toEqual(["VALIDE"]);
+  });
+
+  it("en lot, « Valider » n'annule jamais un paiement (ligne payée cochée par mégarde)", () => {
+    expect(transitionAutoriseeEnLot("PAYE", "VALIDE")).toBe(false);
+    expect(transitionAutorisee("PAYE", "VALIDE")).toBe(true); // toujours possible ligne par ligne
+    expect(transitionAutoriseeEnLot("PAS_VALIDE", "VALIDE")).toBe(true);
+    expect(transitionAutoriseeEnLot("VALIDE", "PAYE")).toBe(true);
+    expect(transitionAutoriseeEnLot("VALIDE", "PAS_VALIDE")).toBe(true);
   });
 });

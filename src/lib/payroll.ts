@@ -52,6 +52,9 @@ export type ParametresPaie = {
   // mis à jour ici — le testeur s'en charge) restent valides sans le champ ; `undefined` se comporte
   // comme `false` partout où le flag est consulté.
   salairesSaisisEnNet?: boolean;
+  // Mois (AAAAMM) à partir duquel la brigade est payée sur les heures PLANIFIÉES du mois
+  // (spec 2026-09-23-paie-heures-planifiees, src/lib/paie-reference.ts). null/undefined = jamais.
+  referencePlanningDepuis?: number | null;
 };
 
 /**

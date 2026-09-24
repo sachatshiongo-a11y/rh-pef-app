@@ -566,3 +566,80 @@ describe("genererPlanning — amorçage des quotas hebdomadaires par l'historiqu
     expect(r.creneaux.length * 8 + 16).toBe(40);
   });
 });
+
+// Paie verrouillée (2026-09-23) : seul le MOIS validé ou payé d'un salarié est figé, jamais toute la
+// période. Semaine à cheval lundi 29 juin → dimanche 5 juillet 2026, juin validé pour e1.
+describe("genererPlanning — mois dont la paie est verrouillée", () => {
+  const JUIN_E1 = { employeeId: "e1", annee: 2026, mois: 6 };
+  const semaineACheval = (surcharge: Partial<EntreesGeneration> = {}) =>
+    entreesBase({ debut: d("2026-06-29"), fin: d("2026-07-05"), ...surcharge });
+  const besoinMatin = (jourSemaine: number, nombreRequis = 1) => ({ shiftId: SHIFT_MATIN.id, poste: "Cuisinier", jourSemaine, nombreRequis });
+
+  it("un créneau figé couvre le besoin : personne de plus n'est proposé (même en « écraser »)", () => {
+    for (const ecraser of [false, true]) {
+      const r = genererPlanning(semaineACheval({
+        employes: [employe("e1"), employe("e2")],
+        besoins: [besoinMatin(1)], // lundi 29 juin, 1 cuisinier au matin
+        figes: [{ employeeId: "e1", date: d("2026-06-29"), shiftId: SHIFT_MATIN.id }],
+        moisVerrouilles: [JUIN_E1],
+        options: { ...semaineACheval().options, ecraser },
+      }));
+      expect(r.creneaux.filter((c) => iso2(c.date) === "2026-06-29")).toEqual([]);
+      expect(r.rapport.trous).toEqual([]);
+    }
+  });
+
+  it("le créneau figé d'un salarié parti (hors `employes`) compte aussi, par son poste", () => {
+    const r = genererPlanning(semaineACheval({
+      employes: [employe("e2")],
+      besoins: [besoinMatin(1)],
+      figes: [{ employeeId: "parti", date: d("2026-06-29"), shiftId: SHIFT_MATIN.id, poste: "Cuisinier" }],
+      moisVerrouilles: [{ employeeId: "parti", annee: 2026, mois: 6 }],
+      options: { ...semaineACheval().options, ecraser: true },
+    }));
+    expect(r.creneaux).toEqual([]);
+    expect(r.rapport.trous).toEqual([]);
+  });
+
+  it("un jour d'un mois verrouillé n'est jamais posé (modèle, besoin, complément) ; le mois suivant l'est", () => {
+    const r = genererPlanning(semaineACheval({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 100 }],
+      modeles: [1, 2, 3].map((j) => ({ employeeId: "e1", jour: j, semaine: 0, shiftId: SHIFT_MATIN.id })),
+      besoins: [besoinMatin(2)], // mardi 30 juin
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      moisVerrouilles: [JUIN_E1],
+      options: { ...semaineACheval().options, completer: true, ecraser: true },
+    }));
+    const jours = r.creneaux.map((c) => iso2(c.date));
+    expect(jours.filter((j) => j.startsWith("2026-06"))).toEqual([]);
+    expect(jours).toEqual(expect.arrayContaining(["2026-07-01", "2026-07-02", "2026-07-03"]));
+    // Le besoin du mardi 30 juin reste un trou, pour sa vraie raison (ni congé, ni repos).
+    expect(r.rapport.trous.map((t) => [iso2(t.date), t.raison])).toEqual([["2026-06-30", "PAIE_VERROUILLEE"]]);
+  });
+
+  it("« écraser » : les heures figées comptent dans le plafond de la semaine et dans les heures de la période", () => {
+    // e1 : 16 h/semaine, déjà 2 × 8 h figées lundi et mardi (juin validé) → plus rien en juillet.
+    const r = genererPlanning(semaineACheval({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 16 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      figes: ["2026-06-29", "2026-06-30"].map((j) => ({ employeeId: "e1", date: d(j), shiftId: SHIFT_MATIN.id })),
+      moisVerrouilles: [JUIN_E1],
+      options: { ...semaineACheval().options, completer: true, ecraser: true },
+    }));
+    expect(r.creneaux).toEqual([]);
+    expect(r.rapport.sousHeures).toEqual([]);
+  });
+
+  it("un créneau à la fois figé et existant n'est compté qu'une fois", () => {
+    const fige = { employeeId: "e1", date: d("2026-06-29"), shiftId: SHIFT_MATIN.id };
+    const r = genererPlanning(semaineACheval({
+      employes: [{ ...employe("e1"), heuresHebdomadaires: 16 }],
+      shiftsPoste: [{ poste: "Cuisinier", shiftId: SHIFT_MATIN.id, ordre: 0 }],
+      figes: [fige],
+      existants: [fige],
+      moisVerrouilles: [JUIN_E1],
+      options: { ...semaineACheval().options, completer: true },
+    }));
+    expect(r.creneaux.map((c) => iso2(c.date))).toEqual(["2026-07-01"]);
+  });
+});

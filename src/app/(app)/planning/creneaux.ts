@@ -12,17 +12,6 @@ export type ShiftDTO = {
   tauxHoraireUSD: number | null;
 };
 
-/** Durée d'un shift en heures : `dureeHeures` explicite, sinon calculée depuis les horaires (gère la nuit). */
-export function dureeShift(s: { heureDebut: string | null; heureFin: string | null; dureeHeures: number | null }): number {
-  if (s.dureeHeures != null) return s.dureeHeures;
-  if (!s.heureDebut || !s.heureFin) return 0;
-  const [hd, md] = s.heureDebut.split(":").map(Number);
-  const [hf, mf] = s.heureFin.split(":").map(Number);
-  let minutes = hf * 60 + mf - (hd * 60 + md);
-  if (minutes < 0) minutes += 24 * 60; // shift de nuit (fin le lendemain)
-  return Math.round((minutes / 60) * 100) / 100;
-}
-
 // Palette de couleurs disponibles pour les shifts (clé -> classes Tailwind + hex pour la grille).
 export const PALETTE: Record<string, { classe: string; hex: { bg: string; text: string } }> = {
   yellow: { classe: "bg-yellow-100 text-yellow-800", hex: { bg: "#fef9c3", text: "#854d0e" } },
@@ -51,3 +40,7 @@ export function libelleShift(nom: string, heureDebut: string | null, heureFin: s
 // `pariteSemaine` vit désormais dans src/lib/dates-fr.ts : le moteur pur (src/lib/planning-auto.ts)
 // en a besoin et ne doit rien importer de src/app/. Ré-exporté ici pour les appelants existants.
 export { pariteSemaine } from "@/lib/dates-fr";
+
+// `dureeShift` vit désormais dans src/lib/duree-shift.ts (la paie en a besoin). Ré-exporté ici pour
+// les appelants existants.
+export { dureeShift } from "@/lib/duree-shift";
