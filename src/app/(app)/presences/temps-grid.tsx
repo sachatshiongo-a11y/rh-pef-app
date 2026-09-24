@@ -13,6 +13,9 @@ import { saisirPresence, saisirPresencesEnLot } from "./actions";
 import { saisirHeures, saisirHeuresEnLot } from "../heures-supp/actions";
 import { COULEUR_CODE_HEX } from "./attendance-colors";
 import { useJourMobile } from "@/components/jour-mobile";
+import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
+import { lireSaisieNombre } from "@/lib/nombre";
 import {
   calculerHeuresSupp,
   resumerPresences,
@@ -158,6 +161,7 @@ export function TempsGrid({
     y: number;
     code: string;
     heures: string;
+    erreur?: string;
   } | null>(null);
 
   function ouvrirMenu(ev: React.MouseEvent<HTMLButtonElement>, empId: string, day: number) {
@@ -192,12 +196,37 @@ export function TempsGrid({
       saisirHeures(empId, isoDates[day - 1], heures.replace(",", "."));
     });
   }
+  // Case « heures » de la vue mobile (tableur partagé) : enregistrée à la sortie de la case —
+  // avant, CHAQUE frappe envoyait l'action (et rechargeait /presences, /paie…). Un échec reste
+  // affiché sur la case.
+  function enregistrerHeuresCase(v: number | null, { ligne: empId, precedente, donnee: iso }: ContexteCase) {
+    // Jour FIGÉ à la validation de la case (donnee = date ISO), même si l'on a changé de jour depuis.
+    const jour = iso ? isoDates.indexOf(iso) + 1 : jourMobile;
+    const k = `${empId}_${jour}`;
+    setCellules((c) => ({ ...c, [k]: { ...(c[k] ?? { code: "" }), heures: v } }));
+    return saisirHeures(empId, isoDates[jour - 1], v === null ? "" : String(v)).catch((e: unknown) => {
+      // Échec : la valeur locale est annulée (les totaux ne comptent pas des heures non
+      // enregistrées) ; la case reste en rouge et le message s'affiche sous la liste.
+      setCellules((c) => ({ ...c, [k]: { ...(c[k] ?? { code: "" }), heures: precedente } }));
+      throw e;
+    });
+  }
+  /** Changer de jour (vue mobile) : la case en cours de frappe est d'abord quittée — donc enregistrée. */
+  function changerJour(n: number) {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    setIdxMobile(n);
+  }
   function validerMenu() {
     if (!pop) return;
+    // Heures illisibles ou hors 0–24 : le menu reste ouvert et le dit (avant : fermé sans rien écrire).
+    const lu = lireSaisieNombre(pop.heures);
+    if (!lu.ok || (lu.valeur !== null && (lu.valeur < 0 || lu.valeur > 24))) {
+      setPop({ ...pop, erreur: "Heures invalides : un nombre entre 0 et 24 (ex. 7,5)." });
+      return;
+    }
     const avant = cel(pop.empId, pop.day);
     if (pop.code !== avant.code) ecrireCode(pop.empId, pop.day, pop.code);
-    const heuresAvant = avant.heures === null ? "" : String(avant.heures);
-    if (pop.heures.trim() !== heuresAvant) ecrireHeures(pop.empId, pop.day, pop.heures.trim());
+    if (lu.valeur !== avant.heures) ecrireHeures(pop.empId, pop.day, lu.valeur === null ? "" : String(lu.valeur));
     setPop(null);
   }
   function effacerMenu() {
@@ -287,7 +316,14 @@ export function TempsGrid({
     const cibles = joursCibles();
     if (emps.length === 0 || cibles.length === 0) return;
     const code = vider ? "" : bulkCode; // "KEEP" = ne pas changer le code
-    const heures = vider ? "" : bulkHeures.trim().replace(",", ".");
+    // Champ texte (plus de type=number) : une saisie illisible ne doit JAMAIS partir au serveur,
+    // qui lirait NaN comme « effacer les heures » sur tous les jours ciblés.
+    const luHeures = lireSaisieNombre(bulkHeures);
+    if (!vider && (!luHeures.ok || (luHeures.valeur !== null && (luHeures.valeur < 0 || luHeures.valeur > 24)))) {
+      setNote("Heures invalides : un nombre entre 0 et 24 (ex. 7,5), ou laisser vide pour ne pas les changer.");
+      return;
+    }
+    const heures = vider || !luHeures.ok || luHeures.valeur === null ? "" : String(luHeures.valeur);
     const faireCode = vider || code !== "KEEP";
     const faireHeures = vider || heures !== "";
     if (!faireCode && !faireHeures) return;
@@ -387,8 +423,8 @@ export function TempsGrid({
       {/* ── Mobile : jour par jour ── */}
       <div className="lg:hidden">
         <div className="mb-3 flex items-center gap-2">
-          <button type="button" onClick={() => setIdxMobile(Math.max(0, idxMobile - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
-          <select value={idxMobile} onChange={(e) => setIdxMobile(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
+          <button type="button" onClick={() => changerJour(Math.max(0, idxMobile - 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
+          <select value={idxMobile} onChange={(e) => changerJour(Number(e.target.value))} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
             {days.map((d, i) => (
               <option key={d} value={i}>
                 {new Date(isoDates[d - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
@@ -396,9 +432,10 @@ export function TempsGrid({
               </option>
             ))}
           </select>
-          <button type="button" onClick={() => setIdxMobile(Math.min(days.length - 1, idxMobile + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+          <button type="button" onClick={() => changerJour(Math.min(days.length - 1, idxMobile + 1))} className="rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
         </div>
-        <div className="space-y-2">
+        <ZoneTableur>
+        <div data-tableur="" className="space-y-2">
           {employees.map((emp) => {
             const c = cel(emp.id, jourMobile);
             const coul = couleurDe(c.code);
@@ -428,13 +465,12 @@ export function TempsGrid({
                       <option value="">—</option>
                       {CODES.map((x) => (<option key={x} value={x}>{x}</option>))}
                     </select>
-                    <input
-                      type="number" step="0.5" min="0" max="24" inputMode="decimal"
-                      value={c.heures === null ? "" : c.heures}
-                      onChange={(e) => ecrireHeures(emp.id, jourMobile, e.target.value)}
+                    <CelluleNombre
+                      key={jourMobile} ligne={emp.id} col={0} donnee={isoDates[jourMobile - 1]} valeur={c.heures} min={0} max={24}
+                      onEnregistrer={enregistrerHeuresCase}
                       placeholder="h"
                       className="w-16 rounded-md border border-input bg-background px-2 py-2 text-right text-sm font-semibold"
-                      aria-label={`Heures de ${emp.nom}`}
+                      aria-label={`Heures de ${emp.nom} — ${new Date(isoDates[jourMobile - 1] + "T00:00:00Z").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", timeZone: "UTC" })}`}
                     />
                   </>
                 ) : (
@@ -445,7 +481,9 @@ export function TempsGrid({
           })}
           {employees.length === 0 && <EtatVide message="Aucun employé." />}
         </div>
+        </ZoneTableur>
         {isPending && <p className="mt-2 text-xs text-muted-foreground">Enregistrement…</p>}
+        {note && <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800">{note}</p>}
       </div>
 
       {/* ── Ordinateur : grille complète ── */}
@@ -459,7 +497,7 @@ export function TempsGrid({
               {CODES.map((c) => (<option key={c} value={c}>{c}</option>))}
             </select>
             <span className="text-muted-foreground">heures</span>
-            <input type="number" step="0.5" min="0" max="24" value={bulkHeures} onChange={(e) => setBulkHeures(e.target.value)} placeholder="(inchangées)" className="w-24 rounded border border-input bg-background px-2 py-1 text-xs" />
+            <input type="text" inputMode="decimal" autoComplete="off" value={bulkHeures} onChange={(e) => setBulkHeures(e.target.value)} placeholder="(inchangées)" className="w-24 rounded border border-input bg-background px-2 py-1 text-xs" />
             <span className="text-muted-foreground">sur</span>
             <select value={bulkScope} onChange={(e) => setBulkScope(e.target.value as Scope)} className="rounded border border-input bg-background px-2 py-1 text-xs">
               <option value="mois">tout le mois</option>
@@ -474,14 +512,14 @@ export function TempsGrid({
             )}
             {bulkScope === "periode" && (
               <span className="flex items-center gap-1 text-xs">du jour
-                <input type="number" min={1} max={days.length} value={bulkDu} onChange={(e) => setBulkDu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+                <input type="text" inputMode="numeric" autoComplete="off" value={bulkDu} onChange={(e) => setBulkDu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
                 au
-                <input type="number" min={1} max={days.length} value={bulkAu} onChange={(e) => setBulkAu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+                <input type="text" inputMode="numeric" autoComplete="off" value={bulkAu} onChange={(e) => setBulkAu(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
               </span>
             )}
             {bulkScope === "alternes" && (
               <label className="flex items-center gap-1 text-xs text-muted-foreground">à partir du jour
-                <input type="number" min="1" max={days.length} value={bulkAlterneDebut} onChange={(e) => setBulkAlterneDebut(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
+                <input type="text" inputMode="numeric" autoComplete="off" value={bulkAlterneDebut} onChange={(e) => setBulkAlterneDebut(e.target.value)} className="w-14 rounded border border-input bg-background px-2 py-1 text-xs" />
               </label>
             )}
             <button
@@ -642,15 +680,18 @@ export function TempsGrid({
               <span className="text-muted-foreground">Heures travaillées</span>
               <span className="flex items-center gap-1">
                 <input
-                  type="number" step="0.5" min="0" max="24" inputMode="decimal" autoFocus
+                  type="text" inputMode="decimal" autoComplete="off" autoFocus
                   value={pop.heures}
-                  onChange={(e) => setPop((p) => (p ? { ...p, heures: e.target.value } : p))}
+                  onChange={(e) => setPop((p) => (p ? { ...p, heures: e.target.value, erreur: undefined } : p))}
+                  onFocus={(e) => e.currentTarget.select()}
                   placeholder="0"
-                  className="w-20 rounded-md border border-input bg-background px-2 py-1.5 text-right text-sm tabular-nums"
+                  aria-invalid={pop.erreur ? true : undefined}
+                  className={`w-20 rounded-md border border-input bg-background px-2 py-1.5 text-right text-sm tabular-nums ${pop.erreur ? "!border-destructive bg-destructive/10" : ""}`}
                 />
                 <span className="text-xs text-muted-foreground">h</span>
               </span>
             </label>
+            {pop.erreur && <p className="mb-2 text-xs font-medium text-destructive">{pop.erreur}</p>}
             <div className="flex items-center justify-between gap-2">
               <button type="button" onClick={effacerMenu} className="rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">
                 Effacer

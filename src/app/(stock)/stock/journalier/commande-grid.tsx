@@ -1,18 +1,28 @@
 "use client";
 
-import { Fragment, memo, useCallback, useMemo, useState, useTransition } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { qte } from "@/lib/stock";
-import { saisirCommandeResto, saisirCommandeLegume } from "./actions";
+import { saisirCommandeResto, saisirCommandeLegume, rafraichirJournalier } from "./actions";
 import { normTexte } from "@/lib/texte";
+import { estErreur } from "@/lib/action-lisible";
+import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 
 export type CmdArticle = { id: string; designation: string; categorie: string };
 export type CmdJour = { iso: string; label: string };
 
 const inp = "w-14 rounded border border-input bg-background px-1 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
 
+/** Repos après la dernière case enregistrée avant de revalider la page (une fois pour toute la rafale). */
+const REPOS_AVANT_RAFRAICHISSEMENT_MS = 3000;
+
 /**
  * Saisie des commandes de livraison au restaurant : quantité par article et par jour, groupée par
- * catégorie. Lignes mémoïsées (éditer une cellule ne re-rend que sa ligne) + recherche d'article.
+ * catégorie, avec recherche d'article. Tableur « comme Excel » (cases partagées `CelluleNombre`).
+ *
+ * Performance (mesurée, cf. commande-grid.rendus.test.tsx) : une frappe ne re-rend rien ; une case
+ * validée ne re-rend que sa ligne ; un rafraîchissement serveur aux valeurs inchangées ne re-rend
+ * AUCUNE ligne (les lignes se comparent par valeurs, pas par identité des objets reçus).
  */
 export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
   articles: CmdArticle[];
@@ -20,29 +30,67 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
   commandes: Record<string, number>;
   peutModifier: boolean;
 }) {
-  const [isPending, start] = useTransition();
   const [q, setQ] = useState("");
-  const [totaux, setTotaux] = useState<Record<string, number>>(commandes); // uniquement pour le pied de page
+  // Valeurs saisies ici, prioritaires sur celles reçues du serveur : elles survivent au filtre
+  // (une ligne masquée puis ré-affichée retrouve ce qui a été tapé) et font les totaux en direct.
+  const [saisies, setSaisies] = useState<Record<string, number | null>>({});
+  const [enCours, setEnCours] = useState(0);
 
-  // Enregistrement (mémoïsé pour ne pas invalider les lignes) : aiguille légume vs article.
-  const onWrite = useCallback((articleId: string, iso: string, n: number) => {
-    setTotaux((p) => ({ ...p, [`${articleId}_${iso}`]: n }));
-    start(() => (articleId.startsWith("legume:") ? saisirCommandeLegume(articleId.slice(7), iso, n) : saisirCommandeResto(articleId, iso, n)));
+  // Revalidation groupée : une fois la saisie au repos, et en quittant l'onglet.
+  const aRafraichir = useRef(false);
+  const minuteur = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rafraichir = useCallback(() => {
+    clearTimeout(minuteur.current);
+    if (!aRafraichir.current) return;
+    aRafraichir.current = false;
+    // Les valeurs sont déjà en base : un échec ici ne coûte qu'un affichage moins frais ailleurs.
+    rafraichirJournalier().catch(() => { aRafraichir.current = true; });
   }, []);
+  useEffect(() => () => rafraichir(), [rafraichir]);
+
+  // L'enregistreur est UNIQUE et stable pour toute la grille (sinon chaque case se re-rendrait).
+  // L'article (`ligne`) et la date (`donnee`) sont ceux FIGÉS à la validation de la case : si la
+  // semaine affichée change pendant l'envoi, la quantité va quand même à la bonne date.
+  const onEnregistrer = useCallback(async (v: number | null, { ligne, precedente, donnee: iso }: ContexteCase) => {
+    if (!iso) throw new Error("Date de la case inconnue.");
+    const k = `${ligne}_${iso}`;
+    setSaisies((p) => ({ ...p, [k]: v }));
+    setEnCours((n) => n + 1);
+    clearTimeout(minuteur.current);
+    try {
+      const r = ligne.startsWith("legume:")
+        ? await saisirCommandeLegume(ligne.slice(7), iso, v ?? 0)
+        : await saisirCommandeResto(ligne, iso, v ?? 0);
+      if (estErreur(r)) throw new Error(r.erreur);
+      aRafraichir.current = true;
+    } catch (e) {
+      setSaisies((p) => ({ ...p, [k]: precedente })); // le total ne compte que ce qui est en base
+      throw e; // … et la case le signale (en rouge, et en texte sous la grille avec article et jour)
+    } finally {
+      setEnCours((n) => n - 1);
+      minuteur.current = setTimeout(rafraichir, REPOS_AVANT_RAFRAICHISSEMENT_MS);
+    }
+  }, [rafraichir]);
 
   const visibles = useMemo(() => {
     const nq = normTexte(q.trim());
     return nq ? articles.filter((a) => normTexte(a.designation).includes(nq) || normTexte(a.categorie).includes(nq)) : articles;
   }, [articles, q]);
 
-  const totauxJour = useMemo(() => jours.map((j) => visibles.reduce((t, a) => t + (totaux[`${a.id}_${j.iso}`] ?? 0), 0)), [jours, visibles, totaux]);
+  const valeur = (id: string, iso: string): number | null => {
+    const k = `${id}_${iso}`;
+    const v = k in saisies ? saisies[k] : commandes[k];
+    return v ? v : null; // 0 = pas de commande : case vide (« — »)
+  };
+  const totauxJour = jours.map((j) => visibles.reduce((t, a) => t + (valeur(a.id, j.iso) ?? 0), 0));
 
   return (
     <div className="space-y-2">
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
       <p className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</p>
+      <ZoneTableur>
       <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
-        <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
+        <table data-tableur="" className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
               <th className="sticky left-0 z-30 bg-muted">Article</th>
@@ -56,7 +104,7 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
                 {(i === 0 || visibles[i - 1].categorie !== a.categorie) && (
                   <tr><td colSpan={jours.length + 2} className="sticky left-0 !bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{a.categorie}</td></tr>
                 )}
-                <LigneCommande a={a} jours={jours} commandes={commandes} peutModifier={peutModifier} onWrite={onWrite} />
+                <LigneCommande a={a} jours={jours} valeurs={jours.map((j) => valeur(a.id, j.iso))} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />
               </Fragment>
             ))}
             {visibles.length === 0 && <tr><td colSpan={jours.length + 2} className="px-3 py-6 text-center text-muted-foreground">Aucun article pour cette recherche.</td></tr>}
@@ -72,34 +120,37 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
           )}
         </table>
       </div>
-      {isPending && <p className="text-xs text-muted-foreground">Enregistrement…</p>}
+      </ZoneTableur>
+      {enCours > 0 && <p className="text-xs text-muted-foreground">Enregistrement…</p>}
     </div>
   );
 }
 
-// Ligne mémoïsée : état local des 7 valeurs → seule cette ligne se re-rend à la saisie.
-const LigneCommande = memo(function LigneCommande({ a, jours, commandes, peutModifier, onWrite }: {
-  a: CmdArticle; jours: CmdJour[]; commandes: Record<string, number>; peutModifier: boolean;
-  onWrite: (articleId: string, iso: string, n: number) => void;
-}) {
-  const [rowVals, setRowVals] = useState<number[]>(() => jours.map((j) => commandes[`${a.id}_${j.iso}`] ?? 0));
-  const total = rowVals.reduce((x, y) => x + y, 0);
-  const write = (i: number, iso: string, raw: string) => {
-    const n = Math.max(0, Number(raw.replace(",", ".")) || 0);
-    if (n === rowVals[i]) return;
-    setRowVals((p) => { const c = [...p]; c[i] = n; return c; });
-    onWrite(a.id, iso, n);
-  };
+type PropsLigne = {
+  a: CmdArticle; jours: CmdJour[]; valeurs: (number | null)[]; peutModifier: boolean;
+  onEnregistrer: (v: number | null, c: ContexteCase) => Promise<void>;
+};
+
+// Comparaison PAR VALEURS : un rafraîchissement serveur renvoie de nouveaux objets aux mêmes
+// valeurs — la ligne ne doit pas se re-rendre pour autant (avant : les 178 lignes à chaque case).
+const memesProps = (p: PropsLigne, n: PropsLigne) =>
+  p.a.id === n.a.id && p.a.designation === n.a.designation &&
+  p.peutModifier === n.peutModifier && p.onEnregistrer === n.onEnregistrer &&
+  p.jours.length === n.jours.length && p.jours.every((j, i) => j.iso === n.jours[i].iso && j.label === n.jours[i].label) &&
+  p.valeurs.length === n.valeurs.length && p.valeurs.every((v, i) => v === n.valeurs[i]);
+
+const LigneCommande = memo(function LigneCommande({ a, jours, valeurs, peutModifier, onEnregistrer }: PropsLigne) {
+  const total = valeurs.reduce<number>((x, y) => x + (y ?? 0), 0);
   return (
     <tr className="even:bg-muted/25 hover:bg-accent/40">
       <td className="sticky left-0 z-10 bg-background font-medium">{a.designation}</td>
       {jours.map((j, i) => (
         <td key={j.iso} className="text-right">
-          <input type="number" min={0} step="1" inputMode="numeric" defaultValue={rowVals[i] || ""} disabled={!peutModifier}
-            onBlur={(e) => write(i, j.iso, e.target.value)} placeholder="—" className={inp} />
+          <CelluleNombre ligne={a.id} col={i} donnee={j.iso} groupe={a.categorie} valeur={valeurs[i]} onEnregistrer={onEnregistrer} min={0} quantite
+            disabled={!peutModifier} placeholder="—" className={inp} aria-label={`${a.designation} — ${j.label}`} />
         </td>
       ))}
       <td className="text-right font-semibold">{total > 0 ? qte(total) : ""}</td>
     </tr>
   );
-});
+}, memesProps);

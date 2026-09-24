@@ -4,7 +4,7 @@ import { verifySession } from "@/lib/auth";
 import { calculerAlertes, type Alerte } from "@/lib/alertes";
 import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
-import { salaireNetUSD } from "@/lib/paie-net";
+import { indicateursPaieDuMois, moisDePaie } from "@/lib/indicateurs/rh";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -34,21 +34,19 @@ export default async function AccueilPage() {
   const maintenant = new Date();
   const dans30j = new Date(maintenant.getTime() + 30 * 86_400_000);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = config?.moisCourant ?? maintenant.getMonth() + 1;
-  const annee = config?.anneeCourante ?? maintenant.getFullYear();
+  const { mois, annee } = moisDePaie(config, maintenant);
   const filtreRun = config ? { payrollRun: { mois, annee } } : {};
 
   const [
     effectifBrigade,
     effectifBackoffice,
-    run,
+    paie,
     _congesEnAttente,
     _bulletinsPasValide,
     _bulletinsValide,
     congesEnCours,
     alertes,
     absencesAVenir,
-    runsHistorique,
     employesAnniv,
     contratsEcheance,
     nbStagiaires,
@@ -56,7 +54,7 @@ export default async function AccueilPage() {
   ] = await Promise.all([
     prisma.employee.count({ where: { categorie: "BRIGADE", actif: true } }),
     prisma.employee.count({ where: { categorie: "BACKOFFICE", actif: true } }),
-    prisma.payrollRun.findUnique({ where: { mois_annee: { mois, annee } }, include: { lignes: true } }),
+    indicateursPaieDuMois(mois, annee),
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
@@ -68,7 +66,6 @@ export default async function AccueilPage() {
       orderBy: { dateDebut: "asc" },
       take: 10,
     }),
-    prisma.payrollRun.findMany({ orderBy: [{ annee: "desc" }, { mois: "desc" }], take: 6, include: { lignes: { select: { salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } } }),
     prisma.employee.findMany({ where: { actif: true, dateNaissance: { not: null } }, select: { id: true, nom: true, photoUrl: true, dateNaissance: true } }),
     prisma.contrat.findMany({
       where: {
@@ -86,19 +83,14 @@ export default async function AccueilPage() {
     prisma.employee.count({ where: { actif: true, contrat: "INTERIM" } }),
   ]);
 
-  const lignes = run?.lignes ?? [];
-  const etapePaie = calculerEtapePaie({
-    hasRun: !!run,
-    total: lignes.length,
-    nbPaye: lignes.filter((l) => l.statutPaiement === "PAYE").length,
-    nbValide: lignes.filter((l) => l.statutPaiement === "VALIDE").length,
-    nbPasValide: lignes.filter((l) => l.statutPaiement === "PAS_VALIDE").length,
-  });
-  const masseNette = lignes.reduce((a, l) => a + salaireNetUSD(l), 0);
-  const coutTotal = lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0);
-  const hsValoriseeTotal = lignes.reduce((a, l) => a + Number(l.hsValorisee), 0);
-  const transportTotal = lignes.reduce((a, l) => a + Number(l.transportUSD), 0);
-  const fraisMedicaux = lignes.reduce((a, l) => a + Number(l.fraisMedicauxUSD), 0);
+  const etapePaie = calculerEtapePaie({ hasRun: paie.runExiste, ...paie.statuts });
+  const {
+    masseNette,
+    coutEmployeur: coutTotal,
+    hsValorisees: hsValoriseeTotal,
+    transport: transportTotal,
+    fraisMedicaux,
+  } = paie.totaux;
 
   // Anniversaires à venir (30 j) : on compare mois/jour (indépendamment de l'année).
   const jourAnnee = (d: Date) => d.getUTCMonth() * 31 + d.getUTCDate();
@@ -113,21 +105,14 @@ export default async function AccueilPage() {
     .sort((a, b) => a.cle - b.cle)
     .slice(0, 6);
 
-  const historique = [...runsHistorique].reverse().map((r) => ({
-    periode: new Date(r.annee, r.mois - 1).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
-    net: r.lignes.reduce((a, l) => a + salaireNetUSD(l), 0),
-    cout: r.lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0),
+  const historique = paie.historique.map((h) => ({
+    periode: new Date(h.annee, h.mois - 1).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
+    net: h.net,
+    cout: h.cout,
   }));
-  // Variation en % du dernier mois par rapport au précédent.
-  const variation = (cle: "net" | "cout"): number | null => {
-    if (historique.length < 2) return null;
-    const prec = historique[historique.length - 2][cle];
-    const cur = historique[historique.length - 1][cle];
-    if (prec === 0) return null;
-    return ((cur - prec) / prec) * 100;
-  };
-  const varNet = variation("net");
-  const varCout = variation("cout");
+  // Variation en % de la dernière paie par rapport à la précédente (calculée par @/lib/indicateurs/rh).
+  const varNet = paie.variationNet;
+  const varCout = paie.variationCout;
   const maxSerie = Math.max(1, ...historique.flatMap((h) => [h.net, h.cout]));
 
   const cartes = [
@@ -168,7 +153,7 @@ export default async function AccueilPage() {
       </div>
 
       {/* Frise chronologique de la paie du mois */}
-      {run && (
+      {paie.runExiste && (
         <div className="mb-6">
           <FrisePaie mois={mois} annee={annee} etape={etapePaie} jourPaie={config?.jourPaie ?? 30} />
         </div>

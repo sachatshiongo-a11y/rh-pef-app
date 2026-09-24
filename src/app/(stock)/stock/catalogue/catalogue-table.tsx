@@ -2,10 +2,18 @@
 
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
-import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useMemo, useState, useTransition, type ReactNode } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
+import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+
+/** Valeur d'une case numérique à partir du texte reçu du serveur (« 12.5 », « » → null). */
+const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
+/** Texte envoyé à `modifierArticle` (lu par `dec`) : vide = effacer. */
+const texteDe = (v: number | null) => (v === null ? "" : String(v));
 
 const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.prix) || 0) * (Number(a.quantite) || 0);
 
@@ -68,6 +76,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [hausseSeule, setHausseSeule] = useState(false); // filtre : articles dont le prix d'achat a grimpé
   const [bulkFour, setBulkFour] = useState("");
   const [bulkSeuil, setBulkSeuil] = useState("");
+  // Seuil en masse lu à la française (« 2,5 ») ; null = vide ou illisible → bouton inactif.
+  const seuilEnMasse = (() => { const l = lireSaisieNombre(bulkSeuil); return l.ok && l.valeur !== null && l.valeur >= 0 ? l.valeur : null; })();
   const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null); // null = groupé par catégorie
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
@@ -130,11 +140,14 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     setErreur(null);
     startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
   };
-  const save = async (id: string, name: string, value: string) => {
+  // Stable (useCallback) : les lignes mémoïsées ne se re-rendent plus à chaque rendu du tableau.
+  // Renvoie le résultat : une case numérique affiche elle-même l'échec en rouge.
+  const save = useCallback(async (id: string, name: string, value: string) => {
     const fd = new FormData(); fd.set(name, value);
     const r = await modifierArticle(id, fd);
     if (estErreur(r)) setErreur(r.erreur);
-  };
+    return r;
+  }, []);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toutSel = (on: boolean) => setSel(on ? new Set(visibles.map((a) => a.id)) : new Set());
 
@@ -242,8 +255,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           </select>
           <button disabled={isPending || !bulkFour} onClick={() => run(async () => { await definirFournisseurEnMasse([...sel], bulkFour); setSel(new Set()); setBulkFour(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
           <span className="text-muted-foreground">· seuil min :</span>
-          <input type="number" min="0" step="0.001" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" className="w-16 rounded border border-input bg-background px-2 py-1 text-xs" />
-          <button disabled={isPending || bulkSeuil === ""} onClick={() => run(async () => { await definirSeuilEnMasse([...sel], Number(bulkSeuil)); setSel(new Set()); setBulkSeuil(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
+          <input type="text" inputMode="decimal" autoComplete="off" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" aria-invalid={seuilEnMasse === null && bulkSeuil.trim() !== "" ? true : undefined} className="w-16 rounded border border-input bg-background px-2 py-1 text-xs aria-[invalid=true]:border-destructive" />
+          <button disabled={isPending || seuilEnMasse === null} onClick={() => run(async () => { await definirSeuilEnMasse([...sel], seuilEnMasse!); setSel(new Set()); setBulkSeuil(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
           <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], true); setSel(new Set()); })} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Activer</button>
           <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Désactiver</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
@@ -305,16 +318,17 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           </select>
           <input name="code" placeholder="Code article (ex. 137)" className={cellCls} />
           <input name="unite" placeholder="Unité (Kg, Pièce…)" className={cellCls} />
-          <input name="prixUnitaireUSD" type="number" step="0.0001" placeholder="Prix USD" className={cellCls} />
-          <input name="uniteParCarton" type="number" step="1" min="0" placeholder="Unités / carton (ex. 24)" className={cellCls} />
-          <input name="quantite" type="number" step="0.001" placeholder="Stock initial" className={cellCls} />
-          <input name="stockMinimum" type="number" step="0.001" placeholder="Stock minimum" className={cellCls} />
+          <input name="prixUnitaireUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Prix USD" className={cellCls} />
+          <input name="uniteParCarton" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Unités / carton (ex. 24)" className={cellCls} />
+          <input name="quantite" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock initial" className={cellCls} />
+          <input name="stockMinimum" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock minimum" className={cellCls} />
           <button disabled={isPending} className="col-span-2 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50 md:col-span-4">Créer l&apos;article</button>
         </form>
       )}
 
+      <ZoneTableur>
       {/* Mobile : cartes éditables (une par article), groupées par catégorie. */}
-      <div className="space-y-2 lg:hidden">
+      <div data-tableur="" data-tableur-tab="natif" className="space-y-2 lg:hidden">
         {affichees.map((a, i) => (
           <Fragment key={a.id}>
             {!tri && (i === 0 || affichees[i - 1].categorieId !== a.categorieId) && (
@@ -330,7 +344,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
       {/* Ordinateur — tableur : cellules éditables, en-tête figé, défilement interne */}
       <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
-        <table className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
+        {/* Tableur : Entrée descend dans la colonne ; Tab reste celui du navigateur (champs texte et listes dans la ligne). */}
+        <table data-tableur="" data-tableur-tab="natif" className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
@@ -373,6 +388,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           )}
         </table>
       </div>
+      </ZoneTableur>
     </div>
   );
 }
@@ -401,7 +417,7 @@ const LigneArticle = memo(function LigneArticle({
   a, categories, fournisseurs, selected, onToggle, onSave,
 }: {
   a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
-  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<void>;
+  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
 }) {
   const [busy, setBusy] = useState(false);
   const catsPour = categories.filter((c) => c.domaine === a.domaine);
@@ -424,7 +440,7 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
-      <td><input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" /></td>
+      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
       <td>
         <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
@@ -444,8 +460,8 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td><input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
       <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
-      <td><input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} text-right`} /></td>
-      <td><input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" /></td>
+      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
+      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
     </tr>
   );
 });
@@ -457,7 +473,7 @@ const CarteArticle = memo(function CarteArticle({
   a, categories, fournisseurs, selected, onToggle, onSave,
 }: {
   a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
-  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<void>;
+  selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
 }) {
   const [busy, setBusy] = useState(false);
   const catsPour = categories.filter((c) => c.domaine === a.domaine);
@@ -482,7 +498,7 @@ const CarteArticle = memo(function CarteArticle({
           <span className={`rounded border px-1.5 py-1.5 text-right text-xs font-medium tabular-nums ${Number(a.quantite) < 0 ? "border-red-300 bg-red-50 text-red-700" : "border-input/40 bg-muted/40 text-muted-foreground"}`}>{a.quantite}</span>
         </label>
         <label className={champLabel}>Stock min.
-          <input type="number" step="0.001" defaultValue={a.stockMinimum} onBlur={(e) => write("stockMinimum", e.target.value, a.stockMinimum)} className={`${cellCls} !py-1.5 text-right`} />
+          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
         </label>
         <label className={`${champLabel} col-span-2`}>Catégorie
           <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
@@ -511,10 +527,10 @@ const CarteArticle = memo(function CarteArticle({
           <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
         </label>
         <label className={champLabel}>Prix USD
-          <input type="number" step="0.0001" defaultValue={a.prix ?? ""} onBlur={(e) => write("prixUnitaireUSD", e.target.value, a.prix ?? "")} className={`${cellCls} !py-1.5 text-right`} />
+          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
         </label>
         <label className={`${champLabel} col-span-2`}>Unités / carton
-          <input type="number" step="1" min="0" defaultValue={a.uniteParCarton ?? ""} onBlur={(e) => write("uniteParCarton", e.target.value, a.uniteParCarton ?? "")} className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
+          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
         </label>
       </div>
     </div>

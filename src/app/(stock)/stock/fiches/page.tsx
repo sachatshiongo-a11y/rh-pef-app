@@ -1,16 +1,23 @@
 import { verifySession, requireModule } from "@/lib/auth";
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
-import { chargerFichesVues, chargerArticlesDesFiches } from "./_data/charger-fiche";
-import { construireContexte } from "./_data/fiche-calc";
+import type { EtatDispo } from "@/lib/fiches/disponibilite";
+import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } from "./_data/charger-fiche";
+import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_data/fiche-calc";
 import { FichesClient, type FicheRow } from "./fiches-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 
-export default async function FichesPage() {
+const ETATS: EtatDispo[] = ["DISPONIBLE", "RUPTURE", "A_VERIFIER"];
+
+export default async function FichesPage({ searchParams }: { searchParams: Promise<{ etat?: string }> }) {
   const user = await verifySession();
   requireModule(user, "stock");
+  const sp = await searchParams;
+  const etatInitial = ETATS.find((e) => e === sp.etat);
 
-  const [vues, articles] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches()]);
+  // Stock (dépôt + restaurant) lu UNE fois pour toutes les fiches, jamais une requête par fiche.
+  const [vues, articles, stocks] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches(), chargerStocksDesFiches()]);
   const contexte = construireContexte(vues, new Map(articles.map((a) => [a.id, a])));
+  const dispos = disponibilitesDesFiches(vues, articles, stocks);
 
   // Le coût n'est JAMAIS stocké : il est recalculé ici par le moteur, pour chaque fiche, avec le
   // même contexte (les sous-recettes se résolvent entre elles).
@@ -40,6 +47,7 @@ export default async function FichesPage() {
       prixVenteHT: r.prixVenteHT,
       prixEstConseille: r.prixEstConseille,
       tauxMarque: r.tauxMarque,
+      dispo: resumerDispo(dispos.get(v.id)!, v),
     };
   });
 
@@ -56,7 +64,7 @@ export default async function FichesPage() {
           <BoutonRapport excelHref="/stock/fiches/export" />
         </div>
       </div>
-      <FichesClient fiches={rows} />
+      <FichesClient fiches={rows} etatInitial={etatInitial} />
     </div>
   );
 }

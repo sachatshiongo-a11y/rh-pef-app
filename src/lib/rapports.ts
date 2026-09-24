@@ -362,7 +362,7 @@ export type DonneesRapportVisuel = {
  * lignes Poste/Montant) + les écritures Recettes/Dépenses de la période, triées pour que les
  * tableaux « ressemblent » au regroupement du compte d'exploitation même s'ils listent des
  * écritures individuelles : dépenses dans le même ordre rubrique (montant décroissant — même tri
- * que `compte-exploitation.tsx`, `parRubrique` n'étant PAS ordonné en sortie du moteur, cf.
+ * que `_ui/panneau-depenses.tsx`, `parRubrique` n'étant PAS ordonné en sortie du moteur, cf.
  * calcul.ts) puis catégorie (Task 10, `categories` déjà trié par montant décroissant, lui) ;
  * recettes par rubrique puis catégorie alphabétique (le moteur n'a pas d'équivalent `parRubrique`
  * côté recettes).

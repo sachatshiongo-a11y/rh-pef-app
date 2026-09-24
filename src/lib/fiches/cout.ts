@@ -212,7 +212,7 @@ function versUniteDeBase(unite: string): Decimal | null {
  * La règle « cl d'une sous-recette = gramme » n'est PAS touchée : `facteur("cl","g")` vaut `null`
  * et « g » est l'unité de base de la masse → rien ne se déclenche.
  */
-function uniteRendementIncoherente(uniteConsommee: string, rendementUnite?: string | null): boolean {
+export function uniteRendementIncoherente(uniteConsommee: string, rendementUnite?: string | null): boolean {
   const rendement = rendementUnite?.trim();
   if (!rendement) return false; // rendement sans unité : rien à vérifier
 

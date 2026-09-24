@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
+import { PropositionsRattachement } from "./propositions-rattachement";
+import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { joursSemaine, lundiDe } from "./semaine";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 
@@ -16,11 +18,14 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   const jours: Jour[] = joursSemaine(base);
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 
-  const [articles, livraisons] = await Promise.all([
+  const [articles, livraisons, catalogue] = await Promise.all([
     prisma.articleResto.findMany({
       where: { espace, actif: true },
       orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
-      include: { comptages: { where: { date: { gte: debut, lte: fin } } } },
+      include: {
+        comptages: { where: { date: { gte: debut, lte: fin } } },
+        articleStock: { select: { designation: true } },
+      },
     }),
     // Livraisons au restaurant (sorties de stock « Livraison restaurant ») de la semaine affichée.
     prisma.mouvementStock.findMany({
@@ -28,7 +33,11 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
       orderBy: { date: "desc" },
       include: { article: { select: { designation: true } } },
     }),
+    // Catalogue actif : choix du rattachement ET propositions (noms identiques). Lecture seule —
+    // rien n'est rattaché ici, seulement proposé.
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, actif: true } }),
   ]);
+  const propositions = proposerRattachements(articles, catalogue);
 
   // Regroupe les livraisons par jour.
   const livParJour = new Map<string, { designation: string; quantite: number }[]>();
@@ -44,6 +53,8 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
       id: a.id, categorie: a.categorie, designation: a.designation, unite: a.unite,
       base: a.stockBaseJournalier !== null ? Number(a.stockBaseJournalier).toString() : "",
       comptages,
+      articleStockId: a.articleStockId,
+      articleStockDesignation: a.articleStock?.designation ?? null,
     };
   });
 
@@ -89,7 +100,12 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
 
       <p className="text-sm text-muted-foreground">Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? "" : " Seule la Direction peut supprimer un article."}</p>
 
-      <RestaurantGrille espace={espace} jours={jours} lignes={lignes} categories={categories} estDirection={estDirection} />
+      <PropositionsRattachement propositions={propositions} />
+
+      <RestaurantGrille
+        espace={espace} jours={jours} lignes={lignes} categories={categories} estDirection={estDirection}
+        catalogue={catalogue.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite ?? "" }))}
+      />
     </div>
   );
 }

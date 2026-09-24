@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { Fragment, memo, useMemo, useState, useTransition, type ReactNode } from "react";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
@@ -32,26 +34,27 @@ function ThTri({ col, tri, onTri, align, className, children }: {
   );
 }
 
-// Ligne mémoïsée à état propre : taper ne re-rend QUE cette ligne (perf sur des centaines d'articles).
-const LigneComptage = memo(function LigneComptage({ a, montrerCat }: { a: Art; montrerCat: boolean }) {
-  const [v, setV] = useState("");
+// Ligne mémoïsée à état propre : une frappe ne re-rend rien, valider une case ne re-rend que sa
+// ligne. Une ligne écartée par la recherche est MASQUÉE (attribut hidden), pas démontée : le
+// comptage déjà tapé n'est plus perdu, et il part avec le formulaire.
+const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache }: { a: Art; montrerCat: boolean; cache: boolean }) {
+  const [num, setNum] = useState<number | null>(null);
   const [expl, setExpl] = useState("");
-  const num = Number(v.replace(",", "."));
-  const valide = v !== "" && Number.isFinite(num);
-  const ecart = valide ? num - a.theorique : null;
+  const ecart = num !== null ? num - a.theorique : null;
   const pct = ecart === null ? null : a.theorique !== 0 ? (ecart / Math.abs(a.theorique)) * 100 : ecart !== 0 ? 100 : 0;
   const horsTol = ecart !== null && Math.abs(ecart) > 0.0001 && (a.theorique === 0 ? num !== 0 : Math.abs(pct!) > SEUIL_TOLERANCE_PCT);
   const couleurEcart = ecart === null ? "text-muted-foreground" : ecart === 0 ? "text-emerald-700" : horsTol ? "text-red-700" : ecart > 0 ? "text-blue-700" : "text-amber-700";
   return (
     <>
-      <tr className={`even:bg-muted/25 hover:bg-accent/40 ${horsTol ? "bg-red-50/50" : ""}`}>
+      <tr hidden={cache || undefined} className={`even:bg-muted/25 hover:bg-accent/40 ${horsTol ? "bg-red-50/50" : ""}`}>
         <td className="text-center tabular-nums text-muted-foreground">{a.code ?? ""}</td>
         <td className="font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></td>
         <td className="text-muted-foreground">{montrerCat ? a.categorie : ""}</td>
         <td className="text-right tabular-nums text-muted-foreground">{qte(a.theorique)}</td>
         <td className="text-right">
           <input type="hidden" name="recon_articleId" value={a.id} />
-          <input name="recon_physique" type="number" step="0.001" value={v} onChange={(e) => setV(e.target.value)} placeholder="0" className={`${inp} w-24 text-right`} />
+          <CelluleNombre name="recon_physique" ligne={a.id} col={0} groupe={montrerCat ? undefined : a.categorie} quantite valeur={num} onEnregistrer={setNum}
+            placeholder="0" className={`${inp} w-24 text-right`} aria-label={`Quantité physique — ${a.designation}`} />
         </td>
         <td className={`text-right font-medium tabular-nums ${couleurEcart}`}>
           {ecart === null ? "—" : <>{ecart > 0 ? "+" : ""}{qte(ecart)}{pct !== null && a.theorique !== 0 ? <span className="ml-1 text-xs">({pct > 0 ? "+" : ""}{pct.toFixed(0)}%)</span> : null}</>}
@@ -59,8 +62,8 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat }: { a: Art; m
         </td>
       </tr>
       {horsTol && (
-        <tr><td colSpan={6} className="!pt-0">
-          <input name="recon_explication" value={expl} onChange={(e) => setExpl(e.target.value)} required placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
+        <tr hidden={cache || undefined}><td colSpan={6} className="!pt-0">
+          <input name="recon_explication" value={expl} onChange={(e) => setExpl(e.target.value)} required={!cache} placeholder={`Écart > ${SEUIL_TOLERANCE_PCT} % — expliquez la raison (obligatoire)`} className={`${inp} w-full border-red-300`} />
         </td></tr>
       )}
     </>
@@ -80,10 +83,23 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
     const nq = norm(q.trim());
     return nq ? articles.filter((a) => norm(a.designation).includes(nq) || norm(a.categorie).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)) : articles;
   }, [articles, q]);
-  const affichees = useMemo(() => {
-    if (!tri) return visibles;
-    return [...visibles].sort((a, b) => { const x = valeurTri(a, tri.col), y = valeurTri(b, tri.col); return (x < y ? -1 : x > y ? 1 : 0) * tri.dir; });
-  }, [visibles, tri]);
+  const idsVisibles = useMemo(() => new Set(visibles.map((a) => a.id)), [visibles]);
+  // TOUTES les lignes restent montées (triées) ; la recherche ne fait que masquer.
+  const ordonnees = useMemo(() => {
+    if (!tri) return articles;
+    return [...articles].sort((a, b) => { const x = valeurTri(a, tri.col), y = valeurTri(b, tri.col); return (x < y ? -1 : x > y ? 1 : 0) * tri.dir; });
+  }, [articles, tri]);
+  // En-tête de catégorie devant la première ligne VISIBLE de chaque catégorie (sans tri).
+  const lignes = useMemo(() => {
+    const res: { a: Art; cache: boolean; enTete: boolean }[] = [];
+    let derniereCat: string | null = null;
+    for (const a of ordonnees) {
+      const cache = !idsVisibles.has(a.id);
+      res.push({ a, cache, enTete: !tri && !cache && a.categorie !== derniereCat });
+      if (!cache) derniereCat = a.categorie;
+    }
+    return res;
+  }, [ordonnees, idsVisibles, tri]);
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -112,8 +128,9 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
         <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s) · écart &gt; {SEUIL_TOLERANCE_PCT}% ⇒ explication requise</span>
       </div>
 
+      <ZoneTableur>
       <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
-        <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
+        <table data-tableur="" className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
               <ThTri col="code" tri={tri} onTri={trierPar} className="w-16">Code</ThTri>
@@ -125,18 +142,19 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
             </tr>
           </thead>
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
-            {affichees.map((a, i) => (
+            {lignes.map(({ a, cache, enTete }) => (
               <Fragment key={a.id}>
-                {!tri && (i === 0 || affichees[i - 1].categorie !== a.categorie) && (
+                {enTete && (
                   <tr><td colSpan={6} className="!bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{a.categorie} ({visibles.filter((x) => x.categorie === a.categorie).length})</td></tr>
                 )}
-                <LigneComptage a={a} montrerCat={!!tri} />
+                <LigneComptage a={a} montrerCat={!!tri} cache={cache} />
               </Fragment>
             ))}
-            {affichees.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
+            {visibles.length === 0 && <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
         </table>
       </div>
+      </ZoneTableur>
     </form>
   );
 }

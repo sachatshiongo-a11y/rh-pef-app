@@ -9,7 +9,8 @@ import { EtatVide } from "@/components/etat-vide";
 import { estErreur } from "@/lib/action-lisible";
 import { usd } from "@/lib/stock";
 import { normTexte } from "@/lib/texte";
-import { pct, TYPE_LABEL } from "./_data/fiche-calc";
+import type { EtatDispo } from "@/lib/fiches/disponibilite";
+import { pct, TYPE_LABEL, badgeDispo, DISPO_CLASSE, type DispoRow } from "./_data/fiche-calc";
 import { creerFiche, supprimerFiches, dupliquerFiches } from "./actions";
 
 export type FicheRow = {
@@ -33,6 +34,8 @@ export type FicheRow = {
   prixVenteHT: number | null;
   prixEstConseille: boolean;
   tauxMarque: number | null;
+  /** Disponibilité selon le stock (dépôt + restaurant), recalculée à chaque affichage. */
+  dispo: DispoRow;
 };
 
 const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
@@ -56,7 +59,7 @@ function motifIncomplet(f: FicheRow): { badge: string; cause: string } {
  * Liste des fiches techniques : navigation (le nom mène à la fiche, où se fait l'édition) +
  * actions groupées (supprimer / dupliquer / exporter) sur la sélection.
  */
-export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
+export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etatInitial?: EtatDispo }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -64,6 +67,7 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
   const [q, setQ] = useState("");
   const [categorie, setCategorie] = useState("");
   const [nature, setNature] = useState<"" | "PLAT_FINAL" | "SOUS_RECETTE" | "PARTIEL">("");
+  const [etat, setEtat] = useState<"" | EtatDispo>(etatInitial ?? "");
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
 
   const run = (fn: () => Promise<unknown>) => {
@@ -88,9 +92,10 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
       if (nature === "SOUS_RECETTE" && !f.estSousRecette) return false;
       if (nature === "PLAT_FINAL" && f.estSousRecette) return false;
       if (nature === "PARTIEL" && !f.incomplet) return false;
+      if (etat && f.dispo.etat !== etat) return false;
       return true;
     });
-  }, [fiches, q, categorie, nature]);
+  }, [fiches, q, categorie, nature, etat]);
 
   const creer = (fd: FormData) => {
     setErreur(null);
@@ -117,6 +122,12 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
           <option value="PLAT_FINAL">Plats vendus</option>
           <option value="SOUS_RECETTE">Sous-recettes</option>
           <option value="PARTIEL">Coût partiel</option>
+        </select>
+        <select value={etat} onChange={(e) => setEtat(e.target.value as typeof etat)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" aria-label="Disponibilité">
+          <option value="">Toutes les disponibilités</option>
+          <option value="DISPONIBLE">Disponibles</option>
+          <option value="RUPTURE">En rupture</option>
+          <option value="A_VERIFIER">À vérifier</option>
         </select>
         <span className="text-xs text-muted-foreground">{visibles.length} / {fiches.length} fiche(s)</span>
         <button onClick={() => setAjout((v) => !v)} className="ml-auto rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
@@ -187,6 +198,7 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
                 <div className="truncate text-xs text-muted-foreground">
                   {[f.categorie || "Sans catégorie", TYPE_LABEL[f.type] ?? f.type, `${f.nbPortions} portion(s)`, `${f.nbIngredients} ingrédient(s)`].join(" · ")}
                 </div>
+                <BadgeDispo dispo={f.dispo} estSousRecette={f.estSousRecette} />
               </div>
 
               {/* Un coût partiel n'est JAMAIS affiché en chiffre nu : le « ≥ » ET le badge vivent
@@ -223,6 +235,23 @@ export function FichesClient({ fiches }: { fiches: FicheRow[] }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * Disponibilité selon le stock. Dans la colonne du nom (qui passe à la ligne) et non dans une
+ * colonne masquée : sur téléphone, l'état et l'ingrédient limitant restent lisibles, sans
+ * débordement horizontal.
+ */
+function BadgeDispo({ dispo, estSousRecette }: { dispo: DispoRow; estSousRecette: boolean }) {
+  const { texte, detail } = badgeDispo(dispo, estSousRecette);
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span title={detail ?? undefined} className={`inline-block max-w-full whitespace-normal break-words rounded-full px-2 py-0.5 text-[11px] font-medium ${DISPO_CLASSE[dispo.etat]}`}>
+        {texte}
+      </span>
+      {detail && <span className="text-[11px] text-muted-foreground sm:hidden">{detail}</span>}
     </div>
   );
 }

@@ -1,8 +1,21 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
+import { ZoneTableur } from "@/components/tableur/messages";
+import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+
+/** Texte de ligne → valeur de case (« 12.500 » reçu du serveur ou du PDF → 12,5 affiché). */
+const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
+/**
+ * Valeur de case → texte de ligne : écriture à POINT (« 2.5 »), celle que produisait l'ancien
+ * champ number. Les montants (`Number(l.quantite) * Number(l.prix)`) et ce qui part au serveur
+ * (champs cachés ligne_quantite / ligne_prix) sont donc inchangés, virgule tapée ou non.
+ */
+const texteDe = (v: number | null) => (v === null ? "" : String(v));
 
 type Art = { id: string; designation: string; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
@@ -63,6 +76,8 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   };
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const ajouterLigne = useCallback(() => setLignes((ls) => [...ls, vide()]), []);
+  const { racine, onEntreeDerniereLigne } = useLigneSuivante(lignes.length, ajouterLigne);
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
     maj(i, { articleId, designation: a?.designation ?? "", unite: a?.unite ?? "", prix: a?.prix ?? "" });
@@ -198,7 +213,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Déjà réglé (USD)</span>
-          <input name="montantRegleUSD" type="number" step="0.01" min="0" placeholder="0" className={inp} />
+          <input name="montantRegleUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
         </label>
       </div>
 
@@ -210,8 +225,11 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </span>
       </label>
 
+      <ZoneTableur>
       <div className="max-h-[70vh] overflow-auto rounded-lg border">
-        <table className="w-full min-w-[52rem] text-sm">
+        {/* Tableur : Entrée descend (et ajoute une ligne en bas) sans envoyer la facture ; Tab reste
+            celui du navigateur, pour passer aussi par l'article, la désignation et l'unité. */}
+        <table ref={racine} data-tableur="" data-tableur-tab="natif" className="w-full min-w-[52rem] text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-2 py-2">Article (catalogue)</th>
@@ -235,8 +253,16 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
                 </td>
                 <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full min-w-40`} placeholder="Désignation" /></td>
                 <td className="px-2 py-1"><input name="ligne_unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} className={`${inp} w-20`} placeholder="Kg…" /></td>
-                <td className="px-2 py-1"><input name="ligne_quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" className={`${inp} w-24 text-right`} /></td>
-                <td className="px-2 py-1"><input name="ligne_prix" value={l.prix} onChange={(e) => maj(i, { prix: e.target.value })} type="number" step="0.0001" min="0" className={`${inp} w-24 text-right`} /></td>
+                <td className="px-2 py-1">
+                  <input type="hidden" name="ligne_quantite" value={l.quantite} />
+                  <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} quantite className={`${inp} w-24 text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
+                </td>
+                <td className="px-2 py-1">
+                  <input type="hidden" name="ligne_prix" value={l.prix} />
+                  <CelluleNombre ligne={String(i)} col={1} valeur={nombreOuNull(l.prix)} onEnregistrer={(v) => maj(i, { prix: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} className={`${inp} w-24 text-right`} aria-label={`Prix unitaire, ligne ${i + 1}`} />
+                </td>
                 <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
                 <td className="px-2 py-1 text-right">
                   <button type="button" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent" title="Retirer">✕</button>
@@ -246,9 +272,10 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
           </tbody>
         </table>
       </div>
+      </ZoneTableur>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" onClick={() => setLignes((ls) => [...ls, vide()])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
+        <button type="button" onClick={ajouterLigne} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
         <div className="text-right">
           <span className="text-sm text-muted-foreground">Montant total : </span>
           <span className="text-lg font-semibold">{total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</span>
