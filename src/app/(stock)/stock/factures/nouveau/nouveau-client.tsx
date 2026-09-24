@@ -7,6 +7,7 @@ import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur ou du PDF → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
@@ -42,6 +43,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
   const [echeance, setEcheance] = useState("");
   const [lignes, setLignes] = useState<Ligne[]>(lignesDeBon(bon0));
   const pdfRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const [analysing, setAnalysing] = useState(false);
   const [analyse, setAnalyse] = useState<AnalyseFacture | null>(null);
   // Coordonnées d'un nouveau fournisseur à créer (renseignées uniquement si aucun proche n'est trouvé).
@@ -126,14 +128,26 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
     });
   };
 
+  // « Enregistrer quand même » n'est PAS un bouton d'envoi : il ne peut donc jamais être le bouton
+  // par défaut du formulaire, ni recevoir un envoi implicite (Entrée dans un champ). Seul un clic
+  // dessus force l'enregistrement malgré le doublon possible.
+  const enregistrerQuandMeme = () => {
+    const f = formRef.current;
+    if (!f || !f.reportValidity()) return;
+    const fd = new FormData(f);
+    fd.set("forcerDoublons", "1");
+    submit(fd);
+  };
+
   return (
-    <form action={submit} className="space-y-4">
+    // Entrée n'envoie jamais la facture : seul un clic sur un bouton l'enregistre.
+    <form ref={formRef} action={submit} onKeyDown={empecherEnvoiParEntree} className="space-y-4">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
       {doublon && (
         <div className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <p className="font-semibold">⚠ Achat peut-être déjà saisi</p>
           <p className="mt-1">{doublon}</p>
-          <button type="submit" name="forcerDoublons" value="1" disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
+          <button type="button" onClick={enregistrerQuandMeme} disabled={isPending} className="mt-2 rounded-md border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50">
             Enregistrer quand même (le stock sera compté en plus)
           </button>
         </div>
@@ -282,7 +296,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </div>
       </div>
 
-      <button disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
+      <button type="submit" disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
         {isPending ? "Enregistrement…" : "Enregistrer la facture"}
       </button>
     </form>
