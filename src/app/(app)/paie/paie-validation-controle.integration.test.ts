@@ -247,3 +247,44 @@ describe("recalcul de la paie (paie-refresh) : verrou de la run du mois", () => 
     expect((await ligne(elodie)).statutPaiement).toBe("VALIDE");
   });
 });
+
+describe("« À valider » recalcule à l'ouverture, comme /paie (même fonction)", () => {
+  it("planning changé depuis le dernier /paie : ouvrir « À valider » recalcule la ligne, qui se valide ensuite", async () => {
+    const { default: AValiderPage } = await import("../a-valider/page");
+    const fanny = await brigade("FK01-PEF", "Fanny Kabongo");
+    await rafraichirPaieDuMois({ creerRun: false });
+    const avant = await ligne(fanny);
+    // Créneau effacé après le dernier /paie : sans recalcul, la ligne affichée serait refusée.
+    await prisma.planningCreneau.delete({ where: { employeeId_date: { employeeId: fanny, date: d(23) } } });
+
+    await AValiderPage({ searchParams: Promise.resolve({}) });
+
+    const apres = await ligne(fanny);
+    expect(apres.id).not.toBe(avant.id);
+    expect(Number(apres.heuresContractuelles)).toBe(Number(avant.heuresContractuelles) - 9);
+    expect(await changerStatutEnLot([apres.id], "VALIDE")).toBe(1);
+  });
+
+  it("aucune ligne ouverte : rien n'est recalculé, comme /paie (aucune ligne créée, lignes figées intactes)", async () => {
+    const { default: AValiderPage } = await import("../a-valider/page");
+    const figees = await prisma.payrollLine.findMany({ where: { payrollRun: { mois: 9, annee: 2026 } }, orderBy: { id: "asc" } });
+    expect(figees.every((l) => l.statutPaiement !== "PAS_VALIDE")).toBe(true);
+    const gaston = await brigade("GM01-PEF", "Gaston Mbala"); // actif, pas encore de ligne
+    await AValiderPage({ searchParams: Promise.resolve({}) });
+    expect(await prisma.payrollLine.findMany({ where: { payrollRun: { mois: 9, annee: 2026 } }, orderBy: { id: "asc" } })).toEqual(figees);
+    expect(await prisma.payrollLine.count({ where: { employeeId: gaston } })).toBe(0);
+  });
+
+  it("/paie et « À valider » appellent la même fonction, et « À valider » avant de lire les lignes", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const paie = readFileSync(join(__dirname, "page.tsx"), "utf8");
+    const aValider = readFileSync(join(__dirname, "../a-valider/page.tsx"), "utf8");
+    expect(paie).toContain("await rafraichirPaieAffichee(mois, annee);");
+    expect(paie).not.toContain("rafraichirPaieDuMois");
+    const appel = aValider.indexOf("await rafraichirPaieAffichee(config.moisCourant, config.anneeCourante)");
+    expect(appel).toBeGreaterThan(0);
+    expect(appel).toBeLessThan(aValider.indexOf("prisma.payrollLine.findMany"));
+    expect(aValider).not.toContain("rafraichirPaieDuMois");
+  });
+});

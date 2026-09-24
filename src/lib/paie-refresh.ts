@@ -94,3 +94,25 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     return true;
   }, { timeout: 60_000 });
 }
+
+/**
+ * Rafraîchissement À L'OUVERTURE d'un écran qui affiche les lignes de paie du mois courant — /paie et
+ * « À valider » (correction 1, point 3) : une seule fonction, aucun écran ne recopie la règle. Si la
+ * paie du mois a été calculée et qu'il reste des lignes non figées, elles sont recalculées AVANT
+ * l'affichage : présences, heures, planning, congés, primes et acomptes saisis depuis s'y reflètent.
+ * Ne crée jamais de run, ne touche jamais une ligne validée ou payée. Un échec ponctuel (réseau,
+ * pooler, verrou tenu) n'empêche pas l'affichage : l'écran montre le dernier état calculé, et la
+ * validation revérifie de toute façon chaque montant (paie-validation.ts).
+ */
+export async function rafraichirPaieAffichee(mois: number, annee: number): Promise<void> {
+  const runMeta = await prisma.payrollRun.findUnique({
+    where: { mois_annee: { mois, annee } },
+    select: { lignes: { select: { statutPaiement: true } } },
+  });
+  if (!runMeta || !runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) return;
+  try {
+    await rafraichirPaieDuMois({ creerRun: false });
+  } catch (e) {
+    console.error("[paie] rafraîchissement automatique échoué :", e instanceof Error ? e.message : e);
+  }
+}

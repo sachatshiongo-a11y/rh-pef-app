@@ -11,7 +11,7 @@ import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
 import { HistoriquePaie, type SPHistorique } from "./historique-paie";
-import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
+import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { chargerParametresPaie } from "@/lib/config";
@@ -45,19 +45,8 @@ export default async function PaiePage({
   // on les recalcule silencieusement AVANT l'affichage — les présences, heures, pointages et
   // congés saisis après le « Calculer » se répercutent ainsi sans re-cliquer. Les lignes
   // validées/payées ne sont jamais touchées ; aucun run n'est créé ici.
-  const runMeta = await prisma.payrollRun.findUnique({
-    where: { mois_annee: { mois, annee } },
-    select: { lignes: { select: { statutPaiement: true } } },
-  });
-  if (runMeta && runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) {
-    try {
-      await rafraichirPaieDuMois({ creerRun: false });
-    } catch (e) {
-      // Échec ponctuel (réseau, pooler…) : on affiche le dernier état calculé plutôt qu'une
-      // page d'erreur — le prochain chargement retentera.
-      console.error("[paie] rafraîchissement automatique échoué :", e instanceof Error ? e.message : e);
-    }
-  }
+  // Même fonction que « À valider » : un échec ponctuel affiche le dernier état calculé.
+  await rafraichirPaieAffichee(mois, annee);
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },
