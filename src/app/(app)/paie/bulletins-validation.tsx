@@ -93,9 +93,12 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 <div className="mt-2 space-y-0.5 text-xs">
                   <MiniLigne label={L.base} usd={r.baseUSD} />
                   {r.hsUSD > 0 && <MiniLigne label={L.hs} usd={r.hsUSD} />}
-                  {r.transportUSD > 0 && <MiniLigne label={L.transport} usd={r.transportUSD} />}
                   {r.primesUSD > 0 && <MiniLigne label="Primes" usd={r.primesUSD} />}
-                  <MiniLigne label={L.brut} usd={r.salBrutUSD} fort />
+                  {/* Brut IMPOSABLE = brut − transport, comme sur le bulletin PDF : le brut stocké
+                      contient le transport, ni imposable ni cotisable. Chaque ligne se lit dans
+                      l'ordre et s'additionne au centime : gains → brut imposable → retenues et
+                      allocations → salaire net → + transport → total versé (2026-09-24). */}
+                  <MiniLigne label={`${L.brut} (hors transport)`} usd={r.salBrutUSD - r.transportUSD} fort />
                   <MiniLigne label={L.cnss} usd={-r.cnssUSD} />
                   <MiniLigne label={L.ipr} usd={-r.iprUSD} />
                   {r.acompteUSD > 0 && <MiniLigne label={L.acompte} usd={-r.acompteUSD} />}
@@ -110,6 +113,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                       </span>
                     </span>
                   </div>
+                  {r.transportUSD > 0 && <MiniLigne label={L.transport} usd={r.transportUSD} />}
                   {r.transportUSD > 0 && <MiniLigne label="Total versé" usd={r.totalVerseUSD} />}
                 </div>
               </details>
