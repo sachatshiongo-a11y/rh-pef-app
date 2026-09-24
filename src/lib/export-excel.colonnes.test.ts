@@ -4,7 +4,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { classeurExcel, colonnesDeMontant } from "./export-excel";
 
-// En-têtes RÉELS du livre de paie (src/app/(app)/paie/export/route.ts).
+// En-têtes du livre de paie avant l'ajout des heures supp. (le livre réel est testé dans livre-paie.test.ts).
 const ENTETE_LIVRE = [
   "Matricule", "Nom", "Catégorie", "Salaire brut $", "CNSS salarié $", "IPR $", "Transport $",
   "Salaire net $", "Salaire net CDF", "Total versé $", "Total versé CDF", "Statut",
@@ -50,8 +50,11 @@ describe("le livre de paie Excel porte une ligne Total juste", () => {
 });
 
 describe("le livre de paie Excel demande bien ses totaux", () => {
-  it("la route passe totauxCols, calculés d'après ses propres en-têtes", () => {
-    const src = fs.readFileSync(path.join(__dirname, "../app/(app)/paie/export/route.ts"), "utf8");
-    expect(src, "le livre de paie Excel n'a plus de ligne Total").toMatch(/totauxCols:\s*colonnesDeMontant\(entete\)/);
+  it("chaque onglet de catégorie passe totauxCols, calculés d'après ses propres en-têtes", () => {
+    const src = fs.readFileSync(path.join(__dirname, "livre-paie-excel.ts"), "utf8");
+    expect(src, "le livre de paie Excel n'a plus de ligne Total").toMatch(/const colsMontant = colonnesDeMontant\(ENTETE_LIVRE_EXCEL\)/);
+    expect(src, "le livre de paie Excel n'a plus de ligne Total").toMatch(/totauxCols:\s*colsMontant/);
+    const route = fs.readFileSync(path.join(__dirname, "../app/(app)/paie/export/route.ts"), "utf8");
+    expect(route, "la route du livre de paie ne passe plus par classeurLivrePaie").toMatch(/classeurLivrePaie\(/);
   });
 });

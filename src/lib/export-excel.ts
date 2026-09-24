@@ -21,6 +21,15 @@ export type FeuilleExcel = {
   sectionRows?: number[]; // indices (dans lignes) des lignes-titres de section (catégorie) : fusionnées, en gras
   couleurLigne?: (rowIdx: number) => string | undefined; // fond ARGB d'une ligne de données (ex. code couleur d'alerte)
   couleurTexteCellule?: (rowIdx: number, colIdx: number) => string | undefined; // couleur ARGB du texte d'une cellule (ex. commande verte / livraison rouge)
+  libelleTotal?: string; // libellé de la ligne de totaux (par défaut « Total »)
+  messageVide?: string; // écrit sous l'en-tête quand `lignes` est vide (ex. « Aucun salarié ») — la ligne de totaux reste, à 0
+  /**
+   * Autofiltre sur l'en-tête, BORNÉ AUX LIGNES DE DONNÉES : la ligne de totaux (et le message de
+   * feuille vide) restent HORS de la plage, sinon un tri les enverrait au milieu des données — le
+   * chiffre serait toujours là, à la mauvaise place. Réservé aux feuilles sans lignes-titres de
+   * section (un tri les mélangerait aussi) ; sans ligne de données, aucun filtre n'est posé.
+   */
+  autofiltre?: boolean;
 };
 
 /**
@@ -73,12 +82,18 @@ export async function classeurExcel(opts: {
     const rowEntete = ws.addRow(f.entete);
     const debutData = rowEntete.number + 1;
     for (const l of f.lignes) ws.addRow(l);
+    const rVide = f.lignes.length === 0 && f.messageVide ? ws.addRow([f.messageVide]) : null;
+    if (f.autofiltre && f.sectionRows?.length) throw new Error(`Feuille « ${f.nom} » : autofiltre incompatible avec des lignes-titres de section`);
+    if (f.autofiltre && f.lignes.length > 0) {
+      // Dernière ligne filtrée = dernière ligne de DONNÉES, jamais la ligne de totaux ajoutée plus bas.
+      ws.autoFilter = { from: { row: rowEntete.number, column: 1 }, to: { row: debutData + f.lignes.length - 1, column: f.entete.length } };
+    }
 
     // Ligne « Total » (somme des colonnes indiquées).
     let rTot: ExcelJS.Row | null = null;
     if (f.totauxCols && f.totauxCols.length > 0) {
       const totLigne: (string | number)[] = new Array(f.entete.length).fill("");
-      totLigne[0] = "Total";
+      totLigne[0] = f.libelleTotal ?? "Total";
       for (const ci of f.totauxCols) {
         let s = 0;
         for (const l of f.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; }
@@ -99,6 +114,7 @@ export async function classeurExcel(opts: {
     rPeriode.font = { name: OPTIMA, size: 10, italic: true };
     rEdit.font = { name: OPTIMA, size: 9, italic: true, color: { argb: GRIS } };
     rowEntete.font = { name: OPTIMA, size: 10, bold: true };
+    if (rVide) rVide.font = { name: OPTIMA, size: 10, italic: true, color: { argb: GRIS } };
     rowEntete.eachCell((cell) => {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };
       cell.border = { bottom: { style: "thin", color: { argb: OR_BORDURE } } };
