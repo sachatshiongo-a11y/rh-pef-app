@@ -150,7 +150,10 @@ export function reconstituerBrutDepuisNet(
   while (netBaseDepuisBrut(hi, params, personnesACharge) < netCibleUSD) hi *= 2;
   let lo = 0;
 
-  for (let i = 0; i < 60 && hi - lo >= 0.005; i++) {
+  // Précision au millionième de dollar, pas au demi-centime : le total versé et le transport sont
+  // arrondis SÉPARÉMENT en base, et un surplus de quelques dixièmes de centime suffisait à faire
+  // afficher 200,01 $ pour 200 $ promis (constat production 2026-09-24).
+  for (let i = 0; i < 100 && hi - lo >= 1e-6; i++) {
     const mid = (lo + hi) / 2;
     if (netBaseDepuisBrut(mid, params, personnesACharge) < netCibleUSD) lo = mid;
     else hi = mid;

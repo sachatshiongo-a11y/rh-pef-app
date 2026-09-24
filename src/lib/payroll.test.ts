@@ -430,6 +430,33 @@ describe("reconstituerBrutDepuisNet — inversion net→brut (salaires saisis en
     }
   });
 
+  it("salaire net affiché = net promis AU CENTIME, transport compris (arrondis stockés à 2 décimales)", () => {
+    // Constat production 2026-09-24 : Myriam (200 $ nets, transport 260 000 FC) affichait 200,01 $.
+    // La base stocke total versé et transport ARRONDIS séparément ; le salaire net affiché est leur
+    // différence. Une dichotomie arrêtée à 0,005 $ de brut laissait jusqu'à ~0,4 centime de trop,
+    // qui basculait l'arrondi du total versé. Le net promis doit tomber juste au centime.
+    const c2 = (x: number) => Math.round(x * 100) / 100;
+    const transportsCDF = [0, 115_000, 130_000, 182_000, 208_000, 260_000];
+    let ecarts = 0;
+    for (const net of [150, 156, 200, 250, 300, 350, 400]) {
+      for (const enfants of [0, 1, 2]) {
+        for (const tcdf of transportsCDF) {
+          const transportUSD = tcdf / params.tauxChangeCDF;
+          const r = calculerPaieBackoffice({ salaireBaseUSD: net, transportUSD, enfants }, paramsNet);
+          const affiche = c2(c2(r.salNetUSD) - c2(transportUSD)) - enfants * params.allocFamilialeParEnfantUSD;
+          if (c2(affiche) !== net) ecarts++;
+        }
+      }
+    }
+    expect(ecarts).toBe(0);
+    // Brigade (paie aux heures, t = S/R) : même exigence, cas Myriam (156 h, 260 000 FC).
+    const b = calculerPaieBrigade({
+      salaireJournalier: 0, salaireHoraire: 200 / 156, heuresNormales: 156, joursPayesNonTravailles: 0,
+      joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: 260_000 / params.tauxChangeCDF, enfants: 0,
+    }, paramsNet);
+    expect(c2(c2(b.salNetUSD) - c2(260_000 / params.tauxChangeCDF))).toBe(200);
+  });
+
   it("round-trip tenu même avec plafond CNSS défini", () => {
     const avecPlafond: ParametresPaie = { ...paramsNet, plafondCnssMensuelCDF: 230_000 }; // = 100 $
     const r = calculerPaieBackoffice({ salaireBaseUSD: 300, transportUSD: 0, enfants: 0 }, avecPlafond);
