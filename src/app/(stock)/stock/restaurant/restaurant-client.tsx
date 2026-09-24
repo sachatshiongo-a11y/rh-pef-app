@@ -1,23 +1,27 @@
 "use client";
 
 import { Fragment, memo, useState, useTransition } from "react";
-import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto } from "./actions";
+import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto, rattacherArticleResto } from "./actions";
 import type { JourResto } from "./semaine";
 import { estErreur } from "@/lib/action-lisible";
+import { ChoixArticleCatalogue, type OptionCatalogue } from "./choix-article";
 
 export type Jour = JourResto;
 export type LigneResto = {
   id: string; categorie: string | null; designation: string; unite: string | null;
   base: string; comptages: Record<string, string>; // iso → quantité
+  /** Article du catalogue rattaché (disponibilité des plats) — posé par la Direction, jamais deviné. */
+  articleStockId: string | null; articleStockDesignation: string | null;
 };
 
 const inp = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
 const cell = "w-16 rounded border border-input bg-background px-1 py-1 text-right text-xs";
 
 export function RestaurantGrille({
-  espace, jours, lignes, categories, estDirection,
+  espace, jours, lignes, categories, estDirection, catalogue,
 }: {
   espace: "CUISINE" | "BAR"; jours: Jour[]; lignes: LigneResto[]; categories: string[]; estDirection: boolean;
+  catalogue: OptionCatalogue[];
 }) {
   const [erreur, setErreur] = useState<string | null>(null);
   const [ajout, setAjout] = useState(false);
@@ -33,6 +37,11 @@ export function RestaurantGrille({
   const saveComptage = async (id: string, iso: string, value: string) => {
     setErreur(null);
     const r = await majComptage(id, iso, value);
+    if (estErreur(r)) setErreur(r.erreur);
+  };
+  const rattacher = async (id: string, articleStockId: string | null) => {
+    setErreur(null);
+    const r = await rattacherArticleResto(id, articleStockId);
     if (estErreur(r)) setErreur(r.erreur);
   };
   const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); }); };
@@ -61,6 +70,7 @@ export function RestaurantGrille({
           <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th>Désignation</th>
+              <th className="min-w-44">Article du catalogue</th>
               <th className="w-24">Unité</th>
               <th className="text-right">Stock base</th>
               {jours.map((j) => <th key={j.iso} className="text-center">{j.label}<br /><span className="font-normal text-muted-foreground">{j.num}</span></th>)}
@@ -71,10 +81,10 @@ export function RestaurantGrille({
             {lignes.map((l, i) => (
               <Fragment key={l.id}>
                 {(i === 0 || lignes[i - 1].categorie !== l.categorie) && l.categorie && (
-                  <tr><td colSpan={jours.length + (estDirection ? 4 : 3)} className="bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.categorie}</td></tr>
+                  <tr><td colSpan={jours.length + (estDirection ? 5 : 4)} className="bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.categorie}</td></tr>
                 )}
-                <LigneR ligne={l} jours={jours} estDirection={estDirection}
-                  onSave={save} onSaveComptage={saveComptage} onDelete={(id) => run(() => supprimerArticleResto(id))} />
+                <LigneR ligne={l} jours={jours} estDirection={estDirection} catalogue={catalogue}
+                  onSave={save} onSaveComptage={saveComptage} onRattacher={rattacher} onDelete={(id) => run(() => supprimerArticleResto(id))} />
               </Fragment>
             ))}
             {lignes.length === 0 && <tr><td colSpan={jours.length + (estDirection ? 5 : 4)} className="px-3 py-6 text-center text-muted-foreground">Aucun article. Ajoutez-en avec « + Ajouter un article ».</td></tr>}
@@ -85,10 +95,11 @@ export function RestaurantGrille({
   );
 }
 
-const LigneR = memo(function LigneR({ ligne, jours, estDirection, onSave, onSaveComptage, onDelete }: {
-  ligne: LigneResto; jours: Jour[]; estDirection: boolean;
+const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, onSave, onSaveComptage, onRattacher, onDelete }: {
+  ligne: LigneResto; jours: Jour[]; estDirection: boolean; catalogue: OptionCatalogue[];
   onSave: (id: string, name: string, value: string) => Promise<void>;
   onSaveComptage: (id: string, iso: string, value: string) => Promise<void>;
+  onRattacher: (id: string, articleStockId: string | null) => Promise<void>;
   onDelete: (id: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -98,6 +109,14 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, onSave, onSave
   return (
     <tr className={`hover:bg-accent/40 even:bg-muted/25 ${busy ? "opacity-60" : ""}`}>
       <td><input defaultValue={ligne.designation} onBlur={(e) => write("designation", e.target.value, ligne.designation)} className={`${inp} min-w-40 font-medium`} /></td>
+      <td>
+        <ChoixArticleCatalogue
+          articleStockId={ligne.articleStockId}
+          designation={ligne.articleStockDesignation}
+          catalogue={catalogue}
+          onChoisir={(id) => { setBusy(true); onRattacher(ligne.id, id).finally(() => setBusy(false)); }}
+        />
+      </td>
       <td><input defaultValue={ligne.unite ?? ""} onBlur={(e) => write("unite", e.target.value, ligne.unite ?? "")} className={inp} /></td>
       <td className="text-right"><input type="number" step="0.001" defaultValue={ligne.base} onBlur={(e) => write("stockBaseJournalier", e.target.value, ligne.base)} className={cell} /></td>
       {jours.map((j) => {
