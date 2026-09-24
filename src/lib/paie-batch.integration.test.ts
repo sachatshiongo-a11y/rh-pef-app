@@ -118,14 +118,19 @@ describe("calculerLignesPaie — moteur réel de la paie (#3)", () => {
     expect(ligne.data.cnssSalarieUSD).toBeCloseTo(baseCotisableAttendue * parametres.cnssSalarie, 6);
   });
 
-  it("BACKOFFICE : salaire fixe + transport mensuel exonéré, aucune rémunération aux heures", async () => {
+  it("BACKOFFICE : salaire fixe (porté par remuneration100) + transport mensuel exonéré, aucune rémunération aux heures", async () => {
     const parametres = await chargerParametresPaie();
     const { lignes } = await calculerLignesPaie(7, 2026);
     const ligne = lignes.find((l) => l.employee.id === backofficeId);
     expect(ligne).toBeTruthy();
     if (!ligne) return;
 
-    expect(ligne.data.remuneration100).toBe(0); // pas de rémunération "aux heures" en back-office
+    // Depuis le 2026-09-24, le salaire de base fixe est porté par remuneration100 (avant : 0, et le
+    // bulletin imprimait « Salaire de base 0,00 $ » sous un brut imposable de 300 $). Toujours
+    // aucune rémunération « aux heures » : ni indemnité maladie, ni heures supplémentaires.
+    expect(ligne.data.remuneration100).toBe(300);
+    expect(ligne.data.remuneration2_3).toBe(0);
+    expect(ligne.data.hsValorisee).toBe(0);
     expect(ligne.data.transportUSD).toBeCloseTo(25, 6);
 
     const attendu = calculerPaieBackoffice({ salaireBaseUSD: 300, transportUSD: 25, enfants: 0 }, parametres);
