@@ -56,10 +56,24 @@ describe("chargerStocksDesFiches", () => {
     const inactif = await resto("Sel (ancien)", "kg", sel.id, false);
     await compter(inactif.id, "2026-09-23", "100");
 
+    // Mouvements au dépôt (tous types, ajustement d'inventaire compris) : seul le plus RÉCENT compte.
+    const bouger = (articleId: string, type: "ENTREE" | "SORTIE" | "AJUSTEMENT", date: string) =>
+      prisma.mouvementStock.create({ data: { articleId, type, quantite: "1", date: new Date(date) } });
+    await bouger(farine.id, "ENTREE", "2026-07-10");
+    await bouger(farine.id, "AJUSTEMENT", "2026-09-20");
+    await bouger(farine.id, "SORTIE", "2026-08-01");
+    // Crème et Sel : jamais mouvementés.
+
+    const groupBy = vi.spyOn(prisma.mouvementStock, "groupBy");
+    const findMany = vi.spyOn(prisma.mouvementStock, "findMany");
     const stocks = await chargerStocksDesFiches();
 
-    expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21" } });
-    expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22" } });
-    expect(stocks[sel.id]).toEqual({ depot: "1.5", restaurant: null });
+    expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21" }, dernierMouvement: "2026-09-20" });
+    expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22" }, dernierMouvement: null });
+    expect(stocks[sel.id]).toEqual({ depot: "1.5", restaurant: null, dernierMouvement: null });
+    // UNE requête groupée pour tous les articles, jamais une requête par article.
+    expect(groupBy).toHaveBeenCalledTimes(1);
+    expect(findMany).not.toHaveBeenCalled();
+    groupBy.mockRestore(); findMany.mockRestore();
   }, 60_000);
 });

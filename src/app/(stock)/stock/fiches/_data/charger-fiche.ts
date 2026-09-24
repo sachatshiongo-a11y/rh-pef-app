@@ -115,11 +115,13 @@ export async function chargerArticlesSelectionnables(): Promise<ArticleOption[]>
 /**
  * Stock qui fait foi pour la disponibilité (décision Direction 2026-09-24) : le dépôt (`Stock`) ET
  * le restaurant (dernier comptage de chaque article du restaurant RATTACHÉ, converti dans l'unité
- * de l'article). Deux requêtes pour TOUTES les fiches — jamais une requête par fiche. Un article du
- * restaurant inactif, non rattaché ou jamais compté n'apporte rien.
+ * de l'article). Un article du restaurant inactif, non rattaché ou jamais compté n'apporte rien.
+ * S'y ajoute la date du DERNIER mouvement de stock de chaque article (tous types, inventaire
+ * compris) : UNE requête groupée `max(date)` par article — règle du stock figé.
+ * Trois requêtes pour TOUTES les fiches — jamais une requête par fiche ni par article.
  */
 export async function chargerStocksDesFiches(): Promise<Record<string, StockArticle>> {
-  const [depots, restos] = await Promise.all([
+  const [depots, restos, mouvements] = await Promise.all([
     prisma.stock.findMany({ select: { articleId: true, quantite: true } }),
     prisma.articleResto.findMany({
       where: { actif: true, articleStockId: { not: null } },
@@ -131,7 +133,11 @@ export async function chargerStocksDesFiches(): Promise<Record<string, StockArti
         comptages: { orderBy: { date: "desc" }, take: 1, select: { date: true, quantite: true } },
       },
     }),
+    prisma.mouvementStock.groupBy({ by: ["articleId"], _max: { date: true } }),
   ]);
+  // `MouvementStock.date` est une date PURE (@db.Date, minuit UTC) : AAAA-MM-JJ sans fuseau.
+  const dernierMouvement = new Map(mouvements.map((m) => [m.articleId, m._max.date ? m._max.date.toISOString().slice(0, 10) : null]));
+  const dm = (articleId: string) => dernierMouvement.get(articleId) ?? null;
 
   const comptages: ComptageRattache[] = restos.flatMap((r) => {
     const dernier = r.comptages[0];
@@ -147,9 +153,9 @@ export async function chargerStocksDesFiches(): Promise<Record<string, StockArti
   const unites = new Map(restos.flatMap((r) => (r.articleStockId ? [[r.articleStockId, r.articleStock?.unite ?? ""] as const] : [])));
 
   const stocks: Record<string, StockArticle> = {};
-  for (const d of depots) stocks[d.articleId] = { depot: d.quantite.toString(), restaurant: null };
+  for (const d of depots) stocks[d.articleId] = { depot: d.quantite.toString(), restaurant: null, dernierMouvement: dm(d.articleId) };
   for (const [articleId, restaurant] of stockRestaurantParArticle(comptages, unites)) {
-    stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant };
+    stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant, dernierMouvement: dm(articleId) };
   }
   return stocks;
 }

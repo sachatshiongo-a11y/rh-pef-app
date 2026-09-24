@@ -4,6 +4,7 @@ import { verifySession, requireModule } from "@/lib/auth";
 import { chargerFichesVues, chargerArticlesSelectionnables, chargerStocksDesFiches } from "../_data/charger-fiche";
 import { versFicheCalc, versFicheDispo } from "../_data/fiche-calc";
 import { EditerFiche } from "./editer-fiche";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 export default async function FicheDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -38,6 +39,7 @@ export default async function FicheDetailPage({ params }: { params: Promise<{ id
         contexte={contexte}
         contexteDispo={contexteDispo}
         stocks={stocks}
+        aujourdhui={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)}
       />
     </div>
   );

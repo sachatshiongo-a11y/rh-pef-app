@@ -42,7 +42,7 @@ const decoderSource = (v: string) => ({
  * même fonction que côté serveur — un seul chiffre possible pour une même fiche.
  */
 export function EditerFiche({
-  vue, articles, autresFiches, contexte, contexteDispo, stocks,
+  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui,
 }: {
   vue: FicheVue;
   articles: ArticleOption[];
@@ -52,6 +52,8 @@ export function EditerFiche({
   contexteDispo: FicheDispo[];
   /** Stock dépôt + restaurant par article, lu une fois par la page. */
   stocks: Record<string, StockArticle>;
+  /** Jour civil de Kinshasa (AAAA-MM-JJ), fixé par le serveur : référence du stock figé. */
+  aujourdhui: string;
 }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
@@ -80,7 +82,7 @@ export function EditerFiche({
     fiches: new Map([...contexteDispo.map((f) => [f.id, f] as const), [vue.id, ficheDispo] as const]),
     articles: mapArticles,
     stocks: new Map(Object.entries(stocks)),
-  });
+  }, aujourdhui);
   const detailsArticles = new Map(dispo.articles.map((a) => [a.articleId, a]));
   const ligneLimitante = dispo.limitantId ? lignes.findIndex((_, i) => dispo.lignes[i]?.articleIds.includes(dispo.limitantId!)) : -1;
   const coutConnu = resultat.lignes.some((l) => l.cout !== null);

@@ -268,6 +268,40 @@ describe("CelluleNombre — enregistrement", () => {
     expect(suivi.etat().enErreur).toBe(0);
   });
 
+  it("deux échecs de suite : le repli est la dernière valeur CONFIRMÉE, et la case reste en rouge", async () => {
+    // 1 en base ; on tape 5 puis 6 pendant que 5 part encore ; les deux envois échouent.
+    const envois: { v: number | null; precedente: number | null; echouer: () => void }[] = [];
+    enregistrer.mockImplementation((v: number | null, ctx: { precedente: number | null }) =>
+      new Promise<unknown>((resolve) => envois.push({ v, precedente: ctx.precedente, echouer: () => resolve({ erreur: "Base injoignable." }) })));
+    const el = cas("a0");
+    focus(el); taper(el, "5"); await act(async () => el.blur());
+    focus(el); taper(el, "6"); await act(async () => el.blur());
+    await act(async () => envois[0].echouer());
+    expect(el.getAttribute("aria-invalid")).toBe("true"); // 5 a échoué ; 6 est encore en route
+    // Revalider le même texte (6, envoyé mais pas confirmé) ne fait pas tomber le signal.
+    focus(el); await act(async () => el.blur());
+    expect(el.getAttribute("aria-invalid")).toBe("true");
+    expect(enregistrer).toHaveBeenCalledTimes(2);
+    await act(async () => envois[1].echouer());
+    expect(envois.map((e) => [e.v, e.precedente])).toEqual([[5, 1], [6, 1]]); // l'appelant rétablit 1, pas 5
+    expect(el.value).toBe("6"); // la saisie reste affichée…
+    expect(el.getAttribute("aria-invalid")).toBe("true"); // … en rouge : elle n'est pas en base
+    // Retaper 5 (jamais confirmé) n'efface pas le rouge en silence : c'est un nouvel envoi.
+    focus(el); taper(el, "5"); await act(async () => el.blur());
+    expect(enregistrer).toHaveBeenCalledTimes(3);
+    expect(envois[2]).toMatchObject({ v: 5, precedente: 1 });
+    expect(el.getAttribute("aria-invalid")).toBeNull(); // en cours d'envoi
+    await act(async () => envois[2].echouer());
+    expect(el.getAttribute("aria-invalid")).toBe("true");
+    // Échap revient à la valeur confirmée : 1 ; la case n'est plus signalée (1 est en base).
+    focus(el);
+    await touche(el, "Escape");
+    expect(el.value).toBe("1");
+    await act(async () => el.blur());
+    expect(el.getAttribute("aria-invalid")).toBeNull();
+    expect(enregistrer).toHaveBeenCalledTimes(3);
+  });
+
   it("une valeur venue du serveur est adoptée, sauf dans la case en cours de frappe", () => {
     const el = cas("a0");
     focus(el);

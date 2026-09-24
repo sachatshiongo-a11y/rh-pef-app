@@ -63,6 +63,12 @@ export function CelluleStock({ detail, estSousRecette }: { detail: DetailArticle
         dépôt {q(detail.depot)} · resto {q(detail.restaurant)}
         {detail.dateComptage && ` (compté le ${jjmmaaaa(detail.dateComptage)})`}
       </div>
+      {/* Date du dernier mouvement au dépôt : au-delà de 7 jours, le stock ne fait plus foi. */}
+      {detail.depot !== null && (
+        <div className={`text-[11px] ${detail.motif === "STOCK_NON_MIS_A_JOUR" || detail.motif === "STOCK_JAMAIS_MIS_A_JOUR" ? "font-medium text-amber-800" : "text-muted-foreground"}`}>
+          {detail.dernierMouvement ? `dernier mouvement le ${jjmmaaaa(detail.dernierMouvement)}` : "aucun mouvement enregistré"}
+        </div>
+      )}
     </div>
   );
 }
@@ -80,7 +86,7 @@ export function CellulePortions({
     ...ligne.raisons.map(libelleRaison),
     ...ligne.articleIds.flatMap((id) => {
       const d = details.get(id);
-      return d?.motif ? [libelleRaison({ motif: d.motif, ingredient: d.designation })] : [];
+      return d?.motif ? [libelleRaison({ motif: d.motif, ingredient: d.designation, depuis: d.depuis })] : [];
     }),
   ];
   return (

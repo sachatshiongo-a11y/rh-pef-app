@@ -7,6 +7,7 @@ import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
+import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
@@ -54,7 +55,8 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
   const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
 
   return (
-    <form action={submit} className="space-y-4">
+    // Entrée n'envoie jamais le bon : seul un clic sur le bouton l'enregistre.
+    <form action={submit} onKeyDown={empecherEnvoiParEntree} className="space-y-4">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Fournisseur</span>
@@ -155,7 +157,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
       )}
 
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
-      <button disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "…" : initial ? "Enregistrer les modifications" : "Créer le bon de commande"}</button>
+      <button type="submit" disabled={isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "…" : initial ? "Enregistrer les modifications" : "Créer le bon de commande"}</button>
     </form>
   );
 }

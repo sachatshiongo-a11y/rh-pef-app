@@ -5,6 +5,7 @@ import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } f
 import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_data/fiche-calc";
 import { FichesClient, type FicheRow } from "./fiches-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 const ETATS: EtatDispo[] = ["DISPONIBLE", "RUPTURE", "A_VERIFIER"];
 
@@ -17,7 +18,7 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
   // Stock (dépôt + restaurant) lu UNE fois pour toutes les fiches, jamais une requête par fiche.
   const [vues, articles, stocks] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches(), chargerStocksDesFiches()]);
   const contexte = construireContexte(vues, new Map(articles.map((a) => [a.id, a])));
-  const dispos = disponibilitesDesFiches(vues, articles, stocks);
+  const dispos = disponibilitesDesFiches(vues, articles, stocks, jourCivilKinshasa(new Date()).toISOString().slice(0, 10));
 
   // Le coût n'est JAMAIS stocké : il est recalculé ici par le moteur, pour chaque fiche, avec le
   // même contexte (les sous-recettes se résolvent entre elles).
