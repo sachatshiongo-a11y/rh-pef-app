@@ -1387,6 +1387,7 @@ model ArticleStock {
   lignesFacture    LigneFacture[]
   commandesResto   CommandeResto[]
   fichesIngredient IngredientFiche[]
+  articlesResto    ArticleResto[]
 
   @@index([domaine, actif]) // catalogues (filtre par domaine) + comptage des articles actifs
   @@index([fournisseurId]) // fiche fournisseur : articles pris chez un fournisseur
@@ -1664,9 +1665,14 @@ model ArticleResto {
   stockBaseJournalier Decimal?        @db.Decimal(14, 3) // niveau cible par jour
   ordre               Int             @default(0)
   actif               Boolean         @default(true)
+  // Article du catalogue dont cet article du restaurant est le comptage (disponibilité des plats,
+  // 2026-09-24). Posé UNIQUEMENT par un geste de la Direction (page Restaurant) : jamais deviné.
+  articleStockId      String?
+  articleStock        ArticleStock?   @relation(fields: [articleStockId], references: [id], onDelete: SetNull)
   comptages           ComptageResto[]
 
   @@index([espace, ordre])
+  @@index([articleStockId])
   @@schema("stock")
 }
 

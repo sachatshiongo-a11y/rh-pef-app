@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { stockRestaurantParArticle, type ComptageRattache, type StockArticle } from "@/lib/fiches/disponibilite";
 import type { ArticleOption, FicheVue } from "./fiche-calc";
 
 // Lecture Prisma → vues d'écran. Les `Decimal` de la base sont convertis en TEXTE (jamais en
@@ -109,4 +110,46 @@ export async function chargerArticlesSelectionnables(): Promise<ArticleOption[]>
     select: SELECT_ARTICLE,
   });
   return articles.map(versOption);
+}
+
+/**
+ * Stock qui fait foi pour la disponibilité (décision Direction 2026-09-24) : le dépôt (`Stock`) ET
+ * le restaurant (dernier comptage de chaque article du restaurant RATTACHÉ, converti dans l'unité
+ * de l'article). Deux requêtes pour TOUTES les fiches — jamais une requête par fiche. Un article du
+ * restaurant inactif, non rattaché ou jamais compté n'apporte rien.
+ */
+export async function chargerStocksDesFiches(): Promise<Record<string, StockArticle>> {
+  const [depots, restos] = await Promise.all([
+    prisma.stock.findMany({ select: { articleId: true, quantite: true } }),
+    prisma.articleResto.findMany({
+      where: { actif: true, articleStockId: { not: null } },
+      select: {
+        designation: true,
+        unite: true,
+        articleStockId: true,
+        articleStock: { select: { unite: true } },
+        comptages: { orderBy: { date: "desc" }, take: 1, select: { date: true, quantite: true } },
+      },
+    }),
+  ]);
+
+  const comptages: ComptageRattache[] = restos.flatMap((r) => {
+    const dernier = r.comptages[0];
+    if (!dernier || !r.articleStockId) return [];
+    return [{
+      articleStockId: r.articleStockId,
+      designationResto: r.designation,
+      uniteResto: r.unite,
+      date: dernier.date.toISOString().slice(0, 10),
+      quantite: dernier.quantite.toString(),
+    }];
+  });
+  const unites = new Map(restos.flatMap((r) => (r.articleStockId ? [[r.articleStockId, r.articleStock?.unite ?? ""] as const] : [])));
+
+  const stocks: Record<string, StockArticle> = {};
+  for (const d of depots) stocks[d.articleId] = { depot: d.quantite.toString(), restaurant: null };
+  for (const [articleId, restaurant] of stockRestaurantParArticle(comptages, unites)) {
+    stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant };
+  }
+  return stocks;
 }
