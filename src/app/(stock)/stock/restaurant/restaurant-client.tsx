@@ -4,6 +4,11 @@ import { Fragment, memo, useState, useTransition } from "react";
 import { majComptage, modifierArticleResto, creerArticleResto, supprimerArticleResto } from "./actions";
 import type { JourResto } from "./semaine";
 import { estErreur } from "@/lib/action-lisible";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+
+const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
+const texteDe = (v: number | null) => (v === null ? "" : String(v));
 
 export type Jour = JourResto;
 export type LigneResto = {
@@ -29,11 +34,13 @@ export function RestaurantGrille({
     const fd = new FormData(); fd.set(name, value);
     const r = await modifierArticleResto(id, fd);
     if (estErreur(r)) setErreur(r.erreur);
+    return r; // une case numérique affiche aussi l'échec en rouge
   };
   const saveComptage = async (id: string, iso: string, value: string) => {
     setErreur(null);
     const r = await majComptage(id, iso, value);
     if (estErreur(r)) setErreur(r.erreur);
+    return r;
   };
   const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); }); };
 
@@ -50,7 +57,7 @@ export function RestaurantGrille({
           <input name="designation" placeholder="Désignation *" required className="rounded border border-input bg-background px-2 py-1" />
           <input name="categorie" list={listeId} placeholder="Catégorie" className="rounded border border-input bg-background px-2 py-1" />
           <input name="unite" placeholder="Unité" className="rounded border border-input bg-background px-2 py-1" />
-          <input name="stockBaseJournalier" type="number" step="0.001" placeholder="Stock de base" className="rounded border border-input bg-background px-2 py-1" />
+          <input name="stockBaseJournalier" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock de base" className="rounded border border-input bg-background px-2 py-1" />
           <button disabled={isPending} className="rounded-md bg-primary px-3 py-1 font-medium text-primary-foreground disabled:opacity-50">Ajouter</button>
         </form>
       )}
@@ -87,27 +94,24 @@ export function RestaurantGrille({
 
 const LigneR = memo(function LigneR({ ligne, jours, estDirection, onSave, onSaveComptage, onDelete }: {
   ligne: LigneResto; jours: Jour[]; estDirection: boolean;
-  onSave: (id: string, name: string, value: string) => Promise<void>;
-  onSaveComptage: (id: string, iso: string, value: string) => Promise<void>;
+  onSave: (id: string, name: string, value: string) => Promise<unknown>;
+  onSaveComptage: (id: string, iso: string, value: string) => Promise<unknown>;
   onDelete: (id: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const write = (name: string, value: string, prev: string) => { if (value === prev) return; setBusy(true); onSave(ligne.id, name, value).finally(() => setBusy(false)); };
-  const writeComptage = (iso: string, value: string, prev: string) => { if (value === prev) return; setBusy(true); onSaveComptage(ligne.id, iso, value).finally(() => setBusy(false)); };
 
   return (
     <tr className={`hover:bg-accent/40 even:bg-muted/25 ${busy ? "opacity-60" : ""}`}>
       <td><input defaultValue={ligne.designation} onBlur={(e) => write("designation", e.target.value, ligne.designation)} className={`${inp} min-w-40 font-medium`} /></td>
       <td><input defaultValue={ligne.unite ?? ""} onBlur={(e) => write("unite", e.target.value, ligne.unite ?? "")} className={inp} /></td>
-      <td className="text-right"><input type="number" step="0.001" defaultValue={ligne.base} onBlur={(e) => write("stockBaseJournalier", e.target.value, ligne.base)} className={cell} /></td>
-      {jours.map((j) => {
-        const v = ligne.comptages[j.iso] ?? "";
-        return (
-          <td key={j.iso} className="text-center">
-            <input type="number" step="0.001" defaultValue={v} onBlur={(e) => writeComptage(j.iso, e.target.value, v)} className={cell} />
-          </td>
-        );
-      })}
+      {/* Cases du tableur partagé (Entrée ↓, Tab →, pas de flèches d'incrément) : colonne 0 = base, puis un jour par colonne. */}
+      <td className="text-right"><CelluleNombre ligne={ligne.id} col={0} valeur={nombreOuNull(ligne.base)} onEnregistrer={(v) => onSave(ligne.id, "stockBaseJournalier", texteDe(v))} className={cell} aria-label={`Stock de base — ${ligne.designation}`} /></td>
+      {jours.map((j, i) => (
+        <td key={j.iso} className="text-center">
+          <CelluleNombre ligne={ligne.id} col={i + 1} valeur={nombreOuNull(ligne.comptages[j.iso] ?? "")} onEnregistrer={(v) => onSaveComptage(ligne.id, j.iso, texteDe(v))} className={cell} aria-label={`${ligne.designation} — ${j.label} ${j.num}`} />
+        </td>
+      ))}
       {estDirection && <td className="text-right"><button onClick={() => { if (confirm(`Supprimer « ${ligne.designation} » ?`)) onDelete(ligne.id); }} className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10">✕</button></td>}
     </tr>
   );
