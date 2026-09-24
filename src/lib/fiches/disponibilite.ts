@@ -72,6 +72,7 @@ export type MotifDispo =
   | "SOUS_FICHE_INTROUVABLE"
   | "SANS_SOURCE"
   | "QUANTITE_ILLISIBLE"
+  | "QUANTITE_NON_RENSEIGNEE"
   | "PORTIONS_INVALIDES"
   | "AUCUN_INGREDIENT";
 
@@ -121,7 +122,8 @@ export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   CYCLE: "boucle : la recette se contient elle-même",
   SOUS_FICHE_INTROUVABLE: "sous-recette introuvable",
   SANS_SOURCE: "ni article du stock ni sous-recette",
-  QUANTITE_ILLISIBLE: "quantité illisible",
+  QUANTITE_ILLISIBLE: "quantité illisible ou négative",
+  QUANTITE_NON_RENSEIGNEE: "quantité non renseignée",
   PORTIONS_INVALIDES: "nombre de portions inexploitable",
   AUCUN_INGREDIENT: "aucun ingrédient",
 };
@@ -233,10 +235,13 @@ function eclater(ing: IngredientDispo, mult: Fraction, chemin: string, enCours: 
   const label = chemin ? `${chemin} › ${ing.nom}` : ing.nom;
   const aVerifier = (motif: MotifDispo): Eclatement => ({ besoins: [], raisons: [{ motif, ingredient: label }] });
 
+  // Même règle que le coût (`cout.ts`, QUANTITE_ABSENTE / QUANTITE_INVALIDE — spec A.1.4) : une
+  // quantité à 0 n'est pas « n'en consomme pas », c'est une quantité NON RENSEIGNÉE. L'ignorer
+  // donnerait un faux « Disponible » : un ingrédient de la recette ne serait jamais confronté au
+  // stock. Une quantité négative est une saisie invalide.
   const q = versD(ing.quantite);
-  if (q === null) return aVerifier("QUANTITE_ILLISIBLE");
-  // Un besoin nul ou négatif est ignoré (spec A.1.4) : il ne limite rien.
-  if (q.lessThanOrEqualTo(0)) return { besoins: [], raisons: [] };
+  if (q === null || q.isNegative()) return aVerifier("QUANTITE_ILLISIBLE");
+  if (q.isZero()) return aVerifier("QUANTITE_NON_RENSEIGNEE");
   const quantite = fois(mult, fr(q));
 
   if (ing.articleId) {

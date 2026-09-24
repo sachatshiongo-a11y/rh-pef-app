@@ -66,12 +66,22 @@ describe("calculerDisponibilite — portions et ingrédient limitant", () => {
     expect(r.portions).toBe(12); // 3 paquets = 1 500 g ÷ 125 g
   });
 
-  it("un besoin nul ou négatif est ignoré", () => {
+  it("une quantité à 0 vaut « non renseignée » (règle du coût) : À vérifier, jamais un faux Disponible", () => {
+    // Avant : la farine à 0 était ignorée et la fiche sortait « Disponible · 3 portions ».
     const f = fiche({ id: "p", ingredients: [ing("Farine", "kg", "0", { articleId: "farine" }), ing("Œuf", "pièce", "1", { articleId: "oeuf" })] });
-    const r = calculerDisponibilite(f, ctx({ articles: [FARINE, OEUF], stocks: { oeuf: depot("3") } }));
-    expect(r.etat).toBe("DISPONIBLE"); // la farine sans stock ne compte pas : son besoin est nul
-    expect(r.portions).toBe(3);
-    expect(r.lignes[0]).toEqual({ articleIds: [], raisons: [], portions: null });
+    const r = calculerDisponibilite(f, ctx({ articles: [FARINE, OEUF], stocks: { farine: depot("10"), oeuf: depot("3") } }));
+    expect(r.etat).toBe("A_VERIFIER");
+    expect(r.portions).toBeNull();
+    expect(r.raisons).toEqual([{ motif: "QUANTITE_NON_RENSEIGNEE", ingredient: "Farine" }]);
+    expect(libelleRaison(r.raisons[0]!)).toBe("Farine : quantité non renseignée");
+    expect(r.lignes[0]).toEqual({ articleIds: [], raisons: r.raisons, portions: null });
+  });
+
+  it("une quantité négative est une saisie invalide : À vérifier", () => {
+    const f = fiche({ id: "p", ingredients: [ing("Farine", "kg", "-1", { articleId: "farine" })] });
+    const r = calculerDisponibilite(f, ctx({ articles: [FARINE], stocks: { farine: depot("10") } }));
+    expect(r.etat).toBe("A_VERIFIER");
+    expect(r.raisons).toEqual([{ motif: "QUANTITE_ILLISIBLE", ingredient: "Farine" }]);
   });
 });
 
@@ -184,6 +194,23 @@ describe("calculerDisponibilite — sous-recettes", () => {
     const r = calculerDisponibilite(plat, ctx({ fiches: [s, plat], articles: [FARINE, CREME], stocks: { creme: depot("5"), farine: depot("5") } }));
     expect(r.etat).toBe("A_VERIFIER");
     expect(r.raisons).toEqual([{ motif: "RENDEMENT_ABSENT", ingredient: "Sauce" }]);
+  });
+
+  it("une sous-recette dont toutes les lignes sont à 0 → À vérifier, quantité non renseignée", () => {
+    const s = { ...sauce, ingredients: sauce.ingredients.map((i) => ({ ...i, quantite: "0" })) };
+    const plat = fiche({ id: "plat", ingredients: [ing("Sauce", "g", "200", { sousFicheId: "sauce" })] });
+    const r = calculerDisponibilite(plat, ctx({ fiches: [s, plat], articles: [FARINE, CREME], stocks: { creme: depot("5"), farine: depot("5") } }));
+    expect(r.etat).toBe("A_VERIFIER");
+    expect(r.raisons).toEqual([
+      { motif: "QUANTITE_NON_RENSEIGNEE", ingredient: "Sauce › Crème" },
+      { motif: "QUANTITE_NON_RENSEIGNEE", ingredient: "Sauce › Farine" },
+    ]);
+  });
+
+  it("une sous-recette consommée à 0 dans le plat → À vérifier", () => {
+    const plat = fiche({ id: "plat", ingredients: [ing("Sauce", "g", "0", { sousFicheId: "sauce" })] });
+    const r = calculerDisponibilite(plat, ctx({ fiches: [sauce, plat], articles: [FARINE, CREME], stocks: { creme: depot("5"), farine: depot("5") } }));
+    expect(r.raisons).toEqual([{ motif: "QUANTITE_NON_RENSEIGNEE", ingredient: "Sauce" }]);
   });
 
   it("une boucle est détectée, sans récursion infinie", () => {
