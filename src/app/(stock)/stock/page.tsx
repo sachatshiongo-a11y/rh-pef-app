@@ -2,7 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
-import { niveauAlerte, ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
+import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
+import { indicateursStock } from "@/lib/indicateurs/stock";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -14,27 +15,19 @@ export default async function StockDashboard() {
   const annee = now.getFullYear(), mois = now.getMonth() + 1;
   const dateDuJour = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
-  // Bornes de dates en UTC (cohérent avec le stockage @db.Date).
-  const jjUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const dow = jjUTC.getUTCDay(); // 0 = dimanche
-  const lundi = new Date(jjUTC); lundi.setUTCDate(jjUTC.getUTCDate() - (dow === 0 ? 6 : dow - 1));
-  const dimanche = new Date(lundi); dimanche.setUTCDate(lundi.getUTCDate() + 6);
-  const debutMois = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const debutMoisSuivant = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-
   const [
-    moi, config, nbArticles, nbFournisseurs, stocks, facturesDues,
+    moi, config, nbArticles, nbFournisseurs, ind,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
     derniersComptages, pertesRecentes, bcAValider,
-    facturesSemaine, facturesEchues, legumesMois, consoMois,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
     prisma.articleStock.count(),
     prisma.fournisseur.count(),
-    prisma.stock.findMany({ include: { article: { select: { designation: true, prixUnitaireUSD: true } } } }),
-    prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true }, _count: true }),
+    // Valeur du stock, alertes, factures, légumes et consommation : @/lib/indicateurs/stock (partagé
+    // avec le tableau de bord de l'Exploitation). 8 articles au seuil, comme avant.
+    indicateursStock(now, { nbAlertes: 8 }),
     prisma.bonDeCommande.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.findMany({ orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
     prisma.mouvementStock.findMany({ where: { type: { in: ["ENTREE", "SORTIE"] } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 8, include: { article: { select: { designation: true } } } }),
@@ -46,33 +39,12 @@ export default async function StockDashboard() {
     prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE" }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: { designation: true } } } }),
     prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
-    // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
-    prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true }, _count: true }),
-    // Factures échues non réglées.
-    prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
-    // Achats de légumes frais du mois en cours.
-    prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
-    // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue).
-    prisma.$queryRaw<{ total: number; n: number }[]>`
-      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD")), 0)::float AS total, COUNT(*)::int AS n
-      FROM "stock"."MouvementStock" m JOIN "stock"."ArticleStock" a ON a."id" = m."articleId"
-      WHERE m."type" = 'SORTIE' AND m."date" >= ${debutMois} AND m."date" < ${debutMoisSuivant}`,
   ]);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const taux = config ? Number(config.tauxChangeCDF) : 0;
 
-  const avecAlerte = stocks.map((s) => ({
-    designation: s.article.designation,
-    quantite: s.quantite,
-    niveau: niveauAlerte(s.quantite, s.stockMinimum),
-    valeur: s.article.prixUnitaireUSD ? Number(s.quantite) * Number(s.article.prixUnitaireUSD) : 0,
-  }));
-  const nbUrgent = avecAlerte.filter((a) => a.niveau === "URGENT").length;
-  const nbAppro = avecAlerte.filter((a) => a.niveau === "APPRO").length;
-  const valeurStock = avecAlerte.reduce((t, a) => t + a.valeur, 0);
-  const auSeuil = avecAlerte.filter((a) => a.niveau === "URGENT" || a.niveau === "APPRO")
-    .sort((a, b) => (a.niveau === "URGENT" ? 0 : 1) - (b.niveau === "URGENT" ? 0 : 1)).slice(0, 8);
+  const { nbUrgent, nbAppro, valeurStock, alertes: auSeuil, facturesAPayer, facturesSemaine, facturesEchues, legumesMois, consoMois } = ind;
 
   const fournNom = new Map(fournisseursListe.map((f) => [f.id, f.nom]));
   const topFourn = fournTop.filter((f) => f.fournisseurId).map((f) => ({ nom: fournNom.get(f.fournisseurId!) ?? "—", n: f._count.fournisseurId }));
@@ -98,12 +70,12 @@ export default async function StockDashboard() {
         <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
         <Kpi label="À réapprovisionner" valeur={String(nbAppro)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
         <Kpi label="Valeur du stock" valeur={usd(valeurStock)} />
-        <Kpi label="Factures à payer" valeur={usd(facturesDues._sum.resteAPayerUSD)} sous={`${facturesDues._count} facture(s)`} accent={Number(facturesDues._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+        <Kpi label="Factures à payer" valeur={usd(facturesAPayer.montant)} sous={`${facturesAPayer.nb} facture(s)`} accent={(facturesAPayer.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
         <Kpi label="Commandes du mois" valeur={String(commandesMois)} href="/stock/commandes" />
-        <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine._sum.resteAPayerUSD)} sous={`${facturesSemaine._count} facture(s)`} accent={Number(facturesSemaine._sum.resteAPayerUSD ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
-        <Kpi label="Factures échues" valeur={usd(facturesEchues._sum.resteAPayerUSD)} sous={`${facturesEchues._count} facture(s)`} accent={facturesEchues._count > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
-        <Kpi label="Légumes frais du mois" valeur={usd(legumesMois._sum.montantUSD)} sous={`${legumesMois._count} achat(s)`} href="/stock/legumes" />
-        <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois[0]?.total ?? 0)}`} sous={`${consoMois[0]?.n ?? 0} sortie(s) valorisées`} href={`/stock/mouvements?mois=${annee}-${mois}`} />
+        <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine.montant)} sous={`${facturesSemaine.nb} facture(s)`} accent={(facturesSemaine.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+        <Kpi label="Factures échues" valeur={usd(facturesEchues.montant)} sous={`${facturesEchues.nb} facture(s)`} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
+        <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
+        <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées`} href={`/stock/mouvements?mois=${annee}-${mois}`} />
       </div>
 
       {/* Bons de commande à valider — Direction uniquement */}
