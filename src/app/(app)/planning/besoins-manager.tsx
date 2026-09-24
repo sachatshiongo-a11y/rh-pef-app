@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useState } from "react";
 import { definirBesoin } from "./actions";
+import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
 
 // Colonnes lundi→dimanche ; valeur = jourSemaine (0=dim … 6=sam).
 const COLONNES: { label: string; dow: number }[] = [
@@ -25,25 +27,33 @@ export function BesoinsManager({
   postes: string[];
   besoins: BesoinDTO[];
 }) {
-  const [pending, startTransition] = useTransition();
+  const [enCours, setEnCours] = useState(0);
   const [vals, setVals] = useState<Record<string, number>>(() => {
     const m: Record<string, number> = {};
     for (const b of besoins) m[`${b.shiftId}_${b.poste}_${b.jourSemaine}`] = b.nombreRequis;
     return m;
   });
 
-  if (shifts.length === 0 || postes.length === 0) return null;
+  // Enregistré à la sortie de la case (tableur partagé) — avant : une action serveur, et un
+  // rechargement de tout /planning, à CHAQUE frappe. Ligne de case = « shiftId|poste ».
+  const enregistrer = useCallback(async (v: number | null, { ligne, col }: ContexteCase) => {
+    const sep = ligne.indexOf("|");
+    const shiftId = ligne.slice(0, sep), poste = ligne.slice(sep + 1), dow = COLONNES[col].dow;
+    setEnCours((n) => n + 1);
+    try {
+      await definirBesoin(shiftId, poste, dow, v ?? 0);
+      setVals((p) => ({ ...p, [`${shiftId}_${poste}_${dow}`]: v ?? 0 }));
+    } finally {
+      setEnCours((n) => n - 1);
+    }
+  }, []);
 
-  const set = (shiftId: string, poste: string, dow: number, raw: string) => {
-    const n = Math.max(0, Math.floor(Number(raw) || 0));
-    setVals((p) => ({ ...p, [`${shiftId}_${poste}_${dow}`]: n }));
-    startTransition(() => definirBesoin(shiftId, poste, dow, n));
-  };
+  if (shifts.length === 0 || postes.length === 0) return null;
 
   return (
     <details className="rounded-xl border bg-card p-3">
       <summary className="cursor-pointer text-sm font-medium">
-        Effectifs requis par shift {pending && <span className="text-xs text-muted-foreground">· enregistrement…</span>}
+        Effectifs requis par shift {enCours > 0 && <span className="text-xs text-muted-foreground">· enregistrement…</span>}
       </summary>
       <p className="mt-1 text-xs text-muted-foreground">
         Nombre de personnes à planifier par poste et par jour, pour chaque shift. La génération
@@ -54,8 +64,9 @@ export function BesoinsManager({
         {shifts.map((s) => (
           <div key={s.id}>
             <div className="mb-1 text-sm font-semibold">{s.nom}</div>
+            <ZoneTableur>
             <div className="max-h-[70vh] overflow-auto">
-              <table className="text-sm">
+              <table data-tableur="" className="text-sm">
                 <thead>
                   <tr className="text-muted-foreground">
                     <th className="px-2 py-1 text-left font-medium">Poste</th>
@@ -70,13 +81,15 @@ export function BesoinsManager({
                       <td className="whitespace-nowrap px-2 py-1">{p}</td>
                       {COLONNES.map((c) => (
                         <td key={c.dow} className="px-1 py-1 text-center">
-                          <input
-                            type="number"
+                          <CelluleNombre
+                            ligne={`${s.id}|${p}`}
+                            col={COLONNES.indexOf(c)}
+                            valeur={vals[`${s.id}_${p}_${c.dow}`] ?? null}
+                            onEnregistrer={enregistrer}
                             min={0}
-                            inputMode="numeric"
-                            value={vals[`${s.id}_${p}_${c.dow}`] ?? ""}
-                            onChange={(e) => set(s.id, p, c.dow, e.target.value)}
+                            entier
                             placeholder="0"
+                            aria-label={`${s.nom} — ${p} — ${c.label}`}
                             className="w-11 rounded border border-input bg-background px-1 py-1 text-center outline-none focus:ring-2 focus:ring-ring"
                           />
                         </td>
@@ -86,6 +99,7 @@ export function BesoinsManager({
                 </tbody>
               </table>
             </div>
+            </ZoneTableur>
           </div>
         ))}
       </div>
