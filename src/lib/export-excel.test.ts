@@ -51,5 +51,14 @@ describe("classeurInventaire — KPIs + inventaire + mouvements dans une même f
     const txtB: string[] = [];
     wsB.eachRow((row) => row.eachCell((c) => txtB.push(String(c.value ?? ""))));
     expect(txtB.join(" | ")).toContain("Aucun mouvement");
+
+    // Volet figé sous le bloc titre (période comprise) ; le logo n'est embarqué qu'une fois.
+    for (const w of wb.worksheets) {
+      let rangPeriode = 0;
+      w.eachRow((r, n) => { if (String(r.getCell(1).value ?? "").startsWith("Période :")) rangPeriode = n; });
+      expect((w.views[0] as { ySplit?: number }).ySplit, w.name).toBe(rangPeriode);
+      expect(w.getImages().length, w.name).toBe(1);
+    }
+    expect((wb.model as unknown as { media: unknown[] }).media.length).toBe(1);
   });
 });

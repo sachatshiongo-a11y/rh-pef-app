@@ -1,13 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { LIBELLE_STATUT } from "@/lib/paie-etats";
-import { classeurExcel, colonnesDeMontant } from "@/lib/export-excel";
-import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { classeurLivrePaie } from "@/lib/livre-paie-excel";
 
 /**
- * Export Excel de la paie du mois courant — FIDÈLE à l'onglet Paie : mêmes lignes (brigade puis
- * backoffice, triées par nom) et mêmes colonnes que le tableau à l'écran, plus le détail des
- * retenues pour l'usage comptable.
+ * Export Excel du livre de paie — mêmes lignes et mêmes colonnes que l'onglet Paie, plus le
+ * détail des retenues pour l'usage comptable. Depuis le 2026-09-24 (demande Direction), un onglet
+ * par catégorie (Brigade, puis Back-office), chacun trié par nom, puis un onglet « Récapitulatif ».
  */
 export async function GET(request: Request) {
   await verifySession();
@@ -23,53 +21,10 @@ export async function GET(request: Request) {
     include: { lignes: { include: { employee: true } } },
   });
 
-  const lignes = (run?.lignes ?? []).sort((a, b) => {
-    if (a.employee.categorie !== b.employee.categorie)
-      return a.employee.categorie.localeCompare(b.employee.categorie);
-    return a.employee.nom.localeCompare(b.employee.nom);
-  });
-
-  const entete = [
-    "Matricule",
-    "Nom",
-    "Catégorie",
-    "Salaire brut $",
-    "CNSS salarié $",
-    "IPR $",
-    "Transport $",
-    "Salaire net $",
-    "Salaire net CDF",
-    "Total versé $",
-    "Total versé CDF",
-    "Statut",
-  ];
-
-  // Taux du bulletin — jamais déduit de salNetCDF / salNetUSD (voir src/lib/paie-net.ts).
+  // Taux du bulletin — jamais déduit des montants nets stockés (voir src/lib/paie-net.ts et src/lib/livre-paie.ts).
   const taux = run ? Number(run.tauxChangeUtilise) : 0;
-
-  const rows = lignes.map((l) => [
-    l.employee.matricule,
-    l.employee.nom,
-    l.employee.categorie,
-    Number(Number(l.salBrutUSD).toFixed(2)),
-    Number(Number(l.cnssSalarieUSD).toFixed(2)),
-    Number(Number(l.iprCalculeUSD).toFixed(2)),
-    Number(Number(l.transportUSD).toFixed(2)),
-    Number(salaireNetUSD(l).toFixed(2)),
-    Number(salaireNetCDF(l, taux).toFixed(0)),
-    Number(totalVerseUSD(l).toFixed(2)),
-    // Même taux que « Salaire net CDF » et que le bulletin PDF — jamais le taux figé de la ligne.
-    Number((totalVerseUSD(l) * taux).toFixed(0)),
-    LIBELLE_STATUT[l.statutPaiement],
-  ]);
-
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const buf = await classeurExcel({
-    titre: "Livre de paie",
-    periode,
-    // Une ligne « Total » en bas de chaque colonne de montant (Direction, 2026-09-23).
-    feuilles: [{ nom: "Paie", entete, lignes: rows, totauxCols: colonnesDeMontant(entete) }],
-  });
+  const buf = await classeurLivrePaie({ lignes: run?.lignes ?? [], taux, periode });
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

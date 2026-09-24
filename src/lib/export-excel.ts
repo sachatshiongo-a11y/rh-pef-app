@@ -21,6 +21,15 @@ export type FeuilleExcel = {
   sectionRows?: number[]; // indices (dans lignes) des lignes-titres de section (catégorie) : fusionnées, en gras
   couleurLigne?: (rowIdx: number) => string | undefined; // fond ARGB d'une ligne de données (ex. code couleur d'alerte)
   couleurTexteCellule?: (rowIdx: number, colIdx: number) => string | undefined; // couleur ARGB du texte d'une cellule (ex. commande verte / livraison rouge)
+  libelleTotal?: string; // libellé de la ligne de totaux (par défaut « Total »)
+  messageVide?: string; // écrit sous l'en-tête quand `lignes` est vide (ex. « Aucun salarié ») — la ligne de totaux reste, à 0
+  /**
+   * Autofiltre sur l'en-tête, BORNÉ AUX LIGNES DE DONNÉES : la ligne de totaux (et le message de
+   * feuille vide) restent HORS de la plage, sinon un tri les enverrait au milieu des données — le
+   * chiffre serait toujours là, à la mauvaise place. Réservé aux feuilles sans lignes-titres de
+   * section (un tri les mélangerait aussi) ; sans ligne de données, aucun filtre n'est posé.
+   */
+  autofiltre?: boolean;
 };
 
 /**
@@ -29,6 +38,29 @@ export type FeuilleExcel = {
  */
 export function colonnesDeMontant(entete: string[]): number[] {
   return entete.flatMap((h, i) => (/(\$|CDF)$/.test(h.trim()) ? [i] : []));
+}
+
+/**
+ * Colonnes de QUANTITÉ additionnables, repérées elles aussi par leur en-tête : une unité entre
+ * parenthèses en fin de libellé (« Heures supp. (h) », « Congés (j) »). Liste FERMÉE d'unités :
+ * un libellé comme « Taux (%) » ou « Prix (U) » ne s'additionne pas et n'y entre jamais.
+ */
+export function colonnesDeQuantite(entete: string[]): number[] {
+  return entete.flatMap((h, i) => (/\((h|j)\)$/.test(h.trim()) ? [i] : []));
+}
+
+/** Tout ce qui se totalise en bas d'un tableau : montants et quantités, dans l'ordre des colonnes. */
+export function colonnesATotaliser(entete: string[]): number[] {
+  return [...colonnesDeQuantite(entete), ...colonnesDeMontant(entete)].sort((a, b) => a - b);
+}
+
+/**
+ * Logo ajouté UNE fois au classeur ; chaque feuille le référence par son identifiant. L'ajouter
+ * dans la boucle des feuilles embarquait une copie du PNG par onglet (livre de paie : 81 → 228 Ko).
+ */
+function logoDuClasseur(wb: ExcelJS.Workbook): number | null {
+  if (!fs.existsSync(logoPath)) return null;
+  return wb.addImage({ base64: fs.readFileSync(logoPath).toString("base64"), extension: "png" });
 }
 
 /**
@@ -49,20 +81,16 @@ export async function classeurExcel(opts: {
   wb.creator = "Pâtes en Folie (TOLYA SARL)";
   wb.created = new Date();
 
-  const logoBuffer = fs.existsSync(logoPath) ? fs.readFileSync(logoPath) : null;
   const editeLe = new Date().toLocaleDateString("fr-FR");
+  const logoId = logoDuClasseur(wb);
 
   const HAUT_LOGO = 3; // lignes vides réservées à la hauteur du logo, au-dessus des titres
 
   for (const f of feuilles) {
-    // Gèle l'en-tête (logo + bloc titre + ligne de colonnes) = HAUT_LOGO + 5 lignes.
-    const ws = wb.addWorksheet(f.nom, { views: [{ state: "frozen", ySplit: HAUT_LOGO + 5 }] });
+    const ws = wb.addWorksheet(f.nom);
 
-    // Logo EN HAUT À GAUCHE, au-dessus des titres.
-    if (logoBuffer) {
-      const id = wb.addImage({ base64: logoBuffer.toString("base64"), extension: "png" });
-      ws.addImage(id, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
-    }
+    // Logo EN HAUT À GAUCHE, au-dessus des titres : la MÊME image, référencée par chaque feuille.
+    if (logoId != null) ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
 
     // Lignes vides sous le logo, puis le bloc d'en-tête (titres SOUS le logo).
     for (let i = 0; i < HAUT_LOGO; i++) ws.addRow([]);
@@ -71,14 +99,24 @@ export async function classeurExcel(opts: {
     const rEdit = ws.addRow([`Édité le : ${editeLe}`]);
     ws.addRow([]);
     const rowEntete = ws.addRow(f.entete);
+    // Gèle tout ce qui précède les données, ligne de colonnes COMPRISE. Calculé sur la ligne réelle,
+    // jamais compté à la main : l'ancien « HAUT_LOGO + 5 » valait 8 alors que la ligne de colonnes
+    // arrive en ligne 9 dans le fichier produit — elle défilait avec les données.
+    ws.views = [{ state: "frozen", ySplit: rowEntete.number }];
     const debutData = rowEntete.number + 1;
     for (const l of f.lignes) ws.addRow(l);
+    const rVide = f.lignes.length === 0 && f.messageVide ? ws.addRow([f.messageVide]) : null;
+    if (f.autofiltre && f.sectionRows?.length) throw new Error(`Feuille « ${f.nom} » : autofiltre incompatible avec des lignes-titres de section`);
+    if (f.autofiltre && f.lignes.length > 0) {
+      // Dernière ligne filtrée = dernière ligne de DONNÉES, jamais la ligne de totaux ajoutée plus bas.
+      ws.autoFilter = { from: { row: rowEntete.number, column: 1 }, to: { row: debutData + f.lignes.length - 1, column: f.entete.length } };
+    }
 
     // Ligne « Total » (somme des colonnes indiquées).
     let rTot: ExcelJS.Row | null = null;
     if (f.totauxCols && f.totauxCols.length > 0) {
       const totLigne: (string | number)[] = new Array(f.entete.length).fill("");
-      totLigne[0] = "Total";
+      totLigne[0] = f.libelleTotal ?? "Total";
       for (const ci of f.totauxCols) {
         let s = 0;
         for (const l of f.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; }
@@ -99,6 +137,7 @@ export async function classeurExcel(opts: {
     rPeriode.font = { name: OPTIMA, size: 10, italic: true };
     rEdit.font = { name: OPTIMA, size: 9, italic: true, color: { argb: GRIS } };
     rowEntete.font = { name: OPTIMA, size: 10, bold: true };
+    if (rVide) rVide.font = { name: OPTIMA, size: 10, italic: true, color: { argb: GRIS } };
     rowEntete.eachCell((cell) => {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };
       cell.border = { bottom: { style: "thin", color: { argb: OR_BORDURE } } };
@@ -185,8 +224,8 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
   const wb = new ExcelJS.Workbook();
   wb.creator = "Pâtes en Folie (TOLYA SARL)";
   wb.created = new Date();
-  const logoBuffer = fs.existsSync(logoPath) ? fs.readFileSync(logoPath) : null;
   const editeLe = new Date().toLocaleDateString("fr-FR");
+  const logoId = logoDuClasseur(wb);
   const HAUT_LOGO = 3;
 
   const enteteTable = (ws: ExcelJS.Worksheet, cols: string[]) => {
@@ -209,16 +248,15 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
 
   for (const f of feuilles) {
     const largeur = Math.max(f.invEntete.length, f.mvtEntete.length, 4);
-    const ws = wb.addWorksheet(f.nom, { views: [{ state: "frozen", ySplit: HAUT_LOGO + 3 }] });
-    if (logoBuffer) {
-      const id = wb.addImage({ base64: logoBuffer.toString("base64"), extension: "png" });
-      ws.addImage(id, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
-    }
+    const ws = wb.addWorksheet(f.nom);
+    if (logoId != null) ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
     for (let i = 0; i < HAUT_LOGO; i++) ws.addRow([]);
     const rTitre = ws.addRow([`Pâtes en Folie (TOLYA SARL) — ${f.titre}`]);
     rTitre.font = { name: OPTIMA, size: 13, bold: true, color: { argb: BRUN } };
     const rPer = ws.addRow([`Période : ${periode} · Édité le : ${editeLe}`]);
     rPer.font = { name: OPTIMA, size: 9, italic: true, color: { argb: GRIS } };
+    // Gèle le bloc titre (les tableaux de la feuille commencent plus bas, à des hauteurs variables).
+    ws.views = [{ state: "frozen", ySplit: rPer.number }];
     ws.addRow([]);
 
     // Bloc KPI : 2 KPI par ligne (label + valeur en gras, fond or), bien visibles en haut.
