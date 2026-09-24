@@ -139,7 +139,9 @@ describe("lot et clôture : la confirmation est câblée", () => {
   const src = (f: string) => readFileSync(join(__dirname, f), "utf8");
   it("lot : validation → avertissements des lignes à valider, sur toutes les lignes, puis window.confirm", () => {
     const s = src("paie-bulk.tsx");
-    expect(s).toContain("messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], selection))");
+    // Sur toutes les lignes, filtre ignoré ; la sélection (des salariés) traduite en lignes affichées.
+    expect(s).toContain("lignesSelectionnees([...brigade, ...backoffice], selection)");
+    expect(s).toContain("messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], new Set(ids)))");
     expect(s).toMatch(/if \(versStatut === "VALIDE"\) \{\s*const message = [^\n]+\n\s*if \(message && !window\.confirm\(message\)\) return;/);
   });
   it("clôture : le message rappelle les avertissements des « pas validé »", () => {

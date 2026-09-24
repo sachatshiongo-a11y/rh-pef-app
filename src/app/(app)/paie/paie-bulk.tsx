@@ -12,6 +12,7 @@ import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { BadgeReference } from "./avertissements-paie";
 import { lignesAValiderDuLot, messageConfirmationValidation } from "./avertissements-validation";
+import { cleSelection, lignesSelectionnees, messageEcartes } from "./selection-paie";
 
 export type PaieRow = {
   id: string;
@@ -62,6 +63,7 @@ export function PaieBulk({
   const brigadeAff = filtrer(brigade);
   const backofficeAff = filtrer(backoffice);
   const toutes = [...brigadeAff, ...backofficeAff];
+  // Sélection = SALARIÉS (cleSelection) : les identifiants des lignes changent à chaque recalcul.
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -87,18 +89,21 @@ export function PaieBulk({
   function toggleGroupe(rows: PaieRow[], on: boolean) {
     setSelection((s) => {
       const n = new Set(s);
-      rows.forEach((r) => (on ? n.add(r.id) : n.delete(r.id)));
+      rows.forEach((r) => (on ? n.add(cleSelection(r)) : n.delete(cleSelection(r))));
       return n;
     });
   }
 
+  // Lignes AFFICHÉES des salariés sélectionnés (sur toutes les lignes, filtre ignoré).
+  const { ids: idsSelection, ecartes } = lignesSelectionnees([...brigade, ...backoffice], selection);
+
   function lancer(versStatut: PaymentStatus) {
-    const ids = [...selection];
+    const ids = idsSelection;
     if (ids.length === 0) return;
     // Validation : montrer les avertissements des lignes qui vont réellement être validées, sans
     // jamais bloquer (« Annuler » ne fait rien, « OK » valide). Sur toutes les lignes, filtre ignoré.
     if (versStatut === "VALIDE") {
-      const message = messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], selection));
+      const message = messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], new Set(ids)));
       if (message && !window.confirm(message)) return;
     }
     // Au paiement : mode forcé si choisi, sinon null → le serveur suit la fiche de chaque employé.
@@ -111,11 +116,18 @@ export function PaieBulk({
     });
   }
 
-  const n = selection.size;
+  const n = idsSelection.length;
+  const avisEcartes = messageEcartes(ecartes);
 
   return (
     <div>
       {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {avisEcartes && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {avisEcartes}{" "}
+          <button onClick={() => setSelection(new Set())} className="underline">Tout désélectionner</button>
+        </p>
+      )}
       {/* Barre d'actions groupées */}
       {n > 0 && (
         <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
@@ -190,7 +202,7 @@ function Groupe({
   estAdmin: boolean;
 }) {
   if (rows.length === 0) return null;
-  const tousCoches = rows.every((r) => selection.has(r.id));
+  const tousCoches = rows.every((r) => selection.has(cleSelection(r)));
   return (
     <div>
       <h2 className="mb-2 text-base font-semibold">
@@ -221,12 +233,12 @@ function Groupe({
           </thead>
           <tbody>
             {rows.map((l) => (
-              <tr key={l.id} className={`border-t ${selection.has(l.id) ? "bg-primary/5" : ""}`}>
+              <tr key={l.id} className={`border-t ${selection.has(cleSelection(l)) ? "bg-primary/5" : ""}`}>
                 <td className="px-3 py-2">
                   <input
                     type="checkbox"
-                    checked={selection.has(l.id)}
-                    onChange={() => onToggle(l.id)}
+                    checked={selection.has(cleSelection(l))}
+                    onChange={() => onToggle(cleSelection(l))}
                     aria-label={`Sélectionner ${l.nom}`}
                   />
                 </td>
