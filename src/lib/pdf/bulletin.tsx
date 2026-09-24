@@ -7,7 +7,7 @@ import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
 import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
-import { formaterNombre } from "@/lib/montant";
+import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 
 registerPdfFonts();
 
@@ -116,7 +116,11 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     textAlign: "center",
   },
-  calRow: { flexDirection: "row", borderTop: `0.4 solid ${pdfColors.border}`, paddingVertical: 1.2, paddingHorizontal: 4 },
+  // Calendrier de 30 ou 31 lignes : c'est lui qui fixe la hauteur du corps. À 1.2, un mois de 31
+  // jours avec un congé (ou payé + avantages en nature) renvoyait les signatures seules en page 2
+  // (6 bulletins réels sur 72, juin et juillet 2026). À 0.6, les 144 rendus réels tiennent sur une
+  // page. Ne pas réduire davantage les polices : un cas plus chargé relève d'un lot de structure.
+  calRow: { flexDirection: "row", borderTop: `0.4 solid ${pdfColors.border}`, paddingVertical: 0.6, paddingHorizontal: 4 },
   calRowDim: { backgroundColor: "#faf3ea" },
   calJour: { width: "55%", fontSize: 6.5, color: pdfColors.textMuted },
   calCode: { width: "45%", fontSize: 6.5, fontWeight: 700, textAlign: "right", color: pdfColors.brownDark },
@@ -379,9 +383,14 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           </View>
 
           {/* Scission lisible : heures travaillées d'un côté, jours payés non travaillés de
-              l'autre (les montants de la ligne se recoupent enfin : base × taux = montant).
-              Les bulletins figés d'avant la scission n'ont pas la part « jours payés » → ligne
-              unique historique. */}
+              l'autre. Les bulletins figés d'avant la scission n'ont pas la part « jours payés » →
+              ligne unique historique.
+              La ligne des jours payés n'affiche PAS de taux (comme « Heures supplémentaires ») :
+              son montant est `remunerationJoursPayesUSD` stocké, calculé par le moteur sur un taux
+              non arrondi et, salaires saisis en net, avec un facteur brut/net propre. « base × taux
+              affiché » ne retombait pas sur le montant (écart mesuré jusqu'à 0,49 $, 1 912 FC) :
+              la Direction aurait signé une multiplication fausse. Le taux horaire reste dans la
+              case récapitulative. */}
           {Number(ligne.remunerationJoursPayesUSD ?? 0) > 0 ? (
             <>
               <Row
@@ -397,7 +406,6 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
                     ? `${fmtQte(heuresPayeesNonTravaillees)} h (${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0))} j)`
                     : `${fmtQte(Number(ligne.joursPayesNonTravailles ?? 0))} j`
                 }
-                taux={m(heuresPayeesNonTravaillees > 0 ? tauxHoraire : tauxHoraire * Number(employee.heuresParJour))}
                 montant={m(Number(ligne.remunerationJoursPayesUSD))}
               />
             </>
@@ -449,7 +457,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
           />
           {motifRepli && (
             <Text style={styles.motifRepli}>
-              {LIBELLE_SOURCE_REFERENCE.CONTRAT_REPLI} : {motifRepli}
+              {normaliserEspaces(`${LIBELLE_SOURCE_REFERENCE.CONTRAT_REPLI} : ${motifRepli}`)}
             </Text>
           )}
         </View>
