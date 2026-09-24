@@ -14,61 +14,62 @@ const t = normaliserEspaces;
 export const AUCUN_SALARIE_PDF = "Aucun salarié dans cette catégorie ce mois-ci.";
 export const TITRE_RECAP_PDF = "Récapitulatif";
 
-// Largeurs (%) : 10+16+8+9+9+9+8+11+10+10 = 100 — colonnes d'avant la séparation, inchangées
-// pour une partie SANS heures supplémentaires.
+// Plus de colonne « Cat. » : la partie porte déjà le nom de sa catégorie (relecture 2026-09-24).
+// La place rendue va au NOM, qui ne doit jamais se couper (« Luyin-dula ») ni passer à la ligne.
+
+// Sans heures supp. : 10+20+10+9+9+9+11+12+10 = 100.
 const COLONNES: Colonne[] = [
   { header: "Matricule", width: "10%" },
-  { header: "Nom", width: "16%" },
-  { header: "Cat.", width: "8%" },
-  { header: "Brut $", width: "9%", align: "right" },
+  { header: "Nom", width: "20%" },
+  { header: "Brut $", width: "10%", align: "right" },
   { header: "Transport $", width: "9%", align: "right" },
   { header: "CNSS $", width: "9%", align: "right" },
-  { header: "IPR $", width: "8%", align: "right" },
+  { header: "IPR $", width: "9%", align: "right" },
   { header: "Salaire net $", width: "11%", align: "right" },
-  { header: "Sal. net CDF", width: "10%", align: "right" },
+  { header: "Sal. net CDF", width: "12%", align: "right" },
   { header: "Versé $", width: "10%", align: "right" },
 ];
 
 /** Colonne « Heures supp. $ » (Direction, 2026-09-24) : juste avant le brut, qui la contient. */
 export const ENTETE_HS_PDF = "Heures supp. $";
 
-// Avec heures supp. : 9+13+7+9+9+8+8+8+10+10+9 = 100 (le nom et les petites colonnes cèdent la place).
+// Avec heures supp. : 9+17+13+9+8+8+8+9+10+9 = 100. La colonne d'heures supp. tient
+// « 1 234,56 » et « 123,5 h » sur UNE ligne ; le nom garde plus de 16 %.
 const COLONNES_HS: Colonne[] = [
   { header: "Matricule", width: "9%" },
-  { header: "Nom", width: "13%" },
-  { header: "Cat.", width: "7%" },
-  { header: ENTETE_HS_PDF, width: "9%", align: "right" },
+  { header: "Nom", width: "17%" },
+  { header: ENTETE_HS_PDF, width: "13%", align: "right" },
   { header: "Brut $", width: "9%", align: "right" },
   { header: "Transport $", width: "8%", align: "right" },
   { header: "CNSS $", width: "8%", align: "right" },
   { header: "IPR $", width: "8%", align: "right" },
-  { header: "Salaire net $", width: "10%", align: "right" },
+  { header: "Salaire net $", width: "9%", align: "right" },
   { header: "Sal. net CDF", width: "10%", align: "right" },
   { header: "Versé $", width: "9%", align: "right" },
 ];
 
-// Récapitulatif : 18+8+9+9+9+8+11+14+14 = 100.
+// Récapitulatif : 18+8+10+9+9+9+11+14+12 = 100.
 const COLONNES_RECAP: Colonne[] = [
   { header: "Catégorie", width: "18%" },
   { header: "Salariés", width: "8%", align: "right" },
-  { header: "Brut $", width: "9%", align: "right" },
-  { header: "Transport $", width: "9%", align: "right" },
-  { header: "CNSS $", width: "9%", align: "right" },
-  { header: "IPR $", width: "8%", align: "right" },
-  { header: "Salaire net $", width: "11%", align: "right" },
-  { header: "Sal. net CDF", width: "14%", align: "right" },
-  { header: "Versé $", width: "14%", align: "right" },
-];
-
-// Récapitulatif avec heures supp. : 13+7+10+10+9+9+9+10+12+11 = 100.
-const COLONNES_RECAP_HS: Colonne[] = [
-  { header: "Catégorie", width: "13%" },
-  { header: "Salariés", width: "7%", align: "right" },
-  { header: ENTETE_HS_PDF, width: "10%", align: "right" },
   { header: "Brut $", width: "10%", align: "right" },
   { header: "Transport $", width: "9%", align: "right" },
   { header: "CNSS $", width: "9%", align: "right" },
   { header: "IPR $", width: "9%", align: "right" },
+  { header: "Salaire net $", width: "11%", align: "right" },
+  { header: "Sal. net CDF", width: "14%", align: "right" },
+  { header: "Versé $", width: "12%", align: "right" },
+];
+
+// Récapitulatif avec heures supp. : 13+7+13+9+9+8+8+10+12+11 = 100.
+const COLONNES_RECAP_HS: Colonne[] = [
+  { header: "Catégorie", width: "13%" },
+  { header: "Salariés", width: "7%", align: "right" },
+  { header: ENTETE_HS_PDF, width: "13%", align: "right" },
+  { header: "Brut $", width: "9%", align: "right" },
+  { header: "Transport $", width: "9%", align: "right" },
+  { header: "CNSS $", width: "8%", align: "right" },
+  { header: "IPR $", width: "8%", align: "right" },
   { header: "Salaire net $", width: "10%", align: "right" },
   { header: "Sal. net CDF", width: "12%", align: "right" },
   { header: "Versé $", width: "11%", align: "right" },
@@ -89,6 +90,18 @@ const montantsAffiches = (m: MontantsLivre, avecHS: boolean): Cellule[] => [
   usd(m.verseUSD),
 ];
 
+const CHAMPS_CDF = new Set<keyof MontantsLivre>(["netCDF", "verseCDF"]);
+/** Chaque montant arrondi comme il s'affiche : au franc en CDF, au centième ailleurs ($, heures). */
+const arrondiAffiche = (m: MontantsLivre): MontantsLivre =>
+  Object.fromEntries(
+    (Object.keys(m) as (keyof MontantsLivre)[]).map((k) => [k, CHAMPS_CDF.has(k) ? Math.round(m[k]) : Math.round(m[k] * 100) / 100]),
+  ) as MontantsLivre;
+const sommeMontants = (ms: MontantsLivre[]): MontantsLivre => {
+  const t = { ...ms[0] };
+  for (const k of Object.keys(t) as (keyof MontantsLivre)[]) t[k] = ms.reduce((s, m) => s + m[k], 0);
+  return t;
+};
+
 const salaries = (n: number) => `${n} salarié(s)`;
 
 type LignePdf = LigneLivre & { statutPaiement: PaymentStatus };
@@ -106,12 +119,11 @@ export function partiesDuLivrePdf(lignes: LignePdf[], taux: number): PartieTable
     const rows: Cellule[][] = p.lignes.map((l) => [
       t(l.employee.matricule),
       t(l.employee.nom),
-      p.categorie === "BRIGADE" ? "Brigade" : p.categorie === "BACKOFFICE" ? "Back-off." : t(p.libelle),
       ...montantsAffiches(montantsDeLigne(l, taux), avecHS),
     ]);
     const vide = rows.length === 0;
     if (vide) rows.push([AUCUN_SALARIE_PDF]);
-    rows.push(["TOTAL", salaries(p.lignes.length), "", ...montantsAffiches(totauxDuLivre(p.lignes, taux), avecHS)]);
+    rows.push(["TOTAL", salaries(p.lignes.length), ...montantsAffiches(totauxDuLivre(p.lignes, taux), avecHS)]);
     return {
       titre: t(`${p.libelle} — ${salaries(p.lignes.length)}`),
       colonnes: avecHS ? COLONNES_HS : COLONNES,
@@ -121,15 +133,19 @@ export function partiesDuLivrePdf(lignes: LignePdf[], taux: number): PartieTable
     };
   });
 
-  // Total général : sur TOUTES les lignes du mois, comme le TOTAL unique d'avant la séparation.
+  // Total général = somme des totaux de catégorie TELS QU'AFFICHÉS (centime en $, franc en CDF) :
+  // la colonne s'additionne à l'œil. Sommer les lignes brutes puis arrondir pouvait donner un franc
+  // d'écart avec la somme des deux lignes du dessus (relecture 2026-09-24).
   // Les heures supp. y figurent (par catégorie) dès qu'un salarié du mois en a.
   const recapHS = lignes.some(aDesHeuresSupp);
+  const totauxCategories = parties.map((p) => arrondiAffiche(totauxDuLivre(p.lignes, taux)));
+  const general = arrondiAffiche(sommeMontants(totauxCategories));
   const recap: PartieTableau = {
     titre: TITRE_RECAP_PDF,
     colonnes: recapHS ? COLONNES_RECAP_HS : COLONNES_RECAP,
     lignes: [
-      ...parties.map((p) => [t(p.libelle), String(p.lignes.length), ...montantsAffiches(totauxDuLivre(p.lignes, taux), recapHS)]),
-      ["TOTAL GÉNÉRAL", String(lignes.length), ...montantsAffiches(totauxDuLivre(lignes, taux), recapHS)],
+      ...parties.map((p, i) => [t(p.libelle), String(p.lignes.length), ...montantsAffiches(totauxCategories[i], recapHS)]),
+      ["TOTAL GÉNÉRAL", String(lignes.length), ...montantsAffiches(general, recapHS)],
     ],
     totalDerniereLigne: true,
   };

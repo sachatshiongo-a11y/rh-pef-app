@@ -100,7 +100,13 @@ function plageFiltre(ws: ExcelJS.Worksheet): { de: number; a: number } | null {
   return { de: Number(m[1]), a: Number(m[2]) };
 }
 
-const val = (lu: Lu, rangee: unknown[], h: string) => rangee[lu.entete.indexOf(h)];
+const val = (lu: Lu, rangee: unknown[], h: string) => {
+  const i = lu.entete.indexOf(h);
+  if (i === -1) throw new Error(`colonne « ${h} » absente`);
+  return rangee[i];
+};
+/** Colonnes totalisées : montants ($, CDF) et heures. */
+const TOTALISEES = ENTETE_LIVRE_EXCEL.filter((x) => /(\$|CDF|\(h\))$/.test(x));
 
 describe("livre de paie Excel — un onglet par catégorie", () => {
   it("trois onglets, dans l'ordre : Brigade, Back-office, Récapitulatif", async () => {
@@ -125,7 +131,8 @@ describe("livre de paie Excel — un onglet par catégorie", () => {
     for (const onglet of ["Brigade", "Back-office"]) {
       const lu = lire(wb.getWorksheet(onglet)!, "Matricule", "Total");
       expect(lu.total, `pas de ligne Total dans ${onglet}`).not.toBeNull();
-      for (const h of ENTETE_LIVRE_EXCEL.filter((x) => /(\$|CDF)$/.test(x))) {
+      expect(TOTALISEES).toContain("Heures supp. (h)");
+      for (const h of TOTALISEES) {
         const somme = Math.round(lu.donnees.reduce((s: number, r) => s + Number(val(lu, r, h)), 0) * 100) / 100;
         expect(val(lu, lu.total!, h), `${onglet} / ${h}`).toBe(somme);
       }
@@ -137,8 +144,8 @@ describe("livre de paie Excel — un onglet par catégorie", () => {
     const recap = lire(wb.getWorksheet(NOM_ONGLET_RECAP)!, "Catégorie", "Total général");
     expect(recap.donnees.map((r) => r[0])).toEqual(["Brigade", "Back-office"]);
     expect(recap.total).not.toBeNull();
-    const montants = recap.entete.filter((h) => /(\$|CDF)$/.test(h));
-    expect(montants).toEqual(ENTETE_LIVRE_EXCEL.filter((h) => /(\$|CDF)$/.test(h)));
+    const montants = recap.entete.slice(2);
+    expect(montants).toEqual(TOTALISEES);
     for (const [i, onglet] of ["Brigade", "Back-office"].entries()) {
       const lu = lire(wb.getWorksheet(onglet)!, "Matricule", "Total");
       expect(val(recap, recap.donnees[i], "Salariés")).toBe(lu.donnees.length);
@@ -171,7 +178,7 @@ describe("livre de paie Excel — un onglet par catégorie", () => {
     const ws = wb.getWorksheet("Back-office")!;
     const lu = lire(ws, "Matricule", "Total");
     expect(lu.donnees.map((r) => r[0])).toEqual([MESSAGE_AUCUN_SALARIE]);
-    for (const h of ENTETE_LIVRE_EXCEL.filter((x) => /(\$|CDF)$/.test(x))) expect(val(lu, lu.total!, h), h).toBe(0);
+    for (const h of TOTALISEES) expect(val(lu, lu.total!, h), h).toBe(0);
     expect(plageFiltre(ws)).toBeNull();
     const recap = lire(wb.getWorksheet(NOM_ONGLET_RECAP)!, "Catégorie", "Total général");
     expect(val(recap, recap.donnees[1], "Salariés")).toBe(0);
@@ -185,6 +192,35 @@ describe("livre de paie Excel — un onglet par catégorie", () => {
   });
 });
 
+describe("livre de paie Excel — mise en page", () => {
+  it("aucune colonne « Catégorie » dans un onglet de catégorie (l'onglet porte déjà son nom)", async () => {
+    const wb = await classeur(TOUTES);
+    for (const onglet of ["Brigade", "Back-office"]) {
+      const lu = lire(wb.getWorksheet(onglet)!, "Matricule", "Total");
+      expect(lu.entete).not.toContain("Catégorie");
+      expect(lu.texte).not.toMatch(/\bBRIGADE\b|\bBACKOFFICE\b/);
+    }
+  }, 30_000);
+
+  it("le volet figé s'arrête SOUS la ligne de colonnes, sur chaque onglet", async () => {
+    const wb = await classeur(TOUTES);
+    for (const [onglet, debut] of [["Brigade", "Matricule"], ["Back-office", "Matricule"], [NOM_ONGLET_RECAP, "Catégorie"]]) {
+      const ws = wb.getWorksheet(onglet)!;
+      const lu = lire(ws, debut, onglet === NOM_ONGLET_RECAP ? "Total général" : "Total");
+      const vue = ws.views[0] as { state?: string; ySplit?: number };
+      expect(vue.state, onglet).toBe("frozen");
+      expect(vue.ySplit, onglet).toBe(lu.rangEntete);
+    }
+  }, 30_000);
+
+  it("le logo est UNE image du classeur, affichée sur chaque onglet", async () => {
+    const wb = await classeur(TOUTES);
+    const media = (wb.model as unknown as { media: unknown[] }).media;
+    expect(media.length).toBe(1);
+    for (const ws of wb.worksheets) expect(ws.getImages().map((i) => Number(i.imageId)), ws.name).toEqual([0]);
+  }, 30_000);
+});
+
 describe("livre de paie Excel — heures supplémentaires", () => {
   it("colonnes « Heures supp. (h) » et « Heures supp. $ » juste avant le brut, totalisées, reprises au récapitulatif", async () => {
     const i = ENTETE_LIVRE_EXCEL.indexOf("Salaire brut $");
@@ -195,10 +231,14 @@ describe("livre de paie Excel — heures supplémentaires", () => {
     expect(val(lu, emile, "Heures supp. (h)")).toBe(5); // 3 + 1,5 + 0,5
     expect(val(lu, emile, "Heures supp. $")).toBe(12.5);
     expect(val(lu, lu.total!, "Heures supp. $")).toBe(16.75); // 12,50 + 4,25
+    expect(val(lu, lu.total!, "Heures supp. (h)")).toBe(6); // 5 + 1
     const recap = lire(wb.getWorksheet(NOM_ONGLET_RECAP)!, "Catégorie", "Total général");
     expect(val(recap, recap.donnees[0], "Heures supp. $")).toBe(16.75);
     expect(val(recap, recap.donnees[1], "Heures supp. $")).toBe(0);
     expect(val(recap, recap.total!, "Heures supp. $")).toBe(16.75);
+    expect(val(recap, recap.donnees[0], "Heures supp. (h)")).toBe(6);
+    expect(val(recap, recap.donnees[1], "Heures supp. (h)")).toBe(0);
+    expect(val(recap, recap.total!, "Heures supp. (h)")).toBe(6);
   }, 30_000);
 });
 
@@ -214,7 +254,9 @@ describe("livre de paie Excel — aucun montant ne change", () => {
     expect(apres.size).toBe(avant.rows.length); // même ensemble de lignes
     for (const r of avant.rows) {
       const a = apres.get(String(r[0]))!;
-      ENTETE_AVANT.forEach((h, ci) => expect(val(a.lu, a.r, h), `${r[1]} / ${h}`).toEqual(r[ci]));
+      ENTETE_AVANT.forEach((h, ci) => {
+        if (h !== "Catégorie") expect(val(a.lu, a.r, h), `${r[1]} / ${h}`).toEqual(r[ci]);
+      });
     }
   }, 30_000);
 

@@ -1,14 +1,16 @@
 import "server-only";
-import { classeurExcel, colonnesDeMontant, type FeuilleExcel } from "@/lib/export-excel";
+import { classeurExcel, colonnesATotaliser, type FeuilleExcel } from "@/lib/export-excel";
 import { LIBELLE_STATUT } from "@/lib/paie-etats";
 import type { PaymentStatus } from "@prisma/client";
 import { montantsDeLigne, partiesDuLivre, type LigneLivre } from "@/lib/livre-paie";
 
-/** En-tête d'une feuille de catégorie — colonnes du livre d'avant la séparation, plus les heures supp. */
+/**
+ * En-tête d'une feuille de catégorie — colonnes du livre d'avant la séparation, plus les heures
+ * supp., moins « Catégorie » (redondante : l'onglet porte le nom de la catégorie).
+ */
 export const ENTETE_LIVRE_EXCEL = [
   "Matricule",
   "Nom",
-  "Catégorie",
   // Heures supplémentaires (Direction, 2026-09-24) : juste avant le brut, qui les contient.
   "Heures supp. (h)",
   "Heures supp. $",
@@ -34,7 +36,6 @@ function rangee(l: LigneExcel, taux: number): (string | number)[] {
   return [
     l.employee.matricule,
     l.employee.nom,
-    l.employee.categorie,
     Number(m.hsHeures.toFixed(2)),
     Number(m.hsUSD.toFixed(2)),
     Number(m.brutUSD.toFixed(2)),
@@ -63,7 +64,8 @@ function somme(rangees: (string | number)[][], ci: number): number {
  */
 export async function classeurLivrePaie(opts: { lignes: LigneExcel[]; taux: number; periode: string }): Promise<Buffer> {
   const { lignes, taux, periode } = opts;
-  const colsMontant = colonnesDeMontant(ENTETE_LIVRE_EXCEL);
+  // Montants ($, CDF) et quantités (heures) : jamais le matricule, le nom ou le statut.
+  const colsTotal = colonnesATotaliser(ENTETE_LIVRE_EXCEL);
   const parties = partiesDuLivre(lignes).map((p) => ({ ...p, rangees: p.lignes.map((l) => rangee(l, taux)) }));
 
   const feuilles: FeuilleExcel[] = parties.map((p) => ({
@@ -71,20 +73,20 @@ export async function classeurLivrePaie(opts: { lignes: LigneExcel[]; taux: numb
     titre: `Livre de paie — ${p.libelle}`,
     entete: ENTETE_LIVRE_EXCEL,
     lignes: p.rangees,
-    // Une ligne « Total » en bas de chaque colonne de montant (Direction, 2026-09-23).
-    totauxCols: colsMontant,
+    // Une ligne « Total » en bas de chaque colonne de montant (Direction, 2026-09-23) et d'heures.
+    totauxCols: colsTotal,
     messageVide: MESSAGE_AUCUN_SALARIE,
     autofiltre: true,
   }));
 
   // Récapitulatif : chaque ligne porte EXACTEMENT le total de l'onglet (même fonction de somme
   // sur les mêmes rangées) ; « Total général » additionne ces lignes.
-  const enteteRecap = ["Catégorie", "Salariés", ...colsMontant.map((ci) => ENTETE_LIVRE_EXCEL[ci])];
+  const enteteRecap = ["Catégorie", "Salariés", ...colsTotal.map((ci) => ENTETE_LIVRE_EXCEL[ci])];
   feuilles.push({
     nom: NOM_ONGLET_RECAP,
     titre: "Livre de paie — Récapitulatif",
     entete: enteteRecap,
-    lignes: parties.map((p) => [p.libelle, p.rangees.length, ...colsMontant.map((ci) => somme(p.rangees, ci))]),
+    lignes: parties.map((p) => [p.libelle, p.rangees.length, ...colsTotal.map((ci) => somme(p.rangees, ci))]),
     totauxCols: enteteRecap.map((_, i) => i).slice(1),
     libelleTotal: "Total général",
     // Pas d'autofiltre : trois lignes, dont un total qu'un tri déplacerait.
