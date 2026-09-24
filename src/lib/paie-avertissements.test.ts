@@ -58,7 +58,7 @@ describe("detecterAvertissementsSaisie", () => {
 
 describe("lireAvertissements", () => {
   it("relit un tableau JSON bien formé et ignore le reste", () => {
-    const ok = { code: "REPLI_CONTRAT", message: "Référence contrat (repli) — x" };
+    const ok = { code: "REPLI_CONTRAT", message: "Heures contrat (repli) — x" };
     const okPresenceSansHeures = { code: "PRESENCE_SANS_HEURES", message: "Présent sans heures saisies : jour retenu (1 j) : 17/09" };
     expect(lireAvertissements([ok, okPresenceSansHeures, { code: "INCONNU", message: "?" }, { code: "SAISIE_ANTICIPEE" }, null, 3])).toEqual([ok, okPresenceSansHeures]);
     expect(lireAvertissements(null)).toEqual([]);

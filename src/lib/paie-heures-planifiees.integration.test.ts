@@ -216,7 +216,7 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(l.sourceReference).toBe("CONTRAT_REPLI");
     expect(l.motifReference).toBe("Fin de contrat le 18/09/2026 : mois incomplet");
     expect(baseNette(l)).toBe("128.00"); // 16 jours × 8 h au taux du contrat (1 $/h)
-    expect(l.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Fin de contrat le 18/09/2026 : mois incomplet" }]);
+    expect(l.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Fin de contrat le 18/09/2026 : mois incomplet" }]);
   });
 
   it("CDD échu le 01/09 et poursuivi → payé sur le planning (208,00), signalé", async () => {
@@ -303,7 +303,7 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     const vide = await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ids.semaineVide } });
     expect(vide.sourceReference).toBe("CONTRAT_REPLI");
     expect(vide.motifReference).toBe("Planning incomplet : semaine du 21/09 sans créneau");
-    expect(vide.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
+    expect(vide.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
   });
 
   it("une ligne VALIDÉE n'est jamais recalculée, même si le planning ou les heures changent", async () => {
