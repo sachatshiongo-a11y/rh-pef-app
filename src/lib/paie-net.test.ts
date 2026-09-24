@@ -35,11 +35,14 @@ describe("règle : hors moteur, personne ne lit salNetUSD sans passer par paie-n
   // lequel des deux nets il montre. Une lecture directe est un « net » qui a échappé à la règle.
   // bulletin-live.ts PRODUIT les lignes d'aperçu (calculerBulletinLive), au même titre que
   // paie-batch.ts produit les lignes stockées — ce n'est pas un affichage.
+  // paie-validation.ts n'affiche rien non plus : à la validation, il compare le salNetUSD stocké
+  // (total versé) à celui que le moteur produit à nouveau, champ à champ.
   const PRODUCTEURS = new Set([
     "src/lib/payroll.ts",
     "src/lib/paie-batch.ts",
     "src/lib/paie-net.ts",
     "src/lib/bulletin-live.ts",
+    "src/lib/paie-validation.ts",
   ]);
   // Un vrai import du module, pas une simple mention (un commentaire qui cite "@/lib/paie-net" ne
   // suffit plus — sinon un fichier peut se contenter de PARLER du module sans jamais l'appeler).

@@ -14,7 +14,7 @@ import {
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { chargerJoursMois } from "@/lib/paie-reference-donnees";
 import { calculerReferenceSalarie } from "@/lib/paie-reference-salarie";
-import type { Employee } from "@prisma/client";
+import type { Employee, Prisma } from "@prisma/client";
 
 /** Champs numériques d'une PayrollLine produits par le calcul (hors payrollRunId/employeeId). */
 export type DonneesLignePaie = {
@@ -78,8 +78,8 @@ export type ResultatBatch = {
  * réel de la page Paie. Reprend à l'identique la logique de paie (§8, transport B3, Option A,
  * Lot D). L'appelant décide de figer/écrire et de sauter les lignes déjà validées/payées.
  */
-export async function calculerLignesPaie(mois: number, annee: number): Promise<ResultatBatch> {
-  const parametres = await chargerParametresPaie();
+export async function calculerLignesPaie(mois: number, annee: number, db: Prisma.TransactionClient = prisma): Promise<ResultatBatch> {
+  const parametres = await chargerParametresPaie(db);
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 
@@ -104,18 +104,18 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   // de semaines-charnières, plutôt qu'un correctif partiel ici.
   const [employees, joursFeriesDuMois, attendances, primesDuMois, acomptesDuMois, congesDuMois, fraisMedDuMois, contratsActifs, pretsEnCours, avantagesDuMois] =
     await Promise.all([
-      prisma.employee.findMany({ where: { actif: true } }),
-      prisma.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-      prisma.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
-      prisma.prime.findMany({ where: { mois, annee } }),
-      prisma.acompteSalaire.findMany({ where: { mois, annee, statut: "APPROUVE" } }),
-      prisma.leaveRequest.findMany({ where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } } }),
-      prisma.fraisMedical.findMany({ where: { mois, annee } }),
-      prisma.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: { dateDebut: "asc" }, select: { employeeId: true, type: true } }),
-      prisma.pretPersonnel.findMany({ where: { statut: "EN_COURS" }, include: { retenues: true } }),
+      db.employee.findMany({ where: { actif: true } }),
+      db.jourFerie.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
+      db.attendance.findMany({ where: { date: { gte: debutMois, lte: finMois } } }),
+      db.prime.findMany({ where: { mois, annee } }),
+      db.acompteSalaire.findMany({ where: { mois, annee, statut: "APPROUVE" } }),
+      db.leaveRequest.findMany({ where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } } }),
+      db.fraisMedical.findMany({ where: { mois, annee } }),
+      db.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: { dateDebut: "asc" }, select: { employeeId: true, type: true } }),
+      db.pretPersonnel.findMany({ where: { statut: "EN_COURS" }, include: { retenues: true } }),
       // Avantages en nature : lus UNIQUEMENT pour être recopiés sur le bulletin. Ils n'entrent dans
       // aucun calcul (ni assiette, ni base imposable, ni net) — voir le modèle AvantageNature.
-      prisma.avantageNature.findMany({ where: { mois, annee } }),
+      db.avantageNature.findMany({ where: { mois, annee } }),
     ]);
 
   const avantagesParEmp = new Map<string, number>();
@@ -164,7 +164,7 @@ export async function calculerLignesPaie(mois: number, annee: number): Promise<R
   // Jours du mois (créneaux, modèle, codes, heures, horodatages), jours hors du mois des semaines à
   // cheval, fériés de la plage élargie, congés sans solde, fin de contrat : même assemblage que
   // bulletin-live.ts — la référence d'heures et la base viennent de `calculerReferenceMois`.
-  const joursParEmp = await chargerJoursMois(mois, annee, employees.map((e) => e.id));
+  const joursParEmp = await chargerJoursMois(mois, annee, employees.map((e) => e.id), db);
 
   const lignes: LigneCalculee[] = [];
 

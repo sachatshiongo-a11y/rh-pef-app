@@ -57,6 +57,15 @@ export function estInterblocage(e: unknown): boolean {
   return porteUnCode(e, new Set(["40P01", "P2034"]));
 }
 
+/**
+ * Vrai si `e` est une attente de verrou abandonnée (`lock_timeout`, 55P03) ou une transaction Prisma
+ * expirée pendant l'attente (P2028) : une validation de paie et une écriture du planning se sont
+ * attendues trop longtemps. Mêmes champs que `estInterblocage`, jamais le texte du message.
+ */
+export function estAttenteVerrouTropLongue(e: unknown): boolean {
+  return porteUnCode(e, new Set(["55P03", "P2028"]));
+}
+
 /** Vrai si `e` est une violation d'unicité : P2002 (client Prisma) ou 23505 (Postgres). Dans une
  *  écriture du planning, la seule unicité en jeu est (salarié, jour) : une course sur la même paire. */
 export function estConflitUnicite(e: unknown): boolean {
