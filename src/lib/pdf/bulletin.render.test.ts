@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Employee, PayrollLine, PayrollRun } from "@prisma/client";
 import { renderPdfBuffer } from "./fonts";
 import { BulletinDocument } from "./bulletin";
+import { calculerPaieBackoffice, calculerPaieBrigade, type LignePaie, type ParametresPaie } from "@/lib/payroll";
 
 /**
  * Le bas du bulletin dit le SALAIRE NET (hors transport), l'indemnité de transport à part, puis le
@@ -250,5 +251,67 @@ describe("bulletin — un mois de 31 jours tient sur une page", () => {
     expect(p1).toContain("Mode de paiement");
     expect(p2).toContain("Signature de la direction");
     expect(p2).not.toContain("TOTAL VERSÉ");
+  }, 60_000);
+});
+
+/**
+ * Le bulletin s'additionne au centime (2026-09-24). Constat de la Direction sur le bulletin de
+ * Deladri (sept. 2026) : « Salaire de base 174,88 $ » puis « Salaire brut imposable 174,89 $ ». Les
+ * lignes sont produites par le VRAI moteur, telles que le lot de paie les stocke.
+ */
+describe("bulletin — les lignes s'additionnent au centime (moteur au centime à la source)", () => {
+  const params: ParametresPaie = {
+    tauxChangeCDF: 2300, cnssSalarie: 0.05, cnssPatronalPensions: 0.05, cnssPatronalRisques: 0.015, cnssPatronalFamille: 0.065,
+    plafondCnssMensuelCDF: null,
+    iprTranchesAnnuellesCDF: [
+      { ordre: 1, plafondAnnuelCDF: 1_944_000, taux: 0.03 }, { ordre: 2, plafondAnnuelCDF: 21_600_000, taux: 0.15 },
+      { ordre: 3, plafondAnnuelCDF: 43_200_000, taux: 0.3 }, { ordre: 4, plafondAnnuelCDF: null, taux: 0.4 },
+    ],
+    iprPlancherMensuelCDF: 2000, iprPlafondTaux: 0.3, iprReductionFamilleTaux: 0.02, iprReductionFamilleMax: 9, iprBase: 2,
+    inppTaux: 0.03, onemTaux: 0.002, hsSeuilHebdoH: 6, hsMajTranche1: 0.3, hsMajTranche2: 0.6, hsMajDimancheFerie: 1,
+    allocFamilialeParEnfantUSD: 1.5, joursOuvrablesMois: 26, droitsCongesAnnuel: 18, salairesSaisisEnNet: true,
+  };
+  const run2300 = { ...run, tauxChangeUtilise: 2300 } as unknown as PayrollRun;
+  const versLigne = (m: LignePaie, heures: number): PayrollLine => ligne({
+    remuneration100: m.remuneration100, remuneration2_3: m.remuneration2_3, hsValorisee: m.hsValorisee, transportUSD: m.transportUSD,
+    primesUSD: m.primesUSD, salBrutUSD: m.salBrutUSD, cnssSalarieUSD: m.cnssSalarieUSD, netImposableUSD: m.netImposableUSD,
+    iprCalculeUSD: m.iprCalculeUSD, allocFamilialeUSD: m.allocFamilialeUSD, salNetUSD: m.salNetUSD, cnssPatronalUSD: m.cnssPatronalUSD,
+    inppUSD: m.inppUSD, onemUSD: m.onemUSD, coutEmployeurUSD: m.coutEmployeurUSD,
+    heuresTravaillees: heures, heuresContractuelles: heures, heuresSupp30: 0,
+  });
+  const montant = (t: string, re: RegExp) => { const m = t.match(re); if (!m) throw new Error(`absent : ${re}`); return m[1]; };
+
+  it("Deladri : salaire de base = brut imposable = base CNSS ; Totaux = Σ lignes ; total versé = Totaux − retenues", async () => {
+    const deladri = { ...employee, nom: "Deladri Losole", enfants: 1, salaireMensuel: 150 } as unknown as Employee;
+    const m = calculerPaieBrigade({ salaireJournalier: (150 / 208) * 8, salaireHoraire: 150 / 208, heuresNormales: 208, joursPayesNonTravailles: 0, joursPayes2_3: 0, hsValorisee: 0, transportMoisUSD: 312_000 / 2300, enfants: 1 }, params);
+    const t = await texteDu(await renderPdfBuffer(BulletinDocument({ employee: deladri, ligne: versLigne(m, 208), run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params })));
+    const base = montant(t, /Salaire de base 208 h\s*[\d,]+ \$\s*([\d ,]+) \$/);
+    expect(base).toBe("174,88");
+    expect(montant(t, /Salaire brut imposable \(hors transport\)\s*([\d ,]+) \$/)).toBe(base);
+    expect(montant(t, /CNSS\s*([\d ,]+) \$/)).toBe(base);
+    // Totaux : 174,88 + 135,65 + 1,50 = 312,03 ; retenues 8,74 + IPR ; total versé = différence.
+    expect(t).toMatch(/Totaux\s*312,03 \$/);
+    const retenues = Number(montant(t, /Totaux\s*312,03 \$\s*([\d,]+) \$/).replace(",", "."));
+    expect(31203 - Math.round(retenues * 100)).toBe(28715); // Totaux − retenues = total versé imprimé
+    expect(t).toMatch(/SALAIRE NET\s*151,50 \$/);
+    expect(t).toMatch(/TOTAL VERSÉ\s*287,15 \$/);
+  }, 60_000);
+
+  it("back-office : « Salaire de base » = brut imposable, sans heures ni taux sur la ligne", async () => {
+    const gode = { ...employee, nom: "Gode", categorie: "BACKOFFICE", salaireMensuel: 164 } as unknown as Employee;
+    const m = calculerPaieBackoffice({ salaireBaseUSD: 164, transportUSD: 0, enfants: 0 }, params);
+    const t = await texteDu(await renderPdfBuffer(BulletinDocument({ employee: gode, ligne: versLigne(m, 0), run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params })));
+    const base = montant(t, /Salaire de base\s*([\d ,]+) \$\s*Frais de transport/);
+    expect(base).not.toBe("0,00");
+    expect(montant(t, /Salaire brut imposable \(hors transport\)\s*([\d ,]+) \$/)).toBe(base);
+    expect(t).toMatch(/SALAIRE NET\s*164,00 \$/);
+  }, 60_000);
+
+  it("back-office FIGÉ avant le 2026-09-24 (base 0 stockée) : la base imprimée reste la part du brut", async () => {
+    const gode = { ...employee, nom: "Gode", categorie: "BACKOFFICE", salaireMensuel: 164 } as unknown as Employee;
+    const fige = ligne({ remuneration100: 0, hsValorisee: 0, heuresSupp30: 0, transportUSD: 0, salBrutUSD: 192.63, cnssSalarieUSD: 9.63, netImposableUSD: 183, iprCalculeUSD: 19, salNetUSD: 164 });
+    const t = await texteDu(await renderPdfBuffer(BulletinDocument({ employee: gode, ligne: fige, run: run2300, devise: "USD", congesPeriode: [], feries: [], primes: [], codesParJour: {}, params })));
+    expect(t).toMatch(/Salaire de base\s*192,63 \$/);
+    expect(t).toMatch(/Salaire brut imposable \(hors transport\)\s*192,63 \$/);
   }, 60_000);
 });

@@ -50,13 +50,18 @@ export function ApercuBulletinCard({ apercu, periode, avecAvertissements = true 
       <div className="grid gap-0 md:grid-cols-2">
         <div>
           <p className="bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase text-emerald-800">Gains</p>
+          {/* Chaque montant vient du moteur, au centime, et s'additionne (2026-09-24) : gains hors
+              transport → brut imposable (même définition que le bulletin PDF) → allocations et
+              retenues → salaire net → + transport → total versé. Avant, les heures supp. n'étaient
+              pas listées et « brut imposable » affichait le brut transport compris. */}
           <Ligne taux={t} label={L.base} usd={Number(l.remuneration100)} />
           {Number(l.remuneration2_3) > 0 && <Ligne taux={t} label={L.maladie} usd={Number(l.remuneration2_3)} />}
+          {Number(l.hsValorisee) > 0 && <Ligne taux={t} label={L.hs} usd={Number(l.hsValorisee)} />}
           {/* Primes : une ligne par prime ; rien du tout s'il n'y en a aucune (pas de ligne « 0 »). */}
           {apercu.primes.map((p, i) => (
             <Ligne key={i} taux={t} label={p.nom} usd={p.montantUSD} />
           ))}
-          <Ligne taux={t} label={L.brut} usd={Number(l.salBrutUSD)} />
+          <Ligne taux={t} label={`${L.brut} (hors transport)`} usd={Number(l.salBrutUSD) - Number(l.transportUSD)} />
           {/* Tout est conditionnel : une ligne n'apparaît que si son montant est non nul. */}
           {(Number(l.allocFamilialeUSD) > 0 || Number(l.fraisMedicauxUSD) > 0) && (
             <p className="mt-2 bg-blue-50 px-3 py-1.5 text-xs font-semibold uppercase text-blue-800">Allocations (non imposables)</p>
@@ -97,6 +102,12 @@ export function ApercuBulletinCard({ apercu, periode, avecAvertissements = true 
             <span className="ml-2 text-sm text-muted-foreground">{fmtCDF(salaireNetCDF(ligneNet, t))}</span>
           </span>
         </div>
+        {Number(apercu.transportUSD) > 0 && (
+          <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
+            <span>{L.transport} (non imposable)</span>
+            <span>+ {fmtUSD(Number(apercu.transportUSD))}</span>
+          </div>
+        )}
         {Number(apercu.transportUSD) > 0 && (
           <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
             <span>Total versé (transport compris)</span>

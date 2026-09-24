@@ -8,6 +8,7 @@ import { approuverChangementShift, refuserChangementShift, approuverEchange, ref
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { lireAvertissements } from "@/lib/paie-avertissements";
+import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 
 function joursAvant(date: Date): number {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
@@ -31,6 +32,10 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  // Comme /paie, et par la MÊME fonction : les lignes non figées du mois sont recalculées avant
+  // d'être listées. Sinon « À valider » montrait des montants d'un /paie ouvert il y a longtemps, que
+  // la validation refusait ensuite (6 lignes sur 24, mesuré le 2026-09-24).
+  if (config) await rafraichirPaieAffichee(config.moisCourant, config.anneeCourante);
   const filtreRun = config
     ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } }
     : {};

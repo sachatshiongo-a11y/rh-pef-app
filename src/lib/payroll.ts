@@ -102,61 +102,147 @@ export function calculerIprDGI(
 }
 
 /**
- * Net de base obtenu à partir d'un brut G candidat, en appliquant EXACTEMENT les mêmes règles que
- * `finaliserLignePaie` pour la CNSS salariale et l'IPR — mais sur G seul (pas de transport, pas de
- * primes, pas d'allocations/frais médicaux/acompte/prêt : ceux-ci s'ajoutent en dehors du salaire de
- * base reconstitué, voir `reconstituerBrutDepuisNet`). Fonction interne à la dichotomie.
+ * ARGENT AU CENTIME, À LA SOURCE (2026-09-24). Chaque montant d'argent du moteur est arrondi au
+ * centime AU MOMENT où il est produit, et les totaux (brut, base cotisable, net, coût employeur)
+ * sont des SOMMES de montants déjà arrondis. La base stocke chaque montant à 2 décimales : avant
+ * cette règle, elle arrondissait séparément des nombres calculés sans arrondi, et le bulletin ne
+ * s'additionnait plus (Deladri, septembre 2026 : base 174,88 $, « brut imposable » 174,89 $).
+ *
+ * Demi-centime arrondi en s'éloignant de zéro, comme `numeric(12,2)` de Postgres. Le passage par
+ * `toPrecision(15)` neutralise le bruit binaire (1,005 × 100 = 100,49999999999999 en flottant).
  */
-function netBaseDepuisBrut(G: number, params: ParametresPaie, personnesACharge: number): number {
+export function auCentime(x: number): number {
+  const centimes = Math.round(Number((Math.abs(x) * 100).toPrecision(15)));
+  return centimes === 0 ? 0 : (Math.sign(x) * centimes) / 100;
+}
+
+/** Montant en centimes ENTIERS — pour comparer deux montants sans bruit flottant. */
+const enCentimes = (x: number): number => Math.round(auCentime(x) * 100);
+
+/**
+ * CNSS salariale et IPR d'une base cotisable (hors transport), au centime. UNE seule
+ * implémentation, partagée par `finaliserLignePaie` et par la reconstitution net→brut : le brut
+ * cherché par `reconstituerBrutDepuisNet` est donc calculé avec EXACTEMENT les arrondis du bulletin.
+ */
+function retenuesSalariales(
+  baseCotisableUSD: number,
+  params: ParametresPaie,
+  personnesACharge: number
+): { assietteCnssUSD: number; cnssSalarieUSD: number; baseImposableUSD: number; iprCalculeUSD: number } {
+  const taux = params.tauxChangeCDF;
+  // Assiette CNSS, éventuellement plafonnée (plafond exprimé en CDF)
+  const plafondUSD = params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
+  const assietteCnssUSD = plafondUSD === null ? baseCotisableUSD : Math.min(baseCotisableUSD, plafondUSD);
+  const cnssSalarieUSD = auCentime(assietteCnssUSD * params.cnssSalarie);
+  // Base imposable IPR selon le choix configuré (1 = brut ; 2/3 = brut − CNSS) — hors transport.
+  const baseImposableUSD =
+    params.iprBase === 1 ? baseCotisableUSD : auCentime(baseCotisableUSD - cnssSalarieUSD);
+  // IPR calculé en CDF (barème DGI), converti en USD PUIS arrondi au centime.
+  const iprCalculeUSD = auCentime(calculerIprDGI(baseImposableUSD * taux, params, personnesACharge) / taux);
+  return { assietteCnssUSD, cnssSalarieUSD, baseImposableUSD, iprCalculeUSD };
+}
+
+/**
+ * Net de base obtenu à partir d'un brut G candidat, SANS arrondi (fonction continue) : sert
+ * seulement à approcher la racine par dichotomie avant la recherche au centime.
+ */
+function netBaseContinu(G: number, params: ParametresPaie, personnesACharge: number): number {
   const taux = params.tauxChangeCDF;
   const plafondUSD = params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
   const assietteCnssUSD = plafondUSD === null ? G : Math.min(G, plafondUSD);
   const cnssSalarieUSD = assietteCnssUSD * params.cnssSalarie;
   const baseImposableUSD = params.iprBase === 1 ? G : G - cnssSalarieUSD;
-  const iprCDF = calculerIprDGI(baseImposableUSD * taux, params, personnesACharge);
-  const iprUSD = iprCDF / taux;
+  const iprUSD = calculerIprDGI(baseImposableUSD * taux, params, personnesACharge) / taux;
   return G - cnssSalarieUSD - iprUSD;
 }
 
 /**
- * Reconstitue le salaire BRUT de base G tel que `netBaseDepuisBrut(G) === netCibleUSD` (CNSS
- * salariale + IPR à la charge du salarié, cf. `finaliserLignePaie`) — inverse le moteur pour les
- * salaires saisis comme des NETS (`params.salairesSaisisEnNet`, voir ce flag et son branchement dans
- * `calculerPaieBrigade`/`calculerPaieBackoffice`). Périmètre = salaire de base seul ; primes/transport
- * s'ajoutent par-dessus après reconstitution, pas avant (voir appelants).
+ * Net de base d'un brut G, en centimes entiers, avec les arrondis du bulletin (voir
+ * `retenuesSalariales`) : G − CNSS − IPR. Sur G seul — transport, primes, allocations, frais
+ * médicaux, acompte et prêt s'ajoutent en dehors du salaire de base reconstitué.
+ */
+function netBaseCentimes(gCentimes: number, params: ParametresPaie, personnesACharge: number): number {
+  const G = gCentimes / 100;
+  const { cnssSalarieUSD, iprCalculeUSD } = retenuesSalariales(G, params, personnesACharge);
+  return gCentimes - enCentimes(cnssSalarieUSD) - enCentimes(iprCalculeUSD);
+}
+
+export type ReconstitutionNet = {
+  /** Brut de base G, en dollars, TOUJOURS un nombre entier de centimes. */
+  brutUSD: number;
+  /** Net de base que ce G produit, avec les arrondis du bulletin. */
+  netObtenuUSD: number;
+  /** true si `netObtenuUSD` est EXACTEMENT le net cible (arrondi au centime). */
+  exact: boolean;
+};
+
+/**
+ * Reconstitue le salaire BRUT de base G, EN CENTIMES, tel que le net de base calculé avec les
+ * arrondis du bulletin (G − CNSS(G) − IPR(G), chacun au centime) soit EXACTEMENT le net cible
+ * arrondi au centime — inverse le moteur pour les salaires saisis comme des NETS
+ * (`params.salairesSaisisEnNet`, voir `calculerPaieBrigade`/`calculerPaieBackoffice`). Périmètre =
+ * salaire de base seul ; primes/transport s'ajoutent par-dessus après reconstitution.
  *
- * Méthode : dichotomie (bisection). `netBaseDepuisBrut` est strictement croissante et continue en G
- * (CNSS proportionnelle plafonnée, IPR par tranches marginales croissantes, plancher/plafond IPR
- * monotones) → une seule racine, la bisection converge sans ambiguïté.
+ * Méthode : (1) dichotomie sur la fonction continue (sans arrondi) pour approcher la racine ;
+ * (2) recherche au centime : on part d'un G dont le net est SOUS la cible et l'on monte d'un
+ * centime à la fois jusqu'au premier G dont le net atteint la cible.
  *
- * Convention : renvoie la borne HAUTE de l'intervalle final (`net(hi) ≥ netCibleUSD`), jamais la
- * basse → on ne SOUS-paie jamais le salarié de quelques centimes par arrondi de la dichotomie.
+ * Pourquoi la cible est atteinte exactement : d'un centime de brut au suivant, la CNSS arrondie
+ * monte de 0 ou 1 centime ; si elle monte, la base imposable ne bouge pas et l'IPR non plus ;
+ * sinon la base monte d'un centime et l'IPR arrondi de 0 ou 1 centime (taux marginal < 100 %).
+ * Le net avance donc par pas de 0 ou 1 centime et ne peut pas sauter la cible. Seules exceptions
+ * possibles : la marche du plancher IPR (le net de 0 $ tombe sous zéro dès que la base devient
+ * positive) et `iprBase = 1` (CNSS et IPR sur la même base peuvent monter ensemble, pas de −1).
+ * Dans ce cas on retient le plus petit G atteint dont le net est ≥ la cible, `exact` vaut false :
+ * on ne SOUS-paie jamais.
  *
  * À VALIDER PAR UN COMPTABLE (2026-07-22) : pour les très bas salaires proches du plancher IPR
  * mensuel (`iprPlancherMensuelCDF`, qui s'applique dès que la base imposable est positive, cf.
- * `calculerIprDGI`), la fonction net(G) présente une discontinuité/à-plat autour du plancher — la
- * dichotomie converge quand même vers le plus petit G tel que net(G) ≥ cible, ce qui est le
- * comportement le plus prudent (jamais sous-payer), mais le comptable doit confirmer que cette zone
- * ne produit pas un écart net anormal pour les bas salaires.
+ * `calculerIprDGI`), la fonction net(G) présente une marche autour du plancher — la recherche
+ * retient le plus petit G tel que net(G) ≥ cible, ce qui est le comportement le plus prudent.
+ */
+export function reconstitutionNetAuCentime(
+  netCibleUSD: number,
+  params: ParametresPaie,
+  personnesACharge: number
+): ReconstitutionNet {
+  const cible = enCentimes(netCibleUSD);
+  if (cible <= 0) return { brutUSD: 0, netObtenuUSD: 0, exact: cible === 0 };
+  const netCibleArrondi = cible / 100;
+
+  // (1) Approche continue.
+  let hi = Math.max(netCibleArrondi, 1);
+  while (netBaseContinu(hi, params, personnesACharge) < netCibleArrondi) hi *= 2;
+  let lo = 0;
+  for (let i = 0; i < 100 && hi - lo >= 1e-6; i++) {
+    const mid = (lo + hi) / 2;
+    if (netBaseContinu(mid, params, personnesACharge) < netCibleArrondi) lo = mid;
+    else hi = mid;
+  }
+
+  // (2) Recherche au centime : l'écart entre net arrondi et net continu ne dépasse pas deux
+  // centimes, 50 centimes sous la racine suffisent ; la boucle recule encore si besoin.
+  let g = Math.max(0, Math.floor(hi * 100) - 50);
+  while (g > 0 && netBaseCentimes(g, params, personnesACharge) >= cible) g = Math.max(0, g - 50);
+  let net = netBaseCentimes(g, params, personnesACharge);
+  while (net < cible) {
+    g += 1;
+    net = netBaseCentimes(g, params, personnesACharge);
+  }
+  return { brutUSD: g / 100, netObtenuUSD: net / 100, exact: net === cible };
+}
+
+/**
+ * Brut de base G (en centimes) d'un net cible — voir `reconstitutionNetAuCentime`. Utilisé par le
+ * moteur et par les documents qui affichent le brut d'un salaire contractuel (contrat, attestation,
+ * récapitulatif du bulletin).
  */
 export function reconstituerBrutDepuisNet(
   netCibleUSD: number,
   params: ParametresPaie,
   personnesACharge: number
 ): number {
-  if (netCibleUSD <= 0) return 0;
-
-  let hi = Math.max(netCibleUSD, 1);
-  while (netBaseDepuisBrut(hi, params, personnesACharge) < netCibleUSD) hi *= 2;
-  let lo = 0;
-
-  for (let i = 0; i < 60 && hi - lo >= 0.005; i++) {
-    const mid = (lo + hi) / 2;
-    if (netBaseDepuisBrut(mid, params, personnesACharge) < netCibleUSD) lo = mid;
-    else hi = mid;
-  }
-
-  return hi;
+  return reconstitutionNetAuCentime(netCibleUSD, params, personnesACharge).brutUSD;
 }
 
 export type EntreesPaieBrigade = {
@@ -174,9 +260,19 @@ export type EntreesPaieBrigade = {
   retenuePretUSD?: number; // échéance de prêt du personnel
 };
 
+/**
+ * Une ligne de paie calculée. Tous les montants d'argent sont des nombres ENTIERS de centimes
+ * (voir `auCentime`), et les totaux sont des sommes exactes de ces montants :
+ * salBrutUSD = remuneration100 + remuneration2_3 + hsValorisee + transportUSD + primesUSD ;
+ * salNetUSD = salBrutUSD − cnssSalarieUSD − iprCalculeUSD + allocFamilialeUSD + fraisMedicauxUSD
+ *             − acompteUSD − retenuePretUSD ;
+ * coutEmployeurUSD = salBrutUSD + cnssPatronalUSD + inppUSD + onemUSD.
+ */
 export type LignePaie = {
   remuneration100: number;
   remuneration2_3: number;
+  hsValorisee: number; // prime d'heures supplémentaires incluse dans le brut (0 hors brigade)
+  transportUSD: number; // indemnité de transport incluse dans le brut (exonérée, non cotisable)
   salBrutUSD: number;
   cnssSalarieUSD: number;
   netImposableUSD: number; // base imposable IPR effectivement utilisée
@@ -213,7 +309,6 @@ export function calculerPaieBrigade(
     entrees.salaireHoraire * entrees.heuresNormales +
     entrees.salaireJournalier * entrees.joursPayesNonTravailles;
   const remuneration2_3Net = entrees.salaireJournalier * entrees.joursPayes2_3 * (2 / 3);
-  const primesUSD = entrees.primesUSD ?? 0;
 
   // Reconstitution du brut de base (2026-07-22) : les salaires saisis sur la fiche employé sont des
   // NETS cibles (take-home) ; on reconstitue ici le brut de base G tel que
@@ -227,36 +322,45 @@ export function calculerPaieBrigade(
   // est toujours recalculé depuis les montants nets fournis par l'appelant, eux-mêmes dérivés de la
   // valeur stockée en base, inchangée).
   const netBaseCible = remuneration100Net + remuneration2_3Net;
-  const brutBase = params.salairesSaisisEnNet
-    ? reconstituerBrutDepuisNet(netBaseCible, params, entrees.enfants)
-    : netBaseCible;
-  // Ratio brut/net appliqué UNIFORMÉMENT à remuneration100/remuneration2_3 (préserve leur proportion
-  // relative) et à la prime d'heures supplémentaires (décision client 2026-07-22) : la prime HS est
-  // donc valorisée au taux brut reconstitué, par approximation LINÉAIRE (même ratio que le salaire de
-  // base). Ce n'est qu'une approximation : à cause de la progressivité de l'IPR par tranches, le net
-  // HS réellement perçu n'est pas garanti être EXACTEMENT celui visé — à valider par un comptable,
-  // en particulier pour un salarié dont les heures supp. représentent une part importante du mois
-  // (l'écart théorique reste faible en pratique car HS reste généralement minoritaire face à la base).
-  const rho = netBaseCible > 0 ? brutBase / netBaseCible : 1;
-  const remuneration100 = remuneration100Net * rho;
-  const remuneration2_3 = remuneration2_3Net * rho;
-  const hsValorisee = entrees.hsValorisee * rho;
+  // Salaires saisis en net : G est cherché EN CENTIMES (le net de base tombe juste au centime), puis
+  // réparti entre remuneration100 et remuneration2_3 sur G lui-même — r100 = arrondi(G × part),
+  // r2_3 = G − r100 — pour que leur somme soit EXACTEMENT G. Flag inactif : chaque part est
+  // simplement arrondie au centime.
+  let remuneration100: number;
+  let remuneration2_3: number;
+  let rho = 1;
+  if (params.salairesSaisisEnNet && netBaseCible > 0) {
+    const brutBase = reconstituerBrutDepuisNet(netBaseCible, params, entrees.enfants);
+    remuneration100 = auCentime(brutBase * (remuneration100Net / netBaseCible));
+    remuneration2_3 = auCentime(brutBase - remuneration100);
+    // Ratio brut/net appliqué à la prime d'heures supplémentaires (décision client 2026-07-22) : la
+    // prime HS est valorisée au taux brut reconstitué, par approximation LINÉAIRE (même ratio que
+    // le salaire de base). À cause de la progressivité de l'IPR, le net HS réellement perçu n'est
+    // pas garanti être EXACTEMENT celui visé — à valider par un comptable.
+    rho = brutBase / netBaseCible;
+  } else {
+    remuneration100 = auCentime(remuneration100Net);
+    remuneration2_3 = auCentime(remuneration2_3Net);
+  }
+  const hsValorisee = auCentime(entrees.hsValorisee * rho);
+  const transportUSD = auCentime(entrees.transportMoisUSD);
+  const primesUSD = auCentime(entrees.primesUSD ?? 0);
 
-  const salBrutUSD =
-    remuneration100 + remuneration2_3 + hsValorisee + entrees.transportMoisUSD + primesUSD;
+  const salBrutUSD = auCentime(remuneration100 + remuneration2_3 + hsValorisee + transportUSD + primesUSD);
 
   return {
     ...finaliserLignePaie(
       {
         remuneration100,
         remuneration2_3,
+        hsValorisee,
         salBrutUSD,
         enfants: entrees.enfants,
         fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
         primesUSD,
         acompteUSD: entrees.acompteUSD ?? 0,
         retenuePretUSD: entrees.retenuePretUSD ?? 0,
-        transportUSD: entrees.transportMoisUSD,
+        transportUSD,
       },
       params
     ),
@@ -278,7 +382,8 @@ export function calculerPaieBackoffice(
   entrees: EntreesPaieBackoffice,
   params: ParametresPaie
 ): LignePaie {
-  const primesUSD = entrees.primesUSD ?? 0;
+  const primesUSD = auCentime(entrees.primesUSD ?? 0);
+  const transportUSD = auCentime(entrees.transportUSD);
   // Reconstitution du brut de base (2026-07-22) — même principe que calculerPaieBrigade : le
   // salaire mensuel saisi est interprété comme un NET cible si `params.salairesSaisisEnNet`, et le
   // brut de base est reconstitué avant d'ajouter transport/primes (hors périmètre de l'inversion).
@@ -286,20 +391,24 @@ export function calculerPaieBackoffice(
   // à grossir ici.
   const salaireBaseUSD = params.salairesSaisisEnNet
     ? reconstituerBrutDepuisNet(entrees.salaireBaseUSD, params, entrees.enfants)
-    : entrees.salaireBaseUSD;
-  const salBrutUSD = salaireBaseUSD + entrees.transportUSD + primesUSD;
+    : auCentime(entrees.salaireBaseUSD);
+  const salBrutUSD = auCentime(salaireBaseUSD + transportUSD + primesUSD);
 
+  // Le salaire de base est porté par `remuneration100` (2026-09-24) : avant, le back-office
+  // stockait 0 et le bulletin imprimait « Salaire de base 0,00 $ » au-dessus d'un brut imposable
+  // positif — des lignes qui ne s'additionnaient pas.
   return finaliserLignePaie(
     {
-      remuneration100: 0,
+      remuneration100: salaireBaseUSD,
       remuneration2_3: 0,
+      hsValorisee: 0,
       salBrutUSD,
       enfants: entrees.enfants,
       fraisMedicauxUSD: entrees.fraisMedicauxUSD ?? 0,
       primesUSD,
       acompteUSD: entrees.acompteUSD ?? 0,
       retenuePretUSD: entrees.retenuePretUSD ?? 0,
-      transportUSD: entrees.transportUSD,
+      transportUSD,
     },
     params
   );
@@ -320,15 +429,19 @@ export type EntreesPaieStage = {
  * fiscal des indemnités de stage n'est pas celui d'un salaire). Pas d'heures supp. ni de congés.
  */
 export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresPaie): LignePaie {
-  const primesUSD = entrees.primesUSD ?? 0;
-  const acompteUSD = entrees.acompteUSD ?? 0;
-  const retenuePretUSD = entrees.retenuePretUSD ?? 0;
-  const fraisMedicauxUSD = entrees.fraisMedicauxUSD ?? 0;
-  const salBrutUSD = entrees.indemniteUSD + entrees.transportUSD + primesUSD;
-  const salNetUSD = salBrutUSD + fraisMedicauxUSD - acompteUSD - retenuePretUSD;
+  const indemniteUSD = auCentime(entrees.indemniteUSD);
+  const transportUSD = auCentime(entrees.transportUSD);
+  const primesUSD = auCentime(entrees.primesUSD ?? 0);
+  const acompteUSD = auCentime(entrees.acompteUSD ?? 0);
+  const retenuePretUSD = auCentime(entrees.retenuePretUSD ?? 0);
+  const fraisMedicauxUSD = auCentime(entrees.fraisMedicauxUSD ?? 0);
+  const salBrutUSD = auCentime(indemniteUSD + transportUSD + primesUSD);
+  const salNetUSD = auCentime(salBrutUSD + fraisMedicauxUSD - acompteUSD - retenuePretUSD);
   return {
-    remuneration100: entrees.indemniteUSD,
+    remuneration100: indemniteUSD,
     remuneration2_3: 0,
+    hsValorisee: 0,
+    transportUSD,
     salBrutUSD,
     cnssSalarieUSD: 0,
     netImposableUSD: 0,
@@ -339,19 +452,25 @@ export function calculerPaieStage(entrees: EntreesPaieStage, params: ParametresP
     acompteUSD,
     retenuePretUSD,
     salNetUSD,
-    salNetCDF: salNetUSD * params.tauxChangeCDF,
+    salNetCDF: auCentime(salNetUSD * params.tauxChangeCDF),
     cnssPatronalUSD: 0,
     inppUSD: 0,
     onemUSD: 0,
     coutEmployeurUSD: salBrutUSD,
-    coutEmployeurCDF: salBrutUSD * params.tauxChangeCDF,
+    coutEmployeurCDF: auCentime(salBrutUSD * params.tauxChangeCDF),
   };
 }
 
+/**
+ * Retenues, net et charges d'une ligne dont les GAINS sont déjà arrondis au centime et dont
+ * `salBrutUSD` est leur somme. Chaque montant produit ici est arrondi au centime ; le net et le coût
+ * employeur sont des sommes de montants arrondis (voir `LignePaie`).
+ */
 function finaliserLignePaie(
   base: {
     remuneration100: number;
     remuneration2_3: number;
+    hsValorisee: number;
     salBrutUSD: number;
     enfants: number;
     fraisMedicauxUSD: number;
@@ -362,65 +481,61 @@ function finaliserLignePaie(
   },
   params: ParametresPaie
 ): LignePaie {
-  const primesUSD = base.primesUSD ?? 0;
-  const acompteUSD = base.acompteUSD ?? 0;
-  const retenuePretUSD = base.retenuePretUSD ?? 0;
-  const transportUSD = base.transportUSD ?? 0;
+  const primesUSD = auCentime(base.primesUSD ?? 0);
+  const acompteUSD = auCentime(base.acompteUSD ?? 0);
+  const retenuePretUSD = auCentime(base.retenuePretUSD ?? 0);
+  const transportUSD = auCentime(base.transportUSD ?? 0);
+  const fraisMedicauxUSD = auCentime(base.fraisMedicauxUSD);
+  const salBrutUSD = auCentime(base.salBrutUSD);
   const taux = params.tauxChangeCDF;
 
   // L'indemnité de transport représente un remboursement de frais : exonérée d'IPR et NON soumise
   // aux cotisations. On la retire donc de la base cotisable/imposable (elle reste versée au net,
   // comprise dans le salaire brut).
-  const baseCotisableUSD = Math.max(0, base.salBrutUSD - transportUSD);
+  const baseCotisableUSD = Math.max(0, auCentime(salBrutUSD - transportUSD));
 
-  // Assiette CNSS, éventuellement plafonnée (plafond exprimé en CDF)
-  const plafondUSD =
-    params.plafondCnssMensuelCDF === null ? null : params.plafondCnssMensuelCDF / taux;
-  const assietteCnssUSD =
-    plafondUSD === null ? baseCotisableUSD : Math.min(baseCotisableUSD, plafondUSD);
+  const { assietteCnssUSD, cnssSalarieUSD, baseImposableUSD, iprCalculeUSD } = retenuesSalariales(
+    baseCotisableUSD,
+    params,
+    base.enfants
+  );
 
-  const cnssSalarieUSD = assietteCnssUSD * params.cnssSalarie;
-
-  // Base imposable IPR selon le choix configuré (1 = brut ; 2/3 = brut − CNSS) — hors transport.
-  const baseImposableUSD =
-    params.iprBase === 1 ? baseCotisableUSD : baseCotisableUSD - cnssSalarieUSD;
-
-  // IPR calculé en CDF (barème DGI), reconverti en USD pour l'affichage/stockage
-  const iprCDF = calculerIprDGI(baseImposableUSD * taux, params, base.enfants);
-  const iprCalculeUSD = iprCDF / taux;
-
-  const allocFamilialeUSD = base.enfants * params.allocFamilialeParEnfantUSD;
+  const allocFamilialeUSD = auCentime(base.enfants * params.allocFamilialeParEnfantUSD);
 
   // Frais médicaux : remboursement non imposable, ajouté après IPR.
   // Acompte : avance déjà versée → déduite du net (non imposable, ce n'est pas un gain).
-  const salNetUSD =
-    base.salBrutUSD -
-    cnssSalarieUSD -
-    iprCalculeUSD +
-    allocFamilialeUSD +
-    base.fraisMedicauxUSD -
-    acompteUSD -
-    retenuePretUSD;
-  const salNetCDF = salNetUSD * taux;
+  const salNetUSD = auCentime(
+    salBrutUSD -
+      cnssSalarieUSD -
+      iprCalculeUSD +
+      allocFamilialeUSD +
+      fraisMedicauxUSD -
+      acompteUSD -
+      retenuePretUSD
+  );
+  const salNetCDF = auCentime(salNetUSD * taux);
 
   // Charges patronales : CNSS (pensions + risques + prestations familiales) + INPP + ONEM
-  const cnssPatronalUSD =
+  const cnssPatronalUSD = auCentime(
     assietteCnssUSD *
-    (params.cnssPatronalPensions + params.cnssPatronalRisques + params.cnssPatronalFamille);
-  const inppUSD = baseCotisableUSD * params.inppTaux;
-  const onemUSD = baseCotisableUSD * params.onemTaux;
-  const coutEmployeurUSD = base.salBrutUSD + cnssPatronalUSD + inppUSD + onemUSD;
-  const coutEmployeurCDF = coutEmployeurUSD * taux;
+      (params.cnssPatronalPensions + params.cnssPatronalRisques + params.cnssPatronalFamille)
+  );
+  const inppUSD = auCentime(baseCotisableUSD * params.inppTaux);
+  const onemUSD = auCentime(baseCotisableUSD * params.onemTaux);
+  const coutEmployeurUSD = auCentime(salBrutUSD + cnssPatronalUSD + inppUSD + onemUSD);
+  const coutEmployeurCDF = auCentime(coutEmployeurUSD * taux);
 
   return {
-    remuneration100: base.remuneration100,
-    remuneration2_3: base.remuneration2_3,
-    salBrutUSD: base.salBrutUSD,
+    remuneration100: auCentime(base.remuneration100),
+    remuneration2_3: auCentime(base.remuneration2_3),
+    hsValorisee: auCentime(base.hsValorisee),
+    transportUSD,
+    salBrutUSD,
     cnssSalarieUSD,
     netImposableUSD: baseImposableUSD,
     iprCalculeUSD,
     allocFamilialeUSD,
-    fraisMedicauxUSD: base.fraisMedicauxUSD,
+    fraisMedicauxUSD,
     primesUSD,
     acompteUSD,
     retenuePretUSD,

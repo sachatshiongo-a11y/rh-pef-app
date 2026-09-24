@@ -68,7 +68,7 @@ describe("BadgeReference", () => {
   });
   it("repli : badge au libellé partagé, motif en infobulle, sans le compter deux fois", () => {
     const html = renderToStaticMarkup(BadgeReference({ sourceReference: "CONTRAT_REPLI", motifReference: "Planning incomplet : semaine du 21/09 sans créneau",
-      avertissements: [{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }] }));
+      avertissements: [{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }] }));
     expect(html).toContain(LIBELLE_SOURCE_REFERENCE.CONTRAT_REPLI);
     expect(html).toContain('title="Planning incomplet : semaine du 21/09 sans créneau"');
     expect(html).not.toContain("⚠");
@@ -90,10 +90,10 @@ describe("ListeAvertissements", () => {
   });
   it("tous les messages en clair, repli compris, et retour à la ligne des longues listes (375 px)", () => {
     const html = renderToStaticMarkup(ListeAvertissements({ avertissements: [
-      { code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Planning incomplet" },
+      { code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Planning incomplet" },
       ...RACHEL.avertissements,
     ] }));
-    expect(html).toContain("<li>Référence contrat (repli) — Planning incomplet</li>");
+    expect(html).toContain("<li>Heures contrat (repli) — Planning incomplet</li>");
     expect(html).toContain("<li>Travail hors planning (2 j) : 28/09, 30/09</li>");
     expect(html).toContain("break-words");
   });
@@ -139,7 +139,9 @@ describe("lot et clôture : la confirmation est câblée", () => {
   const src = (f: string) => readFileSync(join(__dirname, f), "utf8");
   it("lot : validation → avertissements des lignes à valider, sur toutes les lignes, puis window.confirm", () => {
     const s = src("paie-bulk.tsx");
-    expect(s).toContain("messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], selection))");
+    // Sur toutes les lignes, filtre ignoré ; la sélection (des salariés) traduite en lignes affichées.
+    expect(s).toContain("lignesSelectionnees([...brigade, ...backoffice], selection)");
+    expect(s).toContain("messageConfirmationValidation(lignesAValiderDuLot([...brigade, ...backoffice], new Set(ids)))");
     expect(s).toMatch(/if \(versStatut === "VALIDE"\) \{\s*const message = [^\n]+\n\s*if \(message && !window\.confirm\(message\)\) return;/);
   });
   it("clôture : le message rappelle les avertissements des « pas validé »", () => {

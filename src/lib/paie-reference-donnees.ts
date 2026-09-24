@@ -8,6 +8,7 @@ import "server-only";
 // du mois (`joursHorsMois`) et les fériés de toute la plage (`joursFeries`). Appelé par paie-batch.ts ET bulletin-live.ts : un seul assemblage,
 // sinon la fiche et la paie divergent. Une seule lecture par table pour tout l'effectif.
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { dureeShift } from "@/lib/duree-shift";
 import { lundiDe, pariteSemaine } from "@/lib/dates-fr";
 import type { CodePresence } from "@/lib/payroll";
@@ -71,7 +72,7 @@ function finDeContrat(contrats: { dateFin: Date | null }[], finMois: Date): Date
  * des semaines à cheval. Créneaux, présences, heures, congés et fériés sont lus dans les MÊMES
  * requêtes, bornées du lundi de la première semaine au dimanche de la dernière.
  */
-export async function chargerJoursMois(mois: number, annee: number, employeeIds: string[]): Promise<Map<string, JoursEmploye>> {
+export async function chargerJoursMois(mois: number, annee: number, employeeIds: string[], db: Prisma.TransactionClient = prisma): Promise<Map<string, JoursEmploye>> {
   const debut = new Date(Date.UTC(annee, mois - 1, 1));
   const fin = new Date(Date.UTC(annee, mois, 0));
   // Plage ÉLARGIE aux semaines civiles entières (lun → dim) : le plafond hebdomadaire se calcule sur
@@ -80,29 +81,29 @@ export async function chargerJoursMois(mois: number, annee: number, employeeIds:
   const finPlage = new Date(lundiDe(fin).getTime() + 6 * 86_400_000);
   const dansPlage = { gte: debutPlage, lte: finPlage };
   const [creneaux, modeles, presences, heures, contrats, conges, typesConge, feries] = await Promise.all([
-    prisma.planningCreneau.findMany({
+    db.planningCreneau.findMany({
       where: { employeeId: { in: employeeIds }, date: dansPlage },
       select: { employeeId: true, date: true, updatedAt: true, shift: { select: { heureDebut: true, heureFin: true, dureeHeures: true, systeme: true, tauxHoraireUSD: true } } },
     }),
-    prisma.planningModele.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, jour: true, semaine: true, shiftId: true } }),
-    prisma.attendance.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, code: true, createdAt: true } }),
-    prisma.overtimeEntry.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, heuresTravaillees: true, createdAt: true, updatedAt: true } }),
-    prisma.contrat.findMany({
+    db.planningModele.findMany({ where: { employeeId: { in: employeeIds } }, select: { employeeId: true, jour: true, semaine: true, shiftId: true } }),
+    db.attendance.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, code: true, createdAt: true } }),
+    db.overtimeEntry.findMany({ where: { employeeId: { in: employeeIds }, date: dansPlage }, select: { employeeId: true, date: true, heuresTravaillees: true, createdAt: true, updatedAt: true } }),
+    db.contrat.findMany({
       where: { employeeId: { in: employeeIds }, dateDebut: { lte: fin }, OR: [{ dateFin: null }, { dateFin: { gte: debut } }] },
       select: { employeeId: true, dateFin: true },
     }),
-    prisma.leaveRequest.findMany({
+    db.leaveRequest.findMany({
       where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateDebut: { lte: finPlage }, dateFin: { gte: debutPlage } },
       select: { employeeId: true, type: true, dateDebut: true, dateFin: true },
     }),
     // Lien congé → type par le NOM (pas de clé étrangère), comme `poserCodesConge`.
-    prisma.typeConge.findMany({ select: { nom: true, tauxPct: true } }),
-    prisma.jourFerie.findMany({ where: { date: dansPlage }, select: { date: true } }),
+    db.typeConge.findMany({ select: { nom: true, tauxPct: true } }),
+    db.jourFerie.findMany({ where: { date: dansPlage }, select: { date: true } }),
   ]);
   const joursFeries = new Set(feries.map((f) => iso(f.date)));
   // `PlanningModele.shiftId` n'a pas de relation Prisma : on lit ses shifts à part.
   const shiftsModele = new Map(
-    (await prisma.shift.findMany({
+    (await db.shift.findMany({
       where: { id: { in: [...new Set(modeles.map((m) => m.shiftId))] } },
       select: { id: true, heureDebut: true, heureFin: true, dureeHeures: true, systeme: true },
     })).map((s) => [s.id, s]),

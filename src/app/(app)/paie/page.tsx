@@ -11,11 +11,11 @@ import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
 import { HistoriquePaie, type SPHistorique } from "./historique-paie";
-import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
+import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { chargerParametresPaie } from "@/lib/config";
-import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { salaireDeBaseUSD, salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 import { lireAvertissements } from "@/lib/paie-avertissements";
 import { BadgeReference } from "./avertissements-paie";
 import { messageConfirmationValidation } from "./avertissements-validation";
@@ -45,19 +45,8 @@ export default async function PaiePage({
   // on les recalcule silencieusement AVANT l'affichage — les présences, heures, pointages et
   // congés saisis après le « Calculer » se répercutent ainsi sans re-cliquer. Les lignes
   // validées/payées ne sont jamais touchées ; aucun run n'est créé ici.
-  const runMeta = await prisma.payrollRun.findUnique({
-    where: { mois_annee: { mois, annee } },
-    select: { lignes: { select: { statutPaiement: true } } },
-  });
-  if (runMeta && runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) {
-    try {
-      await rafraichirPaieDuMois({ creerRun: false });
-    } catch (e) {
-      // Échec ponctuel (réseau, pooler…) : on affiche le dernier état calculé plutôt qu'une
-      // page d'erreur — le prochain chargement retentera.
-      console.error("[paie] rafraîchissement automatique échoué :", e instanceof Error ? e.message : e);
-    }
-  }
+  // Même fonction que « À valider » : un échec ponctuel affiche le dernier état calculé.
+  await rafraichirPaieAffichee(mois, annee);
 
   const run = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },
@@ -95,7 +84,8 @@ export default async function PaiePage({
         totalVerseUSD: totalVerseUSD(l),
         statutPaiement: l.statutPaiement,
         modePaiementDefaut: modeDefaut(l.employee),
-        baseUSD: Number(l.remuneration100) + Number(l.remuneration2_3),
+        // Lignes back-office antérieures au 2026-09-24 : base 0 stockée → voir salaireDeBaseUSD.
+        baseUSD: salaireDeBaseUSD(l, l.employee.categorie) + Number(l.remuneration2_3),
         hsUSD: Number(l.hsValorisee),
         transportUSD: Number(l.transportUSD),
         primesUSD: Number(l.primesUSD),
@@ -148,7 +138,7 @@ export default async function PaiePage({
         employeeId: l.employeeId,
         nom: l.employee.nom,
         photoUrl: l.employee.photoUrl,
-        base: Number(l.remuneration100) + Number(l.remuneration2_3),
+        base: salaireDeBaseUSD(l, l.employee.categorie) + Number(l.remuneration2_3),
         hs: Number(l.hsValorisee),
         transport: Number(l.transportUSD),
         primes: Number(l.primesUSD),

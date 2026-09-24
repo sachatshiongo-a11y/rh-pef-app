@@ -20,6 +20,7 @@ const { calculerLignesPaie } = await import("./paie-batch");
 const { rafraichirPaieDuMois } = await import("./paie-refresh");
 const { calculerBulletinLive } = await import("./bulletin-live");
 const { ApercuBulletinCard } = await import("@/app/(app)/employes/[id]/apercu-bulletin");
+const { HeuresTravailleesCard, referenceHeuresCarte } = await import("@/app/(app)/employes/[id]/fiche-cards");
 const { renderToStaticMarkup } = await import("react-dom/server");
 
 let prisma: PrismaClient;
@@ -215,7 +216,7 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(l.sourceReference).toBe("CONTRAT_REPLI");
     expect(l.motifReference).toBe("Fin de contrat le 18/09/2026 : mois incomplet");
     expect(baseNette(l)).toBe("128.00"); // 16 jours × 8 h au taux du contrat (1 $/h)
-    expect(l.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Fin de contrat le 18/09/2026 : mois incomplet" }]);
+    expect(l.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Fin de contrat le 18/09/2026 : mois incomplet" }]);
   });
 
   it("CDD échu le 01/09 et poursuivi → payé sur le planning (208,00), signalé", async () => {
@@ -276,6 +277,18 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     expect(juillet).not.toContain("Heures planifiées");
   });
 
+  it("la jauge d'heures de la fiche prend la référence de la paie : 216 h / 216 h, pas 216 h / 234 h en rouge", async () => {
+    const live = (await calculerBulletinLive(ids.martine, 9, 2026))!;
+    const ref = referenceHeuresCarte({ categorie: "BRIGADE", heuresMoisContrat: (54 * 52) / 12, reference: live.reference });
+    expect(ref).toEqual({ heures: 216, libelle: "Heures planifiées" });
+    const jauge = renderToStaticMarkup(HeuresTravailleesCard({
+      periode: "septembre 2026", heuresTravaillees: live.heuresTravaillees, heuresContractuelles: ref.heures,
+      libelleReference: ref.libelle, heuresSupp: live.hs30 + live.hs60 + live.hs100,
+    }));
+    expect(jauge).toMatch(/216h<\/span><span[^>]*>\/ 216h<\/span><span[^>]*>Heures planifiées</);
+    expect(jauge).not.toContain("text-red-600");
+  });
+
   it("persistance : la ligne enregistrée porte la source, le motif et les avertissements", async () => {
     await rafraichirPaieDuMois({ creerRun: true, userId });
     const martine = await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ids.martine } });
@@ -290,7 +303,7 @@ describe("paie de septembre 2026 sur heures planifiées — bout en bout", () =>
     const vide = await prisma.payrollLine.findFirstOrThrow({ where: { employeeId: ids.semaineVide } });
     expect(vide.sourceReference).toBe("CONTRAT_REPLI");
     expect(vide.motifReference).toBe("Planning incomplet : semaine du 21/09 sans créneau");
-    expect(vide.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
+    expect(vide.avertissementsPaie).toEqual([{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
   });
 
   it("une ligne VALIDÉE n'est jamais recalculée, même si le planning ou les heures changent", async () => {

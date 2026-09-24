@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { ParametresPaie } from "@/lib/payroll";
+import type { Prisma } from "@prisma/client";
 
 /**
  * Mois d'effet AAAAMM (`paie_reference_planning_depuis`), saisi en texte libre dans Paramètres.
@@ -27,10 +28,10 @@ export function lireMoisEffet(v: number | null | undefined): number | null {
  * Lève une erreur si l'exercice actif ou un paramètre requis est manquant : on ne calcule
  * jamais une paie avec des valeurs implicites.
  */
-export async function chargerParametresPaie(): Promise<ParametresPaie> {
+export async function chargerParametresPaie(db: Prisma.TransactionClient = prisma): Promise<ParametresPaie> {
   const [config, exercice] = await Promise.all([
-    prisma.config.findUniqueOrThrow({ where: { id: "singleton" } }),
-    prisma.exerciceFiscal.findFirst({
+    db.config.findUniqueOrThrow({ where: { id: "singleton" } }),
+    db.exerciceFiscal.findFirst({
       where: { actif: true },
       include: { parametres: true, tranchesIpr: { orderBy: { ordre: "asc" } } },
     }),

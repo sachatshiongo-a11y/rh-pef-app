@@ -10,6 +10,7 @@ import type { ModePaiement, PaymentStatus } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie } from "@/lib/paie-reference";
 import { lignesAValiderDuLot, messageConfirmationValidation } from "../paie/avertissements-validation";
+import { cleSelection, lignesSelectionnees, messageEcartes } from "../paie/selection-paie";
 
 export type BulletinRow = {
   id: string;
@@ -40,15 +41,18 @@ export function BulletinsInbox({
   cible: PaymentStatus;
   actionLabel: string;
 }) {
+  // Sélection = SALARIÉS (cleSelection) : les identifiants des lignes changent à chaque recalcul.
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const { ids: idsSelection, ecartes } = lignesSelectionnees(rows, selection);
+  const avisEcartes = messageEcartes(ecartes);
   const [mode, setMode] = useState("VIREMENT");
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
-  function toggle(id: string) {
+  function toggle(cle: string) {
     setSelection((s) => {
       const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
+      n.has(cle) ? n.delete(cle) : n.add(cle);
       return n;
     });
   }
@@ -71,26 +75,32 @@ export function BulletinsInbox({
   return (
     <div>
       {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {avisEcartes && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {avisEcartes}{" "}
+          <button onClick={() => setSelection(new Set())} className="underline">Tout désélectionner</button>
+        </p>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input
             type="checkbox"
-            checked={rows.every((r) => selection.has(r.id))}
-            onChange={(e) => setSelection(e.target.checked ? new Set(rows.map((r) => r.id)) : new Set())}
+            checked={rows.every((r) => selection.has(cleSelection(r)))}
+            onChange={(e) => setSelection(e.target.checked ? new Set(rows.map(cleSelection)) : new Set())}
           />
           Tout sélectionner
         </label>
-        {cible === "PAYE" && selection.size > 0 && (
+        {cible === "PAYE" && idsSelection.length > 0 && (
           <select value={mode} onChange={(e) => setMode(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
             {MODES.map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
         )}
-        {selection.size > 0 && (
+        {idsSelection.length > 0 && (
           <>
-            <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
-            <BoutonValider onClick={() => lancer([...selection])} disabled={isPending}>{actionLabel}</BoutonValider>
+            <span className="text-xs font-medium">{idsSelection.length} sélectionné(s) :</span>
+            <BoutonValider onClick={() => lancer(idsSelection)} disabled={isPending}>{actionLabel}</BoutonValider>
             {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
           </>
         )}
@@ -98,8 +108,8 @@ export function BulletinsInbox({
 
       <div className="space-y-2">
         {rows.map((r) => (
-          <div key={r.id} className={`flex items-center gap-3 rounded-xl border bg-card p-3 ${selection.has(r.id) ? "ring-1 ring-primary" : ""}`}>
-            <input type="checkbox" checked={selection.has(r.id)} onChange={() => toggle(r.id)} aria-label={`Sélectionner ${r.nom}`} />
+          <div key={r.id} className={`flex items-center gap-3 rounded-xl border bg-card p-3 ${selection.has(cleSelection(r)) ? "ring-1 ring-primary" : ""}`}>
+            <input type="checkbox" checked={selection.has(cleSelection(r))} onChange={() => toggle(cleSelection(r))} aria-label={`Sélectionner ${r.nom}`} />
             <Avatar nom={r.nom} photoUrl={r.photoUrl} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">

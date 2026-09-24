@@ -1,5 +1,6 @@
 // Référence d'heures du mois et base de paie BRIGADE — module PUR (ni base, ni `server-only`).
 // Spec : docs/superpowers/specs/2026-09-23-paie-heures-planifiees-design.md (+ annexe note Nagi).
+import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import { calculerHeuresSupp, type CodePresence, type HeuresSuppResultat, type ParametresPaie } from "@/lib/payroll";
 import { lundiDe } from "@/lib/dates-fr";
 
@@ -413,6 +414,8 @@ function ancienneRegle(
       montantJoursPayesNet: salaireJournalier * jours,
       indemniteCongesNet: e.joursCongePris * salaireJournalier,
     },
-    avertissements: source === "CONTRAT_REPLI" && motif ? [{ code: "REPLI_CONTRAT", message: `Référence contrat (repli) — ${motif}` }] : [],
+    // Même libellé que le badge de l'écran Paie et le bulletin (un seul endroit : paie-reference-libelles).
+    // Seuls les NOUVEAUX calculs le portent : une ligne figée garde le texte avec lequel elle a été validée.
+    avertissements: source === "CONTRAT_REPLI" && motif ? [{ code: "REPLI_CONTRAT", message: `${LIBELLE_SOURCE_REFERENCE.CONTRAT_REPLI} — ${motif}` }] : [],
   };
 }

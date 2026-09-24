@@ -117,3 +117,79 @@ describe("« Valider » en lot n'annule jamais un paiement", () => {
     expect((await ligneDuMois()).statutPaiement).toBe("VALIDE");
   });
 });
+
+describe("réouverture d'une ligne validée : les frais médicaux reviennent sur la fiche (décision Direction 2026-09-24)", () => {
+  // Fiche : 30 $ saisis à la main. Table FraisMedical : 10 $ pour juillet (avec certificat). Ligne : 40 $.
+  // Un aller-retour valider / rouvrir / revalider ne perd ni ne double un centime : seuls les 30 $ de
+  // la fiche vont et viennent, les 10 $ de la table restent dans la table.
+  let id = "";
+  const fiche = async () => Number((await prisma.employee.findUniqueOrThrow({ where: { id } })).fraisMedicauxMoisCourant);
+  const ligneAR = () => prisma.payrollLine.findFirstOrThrow({ where: { employeeId: id } });
+  const journalFiche = async () =>
+    (await prisma.journalAudit.findMany({ where: { entite: "Employee", entiteId: id, champ: "fraisMedicauxMoisCourant" }, orderBy: { date: "asc" } }))
+      .map((e) => [e.ancienneValeur, e.nouvelleValeur]);
+
+  beforeAll(async () => {
+    id = (await prisma.employee.create({
+      data: {
+        matricule: "AR01-PEF", nom: "Aller Retour", sexe: "F", etatCivil: "Célibataire",
+        poste: "Comptable", secteur: "Administration", categorie: "BACKOFFICE",
+        salaireMensuel: 300, dateEmbauche: new Date("2024-01-01"), contrat: "CDI",
+        fraisMedicauxMoisCourant: 30,
+      },
+    })).id;
+    await prisma.fraisMedical.create({ data: { employeeId: id, montantUSD: 10, mois: 7, annee: 2026, motif: "Consultation" } });
+    await rafraichirPaieDuMois({ creerRun: false });
+  });
+
+  it("valider : fiche remise à zéro (tracé), ligne à 40 $", async () => {
+    const l = await ligneAR();
+    expect(Number(l.fraisMedicauxUSD)).toBe(40);
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    expect(await fiche()).toBe(0);
+    expect(await journalFiche()).toEqual([["30", "0"]]);
+  });
+
+  it("rouvrir : les 30 $ de la fiche reviennent (tracé), pas les 40 $ de la ligne", async () => {
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "PAS_VALIDE" }));
+    expect(await fiche()).toBe(30);
+    expect(await journalFiche()).toEqual([["30", "0"], ["0", "30"]]);
+  });
+
+  it("revalider tout de suite (sans recalcul) : le contrôle du montant passe, la fiche retombe à zéro une fois", async () => {
+    const l = await ligneAR();
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    expect((await ligneAR()).statutPaiement).toBe("VALIDE");
+    expect(Number((await ligneAR()).fraisMedicauxUSD)).toBe(40);
+    expect(await fiche()).toBe(0);
+  });
+
+  it("rouvrir puis recalculer (ouverture de /paie) : la ligne recalculée retrouve exactement 40 $, puis se revalide", async () => {
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "PAS_VALIDE" }));
+    await rafraichirPaieDuMois({ creerRun: false });
+    const l = await ligneAR();
+    expect(Number(l.fraisMedicauxUSD)).toBe(40); // ni 30 (perdus), ni 70 (doublés)
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    expect(await fiche()).toBe(0);
+    expect(Number((await ligneAR()).fraisMedicauxUSD)).toBe(40);
+  });
+
+  it("annuler un paiement (PAYÉ → VALIDÉ) : la ligne reste figée, la fiche ne bouge pas", async () => {
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "PAYE" }));
+    await prisma.employee.update({ where: { id }, data: { fraisMedicauxMoisCourant: 5 } }); // saisi depuis, pour un autre bulletin
+    const avantJournal = await journalFiche();
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "VALIDE" }));
+    const l = await ligneAR();
+    expect(l.statutPaiement).toBe("VALIDE");
+    expect(Number(l.fraisMedicauxUSD)).toBe(40);
+    expect(await fiche()).toBe(5);
+    expect(await journalFiche()).toEqual(avantJournal);
+  });
+
+  it("rouvrir après une annulation de paiement : restitue ce que la dernière VALIDATION a remis à zéro, ajouté à la fiche", async () => {
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "PAS_VALIDE" }));
+    expect(await fiche()).toBe(35); // 5 saisis depuis + 30 restitués
+    await rafraichirPaieDuMois({ creerRun: false });
+    expect(Number((await ligneAR()).fraisMedicauxUSD)).toBe(45); // 35 de la fiche + 10 de la table
+  });
+});

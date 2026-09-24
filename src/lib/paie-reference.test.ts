@@ -198,7 +198,7 @@ describe("paie sur heures planifiées — propriétés", () => {
     }));
     expect(r.source).toBe("CONTRAT_REPLI");
     expect(r.motif).toBe("Planning incomplet : semaine du 21/09 sans créneau");
-    expect(r.avertissements).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
+    expect(r.avertissements).toEqual([{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Planning incomplet : semaine du 21/09 sans créneau" }]);
     expect(r.heuresReference).toBe(208);
   });
 
@@ -592,7 +592,7 @@ describe("paie sur heures planifiées — propriétés", () => {
     const r = calculerReferenceMois(type6j({}, { dateFinContrat: new Date("2026-09-28T00:00:00Z") }));
     expect(r.source).toBe("CONTRAT_REPLI");
     expect(r.motif).toBe("Fin de contrat le 28/09/2026 : mois incomplet");
-    expect(r.avertissements).toEqual([{ code: "REPLI_CONTRAT", message: "Référence contrat (repli) — Fin de contrat le 28/09/2026 : mois incomplet" }]);
+    expect(r.avertissements).toEqual([{ code: "REPLI_CONTRAT", message: "Heures contrat (repli) — Fin de contrat le 28/09/2026 : mois incomplet" }]);
   });
 
   it("contrat qui finit le dernier jour du mois, ou plus tard → pas de repli", () => {

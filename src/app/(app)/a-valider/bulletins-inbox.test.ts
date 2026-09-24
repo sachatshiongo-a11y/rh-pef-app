@@ -20,7 +20,7 @@ describe("/a-valider : la validation rappelle les avertissements", () => {
 
   it("les deux boutons « Valider » (lot et ligne) passent par cette confirmation", () => {
     const boutons = [...s.matchAll(/<BoutonValider onClick=\{\(\) => ([^}]+)\}/g)].map((m) => m[1]);
-    expect(boutons).toEqual(["lancer([...selection])", "lancer([r.id])"]);
+    expect(boutons).toEqual(["lancer(idsSelection)", "lancer([r.id])"]);
   });
 
   it("rien de recopié : ni message ni filtre maison", () => {
