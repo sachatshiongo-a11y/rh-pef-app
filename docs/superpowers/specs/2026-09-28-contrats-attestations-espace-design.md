@@ -116,6 +116,19 @@ Modèle `Attestation` (schéma `public`, protégé par RLS comme les autres tabl
 - **Registre** : la fiche employé liste ses attestations (numéro, type, date, qui). `/documents` reçoit un onglet « Attestations » : registre de toutes les attestations, filtres type et statut, export Excel.
 - **L'ancien libre-service disparaît** : `espace/attestation/[type]` est supprimé, et son lien aussi. L'attestation de paie mensuelle de la Direction exige désormais une ligne VALIDE ou PAYE.
 
+### 4.3 bis Attestation de salaire en libre-service (décision de la Direction du 2026-09-28, après livraison)
+
+La règle « le salarié demande, la Direction délivre » reste celle de l'attestation de **travail** et de **stage**. L'attestation de **salaire** s'obtient désormais **tout de suite**, sans validation :
+
+- **Écran** : « Mes attestations » ouvre sur « Attestation de salaire » et un bouton « Obtenir mon attestation de salaire ». Le formulaire de demande ne propose plus que travail et stage ; une demande de salaire envoyée quand même est refusée par un message qui renvoie au bouton.
+- **Moteur** : le même, `delivrerAttestation(db, { employeeId, type: "SALAIRE", parId, libreService: true })`. Aucune logique n'est dupliquée : même éligibilité (`instantaneAttestation` : dernière paie VALIDE ou PAYE, à partir de `paie_reference_planning_depuis`, brut hors transport, stagiaire ou intérimaire refusé), même numéro tiré de la séquence de l'année, même instantané, même exemplaire figé, même PDF et même signature.
+- **Une attestation par mois de paie** : sous le verrou de la ligne Employee (celui de la délivrance directe), si une attestation de salaire DÉLIVRÉE existe déjà pour la même ligne de paie ET les mêmes montants imprimés, c'est **elle** qui est rendue (`existante: true`) : même numéro, rien d'écrit. Un double clic (deux transactions simultanées) attend le verrou puis trouve la première. Une paie rouverte et corrigée (montants différents) ou une nouvelle paie validée donne une nouvelle attestation.
+- **Traçabilité** : `delivreeParId` = le compte du salarié ; `donnees.libreService = true` et `aSaDemande = true` ; journal `delivrance` = « ATT-… (libre-service) » ; le registre et la fiche affichent « Libre-service ».
+- **Direction** : informée par sa cloche (« X a obtenu son attestation de salaire ATT-… en libre-service », lien vers la fiche). Le salarié, auteur du geste, n'est pas notifié.
+- **Demande de salaire déjà en attente** (antérieure au libre-service) : le libre-service ne la reprend pas et ne la refuse pas ; elle reste à la Direction.
+- **Refus** : lisible, rien n'est écrit (« Aucune paie validée depuis … : la Direction doit d'abord valider la paie. »).
+- **Accès** : `employeeId` vient du compte connecté, jamais du navigateur ; le téléchargement passe par `/espace/attestations/[id]` (contrôle de propriété).
+
 ### 4.4 Accès
 
 - L'exemplaire figé d'une attestation n'est téléchargeable que par son titulaire (route de l'espace, contrôle de propriété fait sur la base) et par la RH.
@@ -136,6 +149,7 @@ Modèle `Attestation` (schéma `public`, protégé par RLS comme les autres tabl
 - Salaire : dernière paie VALIDE ou PAYE (un brouillon plus récent est ignoré) ; aucune paie validée → refus ; stagiaire → refus.
 - Travail : date d'embauche ; en poste ; sorti ; aucune date → refus.
 - Propriété : un salarié ne télécharge pas l'attestation d'un collègue ; l'ancienne route libre-service n'existe plus.
+- Libre-service (salaire) : délivrance immédiate ; la même au second clic, sans nouveau numéro ; double clic simultané sur deux connexions → une seule attestation ; refus lisible sans paie validée ; un salarié n'obtient que la sienne ; paie revue ou mois suivant → nouvelle attestation ; demande en attente ni reprise ni refusée.
 - PDF : numéro et mention présents, aucune police de repli.
 
 ## Hors périmètre

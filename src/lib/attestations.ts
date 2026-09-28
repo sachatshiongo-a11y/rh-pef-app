@@ -208,7 +208,17 @@ async function prochainRang(tx: Lecture, annee: number): Promise<number> {
   return Number(dernier);
 }
 
-export type ResultatDelivrance = { ok: true; id: string; numero: string } | (Refus & { refusee?: boolean });
+/**
+ * `existante` : en libre-service, l'attestation de salaire de CE mois de paie était déjà délivrée —
+ * c'est LA MÊME qui est rendue (même numéro), rien n'est écrit.
+ */
+export type ResultatDelivrance = { ok: true; id: string; numero: string; existante?: boolean } | (Refus & { refusee?: boolean });
+
+/** Deux instantanés de salaire identiques (mois de paie ET montants imprimés). */
+function memeSalaire(a: DonneesAttestation["salaire"] | undefined, b: DonneesAttestation["salaire"] | undefined): boolean {
+  return !!a && !!b && a.mois === b.mois && a.annee === b.annee && a.netUSD === b.netUSD && a.brutUSD === b.brutUSD
+    && a.allocationsUSD === b.allocationsUSD && a.tauxChange === b.tauxChange;
+}
 
 /**
  * DÉLIVRE une attestation : une demande existante (`attestationId`) ou, directement par la
@@ -224,11 +234,27 @@ export type ResultatDelivrance = { ok: true; id: string; numero: string } | (Ref
  */
 export async function delivrerAttestation(
   db: PrismaClient,
-  p: { attestationId?: string; employeeId?: string; type?: TypeAttestation; parId: string; maintenant?: Date },
+  p: {
+    attestationId?: string;
+    employeeId?: string;
+    type?: TypeAttestation;
+    parId: string;
+    maintenant?: Date;
+    /**
+     * LIBRE-SERVICE (décision Direction 2026-09-28) : le salarié obtient lui-même son attestation de
+     * SALAIRE, sans validation. Délivrance directe, mêmes règles et même verrou ; UNE attestation par
+     * mois de paie — si elle existe déjà (même paie, mêmes montants), c'est elle qui est rendue.
+     * La Direction est informée par sa cloche au lieu de prévenir le salarié, qui est l'auteur.
+     */
+    libreService?: boolean;
+  },
 ): Promise<ResultatDelivrance> {
   const maintenant = p.maintenant ?? new Date();
+  if (p.libreService && (p.attestationId || p.type !== "SALAIRE")) {
+    return { ok: false, motif: "Seule l'attestation de salaire s'obtient en libre-service." };
+  }
   const r = await db.$transaction(async (tx): Promise<
-    | { ok: true; id: string; numero: string; donnees: DonneesAttestation; employeeId: string; type: TypeAttestation }
+    | { ok: true; id: string; numero: string; existante?: boolean; donnees?: DonneesAttestation; employeeId: string; type: TypeAttestation }
     | (Refus & { refusee?: boolean; employeeId?: string; type?: TypeAttestation; id?: string })
   > => {
     let employeeId: string;
@@ -253,7 +279,11 @@ export async function delivrerAttestation(
       // DEMANDEE. Sinon la délivrance directe crée SA propre attestation : un numéro déjà délivré
       // n'est jamais écrasé, une demande refusée ne repasse jamais délivrée.
       await verrouillerEmploye(tx, employeeId);
-      const enAttente = await tx.attestation.findFirst({ where: { employeeId, type, statut: "DEMANDEE" }, select: { id: true } });
+      // En libre-service, une demande en attente n'est PAS reprise : un refus d'éligibilité la
+      // refuserait par le clic du salarié lui-même. Elle reste à la Direction.
+      const enAttente = p.libreService
+        ? null
+        : await tx.attestation.findFirst({ where: { employeeId, type, statut: "DEMANDEE" }, select: { id: true } });
       if (enAttente) {
         await tx.$queryRaw`SELECT "id" FROM "public"."Attestation" WHERE "id" = ${enAttente.id} FOR UPDATE`;
         const relue = await tx.attestation.findUnique({ where: { id: enAttente.id }, select: { statut: true } });
@@ -273,9 +303,26 @@ export async function delivrerAttestation(
       return { ...eligible, refusee: true, employeeId, type, id: demandeId };
     }
 
+    // Libre-service : l'attestation de ce mois de paie existe déjà → la même, sans nouveau numéro.
+    // Lue APRÈS le verrou de la ligne Employee (pris plus haut, délivrance directe) : un double clic
+    // attend la première transaction, puis trouve ce qu'elle a écrit.
+    if (p.libreService) {
+      const deja = await tx.attestation.findMany({
+        where: { employeeId, type: "SALAIRE", statut: "DELIVREE", payrollLineId: eligible.payrollLineId, numero: { not: null } },
+        orderBy: { delivreeLe: "desc" },
+        select: { id: true, numero: true, donnees: true },
+      });
+      const meme = deja.find((d) => memeSalaire((d.donnees as DonneesAttestation | null)?.salaire, eligible.donnees.salaire));
+      if (meme?.numero) return { ok: true, id: meme.id, numero: meme.numero, existante: true, employeeId, type };
+    }
+
     const numero = numeroAttestation(jourCivilKinshasa(maintenant).getUTCFullYear(), await prochainRang(tx, jourCivilKinshasa(maintenant).getUTCFullYear()));
     // « à sa demande » : seulement quand l'attestation répond à une demande du salarié.
-    const donnees: DonneesAttestation = { ...eligible.donnees, aSaDemande: demandeId !== null };
+    const donnees: DonneesAttestation = {
+      ...eligible.donnees,
+      aSaDemande: demandeId !== null || !!p.libreService,
+      ...(p.libreService ? { libreService: true } : {}),
+    };
     const data = {
       statut: "DELIVREE" as const,
       numero,
@@ -293,7 +340,13 @@ export async function delivrerAttestation(
     } else {
       a = await tx.attestation.create({ data: { ...data, employeeId, type, demandeLe: maintenant, demandeParId: p.parId } });
     }
-    await journaliser(tx, { entite: "Attestation", entiteId: a.id, champ: "delivrance", nouvelleValeur: numero, userId: p.parId });
+    await journaliser(tx, {
+      entite: "Attestation",
+      entiteId: a.id,
+      champ: "delivrance",
+      nouvelleValeur: p.libreService ? `${numero} (libre-service)` : numero,
+      userId: p.parId,
+    });
     return { ok: true, id: a.id, numero, donnees, employeeId, type };
   }).catch((e: unknown) => {
     // Ceinture de l'écriture conditionnée : une demande traitée entre-temps revient en MESSAGE.
@@ -310,7 +363,13 @@ export async function delivrerAttestation(
     return { ok: false, motif: r.motif };
   }
 
+  if (r.existante || !r.donnees) return { ok: true, id: r.id, numero: r.numero, existante: true };
+
   await figerAttestation(db, { id: r.id, donnees: r.donnees, numero: r.numero, delivreeLe: maintenant });
+  if (p.libreService) {
+    await informerDirectionLibreService(r.id, r.donnees.nom, r.employeeId, r.numero);
+    return { ok: true, id: r.id, numero: r.numero };
+  }
   await apresTraitement(r.id, r.employeeId, `Votre ${NOM_TYPE_ATTESTATION[r.type]} (${r.numero}) est disponible`);
   return { ok: true, id: r.id, numero: r.numero };
 }
@@ -358,6 +417,23 @@ async function apresTraitement(attestationId: string, employeeId: string, messag
     if (userId) await notifierSalarie(userId, { type: "AUTRE", message, lien: "/espace/attestations", refId: `attestation:${attestationId}:traitee` });
   } catch {
     // La décision est enregistrée ; le salarié la verra dans « Mes attestations ».
+  }
+}
+
+/**
+ * Libre-service : la Direction est informée (cloche) de l'attestation que le salarié vient
+ * d'obtenir. Jamais bloquant.
+ */
+async function informerDirectionLibreService(attestationId: string, nom: string, employeeId: string, numero: string): Promise<void> {
+  try {
+    await creerNotification({
+      type: "AUTRE",
+      message: `${nom} a obtenu son attestation de salaire ${numero} en libre-service.`,
+      lien: `/employes/${employeeId}?tab=contrats`,
+      refId: `attestation:${attestationId}:libre-service`,
+    });
+  } catch {
+    // L'attestation est délivrée et journalisée ; elle figure au registre.
   }
 }
 

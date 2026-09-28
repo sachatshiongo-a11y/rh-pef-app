@@ -1,4 +1,5 @@
 import { FilAriane } from "@/components/fil-ariane";
+import { estLibreService } from "@/lib/attestations-donnees";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -177,7 +178,7 @@ export default async function FicheEmployePage({
           type: a.type,
           statut: a.statut,
           date: jourKinshasa(a.statut === "DEMANDEE" ? a.demandeLe : (a.delivreeLe ?? a.updatedAt)),
-          par: a.statut === "DEMANDEE" ? (a.demandePar?.nom ?? null) : (a.delivreePar?.nom ?? null),
+          par: a.statut === "DEMANDEE" ? (a.demandePar?.nom ?? null) : estLibreService(a.donnees) ? "Libre-service (le salarié)" : (a.delivreePar?.nom ?? null),
           motifRefus: a.motifRefus,
         }))
       : [];

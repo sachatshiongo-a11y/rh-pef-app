@@ -3,7 +3,7 @@ import "server-only";
 import type { Prisma, StatutAttestation, TypeAttestation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
-import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION, estTypeAttestation } from "@/lib/attestations-donnees";
+import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION, estTypeAttestation, estLibreService } from "@/lib/attestations-donnees";
 
 // REGISTRE DES ATTESTATIONS — une seule lecture pour l'onglet « Attestations » de /documents et
 // son export Excel : le fichier contient exactement ce que l'écran montre (mêmes filtres).
@@ -50,7 +50,9 @@ export function ligneRegistre(a: LigneRegistre): string[] {
     a.employee.nom,
     jourKinshasa(a.demandeLe),
     a.statut === "DEMANDEE" ? "—" : jourKinshasa(a.delivreeLe ?? a.updatedAt),
-    a.delivreePar?.nom ?? (a.statut === "DEMANDEE" ? "—" : "compte supprimé"),
+    estLibreService(a.donnees)
+      ? `Libre-service (${a.employee.nom})`
+      : a.delivreePar?.nom ?? (a.statut === "DEMANDEE" ? "—" : "compte supprimé"),
     a.motifRefus ?? "",
   ];
 }
