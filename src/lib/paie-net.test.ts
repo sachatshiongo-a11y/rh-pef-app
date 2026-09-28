@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import { salaireDeBaseUSD, salaireNetUSD, salaireNetCDF, totalVerseUSD } from "./paie-net";
+import { salaireDeBaseUSD, salaireNetUSD, salaireNetCDF, totalVerseUSD, salaireNetHabituelUSD } from "./paie-net";
 
 // Ligne RÉELLE de la paie de septembre 2026 (Aimée Mutita) : 368,50 versés dont 114,78 de transport.
 const aimee = { salNetUSD: 368.5, transportUSD: 114.78 };
@@ -80,5 +80,22 @@ describe("salaireDeBaseUSD — le salaire de base imprimé s'additionne au brut"
   it("brigade : toujours le montant stocké, jamais une différence", () => {
     expect(salaireDeBaseUSD({ ...gode, remuneration100: "0.00", salBrutUSD: "50.00" }, "BRIGADE")).toBe(0);
     expect(salaireDeBaseUSD({ ...gode, remuneration100: "174.88", salBrutUSD: "310.53", transportUSD: "135.65" }, "BRIGADE")).toBe(174.88);
+  });
+});
+
+describe("paie-net — salaire net HABITUEL (attestation de salaire, décision 2026-09-28)", () => {
+  // Acompte et retenue de prêt sont des AVANCES remboursées, pas une baisse du salaire : une
+  // attestation qui les retrancherait ferait croire à une banque que le salarié gagne moins.
+  it("net hors transport, AVANT acompte et retenue de prêt", () => {
+    // versé 265 = net habituel 300 + transport 15 − acompte 40 − prêt 10
+    expect(salaireNetHabituelUSD({ salNetUSD: 265, transportUSD: 15, acompteUSD: 40, retenuePretUSD: 10 })).toBe(300);
+  });
+  it("sans avance, égal au salaire net du bulletin", () => {
+    const l = { salNetUSD: 305, transportUSD: 15, acompteUSD: 0, retenuePretUSD: 0 };
+    expect(salaireNetHabituelUSD(l)).toBe(salaireNetUSD(l));
+  });
+  it("accepte les Decimal de Prisma", () => {
+    const d = (v: string) => ({ toString: () => v });
+    expect(salaireNetHabituelUSD({ salNetUSD: d("265.50"), transportUSD: d("15"), acompteUSD: d("40.25"), retenuePretUSD: d("10") })).toBeCloseTo(300.75, 10);
   });
 });

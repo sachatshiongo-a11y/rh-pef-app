@@ -1,7 +1,7 @@
 import "server-only";
 
 import { Prisma, type PrismaClient, type TypeAttestation } from "@prisma/client";
-import { salaireNetUSD } from "@/lib/paie-net";
+import { salaireNetHabituelUSD } from "@/lib/paie-net";
 import { libelleTypeContrat } from "@/lib/contrats-classement";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { journaliser } from "@/lib/audit";
@@ -90,7 +90,9 @@ export async function instantaneAttestation(
     donnees.salaire = {
       mois: ligne.payrollRun.mois,
       annee: ligne.payrollRun.annee,
-      netUSD: usd(salaireNetUSD(ligne)),
+      // Le salaire HABITUEL : net hors transport, AVANT acompte et retenue de prêt (des avances,
+      // pas une baisse du salaire) — `lib/paie-net`, décision de la Direction du 2026-09-28.
+      netUSD: usd(salaireNetHabituelUSD(ligne)),
       brutUSD: usd(ligne.salBrutUSD),
       allocationsUSD: usd(ligne.allocFamilialeUSD),
       tauxChange: usd(ligne.payrollRun.tauxChangeUtilise),

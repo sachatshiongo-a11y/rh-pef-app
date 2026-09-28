@@ -1,11 +1,11 @@
-import { verifySession, estRH } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { chargerRegistre, filtresRegistre, ENTETE_REGISTRE, ligneRegistre } from "../_registre";
 
 /** Export Excel du registre des attestations — FIDÈLE à l'onglet (mêmes filtres type et statut). */
 export async function GET(request: Request) {
-  const user = await verifySession();
-  if (!estRH(user.role)) return new Response("Accès refusé", { status: 403 });
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const filtres = filtresRegistre(new URL(request.url).searchParams);
   const lignes = (await chargerRegistre(filtres)).map(ligneRegistre);
   const buf = await classeurExcel({

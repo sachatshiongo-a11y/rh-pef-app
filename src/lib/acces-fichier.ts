@@ -18,7 +18,9 @@ import { estRH, estStock } from "@/lib/espaces";
  *      DocumentEmploye.fichierUrl (« Autres documents » de son espace, certificats envoyés),
  *      Contrat.documentUrl (« pièce jointe » de son espace) et Contrat.pdfAccepteUrl,
  *      FraisMedical.certificatUrl, SignatureElectronique.traceUrl (son propre tracé).
- *    Volontairement EXCLUS, même quand ils le concernent : DossierDisciplinaire.documentUrl,
+ *    Volontairement EXCLUS, même quand ils le concernent : Attestation.pdfUrl (l'exemplaire figé
+ *    d'une attestation se télécharge par `/espace/attestations/[id]`, qui contrôle la propriété et
+ *    régénère depuis l'instantané si le stockage flanche — un seul chemin, pas deux), DossierDisciplinaire.documentUrl,
  *    Evaluation.documentUrl et TransitionPaie.preuveUrl (une preuve de virement peut couvrir un
  *    LOT de salaires, donc ceux des collègues). L'espace salarié ne les propose nulle part ; les
  *    ouvrir est une décision de la Direction, pas un effet de bord de cette route.

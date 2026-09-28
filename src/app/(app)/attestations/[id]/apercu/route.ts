@@ -1,4 +1,4 @@
-import { verifySession, estRH } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { prisma } from "@/lib/prisma";
 import { instantaneAttestation } from "@/lib/attestations";
 import { rendreAttestationPdf } from "@/lib/pdf/attestation-buffer";
@@ -9,8 +9,8 @@ import { rendreAttestationPdf } from "@/lib/pdf/attestation-buffer";
  * son motif, en texte : c'est exactement ce que la délivrance refuserait.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  if (!estRH(user.role)) return new Response("Accès refusé", { status: 403 });
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const { id } = await params;
   const a = await prisma.attestation.findUnique({ where: { id }, select: { employeeId: true, type: true } });
   if (!a) return new Response("Demande introuvable", { status: 404 });

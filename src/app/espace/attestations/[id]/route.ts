@@ -1,5 +1,4 @@
-import { verifySession, estSalarie } from "@/lib/auth";
-import { espaceEmployeActif } from "@/lib/espace-employe";
+import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { prisma } from "@/lib/prisma";
 import { exemplaireAttestation } from "@/lib/pdf/attestation-buffer";
 
@@ -9,10 +8,9 @@ import { exemplaireAttestation } from "@/lib/pdf/attestation-buffer";
  * `/fichiers` au salarié : c'est cette route, et elle seule, qui le lui sert.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user) || !user.employeeId) {
-    return new Response("Accès refusé", { status: 403 });
-  }
+  const g = await exigerEspaceSalarie();
+  if (!g.ok) return g.reponse;
+  const user = g.user;
   const { id } = await params;
   const a = await prisma.attestation.findUnique({ where: { id } });
   // Inconnue ou à un collègue : même réponse, qui ne dit pas laquelle des deux.

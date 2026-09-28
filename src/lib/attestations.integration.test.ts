@@ -62,14 +62,18 @@ async function contrat(employeeId: string, type: "CDI" | "CDD" | "STAGE" | "INTE
     data: { employeeId, type, dateDebut: new Date(debut), dateFin: fin ? new Date(fin) : null, heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Cuisinière", statut },
   });
 }
-async function paie(employeeId: string, mois: number, annee: number, statut: "PAS_VALIDE" | "VALIDE" | "PAYE", net = 290, brut = 330, alloc = 0) {
+async function paie(employeeId: string, mois: number, annee: number, statut: "PAS_VALIDE" | "VALIDE" | "PAYE", net = 290, brut = 330, alloc = 0, avances: { acompte?: number; pret?: number } = {}) {
+  // `net` = salaire net habituel ; le net stocké (versé) retranche transport, acompte et prêt comme le moteur.
+  const acompte = avances.acompte ?? 0;
+  const pret = avances.pret ?? 0;
   const run =
     (await prisma.payrollRun.findUnique({ where: { mois_annee: { mois, annee } } })) ??
     (await prisma.payrollRun.create({ data: { mois, annee, statut: "BROUILLON", tauxChangeUtilise: 2800 } }));
   return prisma.payrollLine.create({
     data: {
       payrollRunId: run.id, employeeId, statutPaiement: statut, transportUSD: 15, salBrutUSD: brut, cnssSalarieUSD: 15,
-      netImposableUSD: 285, iprCalculeUSD: 10, allocFamilialeUSD: alloc, salNetUSD: net + 15, salNetCDF: (net + 15) * 2800,
+      netImposableUSD: 285, iprCalculeUSD: 10, allocFamilialeUSD: alloc, acompteUSD: acompte, retenuePretUSD: pret,
+      salNetUSD: net + 15 - acompte - pret, salNetCDF: (net + 15 - acompte - pret) * 2800,
       cnssPatronalUSD: 36, coutEmployeurUSD: 336, coutEmployeurCDF: 940800,
     },
   });
@@ -176,6 +180,15 @@ describe("attestation de salaire", () => {
         salaire: { mois: 8, annee: 2026, netUSD: "290.00", brutUSD: "330.00", allocationsUSD: "4.50", tauxChange: "2800.00" },
       }),
     });
+  });
+
+  it("net HABITUEL : acompte et retenue de prêt ne diminuent pas le salaire attesté", async () => {
+    const a = await salarie();
+    // Versé 205 $ = 300 net + 15 transport − 80 acompte − 30 prêt.
+    const l = await paie(a, 8, 2026, "PAYE", 300, 340, 0, { acompte: 80, pret: 30 });
+    expect(Number(l.salNetUSD)).toBe(205);
+    const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+    expect(r.ok && r.donnees.salaire).toEqual(expect.objectContaining({ netUSD: "300.00", brutUSD: "340.00" }));
   });
 
   it("aucune paie validée → refus", async () => {
