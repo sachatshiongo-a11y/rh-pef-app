@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { validerBonCommande } from "../commandes/actions";
 import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function AValiderPage() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   const estDirection = user.role === "ADMIN";
 
   const brouillons = await prisma.bonDeCommande.findMany({

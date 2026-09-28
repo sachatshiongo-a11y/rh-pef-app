@@ -1,18 +1,18 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { qte, usd } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { SupprimerAchatBtn } from "./supprimer-achat-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { periode?: string };
 
 
 export default async function EntreePage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
@@ -22,6 +21,7 @@ import { salaireDeBaseUSD, salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@
 import { lireAvertissements } from "@/lib/paie-avertissements";
 import { BadgeReference } from "./avertissements-paie";
 import { messageConfirmationValidation } from "./avertissements-validation";
+import { exigerPageRH } from "@/lib/garde-page";
 
 // Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
 // bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
@@ -34,7 +34,7 @@ export default async function PaiePage({
 }: {
   searchParams: Promise<{ vue?: string; erreur?: string; msg?: string } & SPHistorique>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const sp = await searchParams;
   const vue = sp.vue ?? "bulletins";
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";

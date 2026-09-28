@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { ReconciliationForm } from "./reconciliation-client";
 import { ImportInventaireClient } from "../imports/import-client";
 import type { Prisma } from "@prisma/client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { domaine?: string };
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 

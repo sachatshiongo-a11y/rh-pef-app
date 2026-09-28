@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { NouvelleFactureForm } from "./nouveau-client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 function delaiEnJours(s: string | null): number | null {
   if (!s) return null;
@@ -11,6 +12,7 @@ function delaiEnJours(s: string | null): number | null {
 }
 
 export default async function NouvelleFacturePage({ searchParams }: { searchParams: Promise<{ bc?: string }> }) {
+  await exigerPageStock();
   const { bc } = await searchParams;
   const [articles, fournisseurs, bons] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true } }),

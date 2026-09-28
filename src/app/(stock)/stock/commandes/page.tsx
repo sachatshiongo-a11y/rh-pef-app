@@ -3,15 +3,15 @@ import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { ImportBonsCommandeBtn } from "./import-bc-btn";
 import { CommandesListe } from "./commandes-liste";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import type { Prisma } from "@prisma/client";
 import { MOIS_FR_MAJ as MOIS } from "@/lib/dates-fr";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { annee?: string; mois?: string; fournisseurId?: string };
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const annee = sp.annee && /^\d{4}$/.test(sp.annee) ? Number(sp.annee) : undefined;
   const mois = sp.mois && /^\d{1,2}$/.test(sp.mois) ? Number(sp.mois) : undefined;

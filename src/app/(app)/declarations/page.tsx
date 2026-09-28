@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import { marquerDeclarationForm } from "./actions";
 import type { StatutDeclaration } from "@prisma/client";
+import { exigerPageRH } from "@/lib/garde-page";
 
 function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -27,7 +27,7 @@ export default async function DeclarationsPage({
 }: {
   searchParams: Promise<{ mois?: string; annee?: string; erreur?: string }>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 
