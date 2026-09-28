@@ -113,7 +113,7 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
                 ))}
               </select>
             </label>
-            <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2">Motif <span className="font-normal text-muted-foreground">(facultatif)</span>
+            <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2"><span>Motif <span className="font-normal text-muted-foreground">(facultatif)</span></span>
               <input type="text" name="motif" placeholder="ex. contrainte personnelle" className={inputCls} />
             </label>
             <div className="sm:col-span-2">
@@ -144,7 +144,7 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
                   {shiftsCibles.map((sh) => (<option key={sh.id} value={sh.id}>{sh.nom}{sh.heureDebut && sh.heureFin ? ` (${sh.heureDebut}–${sh.heureFin})` : ""}</option>))}
                 </select>
               </label>
-              <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2">Motif <span className="font-normal text-muted-foreground">(facultatif)</span>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2"><span>Motif <span className="font-normal text-muted-foreground">(facultatif)</span></span>
                 <input type="text" name="motif" placeholder="ex. contrainte personnelle" className={inputCls} />
               </label>
               <div className="sm:col-span-2">

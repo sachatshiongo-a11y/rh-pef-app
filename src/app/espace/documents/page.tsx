@@ -98,7 +98,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
           <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2">Photo ou PDF du certificat
             <input type="file" name="certificat" required accept=".pdf,.png,.jpg,.jpeg,.webp" className={`${inputCls} file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs`} />
           </label>
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2">Précision <span className="font-normal text-muted-foreground">(facultatif)</span>
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2"><span>Précision <span className="font-normal text-muted-foreground">(facultatif)</span></span>
             <input type="text" name="note" placeholder="ex. arrêt maladie du 14 au 16 juillet" className={inputCls} />
           </label>
           <div className="sm:col-span-2">

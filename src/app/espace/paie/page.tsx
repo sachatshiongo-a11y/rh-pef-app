@@ -190,7 +190,7 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
           <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">Montant en dollars ($)
             <input type="number" inputMode="decimal" name="montantUSD" min="0" step="0.01" max={plafondAcompte.disponibleUSD || undefined} required placeholder="ex. 50" className={inputCls} />
           </label>
-          <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">Motif <span className="font-normal text-muted-foreground">(facultatif)</span>
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium"><span>Motif <span className="font-normal text-muted-foreground">(facultatif)</span></span>
             <input type="text" name="motif" placeholder="ex. dépense imprévue" className={inputCls} />
           </label>
           <div className="sm:col-span-2">

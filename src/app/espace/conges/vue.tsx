@@ -101,7 +101,7 @@ export function VueMesConges({
           {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
           <ChampsDatesConge feries={feries} min={aujourdhui} labelDebut="Premier jour d'absence" labelFin="Dernier jour d'absence" labelJours="Nombre de jours" inputClassName={inputCls} />
           <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium sm:col-span-2">
-            Motif <span className="font-normal text-muted-foreground">(facultatif)</span>
+            <span>Motif <span className="font-normal text-muted-foreground">(facultatif)</span></span>
             <input type="text" name="motif" placeholder="ex. raison familiale" className={inputCls} />
           </label>
           <div className="sm:col-span-2">
