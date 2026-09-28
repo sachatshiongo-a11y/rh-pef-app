@@ -11,6 +11,7 @@ import { signerDocument } from "@/lib/signer-document";
 import { televerserFichier } from "@/lib/storage";
 import { journaliser } from "@/lib/audit";
 import { notifierSalarie, compteSalarieDe } from "@/lib/notifications";
+import { messageSignatureRecueillie, PAGE_CIBLE_SIGNATURE } from "@/lib/libelles-espace";
 
 function pagesConcernees(cible: CibleSignature, employeeId: string): string[] {
   switch (cible) {
@@ -81,8 +82,9 @@ export const faireSignerDocument = actionLisible(
     if (compte) {
       await notifierSalarie(compte, {
         type: "AUTRE",
-        message: `Votre document (${cible}) a été signé.`,
-        lien: "/espace",
+        // En clair, jamais le code de la cible (« DEMANDE_CONGE ») ; le lien mène à l'écran du document.
+        message: messageSignatureRecueillie(cible),
+        lien: PAGE_CIBLE_SIGNATURE[cible] ?? "/espace",
         refId: `signature:${cible}:${cibleId}`,
       });
     }

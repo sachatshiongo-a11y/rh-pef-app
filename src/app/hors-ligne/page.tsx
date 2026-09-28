@@ -21,6 +21,11 @@ export default function HorsLigne() {
       <p className="text-sm text-muted-foreground">
         Rien de ce que vous voyez ici n&apos;est enregistré sur cet appareil.
       </p>
+      {/* Un geste pour réessayer, sans chercher le bouton « recharger » d'une application installée
+          (il n'y en a pas). /entree rouvre le bon espace du compte une fois le réseau revenu. */}
+      <a href="/entree" className="mt-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground">
+        Réessayer
+      </a>
     </main>
   );
 }

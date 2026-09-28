@@ -18,7 +18,7 @@ export default async function MotDePassePage({ searchParams }: { searchParams: P
   const sp = await searchParams;
 
   return (
-    <div className="mx-auto min-h-screen max-w-md px-4 py-10">
+    <div className="mx-auto w-full max-w-md py-2 sm:py-8">
       <div className="rounded-2xl border bg-card p-6 shadow-sm">
         <h1 className="text-lg font-semibold">
           {premiereFois ? "Bienvenue — choisissez votre mot de passe" : "Changer mon mot de passe"}
@@ -37,15 +37,15 @@ export default async function MotDePassePage({ searchParams }: { searchParams: P
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Nouveau mot de passe
             <input type="password" name="motDePasse" required minLength={6} autoComplete="new-password"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-ring sm:text-sm" />
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Confirmer le mot de passe
             <input type="password" name="confirmation" required minLength={6} autoComplete="new-password"
-              className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring" />
+              className="w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-ring sm:text-sm" />
           </label>
-          <p className="text-xs text-muted-foreground">Au moins 6 caractères. Ne le partagez avec personne.</p>
-          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Enregistrer</button>
+          <p className="text-sm text-muted-foreground">Au moins 6 caractères. Gardez-le pour vous : ne le donnez à personne, même à un collègue.</p>
+          <button className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground">Enregistrer mon mot de passe</button>
         </form>
       </div>
     </div>

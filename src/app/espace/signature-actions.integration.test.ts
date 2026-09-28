@@ -270,7 +270,8 @@ describe("garde espaceEmployeActif — un appel DIRECT à l'action est bloqué, 
 
     F.espaceEmployeActif = false;
     try {
-      await expect(repondreEchange(ech.id, true)).rejects.toThrow();
+      // Le refus revient comme une VALEUR (lot 6 : erreurs retournées, jamais lancées vers l'écran).
+      expect(await repondreEchange(ech.id, true)).toEqual({ erreur: "Accès refusé." });
 
       const relu = await prisma.echangeCreneau.findUnique({ where: { id: ech.id } });
       expect(relu?.statut).toBe("EN_ATTENTE");
@@ -446,7 +447,10 @@ describe("repondreEchange — verrou de paie et trace du planning", () => {
     } });
     N.direction.length = 0;
 
-    await repondreEchange(ech.id, true);
+    // Le collègue est prévenu, à l'écran, que son accord n'a pas suffi (avant : rien ne se passait).
+    expect(await repondreEchange(ech.id, true)).toEqual({
+      info: "Votre accord est enregistré, mais le planning de ce jour est verrouillé : la Direction est prévenue et décidera.",
+    });
 
     const relu = await prisma.echangeCreneau.findUniqueOrThrow({ where: { id: ech.id } });
     expect([relu.statut, relu.reponseCollegue]).toEqual(["EN_ATTENTE", "ACCEPTE"]);

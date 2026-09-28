@@ -19,6 +19,6 @@ export const config = {
     // cassée sur ce téléphone, sans un seul message d'erreur. Aucune route de l'application ne se
     // termine par `.mjs` : seuls des fichiers statiques de `public/` sont concernés.
     // Vérifié par src/lib/chemins-publics.test.ts.
-    "/((?!_next/static|_next/image|favicon.ico|manifest.json|icons|sw.js|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mjs)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|manifest-espace.json|icons|sw.js|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mjs)$).*)",
   ],
 };
