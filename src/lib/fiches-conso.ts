@@ -1,0 +1,253 @@
+import { formaterNombre } from "@/lib/montant";
+import type { Colonne, PartieTableau } from "@/lib/pdf/tableau";
+import type { ConsommationReelle } from "@/lib/stock-restaurant";
+
+// Fiches de l'onglet Consommation (Stock → Conso. journalière), reproduites d'après les deux
+// classeurs de la Direction (2026-09-28) et remplies avec les données de l'application :
+//
+//   1. « PEF Rapport journalier cuisine et bar » — une feuille Cuisine, une feuille Bar ; une
+//      SEMAINE par fiche : « Semaine N », « Désignation/Date » puis une colonne par jour (jour abrégé
+//      + date), du lundi au samedi ; lignes regroupées par rubrique ; aucun total.
+//   2. « PEF Commande Journalière » — « Fiche commande cuisine » (Désignation/Date | Unité | Commande
+//      | Livraison) et « Fiche commande Bar » (Désignation | Commande | Livraison, sans unité) ; un
+//      JOUR par fiche (« Date : … », « Semaine N ») ; lignes regroupées par rubrique ; aucun total.
+//
+// Fonctions PURES (ni Prisma, ni React). Règles : l'inconnu s'écrit « — », jamais 0 ; une case
+// vide dit « rien ce jour-là » (rien commandé, rien livré) ; aucun rattachement n'est deviné.
+
+export type EspaceFiche = "CUISINE" | "BAR";
+
+/** Valeur d'une case : nombre connu, texte (unité), `null` = inconnu (« — »), "" = rien (case vide). */
+export type ValeurFiche = number | string | null;
+/** Une case de la fiche ; `ecart` : consommation négative (plus compté que reçu), signalée. */
+export type CaseFiche = { valeur: ValeurFiche; ecart?: boolean };
+export type RoleColonne = "cmd" | "liv" | "conso" | null;
+
+export type LigneFiche = { designation: string; cases: CaseFiche[] };
+export type SectionFiche = { titre: string; lignes: LigneFiche[] };
+
+/** Fiche prête à rendre en PDF et en Excel. */
+export type Fiche = {
+  /** Nom de la feuille Excel (celui du classeur). */
+  feuille: string;
+  /** Titre de la fiche (partie du PDF, titre de la feuille Excel). */
+  titre: string;
+  /** Colonnes après « Désignation ». */
+  colonnes: { entete: string; role: RoleColonne }[];
+  /** Libellé de la 1re colonne (« Désignation/Date » ou « Désignation », comme le classeur). */
+  enteteDesignation: string;
+  sections: SectionFiche[];
+};
+
+export const SANS_RUBRIQUE = "Sans catégorie";
+export const A_CLASSER = "À classer";
+
+const JOURS_COURTS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const JOURS_LONGS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+const jourPur = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+/** Numéro de semaine ISO (lundi → dimanche) d'une date PURE AAAA-MM-JJ. */
+export function semaineIso(iso: string): number {
+  const d = jourPur(iso);
+  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7)); // jeudi de la semaine
+  const premierJanvier = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return 1 + Math.floor((d.getTime() - premierJanvier.getTime()) / (7 * 86_400_000));
+}
+
+/** « Lun 21/09 » : jour abrégé et date, comme les deux lignes d'en-tête du classeur. */
+export function enteteJour(iso: string): string {
+  const d = jourPur(iso);
+  return `${JOURS_COURTS[(d.getUTCDay() + 6) % 7]} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
+/** « mardi 22 septembre 2026 ». */
+export function dateLongue(iso: string): string {
+  const d = jourPur(iso);
+  return `${JOURS_LONGS[(d.getUTCDay() + 6) % 7]} ${d.getUTCDate()} ${MOIS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/** Regroupe des lignes (déjà dans l'ordre voulu) en rubriques, à chaque changement de rubrique. */
+function enSections<T>(items: T[], rubrique: (t: T) => string, ligne: (t: T) => LigneFiche): SectionFiche[] {
+  const sections: SectionFiche[] = [];
+  for (const it of items) {
+    const titre = rubrique(it);
+    const derniere = sections[sections.length - 1];
+    if (derniere && derniere.titre === titre) derniere.lignes.push(ligne(it));
+    else sections.push({ titre, lignes: [ligne(it)] });
+  }
+  return sections;
+}
+
+// ─── 1. Rapport journalier cuisine et bar ────────────────────────────────────
+
+export type ArticleRapport = { id: string; designation: string; unite: string | null; categorie: string | null };
+
+/** Case de consommation : la quantité si elle est connue (signalée si négative), sinon « — ». */
+export function caseConso(c: ConsommationReelle): CaseFiche {
+  return c.etat === "CONNUE" ? { valeur: Number(c.quantite), ecart: c.negative } : { valeur: null };
+}
+
+/**
+ * Rapport journalier d'un espace du restaurant pour une semaine : la CONSOMMATION RÉELLE de chaque
+ * article du restaurant (comptages), jour par jour. `jours` : les 7 jours (lundi → dimanche).
+ * Comme le classeur, la fiche va du lundi au samedi ; le dimanche n'y est ajouté que s'il porte
+ * une consommation connue — une donnée n'est jamais cachée pour tenir dans le modèle.
+ * `articles` : articles ACTIFS de l'espace, dans l'ordre de l'écran « Stock restaurant ».
+ */
+export function ficheRapportJournalier(p: {
+  espace: EspaceFiche;
+  jours: string[];
+  articles: ArticleRapport[];
+  conso: (articleId: string, jour: string) => ConsommationReelle;
+}): Fiche {
+  const cases = new Map(p.articles.map((a) => [a.id, p.jours.map((j) => caseConso(p.conso(a.id, j)))]));
+  const dimancheConnu = [...cases.values()].some((c) => c[6] !== undefined && c[6].valeur !== null);
+  const nbJours = dimancheConnu ? 7 : 6;
+  const libelle = p.espace === "CUISINE" ? "cuisine" : "bar";
+  return {
+    feuille: p.espace === "CUISINE" ? "Cuisine" : "Bar",
+    titre: `Rapport journalier ${libelle} — semaine ${semaineIso(p.jours[0]!)}`,
+    enteteDesignation: "Désignation/Date",
+    colonnes: p.jours.slice(0, nbJours).map((j) => ({ entete: enteteJour(j), role: "conso" as const })),
+    sections: enSections(
+      p.articles,
+      (a) => a.categorie?.trim() || SANS_RUBRIQUE,
+      (a) => ({ designation: `${a.designation}${a.unite ? ` (${a.unite})` : ""}`, cases: cases.get(a.id)!.slice(0, nbJours) }),
+    ),
+  };
+}
+
+// ─── 2. Commande journalière ─────────────────────────────────────────────────
+
+export type ArticleCommande = { id: string; designation: string; unite: string | null; categorie: string | null };
+export type LegumeCommande = { designation: string; unite: string | null; commande: number | null; livraison: number | null };
+
+const quantite = (q: number | null | undefined): ValeurFiche => (q ? q : "");
+
+/**
+ * Fiche commande d'un espace pour UN jour : pour chaque article, la quantité COMMANDÉE par le
+ * restaurant (onglet Commande) et la quantité LIVRÉE (sorties « Livraison restaurant » du jour).
+ * Case vide = rien commandé / rien livré ; unité absente du catalogue = « — ».
+ * Cuisine : colonne Unité et, en fin de fiche, les légumes frais (commande de l'onglet Commande,
+ * livraison = achats du jour, comme la Comparaison). Bar : pas de colonne Unité, comme le classeur.
+ */
+export function ficheCommandeJournaliere(p: {
+  espace: EspaceFiche;
+  date: string;
+  articles: ArticleCommande[];
+  commandes: Map<string, number>;
+  livraisons: Map<string, number>;
+  legumes?: LegumeCommande[];
+}): Fiche {
+  const cuisine = p.espace === "CUISINE";
+  const colonnes: Fiche["colonnes"] = [
+    ...(cuisine ? [{ entete: "Unité", role: null }] : []),
+    { entete: "Commande", role: "cmd" },
+    { entete: "Livraison", role: "liv" },
+  ];
+  // Unité : celle du catalogue, « — » quand elle n'y est pas renseignée.
+  const ligne = (designation: string, unite: string | null, cmd: ValeurFiche, liv: ValeurFiche): LigneFiche => ({
+    designation,
+    cases: [...(cuisine ? [{ valeur: unite?.trim() || null }] : []), { valeur: cmd }, { valeur: liv }],
+  });
+  const sections = enSections(
+    p.articles,
+    (a) => a.categorie?.trim() || A_CLASSER,
+    (a) => ligne(a.designation, a.unite, quantite(p.commandes.get(a.id)), quantite(p.livraisons.get(a.id))),
+  );
+  if (cuisine && p.legumes?.length) {
+    sections.push({ titre: "Légumes frais", lignes: p.legumes.map((l) => ligne(l.designation, l.unite, quantite(l.commande), quantite(l.livraison))) });
+  }
+  return {
+    feuille: cuisine ? "Fiche commande cuisine" : "Fiche commande Bar",
+    titre: `Commande ${cuisine ? "cuisine" : "bar"} — semaine ${semaineIso(p.date)}`,
+    enteteDesignation: cuisine ? "Désignation/Date" : "Désignation",
+    colonnes,
+    sections,
+  };
+}
+
+// ─── Rendu : PDF (une partie par fiche) et Excel (une feuille par fiche) ─────
+
+/** Couleurs des exports de la Conso. journalière : vert = commandé, rouge = livré, indigo = consommé. */
+export const COULEUR_PDF: Record<Exclude<RoleColonne, null>, string> = { cmd: "#1B7F3B", liv: "#B42318", conso: "#3730A3" };
+export const COULEUR_EXCEL: Record<Exclude<RoleColonne, null>, string> = { cmd: "FF1B7F3B", liv: "FFB42318", conso: "FF3730A3" };
+
+/** Texte d'une case dans le PDF : format maison, « — » pour l'inconnu, « (écart) » si négative. */
+export function texteCase(c: CaseFiche): string {
+  if (c.valeur === null) return "—";
+  if (typeof c.valeur === "string") return c.valeur;
+  const t = formaterNombre(c.valeur, { maximumFractionDigits: 3 });
+  return c.ecart ? `${t} (écart)` : t;
+}
+
+/** Valeur d'une case dans l'Excel : un NOMBRE quand il est connu (calculable), sinon le texte. */
+export function valeurExcel(c: CaseFiche): string | number {
+  return c.valeur === null ? "—" : c.valeur;
+}
+
+/** Lignes à plat (rubriques comprises) et indices des lignes de rubrique. */
+function aPlat<T>(f: Fiche, cellule: (c: CaseFiche) => T): { lignes: (string | T)[][]; sectionRows: number[] } {
+  const lignes: (string | T)[][] = [];
+  const sectionRows: number[] = [];
+  for (const s of f.sections) {
+    sectionRows.push(lignes.length);
+    lignes.push([s.titre]);
+    for (const l of s.lignes) lignes.push([l.designation, ...l.cases.map(cellule)]);
+  }
+  return { lignes, sectionRows };
+}
+
+/** Largeurs PDF : la désignation garde la place qu'il lui faut, les colonnes se partagent le reste. */
+function largeurs(f: Fiche): Colonne[] {
+  const n = f.colonnes.length;
+  const designation = n >= 7 ? 30 : n >= 6 ? 34 : n === 3 ? 52 : 60;
+  const reste = `${(100 - designation) / n}%`;
+  return [
+    { header: f.enteteDesignation, width: `${designation}%` },
+    ...f.colonnes.map((c) => ({ header: c.entete, width: reste, align: (c.role ? "right" : "center") as "right" | "center" })),
+  ];
+}
+
+/** Partie du PDF (une page ou plus, en-tête de colonnes répété) pour une fiche. */
+export function partiePdf(f: Fiche): PartieTableau {
+  const { lignes, sectionRows } = aPlat(f, texteCase);
+  return {
+    titre: f.titre,
+    colonnes: largeurs(f),
+    lignes,
+    sectionRows,
+    couleurCellule: (r, c) => {
+      // « — » reste discret : la couleur (et le gras) signale une quantité, pas son absence.
+      const role = c > 0 && lignes[r]?.[c] !== "—" ? f.colonnes[c - 1]?.role : null;
+      return role ? COULEUR_PDF[role] : undefined;
+    },
+  };
+}
+
+/**
+ * Feuille Excel d'une fiche : même contenu, nombres calculables. Les rubriques sont des lignes
+ * fusionnées, comme dans le classeur : pas d'autofiltre (un tri mélangerait les rubriques), le
+ * volet reste figé sur la ligne des colonnes. Aucune ligne de total : le classeur n'en a pas.
+ */
+export function feuilleExcel(f: Fiche): {
+  nom: string; titre: string; entete: string[]; lignes: (string | number)[][]; sectionRows: number[];
+  couleurTexteCellule: (r: number, c: number) => string | undefined;
+} {
+  const { lignes, sectionRows } = aPlat(f, valeurExcel);
+  const rubriques = new Set(sectionRows);
+  return {
+    nom: f.feuille,
+    titre: f.titre,
+    entete: [f.enteteDesignation, ...f.colonnes.map((c) => c.entete)],
+    lignes,
+    sectionRows,
+    couleurTexteCellule: (r, c) => {
+      if (rubriques.has(r) || c === 0) return undefined;
+      const role = f.colonnes[c - 1]?.role;
+      return role ? COULEUR_EXCEL[role] : undefined;
+    },
+  };
+}

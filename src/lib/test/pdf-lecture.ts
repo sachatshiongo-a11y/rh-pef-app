@@ -23,3 +23,45 @@ export async function pagesDuPdf(pdf: Buffer): Promise<{ lignes: string[]; plat:
     plat: p.text.replace(/\s+/g, " "),
   }));
 }
+
+/** Un morceau de texte posé sur une page : `y` = distance au HAUT de la page, en points. */
+export type TextePose = { page: number; texte: string; x: number; y: number };
+
+/**
+ * Textes du PDF avec leur POSITION : permet de vérifier la mise en page, pas seulement le texte
+ * (des rangées écrasées les unes sur les autres gardent tout leur texte, mais plus leur place).
+ */
+export async function textesPoses(pdf: Buffer): Promise<TextePose[]> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(pdf), useSystemFonts: false, isEvalSupported: false }).promise;
+  const sortie: TextePose[] = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n);
+    const hauteur = page.getViewport({ scale: 1 }).height;
+    const { items } = await page.getTextContent();
+    for (const it of items) {
+      if (!("str" in it) || !it.str.trim()) continue;
+      sortie.push({ page: n, texte: it.str.trim(), x: it.transform[4], y: hauteur - it.transform[5] });
+    }
+  }
+  await doc.destroy();
+  return sortie;
+}
+
+/**
+ * Plus petit écart vertical entre deux rangées CONSÉCUTIVES d'un tableau, sur chaque page :
+ * `repere` reconnaît le texte de la 1re colonne de chaque rangée (une date, un libellé…).
+ * Un tableau lisible a des rangées espacées d'au moins la hauteur de sa police ; un tableau
+ * écrasé (bloc insécable trop haut pour la page) tombe à quelques points, voire zéro.
+ */
+export function ecartMinimalEntreRangees(textes: TextePose[], repere: RegExp): number {
+  const parPage = new Map<number, number[]>();
+  for (const t of textes) if (repere.test(t.texte)) parPage.set(t.page, [...(parPage.get(t.page) ?? []), t.y]);
+  let min = Infinity;
+  for (const ys of parPage.values()) {
+    // Sans dédoublonner : deux rangées posées au MÊME endroit donnent un écart nul, pas un point.
+    const tries = [...ys].sort((a, b) => a - b);
+    for (let i = 1; i < tries.length; i++) min = Math.min(min, tries[i] - tries[i - 1]);
+  }
+  return min;
+}

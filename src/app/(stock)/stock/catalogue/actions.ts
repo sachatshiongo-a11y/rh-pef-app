@@ -89,6 +89,7 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
   }
   await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", userId: user.id });
   revalidatePath("/stock/catalogue");
+  revalidatePath(`/stock/catalogue/${id}`); // la fiche article se modifie aussi depuis elle-même
 });
 
 /** Fusionne plusieurs articles en un seul (pour les doublons sémantiques : crème fraîche = cooking
