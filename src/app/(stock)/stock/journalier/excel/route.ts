@@ -1,12 +1,12 @@
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { donneesJournalier } from "../export-data";
 
 const CMD = "FF1B7F3B", LIV = "FFB42318"; // vert = commande, rouge = livraison
 
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
   const d = await donneesJournalier(new URL(req.url).searchParams);
 
   const buf = await classeurExcel({

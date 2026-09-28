@@ -1,14 +1,14 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { AttestationPaieDocument } from "@/lib/pdf/attestation-paie";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { slugFichier } from "@/lib/texte";
 
 /** Attestation de paie d'UN MOIS (PDF) — dérivée de la ligne de paie réelle. Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; ligneId: string }> }) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  if (!g.ok) return g.reponse;
   const { id, ligneId } = await params;
 
   const ligne = await prisma.payrollLine.findUnique({

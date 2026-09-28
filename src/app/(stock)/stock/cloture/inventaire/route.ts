@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurInventaire, type FeuilleInventaire } from "@/lib/export-excel";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { MOIS_FR } from "@/lib/dates-fr";
@@ -18,8 +18,8 @@ const num = (n: number) => formaterNombre(Math.round(n * 1000) / 1000);
  * mouvements du même domaine dans la même feuille. Excel riche, PDF récapitulatif.
  */
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;
   const format = sp.get("format") === "pdf" ? "pdf" : "excel";

@@ -1,7 +1,7 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import JSZip from "jszip";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { BulletinDocument } from "@/lib/pdf/bulletin";
 import { chargerDonneesBulletinsDuMois, bulletinsPourPdf } from "@/lib/paie-bulletins";
 import { slugFichier } from "@/lib/texte";
@@ -9,7 +9,8 @@ import type { Devise } from "@/lib/pdf/theme";
 
 /** Tous les bulletins du mois courant, un fichier PDF SÉPARÉ par employé, regroupés dans un ZIP. */
 export async function GET(request: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const devise: Devise = new URL(request.url).searchParams.get("devise") === "CDF" ? "CDF" : "USD";
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });

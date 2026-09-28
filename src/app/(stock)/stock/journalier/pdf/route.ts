@@ -1,5 +1,5 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { donneesJournalier } from "../export-data";
 
@@ -7,8 +7,8 @@ import { donneesJournalier } from "../export-data";
 const CMD = "#1B7F3B", LIV = "#B42318";
 
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
   const d = await donneesJournalier(new URL(req.url).searchParams);
   const large = d.colonnes.length > 9;
 

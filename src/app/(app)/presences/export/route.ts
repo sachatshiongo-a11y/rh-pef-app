@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, reconstituerBrutDepuisNet, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { classeurExcel } from "@/lib/export-excel";
@@ -11,7 +11,8 @@ import { classeurExcel } from "@/lib/export-excel";
  * 3. « Détail hebdomadaire » : les heures supp. semaine par semaine.
  */
 export async function GET() {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const parametres = await chargerParametresPaie();

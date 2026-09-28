@@ -1,15 +1,13 @@
-import { verifySession, estSalarie } from "@/lib/auth";
-import { espaceEmployeActif } from "@/lib/espace-employe";
+import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { prisma } from "@/lib/prisma";
 import { chargerContratsClasses } from "@/lib/contrats-espace";
 
 /** Contrat de travail (PDF) du salarié pour SON espace — accès limité à ses propres contrats. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user) || !user.employeeId) {
-    return new Response("Accès refusé", { status: 403 });
-  }
+  const g = await exigerEspaceSalarie();
+  if (!g.ok) return g.reponse;
+  const user = g.user;
   const { id } = await params;
   // « Anciens » de « Mes contrats » : l'exemplaire figé s'il existe — seulement pour un contrat de
   // CE salarié que le classement range bien parmi les anciens (un contrat en vigueur se lit dans

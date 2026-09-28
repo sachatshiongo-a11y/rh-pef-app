@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurLivrePaie } from "@/lib/livre-paie-excel";
 
 /**
@@ -8,7 +8,8 @@ import { classeurLivrePaie } from "@/lib/livre-paie-excel";
  * par catégorie (Brigade, puis Back-office), chacun trié par nom, puis un onglet « Récapitulatif ».
  */
 export async function GET(request: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
 
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   // Mois/année optionnels (?mois=&annee=) pour exporter n'importe quel mois de l'historique.

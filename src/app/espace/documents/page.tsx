@@ -11,6 +11,7 @@ import { formaterNombre } from "@/lib/montant";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { signerMonDocument } from "../signature-actions";
+import { STATUTS_BULLETIN_SALARIE } from "@/lib/bulletin-salarie";
 
 const fr = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 const moisAnnee = (m: number, a: number) => new Date(a, m - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
@@ -22,7 +23,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
   const [bulletins, documents, conges] = await Promise.all([
     // Seuls les bulletins VALIDÉS ou PAYÉS sont montrés au salarié (pas les brouillons en préparation).
     prisma.payrollLine.findMany({
-      where: { employeeId: s.employeeId, statutPaiement: { in: ["VALIDE", "PAYE"] } },
+      where: { employeeId: s.employeeId, statutPaiement: { in: [...STATUTS_BULLETIN_SALARIE] } },
       include: { payrollRun: { select: { mois: true, annee: true } } },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
       take: 60,

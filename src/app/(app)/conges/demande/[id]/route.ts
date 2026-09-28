@@ -1,4 +1,4 @@
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { genererDemandeCongePdf } from "@/lib/pdf/demande-conge-buffer";
 
 /** Demande de congé (PDF) côté Direction. Le document lui-même est assemblé par
@@ -8,7 +8,8 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const { id } = await params;
 
   const pdf = await genererDemandeCongePdf(id);

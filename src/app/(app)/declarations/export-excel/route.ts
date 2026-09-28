@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import { classeurExcel } from "@/lib/export-excel";
 
@@ -11,7 +11,8 @@ const LIBELLE_STATUT: Record<string, string> = {
 
 /** Export Excel des cotisations sociales & fiscales par organisme (mois courant). */
 export async function GET() {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const mois = config.moisCourant;
   const annee = config.anneeCourante;
