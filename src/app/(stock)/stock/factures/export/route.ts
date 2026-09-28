@@ -1,13 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "");
 
 export async function GET() {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const factures = await prisma.factureFournisseur.findMany({
     orderBy: [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }],

@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
@@ -11,8 +11,8 @@ const ALERTE_BG: Record<NiveauAlerte, string> = { URGENT: "#fbe0e0", APPRO: "#fb
 
 /** Catalogue en PDF (téléchargement direct) : groupé par catégorie, lignes colorées par alerte. */
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;
   const dom = sp.get("domaine");

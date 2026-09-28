@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { classeurExcel } from "@/lib/export-excel";
 import { lignesTransport, colonnesTransport } from "../_donnees";
@@ -7,7 +7,8 @@ import { filtrerEmployes } from "../../employes/_donnees";
 
 /** Export Excel de la grille de transport — FIDÈLE à l'onglet (mêmes filtres, montants, total mois complet). */
 export async function GET(request: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const [tous, parametres] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, orderBy: [{ categorie: "asc" }, { nom: "asc" }] }),

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { exigerAccesFichier } from "@/lib/garde-route";
 
 // Sert les fichiers du bucket PRIVÉ « employes » (contrats, sanctions, documents, photos,
-// preuves de paiement, PDF de factures et bons de commande). Session obligatoire, puis
-// redirection vers une URL signée temporaire (1 h) — plus aucun document RH n'est lisible
-// sans être connecté. Les liens stockés en base sont de la forme /fichiers/<chemin>.
+// preuves de paiement, PDF de factures et bons de commande). Session obligatoire ET droit sur CE
+// fichier (`exigerAccesFichier` → `lib/acces-fichier.ts` : la RH ouvre tout, les autres comptes
+// n'ouvrent que ce que la base leur attribue), puis redirection vers une URL signée temporaire
+// (1 h). Les liens stockés en base sont de la forme /fichiers/<chemin>.
 
 const BUCKET = "employes";
 const DUREE_SIGNATURE_S = 3600;
@@ -15,12 +16,14 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ chemin: string[] }> }
 ) {
-  await verifySession(); // redirige vers /login si non connecté
-
   const { chemin } = await params;
-  if (!chemin?.length || chemin.some((s) => s === ".." || s.includes("\\"))) {
+  if (!chemin?.length || chemin.some((s) => s === "" || s === "." || s === ".." || s.includes("\\"))) {
     return new NextResponse("Chemin invalide", { status: 400 });
   }
+  // Redirige vers /login sans session ; 403 si ce fichier n'est pas à ce compte. Le lien comparé
+  // est celui que la base enregistre (`/fichiers/<chemin>`), segments décodés comme à l'écriture.
+  const g = await exigerAccesFichier(`/fichiers/${chemin.join("/")}`);
+  if (!g.ok) return g.reponse;
   const path = chemin.map(encodeURIComponent).join("/");
 
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL!;
