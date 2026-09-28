@@ -4,6 +4,8 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { analyserMouvementsAction, appliquerMouvementsAction } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import type { PreviewMouvements } from "@/lib/import-mouvements";
+import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
+import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
 
 const RAPPRO_LABEL: Record<string, string> = { code: "Code", nom: "Nom", flou: "Approché", inconnu: "Inconnu" };
 const RAPPRO_CLASSE: Record<string, string> = {
@@ -17,6 +19,7 @@ export function ImportMouvementsClient() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [isPending, start] = useTransition();
+  const [sortiesLivraison, setSortiesLivraison] = useState(true);
 
   // Sélection : période (sur la date effective = date de la ligne, sinon date par défaut)
   // + lignes décochées à la main. Par défaut : tout ce qui est rapproché est sélectionné.
@@ -36,8 +39,10 @@ export function ImportMouvementsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview, du, au, dateDefaut]);
   const selection = visibles.filter((l) => l.articleId && !decochees.has(l.ligne));
-  const selEntrees = Math.round(selection.reduce((t, l) => t + l.entree, 0) * 1000) / 1000;
-  const selSorties = Math.round(selection.reduce((t, l) => t + l.sortie, 0) * 1000) / 1000;
+  // Les mouvements déjà présents en base seront ignorés : ils ne comptent pas dans le total.
+  const selEntrees = Math.round(selection.reduce((t, l) => t + (l.entreeDejaPresente ? 0 : l.entree), 0) * 1000) / 1000;
+  const selSorties = Math.round(selection.reduce((t, l) => t + (l.sortieDejaPresente ? 0 : l.sortie), 0) * 1000) / 1000;
+  const selDejaPresents = selection.reduce((t, l) => t + (l.entreeDejaPresente ? 1 : 0) + (l.sortieDejaPresente ? 1 : 0), 0);
 
   const analyser = () => {
     setErreur(null); setSucces(null); setPreview(null); setDecochees(new Set());
@@ -56,10 +61,14 @@ export function ImportMouvementsClient() {
     setErreur(null);
     const fd = new FormData(formRef.current!);
     fd.set("lignes", JSON.stringify(selection.map((l) => l.ligne)));
+    fd.set(CHAMP_SORTIES_LIVRAISON, sortiesLivraison ? "1" : "0");
     start(async () => {
       const r = await appliquerMouvementsAction(fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
-      setSucces(`Import appliqué : ${r.resume.rapprochees} ligne(s) sur ${r.resume.articles} article(s) — ${r.resume.entreesQte} entrée(s), ${r.resume.sortiesQte} sortie(s).`);
+      setSucces(
+        `Import appliqué : ${r.resume.rapprochees} ligne(s) sur ${r.resume.articles} article(s) — ${r.resume.entreesQte} entrée(s), ${r.resume.sortiesQte} sortie(s)` +
+        (r.resume.dejaPresents > 0 ? ` ; ${r.resume.dejaPresents} mouvement(s) déjà présent(s), ignoré(s) (le stock ne les compte pas deux fois).` : ".")
+      );
       setPreview(null); formRef.current?.reset();
     });
   };
@@ -85,6 +94,7 @@ export function ImportMouvementsClient() {
           <input name="dateDefaut" type="date" value={dateDefaut} onChange={(e) => setDateDefaut(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
         </label>
         <button type="button" onClick={analyser} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">{isPending && !preview ? "Analyse…" : "Analyser"}</button>
+        <div className="basis-full"><CaseSortiesLivraison coche={sortiesLivraison} onChange={setSortiesLivraison} /></div>
       </form>
       <p className="text-xs text-muted-foreground">Le fichier doit contenir des colonnes Date, Désignation (et/ou Code article), Entrées et Sorties. L&apos;analyse n&apos;écrit rien : choisissez ensuite la période et les lignes à importer. Réversible depuis le journal ci-dessous.</p>
 
@@ -96,6 +106,7 @@ export function ImportMouvementsClient() {
 
       {preview && preview.lignes.length > 0 && (
         <div className="space-y-2">
+          <MotifSortiesApercu coche={sortiesLivraison} />
           {/* Période + sélection */}
           <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 text-sm">
             <label className="flex flex-col gap-1 text-xs">
@@ -113,6 +124,7 @@ export function ImportMouvementsClient() {
               <span className="text-emerald-700">{selEntrees} entrée(s)</span> ·{" "}
               <span className="text-red-700">{selSorties} sortie(s)</span>
               {preview.resume.inconnues > 0 && <> · <span className="text-red-700">{preview.resume.inconnues} inconnue(s) ignorée(s)</span></>}
+              {selDejaPresents > 0 && <> · <span className="text-amber-700">{selDejaPresents} mouvement(s) déjà présent(s), ignoré(s)</span></>}
             </span>
             <button type="button" onClick={appliquer} disabled={isPending || selection.length === 0} className="ml-auto rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : `Importer la sélection (${selection.length})`}</button>
           </div>
@@ -142,8 +154,8 @@ export function ImportMouvementsClient() {
                       <td className="px-3 py-1.5">{l.codeCsv && <span className="mr-1 font-mono text-xs text-muted-foreground">{l.codeCsv}</span>}{l.designationCsv}</td>
                       <td className="px-3 py-1.5">{l.articleNom ?? <span className="text-red-700">Aucun</span>}</td>
                       <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${RAPPRO_CLASSE[l.rapprochement]}`}>{RAPPRO_LABEL[l.rapprochement]}</span></td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">{l.entree > 0 ? `+${l.entree}` : ""}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-red-700">{l.sortie > 0 ? `−${l.sortie}` : ""}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">{l.entree > 0 ? `+${l.entree}` : ""}{l.entreeDejaPresente && <DejaPresent />}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-red-700">{l.sortie > 0 ? `−${l.sortie}` : ""}{l.sortieDejaPresente && <DejaPresent />}</td>
                     </tr>
                   );
                 })}
@@ -157,4 +169,8 @@ export function ImportMouvementsClient() {
       )}
     </div>
   );
+}
+
+function DejaPresent() {
+  return <span className="ml-1 block whitespace-nowrap text-[11px] font-medium text-amber-700" title="Même article, date, type et quantité déjà en base : ignoré à l'import">déjà présent</span>;
 }
