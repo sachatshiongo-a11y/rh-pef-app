@@ -1,8 +1,11 @@
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
-import { donneesJournalier } from "../export-data";
+import { donneesJournalier, roleCellule } from "../export-data";
 
-const CMD = "FF1B7F3B", LIV = "FFB42318"; // vert = commande, rouge = livraison
+const CMD = "FF1B7F3B", LIV = "FFB42318", CONSO = "FF3730A3"; // vert = commande, rouge = livraison, indigo = consommé
+
+const ECART = "FFC2410C"; // orange = consommé en écart avec le livré (comparaison)
+const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO, ecart: ECART };
 
 export async function GET(req: Request) {
   const g = await exigerEspaceStock();
@@ -13,7 +16,7 @@ export async function GET(req: Request) {
     titre: d.titre, periode: d.sousTitre,
     feuilles: [{
       nom: d.titre.slice(0, 28), entete: d.entete, lignes: d.lignes, sectionRows: d.sectionRows,
-      couleurTexteCellule: (_r, c) => (d.colRole[c] === "cmd" ? CMD : d.colRole[c] === "liv" ? LIV : undefined),
+      couleurTexteCellule: (r, c) => COULEUR[roleCellule(d, r, c) ?? ""],
     }],
   });
   return new Response(new Uint8Array(buf), {

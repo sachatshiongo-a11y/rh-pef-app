@@ -166,6 +166,7 @@ export type PartieTableau = {
   lignes: Cellule[][];
   totalDerniereLigne?: boolean;
   sectionRows?: number[];
+  couleurCellule?: (r: number, c: number) => string | undefined; // couleur de texte d'une cellule (optionnelle)
 };
 
 /**
@@ -194,7 +195,7 @@ export function TableauxParPartieDocument({
           <PdfHeader title={titre} subtitle={sousTitre} />
           <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
           <Text style={styles.titrePartie}>{p.titre}</Text>
-          <CorpsTableau colonnes={p.colonnes} lignes={p.lignes} totalDerniereLigne={p.totalDerniereLigne} sectionRows={p.sectionRows} />
+          <CorpsTableau colonnes={p.colonnes} lignes={p.lignes} totalDerniereLigne={p.totalDerniereLigne} sectionRows={p.sectionRows} couleurCellule={p.couleurCellule} />
           {pied && pi === parties.length - 1 && <Text style={styles.pied}>{pied}</Text>}
           <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
         </Page>
