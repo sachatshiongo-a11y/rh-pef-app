@@ -72,7 +72,7 @@ export function VueMesConges({
         </div>
         {solde.typesDeduits.length > 0 && (
           <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-            Se déduisent de votre solde : {solde.typesDeduits.join(", ")}. Les autres types d'absence ne le diminuent pas.
+            Se déduisent de votre solde : {solde.typesDeduits.join(", ")}. Les autres types d&apos;absence ne le diminuent pas.
           </p>
         )}
       </section>
