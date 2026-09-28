@@ -5,6 +5,17 @@ import { PropositionsRattachement } from "./propositions-rattachement";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { joursSemaine, lundiDe } from "./semaine";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import Link from "next/link";
+import { jourKinshasaISO } from "@/lib/date-paiement";
+import { formaterNombre } from "@/lib/montant";
+import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
+import { LIBELLE_SIGNALEMENT, recuDuDepot, stockRestaurantTheorique, type SignalementLivraison } from "@/lib/stock-restaurant";
+
+const q3 = (v: string) => formaterNombre(Number(v), { maximumFractionDigits: 3 });
+const jjmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+/** « 3 l du 22/09 : unité incompatible » — une livraison du dépôt non additionnée, en clair. */
+const texteSignal = (s: SignalementLivraison, avecDate: boolean) =>
+  `${q3(s.quantite)}${s.uniteCatalogue ? ` ${s.uniteCatalogue}` : ""}${avecDate ? ` du ${jjmm(s.date)}` : ""} : ${LIBELLE_SIGNALEMENT[s.motif]}`;
 
 type SP = { espace?: string; semaine?: string };
 
@@ -18,7 +29,9 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   const jours: Jour[] = joursSemaine(base);
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 
-  const [articles, livraisons, catalogue] = await Promise.all([
+  // Stock théorique : l'état COURANT (aujourd'hui, Kinshasa) ; le reçu du dépôt, jour par jour.
+  const aujourdhui = jourKinshasaISO();
+  const [articles, livraisons, catalogue, entrees] = await Promise.all([
     prisma.articleResto.findMany({
       where: { espace, actif: true },
       orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
@@ -36,7 +49,12 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     // Catalogue actif : choix du rattachement ET propositions (noms identiques). Lecture seule —
     // rien n'est rattaché ici, seulement proposé.
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, actif: true } }),
+    // Entrées du stock théorique (requêtes groupées, jamais par article) : lecture seule.
+    chargerEntreesStockResto({ depuis: jours[0].iso, jusquA: aujourdhui > jours[6].iso ? aujourdhui : jours[6].iso }),
   ]);
+  const theorique = stockRestaurantTheorique(entrees, aujourdhui).parArticle;
+  // Livraisons de la semaine qui n'alimentent pas le restaurant : signalées, jamais réparties.
+  const nonRattachees = stockRestaurantTheorique(entrees, jours[6].iso).nonRattachees.filter((l) => l.date >= jours[0].iso);
   const propositions = proposerRattachements(articles, catalogue);
 
   // Regroupe les livraisons par jour.
@@ -46,15 +64,31 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     (livParJour.get(k) ?? livParJour.set(k, []).get(k)!).push({ designation: m.article.designation, quantite: Number(m.quantite) });
   }
 
+  const signalesSemaine = new Map<string, SignalementLivraison>();
   const lignes: LigneResto[] = articles.map((a) => {
     const comptages: Record<string, string> = {};
     for (const c of a.comptages) comptages[new Date(c.date).toISOString().slice(0, 10)] = Number(c.quantite).toString();
+    const recus: Record<string, string> = {};
+    const signauxJour: Record<string, string[]> = {};
+    for (const j of jours) {
+      const r = recuDuDepot(entrees, a.id, j.iso);
+      if (r.quantite !== null) recus[j.iso] = r.quantite;
+      if (r.signalements.length > 0) signauxJour[j.iso] = r.signalements.map((x) => texteSignal(x, false));
+      for (const x of r.signalements) signalesSemaine.set(`${x.livraisonId}`, x);
+    }
+    const t = theorique.get(a.id);
     return {
       id: a.id, categorie: a.categorie, designation: a.designation, unite: a.unite,
       base: a.stockBaseJournalier !== null ? Number(a.stockBaseJournalier).toString() : "",
       comptages,
       articleStockId: a.articleStockId,
       articleStockDesignation: a.articleStock?.designation ?? null,
+      recus, signauxJour,
+      theorique: {
+        stock: t?.stock ?? null,
+        aucunComptage: t?.aucunComptage ?? true,
+        signalements: (t?.signalements ?? []).map((x) => texteSignal(x, true)),
+      },
     };
   });
 
@@ -100,8 +134,32 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
 
       <p className="text-sm text-muted-foreground">Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? "" : " Seule la Direction peut supprimer un article."}</p>
 
+      {(nonRattachees.length > 0 || signalesSemaine.size > 0) && (
+        <section className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-semibold">Livraisons de la semaine non prises en compte dans le stock du restaurant</p>
+          <ul className="space-y-1 text-xs">
+            {nonRattachees.map((l) => (
+              <li key={l.id} className="min-w-0 break-words">
+                {jjmm(l.date)} — <Link href={`/stock/catalogue/${l.articleStockId}`} className="font-medium text-primary hover:underline">{l.designation}</Link>{" "}
+                ({q3(l.quantite)}{l.uniteCatalogue ? ` ${l.uniteCatalogue}` : ""}) : {LIBELLE_SIGNALEMENT.NON_RATTACHE}.{" "}
+                <a href="#grille-restaurant" className="underline">Rattachez l&apos;article</a> dans la colonne « Article du catalogue ».
+              </li>
+            ))}
+            {[...signalesSemaine.values()].map((x) => (
+              <li key={x.livraisonId} className="min-w-0 break-words">
+                {jjmm(x.date)} — {x.designation} ({q3(x.quantite)}{x.uniteCatalogue ? ` ${x.uniteCatalogue}` : ""}) : {LIBELLE_SIGNALEMENT[x.motif]}
+                {x.motif === "A_REPARTIR"
+                  ? ` — rattaché à ${x.candidats!.join(", ")} : la Direction choisit un rattachement unique.`
+                  : " — l'unité du restaurant ne se convertit pas depuis celle du catalogue : corrigez l'unité ou le rattachement."}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <PropositionsRattachement propositions={propositions} />
 
+      <div id="grille-restaurant" />
       <RestaurantGrille
         espace={espace} jours={jours} lignes={lignes} categories={categories} estDirection={estDirection}
         catalogue={catalogue.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite ?? "" }))}
