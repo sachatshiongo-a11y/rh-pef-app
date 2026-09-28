@@ -7,7 +7,6 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { journaliser } from "@/lib/audit";
 import { televerserFichier } from "@/lib/storage";
 import { compteSalarieDe, creerNotification, notifierSalarie, supprimerNotificationsPour } from "@/lib/notifications";
-import { rendreAttestationPdf } from "@/lib/pdf/attestation-buffer";
 import { NOM_TYPE_ATTESTATION, numeroAttestation, type DonneesAttestation } from "@/lib/attestations-donnees";
 
 // ATTESTATIONS — demande, délivrance numérotée, refus (spec 2026-09-28, lot 4).
@@ -255,6 +254,9 @@ export async function figerAttestation(
   a: { id: string; donnees: DonneesAttestation; numero: string; delivreeLe: Date },
 ): Promise<void> {
   try {
+    // Import À LA DEMANDE : le moteur PDF (react-pdf, polices) ne pèse que sur la délivrance, pas sur
+    // chaque page qui importe ces actions (« Demandes de validation », fiche employé).
+    const { rendreAttestationPdf } = await import("@/lib/pdf/attestation-buffer");
     const pdf = await rendreAttestationPdf(a);
     const url = await televerserFichier(`attestations/${a.id}-${a.delivreeLe.getTime()}.pdf`, pdf, "application/pdf");
     await db.attestation.update({ where: { id: a.id }, data: { pdfUrl: url } });
