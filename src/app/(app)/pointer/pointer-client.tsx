@@ -81,7 +81,8 @@ export function PointerClient({
               {termine ? "Journée pointée" : pauseAttendue ? "Départ scanné, pause à saisir" : enCours ? "Temps écoulé aujourd'hui" : "Aujourd'hui"}
             </span>
             <span className="mt-1 text-4xl font-bold tabular-nums">
-              {termine ? `${heuresNettes.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : enCours ? dureeH(ecoule) : "0h 00m"}
+              {/* Même écriture partout (« 7h 30m »), comme « Mon planning » : « 7,5 h » se lisait mal. */}
+              {termine ? dureeH(Math.round(heuresNettes * 60) * 60_000) : enCours ? dureeH(ecoule) : "0h 00m"}
             </span>
             {enCours && pointage && (
               <span className="mt-1 text-xs text-muted-foreground">

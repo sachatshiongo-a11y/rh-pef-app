@@ -4,6 +4,7 @@ import Link from "next/link";
 import { chargerSalarie } from "../garde";
 import { libelleTypeContrat } from "@/lib/contrats-classement";
 import { chargerContratsClasses } from "@/lib/contrats-espace";
+import { formaterNombre, formaterUSD } from "@/lib/montant";
 
 const d = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 
@@ -27,15 +28,15 @@ export default async function EspaceDossier() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold">Mon dossier</h1>
-        <p className="text-sm text-muted-foreground">Vos informations personnelles et contractuelles (lecture seule).</p>
+        <h1 className="text-xl font-semibold">Mes informations</h1>
+        <p className="text-sm text-muted-foreground">Ce que la Direction a enregistré sur vous. Vous pouvez le consulter, pas le modifier.</p>
       </div>
 
       <Bloc titre="Identité">
         <Champ label="Nom" valeur={emp.nom} />
         <Champ label="Matricule" valeur={emp.matricule} />
         <Champ label="Poste" valeur={emp.poste} />
-        <Champ label="Secteur" valeur={emp.categorie === "BRIGADE" ? "Brigade" : "Back-office"} />
+        <Champ label="Équipe" valeur={emp.categorie === "BRIGADE" ? "Brigade" : "Back-office"} />
         <Champ label="Date d'embauche" valeur={d(emp.dateEmbauche)} />
       </Bloc>
 
@@ -46,9 +47,9 @@ export default async function EspaceDossier() {
             <Champ label="Début" valeur={d(contrat.dateDebut)} />
             <Champ label="Fin" valeur={contrat.dateFin ? d(contrat.dateFin) : "Indéterminée"} />
             <Champ label="Poste au contrat" valeur={contrat.poste} />
-            <Champ label="Heures / semaine" valeur={`${Number(contrat.heuresHebdo).toLocaleString("fr-FR")} h`} />
+            <Champ label="Heures par semaine (contrat)" valeur={`${formaterNombre(Number(contrat.heuresHebdo))} h`} />
             <p className="col-span-full text-sm">
-              <Link href="/espace/contrats" className="text-primary underline">Voir, signer et télécharger mes contrats →</Link>
+              <Link href="/espace/contrats" className="text-primary underline">Voir mes contrats</Link>
             </p>
           </>
         ) : (
@@ -60,8 +61,8 @@ export default async function EspaceDossier() {
       </Bloc>
 
       <Bloc titre="Rémunération">
-        <Champ label={parametres.salairesSaisisEnNet ? "Salaire net" : "Salaire brut"} valeur={`${Number(emp.salaireMensuel).toLocaleString("fr-FR")} $ / mois`} />
-        <Champ label="Heures / semaine" valeur={`${Number(emp.heuresHebdomadaires).toLocaleString("fr-FR")} h`} />
+        <Champ label={parametres.salairesSaisisEnNet ? "Salaire net mensuel" : "Salaire brut mensuel"} valeur={formaterUSD(Number(emp.salaireMensuel))} />
+        <Champ label="Heures par semaine (paie)" valeur={`${formaterNombre(Number(emp.heuresHebdomadaires))} h`} />
       </Bloc>
 
       <Bloc titre="Coordonnées">
@@ -69,7 +70,7 @@ export default async function EspaceDossier() {
         <Champ label="E-mail" valeur={emp.email || "—"} />
       </Bloc>
 
-      <p className="text-xs text-muted-foreground">Une information est incorrecte ? Signalez-la à la Direction — vous ne pouvez pas la modifier vous-même.</p>
+      <p className="text-sm text-muted-foreground">Une information est fausse ? Signalez-la à la Direction, qui la corrigera.</p>
     </div>
   );
 }
@@ -78,15 +79,15 @@ function Bloc({ titre, children }: { titre: string; children: React.ReactNode })
   return (
     <div className="rounded-2xl border bg-card p-5">
       <h2 className="mb-3 text-base font-semibold">{titre}</h2>
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-3">{children}</dl>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">{children}</dl>
     </div>
   );
 }
 function Champ({ label, valeur }: { label: string; valeur: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium">{valeur}</dd>
+      <dd className="break-words text-sm font-medium">{valeur}</dd>
     </div>
   );
 }

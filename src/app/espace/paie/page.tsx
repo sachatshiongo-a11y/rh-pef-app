@@ -9,15 +9,11 @@ import { chargerPlafondAcompte } from "@/lib/acompte-plafond";
 import { construireEcheancier } from "@/lib/prets";
 import { formaterUSD } from "@/lib/montant";
 import { bulletinConsultableDuMois } from "@/lib/bulletin-salarie";
+import { statutDemande } from "@/lib/libelles-espace";
 
-const BADGE: Record<string, { label: string; classe: string }> = {
-  EN_ATTENTE: { label: "En attente", classe: "bg-amber-100 text-amber-800" },
-  APPROUVE: { label: "Approuvé", classe: "bg-emerald-100 text-emerald-800" },
-  REFUSE: { label: "Refusé", classe: "bg-red-100 text-red-800" },
-};
 const fmtH = (n: number) => (Math.round(n * 100) / 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
-const usd = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
-const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
+const usd = formaterUSD;
+const inputCls = "w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-base sm:text-sm outline-none focus:ring-2 focus:ring-ring";
 
 export default async function EspacePaie({ searchParams }: { searchParams: Promise<{ acompte?: string; erreur?: string }> }) {
   const s = await chargerSalarie();
@@ -68,8 +64,12 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold">Ma paie</h1>
-        <p className="text-sm text-muted-foreground">Aperçu de votre bulletin en cours, vos heures supplémentaires et vos acomptes.</p>
+        <p className="text-sm text-muted-foreground">Votre salaire du mois en cours, vos heures supplémentaires, vos prêts et vos acomptes.</p>
       </div>
+
+      {/* Retour de la demande d'acompte : en haut, là où la page se rouvre après l'envoi. */}
+      {sp.acompte && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Votre demande d&apos;acompte est envoyée à la Direction. Suivez sa réponse dans « Mes demandes d&apos;acompte », plus bas.</p>}
+      {sp.erreur && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
       {/* Heures supplémentaires */}
       {apercu && (
@@ -77,10 +77,10 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
           <h2 className="mb-3 text-base font-semibold">Mes heures supplémentaires — {periode}</h2>
           {totalHS > 0 ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="Total heures supp." valeur={`${fmtH(totalHS)} h`} fort />
-              <Stat label="À 30 %" valeur={`${fmtH(apercu.hs30)} h`} />
-              <Stat label="À 60 %" valeur={`${fmtH(apercu.hs60)} h`} />
-              <Stat label="Dim./fériés (×2)" valeur={`${fmtH(apercu.hs100)} h`} />
+              <Stat label="Total" valeur={`${fmtH(totalHS)} h`} fort />
+              <Stat label="Payées +30 %" valeur={`${fmtH(apercu.hs30)} h`} />
+              <Stat label="Payées +60 %" valeur={`${fmtH(apercu.hs60)} h`} />
+              <Stat label="Dimanches et fériés (payées double)" valeur={`${fmtH(apercu.hs100)} h`} />
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Aucune heure supplémentaire ce mois-ci.</p>
@@ -94,14 +94,16 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
       ) : (
         <div className="rounded-2xl border bg-card p-5 text-sm text-muted-foreground">Aperçu du bulletin indisponible pour cette période.</div>
       )}
-      <p className="-mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        Aperçu indicatif calculé en temps réel — le bulletin officiel est celui validé par la Direction.
+      <div className="-mt-3 space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Ce montant se calcule en direct avec vos heures du mois : il peut encore changer. Le bulletin officiel est celui que la Direction valide.
+        </p>
         {ligneEnCours && (
-          <span className="font-medium">
-            <BulletinViewerButton payrollLineId={ligneEnCours.id} nom={`bulletin ${periode}`} base="/espace/bulletin" libelle="Voir le bulletin PDF de la période →" />
-          </span>
+          <div className="text-sm">
+            <BulletinViewerButton payrollLineId={ligneEnCours.id} nom={`bulletin ${periode}`} base="/espace/bulletin" libelle={`Voir le bulletin validé de ${periode}`} />
+          </div>
         )}
-      </p>
+      </div>
 
       {/* Mes prêts : suivi du solde (la retenue mensuelle apparaît sur le bulletin). */}
       {prets.length > 0 && (
@@ -183,18 +185,16 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
           {plafondAcompte.dejaEngageUSD > 0 && <> ({formaterUSD(plafondAcompte.dejaEngageUSD)} déjà demandé)</>}.
         </p>
 
-        {sp.acompte && <p className="mb-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Votre demande d&apos;acompte a été envoyée à la Direction.</p>}
-        {sp.erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
-        <form action={demanderMonAcompte} className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm">Montant ($)
-            <input type="number" name="montantUSD" min="0" step="0.01" max={plafondAcompte.disponibleUSD || undefined} required placeholder="ex. 50" className={inputCls} />
+        <form action={demanderMonAcompte} className="grid gap-4 sm:grid-cols-2">
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">Montant en dollars ($)
+            <input type="number" inputMode="decimal" name="montantUSD" min="0" step="0.01" max={plafondAcompte.disponibleUSD || undefined} required placeholder="ex. 50" className={inputCls} />
           </label>
-          <label className="flex flex-col gap-1 text-sm">Motif (facultatif)
+          <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">Motif <span className="font-normal text-muted-foreground">(facultatif)</span>
             <input type="text" name="motif" placeholder="ex. dépense imprévue" className={inputCls} />
           </label>
           <div className="sm:col-span-2">
-            <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Envoyer la demande</button>
+            <button className="w-full rounded-md bg-primary px-4 py-3 text-sm font-medium text-primary-foreground sm:w-auto sm:py-2">Envoyer la demande</button>
           </div>
         </form>
 
@@ -205,7 +205,7 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
           ) : (
             <ul className="divide-y">
               {acomptes.map((a) => {
-                const b = BADGE[a.statut] ?? { label: a.statut, classe: "bg-muted text-muted-foreground" };
+                const b = statutDemande(a.statut);
                 return (
                   <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
                     <div>
