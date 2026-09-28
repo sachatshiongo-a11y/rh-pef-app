@@ -63,11 +63,6 @@ export function jjmmaaaa(iso: string): string {
   return `${j}/${m}/${a}`;
 }
 
-/** Deux quantités égales au millième (la précision de `MouvementStock.quantite`). */
-export function memeQuantite(a: number | string | { toString(): string }, b: number | string | { toString(): string }): boolean {
-  return Math.round(Number(a.toString()) * 1000) === Math.round(Number(b.toString()) * 1000);
-}
-
 type MvtFournisseur = {
   facture: { fournisseurId: string | null; fournisseurNom: string | null } | null;
   reception: { bonDeCommande: { fournisseurId: string | null; fournisseur: { nom: string } | null } | null } | null;

@@ -32,7 +32,7 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
     const s = fournisseurs.find((f) => f.id === source);
     const c = fournisseurs.find((f) => f.id === cible);
     if (!s || !c || s.id === c.id) { setErreur("Choisissez deux fournisseurs différents."); return; }
-    if (!confirm(`Fusionner « ${s.nom} » dans « ${c.nom} » ?\n\nTous les articles, bons de commande et factures de « ${s.nom} » seront rattachés à « ${c.nom} », les coordonnées manquantes complétées, puis « ${s.nom} » sera supprimé. Action irréversible.`)) return;
+    if (!confirm(`Fusionner « ${s.nom} » dans « ${c.nom} » ?\n\nTous les articles, bons de commande, factures et achats directs de « ${s.nom} » seront rattachés à « ${c.nom} », les coordonnées manquantes complétées, puis « ${s.nom} » sera supprimé. Action irréversible.`)) return;
     run(async () => { await fusionnerFournisseurs(s.id, c.id); setFusion(false); setSource(""); setCible(""); });
   };
 

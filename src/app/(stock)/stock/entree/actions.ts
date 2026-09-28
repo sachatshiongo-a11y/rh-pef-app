@@ -87,6 +87,10 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const fournParNom = new Map(fournisseurs.map((f) => [cleAlnum(f.nom), f.id]));
   const perime = lignes.find((l) => l.fournId && !fournConnus.has(l.fournId));
   if (perime) throw new Error(`Fournisseur introuvable (ligne ${perime.rang}) : rechargez la page et choisissez-le à nouveau.`);
+  // Un nom sans lettre ni chiffre (« -- ») n'a pas de clé : il créerait un fournisseur illisible,
+  // que plus aucun rapprochement ne retrouverait.
+  const illisible = lignes.find((l) => !l.fournId && l.fournNom && !cleAlnum(l.fournNom));
+  if (illisible) throw new Error(`Nom de fournisseur illisible (ligne ${illisible.rang}) : écrivez son nom en lettres ou en chiffres, ou laissez le champ vide.`);
 
   // Avertissements non bloquants (double saisie, comptage postérieur), calculés avant l'écriture.
   const avertissements = await avertissementsListeAchat(dateISO, lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, quantite: l.quantite })));
@@ -97,10 +101,18 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
     const resoudreFournisseur = async (l: (typeof lignes)[number]): Promise<string | null> => {
       if (l.fournId) return l.fournId;
       if (!l.fournNom) return null;
-      const connu = fournParNom.get(cleAlnum(l.fournNom));
+      const cle = cleAlnum(l.fournNom);
+      const connu = fournParNom.get(cle);
       if (connu) return connu;
+      // Deux saisies simultanées du même nouveau nom créeraient deux fournisseurs (`nom` n'est pas
+      // unique : pas d'upsert ni de P2002 possible). Verrou transactionnel sur la CLÉ du nom, puis
+      // relecture : la seconde transaction attend la première et retrouve le fournisseur créé.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`fournisseur:${cle}`}))::text AS verrou`;
+      const recents = await tx.fournisseur.findMany({ select: { id: true, nom: true } });
+      const deja = recents.find((f) => cleAlnum(f.nom) === cle);
+      if (deja) { fournParNom.set(cle, deja.id); return deja.id; }
       const nouveau = await tx.fournisseur.create({ data: { nom: l.fournNom } });
-      fournParNom.set(cleAlnum(l.fournNom), nouveau.id);
+      fournParNom.set(cle, nouveau.id);
       fournisseursCrees.push(l.fournNom);
       await journaliser(tx, { entite: "Fournisseur", entiteId: nouveau.id, champ: "creation", nouvelleValeur: `${l.fournNom} (auto — liste d'achat)`, userId: user.id });
       return nouveau.id;

@@ -21,7 +21,7 @@ vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule:
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { entreeListeAchat, verifierDoublonsListe } = await import("./actions");
-const { genererDonneesRapportDetail } = await import("@/lib/rapports");
+const { genererDonneesRapportDetail, genererDonneesRapport } = await import("@/lib/rapports");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -95,6 +95,10 @@ describe("Liste d'achat — date au choix", () => {
     const r = await entreeListeAchat(fd([{ articleId: art.id, quantite: 4 }], { date: "2026-02-15" }));
     expect("erreur" in r && r.erreur).toMatch(/02\/2026 est clôturée/);
     expect(await prisma.mouvementStock.count({ where: { articleId: art.id } })).toBe(0);
+    // Borne basse : janvier (non clôturé) précède février (clôturé) → figé lui aussi.
+    const r2 = await entreeListeAchat(fd([{ articleId: art.id, quantite: 4 }], { date: "2026-01-20" }));
+    expect("erreur" in r2 && r2.erreur).toMatch(/02\/2026 est clôturée : le stock est figé jusqu'à ce mois inclus, aucun mouvement daté du 20\/01\/2026/);
+    expect(await prisma.mouvementStock.count({ where: { articleId: art.id } })).toBe(0);
   });
 
   it("l'achat antidaté compte dans le rapport des achats À SA DATE (indicateurs justes)", async () => {
@@ -102,6 +106,17 @@ describe("Liste d'achat — date au choix", () => {
     ok(await entreeListeAchat(fd([{ articleId: art.id, quantite: 3, montant: 12 }], { date: "2026-04-07" })));
     const avril = await genererDonneesRapportDetail("ACHATS", new Date("2026-04-01T00:00:00Z"), new Date("2026-04-30T00:00:00Z"));
     expect(avril.lignes.some((l) => l[1] === "Levure")).toBe(true);
+    // Le rapport suit la règle de l'écran : ni entrée manuelle, ni réception de bon de commande.
+    const autre = await article("Entrée hors liste");
+    const rec = await prisma.reception.create({ data: {} });
+    await prisma.mouvementStock.createMany({ data: [
+      { articleId: autre.id, type: "ENTREE", quantite: 1, montantUSD: 100, date: new Date("2026-04-08T00:00:00Z"), origine: "Entrée manuelle" },
+      { articleId: autre.id, type: "ENTREE", quantite: 1, montantUSD: 100, date: new Date("2026-04-08T00:00:00Z"), receptionId: rec.id },
+    ] });
+    const avril2 = await genererDonneesRapportDetail("ACHATS", new Date("2026-04-01T00:00:00Z"), new Date("2026-04-30T00:00:00Z"));
+    expect(avril2.lignes.some((l) => l[1] === "Entrée hors liste")).toBe(false);
+    const synthese = await genererDonneesRapport("ACHATS", new Date("2026-04-01T00:00:00Z"), new Date("2026-04-30T00:00:00Z"));
+    expect(synthese.lignes[0][1]).toBe(12);
     const mai = await genererDonneesRapportDetail("ACHATS", new Date("2026-05-01T00:00:00Z"), new Date("2026-05-31T00:00:00Z"));
     expect(mai.lignes.some((l) => l[1] === "Levure")).toBe(false);
   });
@@ -139,6 +154,25 @@ describe("Liste d'achat — fournisseur facultatif par ligne", () => {
     expect(fs).toHaveLength(1);
     const ms = await prisma.mouvementStock.findMany({ where: { articleId: { in: [a1.id, a2.id] } } });
     expect(ms.map((m) => m.fournisseurId)).toEqual([fs[0].id, fs[0].id]);
+  });
+
+  it("nom de fournisseur réduit à de la ponctuation : refusé (message renvoyé), rien n'est écrit", async () => {
+    const art = await article("Câpres");
+    const r = await entreeListeAchat(fd([{ articleId: art.id, quantite: 1, fournisseurNom: " -- . " }]));
+    expect(r).toEqual({ erreur: "Nom de fournisseur illisible (ligne 1) : écrivez son nom en lettres ou en chiffres, ou laissez le champ vide." });
+    expect(await prisma.mouvementStock.count({ where: { articleId: art.id } })).toBe(0);
+    expect(await prisma.fournisseur.count({ where: { nom: { contains: "--" } } })).toBe(0);
+  });
+
+  it("Listes envoyées EN MÊME TEMPS avec le même nouveau fournisseur : créé une seule fois", async () => {
+    const arts = await Promise.all(["manioc", "maïs", "riz", "blé", "sorgho", "mil"].map((x) => article(`Farine de ${x}`)));
+    const noms = ["Marché Gambela", "marché gambela", "MARCHÉ GAMBELA", "Marche Gambela", "marché  gambela", "Marché-Gambela"];
+    const rs = await Promise.all(arts.map((a, i) => entreeListeAchat(fd([{ articleId: a.id, quantite: 1, fournisseurNom: noms[i] }]))));
+    rs.forEach((r) => ok(r));
+    const fs = await prisma.fournisseur.findMany({ where: { nom: { in: noms } } });
+    expect(fs).toHaveLength(1);
+    const ms = await prisma.mouvementStock.findMany({ where: { articleId: { in: arts.map((a) => a.id) } } });
+    expect(new Set(ms.map((m) => m.fournisseurId))).toEqual(new Set([fs[0].id]));
   });
 
   it("sans fournisseur : la ligne reste sans fournisseur (facultatif)", async () => {
@@ -220,15 +254,37 @@ describe("double saisie — avertissement NON bloquant", () => {
     expect(r.avertissements).toHaveLength(1);
   });
 
-  it("autre quantité, autre jour, ou entrée hors facture/réception : aucun avertissement", async () => {
+  it("fenêtre de ±14 jours, QUELLE QUE SOIT la quantité (même contrôle que celui des Factures, dans l'autre sens)", async () => {
     const art = await article("Beurre");
-    const fac = await prisma.factureFournisseur.create({ data: { fournisseurNom: "Laiterie", montantUSD: 5, mois: 9, annee: 2026 } });
-    await prisma.mouvementStock.create({ data: { articleId: art.id, type: "ENTREE", quantite: 6, date: new Date("2026-09-18T00:00:00Z"), factureId: fac.id } });
-    await prisma.mouvementStock.create({ data: { articleId: art.id, type: "ENTREE", quantite: 2, date: new Date("2026-09-18T00:00:00Z"), origine: "Liste d'achat" } });
-    const r1 = ok(await verifierDoublonsListe("2026-09-18", [{ articleId: art.id, designation: "", quantite: 7 }]));
-    const r2 = ok(await verifierDoublonsListe("2026-09-19", [{ articleId: art.id, designation: "", quantite: 6 }]));
-    const r3 = ok(await verifierDoublonsListe("2026-09-18", [{ articleId: art.id, designation: "", quantite: 2 }]));
-    expect([r1.avertissements, r2.avertissements, r3.avertissements]).toEqual([[], [], []]);
+    const fac = await prisma.factureFournisseur.create({ data: { fournisseurNom: "Laiterie", numero: "L-9", montantUSD: 5, mois: 9, annee: 2026 } });
+    await prisma.mouvementStock.create({ data: { articleId: art.id, type: "ENTREE", quantite: 6, date: new Date("2026-09-05T00:00:00Z"), factureId: fac.id } });
+    const autreQte = ok(await verifierDoublonsListe("2026-09-05", [{ articleId: art.id, designation: "", quantite: 7 }]));
+    expect(autreQte.avertissements).toHaveLength(1);
+    expect(autreQte.avertissements[0]).toContain("+6 le 05/09/2026 par la facture L-9 (Laiterie)");
+    const n = async (d: string) => ok(await verifierDoublonsListe(d, [{ articleId: art.id, designation: "", quantite: 1 }])).avertissements.length;
+    // Bornes incluses : J-14 et J+14 avertissent, J-15 et J+15 non.
+    expect([await n("2026-08-22"), await n("2026-09-19"), await n("2026-08-21"), await n("2026-09-20")]).toEqual([1, 1, 0, 0]);
+  });
+
+  it("une Liste d'achat déjà enregistrée (double envoi) est signalée à la seconde", async () => {
+    const art = await article("Mascarpone");
+    const liste = () => fd([{ articleId: art.id, quantite: 2 }], { date: "2026-09-21", origine: "Courses du 21" });
+    expect(ok(await entreeListeAchat(liste())).avertissements).toEqual([]);
+    const seconde = ok(await entreeListeAchat(liste()));
+    expect(seconde.avertissements).toHaveLength(1);
+    expect(seconde.avertissements[0]).toContain("+2 le 21/09/2026 par la Liste d'achat « Courses du 21 »");
+  });
+
+  it("entrée manuelle, autre article, ou sortie : aucun avertissement", async () => {
+    const art = await article("Ricotta");
+    const autre = await article("Gorgonzola");
+    await prisma.mouvementStock.createMany({ data: [
+      { articleId: art.id, type: "ENTREE", quantite: 2, date: new Date("2026-09-22T00:00:00Z"), origine: "Entrée manuelle" },
+      { articleId: art.id, type: "SORTIE", quantite: 2, date: new Date("2026-09-22T00:00:00Z"), origine: "Livraison restaurant", categorieSortie: "LIVRAISON_RESTAURANT" },
+      { articleId: autre.id, type: "ENTREE", quantite: 2, date: new Date("2026-09-22T00:00:00Z"), origine: "Liste d'achat" },
+    ] });
+    const r = ok(await verifierDoublonsListe("2026-09-22", [{ articleId: art.id, designation: "", quantite: 2 }]));
+    expect(r.avertissements).toEqual([]);
   });
 
   it("achat antidaté AVANT un comptage d'inventaire de l'article : signalé (le comptage l'a peut-être déjà compté)", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lireDateAchat, fournisseurDuMouvement, memeQuantite, SOUS_ONGLETS_ACHATS, sousOngletActif } from "./achats-liste";
+import { lireDateAchat, fournisseurDuMouvement, SOUS_ONGLETS_ACHATS, sousOngletActif } from "./achats-liste";
 
 // 2026-09-28 à 23 h 30 UTC = 29/09 à 0 h 30 à Kinshasa (UTC+1) : le piège du serveur en UTC.
 const MINUIT_PASSE_KIN = new Date("2026-09-28T23:30:00.000Z");
@@ -49,15 +49,6 @@ describe("fournisseurDuMouvement — le fournisseur affiché dans Mouvements", (
   it("aucun fournisseur connu → null (jamais un lien vide)", () => {
     expect(fournisseurDuMouvement(base)).toBeNull();
     expect(fournisseurDuMouvement({ ...base, facture: { fournisseurId: null, fournisseurNom: "Sans fiche" } })).toBeNull();
-  });
-});
-
-describe("memeQuantite — comparaison au millième (Decimal(14,3))", () => {
-  it("égalité au millième près, pas au-delà", () => {
-    expect(memeQuantite(10, 10)).toBe(true);
-    expect(memeQuantite(2.5, "2.500")).toBe(true);
-    expect(memeQuantite(2.5, 2.501)).toBe(false);
-    expect(memeQuantite(10, 11)).toBe(false);
   });
 });
 

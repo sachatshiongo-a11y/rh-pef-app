@@ -15,7 +15,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
   const user = await exigerPageStock();
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
-  const [f, factures, bons, achatsDirects] = await Promise.all([
+  const [f, factures, bons, achatsDirects, nbAchatsDirects] = await Promise.all([
     prisma.fournisseur.findUnique({
       where: { id },
       include: {
@@ -32,6 +32,8 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
       take: 300,
       select: { id: true, date: true, quantite: true, origine: true, devise: true, montantOrigine: true, montantUSD: true, articleId: true, article: { select: { designation: true, unite: true } } },
     }),
+    // Le VRAI total (la liste ci-dessus est plafonnée à 300 lignes).
+    prisma.mouvementStock.count({ where: { fournisseurId: id, type: "ENTREE" } }),
   ]);
   if (!f) notFound();
 
@@ -61,7 +63,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">{f.nom}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {f._count.articles} article(s) · {bonsValides.length} bon(s) de commande validé(s) · {factures.length} facture(s) · {achatsDirects.length} achat(s) direct(s)
+            {f._count.articles} article(s) · {bonsValides.length} bon(s) de commande validé(s) · {factures.length} facture(s) · {nbAchatsDirects} achat(s) direct(s)
           </p>
         </div>
         {estDirection && <EditerFournisseur f={{
@@ -145,7 +147,8 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
 
       {/* Achats directs (Liste d'achat) */}
       <section>
-        <h2 className="mb-2 text-base font-semibold">Achats directs — Liste d&apos;achat ({achatsDirects.length})</h2>
+        <h2 className="mb-2 text-base font-semibold">Achats directs — Liste d&apos;achat ({nbAchatsDirects})</h2>
+        {nbAchatsDirects > achatsDirects.length && <p className="mb-2 text-xs text-muted-foreground">Les {achatsDirects.length} plus récents sont affichés.</p>}
         {achatsDirects.length === 0 ? (
           <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun achat direct. Choisissez ce fournisseur sur une ligne de la Liste d&apos;achat pour l&apos;y retrouver.</p>
         ) : (
