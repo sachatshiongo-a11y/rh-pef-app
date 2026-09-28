@@ -37,7 +37,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Consommation journalière</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Suivi par jour : ce qui est <strong>commandé</strong> par le restaurant et ce qui est <strong>livré</strong> (sorties de stock). Enregistrez les livraisons datées depuis l&apos;onglet Mouvements.
+          Suivi par jour : ce qui est <strong>commandé</strong> par le restaurant, ce qui lui est <strong>livré</strong> (sorties « Livraison restaurant ») et ce qu&apos;il <strong>consomme</strong> (comptages du restaurant). Enregistrez les livraisons datées depuis l&apos;onglet Mouvements.
         </p>
       </div>
 
