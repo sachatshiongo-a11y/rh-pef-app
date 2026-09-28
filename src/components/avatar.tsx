@@ -10,9 +10,11 @@ const COULEURS = [
 ];
 
 export function initiales(nom: string): string {
-  const parts = nom.trim().split(/\s+/);
-  const a = parts[0]?.[0] ?? "";
-  const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  // Une précision entre parenthèses (« César (jardinier) ») ne compte pas : « C », pas « C( ».
+  const parts = nom.replace(/\([^)]*\)?/g, " ").trim().split(/\s+/).filter((p) => /\p{L}/u.test(p));
+  const premiere = (p: string | undefined) => p?.match(/\p{L}/u)?.[0] ?? "";
+  const a = premiere(parts[0]);
+  const b = parts.length > 1 ? premiere(parts[parts.length - 1]) : "";
   return (a + b).toUpperCase();
 }
 
