@@ -18,7 +18,7 @@ const { StockShell } = await import("./stock-shell");
 
 /** Les liens du menu latéral (<nav>), texte visible et adresse. */
 function liensDuMenu() {
-  const html = renderToStaticMarkup(createElement(StockShell, { userNom: "Direction", userRole: "ADMIN", maPhoto: null, notif: null }, null));
+  const html = renderToStaticMarkup(createElement(StockShell, { userNom: "Direction", userRole: "ADMIN", maPhoto: null, notif: null, children: null }));
   const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
   return [...nav.matchAll(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/g)].map((m) => ({
     href: m[1],
