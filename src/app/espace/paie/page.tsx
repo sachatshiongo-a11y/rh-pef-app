@@ -68,7 +68,7 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
       </div>
 
       {/* Retour de la demande d'acompte : en haut, là où la page se rouvre après l'envoi. */}
-      {sp.acompte && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Votre demande d&apos;acompte est envoyée à la Direction. Suivez sa réponse dans « Mes demandes d&apos;acompte », plus bas.</p>}
+      {sp.acompte && <p role="status" className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Votre demande d&apos;acompte est envoyée à la Direction. Vous serez prévenu(e) dès qu&apos;elle aura répondu ; elle figure dans « Mes demandes d&apos;acompte », plus bas.</p>}
       {sp.erreur && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
       {/* Heures supplémentaires */}
