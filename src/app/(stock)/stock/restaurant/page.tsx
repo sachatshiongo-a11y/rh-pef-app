@@ -5,6 +5,7 @@ import { PropositionsRattachement } from "./propositions-rattachement";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { joursSemaine, lundiDe } from "./semaine";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 
 type SP = { espace?: string; semaine?: string };
 
@@ -75,6 +76,10 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
             <a href={`/stock/restaurant?espace=CUISINE&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "CUISINE" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Cuisine</a>
             <a href={`/stock/restaurant?espace=BAR&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "BAR" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Bar</a>
           </div>
+          <MenuFichePdf libelle="Fiche d'inventaire (PDF)">
+            <a href={`/stock/restaurant/fiche-inventaire?espace=${espace}`} download className={classeLienFiche}>Fiche {espace === "BAR" ? "Bar" : "Cuisine"}</a>
+            <a href="/stock/restaurant/fiche-inventaire?espace=TOUS" download className={classeLienFiche}>Cuisine et Bar</a>
+          </MenuFichePdf>
           <BoutonRapport pdfHref={`/stock/restaurant/pdf?${exportQs}`} excelHref={`/stock/restaurant/excel?${exportQs}`} />
         </div>
       </div>
