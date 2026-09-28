@@ -56,7 +56,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock de l&apos;onglet Inventaire.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />

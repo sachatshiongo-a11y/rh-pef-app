@@ -54,10 +54,10 @@ export async function GET(req: Request) {
   const suffixe = domaine ? ` — ${DOMAINE_LABEL[domaine]}` : "";
   const suffixeFichier = domaine ? `_${DOMAINE_LABEL[domaine]}` : "";
   const buf = await classeurExcel({
-    titre: `Catalogue${suffixe} — Stock & Achats`,
+    titre: `Inventaire${suffixe} — Stock & Achats`,
     periode: new Date().toLocaleDateString("fr-FR"),
     feuilles: [{
-      nom: "Catalogue",
+      nom: "Inventaire",
       entete: ["Code", "Désignation", "Stock", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Unité", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine"],
       lignes,
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_ARGB[alerteRow[r]!] : undefined),
@@ -66,7 +66,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Catalogue${suffixeFichier}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Inventaire${suffixeFichier}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
     },
   });
 }

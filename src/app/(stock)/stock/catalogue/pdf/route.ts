@@ -71,7 +71,7 @@ export async function GET(req: Request) {
   const label = domaine ? DOMAINE_LABEL[domaine] : "Tous domaines";
   const buffer = await renderPdfBuffer(
     TableauDocument({
-      titre: `Catalogue — ${label}`,
+      titre: `Inventaire — ${label}`,
       sousTitre: new Date().toLocaleDateString("fr-FR"),
       colonnes, lignes, sectionRows,
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_BG[alerteRow[r]!] : undefined),
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
     }),
   );
 
-  const fichier = `Catalogue${domaine ? `_${label}` : ""}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const fichier = `Inventaire${domaine ? `_${label}` : ""}_${new Date().toISOString().slice(0, 10)}.pdf`;
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fichier}"` },
   });
