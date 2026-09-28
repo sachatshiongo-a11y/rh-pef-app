@@ -23,7 +23,7 @@ export type DonneesAttestation = {
   dateSortie: string | null;
   /** Attestation de salaire : la dernière paie VALIDE ou PAYE. */
   salaire?: {
-    /** `netUSD` = salaire net HABITUEL : hors transport, avant acompte et retenue de prêt. */
+    /** `netUSD` = salaire net HABITUEL : hors transport et frais médicaux remboursés, avant acompte et retenue de prêt. */
     mois: number;
     annee: number;
     netUSD: string;

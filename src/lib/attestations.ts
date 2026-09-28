@@ -90,8 +90,8 @@ export async function instantaneAttestation(
     donnees.salaire = {
       mois: ligne.payrollRun.mois,
       annee: ligne.payrollRun.annee,
-      // Le salaire HABITUEL : net hors transport, AVANT acompte et retenue de prêt (des avances,
-      // pas une baisse du salaire) — `lib/paie-net`, décision de la Direction du 2026-09-28.
+      // Le salaire HABITUEL : net hors transport et frais médicaux remboursés, AVANT acompte et
+      // retenue de prêt (des avances, pas une baisse du salaire) — `lib/paie-net`, décisions du 2026-09-28.
       netUSD: usd(salaireNetHabituelUSD(ligne)),
       brutUSD: usd(ligne.salBrutUSD),
       allocationsUSD: usd(ligne.allocFamilialeUSD),

@@ -86,16 +86,16 @@ describe("salaireDeBaseUSD — le salaire de base imprimé s'additionne au brut"
 describe("paie-net — salaire net HABITUEL (attestation de salaire, décision 2026-09-28)", () => {
   // Acompte et retenue de prêt sont des AVANCES remboursées, pas une baisse du salaire : une
   // attestation qui les retrancherait ferait croire à une banque que le salarié gagne moins.
-  it("net hors transport, AVANT acompte et retenue de prêt", () => {
-    // versé 265 = net habituel 300 + transport 15 − acompte 40 − prêt 10
-    expect(salaireNetHabituelUSD({ salNetUSD: 265, transportUSD: 15, acompteUSD: 40, retenuePretUSD: 10 })).toBe(300);
+  it("net hors transport et frais médicaux remboursés, AVANT acompte et retenue de prêt", () => {
+    // versé 290 = net habituel 300 + transport 15 + frais médicaux 25 − acompte 40 − prêt 10
+    expect(salaireNetHabituelUSD({ salNetUSD: 290, transportUSD: 15, acompteUSD: 40, retenuePretUSD: 10, fraisMedicauxUSD: 25 })).toBe(300);
   });
-  it("sans avance, égal au salaire net du bulletin", () => {
-    const l = { salNetUSD: 305, transportUSD: 15, acompteUSD: 0, retenuePretUSD: 0 };
+  it("sans avance ni frais médicaux, égal au salaire net du bulletin", () => {
+    const l = { salNetUSD: 305, transportUSD: 15, acompteUSD: 0, retenuePretUSD: 0, fraisMedicauxUSD: 0 };
     expect(salaireNetHabituelUSD(l)).toBe(salaireNetUSD(l));
   });
   it("accepte les Decimal de Prisma", () => {
     const d = (v: string) => ({ toString: () => v });
-    expect(salaireNetHabituelUSD({ salNetUSD: d("265.50"), transportUSD: d("15"), acompteUSD: d("40.25"), retenuePretUSD: d("10") })).toBeCloseTo(300.75, 10);
+    expect(salaireNetHabituelUSD({ salNetUSD: d("275.50"), transportUSD: d("15"), acompteUSD: d("40.25"), retenuePretUSD: d("10"), fraisMedicauxUSD: d("10") })).toBeCloseTo(300.75, 10);
   });
 });

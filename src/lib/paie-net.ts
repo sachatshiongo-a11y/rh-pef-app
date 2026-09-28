@@ -33,20 +33,25 @@ export function salaireNetCDF(l: LigneNet, tauxChangeCDF: number): number {
 }
 
 /** Ce que retranchent le net stocké les AVANCES consenties au salarié. */
-export type LigneAvances = LigneNet & { acompteUSD: Montant; retenuePretUSD: Montant };
+export type LigneAvances = LigneNet & { acompteUSD: Montant; retenuePretUSD: Montant; fraisMedicauxUSD: Montant };
 
 /**
  * SALAIRE NET HABITUEL — ce que le salarié gagne dans le mois, tel qu'une attestation de salaire
- * l'annonce (décision de la Direction, 2026-09-28) : le salaire net (hors transport) AVANT l'acompte
+ * l'annonce (décision de la Direction, 2026-09-28) : le salaire net (hors transport et frais
+ * médicaux remboursés) AVANT l'acompte
  * et la retenue de prêt. Ce sont des avances remboursées sur la paie, pas une baisse du salaire : les
  * retrancher ferait croire à une banque ou à un bailleur que le salarié gagne moins.
  *
- * `salNetUSD` = net + transport − acompte − retenue de prêt (moteur de paie) ; on rajoute donc ce
- * que les avances ont retiré. Les allocations familiales et les frais médicaux remboursés restent
- * compris, comme dans `salaireNetUSD` : l'attestation mentionne les allocations à part.
+ * Les frais médicaux remboursés en SORTENT aussi (décision du contrôleur, 2026-09-28) : c'est un
+ * remboursement, pas du salaire. Les allocations familiales restent comprises ; l'attestation les
+ * mentionne à part.
+ *
+ * `salNetUSD` = brut − CNSS − IPR + allocations + frais médicaux − acompte − prêt (moteur de paie,
+ * transport compris dans le brut) ; d'où :
+ *   net habituel = salNetUSD − transport + acompte + retenue de prêt − frais médicaux.
  */
 export function salaireNetHabituelUSD(l: LigneAvances): number {
-  return salaireNetUSD(l) + n(l.acompteUSD) + n(l.retenuePretUSD);
+  return salaireNetUSD(l) + n(l.acompteUSD) + n(l.retenuePretUSD) - n(l.fraisMedicauxUSD);
 }
 
 /** Total versé = salaire net + transport = la somme remise en main propre. */

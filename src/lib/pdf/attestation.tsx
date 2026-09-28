@@ -125,7 +125,7 @@ export function AttestationDocument({
                 Au titre du mois de <Text style={styles.gras}>{periode}</Text>, {femme ? "elle" : "il"} a perçu un salaire net de{" "}
                 <Text style={styles.gras}>{usd(s.netUSD)}</Text> (soit {cdf(Number(s.netUSD) * taux)}), pour un salaire brut de{" "}
                 <Text style={styles.gras}>{usd(s.brutUSD)}</Text> (soit {cdf(Number(s.brutUSD) * taux)}), selon la paie arrêtée par
-                l&apos;entreprise pour ce mois. Le salaire net s&apos;entend hors indemnité de transport, avant acompte et retenue de prêt ; l&apos;équivalent en francs
+                l&apos;entreprise pour ce mois. Le salaire net s&apos;entend hors transport et frais médicaux remboursés, avant acompte et retenue de prêt ; l&apos;équivalent en francs
                 congolais est calculé au taux du bulletin ({formaterNombre(taux, { maximumFractionDigits: 2 })} CDF pour 1 $).
               </Text>
               {Number(s.allocationsUSD) > 0 && (
