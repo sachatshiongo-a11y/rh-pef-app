@@ -18,12 +18,15 @@ export function ChampsDatesConge({
   min,
   labelDebut = "Date début",
   labelFin = "Date fin",
+  labelJours = "Jours ouvrables",
 }: {
   feries: string[]; // jours fériés au format AAAA-MM-JJ
   inputClassName: string;
   min?: string; // date minimale (ex. aujourd'hui, côté salarié)
   labelDebut?: string;
   labelFin?: string;
+  /** Côté salarié, « Nombre de jours » : « ouvrables » est un mot de la Direction. */
+  labelJours?: string;
 }) {
   const [etat, setEtat] = useState(CHAMPS_CONGE_VIDES);
   const feriesSet = new Set(feries);
@@ -37,7 +40,7 @@ export function ChampsDatesConge({
         <input id="dateDebut" name="dateDebut" type="date" required min={min} value={etat.debut} onChange={toucher("debut")} className={inputClassName} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="nbJours" className="text-sm font-medium">Jours ouvrables</label>
+        <label htmlFor="nbJours" className="text-sm font-medium">{labelJours}</label>
         <input id="nbJours" name="nbJours" type="number" inputMode="numeric" required min={1} step={1} value={etat.jours} onChange={toucher("jours")} className={inputClassName} />
       </div>
       <div className="flex flex-col gap-1.5">
