@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { calculerAlertes, type Alerte } from "@/lib/alertes";
 import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { indicateursPaieDuMois, moisDePaie } from "@/lib/indicateurs/rh";
+import { exigerPageRH } from "@/lib/garde-page";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -25,7 +25,7 @@ function libelleJour(date: Date): string {
 }
 
 export default async function AccueilPage() {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const prenom = user.nom.split(" ")[0];
   const peutValider = user.role === "ADMIN";
   // Photo de profil = celle de la fiche employé liée au compte (si liée).

@@ -2,11 +2,11 @@ import Link from "next/link";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
+import { exigerPageStock } from "@/lib/garde-page";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -25,9 +25,9 @@ export default async function ArticleFichePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ erreur?: string; mouvements?: string; prix?: string }>;
 }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
   const { id } = await params;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
 
   const a = await prisma.articleStock.findUnique({

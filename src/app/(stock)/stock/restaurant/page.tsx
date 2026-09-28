@@ -1,17 +1,17 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
 import { PropositionsRattachement } from "./propositions-rattachement";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { joursSemaine, lundiDe } from "./semaine";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { espace?: string; semaine?: string };
 
 export default async function RestaurantPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const espace = sp.espace === "BAR" ? "BAR" : "CUISINE";
   const base = sp.semaine ? new Date(sp.semaine) : new Date();

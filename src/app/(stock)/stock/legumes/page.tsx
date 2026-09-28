@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const cdf = (n: number) => n.toLocaleString("fr-FR");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -13,8 +13,8 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 type SP = { periode?: string };
 
 export default async function LegumesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 

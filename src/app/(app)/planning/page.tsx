@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { JourMobileProvider } from "@/components/jour-mobile";
@@ -22,6 +21,7 @@ import { chargerEcartMois } from "./ecart-data";
 import { EcartView } from "./ecart-view";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
+import { exigerPageRH } from "@/lib/garde-page";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const WD = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -39,7 +39,7 @@ export default async function PlanningPage({
 }: {
   searchParams: Promise<{ debut?: string; vue?: string; mois?: string; annee?: string; erreur?: string }>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
   const vue = sp.vue === "mois" ? "mois" : sp.vue === "modele" ? "modele" : sp.vue === "ecart" ? "ecart" : "semaine";
