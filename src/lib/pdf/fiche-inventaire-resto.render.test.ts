@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderPdfBuffer } from "./fonts";
 import { policesDeRepli, pagesDuPdf } from "@/lib/test/pdf-lecture";
-import { FichesInventaireDocument, rangeesFicheInventaire, type ArticleFiche } from "./fiche-inventaire-resto";
+import { FICHES_INVENTAIRE, FichesInventaireDocument, rangeesFicheInventaire, type ArticleFiche } from "./fiche-inventaire-resto";
 
 /** Fiches d'inventaire Cuisine / Bar : ce que le PDF rendu montre, page par page. */
 
@@ -25,11 +25,16 @@ describe("rangées d'une fiche d'inventaire", () => {
     ]);
   });
 
-  it("Bar : la deuxième colonne porte la catégorie, pas l'unité", () => {
+  it("Bar : pas de colonne Catégorie (déjà en rubrique), autant de cellules que de colonnes", () => {
     expect(rangeesFicheInventaire("BAR", [art("Bière locale", "Castel", "Bouteille")])).toEqual([
       { rubrique: "Bière locale" },
-      { cellules: ["Castel", "Bière locale", "", ""] },
+      { cellules: ["Castel", "", ""] },
     ]);
+    expect(FICHES_INVENTAIRE.BAR.colonnes.map((c) => c.entete)).toEqual(["Désignation", "Stock restaurant", "Commentaire"]);
+    for (const espace of ["CUISINE", "BAR"] as const) {
+      const cellules = rangeesFicheInventaire(espace, [art("X", "Y", "Kg")]).flatMap((r) => ("cellules" in r && r.cellules ? [r.cellules.length] : []));
+      expect(cellules).toEqual([FICHES_INVENTAIRE[espace].colonnes.length]);
+    }
   });
 });
 

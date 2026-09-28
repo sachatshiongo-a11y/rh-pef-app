@@ -75,13 +75,17 @@ describe("fiches d'inventaire du restaurant", () => {
     expect(policesDeRepli(pdf)).toEqual([]);
   }, 120_000);
 
-  it("Bar : sa fiche à lui, colonne Catégorie, article inactif absent", async () => {
+  it("Bar : sa fiche à lui, sans colonne Catégorie (la rubrique suffit), article inactif absent", async () => {
     await semer();
     const { pdf, lignes, plat } = await pdfDe(await route("BAR"));
     expect(plat).toContain("Fiche d'inventaire Bar Boissons");
-    expect(plat).toContain("Désignation Catégorie Stock restaurant Commentaire");
-    expect(lignes.indexOf("Castel Bière locale")).toBeGreaterThan(lignes.indexOf("Bière locale"));
-    expect(lignes.indexOf("Coca Cola Limonade et autre")).toBeGreaterThan(lignes.indexOf("Castel Bière locale"));
+    expect(plat).toContain("Désignation Stock restaurant Commentaire");
+    expect(plat).not.toContain("Catégorie");
+    // La catégorie n'apparaît plus qu'une fois, en rubrique, jamais répétée sur la ligne de l'article.
+    expect(lignes).not.toContain("Castel Bière locale");
+    expect(lignes.indexOf("Castel")).toBeGreaterThan(lignes.indexOf("Bière locale"));
+    expect(lignes.indexOf("Limonade et autre")).toBeGreaterThan(lignes.indexOf("Castel"));
+    expect(lignes.indexOf("Coca Cola")).toBeGreaterThan(lignes.indexOf("Limonade et autre"));
     expect(plat).not.toContain("Tembo");
     expect(plat).not.toContain("Beurre");
     expect(plat).not.toContain("Fiche d'inventaire Cuisine");

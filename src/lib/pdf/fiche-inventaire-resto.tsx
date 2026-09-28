@@ -7,8 +7,10 @@ registerPdfFonts();
 
 /**
  * Fiches d'inventaire du restaurant, Cuisine et Bar (modèle remis par la Direction, 2026-09-28) :
- * date à remplir, titre, lignes de rubrique par catégorie, puis Désignation | Unité (Cuisine) ou
- * Catégorie (Bar) | Stock | Commentaire, les deux dernières colonnes vides, à remplir à la main.
+ * date à remplir, titre, lignes de rubrique par catégorie, puis Désignation | Unité | Stock |
+ * Commentaire (Cuisine) ou Désignation | Stock | Commentaire (Bar : la catégorie est déjà la ligne de
+ * rubrique, la répéter en colonne était redondant — retirée à la demande de la Direction, 2026-09-28).
+ * Stock et Commentaire restent vides, à remplir à la main.
  *
  * Les articles sont ceux de l'application (ArticleResto actifs), dans l'ordre et avec les
  * catégories de l'écran « Stock restaurant » — jamais la liste figée du classeur.
@@ -32,10 +34,9 @@ export const FICHES_INVENTAIRE: Record<EspaceFiche, { titre: string; colonnes: C
   BAR: {
     titre: "Fiche d'inventaire Bar Boissons",
     colonnes: [
-      { entete: "Désignation", largeur: "38%" },
-      { entete: "Catégorie", largeur: "22%" },
-      { entete: "Stock restaurant", largeur: "16%", align: "center" },
-      { entete: "Commentaire", largeur: "24%" },
+      { entete: "Désignation", largeur: "52%" },
+      { entete: "Stock restaurant", largeur: "20%", align: "center" },
+      { entete: "Commentaire", largeur: "28%" },
     ],
   },
 };
@@ -55,8 +56,7 @@ export function rangeesFicheInventaire(espace: EspaceFiche, articles: ArticleFic
       rangees.push({ rubrique: categorie });
       categorieCourante = categorie;
     }
-    const deuxieme = espace === "CUISINE" ? a.unite?.trim() ?? "" : categorie === SANS_CATEGORIE ? "" : categorie;
-    rangees.push({ cellules: [a.designation, deuxieme, "", ""] });
+    rangees.push({ cellules: espace === "CUISINE" ? [a.designation, a.unite?.trim() ?? "", "", ""] : [a.designation, "", ""] });
   }
   return rangees;
 }
