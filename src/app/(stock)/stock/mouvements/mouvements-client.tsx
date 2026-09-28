@@ -7,6 +7,7 @@ import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { qte, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
+import { ChangerMotif } from "./changer-motif";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -31,6 +32,14 @@ export type MvtLite = {
   bc: { id: string; numero: string } | null;
   fournId: string | null;
   fournNom: string | null;
+  /** Sortie : motif (LIVRAISON_RESTAURANT | PERTE ; null = sans motif). */
+  motif?: string | null;
+};
+
+const MOTIF_CHIP: Record<string, { texte: string; classe: string }> = {
+  LIVRAISON_RESTAURANT: { texte: "Livraison restaurant", classe: "bg-sky-100 text-sky-900" },
+  PERTE: { texte: "Perte", classe: "bg-red-100 text-red-900" },
+  "": { texte: "sans motif", classe: "bg-muted text-muted-foreground" },
 };
 
 const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
@@ -39,10 +48,13 @@ const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-p
  * Colonne de mouvements (entrées ou sorties) groupés par jour, avec sélection multiple et
  * suppression groupée (Direction) — même logique « actions groupées » que le reste de l'app.
  */
-export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection }: {
+export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection, requalifiable = false }: {
   titre: string; mouvements: MvtLite[]; signe: string; couleur: string; estDirection: boolean;
+  /** Sorties : la Direction peut changer le motif des lignes cochées (sans toucher au stock). */
+  requalifiable?: boolean;
 }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [info, setInfo] = useState<string | null>(null);
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -72,7 +84,12 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-sm font-semibold ${couleur}`}>
-        <span>{titre} <span className="font-normal opacity-70">· {mouvements.length}</span></span>
+        <span className="flex items-center gap-2">
+          {estDirection && requalifiable && mouvements.length > 0 && (
+            <input type="checkbox" checked={sel.size === mouvements.length} onChange={(e) => setSel(e.target.checked ? new Set(mouvements.map((m) => m.id)) : new Set())} aria-label={`Tout sélectionner (${mouvements.length} affichés)`} />
+          )}
+          {titre} <span className="font-normal opacity-70">· {mouvements.length}</span>
+        </span>
         <span className="text-xs font-normal opacity-80">≈ {usd(totalValeur(mouvements))}</span>
       </div>
 
@@ -82,8 +99,10 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
           <span className="font-medium">{sel.size} sélectionné(s)</span>
           <button disabled={isPending} onClick={supprimerSel} className="rounded-md border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer la sélection</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
+          {requalifiable && <ChangerMotif ids={[...sel]} onFait={(t) => { setInfo(t); setSel(new Set()); }} />}
         </div>
       )}
+      {info && <p className="border-b bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{info}</p>}
       {erreur && <p className="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive">{erreur}</p>}
 
       <div className="max-h-[70vh] divide-y overflow-auto">
@@ -106,6 +125,9 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                       <div className="min-w-0">
                         <Link href={`/stock/catalogue/${m.articleId}`} className="truncate font-medium text-primary hover:underline">{m.designation}</Link>
                         {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
+                        {m.type === "SORTIE" && m.motif !== undefined && (
+                          <span className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${MOTIF_CHIP[m.motif ?? ""]?.classe ?? MOTIF_CHIP[""]!.classe}`}>{MOTIF_CHIP[m.motif ?? ""]?.texte ?? m.motif}</span>
+                        )}
                         {(m.facture || m.bc || m.fournId) && (
                           <div className="mt-0.5 flex flex-wrap items-center gap-1">
                             {m.facture && <Link href={`/stock/factures/${m.facture.id}`} className={chip}>🧾 Facture{m.facture.numero ? ` ${m.facture.numero}` : ""}</Link>}

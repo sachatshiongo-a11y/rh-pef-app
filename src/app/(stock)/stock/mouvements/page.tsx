@@ -38,10 +38,18 @@ const versLite = (m: Mvt): MvtLite => {
     bc: bc ? { id: bc.id, numero: bc.numero } : null,
     fournId: m.facture?.fournisseurId ?? bc?.fournisseurId ?? null,
     fournNom: m.facture?.fournisseurNom ?? bc?.fournisseur?.nom ?? null,
+    motif: m.categorieSortie,
   };
 };
 
-type SP = { mois?: string; articleId?: string };
+type SP = { mois?: string; articleId?: string; motif?: string };
+
+// Filtre « motif » des sorties (requalification des sorties importées sans motif).
+const FILTRES_MOTIF: Record<string, { label: string; where: Prisma.MouvementStockWhereInput }> = {
+  livraison: { label: "Sorties : Livraison restaurant", where: { type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT" } },
+  perte: { label: "Sorties : Perte", where: { type: "SORTIE", categorieSortie: "PERTE" } },
+  sans: { label: "Sorties : sans motif", where: { type: "SORTIE", categorieSortie: null } },
+};
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
@@ -55,7 +63,8 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     : moisCourant; // « 2026-7 »
   const articleId = sp.articleId || undefined;
 
-  const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}) };
+  const filtreMotif = sp.motif && sp.motif in FILTRES_MOTIF ? sp.motif : undefined;
+  const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}), ...(filtreMotif ? FILTRES_MOTIF[filtreMotif]!.where : {}) };
   if (mois) {
     const [y, m] = mois.split("-").map(Number);
     where.date = { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
@@ -99,8 +108,12 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
           <option value="">Tous les produits</option>
           {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
         </select>
+        <select name="motif" defaultValue={filtreMotif ?? ""} aria-label="Motif" className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les motifs</option>
+          {Object.entries(FILTRES_MOTIF).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
+        </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(mois !== moisCourant || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        {(mois !== moisCourant || articleId || filtreMotif) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
         <span className="ml-auto text-xs text-muted-foreground">
           {nbTotal > PLAFOND
             ? `${PLAFOND} affichés sur ${nbTotal} — affinez par mois ou par produit.`
@@ -112,7 +125,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ColonneMouvements titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" estDirection={estDirection} />
-        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} />
+        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} requalifiable />
       </div>
     </div>
   );

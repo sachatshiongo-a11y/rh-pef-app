@@ -9,9 +9,10 @@ import { createRoot, type Root } from "react-dom/client";
 
 vi.mock("./actions", () => ({
   mouvementManuel: vi.fn(async () => undefined), supprimerMouvement: vi.fn(async () => undefined), supprimerMouvementsEnLot: vi.fn(async () => undefined),
+  requalifierSorties: vi.fn(async () => ({ n: 0 })),
 }));
 
-const { MouvementForm, AVERTISSEMENT_LIVRAISON } = await import("./mouvements-client");
+const { MouvementForm, ColonneMouvements, AVERTISSEMENT_LIVRAISON } = await import("./mouvements-client");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -84,5 +85,46 @@ describe("mouvements — avertissement « Livraison restaurant »", () => {
     expect(avertissement()).not.toBeNull();
     choisir(motif(), "PERTE");
     expect(avertissement()).toBeNull();
+  });
+});
+
+describe("colonne des sorties — motif et requalification groupée", () => {
+  const M = (id: string, motif: string | null) => ({
+    id, articleId: "farine", designation: `Farine ${id}`, dateISO: "2026-07-10", origine: "Import Excel", type: "SORTIE", quantite: 1,
+    valeur: null, valeurEstimee: false, facture: null, bc: null, fournId: null, fournNom: null, motif,
+  });
+  function monterColonne(requalifiable: boolean, estDirection = true) {
+    conteneur = document.createElement("div");
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    act(() => racine.render(createElement(ColonneMouvements, {
+      titre: "Sorties", signe: "−", couleur: "", estDirection, requalifiable,
+      mouvements: [M("a", null), M("b", "LIVRAISON_RESTAURANT"), M("c", "PERTE")],
+    })));
+  }
+
+  it("chaque sortie affiche son motif, « sans motif » compris", () => {
+    monterColonne(true);
+    const t = conteneur.textContent ?? "";
+    expect(t).toContain("sans motif");
+    expect(t).toContain("Livraison restaurant");
+    expect(t).toContain("Perte");
+  });
+
+  it("Direction : « Tout sélectionner » puis « Changer le motif » dans la barre d'actions groupées", () => {
+    monterColonne(true);
+    const tout = conteneur.querySelector<HTMLInputElement>('input[aria-label="Tout sélectionner (3 affichés)"]')!;
+    act(() => tout.click());
+    expect(conteneur.textContent).toContain("3 sélectionné(s)");
+    expect(bouton("Changer le motif (3)")).toBeTruthy();
+  });
+
+  it("pas de requalification hors Direction, ni sur la colonne des entrées", () => {
+    monterColonne(false);
+    act(() => conteneur.querySelector<HTMLInputElement>('input[aria-label="Sélectionner"]')!.click());
+    expect(bouton("Changer le motif")).toBeUndefined();
+    act(() => racine.unmount()); conteneur.remove();
+    monterColonne(true, false);
+    expect(conteneur.querySelector('input[aria-label^="Tout sélectionner"]')).toBeNull();
   });
 });
