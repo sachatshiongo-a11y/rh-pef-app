@@ -28,6 +28,8 @@ const styles = StyleSheet.create({
   pied: { marginTop: 10, fontSize: 7, fontStyle: "italic", color: pdfColors.textMuted },
   note: { fontSize: 6, fontWeight: 400, color: pdfColors.textMuted },
   titrePartie: { fontSize: 11, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 6 },
+  blocTableau: { marginBottom: 14 },
+  titreTableau: { fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" },
 });
 
 type CorpsProps = {
@@ -138,25 +140,18 @@ export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { 
         <PdfHeader title={titre} subtitle={sousTitre} />
         <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
         {tables.map((t, ti) => (
-          <View key={ti} style={{ marginBottom: 14 }} wrap={false}>
-            {t.sousTitre && <Text style={{ fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" }}>{t.sousTitre}</Text>}
-            <View style={styles.wrap}>
-              <View style={styles.th}>
-                {t.colonnes.map((c, i) => (
-                  <Text key={i} style={[styles.thCell, { width: c.width, textAlign: c.align ?? "left" }]}>{c.header}</Text>
-                ))}
-              </View>
-              {t.lignes.map((ligne, r) => {
-                const total = t.totalDerniereLigne && r === t.lignes.length - 1;
-                return (
-                  <View key={r} style={[styles.tr, total ? styles.trTotal : {}]} wrap={false}>
-                    {t.colonnes.map((c, i) => (
-                      <Text key={i} style={[styles.td, total ? styles.tdTotal : {}, { width: c.width, textAlign: c.align ?? "left" }]}>{String(ligne[i] ?? "")}</Text>
-                    ))}
-                  </View>
-                );
-              })}
-            </View>
+          // PAS de `wrap={false}` sur le tableau entier : un bloc insécable plus haut que la page
+          // est ÉCRASÉ par react-pdf pour tenir sur une seule page (rangées superposées, en-tête
+          // réduit à une barre vide, titre recouvert) — le rapport « Achats de légumes frais —
+          // détail » sortait illisible. Le tableau se découpe donc entre les pages, ses rangées
+          // restent insécables et sa ligne d'en-tête se répète (CorpsTableau).
+          <View key={ti} style={styles.blocTableau}>
+            {t.sousTitre && (
+              // Le titre ne reste jamais seul en bas de page : il exige la place de l'en-tête et
+              // de quelques rangées après lui, sinon il passe à la page suivante avec son tableau.
+              <Text style={styles.titreTableau} minPresenceAhead={60}>{t.sousTitre}</Text>
+            )}
+            <CorpsTableau colonnes={t.colonnes} lignes={t.lignes} totalDerniereLigne={t.totalDerniereLigne} />
           </View>
         ))}
         <PdfFooter docLabel={`${titre} — ${sousTitre}`} />

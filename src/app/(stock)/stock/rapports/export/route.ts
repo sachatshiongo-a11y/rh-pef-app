@@ -2,21 +2,9 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
-import { TableauDocument, TablesDocument, type Colonne, type TableSpec } from "@/lib/pdf/tableau";
+import { TableauDocument, TablesDocument } from "@/lib/pdf/tableau";
+import { libellePeriodeRapport, versTableSpec } from "@/lib/rapports-pdf";
 import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
-
-/** Construit un TableSpec PDF (colonnes + lignes avec ligne Total) depuis les champs d'un tableau de rapport. */
-function versTableSpec(t: { entete: string[]; lignes: (string | number)[][]; largeurs: string[]; droite: number[]; sommables?: number[] }, sousTitre?: string): TableSpec {
-  const colonnes: Colonne[] = t.entete.map((header, i) => ({ header, width: t.largeurs[i] ?? "auto", align: t.droite.includes(i) ? "right" : "left" }));
-  let lignes = t.lignes;
-  if (t.sommables?.length) {
-    const tot: (string | number)[] = new Array(t.entete.length).fill("");
-    tot[0] = "Total";
-    for (const ci of t.sommables) { let s = 0; for (const l of t.lignes) { const v = Number(l[ci]); if (Number.isFinite(v)) s += v; } tot[ci] = Math.round(s * 100) / 100; }
-    lignes = [...t.lignes, tot];
-  }
-  return { sousTitre, colonnes, lignes, totalDerniereLigne: !!t.sommables?.length };
-}
 
 function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
   const now = new Date();
@@ -27,7 +15,6 @@ function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
   const fin = pf && /^\d{4}-\d{2}-\d{2}$/.test(pf) ? new Date(`${pf}T00:00:00Z`) : defFin;
   return { debut, fin };
 }
-const jourLabel = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
 
 export async function GET(req: Request) {
   const g = await exigerEspaceStock();
@@ -42,7 +29,7 @@ export async function GET(req: Request) {
   const { debut, fin } = bornes(sp);
 
   const data = mode === "detail" ? await genererDonneesRapportDetail(type, debut, fin) : await genererDonneesRapport(type, debut, fin);
-  const periode = `${jourLabel(debut)} → ${jourLabel(fin)}`;
+  const periode = libellePeriodeRapport(debut, fin);
 
   // Journalise la génération (avec mode/format pour re-télécharger depuis les archives).
   await prisma.rapport.create({ data: { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });
