@@ -22,6 +22,7 @@ const TABLEURS: Record<string, string> = {
   "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": "Stock → Nouveau bon de commande (quantité, prix des lignes)",
   "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": "Stock → Nouvelle facture (quantité, prix des lignes)",
   "src/app/(stock)/stock/legumes/legumes-client.tsx": "Stock → Achats de légumes frais (quantité, montant des lignes)",
+  "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": "Stock → Fiche article → Modifier (prix, unités/carton, seuils)",
 };
 
 /**
