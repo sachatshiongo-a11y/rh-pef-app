@@ -6,7 +6,10 @@ import { mouvementManuel, supprimerMouvement, supprimerMouvementsEnLot } from ".
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { qte, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
-import { AVERTISSEMENT_LIVRAISON, RAISON_LIVRAISON, type EtatLivraison } from "@/lib/stock-restaurant";
+import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
+
+/** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
+export type ConseilLivraison = { texte: string; href: string };
 
 export { AVERTISSEMENT_LIVRAISON };
 
@@ -148,33 +151,32 @@ export function SupprimerMouvementBtn({ id }: { id: string }) {
 
 /**
  * Articles choisis d'une sortie « Livraison restaurant » qui n'alimenteront pas le stock du
- * restaurant (non rattaché, à répartir, unité incompatible) : avertissement NON BLOQUANT.
+ * restaurant : avertissement NON BLOQUANT, un conseil et un lien par cas (non rattaché, unité du
+ * restaurant ou du catalogue non renseignée, unités incompatibles, à répartir).
  */
-function AvertissementLivraison({ ids, articles, etats }: { ids: string[]; articles: Art[]; etats: Record<string, EtatLivraison> }) {
+function AvertissementLivraison({ ids, articles, conseils }: { ids: string[]; articles: Art[]; conseils: Record<string, ConseilLivraison> }) {
   const noms = new Map(articles.map((a) => [a.id, a.designation]));
-  const concernes = [...new Set(ids)].flatMap((id) => {
-    const etat = etats[id];
-    return etat && etat !== "OK" ? [{ id, nom: noms.get(id) ?? id, raison: RAISON_LIVRAISON[etat] }] : [];
-  });
+  const concernes = [...new Set(ids)].flatMap((id) => (conseils[id] ? [{ id, nom: noms.get(id) ?? id, ...conseils[id]! }] : []));
   if (concernes.length === 0) return null;
   return (
     <div role="status" data-avertissement="livraison" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-      <ul className="space-y-0.5">
+      <p className="font-medium">Attention : {AVERTISSEMENT_LIVRAISON}.</p>
+      <ul className="mt-1 space-y-0.5">
         {concernes.map((c) => (
-          <li key={c.id} className="min-w-0 break-words">« {c.nom} » ({c.raison}) : {AVERTISSEMENT_LIVRAISON}.</li>
+          <li key={c.id} className="min-w-0 break-words">
+            « {c.nom} » — <Link href={c.href} className="font-medium underline">{c.texte}</Link>
+          </li>
         ))}
       </ul>
-      <p className="mt-1 text-xs">
-        La sortie reste enregistrable (elle retire bien la quantité du dépôt). <Link href="/stock/restaurant" className="font-medium underline">Rattacher dans Stock → Restaurant</Link>
-      </p>
+      <p className="mt-1 text-xs">La sortie reste enregistrable : elle retire bien la quantité du dépôt.</p>
     </div>
   );
 }
 
-export function MouvementForm({ articles, estDirection = false, etatsLivraison = {} }: {
+export function MouvementForm({ articles, estDirection = false, conseilsLivraison = {} }: {
   articles: Art[]; estDirection?: boolean;
-  /** État de rattachement au restaurant de chaque article (livraisons) — calculé par le serveur. */
-  etatsLivraison?: Record<string, EtatLivraison>;
+  /** Articles dont une livraison n'alimenterait pas le restaurant, avec le conseil — calculé par le serveur. */
+  conseilsLivraison?: Record<string, ConseilLivraison>;
 }) {
   const [choix, setChoix] = useState<Record<number, string>>({});
   const [isPending, startTransition] = useTransition();
@@ -225,7 +227,7 @@ export function MouvementForm({ articles, estDirection = false, etatsLivraison =
       </div>
 
       {type === "SORTIE" && motif === "LIVRAISON_RESTAURANT" && (
-        <AvertissementLivraison ids={Object.values(choix).filter(Boolean)} articles={articles} etats={etatsLivraison} />
+        <AvertissementLivraison ids={Object.values(choix).filter(Boolean)} articles={articles} conseils={conseilsLivraison} />
       )}
 
       {Array.from({ length: nb }).map((_, i) => (

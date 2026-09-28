@@ -5,7 +5,7 @@ import { PropositionsRattachement } from "./propositions-rattachement";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { joursSemaine, lundiDe } from "./semaine";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
-import Link from "next/link";
+import { BandeauLivraisons } from "./bandeau-livraisons";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { formaterNombre } from "@/lib/montant";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
@@ -134,28 +134,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
 
       <p className="text-sm text-muted-foreground">Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? "" : " Seule la Direction peut supprimer un article."}</p>
 
-      {(nonRattachees.length > 0 || signalesSemaine.size > 0) && (
-        <section className="space-y-1.5 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          <p className="font-semibold">Livraisons de la semaine non prises en compte dans le stock du restaurant</p>
-          <ul className="space-y-1 text-xs">
-            {nonRattachees.map((l) => (
-              <li key={l.id} className="min-w-0 break-words">
-                {jjmm(l.date)} — <Link href={`/stock/catalogue/${l.articleStockId}`} className="font-medium text-primary hover:underline">{l.designation}</Link>{" "}
-                ({q3(l.quantite)}{l.uniteCatalogue ? ` ${l.uniteCatalogue}` : ""}) : {LIBELLE_SIGNALEMENT.NON_RATTACHE}.{" "}
-                <a href="#grille-restaurant" className="underline">Rattachez l&apos;article</a> dans la colonne « Article du catalogue ».
-              </li>
-            ))}
-            {[...signalesSemaine.values()].map((x) => (
-              <li key={x.livraisonId} className="min-w-0 break-words">
-                {jjmm(x.date)} — {x.designation} ({q3(x.quantite)}{x.uniteCatalogue ? ` ${x.uniteCatalogue}` : ""}) : {LIBELLE_SIGNALEMENT[x.motif]}
-                {x.motif === "A_REPARTIR"
-                  ? ` — rattaché à ${x.candidats!.join(", ")} : la Direction choisit un rattachement unique.`
-                  : " — l'unité du restaurant ne se convertit pas depuis celle du catalogue : corrigez l'unité ou le rattachement."}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <BandeauLivraisons nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]} articles={entrees.articles} />
 
       <PropositionsRattachement propositions={propositions} />
 

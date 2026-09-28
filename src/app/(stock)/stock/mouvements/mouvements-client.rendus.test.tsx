@@ -15,8 +15,14 @@ const { MouvementForm, AVERTISSEMENT_LIVRAISON } = await import("./mouvements-cl
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const ARTICLES = [{ id: "farine", designation: "Farine" }, { id: "sel", designation: "Sel" }, { id: "citron", designation: "Citron" }, { id: "vin", designation: "Vin" }];
-const ETATS = { farine: "OK", sel: "NON_RATTACHE", citron: "A_REPARTIR", vin: "UNITE_INCOMPATIBLE" } as const;
+const ARTICLES = [{ id: "farine", designation: "Farine" }, { id: "sel", designation: "Sel" }, { id: "citron", designation: "Citron" }, { id: "vin", designation: "Vin" }, { id: "biere", designation: "Bière" }];
+// Conseils calculés par le serveur (`conseilLivraison`) : un par article en défaut, aucun pour la farine.
+const CONSEILS = {
+  sel: { texte: "non rattaché : rattachez l'article", href: "/stock/restaurant" },
+  citron: { texte: "à répartir : plusieurs articles du restaurant rattachés", href: "/stock/restaurant?espace=CUISINE" },
+  vin: { texte: "unités incompatibles : corrigez l'unité du restaurant ou le rattachement", href: "/stock/restaurant?espace=BAR" },
+  biere: { texte: "unité du restaurant non renseignée : renseignez-la dans Stock restaurant", href: "/stock/restaurant?espace=BAR" },
+};
 
 let conteneur: HTMLDivElement;
 let racine: Root;
@@ -25,7 +31,7 @@ function monter() {
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
-  act(() => racine.render(createElement(MouvementForm, { articles: ARTICLES, etatsLivraison: ETATS })));
+  act(() => racine.render(createElement(MouvementForm, { articles: ARTICLES, conseilsLivraison: CONSEILS })));
   act(() => bouton("Mouvement manuel").click());
   act(() => bouton("Sortie").click());
 }
@@ -47,21 +53,26 @@ describe("mouvements — avertissement « Livraison restaurant »", () => {
     choisir(ligne(0), "sel");
     expect(avertissement()?.textContent).toContain("Sel");
     expect(avertissement()?.textContent).toContain(AVERTISSEMENT_LIVRAISON);
-    expect(AVERTISSEMENT_LIVRAISON).toBe("cette livraison n'alimentera pas le stock du restaurant : rattachez l'article");
-    expect(avertissement()?.querySelector('a[href="/stock/restaurant"]')).not.toBeNull();
+    expect(AVERTISSEMENT_LIVRAISON).toBe("cette livraison n'alimentera pas le stock du restaurant");
+    const lien = avertissement()?.querySelector('a[href="/stock/restaurant"]');
+    expect(lien?.textContent).toBe("non rattaché : rattachez l'article");
     expect(bouton("Valider la sortie").disabled).toBe(false);
   });
 
-  it("plusieurs rattachements ou unité incompatible : avertit aussi, avec la raison", () => {
+  it("chaque cas a son message et son lien : à répartir, unités incompatibles, unité du restaurant non renseignée", () => {
     monter();
     choisir(motif(), "LIVRAISON_RESTAURANT");
     choisir(ligne(0), "citron");
     choisir(ligne(1), "vin");
-    const texte = avertissement()?.textContent ?? "";
-    expect(texte).toContain("Citron");
-    expect(texte).toContain("plusieurs articles du restaurant");
-    expect(texte).toContain("Vin");
-    expect(texte).toContain("unité incompatible");
+    choisir(ligne(2), "biere");
+    const liens = [...avertissement()!.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href")]);
+    expect(liens).toEqual([
+      ["à répartir : plusieurs articles du restaurant rattachés", "/stock/restaurant?espace=CUISINE"],
+      ["unités incompatibles : corrigez l'unité du restaurant ou le rattachement", "/stock/restaurant?espace=BAR"],
+      ["unité du restaurant non renseignée : renseignez-la dans Stock restaurant", "/stock/restaurant?espace=BAR"],
+    ]);
+    expect(avertissement()!.textContent).toContain("« Citron »");
+    expect(avertissement()!.textContent).toContain("« Bière »");
   });
 
   it("article bien rattaché, ou motif Perte : aucun avertissement", () => {

@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { convertirDepuisUniteArticle, convertirVersUniteArticle, type StockRestaurant } from "@/lib/fiches/disponibilite";
+import { uniteManquante } from "@/lib/fiches/conversion";
 
 // Stock et consommation du RESTAURANT, dérivés à l'affichage (spec 2026-09-28, « Livraisons du dépôt
 // au restaurant »). Fonctions PURES : ni Prisma, ni React, aucune exception.
@@ -36,7 +37,17 @@ export type ComptageSR = { articleRestoId: string; date: string; quantite: strin
 export type LivraisonSR = {
   id: string; articleStockId: string; designation: string; uniteCatalogue: string | null;
   date: string; quantite: string; categorieSortie: string | null;
+  /** Domaine de l'article du catalogue : dit l'espace (Cuisine / Bar) quand il est rattaché aux deux. */
+  domaine?: string | null;
 };
+
+/**
+ * Espace du restaurant d'un domaine du catalogue (« Cuisine (nourriture) », « Bar (boissons) »).
+ * Tout autre domaine (AUTRE…) ne désigne aucun espace.
+ */
+export function espaceDuDomaine(domaine: string | null | undefined): "CUISINE" | "BAR" | null {
+  return domaine === "NOURRITURE" ? "CUISINE" : domaine === "BOISSON" ? "BAR" : null;
+}
 export type EntreesStockResto = { articles: ArticleRestoSR[]; comptages: ComptageSR[]; livraisons: LivraisonSR[] };
 
 // ─── Sorties ─────────────────────────────────────────────────────────────────
@@ -45,11 +56,15 @@ export type EtatRattachement =
   | { etat: "OK"; articleRestoId: string }
   | { etat: "NON_RATTACHE" }
   | { etat: "A_REPARTIR"; articleRestoIds: string[] }
+  | { etat: "UNITE_RESTO_MANQUANTE"; articleRestoId: string }
+  | { etat: "UNITE_CATALOGUE_MANQUANTE"; articleRestoId: string }
   | { etat: "UNITE_INCOMPATIBLE"; articleRestoId: string };
+
+type MotifUnite = "UNITE_INCOMPATIBLE" | "UNITE_RESTO_MANQUANTE" | "UNITE_CATALOGUE_MANQUANTE";
 
 /** Livraison du dépôt qui N'EST PAS additionnée au stock d'un article du restaurant, et pourquoi. */
 export type SignalementLivraison = {
-  motif: "UNITE_INCOMPATIBLE" | "A_REPARTIR";
+  motif: MotifUnite | "A_REPARTIR";
   livraisonId: string;
   date: string;
   /** Désignation de l'article du catalogue livré. */
@@ -59,6 +74,9 @@ export type SignalementLivraison = {
   uniteCatalogue: string | null;
   /** « À répartir » : désignations des articles du restaurant rattachés au même article du catalogue. */
   candidats?: string[];
+  /** Article du catalogue livré, et article du restaurant concerné par ce signalement. */
+  articleStockId: string;
+  articleRestoId: string;
 };
 
 export type LivraisonRecue = { livraisonId: string; date: string; quantiteCatalogue: string; quantiteResto: string };
@@ -81,7 +99,9 @@ export type ResultatStockResto = { parArticle: Map<string, StockTheorique>; nonR
 
 export const MENTION_AUCUN_COMPTAGE = "aucun comptage : stock estimé à partir des seules livraisons";
 export const LIBELLE_SIGNALEMENT: Record<SignalementLivraison["motif"] | "NON_RATTACHE", string> = {
-  UNITE_INCOMPATIBLE: "unité incompatible",
+  UNITE_INCOMPATIBLE: "unités incompatibles",
+  UNITE_RESTO_MANQUANTE: "unité du restaurant non renseignée",
+  UNITE_CATALOGUE_MANQUANTE: "unité du catalogue non renseignée",
   A_REPARTIR: "à répartir",
   NON_RATTACHE: "non rattaché : n'alimente pas le restaurant",
 };
@@ -89,26 +109,54 @@ export const LIBELLE_SIGNALEMENT: Record<SignalementLivraison["motif"] | "NON_RA
 // ─── Rattachement d'une livraison ────────────────────────────────────────────
 
 /** Avertissement NON BLOQUANT à la saisie d'une sortie « Livraison restaurant » (Stock → Mouvements). */
-export const AVERTISSEMENT_LIVRAISON = "cette livraison n'alimentera pas le stock du restaurant : rattachez l'article";
+export const AVERTISSEMENT_LIVRAISON = "cette livraison n'alimentera pas le stock du restaurant";
 export type EtatLivraison = EtatRattachement["etat"];
-/** Raison, en clair, pour laquelle une livraison n'alimentera pas le restaurant. */
-export const RAISON_LIVRAISON: Record<Exclude<EtatLivraison, "OK">, string> = {
-  NON_RATTACHE: "non rattaché à un article du restaurant",
-  A_REPARTIR: "rattaché à plusieurs articles du restaurant (à répartir : la Direction choisit un rattachement unique)",
-  UNITE_INCOMPATIBLE: "unité incompatible avec celle de l'article du restaurant",
-};
 
 /**
  * Article du restaurant qui reçoit les livraisons d'un article du catalogue : UN SEUL rattachement
- * actif, d'unité convertible. Sinon, la raison (jamais un choix au hasard).
+ * actif PAR ESPACE (spec). Rattaché en Cuisine ET au Bar : l'espace est celui du domaine de l'article
+ * (nourriture → Cuisine, boissons → Bar) ; domaine inconnu, ou deux articles dans le même espace :
+ * « à répartir ». Puis les unités : absente au restaurant, absente au catalogue, ou incompatibles.
+ * Jamais un choix au hasard.
  */
-export function etatRattachementLivraison(articleStockId: string, uniteCatalogue: string | null, articles: ArticleRestoSR[]): EtatRattachement {
+export function etatRattachementLivraison(
+  articleStockId: string, uniteCatalogue: string | null, articles: ArticleRestoSR[], domaine?: string | null,
+): EtatRattachement {
   const candidats = articles.filter((a) => a.articleStockId === articleStockId);
   if (candidats.length === 0) return { etat: "NON_RATTACHE" };
-  if (candidats.length > 1) return { etat: "A_REPARTIR", articleRestoIds: candidats.map((c) => c.id) };
-  const r = candidats[0]!;
+  let r = candidats[0]!;
+  if (candidats.length > 1) {
+    const espace = espaceDuDomaine(domaine);
+    const dansEspace = espace ? candidats.filter((c) => c.espace === espace) : [];
+    if (dansEspace.length !== 1) return { etat: "A_REPARTIR", articleRestoIds: (dansEspace.length > 1 ? dansEspace : candidats).map((c) => c.id) };
+    r = dansEspace[0]!;
+  }
+  if (uniteManquante(r.unite)) return { etat: "UNITE_RESTO_MANQUANTE", articleRestoId: r.id };
+  if (uniteManquante(uniteCatalogue)) return { etat: "UNITE_CATALOGUE_MANQUANTE", articleRestoId: r.id };
   if (convertirDepuisUniteArticle(1, uniteCatalogue ?? "", r.unite ?? "") === null) return { etat: "UNITE_INCOMPATIBLE", articleRestoId: r.id };
   return { etat: "OK", articleRestoId: r.id };
+}
+
+/**
+ * Ce qu'il faut faire pour qu'une livraison alimente le restaurant, et OÙ le faire. null : rien à
+ * faire (rattachement unique, unités convertibles).
+ */
+export function conseilLivraison(etat: EtatRattachement, articleStockId: string, articles: ArticleRestoSR[]): { texte: string; href: string } | null {
+  const espaceDe = (id: string) => articles.find((a) => a.id === id)?.espace ?? "CUISINE";
+  switch (etat.etat) {
+    case "OK": return null;
+    case "NON_RATTACHE": return { texte: "non rattaché : rattachez l'article", href: "/stock/restaurant" };
+    case "UNITE_RESTO_MANQUANTE": return { texte: "unité du restaurant non renseignée : renseignez-la dans Stock restaurant", href: `/stock/restaurant?espace=${espaceDe(etat.articleRestoId)}` };
+    case "UNITE_CATALOGUE_MANQUANTE": return { texte: "unité du catalogue non renseignée : renseignez-la sur la fiche de l'article", href: `/stock/catalogue/${articleStockId}` };
+    case "UNITE_INCOMPATIBLE": return { texte: "unités incompatibles : corrigez l'unité du restaurant ou le rattachement", href: `/stock/restaurant?espace=${espaceDe(etat.articleRestoId)}` };
+    case "A_REPARTIR": return { texte: "à répartir : plusieurs articles du restaurant rattachés", href: `/stock/restaurant?espace=${espaceDe(etat.articleRestoIds[0]!)}` };
+  }
+}
+
+/** Conseil (texte + lien) d'une livraison signalée dans la grille du restaurant. */
+export function conseilSignalement(s: SignalementLivraison, articles: ArticleRestoSR[]): { texte: string; href: string } {
+  const etat: EtatRattachement = s.motif === "A_REPARTIR" ? { etat: "A_REPARTIR", articleRestoIds: [s.articleRestoId] } : { etat: s.motif, articleRestoId: s.articleRestoId };
+  return conseilLivraison(etat, s.articleStockId, articles)!;
 }
 
 // ─── Index (construit une fois par jeu d'entrées) ────────────────────────────
@@ -134,16 +182,16 @@ function indexer(e: EntreesStockResto): Index {
 
   for (const l of e.livraisons) {
     if (l.categorieSortie !== MOTIF_LIVRAISON_RESTAURANT) continue;
-    const r = etatRattachementLivraison(l.articleStockId, l.uniteCatalogue, e.articles);
-    const signal = (motif: SignalementLivraison["motif"], candidats?: string[]): SignalementLivraison => ({
+    const r = etatRattachementLivraison(l.articleStockId, l.uniteCatalogue, e.articles, l.domaine);
+    const signal = (motif: SignalementLivraison["motif"], articleRestoId: string, candidats?: string[]): SignalementLivraison => ({
       motif, livraisonId: l.id, date: l.date, designation: l.designation, quantite: l.quantite, uniteCatalogue: l.uniteCatalogue,
-      ...(candidats ? { candidats } : {}),
+      articleStockId: l.articleStockId, articleRestoId, ...(candidats ? { candidats } : {}),
     });
     if (r.etat === "NON_RATTACHE") idx.nonRattachees.push(l);
-    else if (r.etat === "UNITE_INCOMPATIBLE") pousser(idx.signalees, r.articleRestoId, signal("UNITE_INCOMPATIBLE"));
+    else if (r.etat === "UNITE_INCOMPATIBLE" || r.etat === "UNITE_RESTO_MANQUANTE" || r.etat === "UNITE_CATALOGUE_MANQUANTE") pousser(idx.signalees, r.articleRestoId, signal(r.etat, r.articleRestoId));
     else if (r.etat === "A_REPARTIR") {
       const candidats = r.articleRestoIds.map((id) => noms.get(id)!);
-      for (const id of r.articleRestoIds) pousser(idx.signalees, id, signal("A_REPARTIR", candidats));
+      for (const id of r.articleRestoIds) pousser(idx.signalees, id, signal("A_REPARTIR", id, candidats));
     } else {
       const quantiteResto = convertirDepuisUniteArticle(l.quantite, l.uniteCatalogue ?? "", unites.get(r.articleRestoId) ?? "")!;
       pousser(idx.recues, r.articleRestoId, { livraisonId: l.id, date: l.date, quantiteCatalogue: l.quantite, quantiteResto });
@@ -284,7 +332,7 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
     if (gravite(deja) === 2) continue;
     if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
     const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", a.uniteCatalogue ?? "");
-    if (compte === null || s.signalements.some((x) => x.motif === "UNITE_INCOMPATIBLE")) {
+    if (compte === null || s.signalements.some((x) => x.motif !== "A_REPARTIR")) {
       res.set(cat, { etat: "UNITE_NON_CONVERTIBLE", articleResto: a.designation });
       continue;
     }

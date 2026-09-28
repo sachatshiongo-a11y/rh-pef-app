@@ -48,7 +48,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA }: { depuis: str
     }),
     prisma.mouvementStock.findMany({
       where: { type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT, date: dateLivraison },
-      select: { id: true, articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true, unite: true } } },
+      select: { id: true, articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true, unite: true, domaine: true } } },
     }),
   ]);
 
@@ -60,7 +60,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA }: { depuis: str
     comptages: comptages.map((c) => ({ articleRestoId: c.articleRestoId, date: iso(c.date), quantite: c.quantite.toString() })),
     livraisons: livraisons.map((l) => ({
       id: l.id, articleStockId: l.articleId, designation: l.article.designation, uniteCatalogue: l.article.unite,
-      date: iso(l.date), quantite: l.quantite.toString(), categorieSortie: l.categorieSortie,
+      date: iso(l.date), quantite: l.quantite.toString(), categorieSortie: l.categorieSortie, domaine: l.article.domaine,
     })),
   };
 }

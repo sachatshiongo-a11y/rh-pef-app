@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  consommationReelle, etatRattachementLivraison, recuDuDepot, stockRestaurantTheorique, stockRestaurantPourDisponibilite, ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, MENTION_AUCUN_COMPTAGE,
+  conseilLivraison, consommationReelle, etatRattachementLivraison, recuDuDepot, stockRestaurantTheorique, stockRestaurantPourDisponibilite, ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, MENTION_AUCUN_COMPTAGE,
   type ArticleRestoSR, type ComptageSR, type EntreesStockResto, type LivraisonSR,
 } from "./stock-restaurant";
 import { calculerDisponibilite, libelleRaison, type ArticleDispo, type FicheDispo } from "./fiches/disponibilite";
@@ -84,19 +84,50 @@ describe("stock théorique du restaurant", () => {
     expect(etatRattachementLivraison("cat-vin", "l", [vin])).toEqual({ etat: "UNITE_INCOMPATIBLE", articleRestoId: "vin" });
   });
 
-  it("plusieurs articles du restaurant rattachés (même hors espace) : « à répartir », jamais réparti au hasard", () => {
-    const citronC = R("citron-c", "pièce", "cat-citron", "CUISINE");
-    const citronB = R("citron-b", "pièce", "cat-citron", "BAR");
-    const e = E([citronC, citronB], [C("citron-c", "2026-09-20", "10"), C("citron-b", "2026-09-20", "4")], [L("cat-citron", "pièce", "2026-09-21", "12")]);
+  it("deux articles du restaurant rattachés dans le MÊME espace : « à répartir », jamais réparti au hasard", () => {
+    const c1 = R("citron-1", "pièce", "cat-citron", "CUISINE");
+    const c2 = R("citron-2", "pièce", "cat-citron", "CUISINE");
+    const e = E([c1, c2], [C("citron-1", "2026-09-20", "10"), C("citron-2", "2026-09-20", "4")], [{ ...L("cat-citron", "pièce", "2026-09-21", "12"), domaine: "NOURRITURE" }]);
     const r = stockRestaurantTheorique(e, "2026-09-22");
-    expect(r.parArticle.get("citron-c")!.stock).toBe("10");
-    expect(r.parArticle.get("citron-b")!.stock).toBe("4");
-    for (const id of ["citron-c", "citron-b"]) {
+    expect(r.parArticle.get("citron-1")!.stock).toBe("10");
+    expect(r.parArticle.get("citron-2")!.stock).toBe("4");
+    for (const id of ["citron-1", "citron-2"]) {
       const sig = r.parArticle.get(id)!.signalements;
       expect(sig.map((x) => x.motif)).toEqual(["A_REPARTIR"]);
-      expect(sig[0]!.candidats).toEqual(["Resto citron-c", "Resto citron-b"]);
+      expect(sig[0]!.candidats).toEqual(["Resto citron-1", "Resto citron-2"]);
     }
-    expect(etatRattachementLivraison("cat-citron", "pièce", [citronC, citronB])).toEqual({ etat: "A_REPARTIR", articleRestoIds: ["citron-c", "citron-b"] });
+    expect(etatRattachementLivraison("cat-citron", "pièce", [c1, c2], "NOURRITURE")).toEqual({ etat: "A_REPARTIR", articleRestoIds: ["citron-1", "citron-2"] });
+  });
+
+  it("un article en Cuisine et un au Bar : l'espace se lit par espace (Cuisine = nourriture, Bar = boissons)", () => {
+    const cuisine = R("citron-c", "pièce", "cat-citron", "CUISINE");
+    const bar = R("citron-b", "pièce", "cat-citron", "BAR");
+    expect(etatRattachementLivraison("cat-citron", "pièce", [cuisine, bar], "NOURRITURE")).toEqual({ etat: "OK", articleRestoId: "citron-c" });
+    expect(etatRattachementLivraison("cat-citron", "pièce", [cuisine, bar], "BOISSON")).toEqual({ etat: "OK", articleRestoId: "citron-b" });
+    // Domaine inconnu : rien n'est choisi.
+    expect(etatRattachementLivraison("cat-citron", "pièce", [cuisine, bar])).toEqual({ etat: "A_REPARTIR", articleRestoIds: ["citron-c", "citron-b"] });
+    const e = E([cuisine, bar], [C("citron-c", "2026-09-20", "10"), C("citron-b", "2026-09-20", "4")], [{ ...L("cat-citron", "pièce", "2026-09-21", "12"), domaine: "BOISSON" }]);
+    const r = stockRestaurantTheorique(e, "2026-09-22");
+    expect([r.parArticle.get("citron-c")!.stock, r.parArticle.get("citron-b")!.stock]).toEqual(["10", "16"]);
+  });
+
+  it("unités : non renseignée au restaurant, non renseignée au catalogue, incompatibles — trois cas distincts", () => {
+    expect(etatRattachementLivraison("cat-vin", "l", [R("vin", null, "cat-vin", "BAR")])).toEqual({ etat: "UNITE_RESTO_MANQUANTE", articleRestoId: "vin" });
+    expect(etatRattachementLivraison("cat-vin", "  ", [R("vin", "bouteille", "cat-vin", "BAR")])).toEqual({ etat: "UNITE_CATALOGUE_MANQUANTE", articleRestoId: "vin" });
+    expect(etatRattachementLivraison("cat-vin", "l", [R("vin", "bouteille", "cat-vin", "BAR")])).toEqual({ etat: "UNITE_INCOMPATIBLE", articleRestoId: "vin" });
+    const e = E([R("vin", "", "cat-vin", "BAR")], [], [L("cat-vin", "Bouteille", "2026-09-21", "3")]);
+    expect(recuDuDepot(e, "vin", "2026-09-21").signalements.map((x) => x.motif)).toEqual(["UNITE_RESTO_MANQUANTE"]);
+  });
+
+  it("conseil à la saisie : un message et un lien par cas", () => {
+    const arts = [R("vin", null, "cat-vin", "BAR"), R("c1", "pièce", "cat-citron", "CUISINE"), R("c2", "pièce", "cat-citron", "CUISINE"), R("sel", "g", "cat-sel", "CUISINE")];
+    const c = (id: string, unite: string | null, domaine?: "NOURRITURE" | "BOISSON") => conseilLivraison(etatRattachementLivraison(id, unite, arts, domaine), id, arts);
+    expect(c("cat-riz", "kg")).toEqual({ texte: "non rattaché : rattachez l'article", href: "/stock/restaurant" });
+    expect(c("cat-vin", "l", "BOISSON")).toEqual({ texte: "unité du restaurant non renseignée : renseignez-la dans Stock restaurant", href: "/stock/restaurant?espace=BAR" });
+    expect(c("cat-sel", "pièce")).toEqual({ texte: "unités incompatibles : corrigez l'unité du restaurant ou le rattachement", href: "/stock/restaurant?espace=CUISINE" });
+    expect(c("cat-sel", "")).toEqual({ texte: "unité du catalogue non renseignée : renseignez-la sur la fiche de l'article", href: "/stock/catalogue/cat-sel" });
+    expect(c("cat-citron", "pièce", "NOURRITURE")).toEqual({ texte: "à répartir : plusieurs articles du restaurant rattachés", href: "/stock/restaurant?espace=CUISINE" });
+    expect(c("cat-sel", "g")).toBeNull();
   });
 
   it("une sortie Perte (ou sans motif) n'alimente jamais le restaurant", () => {
