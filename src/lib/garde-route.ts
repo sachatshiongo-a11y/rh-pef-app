@@ -4,6 +4,8 @@ import type { Role } from "@prisma/client";
 import { verifySession, type CurrentUser } from "@/lib/auth";
 import { estRH, estStock, estExploitation, estSalarie } from "@/lib/espaces";
 import { espaceEmployeActif } from "@/lib/espace-employe";
+import { prisma } from "@/lib/prisma";
+import { peutLireFichier } from "@/lib/acces-fichier";
 
 /**
  * GARDES DES ROUTE HANDLERS (`route.ts`).
@@ -88,3 +90,12 @@ export async function exigerEspaceSalarie(opts?: Pick<Options, "message">): Prom
   return { ok: true, user: { ...user, employeeId: user.employeeId } };
 }
 
+/**
+ * Fichier du bucket privé (`/fichiers/<chemin>`) — n'appartient à aucun espace : la RH ouvre tout,
+ * un autre compte n'ouvre que ce que la BASE lui attribue (voir `lib/acces-fichier.ts`).
+ */
+export async function exigerAccesFichier(url: string): Promise<Garde> {
+  const user = await verifySession();
+  if (!(await peutLireFichier(prisma, user, url))) return refus();
+  return { ok: true, user };
+}
