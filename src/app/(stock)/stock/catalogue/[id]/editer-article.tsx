@@ -26,7 +26,7 @@ export type ArticleEdit = {
 };
 
 const inp = "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm";
-/** Texte (venu du serveur) → valeur de case ; l'inverse pour le champ cadhé envoyé au serveur —
+/** Texte (venu du serveur) → valeur de case ; l'inverse pour le champ caché envoyé au serveur —
  *  même lecture/écriture que la Liste d'achat de légumes (`legumes-client.tsx`). */
 const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
 const texteDe = (v: number | null) => (v === null ? "" : String(v));
@@ -51,7 +51,10 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
   const [parCarton, setParCarton] = useState(a.uniteParCarton ?? "");
   const [seuilMin, setSeuilMin] = useState(a.stockMinimum);
   const [seuilUrgent, setSeuilUrgent] = useState(a.seuilUrgent);
-  const catsPour = categories.filter((c) => c.domaine === a.domaine);
+  // Catégories du domaine de l'article — PLUS sa catégorie actuelle si elle est d'un autre domaine
+  // (import, reclassement) : absente de la liste, le select retomberait sur « à classer » et
+  // l'enregistrement effacerait la catégorie sans que personne l'ait demandé.
+  const catsPour = categories.filter((c) => c.domaine === a.domaine || c.id === a.categorieId);
 
   const enregistrer = (fd: FormData) => {
     setErreur(null);

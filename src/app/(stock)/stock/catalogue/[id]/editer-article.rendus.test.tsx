@@ -39,11 +39,11 @@ let conteneur: HTMLDivElement;
 let racine: Root;
 afterEach(() => { act(() => racine.unmount()); conteneur.remove(); appels.modifier.mockClear(); });
 
-function monter() {
+function monter(a: typeof ARTICLE = ARTICLE) {
   conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
-  act(() => racine.render(createElement(EditerArticle, { a: ARTICLE, categories: CATEGORIES, fournisseurs: FOURNISSEURS })));
+  act(() => racine.render(createElement(EditerArticle, { a, categories: CATEGORIES, fournisseurs: FOURNISSEURS })));
 }
 const bouton = (texte: string) => [...conteneur.querySelectorAll("button")].find((b) => b.textContent?.includes(texte))!;
 const champ = <T extends HTMLElement>(sel: string) => conteneur.querySelector<T>(sel)!;
@@ -90,6 +90,15 @@ describe("fiche article — bouton Modifier", () => {
     await cliquer(bouton("Annuler"));
     expect(conteneur.querySelector("form")).toBeNull();
     expect(appels.modifier).not.toHaveBeenCalled();
+  });
+
+  it("catégorie actuelle d'un AUTRE domaine : gardée dans la liste, jamais effacée à l'enregistrement", async () => {
+    monter({ ...ARTICLE, categorieId: "cat3" }); // article NOURRITURE classé (par import) dans « Boissons »
+    await cliquer(bouton("Modifier"));
+    expect(champ<HTMLSelectElement>('select[name="categorieId"]').value).toBe("cat3");
+    await cliquer(bouton("Enregistrer"));
+    const [, fd] = appels.modifier.mock.calls[0];
+    expect(fd.get("categorieId")).toBe("cat3");
   });
 
   it("« Enregistrer » sans rien changer envoie les champs de l'article, JAMAIS quantite", async () => {
