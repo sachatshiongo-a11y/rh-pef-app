@@ -27,7 +27,7 @@ export function VueAccueil({
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold">Bonjour {prenom} 👋</h1>
+        <h1 className="text-xl font-semibold">{prenom ? `Bonjour ${prenom}` : "Bonjour"} 👋</h1>
         <p className="text-sm text-muted-foreground">Voici votre espace personnel.</p>
       </div>
 

@@ -3,13 +3,14 @@ import { redirect } from "next/navigation";
 import { verifySession, estSalarie } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
+import { prenomDe } from "@/lib/texte";
 import { doitChangerSonMotDePasse, type CompteMotDePasse } from "@/lib/mot-de-passe-temporaire";
 
 export type Salarie = {
   userId: string;
   employeeId: string;
   nom: string; // nom complet (le modèle Employee ne sépare pas prénom/nom)
-  prenom: string; // premier mot du nom, pour les salutations
+  prenom: string; // prénom (premier mot du nom « Prénom Nom »), pour les salutations — voir prenomDe
 };
 
 /**
@@ -41,5 +42,5 @@ export async function chargerSalarie(): Promise<Salarie> {
   });
   if (!compte?.employe) redirect("/entree");
 
-  return { userId: user.id, employeeId: compte.employe.id, nom: compte.employe.nom, prenom: compte.employe.nom.split(" ")[0] };
+  return { userId: user.id, employeeId: compte.employe.id, nom: compte.employe.nom, prenom: prenomDe(compte.employe.nom) };
 }

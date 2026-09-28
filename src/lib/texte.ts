@@ -47,3 +47,16 @@ export function listeEnProse(texte: string | null | undefined): string {
   if (lignes.length === 1) return lignes[0];
   return lignes.map((l) => l.replace(/[.;]+\s*$/, "")).join(" ; ") + ".";
 }
+
+/**
+ * Prénom pour une salutation (« Bonjour Aimée »). Les noms de la base sont au format « Prénom Nom »
+ * (vérifié en production par la Direction le 2026-09-28 : « Aimée Mutita », « Esther Nsundi »),
+ * donc le premier mot EST le prénom. Une précision entre parenthèses n'en fait pas partie
+ * (« César (jardinier) » → « César ») ; un nom d'un seul mot se garde tel quel (« Gode »).
+ * Vide si le nom ne contient rien d'utilisable — l'appelant salue alors sans prénom.
+ */
+export function prenomDe(nom: string | null | undefined): string {
+  const sansPrecision = String(nom ?? "").replace(/\([^)]*\)?/g, " ");
+  const premier = sansPrecision.trim().split(/\s+/)[0] ?? "";
+  return premier.replace(/^[^\p{L}]+|[^\p{L}'-]+$/gu, "");
+}

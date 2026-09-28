@@ -47,7 +47,6 @@ export default async function EspaceDossier() {
             <Champ label="Début" valeur={d(contrat.dateDebut)} />
             <Champ label="Fin" valeur={contrat.dateFin ? d(contrat.dateFin) : "Indéterminée"} />
             <Champ label="Poste au contrat" valeur={contrat.poste} />
-            <Champ label="Heures par semaine (contrat)" valeur={`${formaterNombre(Number(contrat.heuresHebdo))} h`} />
             <p className="col-span-full text-sm">
               <Link href="/espace/contrats" className="text-primary underline">Voir mes contrats</Link>
             </p>
@@ -62,7 +61,7 @@ export default async function EspaceDossier() {
 
       <Bloc titre="Rémunération">
         <Champ label={parametres.salairesSaisisEnNet ? "Salaire net mensuel" : "Salaire brut mensuel"} valeur={formaterUSD(Number(emp.salaireMensuel))} />
-        <Champ label="Heures par semaine (paie)" valeur={`${formaterNombre(Number(emp.heuresHebdomadaires))} h`} />
+        <Champ label="Heures par semaine" valeur={`${formaterNombre(Number(emp.heuresHebdomadaires))} h`} />
       </Bloc>
 
       <Bloc titre="Coordonnées">
