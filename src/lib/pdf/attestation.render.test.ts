@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { renderPdfBuffer } from "./fonts";
+import fs from "node:fs";
 import { AttestationDocument, dateLongue } from "./attestation";
+import { SIGNATURE_DIRECTRICE_PATH } from "./layout";
 import type { DonneesAttestation } from "@/lib/attestations-donnees";
 
 // L'ATTESTATION IMPRIMÉE — rendu RÉEL, texte relu dans le PDF produit : numéro, « délivrée le … »,
@@ -21,6 +23,7 @@ const base: DonneesAttestation = {
 };
 const rendre = (donnees: DonneesAttestation) =>
   renderPdfBuffer(AttestationDocument({ donnees, numero: "ATT-2026-0042", delivreeLe: new Date("2026-09-28T23:30:00Z"), signature: null }));
+const nbImages = (pdf: Buffer) => [...pdf.toString("latin1").matchAll(/\/Subtype\s*\/Image\b/g)].length;
 
 describe("PDF d'attestation", () => {
   it("travail, en poste : numéro, date d'embauche, toujours en fonction, délivrée le (jour de Kinshasa)", async () => {
@@ -46,7 +49,10 @@ describe("PDF d'attestation", () => {
       salaire: { mois: 8, annee: 2026, netUSD: "1290.50", brutUSD: "1450.00", allocationsUSD: "4.50", tauxChange: "2800.00" },
     });
     const t = await texteDu(pdf);
-    expect(t).toContain("Au titre du mois de août 2026");
+    expect(t).toContain("perçoit un salaire mensuel net de 1 290,50 $");
+    expect(t).toContain("salaire brut hors transport de 1 450,00 $");
+    expect(t).toContain("au titre de la paie du mois de août 2026");
+    expect(t).not.toContain("a perçu");
     expect(t).toContain("1 290,50 $");
     expect(t).toContain("1 450,00 $");
     expect(t).toContain("3 613 400 CDF");
@@ -59,6 +65,26 @@ describe("PDF d'attestation", () => {
     expect(t).toContain("a effectué un stage");
     expect(t).toContain("du 1er mars 2026 au 31 août 2026");
     expect(t).toContain("Attestation de stage");
+  });
+
+  it("« à sa demande » seulement si l'attestation répond à une demande du salarié", async () => {
+    expect(await texteDu(await rendre({ ...base, aSaDemande: true }))).toContain("délivrée à l'intéressée, à sa demande, pour servir");
+    const direct = await texteDu(await rendre({ ...base, aSaDemande: false }));
+    expect(direct).toContain("délivrée à l'intéressée pour servir");
+    expect(direct).not.toContain("à sa demande");
+  });
+
+  it("APERÇU : ni numéro, ni signature de la Direction, marqué « APERÇU — non valable » — sans police de repli", async () => {
+    const signature = { data: fs.readFileSync(SIGNATURE_DIRECTRICE_PATH), format: "png" as const };
+    const delivreeLe = new Date("2026-09-28T10:00:00Z");
+    const signee = await renderPdfBuffer(AttestationDocument({ donnees: base, numero: "ATT-2026-0042", delivreeLe, signature }));
+    const apercu = await renderPdfBuffer(AttestationDocument({ donnees: base, numero: "ATT-2026-0042", delivreeLe, signature, apercu: true }));
+    expect(nbImages(apercu)).toBeLessThan(nbImages(signee)); // la signature fournie n'est PAS posée
+    const t = await texteDu(apercu);
+    expect(t).toContain("APERÇU — non valable");
+    expect(t).not.toContain("ATT-2026-0042");
+    expect(t).not.toContain("délivrée le");
+    expect(policesDuPdf(apercu).filter((p) => !estEmbarquee(p))).toEqual([]);
   });
 
   it("dateLongue n'emploie jamais Intl (pas d'espace fine possible)", () => {

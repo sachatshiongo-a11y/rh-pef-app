@@ -19,6 +19,8 @@ const styles = StyleSheet.create({
   gras: { fontWeight: 700, color: pdfColors.brownDark },
   lieuDate: { marginTop: 22, textAlign: "right" },
   mention: { marginTop: 4, textAlign: "right", fontSize: 9, color: pdfColors.textMuted },
+  apercuBandeau: { textAlign: "center", fontSize: 11, fontWeight: 700, color: "#B42318", borderWidth: 1, borderColor: "#B42318", padding: 4, marginBottom: 6 },
+  filigrane: { position: "absolute", top: 380, left: 60, fontSize: 64, fontWeight: 700, color: "#B42318", opacity: 0.12, transform: "rotate(-30deg)" },
   signatures: { marginTop: 26, flexDirection: "row", justifyContent: "flex-end" },
   signCol: { width: "45%", alignItems: "center" },
   signSpace: { width: "100%", height: 56, justifyContent: "flex-end", alignItems: "center" },
@@ -67,11 +69,17 @@ function CorpsStage({ d, civilite, interesse, femme }: { d: DonneesAttestation; 
  * d'Optima (U+202F, « ⚠ »…) ne peut y entrer.
  */
 export function AttestationDocument({
-  donnees: d, numero, delivreeLe, entreprise = entrepriseDefaut, logo, signature,
+  donnees: d, numero, delivreeLe, entreprise = entrepriseDefaut, logo, signature, apercu = false,
 }: {
   donnees: DonneesAttestation;
   numero: string;
   delivreeLe: Date;
+  /**
+   * APERÇU avant délivrance : ni numéro, ni signature de la Direction, un bandeau et un filigrane
+   * « APERÇU — non valable ». Un aperçu imprimé ou transmis ne doit jamais pouvoir passer pour
+   * une attestation délivrée.
+   */
+  apercu?: boolean;
   entreprise?: typeof entrepriseDefaut;
   logo?: ImageSrc;
   signature?: ImageSrc | null;
@@ -81,17 +89,24 @@ export function AttestationDocument({
   const interesse = femme ? "l'intéressée" : "l'intéressé";
   const employe = femme ? "employée" : "employé";
   const titre = LIBELLE_TYPE_ATTESTATION[d.type];
-  const signatureSrc: ImageSrc | null = signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
+  const signatureSrc: ImageSrc | null = apercu
+    ? null
+    : signature !== undefined ? signature : (signatureDirectriceDisponible() ? SIGNATURE_DIRECTRICE_PATH : null);
   const s = d.salaire;
   const taux = s ? Number(s.tauxChange) : 0;
   const periode = s ? `${MOIS_FR[s.mois - 1]} ${s.annee}` : "";
   const delivree = jourDelivrance(delivreeLe);
 
   return (
-    <Document title={normaliserEspaces(`${titre} ${numero} — ${d.nom}`)}>
+    <Document title={normaliserEspaces(apercu ? `${titre} (aperçu) — ${d.nom}` : `${titre} ${numero} — ${d.nom}`)}>
       <Page size="A4" style={styles.page}>
+        {apercu && <Text style={styles.filigrane} fixed>APERÇU — non valable</Text>}
         <PdfHeader title={titre} subtitle={d.nom} logo={logo} />
-        <Text style={styles.numero}>N° {numero}</Text>
+        {apercu ? (
+          <Text style={styles.apercuBandeau}>APERÇU — non valable : ni numérotée ni signée, cette attestation n&apos;est pas délivrée.</Text>
+        ) : (
+          <Text style={styles.numero}>N° {numero}</Text>
+        )}
 
         <View style={styles.bloc}>
           <Text style={styles.paragraphe}>
@@ -122,10 +137,11 @@ export function AttestationDocument({
           {d.type === "SALAIRE" && s && (
             <>
               <Text style={styles.paragraphe}>
-                Au titre du mois de <Text style={styles.gras}>{periode}</Text>, {femme ? "elle" : "il"} a perçu un salaire net de{" "}
-                <Text style={styles.gras}>{usd(s.netUSD)}</Text> (soit {cdf(Number(s.netUSD) * taux)}), pour un salaire brut de{" "}
-                <Text style={styles.gras}>{usd(s.brutUSD)}</Text> (soit {cdf(Number(s.brutUSD) * taux)}), selon la paie arrêtée par
-                l&apos;entreprise pour ce mois. Le salaire net s&apos;entend hors transport et frais médicaux remboursés, avant acompte et retenue de prêt ; l&apos;équivalent en francs
+                {femme ? "Elle" : "Il"} perçoit un salaire mensuel net de <Text style={styles.gras}>{usd(s.netUSD)}</Text> (soit{" "}
+                {cdf(Number(s.netUSD) * taux)}), pour un salaire brut hors transport de <Text style={styles.gras}>{usd(s.brutUSD)}</Text>{" "}
+                (soit {cdf(Number(s.brutUSD) * taux)}), au titre de la paie du mois de <Text style={styles.gras}>{periode}</Text>{" "}
+                arrêtée par l&apos;entreprise. Le salaire net s&apos;entend hors transport et frais médicaux remboursés, avant acompte et
+                retenue de prêt ; le brut hors transport est l&apos;assiette des cotisations et de l&apos;impôt ; l&apos;équivalent en francs
                 congolais est calculé au taux du bulletin ({formaterNombre(taux, { maximumFractionDigits: 2 })} CDF pour 1 $).
               </Text>
               {Number(s.allocationsUSD) > 0 && (
@@ -138,12 +154,12 @@ export function AttestationDocument({
           )}
 
           <Text style={styles.paragraphe}>
-            La présente attestation est délivrée à {interesse}, à sa demande, pour servir et valoir ce que de droit.
+            La présente attestation est délivrée à {interesse}{d.aSaDemande ? ", à sa demande," : ""} pour servir et valoir ce que de droit.
           </Text>
         </View>
 
         <Text style={styles.lieuDate}>Fait à Kinshasa, le {delivree}</Text>
-        <Text style={styles.mention}>Attestation n° {numero}, délivrée le {delivree}.</Text>
+        {!apercu && <Text style={styles.mention}>Attestation n° {numero}, délivrée le {delivree}.</Text>}
         <View style={styles.signatures}>
           <View style={styles.signCol}>
             <View style={styles.signSpace}>{signatureSrc && <Image src={signatureSrc as string} style={styles.signImg} />}</View>
@@ -151,7 +167,7 @@ export function AttestationDocument({
           </View>
         </View>
 
-        <PdfFooter docLabel={`${titre} n° ${numero}`} ent={entreprise} />
+        <PdfFooter docLabel={apercu ? `${titre} (aperçu, non valable)` : `${titre} n° ${numero}`} ent={entreprise} />
       </Page>
     </Document>
   );

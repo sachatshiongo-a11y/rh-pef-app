@@ -32,6 +32,15 @@ export function salaireNetCDF(l: LigneNet, tauxChangeCDF: number): number {
   return salaireNetUSD(l) * tauxChangeCDF;
 }
 
+/**
+ * BRUT HORS TRANSPORT — l'assiette de la CNSS et de l'IPR : le transport est exonéré d'IPR et non
+ * cotisable. C'est le « brut » que le bulletin imprime comme base imposable, et celui que
+ * l'attestation de salaire annonce. Une seule formule pour les deux documents.
+ */
+export function brutHorsTransportUSD(l: { salBrutUSD: Montant; transportUSD: Montant }): number {
+  return n(l.salBrutUSD) - n(l.transportUSD);
+}
+
 /** Ce que retranchent le net stocké les AVANCES consenties au salarié. */
 export type LigneAvances = LigneNet & { acompteUSD: Montant; retenuePretUSD: Montant; fraisMedicauxUSD: Montant };
 

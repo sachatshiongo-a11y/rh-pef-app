@@ -23,7 +23,10 @@ export type DonneesAttestation = {
   dateSortie: string | null;
   /** Attestation de salaire : la dernière paie VALIDE ou PAYE. */
   salaire?: {
-    /** `netUSD` = salaire net HABITUEL : hors transport et frais médicaux remboursés, avant acompte et retenue de prêt. */
+    /**
+     * `netUSD` = salaire net HABITUEL : hors transport et frais médicaux remboursés, avant acompte
+     * et retenue de prêt. `brutUSD` = brut HORS transport (assiette CNSS/IPR, comme le bulletin).
+     */
     mois: number;
     annee: number;
     netUSD: string;
@@ -31,6 +34,11 @@ export type DonneesAttestation = {
     allocationsUSD: string;
     tauxChange: string;
   };
+  /**
+   * Vrai quand l'attestation RÉPOND à une demande du salarié : le PDF écrit alors « délivrée à
+   * l'intéressé(e), à sa demande ». Une délivrance à l'initiative de la Direction ne le prétend pas.
+   */
+  aSaDemande?: boolean;
   /** Attestation de stage : le dernier contrat de stage. */
   stage?: { debut: string; fin: string | null };
 };

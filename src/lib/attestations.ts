@@ -1,7 +1,9 @@
 import "server-only";
 
 import { Prisma, type PrismaClient, type TypeAttestation } from "@prisma/client";
-import { salaireNetHabituelUSD } from "@/lib/paie-net";
+import { salaireNetHabituelUSD, brutHorsTransportUSD } from "@/lib/paie-net";
+import { lireMoisEffet } from "@/lib/config";
+import { MOIS_FR } from "@/lib/dates-fr";
 import { libelleTypeContrat } from "@/lib/contrats-classement";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { journaliser } from "@/lib/audit";
@@ -18,7 +20,25 @@ import { NOM_TYPE_ATTESTATION, numeroAttestation, type DonneesAttestation } from
 // délivrance en lot rend un message par ligne.
 
 type Lecture = Prisma.TransactionClient;
-export type Refus = { ok: false; motif: string };
+/**
+ * `aCompleter` : le refus tient à une donnée MANQUANTE de la fiche (date d'embauche, date de
+ * sortie) — la Direction est prévenue qu'elle doit la compléter.
+ */
+export type Refus = { ok: false; motif: string; aCompleter?: boolean };
+
+/**
+ * À partir de quel mois une paie fait foi pour l'attestation de salaire : la date d'effet de la
+ * paie au planning (`paie_reference_planning_depuis`, exercice actif), relue par `lireMoisEffet`.
+ * Décision de la Direction (2026-09-28) : les paies antérieures (juin…) ne font pas foi. `null` si
+ * le paramètre n'est pas posé — toute paie validée compte alors.
+ */
+async function moisEffetAttestationSalaire(db: Lecture): Promise<number | null> {
+  const p = await db.parametreLegal.findFirst({
+    where: { cle: "paie_reference_planning_depuis", exercice: { actif: true } },
+    select: { valeur: true },
+  });
+  return lireMoisEffet(p?.valeur == null ? null : Number(p.valeur));
+}
 
 const usd = (v: { toString(): string } | number) => Number(v.toString()).toFixed(2);
 const jour = (d: Date) => new Date(d).toISOString().slice(0, 10);
@@ -48,7 +68,9 @@ export async function instantaneAttestation(
   const dernier = contrats[0] ?? null;
   const typeContrat = dernier?.type ?? emp.contrat;
 
-  if (!emp.dateEmbauche) return { ok: false, motif: "Date d'embauche inconnue : renseignez-la sur la fiche avant de délivrer l'attestation." };
+  if (!emp.dateEmbauche) {
+    return { ok: false, motif: "Votre date d'embauche n'est pas enregistrée : la Direction doit la compléter.", aCompleter: true };
+  }
 
   // Sorti : date de sortie (fin de contrat enregistrée), sinon fin du dernier contrat. Sans l'une
   // ni l'autre, on REFUSE plutôt que d'imprimer « jusqu'au — ».
@@ -57,7 +79,7 @@ export async function instantaneAttestation(
     const fin = await db.finContrat.findFirst({ where: { employeeId }, orderBy: { dateFin: "desc" }, select: { dateFin: true } });
     const d = fin?.dateFin ?? dernier?.dateFin ?? null;
     if (!d) {
-      return { ok: false, motif: "Date de sortie inconnue : enregistrez la fin de contrat (ou sa date de fin) avant de délivrer l'attestation." };
+      return { ok: false, motif: "Votre date de sortie n'est pas enregistrée : la Direction doit la compléter.", aCompleter: true };
     }
     dateSortie = jour(d);
   }
@@ -79,13 +101,28 @@ export async function instantaneAttestation(
       return { ok: false, motif: "Pas d'attestation de salaire pour un stagiaire ou un intérimaire." };
     }
     // La DERNIÈRE paie arrêtée par la Direction : un brouillon plus récent n'est pas un salaire perçu.
+    // Et seulement à partir de la date d'effet de la paie au planning : avant, elle ne fait pas foi.
+    const depuis = await moisEffetAttestationSalaire(db);
+    const aPartirDe = depuis === null ? {} : {
+      payrollRun: {
+        OR: [
+          { annee: { gt: Math.floor(depuis / 100) } },
+          { annee: Math.floor(depuis / 100), mois: { gte: depuis % 100 } },
+        ],
+      },
+    };
     const ligne = await db.payrollLine.findFirst({
-      where: { employeeId, statutPaiement: { in: ["VALIDE", "PAYE"] } },
+      where: { employeeId, statutPaiement: { in: ["VALIDE", "PAYE"] }, ...aPartirDe },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
       include: { payrollRun: { select: { mois: true, annee: true, tauxChangeUtilise: true } } },
     });
     if (!ligne) {
-      return { ok: false, motif: "Aucune paie validée : l'attestation de salaire reprend la dernière paie validée ou payée." };
+      return {
+        ok: false,
+        motif: depuis === null
+          ? "Aucune paie validée : l'attestation de salaire reprend la dernière paie validée ou payée."
+          : `Aucune paie validée depuis ${MOIS_FR[(depuis % 100) - 1]} ${Math.floor(depuis / 100)} : la Direction doit d'abord valider la paie.`,
+      };
     }
     donnees.salaire = {
       mois: ligne.payrollRun.mois,
@@ -93,7 +130,8 @@ export async function instantaneAttestation(
       // Le salaire HABITUEL : net hors transport et frais médicaux remboursés, AVANT acompte et
       // retenue de prêt (des avances, pas une baisse du salaire) — `lib/paie-net`, décisions du 2026-09-28.
       netUSD: usd(salaireNetHabituelUSD(ligne)),
-      brutUSD: usd(ligne.salBrutUSD),
+      // Brut HORS transport : l'assiette CNSS/IPR, la même formule que le bulletin.
+      brutUSD: usd(brutHorsTransportUSD(ligne)),
       allocationsUSD: usd(ligne.allocFamilialeUSD),
       tauxChange: usd(ligne.payrollRun.tauxChangeUtilise),
     };
@@ -131,19 +169,22 @@ export async function demanderAttestation(
   db: PrismaClient,
   p: { employeeId: string; type: TypeAttestation; motif: string | null; parId: string },
 ): Promise<{ ok: true; id: string } | Refus> {
-  const r = await db.$transaction(async (tx): Promise<{ ok: true; id: string; nom: string } | Refus> => {
+  const r = await db.$transaction(async (tx): Promise<{ ok: true; id: string; nom: string } | (Refus & { nom?: string })> => {
     await verrouillerEmploye(tx, p.employeeId);
     const enCours = await tx.attestation.findFirst({ where: { employeeId: p.employeeId, type: p.type, statut: "DEMANDEE" }, select: { id: true } });
     if (enCours) return { ok: false, motif: `Une demande d'${NOM_TYPE_ATTESTATION[p.type]} est déjà en cours.` };
     const eligible = await instantaneAttestation(tx, p.employeeId, p.type, new Date());
-    if (!eligible.ok) return eligible;
+    if (!eligible.ok) return { ...eligible, nom: undefined };
     const a = await tx.attestation.create({
       data: { employeeId: p.employeeId, type: p.type, motif: p.motif?.trim() || null, demandeParId: p.parId },
     });
     await journaliser(tx, { entite: "Attestation", entiteId: a.id, champ: "demande", nouvelleValeur: p.type, userId: p.parId });
     return { ok: true, id: a.id, nom: eligible.donnees.nom };
   });
-  if (!r.ok) return r;
+  if (!r.ok) {
+    if (r.aCompleter) await signalerDonneeManquante(db, p.employeeId, p.type, r.motif);
+    return { ok: false, motif: r.motif };
+  }
 
   try {
     await creerNotification({
@@ -192,6 +233,8 @@ export async function delivrerAttestation(
   > => {
     let employeeId: string;
     let type: TypeAttestation;
+    // La demande que cette délivrance SATISFAIT (verrouillée, relue DEMANDEE) — ou aucune.
+    let demandeId: string | null = null;
     if (p.attestationId) {
       await tx.$queryRaw`SELECT "id" FROM "public"."Attestation" WHERE "id" = ${p.attestationId} FOR UPDATE`;
       const a = await tx.attestation.findUnique({ where: { id: p.attestationId } });
@@ -199,45 +242,67 @@ export async function delivrerAttestation(
       if (a.statut !== "DEMANDEE") return { ok: false, motif: "Cette demande a déjà été traitée." };
       employeeId = a.employeeId;
       type = a.type;
+      demandeId = a.id;
     } else {
       if (!p.employeeId || !p.type) return { ok: false, motif: "Salarié ou type d'attestation manquant." };
       employeeId = p.employeeId;
       type = p.type;
-      // Une demande du même type attend déjà : la délivrance directe la SATISFAIT plutôt que de
-      // laisser une demande orpheline dans « Demandes de validation ».
+      // Une demande du même type attend : la délivrance directe la SATISFAIT plutôt que de laisser
+      // une demande orpheline. COURSE : « Demandes de validation » a pu la traiter entre la lecture
+      // et le verrou — on RELIT son statut sous verrou et on ne la reprend que si elle est encore
+      // DEMANDEE. Sinon la délivrance directe crée SA propre attestation : un numéro déjà délivré
+      // n'est jamais écrasé, une demande refusée ne repasse jamais délivrée.
       await verrouillerEmploye(tx, employeeId);
       const enAttente = await tx.attestation.findFirst({ where: { employeeId, type, statut: "DEMANDEE" }, select: { id: true } });
       if (enAttente) {
         await tx.$queryRaw`SELECT "id" FROM "public"."Attestation" WHERE "id" = ${enAttente.id} FOR UPDATE`;
-        p = { ...p, attestationId: enAttente.id };
+        const relue = await tx.attestation.findUnique({ where: { id: enAttente.id }, select: { statut: true } });
+        if (relue?.statut === "DEMANDEE") demandeId = enAttente.id;
       }
     }
 
     const eligible = await instantaneAttestation(tx, employeeId, type, maintenant);
     if (!eligible.ok) {
-      if (!p.attestationId) return eligible;
-      await tx.attestation.update({ where: { id: p.attestationId }, data: { statut: "REFUSEE", motifRefus: eligible.motif, delivreeParId: p.parId } });
-      await journaliser(tx, { entite: "Attestation", entiteId: p.attestationId, champ: "refus", nouvelleValeur: eligible.motif, userId: p.parId });
-      return { ...eligible, refusee: true, employeeId, type, id: p.attestationId };
+      if (!demandeId) return eligible;
+      const { count } = await tx.attestation.updateMany({
+        where: { id: demandeId, statut: "DEMANDEE" },
+        data: { statut: "REFUSEE", motifRefus: eligible.motif, delivreeParId: p.parId },
+      });
+      if (count !== 1) return { ok: false, motif: "Cette demande a déjà été traitée." };
+      await journaliser(tx, { entite: "Attestation", entiteId: demandeId, champ: "refus", nouvelleValeur: eligible.motif, userId: p.parId });
+      return { ...eligible, refusee: true, employeeId, type, id: demandeId };
     }
 
     const numero = numeroAttestation(jourCivilKinshasa(maintenant).getUTCFullYear(), await prochainRang(tx, jourCivilKinshasa(maintenant).getUTCFullYear()));
+    // « à sa demande » : seulement quand l'attestation répond à une demande du salarié.
+    const donnees: DonneesAttestation = { ...eligible.donnees, aSaDemande: demandeId !== null };
     const data = {
       statut: "DELIVREE" as const,
       numero,
       delivreeLe: maintenant,
       delivreeParId: p.parId,
       payrollLineId: eligible.payrollLineId,
-      donnees: eligible.donnees as unknown as Prisma.InputJsonValue,
+      donnees: donnees as unknown as Prisma.InputJsonValue,
     };
-    const a = p.attestationId
-      ? await tx.attestation.update({ where: { id: p.attestationId }, data })
-      : await tx.attestation.create({ data: { ...data, employeeId, type, demandeLe: maintenant, demandeParId: p.parId } });
+    let a: { id: string };
+    if (demandeId) {
+      // Écriture CONDITIONNÉE au statut : ceinture en plus du verrou — jamais d'écrasement.
+      const { count } = await tx.attestation.updateMany({ where: { id: demandeId, statut: "DEMANDEE" }, data });
+      if (count !== 1) throw new Error("Cette demande a déjà été traitée.");
+      a = { id: demandeId };
+    } else {
+      a = await tx.attestation.create({ data: { ...data, employeeId, type, demandeLe: maintenant, demandeParId: p.parId } });
+    }
     await journaliser(tx, { entite: "Attestation", entiteId: a.id, champ: "delivrance", nouvelleValeur: numero, userId: p.parId });
-    return { ok: true, id: a.id, numero, donnees: eligible.donnees, employeeId, type };
+    return { ok: true, id: a.id, numero, donnees, employeeId, type };
+  }).catch((e: unknown) => {
+    // Ceinture de l'écriture conditionnée : une demande traitée entre-temps revient en MESSAGE.
+    if (e instanceof Error && e.message === "Cette demande a déjà été traitée.") return { ok: false as const, motif: e.message } as Refus & { refusee?: boolean; employeeId?: string; type?: TypeAttestation; id?: string };
+    throw e;
   });
 
   if (!r.ok) {
+    if (r.aCompleter && r.employeeId && r.type) await signalerDonneeManquante(db, r.employeeId, r.type, r.motif);
     if (r.refusee && r.id && r.employeeId && r.type) {
       await apresTraitement(r.id, r.employeeId, `Votre demande d'${NOM_TYPE_ATTESTATION[r.type]} a été refusée : ${r.motif}`);
       return { ok: false, motif: r.motif, refusee: true };
@@ -248,6 +313,24 @@ export async function delivrerAttestation(
   await figerAttestation(db, { id: r.id, donnees: r.donnees, numero: r.numero, delivreeLe: maintenant });
   await apresTraitement(r.id, r.employeeId, `Votre ${NOM_TYPE_ATTESTATION[r.type]} (${r.numero}) est disponible`);
   return { ok: true, id: r.id, numero: r.numero };
+}
+
+/**
+ * Une attestation est refusée faute d'une donnée de la fiche : la Direction est prévenue de ce
+ * qu'elle doit compléter (le salarié, lui, lit « la Direction doit la compléter »).
+ */
+async function signalerDonneeManquante(db: PrismaClient, employeeId: string, type: TypeAttestation, motif: string): Promise<void> {
+  try {
+    const emp = await db.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
+    await creerNotification({
+      type: "AUTRE",
+      message: `${emp?.nom ?? "Un salarié"} : ${NOM_TYPE_ATTESTATION[type]} impossible — ${motif.replace(/^Votre /, "sa ").replace(" : la Direction doit la compléter.", "")}. Complétez la fiche.`,
+      lien: `/employes/${employeeId}`,
+      refId: `attestation:a-completer:${employeeId}`,
+    });
+  } catch {
+    // Signalement de confort.
+  }
 }
 
 /** Rend et fige l'exemplaire. Silencieux en cas d'échec : l'instantané suffit à le régénérer. */

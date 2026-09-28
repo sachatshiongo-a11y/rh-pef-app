@@ -34,6 +34,7 @@ vi.mock("@/lib/notifications", () => ({
 }));
 
 const { demanderAttestation, delivrerAttestation, refuserAttestation, instantaneAttestation } = await import("@/lib/attestations");
+const { brutHorsTransportUSD } = await import("@/lib/paie-net");
 
 let prisma: PrismaClient;
 let url: string;
@@ -163,7 +164,7 @@ describe("attestation de travail", () => {
     const a = await salarie({ actif: false });
     await contrat(a, "CDI", "2024-03-01", null, "RESILIE");
     const r = await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT);
-    expect(r).toEqual({ ok: false, motif: expect.stringMatching(/date de sortie/i) });
+    expect(r).toEqual({ ok: false, motif: "Votre date de sortie n'est pas enregistrée : la Direction doit la compléter.", aCompleter: true });
   });
 });
 
@@ -178,7 +179,8 @@ describe("attestation de salaire", () => {
       ok: true,
       payrollLineId: aout.id,
       donnees: expect.objectContaining({
-        salaire: { mois: 8, annee: 2026, netUSD: "290.00", brutUSD: "330.00", allocationsUSD: "4.50", tauxChange: "2800.00" },
+        // Brut HORS transport (330 − 15), comme la base imposable du bulletin.
+        salaire: { mois: 8, annee: 2026, netUSD: "290.00", brutUSD: "315.00", allocationsUSD: "4.50", tauxChange: "2800.00" },
       }),
     });
   });
@@ -189,7 +191,22 @@ describe("attestation de salaire", () => {
     const l = await paie(a, 8, 2026, "PAYE", 300, 340, 0, { acompte: 80, pret: 30, fraisMedicaux: 45 });
     expect(Number(l.salNetUSD)).toBe(250);
     const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
-    expect(r.ok && r.donnees.salaire).toEqual(expect.objectContaining({ netUSD: "300.00", brutUSD: "340.00" }));
+    expect(r.ok && r.donnees.salaire).toEqual(expect.objectContaining({ netUSD: "300.00", brutUSD: "325.00" }));
+  });
+
+  it("brut attesté = brut HORS transport (assiette CNSS/IPR), la formule du bulletin", async () => {
+    const a = await salarie();
+    const run = await prisma.payrollRun.create({ data: { mois: 3, annee: 2031, statut: "BROUILLON", tauxChangeUtilise: 2800 } });
+    await prisma.payrollLine.create({
+      data: {
+        payrollRunId: run.id, employeeId: a, statutPaiement: "PAYE", transportUSD: 42.5, salBrutUSD: 400, cnssSalarieUSD: 17.88,
+        netImposableUSD: 339.62, iprCalculeUSD: 12, allocFamilialeUSD: 0, salNetUSD: 412.62, salNetCDF: 0,
+        cnssPatronalUSD: 36, coutEmployeurUSD: 436, coutEmployeurCDF: 0,
+      },
+    });
+    const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+    expect(r.ok && r.donnees.salaire?.brutUSD).toBe("357.50");
+    expect(r.ok && r.donnees.salaire?.brutUSD).toBe(brutHorsTransportUSD({ salBrutUSD: 400, transportUSD: 42.5 }).toFixed(2));
   });
 
   it("aucune paie validée → refus", async () => {
@@ -314,5 +331,102 @@ describe("circuit : demande → délivrance ou refus", () => {
     const avant = await prisma.attestation.count();
     expect((await delivrer({ employeeId: st, type: "SALAIRE" })).ok).toBe(false);
     expect(await prisma.attestation.count()).toBe(avant);
+  });
+});
+
+describe("date d'effet : seule une paie à partir de la paie au planning fait foi (décision du 2026-09-28)", () => {
+  it("un juin PAYÉ est ignoré, un septembre VALIDÉ est retenu ; sans paie depuis l'effet, refus clair — le travail reste possible", async () => {
+    const ex = await prisma.exerciceFiscal.create({ data: { annee: 2026, actif: true } });
+    await prisma.parametreLegal.create({ data: { exerciceId: ex.id, cle: "paie_reference_planning_depuis", valeur: 202609, unite: "AAAAMM", libelle: "Paie au planning depuis" } });
+    try {
+      const a = await salarie();
+      await paie(a, 6, 2026, "PAYE", 250, 300);
+      expect(await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT)).toEqual({
+        ok: false,
+        motif: "Aucune paie validée depuis septembre 2026 : la Direction doit d'abord valider la paie.",
+      });
+      expect((await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT)).ok).toBe(true);
+      const sept = await paie(a, 9, 2026, "VALIDE", 310, 360);
+      const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+      expect(r.ok && r.payrollLineId).toBe(sept.id);
+      expect(r.ok && r.donnees.salaire?.mois).toBe(9);
+    } finally {
+      await prisma.exerciceFiscal.delete({ where: { id: ex.id } });
+    }
+  });
+});
+
+describe("motifs lisibles par le salarié", () => {
+  it("date de sortie manquante : phrase pour le salarié, et la Direction est prévenue de compléter la fiche", async () => {
+    const a = await salarie({ actif: false });
+    await contrat(a, "CDI", "2024-03-01", null, "RESILIE");
+    const userId = (await prisma.user.findUniqueOrThrow({ where: { employeeId: a } })).id;
+    const r = await demanderAttestation(prisma, { employeeId: a, type: "TRAVAIL", motif: null, parId: userId });
+    expect(r).toEqual({ ok: false, motif: "Votre date de sortie n'est pas enregistrée : la Direction doit la compléter." });
+    expect(N.direction.some((m) => m.includes("Complétez la fiche"))).toBe(true);
+  });
+});
+
+describe("course entre la fiche et « Demandes de validation » (relecture du 2026-09-28)", () => {
+  // Transaction A = « Demandes de validation » traite la demande, arrêtée avant COMMIT ; pendant ce
+  // temps, B = « Délivrer une attestation » depuis la fiche, même salarié, même type.
+  async function course(traitementA: "DELIVREE" | "REFUSEE") {
+    const a = await salarie();
+    const dem = await prisma.attestation.create({ data: { employeeId: a, type: "TRAVAIL" } });
+    const tA = new Client({ connectionString: url });
+    await tA.connect();
+    let numA: string | null = null;
+    try {
+      await tA.query("BEGIN");
+      await tA.query(`SELECT "id" FROM "public"."Attestation" WHERE "id"=$1 FOR UPDATE`, [dem.id]);
+      if (traitementA === "DELIVREE") {
+        const { rows } = await tA.query(
+          `INSERT INTO "public"."CompteurAttestation" ("annee","dernier") VALUES (2032,1) ON CONFLICT ("annee") DO UPDATE SET "dernier"="CompteurAttestation"."dernier"+1 RETURNING "dernier"`,
+        );
+        numA = `ATT-2032-${String(rows[0].dernier).padStart(4, "0")}`;
+        await tA.query(`UPDATE "public"."Attestation" SET "statut"='DELIVREE', "numero"=$2, "delivreeLe"=now(), "updatedAt"=now() WHERE "id"=$1`, [dem.id, numA]);
+      } else {
+        await tA.query(`UPDATE "public"."Attestation" SET "statut"='REFUSEE', "motifRefus"='Pièce manquante', "updatedAt"=now() WHERE "id"=$1`, [dem.id]);
+      }
+      const b = delivrerAttestation(prisma, { employeeId: a, type: "TRAVAIL", parId: directionId, maintenant: new Date("2032-01-10T10:00:00Z") });
+      await new Promise((r) => setTimeout(r, 600));
+      await tA.query("COMMIT");
+      return { a, dem, numA, rb: await b };
+    } finally {
+      await tA.end();
+    }
+  }
+
+  it("A a DÉLIVRÉ la demande : B ne l'écrase pas, il délivre une attestation DISTINCTE", async () => {
+    const { a, dem, numA, rb } = await course("DELIVREE");
+    if (!rb.ok) throw new Error(rb.motif);
+    expect(rb.id).not.toBe(dem.id);
+    expect(rb.numero).not.toBe(numA);
+    expect(await prisma.attestation.findUniqueOrThrow({ where: { id: dem.id } })).toEqual(expect.objectContaining({ statut: "DELIVREE", numero: numA }));
+    expect(await prisma.attestation.count({ where: { employeeId: a, statut: "DELIVREE" } })).toBe(2);
+  });
+
+  it("A a REFUSÉ la demande : elle reste REFUSÉE, B délivre une attestation distincte", async () => {
+    const { dem, rb } = await course("REFUSEE");
+    if (!rb.ok) throw new Error(rb.motif);
+    expect(rb.id).not.toBe(dem.id);
+    expect(await prisma.attestation.findUniqueOrThrow({ where: { id: dem.id } })).toEqual(
+      expect.objectContaining({ statut: "REFUSEE", numero: null, motifRefus: "Pièce manquante" }),
+    );
+  });
+});
+
+describe("« à sa demande » dans l'instantané", () => {
+  it("vrai pour une demande du salarié, faux pour une délivrance directe", async () => {
+    const a = await salarie();
+    const userId = (await prisma.user.findUniqueOrThrow({ where: { employeeId: a } })).id;
+    const d = await demanderAttestation(prisma, { employeeId: a, type: "TRAVAIL", motif: null, parId: userId });
+    if (!d.ok) throw new Error(d.motif);
+    await delivrer({ attestationId: d.id });
+    const direct = await delivrer({ employeeId: a, type: "TRAVAIL" });
+    if (!direct.ok) throw new Error(direct.motif);
+    const [x, y] = await Promise.all([d.id, direct.id].map((id) => prisma.attestation.findUniqueOrThrow({ where: { id } })));
+    expect((x.donnees as { aSaDemande?: boolean }).aSaDemande).toBe(true);
+    expect((y.donnees as { aSaDemande?: boolean }).aSaDemande).toBe(false);
   });
 });

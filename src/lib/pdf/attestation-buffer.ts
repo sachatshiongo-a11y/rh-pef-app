@@ -15,6 +15,14 @@ export async function rendreAttestationPdf(a: { donnees: DonneesAttestation; num
   );
 }
 
+/** APERÇU avant délivrance : sans numéro ni signature, marqué « APERÇU — non valable ». */
+export async function rendreApercuAttestationPdf(a: { donnees: DonneesAttestation; delivreeLe: Date }): Promise<Buffer> {
+  const ent = await chargerEntreprise();
+  return renderPdfBuffer(
+    AttestationDocument({ donnees: a.donnees, numero: "", delivreeLe: a.delivreeLe, entreprise: ent.entreprise, logo: ent.logo, signature: null, apercu: true }),
+  );
+}
+
 /**
  * L'exemplaire d'une attestation DÉLIVRÉE : le PDF figé s'il est lisible, sinon une régénération
  * depuis l'instantané (`donnees`) — jamais depuis la fiche du jour. `null` si l'attestation n'est

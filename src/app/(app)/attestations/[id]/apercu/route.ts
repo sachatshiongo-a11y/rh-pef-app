@@ -1,7 +1,7 @@
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { prisma } from "@/lib/prisma";
 import { instantaneAttestation } from "@/lib/attestations";
-import { rendreAttestationPdf } from "@/lib/pdf/attestation-buffer";
+import { rendreApercuAttestationPdf } from "@/lib/pdf/attestation-buffer";
 
 /**
  * APERÇU d'une demande avant délivrance — ce que l'attestation imprimerait AUJOURD'HUI, sans
@@ -17,7 +17,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const maintenant = new Date();
   const r = await instantaneAttestation(prisma, a.employeeId, a.type, maintenant);
   if (!r.ok) return new Response(r.motif, { status: 409, headers: { "Content-Type": "text/plain; charset=utf-8" } });
-  const pdf = await rendreAttestationPdf({ donnees: r.donnees, numero: "à attribuer à la délivrance", delivreeLe: maintenant });
+  // Si la demande est délivrée, elle répondra à la demande du salarié : l'aperçu le dit déjà.
+  const pdf = await rendreApercuAttestationPdf({ donnees: { ...r.donnees, aSaDemande: true }, delivreeLe: maintenant });
   return new Response(new Uint8Array(pdf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="Apercu_attestation.pdf"`, "Cache-Control": "private, no-store" },
   });
