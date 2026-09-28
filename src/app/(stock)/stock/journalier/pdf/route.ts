@@ -1,10 +1,11 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { verifySession, requireModule } from "@/lib/auth";
 import { TableauDocument } from "@/lib/pdf/tableau";
-import { donneesJournalier } from "../export-data";
+import { donneesJournalier, roleCellule } from "../export-data";
 
-// Vert = commande, rouge = livraison (codes couleur de la fiche).
-const CMD = "#1B7F3B", LIV = "#B42318";
+// Vert = commande, rouge = livraison (codes couleur de la fiche), indigo = consommé au restaurant.
+const CMD = "#1B7F3B", LIV = "#B42318", CONSO = "#3730A3";
+const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO };
 
 export async function GET(req: Request) {
   const user = await verifySession();
@@ -16,8 +17,8 @@ export async function GET(req: Request) {
     TableauDocument({
       titre: d.titre, sousTitre: d.sousTitre, colonnes: d.colonnes, lignes: d.lignes, sectionRows: d.sectionRows,
       paysage: large,
-      couleurCellule: (_r, c) => (d.colRole[c] === "cmd" ? CMD : d.colRole[c] === "liv" ? LIV : undefined),
-      pied: "Vert = commande · rouge = livraison.",
+      couleurCellule: (r, c) => COULEUR[roleCellule(d, r, c) ?? ""],
+      pied: "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage).",
     }),
   );
   return new Response(new Uint8Array(buffer), {

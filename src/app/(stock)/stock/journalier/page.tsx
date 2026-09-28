@@ -6,6 +6,8 @@ import { lundiDe } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import { CommandeGrid, type CmdArticle } from "./commande-grid";
 import { LEGUMES } from "../legumes/legumes-data";
+import { TableConso } from "./table-conso";
+import { chargerDonneesRestaurant } from "./donnees-restaurant";
 
 type SP = { semaine?: string; domaine?: string; vue?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -115,53 +117,20 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     return map;
   };
 
-  // ---------- VUE CONSOMMATION (livraisons + légumes) ----------
+  // ---------- VUE CONSOMMATION (sorties par motif + légumes + consommation réelle) ----------
   if (vue === "conso") {
-    const [parArticle, legAchats] = await Promise.all([chargerLivraisons(), inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>())]);
-    const rows = [...parArticle.values()].sort((a, b) => a.designation.localeCompare(b.designation));
-    const legRows = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    const totauxJour = jours.map((_, i) => rows.reduce((t, r) => t + r.jours[i], 0));
+    const [donnees, legAchats] = await Promise.all([
+      chargerDonneesRestaurant(lundi, domaine),
+      inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
+    ]);
+    const legumes = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, r]) => ({ nom, ...r }));
     return (
       <div className="space-y-4">
         {enTete}
-        <div className="max-h-[70vh] overflow-auto rounded-lg border">
-          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
-            <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
-              <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-                <th className="sticky left-0 z-30 bg-muted">Article</th>
-                {joursLabel.map((j) => <th key={j.iso} className="!text-right">{j.label}</th>)}
-                <th className="!text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
-              {rows.map((r) => (
-                <tr key={r.articleId} className="hover:bg-accent/40 even:bg-muted/25">
-                  <td className="sticky left-0 z-10 bg-background font-medium"><Link href={`/stock/catalogue/${r.articleId}`} className="text-primary hover:underline">{r.designation}</Link></td>
-                  {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
-                  <td className="text-right font-semibold">{qte(r.total)}</td>
-                </tr>
-              ))}
-              {legRows.length > 0 && (
-                <tr><td colSpan={9} className="sticky left-0 !bg-emerald-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-emerald-900">Légumes frais (achats du jour)</td></tr>
-              )}
-              {legRows.map(([nom, r]) => (
-                <tr key={`leg-${nom}`} className="hover:bg-accent/40 even:bg-muted/25">
-                  <td className="sticky left-0 z-10 bg-background font-medium">{nom}</td>
-                  {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
-                  <td className="text-right font-semibold">{qte(r.total)}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && legRows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucune livraison enregistrée cette semaine.</td></tr>}
-            </tbody>
-            {rows.length > 0 && (
-              <tfoot className="sticky bottom-0"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
-                <td className="sticky left-0 bg-muted/60">Total jour</td>
-                {totauxJour.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
-                <td className="text-right">{qte(totauxJour.reduce((a, b) => a + b, 0))}</td>
-              </tr></tfoot>
-            )}
-          </table>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Seules les sorties « Livraison restaurant » alimentent le restaurant ; les pertes restent au dépôt. La consommation réelle = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour : elle n&apos;existe que les jours comptés (« — » sinon).
+        </p>
+        <TableConso jours={joursLabel} sorties={donnees.sorties} legumes={legumes} consoResto={donnees.consoResto} />
       </div>
     );
   }

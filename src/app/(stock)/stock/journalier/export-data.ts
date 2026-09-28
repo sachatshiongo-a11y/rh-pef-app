@@ -4,18 +4,29 @@ import { lundiDe } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
+import { lignesExportConso, nbExport, type RoleCol } from "@/lib/journalier-restaurant";
+import { chargerDonneesRestaurant } from "./donnees-restaurant";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
-const nb = (n: number) => (n ? String(Math.round(n * 1000) / 1000) : "");
+const nb = nbExport;
 
-export type RoleCol = "cmd" | "liv" | null;
+export type { RoleCol };
 export type ExportJournalier = {
   titre: string; sousTitre: string; fichierBase: string;
   entete: string[]; colonnes: Colonne[]; lignes: (string | number)[][];
   sectionRows: number[]; colRole: RoleCol[];
+  /** Rôle d'une ligne entière (prime sur celui de la colonne) : livré, consommé, ou aucun (pertes). */
+  rolesLignes?: Record<number, RoleCol>;
 };
+
+/** Rôle (couleur) d'une cellule d'export : celui de la ligne s'il est posé, sinon celui de la colonne. */
+export function roleCellule(d: ExportJournalier, r: number, c: number): RoleCol {
+  if (c === 0) return null;
+  if (d.rolesLignes && r in d.rolesLignes) return d.rolesLignes[r]!;
+  return d.colRole[c] ?? null;
+}
 
 /** Prépare les données d'export (PDF/Excel) de la Conso. journalière selon la vue courante. */
 export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJournalier> {
@@ -28,7 +39,31 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   const sousTitre = `Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`;
   const suffixe = domaine ? (domaine === "NOURRITURE" ? "_Cuisine" : "_Bar") : "";
 
-  // Livraisons (sorties de stock) par article × jour.
+  // ---------- CONSOMMATION (sorties par motif + légumes frais + consommation réelle) ----------
+  if (vue === "conso") {
+    const donnees = await chargerDonneesRestaurant(lundi, domaine);
+    const legumes: { nom: string; jours: number[] }[] = [];
+    if (domaine !== "BOISSON") {
+      const achats = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } });
+      const parLeg = new Map<string, number[]>();
+      for (const l of achats) {
+        const arr = parLeg.get(l.legume) ?? Array(7).fill(0);
+        const idx = Math.floor((new Date(l.date).getTime() - lundi.getTime()) / 86_400_000);
+        if (idx >= 0 && idx < 7) arr[idx] += Number(l.quantite);
+        parLeg.set(l.legume, arr);
+      }
+      legumes.push(...[...parLeg.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, jours]) => ({ nom, jours })));
+    }
+    const { lignes, sectionRows, rolesLignes } = lignesExportConso({ sorties: donnees.sorties, legumes, consoResto: donnees.consoResto });
+    return {
+      titre: "Consommation journalière", sousTitre, fichierBase: `Conso_journaliere${suffixe}_${iso(lundi)}`,
+      entete: ["Article", ...labels, "Total"],
+      colonnes: [{ header: "Article", width: "26%" }, ...labels.map((l) => ({ header: l, width: "9%", align: "right" as const })), { header: "Total", width: "11%", align: "right" as const }],
+      lignes, sectionRows, colRole: [null, ...labels.map(() => "liv" as RoleCol), "liv"], rolesLignes,
+    };
+  }
+
+  // Livraisons (sorties de stock) par article × jour — comparaison.
   const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: fin }, ...(domaine ? { article: { domaine } } : {}) };
   const sorties = await prisma.mouvementStock.findMany({ where, include: { article: { select: { designation: true } } } });
   const livr = new Map<string, { designation: string; jours: number[] }>();
@@ -37,39 +72,6 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
     const idx = Math.floor((new Date(m.date).getTime() - lundi.getTime()) / 86_400_000);
     if (idx >= 0 && idx < 7) row.jours[idx] += Number(m.quantite);
     livr.set(m.articleId, row);
-  }
-
-  // ---------- CONSOMMATION (livraisons + légumes frais) ----------
-  if (vue === "conso") {
-    const rows = [...livr.values()].sort((a, b) => a.designation.localeCompare(b.designation));
-    const lignes: (string | number)[][] = [];
-    const sectionRows: number[] = [];
-    if (rows.length) { sectionRows.push(lignes.length); lignes.push(["Articles (sorties de stock)"]); }
-    for (const r of rows) lignes.push([r.designation, ...r.jours.map(nb), nb(r.jours.reduce((a, b) => a + b, 0))]);
-
-    // Légumes frais (achats du jour) — inclus uniquement en Cuisine ou Tous.
-    if (domaine !== "BOISSON") {
-      const legumes = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } });
-      const parLeg = new Map<string, number[]>();
-      for (const l of legumes) {
-        const arr = parLeg.get(l.legume) ?? Array(7).fill(0);
-        const idx = Math.floor((new Date(l.date).getTime() - lundi.getTime()) / 86_400_000);
-        if (idx >= 0 && idx < 7) arr[idx] += Number(l.quantite);
-        parLeg.set(l.legume, arr);
-      }
-      const legRows = [...parLeg.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-      if (legRows.length) {
-        sectionRows.push(lignes.length); lignes.push(["Légumes frais (achats du jour)"]);
-        for (const [leg, j] of legRows) lignes.push([leg, ...j.map(nb), nb(j.reduce((a, b) => a + b, 0))]);
-      }
-    }
-
-    return {
-      titre: "Consommation journalière", sousTitre, fichierBase: `Conso_journaliere${suffixe}_${iso(lundi)}`,
-      entete: ["Article", ...labels, "Total"],
-      colonnes: [{ header: "Article", width: "26%" }, ...labels.map((l) => ({ header: l, width: "9%", align: "right" as const })), { header: "Total", width: "11%", align: "right" as const }],
-      lignes, sectionRows, colRole: [null, ...labels.map(() => "liv" as RoleCol), "liv"],
-    };
   }
 
   // Articles (catalogue) + commandes de la semaine.
