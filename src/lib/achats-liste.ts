@@ -99,3 +99,6 @@ export function sousOngletActif(pathname: string): string | null {
   const o = SOUS_ONGLETS_ACHATS.find((x) => pathname === x.href || pathname.startsWith(`${x.href}/`));
   return o ? o.href : null;
 }
+
+/** L'entrée du menu Stock qui mène aux trois sous-onglets (elle s'ouvre sur Mouvements). */
+export const ENTREE_MENU_ACHATS = { href: SOUS_ONGLETS_ACHATS[0].href, label: "Achats & mouvements", icone: "panier" };

@@ -9,6 +9,7 @@ import { NotificationBell } from "@/components/notification-bell";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
+import { ENTREE_MENU_ACHATS, sousOngletActif } from "@/lib/achats-liste";
 
 const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
   {
@@ -23,8 +24,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     titre: "Dépôt",
     items: [
       { href: "/stock/catalogue", label: "Catalogue", icone: "marmite" },
-      { href: "/stock/entree", label: "Liste d'achat", icone: "panier" },
-      { href: "/stock/mouvements", label: "Mouvements", icone: "echanges" },
+      ENTREE_MENU_ACHATS, // Mouvements · Liste d'achat · Légumes frais (sous-onglets)
       { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },
     ],
   },
@@ -33,7 +33,6 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
     items: [
       { href: "/stock/restaurant", label: "Stock restaurant", icone: "couverts" },
       { href: "/stock/fiches", label: "Fiches techniques", icone: "document" },
-      { href: "/stock/legumes", label: "Achats légumes frais", icone: "feuille" },
       { href: "/stock/journalier", label: "Conso. journalière", icone: "calendrierJours" },
     ],
   },
@@ -75,7 +74,9 @@ export function StockShell({
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const fermer = () => setOpen(false);
-  const actif = (href: string) => (href === "/stock" ? pathname === href : pathname.startsWith(href));
+  const actif = (href: string) =>
+    href === ENTREE_MENU_ACHATS.href ? sousOngletActif(pathname) !== null // active sur ses trois sous-onglets
+    : href === "/stock" ? pathname === href : pathname.startsWith(href);
   const roleLabel = userRole === "ADMIN" ? "Direction" : "Responsable stock";
 
   return (
