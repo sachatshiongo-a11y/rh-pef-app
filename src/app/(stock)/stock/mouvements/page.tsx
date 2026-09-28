@@ -3,6 +3,7 @@ import { verifySession } from "@/lib/auth";
 import { MouvementForm, ColonneMouvements, type MvtLite } from "./mouvements-client";
 import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
+import { etatRattachementLivraison, type EtatLivraison } from "@/lib/stock-restaurant";
 
 const mvtInclude = {
   article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
@@ -60,11 +61,16 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   }
 
   const PLAFOND = 600;
-  const [mouvements, nbTotal, articles] = await Promise.all([
+  const [mouvements, nbTotal, articles, restos] = await Promise.all([
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true } }),
+    // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
+    prisma.articleResto.findMany({ where: { actif: true, articleStockId: { not: null } }, select: { id: true, designation: true, espace: true, unite: true, articleStockId: true } }),
   ]);
+  const etatsLivraison: Record<string, EtatLivraison> = Object.fromEntries(
+    articles.map((a) => [a.id, etatRattachementLivraison(a.id, a.unite, restos).etat]),
+  );
   const entrees = mouvements.filter((m) => m.type !== "SORTIE").map(versLite);
   const sorties = mouvements.filter((m) => m.type === "SORTIE").map(versLite);
 
@@ -99,7 +105,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         </span>
       </form>
 
-      <MouvementForm articles={articles} estDirection={estDirection} />
+      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation }))} estDirection={estDirection} etatsLivraison={etatsLivraison} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ColonneMouvements titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" estDirection={estDirection} />

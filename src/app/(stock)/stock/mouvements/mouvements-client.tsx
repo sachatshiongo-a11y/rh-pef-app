@@ -6,6 +6,9 @@ import { mouvementManuel, supprimerMouvement, supprimerMouvementsEnLot } from ".
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { qte, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
+import { AVERTISSEMENT_LIVRAISON, RAISON_LIVRAISON, type EtatLivraison } from "@/lib/stock-restaurant";
+
+export { AVERTISSEMENT_LIVRAISON };
 
 type Art = { id: string; designation: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -143,7 +146,37 @@ export function SupprimerMouvementBtn({ id }: { id: string }) {
   );
 }
 
-export function MouvementForm({ articles, estDirection = false }: { articles: Art[]; estDirection?: boolean }) {
+/**
+ * Articles choisis d'une sortie « Livraison restaurant » qui n'alimenteront pas le stock du
+ * restaurant (non rattaché, à répartir, unité incompatible) : avertissement NON BLOQUANT.
+ */
+function AvertissementLivraison({ ids, articles, etats }: { ids: string[]; articles: Art[]; etats: Record<string, EtatLivraison> }) {
+  const noms = new Map(articles.map((a) => [a.id, a.designation]));
+  const concernes = [...new Set(ids)].flatMap((id) => {
+    const etat = etats[id];
+    return etat && etat !== "OK" ? [{ id, nom: noms.get(id) ?? id, raison: RAISON_LIVRAISON[etat] }] : [];
+  });
+  if (concernes.length === 0) return null;
+  return (
+    <div role="status" data-avertissement="livraison" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <ul className="space-y-0.5">
+        {concernes.map((c) => (
+          <li key={c.id} className="min-w-0 break-words">« {c.nom} » ({c.raison}) : {AVERTISSEMENT_LIVRAISON}.</li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs">
+        La sortie reste enregistrable (elle retire bien la quantité du dépôt). <Link href="/stock/restaurant" className="font-medium underline">Rattacher dans Stock → Restaurant</Link>
+      </p>
+    </div>
+  );
+}
+
+export function MouvementForm({ articles, estDirection = false, etatsLivraison = {} }: {
+  articles: Art[]; estDirection?: boolean;
+  /** État de rattachement au restaurant de chaque article (livraisons) — calculé par le serveur. */
+  etatsLivraison?: Record<string, EtatLivraison>;
+}) {
+  const [choix, setChoix] = useState<Record<number, string>>({});
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [nb, setNb] = useState(3);
@@ -151,10 +184,11 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMsg(null); setCle((c) => c + 1); };
+  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMsg(null); setChoix({}); setCle((c) => c + 1); };
 
   const submit = (fd: FormData) => {
     setMsg(null);
+    setChoix({}); // le formulaire se vide après l'envoi : l'avertissement suit les listes
     startTransition(async () => {
       const r = await mouvementManuel(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
@@ -190,9 +224,13 @@ export function MouvementForm({ articles, estDirection = false }: { articles: Ar
         )}
       </div>
 
+      {type === "SORTIE" && motif === "LIVRAISON_RESTAURANT" && (
+        <AvertissementLivraison ids={Object.values(choix).filter(Boolean)} articles={articles} etats={etatsLivraison} />
+      )}
+
       {Array.from({ length: nb }).map((_, i) => (
         <div key={i} className="flex items-center gap-2">
-          <select name="articleId" defaultValue="" className={`${inp} min-w-64 flex-1`}>
+          <select name="articleId" defaultValue="" onChange={(e) => { const v = e.target.value; setChoix((c) => ({ ...c, [i]: v })); }} className={`${inp} min-w-64 flex-1`}>
             <option value="">— article —</option>
             {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
           </select>

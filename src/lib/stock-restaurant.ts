@@ -88,6 +88,16 @@ export const LIBELLE_SIGNALEMENT: Record<SignalementLivraison["motif"] | "NON_RA
 
 // ─── Rattachement d'une livraison ────────────────────────────────────────────
 
+/** Avertissement NON BLOQUANT à la saisie d'une sortie « Livraison restaurant » (Stock → Mouvements). */
+export const AVERTISSEMENT_LIVRAISON = "cette livraison n'alimentera pas le stock du restaurant : rattachez l'article";
+export type EtatLivraison = EtatRattachement["etat"];
+/** Raison, en clair, pour laquelle une livraison n'alimentera pas le restaurant. */
+export const RAISON_LIVRAISON: Record<Exclude<EtatLivraison, "OK">, string> = {
+  NON_RATTACHE: "non rattaché à un article du restaurant",
+  A_REPARTIR: "rattaché à plusieurs articles du restaurant (à répartir : la Direction choisit un rattachement unique)",
+  UNITE_INCOMPATIBLE: "unité incompatible avec celle de l'article du restaurant",
+};
+
 /**
  * Article du restaurant qui reçoit les livraisons d'un article du catalogue : UN SEUL rattachement
  * actif, d'unité convertible. Sinon, la raison (jamais un choix au hasard).
