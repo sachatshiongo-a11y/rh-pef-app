@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ArticleOption, FicheVue } from "../_data/fiche-calc";
+import type { StockRestaurant } from "@/lib/fiches/disponibilite";
 
 // Page d'une fiche : bloc « Disponibilité » et colonnes « Stock » / « Portions possibles ». On rend
 // le VRAI composant d'édition, avec un stock connu, et on lit ce que la Direction verra.
@@ -24,7 +25,11 @@ const vue = (lignes: FicheVue["lignes"]): FicheVue => ({
   actif: true, photoUrl: null, lignes,
 });
 const ligne = (id: string, articleId: string, unite: string, quantite: string, ordre: number) => ({ id, articleId, sousFicheId: null, unite, quantite, ordre });
-type StockTest = { depot: string | null; restaurant: null | { etat: "OK"; quantite: string; dateComptage: string }; dernierMouvement?: string | null };
+type StockTest = {
+  depot: string | null;
+  restaurant: null | StockRestaurant;
+  dernierMouvement?: string | null;
+};
 /** Par défaut, le stock a bougé la veille du jour de référence (24/09/2026) : il fait foi. */
 const rendre = (v: FicheVue, stocks: Record<string, StockTest>) =>
   renderToStaticMarkup(
@@ -49,6 +54,28 @@ describe("page d'une fiche — disponibilité", () => {
     const lignesHtml = html.split("<tr").slice(2);
     expect(lignesHtml[1]).toContain("border-l-amber-500");
     expect(lignesHtml[0]).not.toContain("border-l-amber-500");
+  });
+
+  it("stock théorique du restaurant : la part reçue du dépôt depuis le comptage est affichée", () => {
+    const html = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1)]), {
+      farine: { depot: "2", restaurant: { etat: "OK", quantite: "4", dateComptage: "2026-09-22", recu: "3" } },
+    });
+    expect(html).toContain("dépôt 2 · resto 4 (compté le 22/09/2026) · dont reçu du dépôt 3");
+    expect(html).toContain("livraisons du dépôt reçues depuis");
+  });
+
+  it("aucun comptage : la part du restaurant est affichée « estimé (aucun comptage) », hors du stock qui compte", () => {
+    const html = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1)]), { farine: { depot: "2", restaurant: { etat: "ESTIME", quantite: "3", recu: "3" } } });
+    expect(html).toContain("À vérifier");
+    expect(html).toContain("Farine : stock du restaurant estimé : aucun comptage");
+    expect(html.replace(/<[^>]+>/g, "")).toContain("dépôt 2 · resto 3 estimé (aucun comptage)");
+    expect(html).toContain("2 kg"); // le dépôt seul
+    expect(html).not.toContain("5 kg");
+  });
+
+  it("livraison au restaurant à répartir : À vérifier, en clair", () => {
+    const html = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1)]), { farine: { depot: "2", restaurant: { etat: "A_REPARTIR", articleResto: "Farine cuisine" } } });
+    expect(html).toContain("Farine : livraison au restaurant à répartir (plusieurs articles du restaurant rattachés)");
   });
 
   it("à vérifier : chaque raison est écrite en clair, jamais un nombre de portions", () => {

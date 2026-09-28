@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { OngletsAchats } from "../_achats/onglets-achats";
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
@@ -54,7 +55,8 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
   ];
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="w-full space-y-5">
+      <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>

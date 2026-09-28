@@ -1344,9 +1344,10 @@ model Fournisseur {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  articles     ArticleStock[]
-  bonsCommande BonDeCommande[]
-  factures     FactureFournisseur[]
+  articles      ArticleStock[]
+  bonsCommande  BonDeCommande[]
+  factures      FactureFournisseur[]
+  achatsDirects MouvementStock[] // achats de la Liste d'achat rattachés à ce fournisseur
 
   @@schema("stock")
 }
@@ -1429,11 +1430,16 @@ model MouvementStock {
   facture           FactureFournisseur? @relation(fields: [factureId], references: [id], onDelete: SetNull)
   categorieSortie   String? // pour une SORTIE : PERTE | LIVRAISON_RESTAURANT
   raisonSortie      String? // explication (obligatoire pour une perte)
+  // Fournisseur d'un ACHAT DIRECT (Liste d'achat, sans facture ni bon de commande) — facultatif.
+  // Une entrée par facture ou par réception trouve son fournisseur via `facture`/`reception`.
+  fournisseurId     String?
+  fournisseur       Fournisseur?       @relation(fields: [fournisseurId], references: [id], onDelete: SetNull)
   creeParId         String? // User.id (pas de FK cross-schéma)
   createdAt         DateTime           @default(now())
 
   @@index([articleId, date])
   @@index([factureId])
+  @@index([fournisseurId])
   @@index([categorieSortie, date])
   @@schema("stock")
 }

@@ -30,7 +30,7 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
   const onglets: [string, string][] = [["comptages", "Comptages"], ["bons", "Bons de commande validés"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="w-full space-y-4">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Archives</h1>
         <p className="mt-1 text-sm text-muted-foreground">Historique de l’application : comptages d’inventaire, rapports générés et journal d’activité.</p>

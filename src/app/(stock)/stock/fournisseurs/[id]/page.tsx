@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte, ALERTE_CLASSE, ALERTE_LABEL, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { EditerFournisseur } from "./editer-fournisseur";
+import { formaterMontant, formaterUSD } from "@/lib/montant";
+import { jjmmaaaa } from "@/lib/achats-liste";
 import { exigerPageStock } from "@/lib/garde-page";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
@@ -13,7 +15,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
   const user = await exigerPageStock();
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
-  const [f, factures, bons] = await Promise.all([
+  const [f, factures, bons, achatsDirects, nbAchatsDirects] = await Promise.all([
     prisma.fournisseur.findUnique({
       where: { id },
       include: {
@@ -23,6 +25,15 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
     }),
     prisma.factureFournisseur.findMany({ where: { fournisseurId: id }, orderBy: [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }], take: 500 }),
     prisma.bonDeCommande.findMany({ where: { fournisseurId: id }, orderBy: [{ annee: "desc" }, { date: "desc" }], take: 300, include: { _count: { select: { lignes: true } } } }),
+    // Achats DIRECTS : lignes de la Liste d'achat (sans facture ni bon de commande) rattachées ici.
+    prisma.mouvementStock.findMany({
+      where: { fournisseurId: id, type: "ENTREE" },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      take: 300,
+      select: { id: true, date: true, quantite: true, origine: true, devise: true, montantOrigine: true, montantUSD: true, articleId: true, article: { select: { designation: true, unite: true } } },
+    }),
+    // Le VRAI total (la liste ci-dessus est plafonnée à 300 lignes).
+    prisma.mouvementStock.count({ where: { fournisseurId: id, type: "ENTREE" } }),
   ]);
   if (!f) notFound();
 
@@ -45,14 +56,14 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
   ];
 
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Fournisseurs", href: "/stock/fournisseurs" }, { label: f.nom }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">{f.nom}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {f._count.articles} article(s) · {bonsValides.length} bon(s) de commande validé(s) · {factures.length} facture(s)
+            {f._count.articles} article(s) · {bonsValides.length} bon(s) de commande validé(s) · {factures.length} facture(s) · {nbAchatsDirects} achat(s) direct(s)
           </p>
         </div>
         {estDirection && <EditerFournisseur f={{
@@ -129,6 +140,34 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                   </div>
                 </div>
               </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Achats directs (Liste d'achat) */}
+      <section>
+        <h2 className="mb-2 text-base font-semibold">Achats directs — Liste d&apos;achat ({nbAchatsDirects})</h2>
+        {nbAchatsDirects > achatsDirects.length && <p className="mb-2 text-xs text-muted-foreground">Les {achatsDirects.length} plus récents sont affichés.</p>}
+        {achatsDirects.length === 0 ? (
+          <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun achat direct. Choisissez ce fournisseur sur une ligne de la Liste d&apos;achat pour l&apos;y retrouver.</p>
+        ) : (
+          <div className="divide-y rounded-lg border text-sm">
+            {achatsDirects.map((m) => (
+              <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <Link href={`/stock/catalogue/${m.articleId}`} className="font-medium text-primary hover:underline">{m.article.designation}</Link>
+                  <div className="truncate text-xs text-muted-foreground">{jjmmaaaa(m.date.toISOString())}{m.origine ? ` · ${m.origine}` : ""}</div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="font-semibold tabular-nums">+{qte(m.quantite)}{m.article.unite ? ` ${m.article.unite}` : ""}</div>
+                  <div className="text-[11px] tabular-nums text-muted-foreground">
+                    {m.montantOrigine !== null && m.devise
+                      ? `${formaterMontant(Number(m.montantOrigine), m.devise)}${m.devise === "CDF" && m.montantUSD !== null ? ` ≈ ${formaterUSD(Number(m.montantUSD))}` : ""}`
+                      : m.montantUSD !== null ? formaterUSD(Number(m.montantUSD)) : "—"}
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         )}

@@ -6,6 +6,8 @@ import { actionLisible } from "@/lib/action-lisible";
 import { analyserInventaire, appliquerInventaire, annulerImport, type PreviewInventaire } from "@/lib/import-inventaire";
 import { analyserFactures, appliquerFactures, type PreviewFactures } from "@/lib/import-factures";
 import { analyserMouvements, appliquerMouvements, type PreviewMouvements } from "@/lib/import-mouvements";
+import { detecterDoublons, retirerDoublons, type ApercuDoublons } from "@/lib/doublons-imports";
+import { sortiesSontLivraisons, CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
 
 // Toutes les actions sont enrobées par actionLisible : les erreurs métier (fichier manquant,
 // mois clôturé, rien à importer…) reviennent au client comme { erreur } LISIBLE — en prod,
@@ -35,7 +37,9 @@ export const appliquerInventaireAction = actionLisible(
     const file = formData.get("fichier");
     if (!(file instanceof File) || file.size === 0) throw new Error("Fichier manquant.");
     const libelle = String(formData.get("libelle") ?? "").trim() || file.name.replace(/\.xlsx$/i, "");
-    const res = await appliquerInventaire(await file.arrayBuffer(), libelle, user.id);
+    const res = await appliquerInventaire(await file.arrayBuffer(), libelle, user.id, {
+      sortiesLivraisonRestaurant: sortiesSontLivraisons(formData.get(CHAMP_SORTIES_LIVRAISON)),
+    });
     revalidatePath("/stock/imports");
     revalidatePath("/stock/catalogue", "layout");
     return res;
@@ -69,7 +73,9 @@ export const analyserMouvementsAction = actionLisible(async (formData: FormData)
   await gardeDirection();
   const file = formData.get("fichier");
   if (!(file instanceof File) || file.size === 0) throw new Error("Ajoutez un fichier CSV d'entrées/sorties.");
-  return analyserMouvements(await file.text());
+  // La date par défaut date les lignes sans date : l'aperçu peut alors repérer leurs jumeaux.
+  const dateDefaut = String(formData.get("dateDefaut") ?? "").trim() || undefined;
+  return analyserMouvements(await file.text(), dateDefaut);
 });
 
 /** Applique l'import de mouvements (crée les mouvements, ajuste le stock) — réversible.
@@ -92,7 +98,9 @@ export const appliquerMouvementsAction = actionLisible(
         /* sélection illisible → import complet (comportement historique) */
       }
     }
-    const res = await appliquerMouvements(await file.text(), libelle, dateDefaut, user.id, lignesChoisies);
+    const res = await appliquerMouvements(await file.text(), libelle, dateDefaut, user.id, lignesChoisies, {
+      sortiesLivraisonRestaurant: sortiesSontLivraisons(formData.get(CHAMP_SORTIES_LIVRAISON)),
+    });
     revalidatePath("/stock/imports");
     revalidatePath("/stock/mouvements");
     revalidatePath("/stock/catalogue", "layout");
@@ -102,8 +110,27 @@ export const appliquerMouvementsAction = actionLisible(
 
 /** Annule un import (supprime les créations, restaure les mises à jour). */
 export const annulerImportAction = actionLisible(async (batchId: string): Promise<void> => {
-  await gardeDirection();
-  await annulerImport(batchId);
+  const user = await gardeDirection();
+  await annulerImport(batchId, user.id);
   revalidatePath("/stock/imports");
   revalidatePath("/stock/catalogue", "layout");
 });
+
+const listeIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.length > 0) : []);
+
+/** Aperçu des mouvements en double entre un import d'inventaire et des imports de mouvements (aucune écriture). */
+export const detecterDoublonsAction = actionLisible(async (inventaireId: string, mouvementsIds: string[]): Promise<ApercuDoublons> => {
+  await gardeDirection();
+  return detecterDoublons(String(inventaireId ?? ""), listeIds(mouvementsIds));
+});
+
+/** Retire les copies en double de l'import d'inventaire (garde celles de l'import de mouvements). Stock inchangé. */
+export const retirerDoublonsAction = actionLisible(
+  async (inventaireId: string, mouvementsIds: string[], ids: string[]): Promise<{ retires: number; message: string }> => {
+    const user = await gardeDirection();
+    const r = await retirerDoublons(String(inventaireId ?? ""), listeIds(mouvementsIds), listeIds(ids), user.id);
+    // L'historique retiré alimente plusieurs écrans (mouvements, consommation, conso journalière).
+    revalidatePath("/stock", "layout");
+    return r;
+  }
+);

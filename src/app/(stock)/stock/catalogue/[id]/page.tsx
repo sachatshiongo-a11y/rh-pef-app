@@ -94,7 +94,7 @@ export default async function ArticleFichePage({
   };
 
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Inventaire", href: `/stock/catalogue?domaine=${a.domaine}` }, { label: a.designation }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">

@@ -1,13 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { MouvementForm, ColonneMouvements, type MvtLite } from "./mouvements-client";
 import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
+import { OngletsAchats } from "../_achats/onglets-achats";
+import { fournisseurDuMouvement } from "@/lib/achats-liste";
 import type { Prisma } from "@prisma/client";
+import { conseilLivraison, etatRattachementLivraison } from "@/lib/stock-restaurant";
+import type { ConseilLivraison } from "./mouvements-client";
 import { exigerPageStock } from "@/lib/garde-page";
 
 const mvtInclude = {
   article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
   facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
   reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+  fournisseur: { select: { id: true, nom: true } }, // achat direct de la Liste d'achat
 } satisfies Prisma.MouvementStockInclude;
 type Mvt = Prisma.MouvementStockGetPayload<{ include: typeof mvtInclude }>;
 
@@ -22,6 +27,7 @@ const valeurDe = (m: Mvt): { v: number; estime: boolean } | null => {
 const versLite = (m: Mvt): MvtLite => {
   const bc = m.reception?.bonDeCommande;
   const va = valeurDe(m);
+  const fourn = fournisseurDuMouvement(m);
   return {
     id: m.id,
     articleId: m.articleId,
@@ -34,12 +40,20 @@ const versLite = (m: Mvt): MvtLite => {
     valeurEstimee: va ? va.estime : false,
     facture: m.facture ? { id: m.facture.id, numero: m.facture.numero } : null,
     bc: bc ? { id: bc.id, numero: bc.numero } : null,
-    fournId: m.facture?.fournisseurId ?? bc?.fournisseurId ?? null,
-    fournNom: m.facture?.fournisseurNom ?? bc?.fournisseur?.nom ?? null,
+    fournId: fourn?.id ?? null,
+    fournNom: fourn?.nom ?? null,
+    motif: m.categorieSortie,
   };
 };
 
-type SP = { mois?: string; articleId?: string };
+type SP = { mois?: string; articleId?: string; motif?: string };
+
+// Filtre « motif » des sorties (requalification des sorties importées sans motif).
+const FILTRES_MOTIF: Record<string, { label: string; where: Prisma.MouvementStockWhereInput }> = {
+  livraison: { label: "Sorties : Livraison restaurant", where: { type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT" } },
+  perte: { label: "Sorties : Perte", where: { type: "SORTIE", categorieSortie: "PERTE" } },
+  sans: { label: "Sorties : sans motif", where: { type: "SORTIE", categorieSortie: null } },
+};
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
@@ -53,18 +67,26 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     : moisCourant; // « 2026-7 »
   const articleId = sp.articleId || undefined;
 
-  const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}) };
+  const filtreMotif = sp.motif && sp.motif in FILTRES_MOTIF ? sp.motif : undefined;
+  const where: Prisma.MouvementStockWhereInput = { ...(articleId ? { articleId } : {}), ...(filtreMotif ? FILTRES_MOTIF[filtreMotif]!.where : {}) };
   if (mois) {
     const [y, m] = mois.split("-").map(Number);
     where.date = { gte: new Date(Date.UTC(y, m - 1, 1)), lt: new Date(Date.UTC(y, m, 1)) };
   }
 
   const PLAFOND = 600;
-  const [mouvements, nbTotal, articles] = await Promise.all([
+  const [mouvements, nbTotal, articles, restos] = await Promise.all([
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true } }),
+    // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
+    prisma.articleResto.findMany({ where: { actif: true, articleStockId: { not: null } }, select: { id: true, designation: true, espace: true, unite: true, articleStockId: true } }),
   ]);
+  const conseilsLivraison: Record<string, ConseilLivraison> = {};
+  for (const a of articles) {
+    const c = conseilLivraison(etatRattachementLivraison(a.id, a.unite, restos, a.domaine), a.id, restos);
+    if (c) conseilsLivraison[a.id] = c;
+  }
   const entrees = mouvements.filter((m) => m.type !== "SORTIE").map(versLite);
   const sorties = mouvements.filter((m) => m.type === "SORTIE").map(versLite);
 
@@ -76,6 +98,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
 
   return (
     <div className="space-y-4">
+      <OngletsAchats />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
         <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>
@@ -90,8 +113,12 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
           <option value="">Tous les produits</option>
           {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
         </select>
+        <select name="motif" defaultValue={filtreMotif ?? ""} aria-label="Motif" className="rounded-md border border-input bg-background px-2 py-1.5">
+          <option value="">Tous les motifs</option>
+          {Object.entries(FILTRES_MOTIF).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
+        </select>
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(mois !== moisCourant || articleId) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
+        {(mois !== moisCourant || articleId || filtreMotif) && <a href="/stock/mouvements" className="text-muted-foreground underline">Réinitialiser</a>}
         <span className="ml-auto text-xs text-muted-foreground">
           {nbTotal > PLAFOND
             ? `${PLAFOND} affichés sur ${nbTotal} — affinez par mois ou par produit.`
@@ -99,11 +126,11 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         </span>
       </form>
 
-      <MouvementForm articles={articles} estDirection={estDirection} />
+      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ColonneMouvements titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" estDirection={estDirection} />
-        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} />
+        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} requalifiable />
       </div>
     </div>
   );

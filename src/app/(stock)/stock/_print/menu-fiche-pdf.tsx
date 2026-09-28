@@ -11,7 +11,7 @@ export function MenuFichePdf({ libelle, children }: { libelle: string; children:
       <summary className="cursor-pointer list-none rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent [&::-webkit-details-marker]:hidden">
         {libelle} ▾
       </summary>
-      <div className="absolute right-0 z-30 mt-1.5 w-72 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border bg-card p-3 shadow-xl">
+      <div className="absolute left-0 z-30 mt-1.5 w-72 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border bg-card p-3 shadow-xl">
         {children}
       </div>
     </details>
