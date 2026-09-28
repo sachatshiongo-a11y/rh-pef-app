@@ -3,10 +3,12 @@ import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
 import { PrintDoc } from "../../_print/print-doc";
 import type { Prisma } from "@prisma/client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { q?: string; domaine?: string };
 
 export default async function CatalogueImprimerPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await exigerPageStock();
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
@@ -47,7 +49,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
 
   return (
     <PrintDoc
-      titre="Catalogue — Stock & Achats"
+      titre="Inventaire — Stock & Achats"
       sousTitre={new Date().toLocaleDateString("fr-FR")}
       entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix USD", "Valeur USD"]}
       aligneDroite={[1, 3, 6, 7]}

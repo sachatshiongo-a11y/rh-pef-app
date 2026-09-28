@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
 import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
 import { chargerParametresPaie } from "@/lib/config";
 import { GrilleTransport } from "@/app/(app)/transport/_grille";
 import { filtrerEmployes } from "./_donnees";
 import type { Employee } from "@prisma/client";
+import { exigerPageRH } from "@/lib/garde-page";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -18,7 +18,7 @@ export default async function EmployesPage({
 }: {
   searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string }>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const sp = await searchParams;
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const vue = sp.vue === "transport" ? "transport" : "rh";

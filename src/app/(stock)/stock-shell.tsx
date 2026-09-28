@@ -22,7 +22,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Dépôt",
     items: [
-      { href: "/stock/catalogue", label: "Catalogue", icone: "marmite" },
+      { href: "/stock/catalogue", label: "Inventaire", icone: "marmite" },
       { href: "/stock/entree", label: "Liste d'achat", icone: "panier" },
       { href: "/stock/mouvements", label: "Mouvements", icone: "echanges" },
       { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },

@@ -1,4 +1,4 @@
-import { verifySession, requireRole } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { EmployeeForm } from "../employee-form";
 import { creerEmploye } from "../actions";
@@ -6,9 +6,10 @@ import { chargerParametresPaie } from "@/lib/config";
 import { chargerPostes } from "@/lib/postes";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
+import { exigerPageRH } from "@/lib/garde-page";
 
 export default async function NouvelEmployePage() {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   requireRole(user, ["ADMIN", "MANAGER"]);
   const [parametres, postes, dernierRun] = await Promise.all([
     chargerParametresPaie(),

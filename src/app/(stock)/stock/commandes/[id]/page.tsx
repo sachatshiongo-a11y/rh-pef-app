@@ -2,16 +2,16 @@ import Link from "next/link";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, delaiPaiementLabel } from "@/lib/stock";
 import { changerStatutBonCommande, validerBonCommande, supprimerBonCommande } from "../actions";
 import { ReceptionForm } from "./reception-client";
 import { LierFacture } from "./lier-facture";
 import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await exigerPageStock();
   const { id } = await params;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const [bc, acheteur] = await Promise.all([
     prisma.bonDeCommande.findUnique({

@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { FacturesUI, type FactureRow, type Groupe, type AnneeGroupe } from "./factures-client";
 import { ImportFacturesBtn } from "./import-factures-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
@@ -21,8 +21,8 @@ function joursAvant(echeance: Date | null, statut: string): number | null {
 }
 
 export default async function FacturesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const f = sp.statut;
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";

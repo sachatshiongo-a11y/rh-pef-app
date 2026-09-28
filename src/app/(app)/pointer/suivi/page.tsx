@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { verdictDe } from "@/lib/pointage-scan";
 import { libelleMotif, scanAVerifier } from "@/lib/pointage-qr";
 import { resumeSemaineCourante } from "@/lib/pointage-suivi";
@@ -8,6 +8,7 @@ import { jourKinshasaISO } from "@/lib/date-paiement";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
 import { SuiviBulk, type LigneSuivi } from "./suivi-bulk";
 import type { SourcePointage } from "@prisma/client";
+import { exigerPageRH } from "@/lib/garde-page";
 
 // « QR », « manuel », « appli (ancien) » (brief) — IVMS n'arrive jamais sur ce modèle en pratique
 // (réservé à l'import de présences), mais un libellé neutre évite un badge vide si ça change.
@@ -20,7 +21,7 @@ const LABEL_SOURCE: Record<SourcePointage, string> = {
 };
 
 export default async function SuiviPointagesPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   requireRole(user, ["ADMIN", "MANAGER"]);
   const sp = await searchParams;
 

@@ -1,15 +1,15 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import Link from "next/link";
 import { ImportFacturesClient } from "./import-factures-client";
 import { ImportMouvementsClient } from "./import-mouvements-client";
 import { BoutonAnnulerImport } from "./annuler-btn";
 import { DoublonsClient } from "./doublons-client";
 import { lotsPourDoublons, ACTION_DOUBLON_RETIRE } from "@/lib/doublons-imports";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function ImportsPage() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   if (user.role !== "ADMIN") notFound(); // Direction uniquement
 
   const [batches, lots] = await Promise.all([
