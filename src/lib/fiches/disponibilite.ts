@@ -54,10 +54,17 @@ export type FicheDispo = {
   ingredients: IngredientDispo[];
 };
 
-/** Stock du restaurant d'UN article du catalogue, déjà ramené à l'unité de l'article (texte). */
+/**
+ * Stock du restaurant d'UN article du catalogue, déjà ramené à l'unité de l'article (texte) : le
+ * STOCK THÉORIQUE (dernier comptage + livraisons du dépôt reçues depuis — `src/lib/stock-restaurant.ts`).
+ * `dateComptage` : plus ancien des derniers comptages (null : estimé sans comptage) ; `dateMaj` :
+ * date qui fait foi pour la règle des 7 jours — plus récente du comptage et de la dernière livraison
+ * (absente : `dateComptage`) ; `recu` : livraisons additionnées depuis le comptage (null : aucune).
+ */
 export type StockRestaurant =
-  | { etat: "OK"; quantite: string; dateComptage: string }
-  | { etat: "UNITE_NON_CONVERTIBLE"; articleResto: string };
+  | { etat: "OK"; quantite: string; dateComptage: string | null; dateMaj?: string; recu?: string | null }
+  | { etat: "UNITE_NON_CONVERTIBLE"; articleResto: string }
+  | { etat: "A_REPARTIR"; articleResto: string };
 
 /**
  * `depot` = `Stock.quantite` (null : aucune ligne `Stock`) ; `restaurant` = null : aucun comptage
@@ -80,6 +87,7 @@ export type MotifDispo =
   | "PAS_DE_STOCK"
   | "UNITE_NON_CONVERTIBLE"
   | "UNITE_NON_CONVERTIBLE_RESTAURANT"
+  | "LIVRAISON_RESTAURANT_A_REPARTIR"
   | "STOCK_NEGATIF"
   | "RENDEMENT_ABSENT"
   | "UNITE_RENDEMENT_INCOHERENTE"
@@ -109,6 +117,8 @@ export type DetailArticleDispo = {
   depot: string | null;
   restaurant: string | null;
   dateComptage: string | null;
+  /** Livraisons du dépôt additionnées au restaurant depuis son comptage, unité de l'article ; null : aucune. */
+  recuRestaurant: string | null;
   /** Date (AAAA-MM-JJ) du dernier mouvement de stock au dépôt ; null : jamais mouvementé. */
   dernierMouvement: string | null;
   disponible: string | null;
@@ -141,6 +151,7 @@ export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   PAS_DE_STOCK: "pas de stock enregistré",
   UNITE_NON_CONVERTIBLE: "unité non convertible",
   UNITE_NON_CONVERTIBLE_RESTAURANT: "unité non convertible (restaurant)",
+  LIVRAISON_RESTAURANT_A_REPARTIR: "livraison au restaurant à répartir (plusieurs articles du restaurant rattachés)",
   STOCK_NEGATIF: "stock négatif",
   RENDEMENT_ABSENT: "sous-recette sans rendement renseigné",
   UNITE_RENDEMENT_INCOHERENTE: "rendement de la sous-recette dans une autre unité que la consommation",
@@ -233,51 +244,6 @@ export function convertirDepuisUniteArticle(quantite: Decimal.Value, uniteArticl
   return q.times(unRestoEnArticle.den).div(unRestoEnArticle.num).toString();
 }
 
-// ─── Stock du restaurant rattaché au catalogue ───────────────────────────────
-
-export type ComptageRattache = {
-  articleStockId: string;
-  designationResto: string;
-  uniteResto: string | null;
-  /** Date (AAAA-MM-JJ) du DERNIER comptage de cet article du restaurant. */
-  date: string;
-  quantite: Decimal.Value;
-};
-
-/**
- * Somme, par article du catalogue, du dernier comptage de chaque article du restaurant qui lui est
- * rattaché, convertie dans l'unité de l'article. Une conversion impossible rend l'article
- * « unité non convertible (restaurant) » : on n'additionne pas des bouteilles et des kilos.
- * Plusieurs articles du restaurant : la date retenue est la PLUS ANCIENNE des dernières dates —
- * c'est elle qui dit à quel point le chiffre peut être périmé.
- */
-export function stockRestaurantParArticle(
-  comptages: ComptageRattache[],
-  unitesCatalogue: Map<string, string>,
-): Map<string, StockRestaurant> {
-  const res = new Map<string, StockRestaurant>();
-  for (const c of comptages) {
-    const deja = res.get(c.articleStockId);
-    if (deja?.etat === "UNITE_NON_CONVERTIBLE") continue;
-    const converti = convertirVersUniteArticle(c.quantite, c.uniteResto ?? "", unitesCatalogue.get(c.articleStockId) ?? "");
-    if (converti === null) {
-      res.set(c.articleStockId, { etat: "UNITE_NON_CONVERTIBLE", articleResto: c.designationResto });
-      continue;
-    }
-    res.set(
-      c.articleStockId,
-      deja
-        ? {
-            etat: "OK",
-            quantite: new D(deja.quantite).plus(converti).toString(),
-            dateComptage: c.date < deja.dateComptage ? c.date : deja.dateComptage,
-          }
-        : { etat: "OK", quantite: converti, dateComptage: c.date },
-    );
-  }
-  return res;
-}
-
 // ─── Décomposition ───────────────────────────────────────────────────────────
 
 type Eclatement = { besoins: { articleId: string; besoin: Fraction }[]; raisons: RaisonDispo[] };
@@ -330,7 +296,7 @@ function eclater(ing: IngredientDispo, mult: Fraction, chemin: string, enCours: 
 }
 
 type StockLu = {
-  depot: Dec | null; restaurant: Dec | null; dateComptage: string | null; dernierMouvement: string | null;
+  depot: Dec | null; restaurant: Dec | null; dateComptage: string | null; recuRestaurant: string | null; dernierMouvement: string | null;
   total: Dec | null; motif: MotifDispo | null; depuis: string | null;
 };
 
@@ -339,13 +305,18 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
   const depot = s ? versD(s.depot) : null;
   const dernierMouvement = s?.dernierMouvement ?? null;
   const r = s?.restaurant ?? null;
-  const base = { depot, dernierMouvement, depuis: null };
+  const base = { depot, dernierMouvement, depuis: null, recuRestaurant: null };
   if (r !== null && r.etat === "UNITE_NON_CONVERTIBLE") {
     return { ...base, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_RESTAURANT" };
   }
+  if (r !== null && r.etat === "A_REPARTIR") {
+    return { ...base, restaurant: null, dateComptage: null, total: null, motif: "LIVRAISON_RESTAURANT_A_REPARTIR" };
+  }
   const restaurant = r === null ? null : versD(r.quantite);
   const dateComptage = r === null ? null : r.dateComptage;
-  const lu = { ...base, restaurant, dateComptage };
+  // Règle des 7 jours côté restaurant : plus récente du comptage et de la dernière livraison reçue.
+  const dateMaj = r === null ? null : (r.dateMaj ?? r.dateComptage);
+  const lu = { ...base, restaurant, dateComptage, recuRestaurant: r?.recu ?? null };
   if (depot === null && restaurant === null) return { ...lu, total: null, motif: "PAS_DE_STOCK" };
   const total = (depot ?? new D(0)).plus(restaurant ?? 0);
   if (total.isNegative()) return { ...lu, total, motif: "STOCK_NEGATIF" };
@@ -355,8 +326,8 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
     if (dernierMouvement === null) return { ...lu, total, motif: "STOCK_JAMAIS_MIS_A_JOUR" };
     if (perimee(dernierMouvement, aujourdhui)) return { ...lu, total, motif: "STOCK_NON_MIS_A_JOUR", depuis: dernierMouvement };
   }
-  if (restaurant !== null && dateComptage !== null && perimee(dateComptage, aujourdhui)) {
-    return { ...lu, total, motif: "COMPTAGE_RESTAURANT_ANCIEN", depuis: dateComptage };
+  if (restaurant !== null && dateMaj !== null && perimee(dateMaj, aujourdhui)) {
+    return { ...lu, total, motif: "COMPTAGE_RESTAURANT_ANCIEN", depuis: dateMaj };
   }
   return { ...lu, total, motif: null };
 }
@@ -409,6 +380,7 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo, auj
       depot: s.depot === null ? null : s.depot.toString(),
       restaurant: s.restaurant === null ? null : s.restaurant.toString(),
       dateComptage: s.dateComptage,
+      recuRestaurant: s.recuRestaurant,
       dernierMouvement: s.dernierMouvement,
       disponible: s.total === null ? null : s.total.toString(),
       portions,

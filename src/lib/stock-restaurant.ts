@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { convertirDepuisUniteArticle } from "@/lib/fiches/disponibilite";
+import { convertirDepuisUniteArticle, convertirVersUniteArticle, type StockRestaurant } from "@/lib/fiches/disponibilite";
 
 // Stock et consommation du RESTAURANT, dérivés à l'affichage (spec 2026-09-28, « Livraisons du dépôt
 // au restaurant »). Fonctions PURES : ni Prisma, ni React, aucune exception.
@@ -22,8 +22,14 @@ export const MOTIF_LIVRAISON_RESTAURANT = "LIVRAISON_RESTAURANT";
 
 // ─── Entrées (dénormalisées par le chargeur) ─────────────────────────────────
 
-/** Article du restaurant ACTIF. `unite` : unité de comptage ; `articleStockId` : rattachement. */
-export type ArticleRestoSR = { id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; articleStockId: string | null };
+/**
+ * Article du restaurant ACTIF. `unite` : unité de comptage ; `articleStockId` : rattachement ;
+ * `uniteCatalogue` : unité de l'article rattaché (disponibilité des plats).
+ */
+export type ArticleRestoSR = {
+  id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; articleStockId: string | null;
+  uniteCatalogue?: string | null;
+};
 /** Comptage saisi au restaurant (dates PURES AAAA-MM-JJ, quantités en texte pleine précision). */
 export type ComptageSR = { articleRestoId: string; date: string; quantite: string };
 /** Sortie du dépôt, dans l'unité de l'article du catalogue. */
@@ -238,4 +244,52 @@ export function consommationReelle(e: EntreesStockResto, articleRestoId: string,
     compte: compte.quantite,
     veilleEstimee: veille.aucunComptage,
   };
+}
+
+// ─── Part du restaurant dans la disponibilité des plats ──────────────────────
+
+/**
+ * Stock théorique du restaurant par article du CATALOGUE, dans l'unité de l'article (décision du
+ * 2026-09-24 : le stock qui fait foi est dépôt + restaurant). Pour chaque article du restaurant
+ * rattaché : dernier comptage converti + livraisons reçues depuis, prises TELLES QU'ELLES SONT SORTIES
+ * du dépôt (déjà dans l'unité de l'article) — une livraison retire du dépôt exactement ce qu'elle
+ * ajoute ici : le total ne bouge pas, sans double compte.
+ * Plusieurs articles du restaurant rattachés : les parts s'additionnent ; `dateComptage` et `dateMaj`
+ * retiennent la plus ANCIENNE (c'est elle qui dit à quel point le chiffre peut être périmé).
+ * Une livraison à répartir ou une unité non convertible rend l'article inexploitable (annoncé).
+ */
+export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: string): Map<string, StockRestaurant> {
+  const { parArticle } = stockRestaurantTheorique(e, jour);
+  const res = new Map<string, StockRestaurant>();
+  const plusAncienne = (a: string | null, b: string | null) => (a === null ? b : b === null ? a : a < b ? a : b);
+  for (const a of e.articles) {
+    const cat = a.articleStockId;
+    if (!cat) continue;
+    const s = parArticle.get(a.id)!;
+    if (s.stock === null && s.signalements.length === 0) continue; // ni comptage ni livraison : n'apporte rien
+    const deja = res.get(cat);
+    if (deja !== undefined && deja.etat !== "OK") continue;
+    if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
+    const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", a.uniteCatalogue ?? "");
+    if (compte === null || s.signalements.some((x) => x.motif === "UNITE_INCOMPATIBLE")) {
+      res.set(cat, { etat: "UNITE_NON_CONVERTIBLE", articleResto: a.designation });
+      continue;
+    }
+    const recu = s.livraisonsDepuis.length === 0 ? null : s.livraisonsDepuis.reduce((t, l) => t.plus(l.quantiteCatalogue), new D(0));
+    const quantite = new D(compte).plus(recu ?? 0);
+    const part = { dateComptage: s.dernierComptage?.date ?? null, dateMaj: s.derniereDate! };
+    if (deja === undefined) {
+      res.set(cat, { etat: "OK", quantite: quantite.toString(), ...part, recu: recu === null ? null : recu.toString() });
+    } else {
+      const cumulRecu = deja.recu == null && recu === null ? null : new D(deja.recu ?? 0).plus(recu ?? 0).toString();
+      res.set(cat, {
+        etat: "OK",
+        quantite: new D(deja.quantite).plus(quantite).toString(),
+        dateComptage: plusAncienne(deja.dateComptage, part.dateComptage),
+        dateMaj: plusAncienne(deja.dateMaj ?? null, part.dateMaj)!,
+        recu: cumulRecu,
+      });
+    }
+  }
+  return res;
 }

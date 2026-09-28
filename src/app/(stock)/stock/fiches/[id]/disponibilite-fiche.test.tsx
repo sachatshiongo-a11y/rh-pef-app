@@ -24,7 +24,11 @@ const vue = (lignes: FicheVue["lignes"]): FicheVue => ({
   actif: true, photoUrl: null, lignes,
 });
 const ligne = (id: string, articleId: string, unite: string, quantite: string, ordre: number) => ({ id, articleId, sousFicheId: null, unite, quantite, ordre });
-type StockTest = { depot: string | null; restaurant: null | { etat: "OK"; quantite: string; dateComptage: string }; dernierMouvement?: string | null };
+type StockTest = {
+  depot: string | null;
+  restaurant: null | { etat: "OK"; quantite: string; dateComptage: string | null; dateMaj?: string; recu?: string | null } | { etat: "A_REPARTIR"; articleResto: string };
+  dernierMouvement?: string | null;
+};
 /** Par défaut, le stock a bougé la veille du jour de référence (24/09/2026) : il fait foi. */
 const rendre = (v: FicheVue, stocks: Record<string, StockTest>) =>
   renderToStaticMarkup(
@@ -49,6 +53,19 @@ describe("page d'une fiche — disponibilité", () => {
     const lignesHtml = html.split("<tr").slice(2);
     expect(lignesHtml[1]).toContain("border-l-amber-500");
     expect(lignesHtml[0]).not.toContain("border-l-amber-500");
+  });
+
+  it("stock théorique du restaurant : la part reçue du dépôt depuis le comptage est affichée", () => {
+    const html = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1)]), {
+      farine: { depot: "2", restaurant: { etat: "OK", quantite: "4", dateComptage: "2026-09-22", dateMaj: "2026-09-23", recu: "3" } },
+    });
+    expect(html).toContain("dépôt 2 · resto 4 (compté le 22/09/2026) · dont reçu du dépôt 3");
+    expect(html).toContain("livraisons du dépôt reçues depuis");
+  });
+
+  it("livraison au restaurant à répartir : À vérifier, en clair", () => {
+    const html = rendre(vue([ligne("l1", "farine", "kg", "0.5", 1)]), { farine: { depot: "2", restaurant: { etat: "A_REPARTIR", articleResto: "Farine cuisine" } } });
+    expect(html).toContain("Farine : livraison au restaurant à répartir (plusieurs articles du restaurant rattachés)");
   });
 
   it("à vérifier : chaque raison est écrite en clair, jamais un nombre de portions", () => {

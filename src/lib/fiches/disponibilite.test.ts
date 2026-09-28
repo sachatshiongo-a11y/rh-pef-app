@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  calculerDisponibilite, convertirVersUniteArticle, decompterEtats, joursEntre, libelleRaison, stockRestaurantParArticle,
+  calculerDisponibilite, convertirVersUniteArticle, decompterEtats, joursEntre, libelleRaison, convertirDepuisUniteArticle,
   JOURS_MAX_SANS_MOUVEMENT,
   type ArticleDispo, type ContexteDispo, type FicheDispo, type IngredientDispo, type StockArticle,
 } from "./disponibilite";
@@ -323,28 +323,19 @@ describe("calculerDisponibilite — sous-recettes", () => {
   });
 });
 
-describe("stock du restaurant rattaché au catalogue", () => {
-  const unites = new Map([["farine", "kg"], ["creme", "l"]]);
-
-  it("convertit le comptage dans l'unité de l'article et additionne plusieurs articles rattachés", () => {
-    const r = stockRestaurantParArticle([
-      { articleStockId: "farine", designationResto: "Farine cuisine", uniteResto: "g", date: "2026-09-22", quantite: "1500" },
-      { articleStockId: "farine", designationResto: "Farine pâtisserie", uniteResto: "kg", date: "2026-09-20", quantite: "2" },
-    ], unites);
-    expect(r.get("farine")).toEqual({ etat: "OK", quantite: "3.5", dateComptage: "2026-09-20" });
-  });
-
-  it("une unité non convertible marque l'article, sans rien additionner", () => {
-    const r = stockRestaurantParArticle([
-      { articleStockId: "creme", designationResto: "Crème (pot)", uniteResto: "pièce", date: "2026-09-22", quantite: "3" },
-      { articleStockId: "creme", designationResto: "Crème (l)", uniteResto: "l", date: "2026-09-22", quantite: "1" },
-    ], unites);
-    expect(r.get("creme")).toEqual({ etat: "UNITE_NON_CONVERTIBLE", articleResto: "Crème (pot)" });
-  });
-
+// Stock du restaurant rattaché (comptage + livraisons, plusieurs articles, unité non convertible) :
+// voir `src/lib/stock-restaurant.test.ts`, « part du restaurant dans la disponibilité des plats ».
+describe("conversions vers l'unité de l'article", () => {
   it("convertirVersUniteArticle : null quand l'unité est inconnue", () => {
     expect(convertirVersUniteArticle("250", "g", "kg")).toBe("0.25");
     expect(convertirVersUniteArticle("1", "bouteille", "l")).toBeNull();
+  });
+
+  it("convertirDepuisUniteArticle : inverse exact (catalogue → restaurant), emballages compris", () => {
+    expect(convertirDepuisUniteArticle("3", "kg", "g")).toBe("3000");
+    expect(convertirDepuisUniteArticle("4", "500 GR", "kg")).toBe("2");
+    expect(convertirDepuisUniteArticle("1", "l", "bouteille")).toBeNull();
+    expect(convertirDepuisUniteArticle("1", "", "")).toBeNull();
   });
 });
 

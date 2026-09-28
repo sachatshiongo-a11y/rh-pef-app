@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
-// Stock qui fait foi pour la disponibilité : dépôt + DERNIER comptage des articles du restaurant
-// rattachés. Base Postgres éphémère, jamais la production.
+// Stock qui fait foi pour la disponibilité : dépôt + STOCK THÉORIQUE des articles du restaurant
+// rattachés (dernier comptage + livraisons reçues depuis). Base Postgres éphémère, jamais la production.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
@@ -66,14 +66,39 @@ describe("chargerStocksDesFiches", () => {
 
     const groupBy = vi.spyOn(prisma.mouvementStock, "groupBy");
     const findMany = vi.spyOn(prisma.mouvementStock, "findMany");
-    const stocks = await chargerStocksDesFiches();
+    const stocks = await chargerStocksDesFiches("2026-09-23");
 
-    expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21" }, dernierMouvement: "2026-09-20" });
-    expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22" }, dernierMouvement: null });
+    expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21", dateMaj: "2026-09-21", recu: null }, dernierMouvement: "2026-09-20" });
+    expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22", dateMaj: "2026-09-22", recu: null }, dernierMouvement: null });
     expect(stocks[sel.id]).toEqual({ depot: "1.5", restaurant: null, dernierMouvement: null });
-    // UNE requête groupée pour tous les articles, jamais une requête par article.
+    // UNE requête groupée pour tous les articles (dernier mouvement), UNE pour les livraisons au
+    // restaurant — jamais une requête par article.
     expect(groupBy).toHaveBeenCalledTimes(1);
-    expect(findMany).not.toHaveBeenCalled();
+    expect(findMany).toHaveBeenCalledTimes(1);
     groupBy.mockRestore(); findMany.mockRestore();
+  }, 60_000);
+
+  it("la part du restaurant ajoute les livraisons « Livraison restaurant » reçues depuis le comptage (pas les pertes)", async () => {
+    const tomate = await article("Tomate", "kg");
+    await prisma.stock.create({ data: { articleId: tomate.id, quantite: "5" } });
+    const t = await resto("Tomate", "g", tomate.id);
+    await compter(t.id, "2026-09-20", "1000");
+    const sortie = (date: string, quantite: string, categorieSortie: string | null) =>
+      prisma.mouvementStock.create({ data: { articleId: tomate.id, type: "SORTIE", quantite, date: new Date(date), categorieSortie } });
+    await sortie("2026-09-20", "9", "LIVRAISON_RESTAURANT"); // le jour du comptage : le comptage fait foi
+    await sortie("2026-09-21", "2", "LIVRAISON_RESTAURANT");
+    await sortie("2026-09-21", "1", "PERTE");
+    await sortie("2026-09-22", "1", null);
+    await sortie("2026-09-24", "4", "LIVRAISON_RESTAURANT"); // après le jour de référence
+
+    const stocks = await chargerStocksDesFiches("2026-09-22");
+    expect(stocks[tomate.id]).toEqual({
+      depot: "5",
+      restaurant: { etat: "OK", quantite: "3", dateComptage: "2026-09-20", dateMaj: "2026-09-21", recu: "2" },
+      dernierMouvement: "2026-09-24",
+    });
+    // Rien n'est écrit : ni comptage, ni stock du dépôt.
+    expect(await prisma.comptageResto.count({ where: { articleRestoId: t.id } })).toBe(1);
+    expect((await prisma.stock.findUniqueOrThrow({ where: { articleId: tomate.id } })).quantite.toString()).toBe("5");
   }, 60_000);
 });
