@@ -8,6 +8,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { chargerPlafondAcompte } from "@/lib/acompte-plafond";
 import { construireEcheancier } from "@/lib/prets";
 import { formaterUSD } from "@/lib/montant";
+import { bulletinConsultableDuMois } from "@/lib/bulletin-salarie";
 
 const BADGE: Record<string, { label: string; classe: string }> = {
   EN_ATTENTE: { label: "En attente", classe: "bg-amber-100 text-amber-800" },
@@ -30,8 +31,9 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
   const [apercu, acomptes, ligneEnCours, pretsBruts, plafondAcompte] = await Promise.all([
     calculerBulletinLive(s.employeeId, mois, annee),
     prisma.acompteSalaire.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDemande: "desc" }, take: 20 }),
-    // Bulletin PDF de la période en cours S'IL est déjà calculé (quel que soit son statut).
-    prisma.payrollLine.findFirst({ where: { employeeId: s.employeeId, payrollRun: { mois, annee } }, select: { id: true, statutPaiement: true } }),
+    // Bulletin PDF de la période en cours S'IL est VALIDÉ ou PAYÉ — jamais un brouillon, dont les
+    // montants bougent encore (la route /espace/bulletin le refuse aussi).
+    bulletinConsultableDuMois(prisma, s.employeeId, mois, annee),
     // Prêts du salarié : la retenue apparaît sur son bulletin, il doit pouvoir suivre son solde.
     prisma.pretPersonnel.findMany({
       where: { employeeId: s.employeeId, statut: { in: ["EN_COURS", "SOLDE"] } },
@@ -96,7 +98,7 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
         Aperçu indicatif calculé en temps réel — le bulletin officiel est celui validé par la Direction.
         {ligneEnCours && (
           <span className="font-medium">
-            <BulletinViewerButton payrollLineId={ligneEnCours.id} nom={`bulletin ${periode} (aperçu)`} base="/espace/bulletin" libelle="Voir le bulletin PDF de la période →" />
+            <BulletinViewerButton payrollLineId={ligneEnCours.id} nom={`bulletin ${periode}`} base="/espace/bulletin" libelle="Voir le bulletin PDF de la période →" />
           </span>
         )}
       </p>

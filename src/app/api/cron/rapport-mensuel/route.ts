@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jetonCronValide } from "@/lib/jeton-cron";
 import { prisma } from "@/lib/prisma";
 import { envoyerEmail } from "@/lib/email";
 import { MOIS_FR_MAJ } from "@/lib/dates-fr";
@@ -18,12 +19,7 @@ const usd = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits:
  * que les rappels quotidiens (`Authorization: Bearer …` ou `?token=`).
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const fourni =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ??
-    request.nextUrl.searchParams.get("token") ??
-    "";
-  if (!secret || fourni !== secret) {
+  if (!jetonCronValide(request)) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 

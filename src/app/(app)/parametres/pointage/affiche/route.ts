@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { codeAfficheAImprimer, MESSAGE_POSITION_NON_REGLEE } from "@/lib/pointage-affiche";
 import { urlAffiche } from "@/lib/pointage-qr";
@@ -13,15 +13,9 @@ import { genererAffichePdf } from "@/lib/pdf/affiche-pointage";
  * requête : la Direction peut imprimer depuis n'importe laquelle des adresses de l'application.
  */
 export async function GET() {
-  const user = await verifySession();
-  try {
-    requireRole(user, ["ADMIN"]);
-  } catch {
-    return new Response("Accès refusé : seule la Direction imprime l'affiche de pointage.", {
-      status: 403,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
-  }
+  const g = await exigerEspaceRH({ roles: ["ADMIN"], message: "Accès refusé : seule la Direction imprime l'affiche de pointage." });
+  if (!g.ok) return g.reponse;
+  const user = g.user;
 
   let code: string;
   try {

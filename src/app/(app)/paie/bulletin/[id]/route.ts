@@ -1,4 +1,4 @@
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { genererBulletinPdf } from "@/lib/pdf/bulletin-buffer";
 import type { Devise } from "@/lib/pdf/theme";
 
@@ -6,7 +6,8 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const { id } = await params;
   const url = new URL(request.url);
   const devise: Devise = url.searchParams.get("devise") === "CDF" ? "CDF" : "USD";

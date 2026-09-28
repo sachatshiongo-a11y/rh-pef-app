@@ -1,13 +1,11 @@
-import { verifySession, estSalarie } from "@/lib/auth";
-import { espaceEmployeActif } from "@/lib/espace-employe";
+import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 
 /** Contrat de travail (PDF) du salarié pour SON espace — accès limité à ses propres contrats. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user) || !user.employeeId) {
-    return new Response("Accès refusé", { status: 403 });
-  }
+  const g = await exigerEspaceSalarie();
+  if (!g.ok) return g.reponse;
+  const user = g.user;
   const { id } = await params;
   const pdf = await genererContratPdf(id);
   if (!pdf) return new Response("Contrat introuvable", { status: 404 });
