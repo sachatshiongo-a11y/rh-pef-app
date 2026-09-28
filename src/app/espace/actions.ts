@@ -14,6 +14,7 @@ import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
+import { actionLisible } from "@/lib/action-lisible";
 
 /** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
@@ -173,17 +174,22 @@ export async function demanderChangementShift(formData: FormData) {
   });
 }
 
-/** Le salarié annule sa demande de changement de shift simple (tant qu'elle est en attente). */
-export async function annulerChangement(id: string) {
+/**
+ * Le salarié annule sa demande de changement de shift simple (tant qu'elle est en attente).
+ * Les boutons de l'écran « Échanger un shift » reçoivent l'échec comme une VALEUR ({ erreur }) et
+ * l'affichent : avant, un clic sur une demande déjà traitée ne faisait rien, sans un mot.
+ */
+export const annulerChangement = actionLisible(async (id: string): Promise<void> => {
   const { employeeId } = await exigerSalarie();
   const d = await prisma.demandeChangementShift.findUnique({ where: { id }, select: { employeeId: true, statut: true } });
-  if (!d || d.employeeId !== employeeId || d.statut !== "EN_ATTENTE") return;
+  if (!d || d.employeeId !== employeeId) throw new Error("Demande introuvable.");
+  if (d.statut !== "EN_ATTENTE") throw new Error("La Direction a déjà répondu à cette demande : elle ne peut plus être annulée.");
   await prisma.demandeChangementShift.delete({ where: { id } });
   await supprimerNotificationsPour(id);
   revalidatePath("/espace/echanges");
   revalidatePath("/a-valider");
   revalidatePath("/", "layout");
-}
+});
 
 /** Le salarié propose un ÉCHANGE de créneau avec un collègue (double validation collègue + Direction). */
 export async function demanderEchange(formData: FormData) {
@@ -246,11 +252,15 @@ export async function demanderEchange(formData: FormData) {
   });
 }
 
-/** Le COLLÈGUE concerné accepte ou refuse l'échange. Accepter peut finaliser (si Direction OK). */
-export async function repondreEchange(id: string, accepte: boolean) {
+/**
+ * Le COLLÈGUE concerné accepte ou refuse l'échange. Accepter peut finaliser (si Direction OK).
+ * Renvoie ce qu'il faut dire au collègue quand l'échange ne peut pas se faire tout de suite.
+ */
+export const repondreEchange = actionLisible(async (id: string, accepte: boolean): Promise<{ info: string } | void> => {
   const { userId, employeeId } = await exigerSalarie();
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
-  if (!e || e.statut !== "EN_ATTENTE" || e.collegueId !== employeeId) return;
+  if (!e || e.collegueId !== employeeId) throw new Error("Proposition introuvable.");
+  if (e.statut !== "EN_ATTENTE") throw new Error("Cette proposition n'est plus en attente (annulée ou déjà traitée).");
 
   if (!accepte) {
     await prisma.echangeCreneau.update({ where: { id }, data: { reponseCollegue: "REFUSE", statut: "REFUSE" } });
@@ -263,6 +273,10 @@ export async function repondreEchange(id: string, accepte: boolean) {
     if (erreur) {
       // Planning verrouillé (paie validée) : l'échange reste en attente, la Direction est prévenue.
       await creerNotification({ type: "AUTRE", message: `Échange de shift accepté mais bloqué : ${erreur}`, lien: "/a-valider", refId: id });
+      revalidatePath("/espace/echanges");
+      revalidatePath("/a-valider");
+      revalidatePath("/", "layout");
+      return { info: "Votre accord est enregistré, mais le planning de ce jour est verrouillé : la Direction est prévenue et décidera." };
     } else if (!fait) {
       // En attente de la Direction : on la relance.
       const noms = await prisma.employee.findMany({ where: { id: { in: [e.demandeurId, e.collegueId] } }, select: { nom: true } });
@@ -272,13 +286,14 @@ export async function repondreEchange(id: string, accepte: boolean) {
   revalidatePath("/espace/echanges");
   revalidatePath("/a-valider");
   revalidatePath("/", "layout");
-}
+});
 
 /** Le DEMANDEUR annule sa proposition tant qu'elle est en attente. */
-export async function annulerEchange(id: string) {
+export const annulerEchange = actionLisible(async (id: string): Promise<void> => {
   const { employeeId } = await exigerSalarie();
   const e = await prisma.echangeCreneau.findUnique({ where: { id } });
-  if (!e || e.statut !== "EN_ATTENTE" || e.demandeurId !== employeeId) return;
+  if (!e || e.demandeurId !== employeeId) throw new Error("Proposition introuvable.");
+  if (e.statut !== "EN_ATTENTE") throw new Error("Cette proposition est déjà traitée : elle ne peut plus être annulée.");
   await prisma.echangeCreneau.update({ where: { id }, data: { statut: "ANNULE" } });
   await supprimerNotificationsPour(id);
   const uB = await compteSalarieDe(e.collegueId);
@@ -286,7 +301,7 @@ export async function annulerEchange(id: string) {
   revalidatePath("/espace/echanges");
   revalidatePath("/a-valider");
   revalidatePath("/", "layout");
-}
+});
 
 /** Le salarié envoie un certificat médical (justificatif) → document rattaché à sa fiche + notif Direction. */
 export async function envoyerMonCertificat(formData: FormData) {
