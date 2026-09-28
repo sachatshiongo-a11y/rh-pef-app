@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  consommationParArticleCatalogue, consommationsSemaine, ecartJour, lignesExportConso, sortiesParMotif, texteConso,
+  consommationParArticleCatalogue, consommationsSemaine, ecartJour, lignesComparaison, lignesExportComparaison, lignesExportConso, sortiesParMotif, texteConso,
   SECTION_CONSO, SECTION_LIVRE, SECTION_PERTES, SECTION_SANS_MOTIF,
 } from "./journalier-restaurant";
 import type { ArticleRestoSR, EntreesStockResto } from "./stock-restaurant";
@@ -113,5 +113,56 @@ describe("export de l'onglet Consommation", () => {
     const r = lignesExportConso({ sorties: sortiesParMotif([], JOURS), legumes: [], consoResto: consommationsSemaine(x, JOURS) });
     // 1500 + 300 + (1200 + 2000 − 2500 = 700) = 2500.
     expect(r.lignes.at(-1)).toEqual(["Farine (g)", "1 500", "300", "700", "2 500"]);
+  });
+});
+
+describe("comparaison commandé / livré / consommé", () => {
+  const articles = [{ id: "cat-farine", designation: "Farine", categorie: "Épicerie" }, { id: "cat-sel", designation: "Sel", categorie: "Épicerie" }, { id: "cat-riz", designation: "Riz", categorie: "Épicerie" }];
+
+  it("met côte à côte commandé, livré au restaurant (pas les pertes) et consommé, par article du catalogue", () => {
+    const sorties = sortiesParMotif([
+      { articleId: "cat-farine", designation: "Farine", date: "2026-09-21", quantite: 2, categorieSortie: "LIVRAISON_RESTAURANT" },
+      { articleId: "cat-farine", designation: "Farine", date: "2026-09-21", quantite: 5, categorieSortie: "PERTE" },
+      { articleId: "cat-farine", designation: "Farine", date: "2026-09-23", quantite: 2, categorieSortie: "LIVRAISON_RESTAURANT" },
+    ], JOURS);
+    const lignes = lignesComparaison({
+      jours: JOURS, articles, commandes: { "cat-farine_2026-09-21": 3, "cat-sel_2026-09-22": 1 },
+      livraisons: sorties.livraisons, consoParArticle: consommationParArticleCatalogue(e, JOURS), inclureHorsCatalogue: true,
+    });
+    expect(lignes.map((l) => l.designation)).toEqual(["Farine", "Sel"]); // le riz n'a rien : absent
+    const f = lignes[0]!;
+    expect(f.cmd).toEqual([3, 0, 0]);
+    expect(f.liv).toEqual([2, 0, 2]);
+    expect(f.conso).toEqual(["1.5", null, "1"]);
+    expect(f.ecarts).toEqual(["LIVRE_NON_CONSOMME", null, "LIVRE_NON_CONSOMME"]);
+    expect(lignes[1]!.conso).toEqual([null, null, null]);
+  });
+
+  it("un article sans commande ni livraison mais consommé apparaît (consommé plus que livré)", () => {
+    const lignes = lignesComparaison({
+      jours: JOURS, articles, commandes: {}, livraisons: [],
+      consoParArticle: new Map([["cat-riz", ["0.5", null, null]]]), inclureHorsCatalogue: true,
+    });
+    expect(lignes.map((l) => [l.designation, l.ecarts[0]])).toEqual([["Riz", "CONSOMME_PLUS_QUE_LIVRE"]]);
+  });
+});
+
+describe("export de l'onglet Comparaison", () => {
+  it("C / L / Cs par jour et au total, « — » pour un consommé inconnu, écarts repérés par cellule", () => {
+    const lignes = [
+      { id: "a", designation: "Farine", categorie: "Épicerie", lien: true, cmd: [3, 0, 0], liv: [2, 0, 0], conso: ["1.5", "0.25", "0"], ecarts: ["LIVRE_NON_CONSOMME", "CONSOMME_PLUS_QUE_LIVRE", null] as const },
+      { id: "b", designation: "Tomate", categorie: "Légumes frais", lien: false, cmd: [1, 0, 0], liv: [1, 0, 0], conso: [null, null, null], ecarts: [null, null, null] as const },
+    ].map((l) => ({ ...l, ecarts: [...l.ecarts] }));
+    const r = lignesExportComparaison(lignes, ["Lun 21", "Mar 22", "Mer 23"]);
+    expect(r.lignes).toEqual([
+      ["Épicerie"],
+      ["Farine", "3", "2", "1,5", "", "", "0,25", "", "", "0", "3", "2", "1,75"],
+      ["Légumes frais"],
+      ["Tomate", "1", "1", "—", "", "", "—", "", "", "—", "1", "1", "—"],
+    ]);
+    expect(r.sectionRows).toEqual([0, 2]);
+    expect(r.entete).toEqual(["Article", "Lun 21 Cmd", "Lun 21 Liv", "Lun 21 Conso", "Mar 22 Cmd", "Mar 22 Liv", "Mar 22 Conso", "Mer 23 Cmd", "Mer 23 Liv", "Mer 23 Conso", "Total Cmd", "Total Liv", "Total Conso"]);
+    expect(r.colRole.slice(0, 4)).toEqual([null, "cmd", "liv", "conso"]);
+    expect([...r.ecarts].sort()).toEqual(["1:3", "1:6"]);
   });
 });

@@ -149,3 +149,90 @@ export function lignesExportConso(p: {
   }
   return { lignes, sectionRows, rolesLignes };
 }
+
+// ─── Onglet Comparaison ──────────────────────────────────────────────────────
+
+export type LigneComparaison = {
+  id: string; designation: string; categorie: string;
+  /** Article du catalogue (nom cliquable vers sa fiche) ; faux pour un légume frais. */
+  lien: boolean;
+  cmd: number[];
+  /** Livré au restaurant (motif « Livraison restaurant » seulement ; achats du jour pour un légume). */
+  liv: number[];
+  /** Consommé au restaurant, unité du catalogue ; null = « — ». */
+  conso: (string | null)[];
+  ecarts: (EcartJour | null)[];
+};
+
+/**
+ * Lignes de la comparaison commandé / livré / consommé, par article du catalogue (+ légumes frais).
+ * Un article n'apparaît que s'il a été commandé, livré ou consommé dans la semaine.
+ */
+export function lignesComparaison(p: {
+  jours: string[];
+  articles: { id: string; designation: string; categorie: string }[];
+  commandes: Record<string, number>;
+  livraisons: LigneJours[];
+  consoParArticle: Map<string, (string | null)[]>;
+  /** Sans filtre de domaine : les articles livrés hors de la liste (autre domaine, inactifs) sont ajoutés. */
+  inclureHorsCatalogue: boolean;
+  legumes?: { nom: string; cmd: number[]; liv: number[] }[];
+}): LigneComparaison[] {
+  const vide = p.jours.map(() => 0);
+  const inconnu = p.jours.map(() => null);
+  const livParId = new Map(p.livraisons.map((l) => [l.id, l]));
+  const lignes: LigneComparaison[] = [];
+  const pousser = (l: Omit<LigneComparaison, "ecarts">) => {
+    if (l.cmd.some((v) => v > 0) || l.liv.some((v) => v > 0) || l.conso.some((v) => v !== null)) {
+      lignes.push({ ...l, ecarts: l.liv.map((v, i) => ecartJour(v, l.conso[i] ?? null)) });
+    }
+  };
+  const vus = new Set<string>();
+  for (const a of p.articles) {
+    vus.add(a.id);
+    pousser({
+      id: a.id, designation: a.designation, categorie: a.categorie, lien: true,
+      cmd: p.jours.map((j) => p.commandes[`${a.id}_${j}`] ?? 0),
+      liv: livParId.get(a.id)?.jours ?? vide,
+      conso: p.consoParArticle.get(a.id) ?? inconnu,
+    });
+  }
+  if (p.inclureHorsCatalogue) {
+    for (const l of p.livraisons) {
+      if (vus.has(l.id)) continue;
+      pousser({ id: l.id, designation: l.designation, categorie: "À classer", lien: true, cmd: vide, liv: l.jours, conso: p.consoParArticle.get(l.id) ?? inconnu });
+    }
+  }
+  for (const g of p.legumes ?? []) pousser({ id: `legume:${g.nom}`, designation: g.nom, categorie: "Légumes frais", lien: false, cmd: g.cmd, liv: g.liv, conso: inconnu });
+  return lignes.sort((a, b) => a.categorie.localeCompare(b.categorie, "fr") || a.designation.localeCompare(b.designation, "fr"));
+}
+
+const texteQte = (v: string | null) => (v === null ? "—" : formaterNombre(Number(v), { maximumFractionDigits: 3 }));
+
+/**
+ * Export (PDF / Excel) de la comparaison : par jour, commandé / livré / consommé ; puis les totaux.
+ * Le total consommé n'existe que si chaque jour est connu. `ecarts` : cellules « r:c » du consommé
+ * en écart avec le livré (à colorer).
+ */
+export function lignesExportComparaison(lignesComp: LigneComparaison[], labels: string[]): {
+  lignes: string[][]; sectionRows: number[]; entete: string[]; colRole: RoleCol[]; ecarts: Set<string>;
+} {
+  const lignes: string[][] = [];
+  const sectionRows: number[] = [];
+  const ecarts = new Set<string>();
+  let categorie: string | null = null;
+  for (const l of lignesComp) {
+    if (l.categorie !== categorie) { sectionRows.push(lignes.length); lignes.push([l.categorie]); categorie = l.categorie; }
+    const cells = [l.designation];
+    labels.forEach((_, i) => {
+      if (l.ecarts[i]) ecarts.add(`${lignes.length}:${cells.length + 2}`);
+      cells.push(nbExport(l.cmd[i]!), nbExport(l.liv[i]!), texteQte(l.conso[i] ?? null));
+    });
+    const totalConsomme = l.conso.every((v) => v !== null) ? l.conso.reduce((t, v) => t.plus(v!), new D(0)).toString() : null;
+    cells.push(nbExport(l.cmd.reduce((a, b) => a + b, 0)), nbExport(l.liv.reduce((a, b) => a + b, 0)), texteQte(totalConsomme));
+    lignes.push(cells);
+  }
+  const entete = ["Article", ...labels.flatMap((l) => [`${l} Cmd`, `${l} Liv`, `${l} Conso`]), "Total Cmd", "Total Liv", "Total Conso"];
+  const colRole: RoleCol[] = [null, ...[...labels, "total"].flatMap(() => ["cmd", "liv", "conso"] as RoleCol[])];
+  return { lignes, sectionRows, entete, colRole, ecarts };
+}

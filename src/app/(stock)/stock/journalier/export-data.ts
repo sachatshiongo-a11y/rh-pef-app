@@ -1,10 +1,11 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { lundiDe } from "@/lib/dates-fr";
-import type { Prisma } from "@prisma/client";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
-import { lignesExportConso, nbExport, type RoleCol } from "@/lib/journalier-restaurant";
+import {
+  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, type RoleCol,
+} from "@/lib/journalier-restaurant";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -19,11 +20,14 @@ export type ExportJournalier = {
   sectionRows: number[]; colRole: RoleCol[];
   /** Rôle d'une ligne entière (prime sur celui de la colonne) : livré, consommé, ou aucun (pertes). */
   rolesLignes?: Record<number, RoleCol>;
+  /** Cellules « r:c » du consommé en écart avec le livré (comparaison). */
+  ecarts?: Set<string>;
 };
 
 /** Rôle (couleur) d'une cellule d'export : celui de la ligne s'il est posé, sinon celui de la colonne. */
-export function roleCellule(d: ExportJournalier, r: number, c: number): RoleCol {
+export function roleCellule(d: ExportJournalier, r: number, c: number): RoleCol | "ecart" {
   if (c === 0) return null;
+  if (d.ecarts?.has(`${r}:${c}`)) return "ecart";
   if (d.rolesLignes && r in d.rolesLignes) return d.rolesLignes[r]!;
   return d.colRole[c] ?? null;
 }
@@ -61,17 +65,6 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
       colonnes: [{ header: "Article", width: "26%" }, ...labels.map((l) => ({ header: l, width: "9%", align: "right" as const })), { header: "Total", width: "11%", align: "right" as const }],
       lignes, sectionRows, colRole: [null, ...labels.map(() => "liv" as RoleCol), "liv"], rolesLignes,
     };
-  }
-
-  // Livraisons (sorties de stock) par article × jour — comparaison.
-  const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: fin }, ...(domaine ? { article: { domaine } } : {}) };
-  const sorties = await prisma.mouvementStock.findMany({ where, include: { article: { select: { designation: true } } } });
-  const livr = new Map<string, { designation: string; jours: number[] }>();
-  for (const m of sorties) {
-    const row = livr.get(m.articleId) ?? { designation: m.article.designation, jours: Array(7).fill(0) };
-    const idx = Math.floor((new Date(m.date).getTime() - lundi.getTime()) / 86_400_000);
-    if (idx >= 0 && idx < 7) row.jours[idx] += Number(m.quantite);
-    livr.set(m.articleId, row);
   }
 
   // Articles (catalogue) + commandes de la semaine.
@@ -117,45 +110,34 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
     };
   }
 
-  // ---------- COMPARAISON (Commande C / Livraison L par jour) ----------
-  const lignes: (string | number)[][] = [];
-  const sectionRows: number[] = [];
-  let derniereCat: string | null = null;
-  for (const a of articles) {
-    const cmd = cmdMap[a.id] ?? Array(7).fill(0);
-    const liv = livr.get(a.id)?.jours ?? Array(7).fill(0);
-    if (!cmd.some((v) => v > 0) && !liv.some((v) => v > 0)) continue;
-    const cat = a.categorie?.nom ?? "À classer";
-    if (cat !== derniereCat) { sectionRows.push(lignes.length); lignes.push([cat]); derniereCat = cat; }
-    const cells: (string | number)[] = [a.designation];
-    for (let i = 0; i < 7; i++) { cells.push(nb(cmd[i]), nb(liv[i])); }
-    cells.push(nb(cmd.reduce((x, y) => x + y, 0)), nb(liv.reduce((x, y) => x + y, 0)));
-    lignes.push(cells);
-  }
-  // Légumes frais : commande vs achat.
-  const legComp = [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])]
-    .map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
-    .filter((x) => x.cmd.some((v) => v > 0) || x.liv.some((v) => v > 0))
-    .sort((a, b) => a.nom.localeCompare(b.nom));
-  if (legComp.length) {
-    sectionRows.push(lignes.length); lignes.push(["Légumes frais"]);
-    for (const x of legComp) {
-      const cells: (string | number)[] = [x.nom];
-      for (let i = 0; i < 7; i++) { cells.push(nb(x.cmd[i]), nb(x.liv[i])); }
-      cells.push(nb(x.cmd.reduce((a, b) => a + b, 0)), nb(x.liv.reduce((a, b) => a + b, 0)));
-      lignes.push(cells);
-    }
-  }
-  const colonnes: Colonne[] = [{ header: "Article", width: "18%" }];
-  const entete: string[] = ["Article"];
-  const colRole: RoleCol[] = [null];
-  const dayW = `${82 / 16}%`;
-  for (const l of labels) { colonnes.push({ header: `${l} C`, width: dayW, align: "right" }, { header: `${l} L`, width: dayW, align: "right" }); entete.push(`${l} Cmd`, `${l} Liv`); colRole.push("cmd", "liv"); }
-  colonnes.push({ header: "Tot. C", width: dayW, align: "right" }, { header: "Tot. L", width: dayW, align: "right" });
-  entete.push("Total Cmd", "Total Liv"); colRole.push("cmd", "liv");
+  // ---------- COMPARAISON (commandé / livré au restaurant / consommé, par jour) ----------
+  const donnees = await chargerDonneesRestaurant(lundi, domaine);
+  const commandes: Record<string, number> = {};
+  for (const [id, j] of Object.entries(cmdMap)) j.forEach((q, i) => { if (q) commandes[`${id}_${donnees.jours[i]}`] = q; });
+  const lignesComp = lignesComparaison({
+    jours: donnees.jours,
+    articles: articles.map((a) => ({ id: a.id, designation: a.designation, categorie: a.categorie?.nom ?? "À classer" })),
+    commandes,
+    livraisons: donnees.sorties.livraisons,
+    consoParArticle: consommationParArticleCatalogue(donnees.entrees, donnees.jours),
+    inclureHorsCatalogue: !domaine,
+    legumes: inclureLeg
+      ? [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])].map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
+      : [],
+  });
+  const { lignes, sectionRows, entete, colRole, ecarts } = lignesExportComparaison(lignesComp, labels);
+  const colW = `${84 / 24}%`;
+  const colonnes: Colonne[] = [
+    { header: "Article", width: "16%" },
+    ...[...labels, "Tot."].flatMap((l) => [
+      { header: `${l} C`, width: colW, align: "right" as const },
+      { header: `${l} L`, width: colW, align: "right" as const },
+      { header: `${l} Cs`, width: colW, align: "right" as const },
+    ]),
+  ];
 
   return {
-    titre: "Comparaison commande / livraison", sousTitre, fichierBase: `Comparaison${suffixe}_${iso(lundi)}`,
-    entete, colonnes, lignes, sectionRows, colRole,
+    titre: "Comparaison commandé / livré / consommé", sousTitre, fichierBase: `Comparaison${suffixe}_${iso(lundi)}`,
+    entete, colonnes, lignes, sectionRows, colRole, ecarts,
   };
 }

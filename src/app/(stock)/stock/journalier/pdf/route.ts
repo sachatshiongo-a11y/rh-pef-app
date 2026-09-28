@@ -5,7 +5,8 @@ import { donneesJournalier, roleCellule } from "../export-data";
 
 // Vert = commande, rouge = livraison (codes couleur de la fiche), indigo = consommé au restaurant.
 const CMD = "#1B7F3B", LIV = "#B42318", CONSO = "#3730A3";
-const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO };
+const ECART = "#C2410C"; // orange = consommé en écart avec le livré (comparaison)
+const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO, ecart: ECART };
 
 export async function GET(req: Request) {
   const user = await verifySession();
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
       titre: d.titre, sousTitre: d.sousTitre, colonnes: d.colonnes, lignes: d.lignes, sectionRows: d.sectionRows,
       paysage: large,
       couleurCellule: (r, c) => COULEUR[roleCellule(d, r, c) ?? ""],
-      pied: "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage).",
+      pied: "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage) · orange = consommé ≠ livré.",
     }),
   );
   return new Response(new Uint8Array(buffer), {

@@ -4,7 +4,8 @@ import { donneesJournalier, roleCellule } from "../export-data";
 
 const CMD = "FF1B7F3B", LIV = "FFB42318", CONSO = "FF3730A3"; // vert = commande, rouge = livraison, indigo = consommé
 
-const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO };
+const ECART = "FFC2410C"; // orange = consommé en écart avec le livré (comparaison)
+const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO, ecart: ECART };
 
 export async function GET(req: Request) {
   const user = await verifySession();
