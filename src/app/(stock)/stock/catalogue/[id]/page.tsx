@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
+import { EditerArticle } from "./editer-article";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 import { exigerPageStock } from "@/lib/garde-page";
@@ -30,26 +31,31 @@ export default async function ArticleFichePage({
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
 
-  const a = await prisma.articleStock.findUnique({
-    where: { id },
-    include: {
-      stock: true,
-      categorie: { select: { nom: true } },
-      fournisseur: { select: { id: true, nom: true } },
-      mouvements: {
-        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-        take: MOUVEMENTS_CHARGES,
-        include: {
-          facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
-          reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+  const [a, categories, fournisseurs] = await Promise.all([
+    prisma.articleStock.findUnique({
+      where: { id },
+      include: {
+        stock: true,
+        categorie: { select: { nom: true } },
+        fournisseur: { select: { id: true, nom: true } },
+        mouvements: {
+          orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+          take: MOUVEMENTS_CHARGES,
+          include: {
+            facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
+            reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+          },
         },
+        lignesFacture: {
+          include: { facture: { select: { id: true, numero: true, date: true } } },
+        },
+        _count: { select: { mouvements: true } },
       },
-      lignesFacture: {
-        include: { facture: { select: { id: true, numero: true, date: true } } },
-      },
-      _count: { select: { mouvements: true } },
-    },
-  });
+    }),
+    // Pour le formulaire « Modifier » de la fiche — mêmes listes que l'Inventaire.
+    prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
+    prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+  ]);
   if (!a) notFound();
 
   const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
@@ -113,9 +119,23 @@ export default async function ArticleFichePage({
           <a href={`/stock/catalogue/${a.id}/pdf`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Exporter PDF
           </a>
-          <Link href={`/stock/catalogue?domaine=${a.domaine}&q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-            Éditer dans l&apos;inventaire
-          </Link>
+          <EditerArticle
+            a={{
+              id: a.id,
+              domaine: a.domaine,
+              code: a.code,
+              designation: a.designation,
+              unite: a.unite,
+              uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
+              prixUnitaireUSD: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
+              categorieId: a.categorieId,
+              fournisseurId: a.fournisseurId,
+              stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
+              seuilUrgent: a.stock ? a.stock.seuilUrgent.toString() : "0",
+            }}
+            categories={categories}
+            fournisseurs={fournisseurs}
+          />
           {estDirection && (
             <form action={supprimerArticle.bind(null, a.id)}>
               <ConfirmSubmitButton
