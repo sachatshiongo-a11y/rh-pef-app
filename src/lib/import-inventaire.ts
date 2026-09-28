@@ -2,6 +2,9 @@ import "server-only";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { repererDejaPresents, refusAnnulationHistoriquePorte, traceJumeau, ACTION_DEJA_PRESENT } from "./doublons-imports";
+import { categorieSortieImport } from "./motif-sorties-import";
+import { journaliser } from "./audit";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Import d'inventaire depuis le classeur Excel (feuilles « Nourriture », « Boissons »,
@@ -9,6 +12,12 @@ import { Prisma } from "@prisma/client";
 // mises en cache : on les RECALCULE à partir de valeurs littérales fiables —
 //   Stock final = Stock initial + Σ(entrées) − Σ(sorties)  (journal détaillé, à droite de la feuille)
 // Le rapprochement avec le catalogue se fait par CODE (domaine + code), puis par nom.
+//
+// L'import fait DEUX choses : il pose le STOCK FINAL (valeur absolue, qui remplace le stock
+// courant) ET il importe le JOURNAL DÉTAILLÉ (mouvements datés) dans l'historique. Un mouvement
+// du journal qui a déjà un jumeau exact en base (même article, date, type, quantité — importé le
+// matin par l'import de mouvements, par exemple) est IGNORÉ : le 2026-09-28, faute de ce
+// garde-fou, 602 mouvements ont été doublés. Voir `doublons-imports.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
@@ -21,7 +30,8 @@ export type ArtPreview = {
 export type LegPreview = { date: string; legume: string; unite: string | null; quantite: number; montantCDF: number };
 export type PreviewInventaire = {
   articles: ArtPreview[]; mouvements: MvtPreview[]; legumes: LegPreview[];
-  resume: { maj: number; crees: number; mvEntree: number; mvSortie: number; legumes: number; sansMatch: number };
+  /** mvEntree / mvSortie : mouvements À INSÉRER ; dejaPresents : mouvements du journal déjà en base, ignorés. */
+  resume: { maj: number; crees: number; mvEntree: number; mvSortie: number; dejaPresents: number; legumes: number; sansMatch: number };
 };
 
 import { normTexte, cleAlnum } from "./texte";
@@ -144,11 +154,20 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
     }
   }
 
+  // Garde-fou doublons (aperçu) : les mouvements dont l'article existe déjà et qui ont un jumeau
+  // exact en base seront ignorés. Ceux d'un article à créer sont forcément nouveaux ; ceux d'un
+  // code absent des lignes d'articles ne sont pas importés (comme à l'application).
+  const idParCode = new Map(articles.map((a) => [a.domaine + "|" + a.code, a.articleId]));
+  const importables = mouvements.filter((m) => idParCode.has(m.code));
+  const { nouveaux } = await repererDejaPresents(prisma, candidatsMouvements(importables, (m) => idParCode.get(m.code) ?? null));
+  const aInserer = new Set(nouveaux.map((c) => c.m));
+  const nouveauxOuACreer = importables.filter((m) => aInserer.has(m) || !idParCode.get(m.code));
   const resume = {
     maj: articles.filter((a) => a.articleId).length,
     crees: articles.filter((a) => !a.articleId).length,
-    mvEntree: mouvements.filter((m) => m.entree > 0).length,
-    mvSortie: mouvements.filter((m) => m.sortie > 0).length,
+    mvEntree: nouveauxOuACreer.filter((m) => m.entree > 0).length,
+    mvSortie: nouveauxOuACreer.filter((m) => m.sortie > 0).length,
+    dejaPresents: importables.length - nouveauxOuACreer.length,
     legumes: legumes.length,
     sansMatch: articles.filter((a) => a.match === "aucun").length,
   };
@@ -157,14 +176,32 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
 
 const DATE_LEG_TAUX = 2300;
 
-/** Applique l'inventaire dans une transaction et enregistre un ImportBatch réversible. */
-export async function appliquerInventaire(buffer: ArrayBuffer, libelle: string, userId: string | null): Promise<{ batchId: string; resume: PreviewInventaire["resume"] }> {
+/** Un mouvement du journal (entrée XOR sortie) sous la forme comparable aux mouvements en base. */
+function candidatsMouvements(mvts: MvtPreview[], articleDe: (m: MvtPreview) => string | null) {
+  const out: { m: MvtPreview; articleId: string; date: string; type: "ENTREE" | "SORTIE"; quantite: number }[] = [];
+  for (const m of mvts) {
+    const articleId = articleDe(m);
+    if (!articleId) continue;
+    if (m.entree > 0) out.push({ m, articleId, date: m.date, type: "ENTREE", quantite: m.entree });
+    if (m.sortie > 0) out.push({ m, articleId, date: m.date, type: "SORTIE", quantite: m.sortie });
+  }
+  return out;
+}
+
+/** Applique l'inventaire dans une transaction et enregistre un ImportBatch réversible.
+ *  `sortiesLivraisonRestaurant` (défaut : oui, décision Direction) : les sorties du journal
+ *  reçoivent le motif « Livraison restaurant » ; non → aucun motif. */
+export async function appliquerInventaire(
+  buffer: ArrayBuffer, libelle: string, userId: string | null,
+  { sortiesLivraisonRestaurant = true }: { sortiesLivraisonRestaurant?: boolean } = {}
+): Promise<{ batchId: string; resume: PreviewInventaire["resume"] }> {
   const preview = await analyserInventaire(buffer);
   const codeToArticleId = new Map<string, string>();
   for (const a of preview.articles) if (a.articleId) codeToArticleId.set(a.domaine + "|" + a.code, a.articleId);
 
+  let resume: PreviewInventaire["resume"] = preview.resume;
   const batchId = await prisma.$transaction(async (tx) => {
-    const batch = await tx.importBatch.create({ data: { type: "INVENTAIRE", libelle, statut: "APPLIQUE", resume: preview.resume, creeParId: userId } });
+    const batch = await tx.importBatch.create({ data: { type: "INVENTAIRE", libelle, statut: "APPLIQUE", creeParId: userId } });
     const ops: Prisma.ImportOperationCreateManyInput[] = [];
 
     for (const a of preview.articles) {
@@ -188,13 +225,24 @@ export async function appliquerInventaire(buffer: ArrayBuffer, libelle: string, 
       });
     }
 
-    // Mouvements datés
-    for (const m of preview.mouvements) {
-      const articleId = codeToArticleId.get(m.code);
-      if (!articleId) continue;
-      if (m.entree > 0) { const mv = await tx.mouvementStock.create({ data: { articleId, type: "ENTREE", quantite: m.entree, date: new Date(m.date), origine: libelle } }); ops.push({ batchId: batch.id, entite: "MouvementStock", entiteId: mv.id, action: "CREATE", avant: Prisma.DbNull }); }
-      if (m.sortie > 0) { const mv = await tx.mouvementStock.create({ data: { articleId, type: "SORTIE", quantite: m.sortie, date: new Date(m.date), origine: libelle } }); ops.push({ batchId: batch.id, entite: "MouvementStock", entiteId: mv.id, action: "CREATE", avant: Prisma.DbNull }); }
+    // Journal détaillé (mouvements datés). Garde-fou : un mouvement qui a déjà un jumeau exact en
+    // base n'est PAS recréé (le stock final, lui, est posé en absolu ci-dessus quoi qu'il arrive).
+    const { nouveaux, dejaPresents } = await repererDejaPresents(tx, candidatsMouvements(preview.mouvements, (m) => codeToArticleId.get(m.code) ?? null));
+    for (const c of nouveaux) {
+      const mv = await tx.mouvementStock.create({
+        data: { articleId: c.articleId, type: c.type, quantite: c.quantite, date: new Date(c.date), origine: libelle, categorieSortie: categorieSortieImport(c.type, sortiesLivraisonRestaurant) },
+      });
+      ops.push({ batchId: batch.id, entite: "MouvementStock", entiteId: mv.id, action: "CREATE", avant: Prisma.DbNull });
     }
+    for (const { candidat: c, jumeauId } of dejaPresents) {
+      ops.push({ batchId: batch.id, entite: "MouvementStock", entiteId: jumeauId, action: ACTION_DEJA_PRESENT, avant: traceJumeau(jumeauId, c) });
+    }
+    resume = {
+      ...preview.resume,
+      mvEntree: nouveaux.filter((c) => c.type === "ENTREE").length,
+      mvSortie: nouveaux.filter((c) => c.type === "SORTIE").length,
+      dejaPresents: dejaPresents.length,
+    };
 
     // Légumes
     for (const l of preview.legumes) {
@@ -203,20 +251,29 @@ export async function appliquerInventaire(buffer: ArrayBuffer, libelle: string, 
     }
 
     await tx.importOperation.createMany({ data: ops });
+    await tx.importBatch.update({ where: { id: batch.id }, data: { resume } });
     return batch.id;
   }, { timeout: 120000 });
 
-  return { batchId, resume: preview.resume };
+  return { batchId, resume };
 }
 
-/** Annule un import : supprime les créations, restaure les mises à jour. Réversible. */
-export async function annulerImport(batchId: string): Promise<void> {
+/** Annule un import : supprime les créations, restaure les mises à jour. Réversible.
+ *  `userId` : l'annulation est journalisée à son nom (le 2026-09-28, trois imports ont été
+ *  annulés sans que le journal dise par qui). */
+export async function annulerImport(batchId: string, userId?: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const batch = await tx.importBatch.findUniqueOrThrow({ where: { id: batchId }, include: { operations: true } });
     if (batch.statut === "ANNULE") throw new Error("Cet import a déjà été annulé.");
     // Ordre : d'abord supprimer les créations (mouvements, achats, articles), puis restaurer les updates.
+    // Seules CREATE et UPDATE se rejouent : DOUBLON_RETIRE (copie retirée par le nettoyage des
+    // doublons) et DEJA_PRESENT (mouvement ignoré à l'import) n'ont rien créé à supprimer.
     const creations = batch.operations.filter((o) => o.action === "CREATE");
     const updates = batch.operations.filter((o) => o.action === "UPDATE");
+    // 0) Un AUTRE import encore appliqué s'appuie sur des mouvements de celui-ci (ses copies ont
+    //    été retirées, ou ignorées car déjà présentes) : les supprimer viderait son historique.
+    const refus = await refusAnnulationHistoriquePorte(tx, batchId, creations.filter((o) => o.entite === "MouvementStock").map((o) => o.entiteId));
+    if (refus) throw new Error(refus);
     // 1) Supprime d'abord les entités dépendantes créées par l'import.
     for (const o of creations) {
       if (o.entite === "MouvementStock") await tx.mouvementStock.deleteMany({ where: { id: o.entiteId } });
@@ -266,5 +323,19 @@ export async function annulerImport(batchId: string): Promise<void> {
       else if (o.entite === "Stock") await tx.stock.updateMany({ where: { articleId: o.entiteId }, data: { quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 } });
     }
     await tx.importBatch.update({ where: { id: batchId }, data: { statut: "ANNULE", annuleeAt: new Date() } });
+    if (userId) {
+      const nb = (e: string) => creations.filter((o) => o.entite === e).length;
+      await journaliser(tx, {
+        entite: "Stock",
+        entiteId: batchId,
+        champ: "annulation d'import",
+        nouvelleValeur:
+          `Import « ${batch.libelle} » annulé : ${nb("MouvementStock")} mouvement(s) retiré(s), ` +
+          `stock de ${updates.filter((o) => o.entite === "Stock").length} article(s) remis à sa valeur d'avant l'import` +
+          (nb("AchatLegume") ? `, ${nb("AchatLegume")} achat(s) de légumes retiré(s)` : "") +
+          (nb("ArticleStock") ? `, ${nb("ArticleStock")} article(s) créé(s) supprimé(s)` : ""),
+        userId,
+      });
+    }
   }, { timeout: 120000 });
 }

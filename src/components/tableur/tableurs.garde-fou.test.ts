@@ -14,13 +14,14 @@ const SRC = path.join(RACINE, "src");
 const TABLEURS: Record<string, string> = {
   "src/app/(stock)/stock/journalier/commande-grid.tsx": "Stock → Conso. journalière → Commande (articles × 7 jours)",
   "src/app/(stock)/stock/restaurant/restaurant-client.tsx": "Stock → Restaurant (stock de base + comptage par jour)",
-  "src/app/(stock)/stock/reconciliation/reconciliation-client.tsx": "Stock → Inventaire (comptage physique par article)",
-  "src/app/(stock)/stock/catalogue/catalogue-table.tsx": "Stock → Catalogue (stock min., prix, unités/carton)",
+  "src/app/(stock)/stock/reconciliation/reconciliation-client.tsx": "Stock → Réconciliation (comptage physique par article)",
+  "src/app/(stock)/stock/catalogue/catalogue-table.tsx": "Stock → Inventaire (stock min., prix, unités/carton)",
   "src/app/(app)/presences/temps-grid.tsx": "Présences & heures (heures par employé, vue mobile ; menu et actions groupées)",
   "src/app/(app)/planning/besoins-manager.tsx": "Planning → Effectifs requis (poste × jour, par shift)",
   // Formulaires à lignes passés au comportement « Excel » (décision de la Direction, 2026-09-24).
   "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": "Stock → Nouveau bon de commande (quantité, prix des lignes)",
   "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": "Stock → Nouvelle facture (quantité, prix des lignes)",
+  "src/app/(stock)/stock/legumes/legumes-client.tsx": "Stock → Achats de légumes frais (quantité, montant des lignes)",
 };
 
 /**

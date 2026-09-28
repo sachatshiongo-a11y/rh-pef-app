@@ -23,7 +23,7 @@ const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: 
   {
     titre: "Dépôt",
     items: [
-      { href: "/stock/catalogue", label: "Catalogue", icone: "marmite" },
+      { href: "/stock/catalogue", label: "Inventaire", icone: "marmite" },
       ENTREE_MENU_ACHATS, // Mouvements · Liste d'achat · Légumes frais (sous-onglets)
       { href: "/stock/reconciliation", label: "Réconciliation", icone: "balance" },
     ],

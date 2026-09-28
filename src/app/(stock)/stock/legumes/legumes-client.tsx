@@ -5,9 +5,17 @@ import { creerAchatsLegumes, supprimerAchatLegume } from "./actions";
 import { LEGUMES } from "./legumes-data";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { ZoneTableur } from "@/components/tableur/messages";
+import { lireSaisieNombre } from "@/lib/nombre";
+import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 
 type Ligne = { legume: string; unite: string; quantite: string; montantCDF: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
+/** Texte de ligne → valeur de case ; valeur de case → texte à POINT (ce que produisait l'ancien champ
+ *  number) : ce qui part au serveur (champs cachés quantite / montantCDF) est inchangé. */
+const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
+const texteDe = (v: number | null) => (v === null ? "" : String(v));
 const vide = (): Ligne => ({ legume: "", unite: "", quantite: "", montantCDF: "" });
 
 export function AchatLegumesForm({ taux, estDirection = false }: { taux: number; estDirection?: boolean }) {
@@ -35,7 +43,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
   };
 
   return (
-    <form key={cle} action={submit} className="space-y-3 rounded-lg border p-4">
+    <form key={cle} action={submit} onKeyDown={empecherEnvoiParEntree} className="space-y-3 rounded-lg border p-4">
       {msg && <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>{msg.t}</p>}
       <label className="flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">Date</span>
@@ -44,6 +52,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
       </label>
 
       {/* Une seule mise en page responsive : empilée sur mobile, en ligne sur ordinateur. */}
+      <ZoneTableur>
       <div className="space-y-2">
         <div className="hidden gap-2 px-1 text-xs text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_6rem_7rem_4rem]">
           <span>Légume</span><span>Unité</span><span className="text-right">Quantité</span><span className="text-right">Montant CDF</span><span className="text-right">≈ USD</span>
@@ -58,12 +67,21 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
               <input type="hidden" name="legume" value={l.legume} />
             </div>
             <input name="unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} placeholder="Unité" className={`${inp} min-w-0`} />
-            <input name="quantite" value={l.quantite} onChange={(e) => maj(i, { quantite: e.target.value })} type="number" step="0.001" min="0" placeholder="Quantité" className={`${inp} min-w-0 text-right`} />
-            <input name="montantCDF" value={l.montantCDF} onChange={(e) => maj(i, { montantCDF: e.target.value })} type="number" step="1" min="0" placeholder="Montant CDF" className={`${inp} min-w-0 text-right`} />
+            <div className="min-w-0">
+              <input type="hidden" name="quantite" value={l.quantite} />
+              <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })}
+                min={0} quantite placeholder="Quantité" className={`${inp} w-full min-w-0 text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
+            </div>
+            <div className="min-w-0">
+              <input type="hidden" name="montantCDF" value={l.montantCDF} />
+              <CelluleNombre ligne={String(i)} col={1} valeur={nombreOuNull(l.montantCDF)} onEnregistrer={(v) => maj(i, { montantCDF: texteDe(v) })}
+                min={0} placeholder="Montant CDF" className={`${inp} w-full min-w-0 text-right`} aria-label={`Montant CDF, ligne ${i + 1}`} />
+            </div>
             <span className="self-center text-right text-xs text-muted-foreground">≈ {taux && Number(l.montantCDF) ? (Number(l.montantCDF) / taux).toFixed(2) : "0.00"} $</span>
           </div>
         ))}
       </div>
+      </ZoneTableur>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" onClick={() => setLignes((ls) => [...ls, vide()])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>

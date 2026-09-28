@@ -63,7 +63,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   ];
 
   return (
-    <div className="max-w-6xl space-y-5">
+    <div className="w-full space-y-5">
       <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
