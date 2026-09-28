@@ -70,6 +70,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                       nomSalarie={s.nom}
                       libelleDocument={`Bulletin ${periode}`}
                       cote="SALARIE"
+                tactile
                       action={signerMonDocument}
                       {...etatSignature(sigBulletins.get(b.id))}
                     />
