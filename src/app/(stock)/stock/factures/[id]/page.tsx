@@ -66,7 +66,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   const ecartQteTotal = lignesRecon.reduce((t, l) => t + Math.abs(l.qteFac - l.qteBC), 0);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Factures", href: "/stock/factures" }, { label: facture.numero ? `N° ${facture.numero}` : nom }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Facture · {facture.fournisseurId

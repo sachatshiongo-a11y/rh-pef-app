@@ -16,7 +16,7 @@ export default async function AValiderPage() {
   });
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Demandes à valider</h1>
         <p className="mt-1 text-sm text-muted-foreground">

@@ -18,7 +18,7 @@ export default async function NouveauBonPage() {
   }));
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="w-full space-y-4">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link href="/stock/commandes" className="underline">Bons de commande</Link>
         <span>/</span>

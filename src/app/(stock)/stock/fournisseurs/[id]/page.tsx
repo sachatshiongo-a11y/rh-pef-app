@@ -45,7 +45,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
   ];
 
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Fournisseurs", href: "/stock/fournisseurs" }, { label: f.nom }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">

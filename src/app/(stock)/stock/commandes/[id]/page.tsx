@@ -49,7 +49,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
   const ecartFacture = totalFacture - Number(bc.totalUSD);
 
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Bons de commande", href: "/stock/commandes" }, { label: bc.numero }]} />
 
       {/* Barre d'actions selon l'état */}
