@@ -33,6 +33,7 @@ import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
@@ -162,6 +163,24 @@ export default async function FicheEmployePage({
   const etatsContrats: Record<string, EtatSignature> = Object.fromEntries(
     contrats.map((c) => [c.id, etatSignature(sigContrats.get(c.id))])
   );
+  // Registre des attestations de la fiche (onglet Contrats).
+  const attestationsFiche =
+    tab === "contrats"
+      ? (await prisma.attestation.findMany({
+          where: { employeeId: id },
+          include: { delivreePar: { select: { nom: true } }, demandePar: { select: { nom: true } } },
+          orderBy: { demandeLe: "desc" },
+          take: 200,
+        })).map((a) => ({
+          id: a.id,
+          numero: a.numero,
+          type: a.type,
+          statut: a.statut,
+          date: jourKinshasa(a.statut === "DEMANDEE" ? a.demandeLe : (a.delivreeLe ?? a.updatedAt)),
+          par: a.statut === "DEMANDEE" ? (a.demandePar?.nom ?? null) : (a.delivreePar?.nom ?? null),
+          motifRefus: a.motifRefus,
+        }))
+      : [];
   // Même classement que « Mes contrats » : un CDD échu s'affiche « expiré le … » des deux côtés.
   const classementsContrats: Record<string, Classement> = Object.fromEntries(
     classerContrats(contrats, new Map(Object.entries(etatsContrats).map(([id, e]) => [id, e.etat])), new Date()),
@@ -771,13 +790,13 @@ export default async function FicheEmployePage({
                   <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
                     CDF
                   </TelechargerLien>
-                  {" · "}
-                  <ContratViewerButton
+                  {l.statutPaiement !== "PAS_VALIDE" && " · "}
+                  {l.statutPaiement !== "PAS_VALIDE" && <ContratViewerButton
                     href={`/employes/${employee.id}/attestation-paie/${l.id}`}
                     titre={`Attestation de paie — ${employee.nom} — ${new Date(l.payrollRun.annee, l.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
                     libelle="Attestation"
                     className="text-primary underline"
-                  />
+                  />}
                 </td>
               </tr>
             ))}
@@ -976,6 +995,7 @@ export default async function FicheEmployePage({
         nomSalarie={employee.nom}
         etatsSignatureContrats={etatsContrats}
         classementsContrats={classementsContrats}
+        attestations={attestationsFiche}
         prets={pretsView}
         periodePaie={{ mois, annee }}
         tachesOnboarding={tachesOnboarding.map((t) => ({ id: t.id, libelle: t.libelle, fait: t.fait, faitLe: t.faitLe }))}

@@ -16,6 +16,9 @@ import {
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
 import { ChampsNouveauContrat } from "./champs-nouveau-contrat";
+import { DelivrerAttestation } from "./delivrer-attestation";
+import { TelechargerLien } from "@/components/telecharger-lien";
+import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
 import type { Echeancier } from "@/lib/prets";
@@ -160,6 +163,7 @@ export function DossierEmploye({
   nomSalarie,
   etatsSignatureContrats = {},
   classementsContrats = {},
+  attestations = [],
   prets = [],
   periodePaie,
   tachesOnboarding = [],
@@ -196,6 +200,16 @@ export function DossierEmploye({
   etatsSignatureContrats?: Record<string, EtatSignature>;
   /** Classement dérivé (`classerContrats`) : en vigueur / à signer / ancien, avec son motif. */
   classementsContrats?: Record<string, Classement>;
+  /** Registre des attestations de ce salarié (numéro, type, date, qui). */
+  attestations?: {
+    id: string;
+    numero: string | null;
+    type: "TRAVAIL" | "SALAIRE" | "STAGE";
+    statut: "DEMANDEE" | "DELIVREE" | "REFUSEE";
+    date: string;
+    par: string | null;
+    motifRefus: string | null;
+  }[];
   prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number; echeancier: Echeancier }[];
   /** Période de paie en cours — sert à projeter le mois de solde d'un prêt à la saisie. */
   periodePaie: { mois: number; annee: number };
@@ -596,6 +610,41 @@ export function DossierEmploye({
           </div>
         </Section>
       )}
+
+      <Section title={`Attestations (${attestations.length})`}>
+        {estAdmin && (
+          <div className="mb-3">
+            <DelivrerAttestation employeeId={employeeId} />
+          </div>
+        )}
+        {attestations.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Aucune attestation délivrée ni demandée.</p>
+        ) : (
+          <ul className="divide-y rounded-lg border">
+            {attestations.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {LIBELLE_TYPE_ATTESTATION[a.type]}
+                    {a.numero && <span className="ml-2 font-mono text-xs text-muted-foreground">{a.numero}</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {LIBELLE_STATUT_ATTESTATION[a.statut]} le {a.date}
+                    {a.par ? ` · par ${a.par}` : ""}
+                    {a.motifRefus ? ` · ${a.motifRefus}` : ""}
+                  </p>
+                </div>
+                {a.statut === "DELIVREE" && (
+                  <div className="flex shrink-0 items-center gap-3">
+                    <ContratViewerButton href={`/attestations/${a.id}`} titre={`${LIBELLE_TYPE_ATTESTATION[a.type]} ${a.numero ?? ""}`} libelle="Aperçu" className="text-primary underline" />
+                    <TelechargerLien href={`/attestations/${a.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
 
       {peutModifier && (
       <Section title="Nouveau contrat">

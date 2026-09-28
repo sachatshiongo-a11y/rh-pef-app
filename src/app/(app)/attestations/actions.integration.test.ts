@@ -131,3 +131,25 @@ describe("délivrance directe depuis la fiche, téléchargement RH", () => {
     expect(await prisma.attestation.count({ where: { employeeId: e } })).toBe(0);
   });
 });
+
+describe("registre : export Excel", () => {
+  it("une ligne par attestation, mêmes filtres que l'onglet ; RH seulement", async () => {
+    const { GET: exporter } = await import("./export/route");
+    const ExcelJS = (await import("exceljs")).default;
+    A.user.role = "VIEWER";
+    const res = await exporter(new Request("http://local/attestations/export?statut=DELIVREE&type=TRAVAIL"));
+    expect(res.status).toBe(200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+    const valeurs: string[][] = [];
+    wb.worksheets[0].eachRow((r) => valeurs.push((r.values as unknown[]).slice(1).map((v) => String(v ?? ""))));
+    const entete = valeurs.findIndex((v) => v[0] === "Numéro");
+    expect(valeurs[entete]).toEqual(["Numéro", "Type", "Statut", "Matricule", "Employé", "Demandée le", "Délivrée ou refusée le", "Par", "Motif du refus"]);
+    const donnees = valeurs.slice(entete + 1).filter((v) => /^ATT-/.test(v[0]));
+    const attendues = await prisma.attestation.count({ where: { statut: "DELIVREE", type: "TRAVAIL" } });
+    expect(donnees).toHaveLength(attendues);
+    expect(donnees.every((v) => v[1] === "Attestation de travail" && v[2] === "Délivrée")).toBe(true);
+    A.user.role = "EMPLOYE";
+    expect((await exporter(new Request("http://local/attestations/export"))).status).toBe(403);
+  });
+});
