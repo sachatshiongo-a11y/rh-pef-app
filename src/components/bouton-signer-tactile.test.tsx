@@ -32,7 +32,7 @@ describe("BoutonSigner — variante tactile", () => {
     const fautifs: string[] = [];
     for (const f of fichiers(racine)) {
       const src = readFileSync(f, "utf8");
-      for (const m of src.matchAll(/<BoutonSigner\b[^>]*?\/>/gs)) if (!/\btactile\b/.test(m[0])) fautifs.push(path.relative(racine, f));
+      for (const m of src.matchAll(/<BoutonSigner\b[^>]*?\/>/g)) if (!/\btactile\b/.test(m[0])) fautifs.push(path.relative(racine, f));
     }
     expect(fautifs).toEqual([]);
   });

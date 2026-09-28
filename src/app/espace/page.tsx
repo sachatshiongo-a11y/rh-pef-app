@@ -14,6 +14,7 @@ export default async function EspaceAccueil() {
   const lundiCourant = lundiDe(k);
 
   const [fiche, congesEnAttente, prochainsCreneaux, publiees, contratsClasses, echangesARepondre, solde] = await Promise.all([
+    prisma.employee.findUnique({ where: { id: s.employeeId }, select: { photoUrl: true } }),
     prisma.leaveRequest.count({ where: { employeeId: s.employeeId, statut: "EN_ATTENTE" } }),
     // Prochains services À PARTIR D'AUJOURD'HUI (plus de créneaux passés de la semaine).
     prisma.planningCreneau.findMany({
