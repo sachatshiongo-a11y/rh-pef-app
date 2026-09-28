@@ -124,31 +124,59 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
     const coutJour = Number(String(formData.get("coutJourUSD") ?? "").replace(",", "."));
     if (type === "INTERIM" && !agence) throw new Error("Pour un intérimaire, indiquez l'agence d'intérim (c'est elle qui l'emploie et le paie).");
 
-    const cree = await prisma.contrat.create({
-      data: {
-        employeeId,
-        type,
-        dateDebut: new Date(String(formData.get("dateDebut"))),
-        dateFin: date(formData, "dateFin"),
-        finPeriodeEssai: date(formData, "finPeriodeEssai"),
-        heuresHebdo: Number(formData.get("heuresHebdo")) || 48,
-        salaireMensuel: Number(formData.get("salaireMensuel")) || 0,
-        devise: String(formData.get("devise") ?? "USD"),
-        poste: String(formData.get("poste") ?? ""),
-        documentUrl,
-        agence,
-        coutJourUSD: type === "INTERIM" && Number.isFinite(coutJour) && coutJour > 0 ? coutJour : null,
-      },
-    });
-    // La fiche employé affiche le type du contrat courant.
-    await prisma.employee.update({ where: { id: employeeId }, data: { contrat: type } });
+    // CLÔTURE PROPOSÉE du contrat en cours (spec 2026-09-28, §3.4) : la case du formulaire, jamais
+    // une déduction. Cochée, l'ancien contrat passe en Transformé ou Résilié (au choix) DANS LA MÊME
+    // TRANSACTION que la création — jamais un nouveau contrat à côté d'un ancien resté ACTIF parce
+    // que la seconde écriture aurait échoué, ni l'inverse.
+    const cloturerId = formData.get("cloturer") === "on" ? String(formData.get("cloturerContratId") ?? "").trim() || null : null;
+    const statutCloture = String(formData.get("statutCloture") ?? "TRANSFORME");
+    if (cloturerId && statutCloture !== "TRANSFORME" && statutCloture !== "RESILIE") {
+      throw new Error("Le contrat en cours se clôture en Transformé ou Résilié.");
+    }
 
-    await journaliser(prisma, {
-      entite: "Contrat",
-      entiteId: employeeId,
-      champ: "creation",
-      nouvelleValeur: String(formData.get("type")),
-      userId: user.id,
+    const cree = await prisma.$transaction(async (tx) => {
+      if (cloturerId) {
+        const ancien = await tx.contrat.findUnique({ where: { id: cloturerId }, select: { employeeId: true, statut: true } });
+        if (!ancien || ancien.employeeId !== employeeId) throw new Error("Ce contrat n'appartient pas à ce salarié : il n'a pas été clôturé.");
+        if (ancien.statut !== "ACTIF") throw new Error("Le contrat à clôturer n'est plus actif. Rechargez la page.");
+        await tx.contrat.update({ where: { id: cloturerId }, data: { statut: statutCloture as "TRANSFORME" | "RESILIE" } });
+        await journaliser(tx, {
+          entite: "Contrat",
+          entiteId: cloturerId,
+          champ: "cloture",
+          ancienneValeur: "ACTIF",
+          nouvelleValeur: statutCloture,
+          userId: user.id,
+        });
+      }
+
+      const nouveau = await tx.contrat.create({
+        data: {
+          employeeId,
+          type,
+          dateDebut: new Date(String(formData.get("dateDebut"))),
+          dateFin: date(formData, "dateFin"),
+          finPeriodeEssai: date(formData, "finPeriodeEssai"),
+          heuresHebdo: Number(formData.get("heuresHebdo")) || 48,
+          salaireMensuel: Number(formData.get("salaireMensuel")) || 0,
+          devise: String(formData.get("devise") ?? "USD"),
+          poste: String(formData.get("poste") ?? ""),
+          documentUrl,
+          agence,
+          coutJourUSD: type === "INTERIM" && Number.isFinite(coutJour) && coutJour > 0 ? coutJour : null,
+        },
+      });
+      // La fiche employé affiche le type du contrat courant.
+      await tx.employee.update({ where: { id: employeeId }, data: { contrat: type } });
+
+      await journaliser(tx, {
+        entite: "Contrat",
+        entiteId: employeeId,
+        champ: "creation",
+        nouvelleValeur: String(formData.get("type")),
+        userId: user.id,
+      });
+      return nouveau;
     });
 
     // Le salarié est prévenu qu'un contrat attend sa signature (cloche de l'espace + push).

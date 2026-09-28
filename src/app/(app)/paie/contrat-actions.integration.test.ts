@@ -142,3 +142,64 @@ describe("notification « Un contrat vous attend pour signature »", () => {
     expect(N.salarie).toEqual([]);
   });
 });
+
+describe("nouveau contrat — clôture proposée du contrat en cours (§3.4)", () => {
+  const nouveauCdi = (extra: Record<string, string> = {}) =>
+    formulaire({ type: "CDI", poste: "Commis", dateDebut: "2030-07-01", salaireMensuel: "400", ...extra });
+
+  it("case cochée : l'ancien passe dans le statut choisi, le nouveau est ACTIF, le tout journalisé", async () => {
+    const s = await salarie(false);
+    const ancien = await contrat(s.employeeId);
+    await ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: ancien.id, cloturer: "on", statutCloture: "TRANSFORME" }));
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("TRANSFORME");
+    const tous = await prisma.contrat.findMany({ where: { employeeId: s.employeeId } });
+    expect(tous.filter((c) => c.statut === "ACTIF").map((c) => c.type)).toEqual(["CDI"]);
+    const journal = await prisma.journalAudit.findMany({ where: { entite: "Contrat", entiteId: ancien.id, champ: "cloture" } });
+    expect(journal).toEqual([expect.objectContaining({ ancienneValeur: "ACTIF", nouvelleValeur: "TRANSFORME", userId: A.user.id })]);
+  });
+
+  it("« Résilié » au choix", async () => {
+    const s = await salarie(false);
+    const ancien = await contrat(s.employeeId);
+    await ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: ancien.id, cloturer: "on", statutCloture: "RESILIE" }));
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("RESILIE");
+  });
+
+  it("case décochée : l'ancien contrat ne bouge pas", async () => {
+    const s = await salarie(false);
+    const ancien = await contrat(s.employeeId);
+    await ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: ancien.id, statutCloture: "TRANSFORME" }));
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("ACTIF");
+    expect(await prisma.journalAudit.count({ where: { entiteId: ancien.id, champ: "cloture" } })).toBe(0);
+  });
+
+  it("même transaction : si la création échoue, l'ancien contrat reste ACTIF", async () => {
+    const s = await salarie(false);
+    const ancien = await contrat(s.employeeId);
+    // Date de début illisible → la création du nouveau contrat échoue en base.
+    await expect(
+      ajouterContrat(s.employeeId, nouveauCdi({ dateDebut: "pas-une-date", cloturerContratId: ancien.id, cloturer: "on", statutCloture: "TRANSFORME" })),
+    ).rejects.toThrow(/REDIRECT/);
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("ACTIF");
+    expect(await prisma.contrat.count({ where: { employeeId: s.employeeId } })).toBe(1);
+  });
+
+  it("le contrat d'un AUTRE salarié ne se clôture pas par ce formulaire", async () => {
+    const s = await salarie(false);
+    const autre = await salarie(false);
+    const sien = await contrat(autre.employeeId);
+    await expect(
+      ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: sien.id, cloturer: "on", statutCloture: "RESILIE" })),
+    ).rejects.toThrow(/Ce contrat n'appartient pas à ce salarié/);
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: sien.id } })).statut).toBe("ACTIF");
+    expect(await prisma.contrat.count({ where: { employeeId: s.employeeId } })).toBe(0);
+  });
+
+  it("un statut de clôture autre que Transformé / Résilié est refusé", async () => {
+    const s = await salarie(false);
+    const ancien = await contrat(s.employeeId);
+    await expect(
+      ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: ancien.id, cloturer: "on", statutCloture: "EXPIRE" })),
+    ).rejects.toThrow(/Transformé ou Résilié/);
+  });
+});

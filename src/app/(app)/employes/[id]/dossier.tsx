@@ -15,6 +15,7 @@ import {
   ajouterDocument,
 } from "./dossier-actions";
 import { FinContratForm } from "./fin-contrat-form";
+import { ChampsNouveauContrat } from "./champs-nouveau-contrat";
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
 import type { Echeancier } from "@/lib/prets";
@@ -600,7 +601,7 @@ export function DossierEmploye({
           <details className="rounded-lg border bg-muted/20">
             <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">Ajouter / importer un contrat</summary>
             <form action={ajouterContrat.bind(null, employeeId)} className="grid grid-cols-1 gap-3 p-4 pt-0 sm:grid-cols-2 md:grid-cols-4">
-              <LabeledInput name="type" label="Type" select defaultValue="CDD" options={["CDD", "CDI", "STAGE", "JOURNALIER", "INTERIM"]} />
+              <ChampsNouveauContrat courant={courant ? { id: courant.id, type: courant.type, debutTexte: d(courant.dateDebut) } : null} />
               <LabeledInput name="poste" label="Poste" defaultValue={poste} required />
               <LabeledInput name="dateDebut" label="Début" type="date" required />
               <LabeledInput name="dateFin" label="Fin (CDD)" type="date" />
