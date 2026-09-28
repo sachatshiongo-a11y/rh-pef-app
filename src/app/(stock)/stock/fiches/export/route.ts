@@ -1,4 +1,4 @@
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import { chargerFichesVues, chargerArticlesDesFiches } from "../_data/charger-fiche";
@@ -9,8 +9,8 @@ import { construireContexte, TYPE_LABEL } from "../_data/fiche-calc";
 // jamais un arrondi maison.
 
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const param = new URL(req.url).searchParams.get("ids");
   const choisis = new Set((param ?? "").split(",").map((s) => s.trim()).filter(Boolean));

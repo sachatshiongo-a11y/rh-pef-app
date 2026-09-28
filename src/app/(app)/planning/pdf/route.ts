@@ -1,11 +1,12 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import { donneesPlanning } from "../export-data";
 
 /** Planning (semaine ou mois) en PDF paysage : employés × jours, groupé Brigade/Backoffice. */
 export async function GET(req: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const { titre, sousTitre, fichierBase, labels, lignes, sectionRows } = await donneesPlanning(new URL(req.url).searchParams);
 
   const empPct = labels.length > 14 ? 12 : 20;

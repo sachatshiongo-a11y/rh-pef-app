@@ -1,17 +1,13 @@
-import { verifySession, estSalarie } from "@/lib/auth";
+import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { prisma } from "@/lib/prisma";
-import { espaceEmployeActif } from "@/lib/espace-employe";
 import { genererBulletinPdf } from "@/lib/pdf/bulletin-buffer";
 import type { Devise } from "@/lib/pdf/theme";
 
 // Bulletin d'un salarié pour SON espace : accès strictement limité à ses propres bulletins.
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user)) {
-    return new Response("Accès refusé", { status: 403 });
-  }
-  const compte = { employeeId: user.employeeId };
-  if (!compte.employeeId) return new Response("Compte non relié", { status: 403 });
+  const g = await exigerEspaceSalarie();
+  if (!g.ok) return g.reponse;
+  const compte = { employeeId: g.user.employeeId };
 
   const { id } = await params;
   const url = new URL(request.url);

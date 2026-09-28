@@ -1,4 +1,4 @@
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { chargerEcartMois } from "../../ecart-data";
 import { libelleShift } from "../../creneaux";
@@ -11,7 +11,8 @@ const fmtEcart = (n: number) => `${n > 0 ? "↑" : n < 0 ? "↓" : ""} ${n >= 0 
 /** Export Excel de la vue « Écart prévu/réalisé » : mêmes données que l'écran, deux feuilles
  *  (Couverture non tenue, Heures par salarié), même motif que /planning/excel (route.ts). */
 export async function GET(req: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const sp = new URL(req.url).searchParams;
   const annee = Number(sp.get("annee")) || new Date().getUTCFullYear();
   const mois = Math.min(12, Math.max(1, Number(sp.get("mois")) || new Date().getUTCMonth() + 1));

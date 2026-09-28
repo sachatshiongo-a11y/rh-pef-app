@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { AttestationDocument, type TypeAttestation } from "@/lib/pdf/attestation";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresPaie } from "@/lib/config";
@@ -10,8 +10,8 @@ import { formaterNombre } from "@/lib/montant";
 
 /** Attestation de travail ou de salaire (PDF) — Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; type: string }> }) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  if (!g.ok) return g.reponse;
   const { id, type } = await params;
   if (type !== "travail" && type !== "salaire") return new Response("Type d'attestation inconnu", { status: 404 });
 

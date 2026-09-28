@@ -1,13 +1,13 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 import { FicheArticleDocument, type MouvementLigne } from "@/lib/pdf/fiche-article";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
   const { id } = await params;
 
   const a = await prisma.articleStock.findUnique({

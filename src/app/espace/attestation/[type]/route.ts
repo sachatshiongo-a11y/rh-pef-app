@@ -1,7 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, estSalarie } from "@/lib/auth";
-import { espaceEmployeActif } from "@/lib/espace-employe";
+import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { AttestationDocument, type TypeAttestation } from "@/lib/pdf/attestation";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresPaie } from "@/lib/config";
@@ -11,10 +10,9 @@ import { formaterNombre } from "@/lib/montant";
 
 /** Attestation de travail / de salaire du salarié connecté (self-service, ses données uniquement). */
 export async function GET(request: Request, { params }: { params: Promise<{ type: string }> }) {
-  const user = await verifySession();
-  if (!(await espaceEmployeActif()) || !estSalarie(user) || !user.employeeId) {
-    return new Response("Accès refusé", { status: 403 });
-  }
+  const g = await exigerEspaceSalarie();
+  if (!g.ok) return g.reponse;
+  const user = g.user;
   const { type } = await params;
   if (type !== "travail" && type !== "salaire") return new Response("Type d'attestation inconnu", { status: 404 });
 
