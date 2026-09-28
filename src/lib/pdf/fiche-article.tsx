@@ -88,7 +88,7 @@ export function FicheArticleDocument({
 
         {analyse.hausse && (
           <View style={styles.alerte}>
-            <Text style={styles.alerteTitre}>⚠ Hausse du prix d&apos;achat</Text>
+            <Text style={styles.alerteTitre}>Hausse du prix d&apos;achat</Text>
             <Text style={styles.alerteTexte}>
               Dernier achat à {usd(analyse.hausse.prix)}, soit +{analyse.hausse.pct.toFixed(0)}% au-dessus de la moyenne précédente ({usd(analyse.hausse.moyenneAnterieure)}).
             </Text>
