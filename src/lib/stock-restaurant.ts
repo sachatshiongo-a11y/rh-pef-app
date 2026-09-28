@@ -264,21 +264,24 @@ export function consommationReelle(e: EntreesStockResto, articleRestoId: string,
  * rattaché : dernier comptage converti + livraisons reçues depuis, prises TELLES QU'ELLES SONT SORTIES
  * du dépôt (déjà dans l'unité de l'article) — une livraison retire du dépôt exactement ce qu'elle
  * ajoute ici : le total ne bouge pas, sans double compte.
- * Plusieurs articles du restaurant rattachés : les parts s'additionnent ; `dateComptage` et `dateMaj`
- * retiennent la plus ANCIENNE (c'est elle qui dit à quel point le chiffre peut être périmé).
+ * Plusieurs articles du restaurant rattachés : les parts s'additionnent ; `dateComptage` retient le
+ * plus ANCIEN des derniers comptages (c'est lui qui dit à quel point le chiffre peut être périmé).
+ * Un article rattaché sans AUCUN comptage mais avec des livraisons rend la part ESTIMÉE : les seules
+ * livraisons ne disent rien de ce qui a été consommé (décision du contrôleur, 2026-09-28).
  * Une livraison à répartir ou une unité non convertible rend l'article inexploitable (annoncé).
  */
 export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: string): Map<string, StockRestaurant> {
   const { parArticle } = stockRestaurantTheorique(e, jour);
   const res = new Map<string, StockRestaurant>();
-  const plusAncienne = (a: string | null, b: string | null) => (a === null ? b : b === null ? a : a < b ? a : b);
+  // Ordre de gravité : une part inexploitable l'emporte sur une part estimée, qui l'emporte sur OK.
+  const gravite = (x: StockRestaurant | undefined) => (x === undefined ? -1 : x.etat === "OK" ? 0 : x.etat === "ESTIME" ? 1 : 2);
   for (const a of e.articles) {
     const cat = a.articleStockId;
     if (!cat) continue;
     const s = parArticle.get(a.id)!;
     if (s.stock === null && s.signalements.length === 0) continue; // ni comptage ni livraison : n'apporte rien
     const deja = res.get(cat);
-    if (deja !== undefined && deja.etat !== "OK") continue;
+    if (gravite(deja) === 2) continue;
     if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
     const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", a.uniteCatalogue ?? "");
     if (compte === null || s.signalements.some((x) => x.motif === "UNITE_INCOMPATIBLE")) {
@@ -287,18 +290,20 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
     }
     const recu = s.livraisonsDepuis.length === 0 ? null : s.livraisonsDepuis.reduce((t, l) => t.plus(l.quantiteCatalogue), new D(0));
     const quantite = new D(compte).plus(recu ?? 0);
-    const part = { dateComptage: s.dernierComptage?.date ?? null, dateMaj: s.derniereDate! };
+    const cumul = (x: string | null | undefined, y: InstanceType<typeof D> | null) => (x == null && y === null ? null : new D(x ?? 0).plus(y ?? 0).toString());
     if (deja === undefined) {
-      res.set(cat, { etat: "OK", quantite: quantite.toString(), ...part, recu: recu === null ? null : recu.toString() });
+      res.set(cat, s.dernierComptage === null
+        ? { etat: "ESTIME", quantite: quantite.toString(), recu: recu === null ? null : recu.toString() }
+        : { etat: "OK", quantite: quantite.toString(), dateComptage: s.dernierComptage.date, recu: recu === null ? null : recu.toString() });
+      continue;
+    }
+    if (deja.etat !== "OK" && deja.etat !== "ESTIME") continue;
+    const somme = new D(deja.quantite).plus(quantite).toString();
+    if (deja.etat === "ESTIME" || s.dernierComptage === null) {
+      res.set(cat, { etat: "ESTIME", quantite: somme, recu: cumul(deja.recu, recu) });
     } else {
-      const cumulRecu = deja.recu == null && recu === null ? null : new D(deja.recu ?? 0).plus(recu ?? 0).toString();
-      res.set(cat, {
-        etat: "OK",
-        quantite: new D(deja.quantite).plus(quantite).toString(),
-        dateComptage: plusAncienne(deja.dateComptage, part.dateComptage),
-        dateMaj: plusAncienne(deja.dateMaj ?? null, part.dateMaj)!,
-        recu: cumulRecu,
-      });
+      const date = deja.dateComptage < s.dernierComptage.date ? deja.dateComptage : s.dernierComptage.date;
+      res.set(cat, { etat: "OK", quantite: somme, dateComptage: date, recu: cumul(deja.recu, recu) });
     }
   }
   return res;

@@ -234,7 +234,7 @@ describe("calculerDisponibilite — stock figé (décision Direction 2026-09-24)
       const r = avec({ depot: "3.44", dernierMouvement: "2026-09-23", restaurant: resto("2026-09-14") });
       expect(r.etat).toBe("A_VERIFIER");
       expect(r.raisons).toEqual([{ motif: "COMPTAGE_RESTAURANT_ANCIEN", ingredient: "Saumon fumé", depuis: "2026-09-14" }]);
-      expect(libelleRaison(r.raisons[0]!)).toBe("Saumon fumé : comptage du restaurant non mis à jour depuis le 14/09");
+      expect(libelleRaison(r.raisons[0]!)).toBe("Saumon fumé : comptage du restaurant ancien, dernier comptage le 14/09");
     });
 
     it("limite exacte au restaurant : 7 jours pile compte encore, 8 jours non", () => {

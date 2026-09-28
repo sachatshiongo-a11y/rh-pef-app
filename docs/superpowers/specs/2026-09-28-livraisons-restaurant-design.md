@@ -43,7 +43,10 @@ Chargement groupé : une requête pour les comptages, une pour les livraisons de
 
 Le stock qui fait foi reste **dépôt + restaurant** (décision du 2026-09-24). La part du restaurant devient le **stock théorique**. Une livraison retire donc la quantité du dépôt et l'ajoute au restaurant : le total est inchangé, sans double compte. Un test le prouve.
 
-La règle des 7 jours (« stock non mis à jour ») s'applique ainsi à la part du restaurant : la date prise en compte est le plus récent du dernier comptage ou de la dernière livraison.
+**Correction du contrôleur (2026-09-28, relecture).** Le stock théorique ajoute les livraisons mais n'enlève jamais la consommation : seul un comptage la constate. D'où :
+
+- La règle des 7 jours (« stock non mis à jour ») s'applique à la part du restaurant sur la date du **dernier comptage seulement**. Une livraison ne rafraîchit jamais le stock : une livraison par jour ne doit pas garder « frais » un chiffre que personne n'a compté. Le libellé donne la vraie date : « comptage du restaurant ancien, dernier comptage le JJ/MM ».
+- **Aucun comptage** : la part du restaurant (les seules livraisons) est **estimée**. L'ingrédient est « À vérifier » (« stock du restaurant estimé : aucun comptage »), la part estimée n'entre pas dans les portions : le dépôt seul compte, et le plat reste « À vérifier ». La fiche affiche « estimé (aucun comptage) » à côté du stock du restaurant.
 
 ## Tests exigés (chaque garde-fou falsifié : casse, rouge, restauration depuis une copie, `cmp`)
 

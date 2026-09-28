@@ -68,8 +68,8 @@ describe("chargerStocksDesFiches", () => {
     const findMany = vi.spyOn(prisma.mouvementStock, "findMany");
     const stocks = await chargerStocksDesFiches("2026-09-23");
 
-    expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21", dateMaj: "2026-09-21", recu: null }, dernierMouvement: "2026-09-20" });
-    expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22", dateMaj: "2026-09-22", recu: null }, dernierMouvement: null });
+    expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21", recu: null }, dernierMouvement: "2026-09-20" });
+    expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22", recu: null }, dernierMouvement: null });
     expect(stocks[sel.id]).toEqual({ depot: "1.5", restaurant: null, dernierMouvement: null });
     // UNE requête groupée pour tous les articles (dernier mouvement), UNE pour les livraisons au
     // restaurant — jamais une requête par article.
@@ -94,7 +94,7 @@ describe("chargerStocksDesFiches", () => {
     const stocks = await chargerStocksDesFiches("2026-09-22");
     expect(stocks[tomate.id]).toEqual({
       depot: "5",
-      restaurant: { etat: "OK", quantite: "3", dateComptage: "2026-09-20", dateMaj: "2026-09-21", recu: "2" },
+      restaurant: { etat: "OK", quantite: "3", dateComptage: "2026-09-20", recu: "2" },
       dernierMouvement: "2026-09-24",
     });
     // Rien n'est écrit : ni comptage, ni stock du dépôt.

@@ -3,7 +3,7 @@ import {
   consommationReelle, etatRattachementLivraison, recuDuDepot, stockRestaurantTheorique, stockRestaurantPourDisponibilite, ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, MENTION_AUCUN_COMPTAGE,
   type ArticleRestoSR, type ComptageSR, type EntreesStockResto, type LivraisonSR,
 } from "./stock-restaurant";
-import { calculerDisponibilite, type ArticleDispo, type FicheDispo } from "./fiches/disponibilite";
+import { calculerDisponibilite, libelleRaison, type ArticleDispo, type FicheDispo } from "./fiches/disponibilite";
 
 // Stock théorique du restaurant : dernier comptage + livraisons du dépôt reçues DEPUIS, converties
 // dans l'unité du restaurant. Tout est dérivé : aucun comptage n'est jamais écrit.
@@ -195,7 +195,7 @@ describe("part du restaurant dans la disponibilité des plats", () => {
 
   it("convertit le dernier comptage dans l'unité du catalogue et additionne plusieurs articles rattachés", () => {
     const e = E([Rc("f1", "g", "kg"), Rc("f2", "kg", "kg")], [C("f1", "2026-09-22", "1500"), C("f2", "2026-09-20", "2")], []);
-    expect(stockRestaurantPourDisponibilite(e, "2026-09-22").get("farine")).toEqual({ etat: "OK", quantite: "3.5", dateComptage: "2026-09-20", dateMaj: "2026-09-20", recu: null });
+    expect(stockRestaurantPourDisponibilite(e, "2026-09-22").get("farine")).toEqual({ etat: "OK", quantite: "3.5", dateComptage: "2026-09-20", recu: null });
   });
 
   it("unité non convertible : l'article est marqué, rien n'est additionné", () => {
@@ -216,14 +216,16 @@ describe("part du restaurant dans la disponibilité des plats", () => {
     expect(r2.portions).toBe(r1.portions);
   });
 
-  it("règle des 7 jours : la date prise en compte est la plus récente du comptage et de la dernière livraison", () => {
+  it("règle des 7 jours : seule la date du dernier COMPTAGE compte — une livraison ne rafraîchit jamais le stock", () => {
     const f = Rc("f1", "g", "kg");
     const sansLivraison = E([f], [C("f1", "2026-09-10", "2000")], []);
-    const avecLivraison = E([f], [C("f1", "2026-09-10", "2000")], [L("farine", "kg", "2026-09-20", "1")]);
-    expect(calculerDisponibilite(plat, ctx("1", sansLivraison, "2026-09-22"), "2026-09-22").raisons.map((x) => x.motif)).toEqual(["COMPTAGE_RESTAURANT_ANCIEN"]);
+    const avecLivraison = E([f], [C("f1", "2026-09-10", "2000")], [L("farine", "kg", "2026-09-20", "1"), L("farine", "kg", "2026-09-21", "1")]);
+    expect(calculerDisponibilite(plat, ctx("1", sansLivraison, "2026-09-22"), "2026-09-22").raisons).toEqual([{ motif: "COMPTAGE_RESTAURANT_ANCIEN", ingredient: "Farine", depuis: "2026-09-10" }]);
     const r = calculerDisponibilite(plat, ctx("1", avecLivraison, "2026-09-22"), "2026-09-22");
-    expect(r.etat).toBe("DISPONIBLE");
-    expect(stockRestaurantPourDisponibilite(avecLivraison, "2026-09-22").get("farine")).toMatchObject({ dateComptage: "2026-09-10", dateMaj: "2026-09-20", recu: "1" });
+    expect(r.etat).toBe("A_VERIFIER");
+    expect(r.raisons).toEqual([{ motif: "COMPTAGE_RESTAURANT_ANCIEN", ingredient: "Farine", depuis: "2026-09-10" }]);
+    expect(libelleRaison(r.raisons[0]!)).toBe("Farine : comptage du restaurant ancien, dernier comptage le 10/09");
+    expect(stockRestaurantPourDisponibilite(avecLivraison, "2026-09-22").get("farine")).toEqual({ etat: "OK", quantite: "4", dateComptage: "2026-09-10", recu: "2" });
   });
 
   it("livraison à répartir : le plat passe « À vérifier », jamais réparti au hasard", () => {
@@ -234,8 +236,20 @@ describe("part du restaurant dans la disponibilité des plats", () => {
     expect(r.raisons).toEqual([{ motif: "LIVRAISON_RESTAURANT_A_REPARTIR", ingredient: "Farine" }]);
   });
 
-  it("sans comptage : la part du restaurant vaut les seules livraisons (unité du catalogue)", () => {
+  it("aucun comptage : stock du restaurant ESTIMÉ, hors des portions — l'ingrédient est « À vérifier », le dépôt seul compte", () => {
     const e = E([Rc("f1", "g", "kg")], [], [L("farine", "kg", "2026-09-21", "3")]);
-    expect(stockRestaurantPourDisponibilite(e, "2026-09-21").get("farine")).toEqual({ etat: "OK", quantite: "3", dateComptage: null, dateMaj: "2026-09-21", recu: "3" });
+    expect(stockRestaurantPourDisponibilite(e, "2026-09-21").get("farine")).toEqual({ etat: "ESTIME", quantite: "3", recu: "3" });
+    const r = calculerDisponibilite(plat, ctx("1", e, "2026-09-21"), "2026-09-21");
+    expect(r.etat).toBe("A_VERIFIER");
+    expect(r.portions).toBeNull();
+    expect(r.raisons).toEqual([{ motif: "STOCK_RESTAURANT_ESTIME", ingredient: "Farine" }]);
+    expect(libelleRaison(r.raisons[0]!)).toBe("Farine : stock du restaurant estimé : aucun comptage");
+    const a = r.articles[0]!;
+    expect([a.depot, a.restaurant, a.restaurantEstime, a.disponible]).toEqual(["1", "3", true, "1"]);
+  });
+
+  it("un article rattaché sans comptage ni livraison n'apporte rien (ni estimé, ni zéro)", () => {
+    const e = E([Rc("f1", "g", "kg"), Rc("f2", "kg", "kg")], [C("f1", "2026-09-20", "1000")], []);
+    expect(stockRestaurantPourDisponibilite(e, "2026-09-21").get("farine")).toEqual({ etat: "OK", quantite: "1", dateComptage: "2026-09-20", recu: null });
   });
 });
