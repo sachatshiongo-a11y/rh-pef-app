@@ -219,6 +219,20 @@ export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: 
   return r === null ? null : r.num.div(r.den).toString();
 }
 
+/**
+ * Sens inverse : une quantité exprimée dans l'unité de l'ARTICLE du catalogue (une livraison du
+ * dépôt) ramenée dans l'unité du restaurant. C'est l'inverse EXACT de la conversion restaurant →
+ * article ci-dessus (même `facteur()`, mêmes emballages) : une livraison convertie puis reconvertie
+ * retombe sur la quantité sortie du dépôt, sans double compte. `null` = conversion impossible.
+ */
+export function convertirDepuisUniteArticle(quantite: Decimal.Value, uniteArticle: string, uniteResto: string): string | null {
+  const q = versD(quantite);
+  if (q === null) return null;
+  const unRestoEnArticle = versUniteArticle(fr(UN), uniteResto, uniteArticle);
+  if (unRestoEnArticle === null || unRestoEnArticle.num.isZero()) return null;
+  return q.times(unRestoEnArticle.den).div(unRestoEnArticle.num).toString();
+}
+
 // ─── Stock du restaurant rattaché au catalogue ───────────────────────────────
 
 export type ComptageRattache = {
