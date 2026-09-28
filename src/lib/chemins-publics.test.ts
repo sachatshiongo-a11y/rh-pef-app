@@ -39,6 +39,7 @@ import { cheminPublic } from "@/lib/supabase/middleware";
  */
 const RECUPEREES_SANS_SESSION = [
   { chemin: "/manifest.json", pourquoi: "le manifeste PWA, lu à l'installation depuis n'importe quel écran" },
+  { chemin: "/manifest-espace.json", pourquoi: "le manifeste PWA de l'espace salarié (s'ouvre sur /espace), lu à l'installation" },
   { chemin: "/sw.js", pourquoi: "le script du service worker ; une redirection fait échouer son enregistrement" },
   { chemin: "/hors-ligne", pourquoi: "la page servie sans réseau ; sinon le cache du service worker retient la page de connexion à sa place" },
   { chemin: "/icons/icon-192.png", pourquoi: "l'icône de l'écran d'accueil" },

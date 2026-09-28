@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { verifySession, estSalarie, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { prisma } from "@/lib/prisma";
 import { chargerNotificationsSalarie } from "@/lib/notifications";
 import { EspaceShell } from "./espace-shell";
+
+// Le manifeste PWA de l'espace salarié : l'application installée depuis cet espace s'ouvre sur
+// /espace, pas sur /accueil (l'accueil de la Direction, qui renvoyait le salarié ailleurs par deux
+// redirections). Public comme /manifest.json — voir src/proxy.ts et chemins-publics.test.ts.
+export const metadata: Metadata = { manifest: "/manifest-espace.json" };
 
 // Espace salarié (self-service). Garde stricte : la fonctionnalité doit être ACTIVÉE et le compte
 // doit être opérationnel (EMPLOYE/STOCK) relié à une fiche. Sinon → résolveur d'entrée.
@@ -15,27 +21,23 @@ export default async function EspaceLayout({ children }: { children: React.React
   const [compte, notifs] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { employe: { select: { nom: true, matricule: true, photoUrl: true } } },
+      select: { motDePasseTemporaire: true, employe: { select: { nom: true, matricule: true, photoUrl: true } } },
     }),
     chargerNotificationsSalarie(user.id),
   ]);
   const emp = compte?.employe;
 
-  const liens = [
-    { href: "/espace", icone: "accueil", label: "Accueil" },
-    { href: "/espace/pointer", icone: "horloge", label: "Pointer" },
-    { href: "/espace/planning", icone: "calendrier", label: "Planning & heures" },
-    { href: "/espace/echanges", icone: "echanges", label: "Échanges de shift" },
-    { href: "/espace/paie", icone: "billet", label: "Ma paie" },
-    { href: "/espace/conges", icone: "parasol", label: "Congés" },
-    { href: "/espace/dossier", icone: "dossier", label: "Dossier" },
-    { href: "/espace/contrats", icone: "mallette", label: "Mes contrats" },
-    { href: "/espace/attestations", icone: "recu", label: "Mes attestations" },
-    { href: "/espace/documents", icone: "document", label: "Documents" },
-  ];
-
   return (
-    <EspaceShell liens={liens} nom={emp?.nom ?? user.nom} matricule={emp?.matricule ?? null} photoUrl={emp?.photoUrl ?? null} notifs={notifs} autresEspaces={ciblesAutresEspaces(user, salarieActif, "salarie")}>
+    <EspaceShell
+      nom={emp?.nom ?? user.nom}
+      matricule={emp?.matricule ?? null}
+      photoUrl={emp?.photoUrl ?? null}
+      notifs={notifs}
+      autresEspaces={ciblesAutresEspaces(user, salarieActif, "salarie")}
+      // Mot de passe temporaire : seul le formulaire de changement est accessible (les pages le
+      // renvoient toutes), on ne montre donc pas un menu qui n'y mènerait pas.
+      navigation={!compte?.motDePasseTemporaire}
+    >
       {children}
     </EspaceShell>
   );
