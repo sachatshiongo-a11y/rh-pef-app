@@ -136,6 +136,10 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
 
     const cree = await prisma.$transaction(async (tx) => {
       if (cloturerId) {
+        // VERROU sur le contrat à clôturer AVANT de relire son statut : un double envoi du
+        // formulaire attend ici la fin du premier, relit TRANSFORMÉ/RÉSILIÉ et s'arrête — il ne
+        // crée pas un second contrat.
+        await tx.$queryRaw`SELECT "id" FROM "public"."Contrat" WHERE "id" = ${cloturerId} FOR UPDATE`;
         const ancien = await tx.contrat.findUnique({ where: { id: cloturerId }, select: { employeeId: true, statut: true } });
         if (!ancien || ancien.employeeId !== employeeId) throw new Error("Ce contrat n'appartient pas à ce salarié : il n'a pas été clôturé.");
         if (ancien.statut !== "ACTIF") throw new Error("Le contrat à clôturer n'est plus actif. Rechargez la page.");

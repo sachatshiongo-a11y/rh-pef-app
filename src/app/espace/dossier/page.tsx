@@ -19,7 +19,10 @@ export default async function EspaceDossier() {
   ]);
   // Le contrat EN COURS est celui que « Mes contrats » range en vigueur (ou à signer) — jamais un
   // CDD dont la date de fin est passée, même s'il est resté ACTIF en base.
-  const contrat = classes.find((c) => c.classement.categorie !== "ANCIEN")?.contrat ?? null;
+  // Un contrat qui commence plus tard n'est pas encore « en cours ».
+  const contrat =
+    (classes.find((c) => c.classement.categorie !== "ANCIEN" && !c.classement.aVenir) ??
+      classes.find((c) => c.classement.categorie !== "ANCIEN"))?.contrat ?? null;
 
   return (
     <div className="space-y-5">

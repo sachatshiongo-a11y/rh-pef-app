@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { chargerSignature, etatSignature, type EtatSignature } from "@/lib/signature";
 import { compteSalarieDe, notifierSalarie } from "@/lib/notifications";
+import { chargerContratsClasses } from "@/lib/contrats-espace";
 
 // UN CONTRAT ATTEND LA SIGNATURE DU SALARIÉ (spec 2026-09-28, §3.3).
 //
@@ -22,6 +23,11 @@ export async function notifierContratASigner(contratId: string): Promise<void> {
   try {
     const contrat = await prisma.contrat.findUnique({ where: { id: contratId }, select: { employeeId: true } });
     if (!contrat) return;
+    // Seulement si le contrat est À SIGNER au sens de « Mes contrats » (`classerContrats`) : un
+    // contrat saisi a posteriori et déjà échu, ou plus ancien qu'un contrat actif (« remplacé »),
+    // ne s'y signe pas — la cloche annoncerait un geste impossible.
+    const classes = await chargerContratsClasses(prisma, contrat.employeeId);
+    if (classes.find((c) => c.contrat.id === contratId)?.classement.categorie !== "A_SIGNER") return;
     const userId = await compteSalarieDe(contrat.employeeId);
     if (!userId) return;
     await notifierSalarie(userId, {

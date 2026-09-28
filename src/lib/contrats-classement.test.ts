@@ -115,6 +115,20 @@ describe("classerContrats", () => {
   });
 });
 
+describe("contrat qui commence plus tard", () => {
+  it("l'ancien reste EN VIGUEUR jusqu'au début du nouveau, qui est à signer et « à venir »", () => {
+    // Un CDI remplacé par un nouveau CDI (autres conditions) à partir du 1er novembre.
+    const contrats = [c({ id: "cdd", dateDebut: jour("2026-01-01") }), c({ id: "cdi", dateDebut: jour("2026-11-01") })];
+    const r = classerContrats(contrats, new Map([["cdd", "SIGNE"]]), MIDI_KIN);
+    expect(r.get("cdd")?.categorie).toBe("EN_VIGUEUR");
+    expect(r.get("cdi")).toEqual({ categorie: "A_SIGNER", motif: "commence le 01/11/2026", expireNonMarque: false, aVenir: true });
+    // Le jour du début, le nouveau prend la place : l'ancien est remplacé.
+    const r2 = classerContrats(contrats, new Map([["cdd", "SIGNE"]]), new Date("2026-11-01T10:00:00Z"));
+    expect(r2.get("cdd")?.motif).toBe("remplacé par le contrat du 01/11/2026");
+    expect(r2.get("cdi")?.aVenir).toBeUndefined();
+  });
+});
+
 describe("libellés du type de contrat", () => {
   it("chaque type s'écrit en clair", () => {
     expect(libelleTypeContrat("CDI")).toBe("CDI — durée indéterminée");

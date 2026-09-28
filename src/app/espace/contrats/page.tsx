@@ -20,6 +20,7 @@ export default async function EspaceContrats() {
         dateFin: c.dateFin,
         classement,
         etat,
+        documentUrl: c.documentUrl,
       }))}
     />
   );

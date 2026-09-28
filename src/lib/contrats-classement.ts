@@ -33,6 +33,12 @@ export type Classement = {
    * Direction de le « Marquer expiré ». Jamais vrai pour un statut déjà EXPIRE, RESILIE, TRANSFORME.
    */
   expireNonMarque: boolean;
+  /**
+   * Contrat ACTIF qui n'a pas encore commencé (début après aujourd'hui) : il se signe déjà, mais
+   * le contrat en cours reste « en vigueur » jusqu'à ce début — il n'est pas « remplacé » dès la
+   * saisie du nouveau. Son motif dit « commence le … ».
+   */
+  aVenir?: boolean;
 };
 
 /** États de signature tels que `etatSignature` les dérive (absent de la carte = jamais signé). */
@@ -72,7 +78,9 @@ function plusRecentDabord(a: ContratClassable, b: ContratClassable): number {
  * paraîtrait encore en vigueur le 29 entre minuit et une heure du matin.
  *
  * « En vigueur » : statut ACTIF, date de fin nulle ou non passée, et contrat ACTIF le plus récent
- * de la fiche. La date de fin elle-même est encore un jour de contrat.
+ * de la fiche PARMI CEUX QUI ONT COMMENCÉ. La date de fin elle-même est encore un jour de contrat.
+ * Un contrat qui commence plus tard est « à venir » : à signer (ou signé), sans remplacer encore
+ * le contrat en cours.
  */
 export function classerContrats(
   contrats: ContratClassable[],
@@ -81,7 +89,8 @@ export function classerContrats(
 ): Map<string, Classement> {
   const aujourdhui = jourCivilKinshasa(maintenant).getTime();
   const finPassee = (c: ContratClassable) => c.dateFin !== null && new Date(c.dateFin).getTime() < aujourdhui;
-  const leDernierActif = [...contrats].filter((c) => c.statut === "ACTIF").sort(plusRecentDabord)[0] ?? null;
+  const commence = (c: ContratClassable) => new Date(c.dateDebut).getTime() <= aujourdhui;
+  const leDernierActif = [...contrats].filter((c) => c.statut === "ACTIF" && commence(c)).sort(plusRecentDabord)[0] ?? null;
 
   const r = new Map<string, Classement>();
   for (const c of contrats) {
@@ -92,7 +101,10 @@ export function classerContrats(
     else if (c.statut === "TRANSFORME") r.set(c.id, ancien("transformé"));
     else if (c.statut === "EXPIRE") r.set(c.id, ancien(c.dateFin ? `expiré le ${jourMetier(c.dateFin)}` : "expiré"));
     else if (finPassee(c)) r.set(c.id, ancien(`expiré le ${jourMetier(c.dateFin!)}`, true));
-    else if (leDernierActif && leDernierActif.id !== c.id) {
+    else if (!commence(c)) {
+      const etat = etats.get(c.id) ?? "A_SIGNER";
+      r.set(c.id, { categorie: etat === "SIGNE" ? "EN_VIGUEUR" : "A_SIGNER", motif: `commence le ${jourMetier(c.dateDebut)}`, expireNonMarque: false, aVenir: true });
+    } else if (leDernierActif && leDernierActif.id !== c.id) {
       r.set(c.id, ancien(`remplacé par le contrat du ${jourMetier(leDernierActif.dateDebut)}`));
     } else {
       const etat = etats.get(c.id) ?? "A_SIGNER";

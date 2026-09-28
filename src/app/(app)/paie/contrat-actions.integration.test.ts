@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
+import { Client } from "pg";
 import { creerBaseTest } from "@/lib/test/db";
 
 // Dates des contrats dans le futur : les tests ne dépendent pas du jour où ils tournent.
@@ -50,6 +51,7 @@ const { enregistrerSignature } = await import("@/lib/signature");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
+let url: string;
 let seq = 0;
 
 async function salarie(avecCompte: boolean) {
@@ -92,7 +94,7 @@ function formulaire(champs: Record<string, string>): FormData {
 
 beforeAll(async () => {
   const db = await creerBaseTest();
-  prisma = db.prisma; fermer = db.fermer; H.client = prisma;
+  prisma = db.prisma; fermer = db.fermer; url = db.url; H.client = prisma;
   A.user.id = (await prisma.user.create({ data: { email: "direction.contrats@test.pef", nom: "Direction", role: "ADMIN" } })).id;
 }, 600_000);
 afterAll(async () => { await fermer?.(); });
@@ -103,6 +105,19 @@ describe("notification « Un contrat vous attend pour signature »", () => {
     const s = await salarie(true);
     await ajouterContrat(s.employeeId, formulaire({ type: "CDI", poste: "Commis", dateDebut: "2026-09-01", salaireMensuel: "300" }));
     expect(N.salarie).toEqual([expect.objectContaining({ userId: s.userId, message: "Un contrat vous attend pour signature", lien: "/espace/contrats" })]);
+  });
+
+  it("un contrat saisi a posteriori et DÉJÀ ÉCHU ne notifie pas (il ne se signe pas)", async () => {
+    const s = await salarie(true);
+    await ajouterContrat(s.employeeId, formulaire({ type: "CDD", poste: "Commis", dateDebut: "2020-01-01", dateFin: "2020-12-31", salaireMensuel: "300" }));
+    expect(N.salarie).toEqual([]);
+  });
+
+  it("un contrat plus ANCIEN qu'un contrat actif (« remplacé ») ne notifie pas", async () => {
+    const s = await salarie(true);
+    await contrat(s.employeeId, { type: "CDI", dateDebut: "2025-06-01", dateFin: null });
+    await ajouterContrat(s.employeeId, formulaire({ type: "CDI", poste: "Commis", dateDebut: "2024-01-01", salaireMensuel: "300" }));
+    expect(N.salarie).toEqual([]);
   });
 
   it("un salarié sans compte n'est pas notifié", async () => {
@@ -193,6 +208,32 @@ describe("nouveau contrat — clôture proposée du contrat en cours (§3.4)", (
     ).rejects.toThrow(/Ce contrat n'appartient pas à ce salarié/);
     expect((await prisma.contrat.findUniqueOrThrow({ where: { id: sien.id } })).statut).toBe("ACTIF");
     expect(await prisma.contrat.count({ where: { employeeId: s.employeeId } })).toBe(0);
+  });
+
+  it("double envoi : le second attend le premier (verrou), relit le contrat clôturé et ne crée rien", async () => {
+    const s = await salarie(false);
+    const ancien = await contrat(s.employeeId);
+    // Le PREMIER envoi, simulé par une transaction concurrente, a verrouillé et clôturé l'ancien
+    // contrat et créé le nouveau, sans avoir encore validé.
+    const premier = new Client({ connectionString: url });
+    await premier.connect();
+    try {
+      await premier.query("BEGIN");
+      await premier.query(`SELECT "id" FROM "public"."Contrat" WHERE "id"=$1 FOR UPDATE`, [ancien.id]);
+      await premier.query(`UPDATE "public"."Contrat" SET "statut"='TRANSFORME' WHERE "id"=$1`, [ancien.id]);
+      await premier.query(
+        `INSERT INTO "public"."Contrat" ("id","employeeId","type","dateDebut","salaireMensuel","poste") VALUES (gen_random_uuid()::text,$1,'CDI','2030-07-01',400,'Commis')`,
+        [s.employeeId],
+      );
+      const second = ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: ancien.id, cloturer: "on", statutCloture: "TRANSFORME" }));
+      const verdict = second.then(() => "ok", (e: Error) => e.message);
+      await new Promise((r) => setTimeout(r, 500));
+      await premier.query("COMMIT");
+      expect(await verdict).toMatch(/n'est plus actif/);
+    } finally {
+      await premier.end();
+    }
+    expect(await prisma.contrat.count({ where: { employeeId: s.employeeId } })).toBe(2); // l'ancien + UN nouveau
   });
 
   it("un statut de clôture autre que Transformé / Résilié est refusé", async () => {

@@ -16,6 +16,8 @@ export type LigneContrat = {
   dateFin: Date | null;
   classement: Classement;
   etat: EtatSignature;
+  /** Pièce jointe du contrat (scan, Word…) déposée par la Direction. */
+  documentUrl?: string | null;
 };
 
 export function rubriquesContrats(lignes: LigneContrat[]) {
@@ -26,7 +28,14 @@ export function rubriquesContrats(lignes: LigneContrat[]) {
   };
 }
 
-const periode = (l: LigneContrat) => `du ${jourMetier(l.dateDebut)} ${l.dateFin ? `au ${jourMetier(l.dateFin)}` : "(durée indéterminée)"}`;
+const periode = (l: LigneContrat) =>
+  `du ${jourMetier(l.dateDebut)} ${l.dateFin ? `au ${jourMetier(l.dateFin)}` : "(durée indéterminée)"}${l.classement.aVenir && l.classement.motif ? ` · ${l.classement.motif}` : ""}`;
+
+function PieceJointe({ l }: { l: LigneContrat }) {
+  return l.documentUrl ? (
+    <a href={l.documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground underline">pièce jointe</a>
+  ) : null;
+}
 const titre = (l: LigneContrat) => `${libelleTypeContrat(l.type)} · ${l.poste}`;
 
 export function VueMesContrats({
@@ -65,6 +74,7 @@ export function VueMesContrats({
                 action={action}
                 {...l.etat}
               />
+              <PieceJointe l={l} />
             </div>
           </li>
         ))}
@@ -85,6 +95,7 @@ export function VueMesContrats({
               )}
               <ContratViewerButton href={`/espace/contrat/${l.id}`} titre={`Contrat — ${titre(l)}`} libelle="Voir" className="text-primary underline" />
               <TelechargerLien href={`/espace/contrat/${l.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
+              <PieceJointe l={l} />
             </div>
           </li>
         ))}
@@ -102,6 +113,7 @@ export function VueMesContrats({
             </div>
             <div className="flex shrink-0 items-center gap-3 text-sm">
               <TelechargerLien href={`/espace/contrat/${l.id}?dl=1&exemplaire=fige`} className="text-primary underline">Télécharger</TelechargerLien>
+              <PieceJointe l={l} />
             </div>
           </li>
         ))}

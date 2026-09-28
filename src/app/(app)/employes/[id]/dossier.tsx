@@ -226,8 +226,11 @@ export function DossierEmploye({
         // Le contrat COURANT est celui que le classement range en vigueur ou à signer (même lecture
         // que « Mes contrats ») ; les autres — transformés, résiliés, remplacés, et les CDD ÉCHUS
         // même encore ACTIF en base — forment l'historique, avec leur motif.
+        const nonAncien = (c: Contrat) => (classementsContrats[c.id]?.categorie ?? (c.statut === "ACTIF" ? "A_SIGNER" : "ANCIEN")) !== "ANCIEN";
+        // Un contrat qui commence plus tard ne remplace pas encore les conditions actuelles : il
+        // apparaît dans l'historique (« commence le … ») jusqu'à son début.
         const courant =
-          contrats.find((c) => (classementsContrats[c.id]?.categorie ?? (c.statut === "ACTIF" ? "A_SIGNER" : "ANCIEN")) !== "ANCIEN") ?? null;
+          contrats.find((c) => nonAncien(c) && !classementsContrats[c.id]?.aVenir) ?? contrats.find(nonAncien) ?? null;
         const anciens = contrats.filter((c) => c !== courant);
         return (
       <>

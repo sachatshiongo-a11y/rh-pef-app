@@ -92,6 +92,17 @@ describe("VueMesContrats", () => {
   });
 });
 
+describe("pièce jointe du contrat", () => {
+  it("le lien vers la pièce jointe déposée par la Direction est proposé, dans chaque rubrique", () => {
+    for (const l of [aSigner, enVigueur, ancien]) {
+      const html = rendu([{ ...l, documentUrl: "/fichiers/documents/scan-1.pdf" }]);
+      expect(html).toContain('href="/fichiers/documents/scan-1.pdf"');
+      expect(texte(html)).toContain("pièce jointe");
+    }
+    expect(rendu([aSigner])).not.toContain("pièce jointe");
+  });
+});
+
 describe("fenêtre de signature", () => {
   it("un CONTRAT signé par le salarié vaut acceptation — et le texte le dit", () => {
     expect(texteSignature("CONTRAT", "SALARIE")).toBe("En signant, vous acceptez ce contrat et ses conditions.");
