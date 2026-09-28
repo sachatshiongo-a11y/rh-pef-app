@@ -34,6 +34,8 @@ import { faireSignerDocument } from "../../signature-actions";
 import type { EtatSignature } from "@/lib/signature";
 import { LIBELLE_TYPE_CONTRAT, libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
 import { BoutonMarquerExpire } from "../../paie/marquer-expire";
+// Libellés des types de document : source unique partagée avec l'espace salarié (« Mes documents »).
+import { libelleTypeDocument } from "@/lib/libelles-espace";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -71,17 +73,6 @@ const BORDURE_DISCIPLINAIRE: Record<string, string> = {
   MESURE: "border-l-slate-300",
 };
 
-const TYPE_DOC_LABEL: Record<string, string> = {
-  CONTRAT: "Contrat",
-  CARTE_IDENTITE: "Carte d'identité",
-  DIPLOME: "Diplôme",
-  PHOTO: "Photo",
-  CV: "CV",
-  CERTIFICAT_MEDICAL: "Certificat médical",
-  AVERTISSEMENT: "Avertissement",
-  LETTRE: "Lettre",
-  AUTRE: "Autre",
-};
 
 function d(date: Date | null | undefined) {
   return date ? new Date(date).toLocaleDateString("fr-FR") : "—";
@@ -960,7 +951,7 @@ export function DossierEmploye({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium group-hover:text-primary">{doc.nom}</p>
                     <span className="mt-0.5 inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
-                      {TYPE_DOC_LABEL[doc.type] ?? doc.type}
+                      {libelleTypeDocument(doc.type)}
                     </span>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {doc.dateEmission ? `Émis le ${d(doc.dateEmission)}` : "Sans date"}
