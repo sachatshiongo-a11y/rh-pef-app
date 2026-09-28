@@ -32,6 +32,7 @@ import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
+import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
@@ -160,6 +161,10 @@ export default async function FicheEmployePage({
   ]);
   const etatsContrats: Record<string, EtatSignature> = Object.fromEntries(
     contrats.map((c) => [c.id, etatSignature(sigContrats.get(c.id))])
+  );
+  // Même classement que « Mes contrats » : un CDD échu s'affiche « expiré le … » des deux côtés.
+  const classementsContrats: Record<string, Classement> = Object.fromEntries(
+    classerContrats(contrats, new Map(Object.entries(etatsContrats).map(([id, e]) => [id, e.etat])), new Date()),
   );
 
   // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
@@ -970,6 +975,7 @@ export default async function FicheEmployePage({
         contrats={contrats}
         nomSalarie={employee.nom}
         etatsSignatureContrats={etatsContrats}
+        classementsContrats={classementsContrats}
         prets={pretsView}
         periodePaie={{ mois, annee }}
         tachesOnboarding={tachesOnboarding.map((t) => ({ id: t.id, libelle: t.libelle, fait: t.fait, faitLe: t.faitLe }))}

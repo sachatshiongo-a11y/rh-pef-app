@@ -29,6 +29,8 @@ import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat, 
 import { BoutonSigner } from "@/components/bouton-signer";
 import { faireSignerDocument } from "../../signature-actions";
 import type { EtatSignature } from "@/lib/signature";
+import { libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
+import { BoutonMarquerExpire } from "../../paie/marquer-expire";
 
 const MOTIF_FIN: Record<string, string> = {
   LICENCIEMENT: "Licenciement (Art. 67 C.T.)",
@@ -45,6 +47,8 @@ const STATUT_CONTRAT: Record<string, { label: string; classe: string }> = {
   EXPIRE: { label: "Expiré", classe: "bg-amber-100 text-amber-800" },
   RESILIE: { label: "Résilié", classe: "bg-red-100 text-red-800" },
   TRANSFORME: { label: "Transformé", classe: "bg-sky-100 text-sky-800" },
+  // Pas un statut en base : un contrat ACTIF dont la date de fin est passée (classement dérivé).
+  ECHU: { label: "Échu — à marquer expiré", classe: "bg-amber-100 text-amber-800" },
 };
 function StatutContratBadge({ statut }: { statut: string }) {
   const s = STATUT_CONTRAT[statut] ?? { label: statut, classe: "bg-muted text-muted-foreground" };
@@ -155,6 +159,7 @@ export function DossierEmploye({
   contrats,
   nomSalarie,
   etatsSignatureContrats = {},
+  classementsContrats = {},
   prets = [],
   periodePaie,
   tachesOnboarding = [],
@@ -189,6 +194,8 @@ export function DossierEmploye({
   nomSalarie: string;
   /** État de signature par contrat, DÉRIVÉ du document (`etatSignature`), jamais stocké. */
   etatsSignatureContrats?: Record<string, EtatSignature>;
+  /** Classement dérivé (`classerContrats`) : en vigueur / à signer / ancien, avec son motif. */
+  classementsContrats?: Record<string, Classement>;
   prets?: { id: string; montant: number; retenueMensuelle: number; motif: string | null; statut: string; dateAccord: Date; rembourse: number; solde: number; nbRetenues: number; echeancier: Echeancier }[];
   /** Période de paie en cours — sert à projeter le mois de solde d'un prêt à la saisie. */
   periodePaie: { mois: number; annee: number };
@@ -207,9 +214,11 @@ export function DossierEmploye({
   return (
     <>
       {vue === "contrats" && (() => {
-        // Le contrat COURANT (actif le plus récent) est mis en avant façon « Conditions actuelles » ;
-        // les autres (transformés, expirés, résiliés…) forment l'historique replié en dessous.
-        const courant = contrats.find((c) => c.statut === "ACTIF") ?? null;
+        // Le contrat COURANT est celui que le classement range en vigueur ou à signer (même lecture
+        // que « Mes contrats ») ; les autres — transformés, résiliés, remplacés, et les CDD ÉCHUS
+        // même encore ACTIF en base — forment l'historique, avec leur motif.
+        const courant =
+          contrats.find((c) => (classementsContrats[c.id]?.categorie ?? (c.statut === "ACTIF" ? "A_SIGNER" : "ANCIEN")) !== "ANCIEN") ?? null;
         const anciens = contrats.filter((c) => c !== courant);
         return (
       <>
@@ -548,7 +557,10 @@ export function DossierEmploye({
               <div key={c.id} className="rounded-xl border bg-card p-4">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-semibold">{c.type} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
+                    <p className="font-semibold">{libelleTypeContrat(c.type)} <span className="font-normal text-muted-foreground">· {c.poste}</span></p>
+                    {classementsContrats[c.id]?.motif && (
+                      <p className="text-xs font-medium text-amber-800">{classementsContrats[c.id]!.motif}</p>
+                    )}
                     <p className="text-sm text-muted-foreground">
                       du {d(c.dateDebut)} {c.dateFin ? `au ${d(c.dateFin)}` : "(indéterminé)"}
                       {c.renouvellements > 0 ? ` · prolongé ${c.renouvellements} fois` : ""}
@@ -559,7 +571,7 @@ export function DossierEmploye({
                       </p>
                     )}
                   </div>
-                  <StatutContratBadge statut={c.statut} />
+                  <StatutContratBadge statut={classementsContrats[c.id]?.expireNonMarque ? "ECHU" : c.statut} />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
@@ -575,6 +587,7 @@ export function DossierEmploye({
                   <ContratViewerButton href={`/employes/${employeeId}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Générer le contrat (PDF)" className="text-sm font-medium text-primary underline" />
                   {/* Un INSTANT : jour de Kinshasa, sinon la veille de la date du PDF entre minuit et une heure. */}
                   {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {jourKinshasa(c.accepteLe)}</span>}
+                  {peutModifier && classementsContrats[c.id]?.expireNonMarque && <BoutonMarquerExpire ids={[c.id]} />}
                   {c.documentUrl && (
                     <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>
                   )}

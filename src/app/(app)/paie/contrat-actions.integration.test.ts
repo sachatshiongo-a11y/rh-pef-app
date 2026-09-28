@@ -45,7 +45,7 @@ vi.mock("@/lib/notifications", () => ({
 }));
 
 const { ajouterContrat } = await import("../employes/[id]/dossier-actions");
-const { modifierContrat, prolongerContrat } = await import("./contrat-actions");
+const { modifierContrat, prolongerContrat, marquerContratsExpires } = await import("./contrat-actions");
 const { enregistrerSignature } = await import("@/lib/signature");
 
 let prisma: PrismaClient;
@@ -201,5 +201,45 @@ describe("nouveau contrat — clôture proposée du contrat en cours (§3.4)", (
     await expect(
       ajouterContrat(s.employeeId, nouveauCdi({ cloturerContratId: ancien.id, cloturer: "on", statutCloture: "EXPIRE" })),
     ).rejects.toThrow(/Transformé ou Résilié/);
+  });
+});
+
+describe("« Marquer expiré » — un geste de la Direction, journalisé (§3.4)", () => {
+  it("lot mixte : seuls les ACTIF dont la fin est passée passent en EXPIRE ; un message par ligne refusée", async () => {
+    const s = await salarie(false);
+    const t = await salarie(false);
+    const expire = await contrat(s.employeeId, { dateDebut: "2024-01-01", dateFin: "2024-12-31" });
+    const enCours = await contrat(t.employeeId);
+    const resilie = await contrat(t.employeeId, { dateDebut: "2023-01-01", dateFin: "2023-06-30", statut: "RESILIE" });
+
+    const r = await marquerContratsExpires([expire.id, enCours.id, resilie.id, "inconnu"]);
+    expect(r).toEqual({
+      traites: 1,
+      refus: [
+        { id: enCours.id, message: expect.stringMatching(/pas encore échu/) },
+        { id: resilie.id, message: expect.stringMatching(/n'est plus actif/) },
+        { id: "inconnu", message: "Contrat introuvable." },
+      ],
+    });
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: expire.id } })).statut).toBe("EXPIRE");
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: enCours.id } })).statut).toBe("ACTIF");
+    expect(await prisma.journalAudit.findMany({ where: { entiteId: expire.id, champ: "statut" } })).toEqual([
+      expect.objectContaining({ ancienneValeur: "ACTIF", nouvelleValeur: "EXPIRE", userId: A.user.id }),
+    ]);
+  });
+
+  it("un compte en lecture seule ne marque rien", async () => {
+    const s = await salarie(false);
+    const expire = await contrat(s.employeeId, { dateDebut: "2024-01-01", dateFin: "2024-12-31" });
+    A.user.role = "VIEWER";
+    expect(await marquerContratsExpires([expire.id])).toEqual({ erreur: "Accès refusé." });
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: expire.id } })).statut).toBe("ACTIF");
+  });
+
+  it("rien n'est marqué sans le geste : un CDD échu reste ACTIF en base, seul l'affichage le dit expiré", async () => {
+    const s = await salarie(false);
+    const expire = await contrat(s.employeeId, { dateDebut: "2024-01-01", dateFin: "2024-12-31" });
+    await ajouterContrat(s.employeeId, formulaire({ type: "CDI", poste: "Commis", dateDebut: "2030-07-01", salaireMensuel: "400" }));
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: expire.id } })).statut).toBe("ACTIF");
   });
 });

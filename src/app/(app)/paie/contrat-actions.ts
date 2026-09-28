@@ -9,6 +9,8 @@ import { chargerReglesContrats, verifierProlongationCdd, verifierProlongationEss
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { televerserFichier } from "@/lib/storage";
 import type { TypeContrat } from "@prisma/client";
+import { actionLisible } from "@/lib/action-lisible";
+import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { notifierContratASigner, etatSignatureContrat, notifierSiContratARevoir } from "@/lib/contrats-notification";
 
 function revalider(employeeId: string) {
@@ -274,3 +276,54 @@ export async function prolongerEssai(id: string, formData: FormData) {
     revalider(contrat.employeeId);
   });
 }
+
+export type ResultatExpiration = { traites: number; refus: { id: string; message: string }[] };
+
+/**
+ * « Marquer expiré » (spec 2026-09-28, §3.4) — geste de la Direction, à l'unité ou en lot. Un CDD
+ * dont la date de fin est passée s'AFFICHE « expiré le … » partout sans que rien ne soit écrit
+ * (`classerContrats`) ; c'est ce clic, et lui seul, qui pose `EXPIRE` en base.
+ *
+ * Tout ou rien PAR LIGNE : un contrat qui n'est pas échu (ou plus actif) est refusé avec son
+ * message, les autres passent. Chaque passage est journalisé. L'écriture est conditionnée à
+ * `statut: ACTIF` : deux clics simultanés ne journalisent pas deux fois.
+ */
+export const marquerContratsExpires = actionLisible(async (ids: string[]): Promise<ResultatExpiration> => {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN", "MANAGER"]);
+
+  const contrats = await prisma.contrat.findMany({ where: { id: { in: ids } }, select: { id: true, employeeId: true } });
+  const employes = [...new Set(contrats.map((c) => c.employeeId))];
+  const fiches = await prisma.contrat.findMany({
+    where: { employeeId: { in: employes } },
+    select: { id: true, employeeId: true, type: true, statut: true, dateDebut: true, dateFin: true, createdAt: true },
+  });
+  const maintenant = new Date();
+  const classes = new Map<string, Classement>();
+  for (const e of employes) {
+    for (const [id, c] of classerContrats(fiches.filter((f) => f.employeeId === e), new Map(), maintenant)) classes.set(id, c);
+  }
+
+  const r: ResultatExpiration = { traites: 0, refus: [] };
+  const touches = new Set<string>();
+  for (const id of ids) {
+    const f = fiches.find((x) => x.id === id);
+    if (!f) { r.refus.push({ id, message: "Contrat introuvable." }); continue; }
+    const cl = classes.get(id);
+    if (f.statut !== "ACTIF") { r.refus.push({ id, message: `Ce contrat n'est plus actif (${cl?.motif ?? f.statut}).` }); continue; }
+    if (!cl?.expireNonMarque) { r.refus.push({ id, message: "Ce contrat n'est pas encore échu : sa date de fin n'est pas passée." }); continue; }
+    const fait = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.contrat.updateMany({ where: { id, statut: "ACTIF" }, data: { statut: "EXPIRE" } });
+      if (count === 1) {
+        await journaliser(tx, { entite: "Contrat", entiteId: id, champ: "statut", ancienneValeur: "ACTIF", nouvelleValeur: "EXPIRE", userId: user.id });
+      }
+      return count === 1;
+    });
+    if (fait) { r.traites++; touches.add(f.employeeId); }
+    else r.refus.push({ id, message: "Ce contrat vient d'être modifié par ailleurs : rechargez la page." });
+  }
+  revalidatePath("/paie");
+  revalidatePath("/documents");
+  for (const e of touches) revalidatePath(`/employes/${e}`);
+  return r;
+});

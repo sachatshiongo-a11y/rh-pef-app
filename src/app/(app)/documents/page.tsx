@@ -14,6 +14,7 @@ import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../signature-actions";
+import { classerContrats, libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -31,6 +32,13 @@ const COULEUR_CONTRAT: Record<string, string> = {
   ACTIF: "bg-green-100 text-green-800",
   EXPIRE: "bg-amber-100 text-amber-800",
   RESILIE: "bg-red-100 text-red-800",
+  TRANSFORME: "bg-sky-100 text-sky-800",
+};
+const LIBELLE_STATUT_CONTRAT: Record<string, string> = {
+  ACTIF: "Actif",
+  EXPIRE: "Expiré",
+  RESILIE: "Résilié",
+  TRANSFORME: "Transformé",
 };
 
 function Badge({ classe, children }: { classe: string; children: string }) {
@@ -57,7 +65,7 @@ export default async function DocumentsPage({
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }, { employee: { nom: "asc" } }],
       take: 1000,
     }),
-    prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateDebut: "desc" }, take: 1000 }),
+    prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: [{ dateDebut: "desc" }, { createdAt: "desc" }], take: 1000 }),
     prisma.documentEmploye.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { createdAt: "desc" }, take: 1000 }),
     prisma.leaveRequest.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateEnreg: "desc" }, take: 1000 }),
     prisma.fichePoste.findMany({ orderBy: { poste: "asc" }, take: 1000 }),
@@ -106,6 +114,42 @@ export default async function DocumentsPage({
     onglet === "bulletins" ? bulletins.filter((b) => b.statutPaiement !== "PAS_VALIDE").map((b) => b.id) : []
   );
 
+  // Onglet Contrats : même classement que « Mes contrats » (un CDD échu s'y lit « expiré le … »),
+  // et l'état de signature avec le même composant que pour les bulletins.
+  const sigContrats = await chargerSignatures(prisma, "CONTRAT", onglet === "contrats" ? contrats.map((c) => c.id) : []);
+  const classementContrats = new Map<string, Classement>();
+  if (onglet === "contrats") {
+    const etats = new Map(contrats.map((c) => [c.id, etatSignature(sigContrats.get(c.id)).etat]));
+    const maintenant = new Date();
+    for (const e of new Set(contratsAll.map((c) => c.employeeId))) {
+      for (const [id, cl] of classerContrats(contratsAll.filter((c) => c.employeeId === e), etats, maintenant)) classementContrats.set(id, cl);
+    }
+  }
+  const statutContrat = (c: (typeof contrats)[number]) => {
+    const cl = classementContrats.get(c.id);
+    if (cl?.expireNonMarque) return { libelle: cl.motif ?? "Échu", classe: COULEUR_CONTRAT.EXPIRE };
+    return { libelle: LIBELLE_STATUT_CONTRAT[c.statut] ?? c.statut, classe: COULEUR_CONTRAT[c.statut] ?? "" };
+  };
+  const signatureContrat = (c: (typeof contrats)[number]) => {
+    const etat = etatSignature(sigContrats.get(c.id));
+    const ancien = classementContrats.get(c.id)?.categorie === "ANCIEN";
+    if (peutFaireSigner && !ancien && c.statut === "ACTIF") {
+      return (
+        <BoutonSigner
+          cible="CONTRAT"
+          cibleId={c.id}
+          nomSalarie={c.employee.nom}
+          libelleDocument={`Contrat ${libelleTypeContrat(c.type)} · ${c.poste} — ${c.employee.nom}`}
+          cote="DIRECTION"
+          action={faireSignerDocument}
+          {...etat}
+        />
+      );
+    }
+    if (ancien && etat.etat === "A_SIGNER") return <span className="text-xs text-muted-foreground">—</span>;
+    return <EtatSignatureLecture {...etat} />;
+  };
+
   // Options du filtre statut selon l'onglet actif.
   const optionsStatut: { v: string; label: string }[] =
     onglet === "bulletins"
@@ -121,6 +165,7 @@ export default async function DocumentsPage({
               { v: "ACTIF", label: "Actif" },
               { v: "EXPIRE", label: "Expiré" },
               { v: "RESILIE", label: "Résilié" },
+              { v: "TRANSFORME", label: "Transformé" },
             ]
           : [...new Set(documentsAll.map((d) => d.type))].map((t) => ({ v: t, label: t }));
 
@@ -235,10 +280,11 @@ export default async function DocumentsPage({
           <div key={c.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
-              <Badge classe={COULEUR_CONTRAT[c.statut] ?? ""}>{c.statut}</Badge>
+              <Badge classe={statutContrat(c).classe}>{statutContrat(c).libelle}</Badge>
             </div>
-            <div className="mt-1.5 text-xs text-muted-foreground">{c.type} · {fr(c.dateDebut)} → {fr(c.dateFin)}</div>
+            <div className="mt-1.5 text-xs text-muted-foreground">{libelleTypeContrat(c.type)} · {fr(c.dateDebut)} → {fr(c.dateFin)}</div>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+              {signatureContrat(c)}
               <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
               <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
               {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-muted-foreground underline">Pièce jointe</a>}
@@ -332,15 +378,16 @@ export default async function DocumentsPage({
 
           {onglet === "contrats" && (
             <>
-              <Thead cols={["Employé", "Type", "Début", "Échéance", "Statut", "Contrat (PDF)", "Pièce jointe"]} />
+              <Thead cols={["Employé", "Type", "Début", "Échéance", "Statut", "Signature", "Contrat (PDF)", "Pièce jointe"]} />
               <tbody>
                 {contrats.map((c) => (
                   <tr key={c.id} className="border-t">
                     <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></td>
-                    <td className="px-3 py-2">{c.type}</td>
+                    <td className="px-3 py-2">{libelleTypeContrat(c.type)}</td>
                     <td className="px-3 py-2">{fr(c.dateDebut)}</td>
                     <td className="px-3 py-2">{fr(c.dateFin)}</td>
-                    <td className="px-3 py-2"><Badge classe={COULEUR_CONTRAT[c.statut] ?? ""}>{c.statut}</Badge></td>
+                    <td className="px-3 py-2"><Badge classe={statutContrat(c).classe}>{statutContrat(c).libelle}</Badge></td>
+                    <td className="whitespace-nowrap px-3 py-2">{signatureContrat(c)}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-3">
                         <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
@@ -350,7 +397,7 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{c.documentUrl ? <a href={c.documentUrl} target="_blank" className="text-primary underline">Ouvrir</a> : "—"}</td>
                   </tr>
                 ))}
-                <Vide n={contrats.length} cols={7} />
+                <Vide n={contrats.length} cols={8} />
               </tbody>
             </>
           )}
