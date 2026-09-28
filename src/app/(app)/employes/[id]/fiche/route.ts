@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
@@ -13,7 +13,8 @@ const usd = (n: number) =>
   formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const { id } = await params;
 
   const employee = await prisma.employee.findUnique({ where: { id } });

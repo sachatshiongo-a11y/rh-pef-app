@@ -1,11 +1,12 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { calculerDeclarationsMois } from "@/lib/declarations";
 import { BordereauDeclarationsDocument } from "@/lib/pdf/declarations";
 import { chargerEntreprise } from "@/lib/entreprise";
 
 export async function GET(request: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
 
   const params = new URL(request.url).searchParams;
   const mois = Number(params.get("mois"));

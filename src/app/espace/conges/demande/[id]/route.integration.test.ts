@@ -184,12 +184,19 @@ describe("le salarié et la Direction lisent EXACTEMENT le même document", () =
       traceUrl: "/fichiers/signatures/demande_conge/test.png", mode: "ESPACE_SALARIE", presenteParId: null,
     });
 
-    const [cote, direction] = await Promise.all([
-      appeler(approuveeId).then(corpsDe),
-      getDirection(new Request(`http://localhost/conges/demande/${approuveeId}`), {
+    // L'un après l'autre, chacun avec SON compte : depuis le 2026-09-28, la route de la Direction
+    // refuse un compte salarié (garde `exigerEspaceRH`) — c'était la faille.
+    const cote = await appeler(approuveeId).then(corpsDe);
+    const salarie = A.user;
+    A.user = { ...salarie, role: "ADMIN", employeeId: null as unknown as string };
+    let direction: Buffer;
+    try {
+      direction = await getDirection(new Request(`http://localhost/conges/demande/${approuveeId}`), {
         params: Promise.resolve({ id: approuveeId }),
-      }).then(corpsDe),
-    ]);
+      }).then(corpsDe);
+    } finally {
+      A.user = salarie;
+    }
     const [texteSalarie, texteDirection] = await Promise.all([texteDu(cote), texteDu(direction)]);
 
     // La mention existe vraiment : sans cette assertion, l'égalité ci-dessous serait verte même

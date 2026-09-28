@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { LivrePaieDocument } from "@/lib/pdf/livre-paie";
 
 /**
@@ -9,7 +9,8 @@ import { LivrePaieDocument } from "@/lib/pdf/livre-paie";
  * puis une page « Récapitulatif ».
  */
 export async function GET() {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
   const { moisCourant: mois, anneeCourante: annee } = config;
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { jetonCronValide } from "@/lib/jeton-cron";
 import { calculerAlertes } from "@/lib/alertes";
 import { envoyerEmail } from "@/lib/email";
 import { envoyerPush } from "@/lib/push";
@@ -16,12 +17,7 @@ export const dynamic = "force-dynamic";
  * Ne renvoie jamais d'info sensible ; ne fait rien si le jeton est absent/incorrect.
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const fourni =
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ??
-    request.nextUrl.searchParams.get("token") ??
-    "";
-  if (!secret || fourni !== secret) {
+  if (!jetonCronValide(request)) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 

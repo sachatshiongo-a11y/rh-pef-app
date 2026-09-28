@@ -1,13 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { joursSemaine } from "../semaine";
 import { lignesStockResto } from "../export-data";
 
 /** Stock restaurant (Cuisine ou Bar) en Excel : grille hebdo groupée par catégorie. */
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;
   const espace = sp.get("espace") === "BAR" ? "BAR" : "CUISINE";

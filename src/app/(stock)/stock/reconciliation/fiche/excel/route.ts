@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { DOMAINE_LABEL } from "@/lib/stock";
 import { lignesFicheComptage, ENTETE_FICHE } from "../comptage-data";
@@ -7,8 +7,8 @@ import type { Prisma } from "@prisma/client";
 
 /** Fiche de comptage en Excel téléchargeable (par domaine) — génération instantanée, à imprimer/compter. */
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const sp = new URL(req.url).searchParams;
   const dom = sp.get("domaine");

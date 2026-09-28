@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { filtrerEmployes, colonnesEmployes, ligneEmploye } from "../_donnees";
 
 /** Export Excel de la liste des employés — FIDÈLE à l'onglet (mêmes filtres, brigade puis backoffice). */
 export async function GET(request: Request) {
-  await verifySession();
+  const g = await exigerEspaceRH();
+  if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
 
   const tous = await prisma.employee.findMany({ where: { actif: true }, orderBy: [{ categorie: "asc" }, { nom: "asc" }] });
