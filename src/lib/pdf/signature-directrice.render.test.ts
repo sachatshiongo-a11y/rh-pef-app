@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import type { Contrat, Employee } from "@prisma/client";
+import type { DonneesAttestation } from "@/lib/attestations-donnees";
 
 /**
  * LA SIGNATURE DE LA DIRECTION NE SE TÉLÉCHARGE PAS — ELLE S'IMPRIME.
@@ -38,14 +38,11 @@ function dimensionsPng(buf: Buffer): { l: number; h: number } {
 
 const nbImages = (pdf: Buffer) => [...pdf.toString("latin1").matchAll(/\/Subtype\s*\/Image\b/g)].length;
 
-const employee = {
-  id: "e1", matricule: "PEF-007", nom: "Aimée Mutita", sexe: "F", poste: "Cuisinière", actif: true,
-  dateEmbauche: new Date("2025-01-06"), enfants: 0,
-} as unknown as Employee;
-const contrat = {
-  id: "c1", employeeId: "e1", type: "CDI", statut: "ACTIF", poste: "Cuisinière", salaireMensuel: 250, devise: "USD",
-  dateDebut: new Date("2025-01-06"), dateFin: null,
-} as unknown as Contrat;
+// L'attestation se rend depuis son INSTANTANÉ (lot 4, 2026-09-28), plus depuis la fiche et le contrat.
+const donnees: DonneesAttestation = {
+  type: "TRAVAIL", nom: "Aimée Mutita", sexe: "F", matricule: "PEF-007", poste: "Cuisinière",
+  typeContrat: "CDI — durée indéterminée", dateEmbauche: "2025-01-06", enPoste: true, dateSortie: null,
+};
 
 describe("signature de la Direction : hors de public/, lue côté serveur", () => {
   it("aucun fichier de public/ n'est une signature", () => {
@@ -71,7 +68,7 @@ describe("signature de la Direction : hors de public/, lue côté serveur", () =
     const png = fs.readFileSync(SIGNATURE_DIRECTRICE_PATH);
     const { l, h } = dimensionsPng(png);
 
-    const base = { employee, contrat, type: "travail" as const, salaireEstNet: false };
+    const base = { donnees, numero: "ATT-2026-0001", delivreeLe: new Date("2026-09-28T10:00:00Z") };
     const signee = await renderPdfBuffer(AttestationDocument({ ...base }));
     const sansSignature = await renderPdfBuffer(AttestationDocument({ ...base, signature: null }));
 

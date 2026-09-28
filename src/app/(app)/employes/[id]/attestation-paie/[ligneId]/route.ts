@@ -18,6 +18,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!ligne || ligne.employeeId !== id) {
     return new Response("Aucune ligne de paie pour cet employé sur cette période.", { status: 404 });
   }
+  // Un brouillon n'est pas un salaire perçu : seule une paie VALIDÉE ou PAYÉE s'atteste.
+  if (ligne.statutPaiement !== "VALIDE" && ligne.statutPaiement !== "PAYE") {
+    return new Response("Cette paie n'est pas encore validée : elle ne peut pas être attestée.", {
+      status: 409,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   const ent = await chargerEntreprise();
   const buffer = await renderPdfBuffer(

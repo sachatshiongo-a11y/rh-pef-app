@@ -1,6 +1,13 @@
+"use client";
+
 import Link from "next/link";
 import { transformerContrat, rompreContrat, prolongerContrat, prolongerEssai } from "./contrat-actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
+import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
+import type { EtatSignatureUI } from "@/components/bouton-signer";
+import { libelleTypeContrat } from "@/lib/contrats-classement";
+import { BoutonMarquerExpire } from "./marquer-expire";
 
 export type ContratRow = {
   id: string;
@@ -10,6 +17,11 @@ export type ContratRow = {
   dateDebut: string;
   dateFin: string | null;
   finPeriodeEssai: string | null;
+  /** Motif du classement (« expiré le … ») quand le contrat est ancien. */
+  motif: string | null;
+  /** Échu mais encore ACTIF en base : la Direction peut le « Marquer expiré ». */
+  expireNonMarque: boolean;
+  signature: { etat: EtatSignatureUI; signeLeTexte: string | null };
 };
 
 export function SuiviContrats({
@@ -21,6 +33,9 @@ export function SuiviContrats({
   peutGerer: boolean;
   estAdmin: boolean;
 }) {
+  const sel = useBulkSelection();
+  const echus = contrats.filter((c) => c.expireNonMarque);
+
   if (contrats.length === 0) {
     return (
       <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
@@ -31,19 +46,35 @@ export function SuiviContrats({
 
   return (
     <div className="space-y-2">
+      {/* Actions groupées : les contrats échus (date de fin passée, encore ACTIF en base). */}
+      {peutGerer && echus.length > 0 && (
+        <BulkBar count={sel.sel.size} total={echus.length} onAll={(on) => sel.setAll(echus.map((c) => c.id), on)}>
+          <BoutonMarquerExpire ids={sel.ids} onFini={sel.clear} />
+        </BulkBar>
+      )}
       {contrats.map((c) => (
-        <div key={c.id} className="rounded-xl border bg-card p-3">
+        <div key={c.id} className={`rounded-xl border bg-card p-3 ${sel.sel.has(c.id) ? "ring-1 ring-primary" : ""}`}>
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <Link href={`/employes/${c.employeeId}`} className="font-semibold hover:underline">
-                {c.nom}
-              </Link>
-              <span className="ml-2 text-sm text-muted-foreground">Contrat {c.type}</span>
-              <p className="text-xs text-muted-foreground">
-                Début {c.dateDebut}
-                {c.dateFin ? ` · Échéance ${c.dateFin}` : ""}
-                {c.finPeriodeEssai ? ` · Fin période d'essai ${c.finPeriodeEssai}` : ""}
-              </p>
+            <div className="flex min-w-0 items-start gap-2">
+              {peutGerer && c.expireNonMarque && (
+                <input type="checkbox" checked={sel.sel.has(c.id)} onChange={() => sel.toggle(c.id)} aria-label={`Sélectionner ${c.nom}`} className="mt-1" />
+              )}
+              <div className="min-w-0">
+                <Link href={`/employes/${c.employeeId}`} className="font-semibold hover:underline">
+                  {c.nom}
+                </Link>
+                <span className="ml-2 text-sm text-muted-foreground">{libelleTypeContrat(c.type)}</span>
+                <p className="text-xs text-muted-foreground">
+                  Début {c.dateDebut}
+                  {c.dateFin ? ` · Échéance ${c.dateFin}` : ""}
+                  {c.finPeriodeEssai ? ` · Fin période d'essai ${c.finPeriodeEssai}` : ""}
+                </p>
+                {c.motif && <p className="text-xs font-medium text-amber-800">{c.motif[0].toUpperCase() + c.motif.slice(1)}</p>}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <EtatSignatureLecture {...c.signature} />
+              {peutGerer && c.expireNonMarque && <BoutonMarquerExpire ids={[c.id]} />}
             </div>
           </div>
 

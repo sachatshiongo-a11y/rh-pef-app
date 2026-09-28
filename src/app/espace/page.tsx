@@ -6,6 +6,7 @@ import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "
 import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
 import { lundiDe } from "@/lib/dates-fr";
 import { Icone } from "@/components/icones";
+import { chargerContratsClasses } from "@/lib/contrats-espace";
 
 export default async function EspaceAccueil() {
   const s = await chargerSalarie();
@@ -16,7 +17,7 @@ export default async function EspaceAccueil() {
   const today = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
   const lundiCourant = lundiDe(k);
 
-  const [emp, congesEnAttente, prochainsCreneaux, publiees] = await Promise.all([
+  const [emp, congesEnAttente, prochainsCreneaux, publiees, contratsClasses] = await Promise.all([
     prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { contrat: true, dateEmbauche: true } }),
     prisma.leaveRequest.count({ where: { employeeId: s.employeeId, statut: "EN_ATTENTE" } }),
     // Prochains services À PARTIR D'AUJOURD'HUI (plus de créneaux passés de la semaine).
@@ -27,7 +28,9 @@ export default async function EspaceAccueil() {
       select: { date: true, shift: { select: { nom: true, heureDebut: true, heureFin: true } } },
     }),
     prisma.semainePubliee.findMany({ where: { lundi: { gte: lundiCourant } }, select: { lundi: true } }),
+    chargerContratsClasses(prisma, s.employeeId, now),
   ]);
+  const contratsASigner = contratsClasses.filter((c) => c.classement.categorie === "A_SIGNER").length;
 
   const anciennete = ancienneteEnMois(new Date(emp.dateEmbauche), now);
   const congesAcquis = typeSansConges(emp.contrat) ? 0 : calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
@@ -57,6 +60,22 @@ export default async function EspaceAccueil() {
         <p className="text-sm text-muted-foreground">Voici votre espace personnel.</p>
       </div>
 
+      {contratsASigner > 0 && (
+        <Link
+          href="/espace/contrats"
+          className="flex items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900 transition hover:border-amber-400"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100"><Icone nom="mallette" /></span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">
+              {contratsASigner} contrat{contratsASigner > 1 ? "s" : ""} à signer
+            </span>
+            <span className="block text-xs">Lisez-le puis signez-le depuis « Mes contrats ».</span>
+          </span>
+          <span aria-hidden className="shrink-0">→</span>
+        </Link>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-3">
         <Carte titre="Solde de congé annuel" valeur={`${solde} j`} sousTitre="jours disponibles" icone="parasol" href="/espace/conges" />
         <Carte titre="Demandes en cours" valeur={String(congesEnAttente)} sousTitre="en attente de validation" icone="valider" href="/espace/conges" />
@@ -77,7 +96,9 @@ export default async function EspaceAccueil() {
           <LienRapide href="/espace/paie" icone="billet" titre="Ma paie" desc="Aperçu du bulletin, heures supp., acompte" />
           <LienRapide href="/espace/conges" icone="parasol" titre="Mes congés" desc="Demander un congé, suivre mes demandes" />
           <LienRapide href="/espace/dossier" icone="dossier" titre="Mon dossier" desc="Contrat, poste, rémunération" />
-          <LienRapide href="/espace/documents" icone="document" titre="Mes documents" desc="Bulletins, certificats, attestations" />
+          <LienRapide href="/espace/contrats" icone="mallette" titre="Mes contrats" desc="Lire, signer, télécharger" />
+          <LienRapide href="/espace/documents" icone="document" titre="Mes documents" desc="Bulletins, congés, certificats" />
+          <LienRapide href="/espace/attestations" icone="recu" titre="Mes attestations" desc="Demander, télécharger" />
         </div>
       </div>
     </div>
