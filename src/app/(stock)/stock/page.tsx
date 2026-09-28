@@ -50,7 +50,7 @@ export default async function StockDashboard() {
   const topFourn = fournTop.filter((f) => f.fournisseurId).map((f) => ({ nom: fournNom.get(f.fournisseurId!) ?? "—", n: f._count.fournisseurId }));
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex items-center gap-4">
           <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />

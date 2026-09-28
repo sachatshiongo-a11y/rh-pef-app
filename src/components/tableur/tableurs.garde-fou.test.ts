@@ -21,6 +21,7 @@ const TABLEURS: Record<string, string> = {
   // Formulaires à lignes passés au comportement « Excel » (décision de la Direction, 2026-09-24).
   "src/app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": "Stock → Nouveau bon de commande (quantité, prix des lignes)",
   "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": "Stock → Nouvelle facture (quantité, prix des lignes)",
+  "src/app/(stock)/stock/legumes/legumes-client.tsx": "Stock → Achats de légumes frais (quantité, montant des lignes)",
 };
 
 /**

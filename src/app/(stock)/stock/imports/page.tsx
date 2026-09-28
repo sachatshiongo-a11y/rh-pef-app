@@ -17,7 +17,7 @@ export default async function ImportsPage() {
   });
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Imports</h1>
         <p className="mt-1 text-sm text-muted-foreground">

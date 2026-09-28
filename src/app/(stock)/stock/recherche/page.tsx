@@ -9,7 +9,7 @@ export default async function RecherchePage({ searchParams }: { searchParams: Pr
 
   if (q.length < 2) {
     return (
-      <div className="max-w-3xl space-y-3">
+      <div className="w-full space-y-3">
         <h1 className="text-xl font-semibold sm:text-2xl">Recherche</h1>
         <p className="text-sm text-muted-foreground">Saisissez au moins 2 caractères (article, N° de bon de commande, N° de facture, fournisseur).</p>
       </div>
@@ -27,7 +27,7 @@ export default async function RecherchePage({ searchParams }: { searchParams: Pr
   const total = articles.length + bons.length + factures.length + fournisseurs.length;
 
   return (
-    <div className="max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Recherche : « {q} »</h1>
         <p className="mt-1 text-sm text-muted-foreground">{total} résultat(s).</p>

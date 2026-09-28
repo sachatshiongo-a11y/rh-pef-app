@@ -30,7 +30,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
   ]);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4">
+    <div className="w-full space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Nouvelle facture fournisseur</h1>
         <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
