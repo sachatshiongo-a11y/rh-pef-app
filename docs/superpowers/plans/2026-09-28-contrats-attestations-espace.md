@@ -34,7 +34,7 @@
 | `src/lib/contrats-notification.ts` (créé, serveur) | `notifierContratASigner` — création et passage « à resigner » |
 | `src/app/espace/contrats/page.tsx` + `vue.tsx` (créés) | Page « Mes contrats » (vue testable à part) |
 | `src/app/(app)/paie/contrat-actions.ts`, `employes/[id]/dossier-actions.ts` (modifiés) | Clôture proposée, « Marquer expiré », notifications |
-| `prisma/schema.prisma` + `prisma/migrations/20260928090000_attestations/` (créés) | `Attestation`, `CompteurAttestation`, enums |
+| `prisma/schema.prisma` + `prisma/migrations/20260928110000_attestations/` (créés) | `Attestation`, `CompteurAttestation`, enums |
 | `src/lib/attestations.ts` (créé, serveur, client en paramètre) | Éligibilité + instantané, demande, délivrance numérotée, refus |
 | `src/lib/pdf/attestation.tsx`, `attestation-stage.tsx`, `attestation-buffer.ts` (modifiés/créé) | PDF depuis l'instantané, numéro + « délivrée le » |
 | `src/app/espace/attestations/…` (créés) | Page salarié, action de demande, route de téléchargement (propriété) |
@@ -100,7 +100,7 @@ export function classerContrats(contrats: ContratClassable[], etats: Map<string,
 
 ### Task 6 : Données des attestations — migration, numéro, éligibilité, PDF
 
-**Files :** Modify `prisma/schema.prisma` ; Create `prisma/migrations/20260928090000_attestations/migration.sql`, `src/lib/attestations.ts`, `src/lib/attestations.integration.test.ts`, `src/lib/pdf/attestation-buffer.ts`, `src/lib/pdf/attestation.render.test.ts` ; Modify `src/lib/pdf/attestation.tsx`, `attestation-stage.tsx`.
+**Files :** Modify `prisma/schema.prisma` ; Create `prisma/migrations/20260928110000_attestations/migration.sql`, `src/lib/attestations.ts`, `src/lib/attestations.integration.test.ts`, `src/lib/pdf/attestation-buffer.ts`, `src/lib/pdf/attestation.render.test.ts` ; Modify `src/lib/pdf/attestation.tsx`, `attestation-stage.tsx`.
 
 **Interfaces — Produces :**
 ```ts
