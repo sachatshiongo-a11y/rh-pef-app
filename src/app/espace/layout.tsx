@@ -29,6 +29,7 @@ export default async function EspaceLayout({ children }: { children: React.React
     { href: "/espace/paie", icone: "billet", label: "Ma paie" },
     { href: "/espace/conges", icone: "parasol", label: "Congés" },
     { href: "/espace/dossier", icone: "dossier", label: "Dossier" },
+    { href: "/espace/contrats", icone: "mallette", label: "Mes contrats" },
     { href: "/espace/documents", icone: "document", label: "Documents" },
   ];
 

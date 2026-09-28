@@ -14,6 +14,7 @@ import { normaliserEspaces } from "@/lib/montant";
 import { dateHeureKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
 import { lireFichier } from "@/lib/storage";
 import type { SignatureImprimable } from "@/lib/pdf/layout";
+import { classerContrats } from "@/lib/contrats-classement";
 
 // LIRE ET ÉCRIRE UNE SIGNATURE — la couche qui relit le document cible, compare son empreinte à
 // celle enregistrée à la signature, et écrit une nouvelle signature quand le document est
@@ -134,6 +135,17 @@ export async function documentSignable(
       if (!contrat) return { ok: false, raison: "Contrat introuvable." };
       if (contrat.statut !== "ACTIF") {
         return { ok: false, raison: "Ce contrat n'est plus actif." };
+      }
+      // On ne signe pas un ANCIEN contrat (spec 2026-09-28, §3.2) : un CDD resté ACTIF dont la fin
+      // est passée, ou un ACTIF remplacé par un plus récent. Même classement que « Mes contrats »
+      // (l'état de signature n'y change rien : seule la catégorie ANCIEN compte ici).
+      const fiche = await client.contrat.findMany({
+        where: { employeeId: contrat.employeeId },
+        select: { id: true, type: true, statut: true, dateDebut: true, dateFin: true, createdAt: true },
+      });
+      const classement = classerContrats(fiche, new Map(), new Date()).get(cibleId);
+      if (classement?.categorie === "ANCIEN") {
+        return { ok: false, raison: `Ce contrat est un ancien contrat (${classement.motif}) : il ne se signe plus.` };
       }
       return { ok: true, employeeId: contrat.employeeId };
     }

@@ -15,7 +15,16 @@ import { chargerSignature, signatureImprimable } from "@/lib/signature";
  */
 export async function genererContratPdf(
   contratId: string,
-  opts?: { ignorerFige?: boolean },
+  opts?: {
+    ignorerFige?: boolean;
+    /**
+     * Servir l'exemplaire figé dès qu'il existe, même s'il ne fait plus foi pour la signature en
+     * cours — réservé aux ANCIENS contrats (« Mes contrats », rubrique Anciens) : on ne les signe
+     * plus, le salarié récupère l'exemplaire tel qu'il a été arrêté. L'appelant vérifie le
+     * classement ; à défaut d'exemplaire figé lisible, le contrat est régénéré comme d'habitude.
+     */
+    exemplaireFige?: boolean;
+  },
 ): Promise<{
   buffer: Buffer;
   nomFichier: string;
@@ -58,7 +67,7 @@ export async function genererContratPdf(
       ? !contrat.pdfAccepteObsolete
       : vue.traceUrl === null ||
         (!vue.obsolete && contrat.accepteLe !== null && contrat.accepteLe.getTime() === vue.signeLe.getTime());
-  if (contrat.pdfAccepteUrl && !opts?.ignorerFige && figeFaitFoi) {
+  if (contrat.pdfAccepteUrl && !opts?.ignorerFige && (figeFaitFoi || opts?.exemplaireFige)) {
     const fige = await lireFichier(contrat.pdfAccepteUrl);
     if (fige) return { buffer: fige, nomFichier: `Contrat_${contrat.type}_${nomEmp}.pdf`, employeeId: contrat.employeeId, figeable: true };
   }

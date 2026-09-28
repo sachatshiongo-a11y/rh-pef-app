@@ -389,3 +389,25 @@ describe("enregistrerSignature — deux signatures CONCURRENTES d'un même contr
   }, 30_000);
 });
 
+
+describe("documentSignable — on ne signe pas un ANCIEN contrat (spec 2026-09-28, §3.2)", () => {
+  it("un CDD resté ACTIF dont la fin est passée, ou un ACTIF remplacé par un plus récent, est refusé", async () => {
+    const autre = await prisma.employee.create({
+      data: {
+        matricule: "TS02-PEF", nom: "Test Ancien", sexe: "M", etatCivil: "Célibataire",
+        poste: "Test", secteur: "Salle", categorie: "BRIGADE", salaireMensuel: 300,
+        dateEmbauche: new Date("2024-01-01"), contrat: "CDD",
+      },
+    });
+    const base = { employeeId: autre.id, heuresHebdo: 48, salaireMensuel: 300, devise: "USD", poste: "Test", statut: "ACTIF" as const };
+    const cddExpire = await prisma.contrat.create({ data: { ...base, type: "CDD", dateDebut: new Date("2024-01-01"), dateFin: new Date("2024-12-31") } });
+    const remplace = await prisma.contrat.create({ data: { ...base, type: "CDI", dateDebut: new Date("2025-01-01") } });
+    const enVigueur = await prisma.contrat.create({ data: { ...base, type: "CDI", dateDebut: new Date("2026-01-01") } });
+
+    const e1 = await documentSignable(prisma, "CONTRAT", cddExpire.id);
+    expect(e1).toEqual({ ok: false, raison: "Ce contrat est un ancien contrat (expiré le 31/12/2024) : il ne se signe plus." });
+    const e2 = await documentSignable(prisma, "CONTRAT", remplace.id);
+    expect(e2).toEqual({ ok: false, raison: "Ce contrat est un ancien contrat (remplacé par le contrat du 01/01/2026) : il ne se signe plus." });
+    expect(await documentSignable(prisma, "CONTRAT", enVigueur.id)).toEqual({ ok: true, employeeId: autre.id });
+  });
+});
