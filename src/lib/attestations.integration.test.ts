@@ -285,6 +285,16 @@ describe("circuit : demande → délivrance ou refus", () => {
     expect(await refuserAttestation(prisma, { id: d.id, motif: "encore", parId: directionId })).toEqual({ ok: false, motif: "Cette demande a déjà été traitée." });
   });
 
+  it("délivrer directement depuis la fiche SATISFAIT la demande du même type en attente", async () => {
+    const a = await salarie();
+    const userId = (await prisma.user.findUniqueOrThrow({ where: { employeeId: a } })).id;
+    const d = await demanderAttestation(prisma, { employeeId: a, type: "TRAVAIL", motif: null, parId: userId });
+    if (!d.ok) throw new Error(d.motif);
+    const r = await delivrer({ employeeId: a, type: "TRAVAIL" });
+    expect(r.ok && r.id).toBe(d.id);
+    expect(await prisma.attestation.count({ where: { employeeId: a } })).toBe(1);
+  });
+
   it("délivrance directe inéligible : rien n'est écrit", async () => {
     const st = await salarie({ contrat: "STAGE" });
     const avant = await prisma.attestation.count();

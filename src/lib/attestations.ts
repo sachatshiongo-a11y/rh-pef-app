@@ -202,6 +202,14 @@ export async function delivrerAttestation(
       if (!p.employeeId || !p.type) return { ok: false, motif: "Salarié ou type d'attestation manquant." };
       employeeId = p.employeeId;
       type = p.type;
+      // Une demande du même type attend déjà : la délivrance directe la SATISFAIT plutôt que de
+      // laisser une demande orpheline dans « Demandes de validation ».
+      await verrouillerEmploye(tx, employeeId);
+      const enAttente = await tx.attestation.findFirst({ where: { employeeId, type, statut: "DEMANDEE" }, select: { id: true } });
+      if (enAttente) {
+        await tx.$queryRaw`SELECT "id" FROM "public"."Attestation" WHERE "id" = ${enAttente.id} FOR UPDATE`;
+        p = { ...p, attestationId: enAttente.id };
+      }
     }
 
     const eligible = await instantaneAttestation(tx, employeeId, type, maintenant);

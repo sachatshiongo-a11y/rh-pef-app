@@ -51,7 +51,8 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
         <h1 className="text-xl font-semibold">Mes documents</h1>
         <p className="text-sm text-muted-foreground">
           Vos bulletins de paie, congés et documents personnels. Vos contrats sont dans{" "}
-          <Link href="/espace/contrats" className="text-primary underline">Mes contrats</Link>.
+          <Link href="/espace/contrats" className="text-primary underline">Mes contrats</Link>, vos attestations dans{" "}
+          <Link href="/espace/attestations" className="text-primary underline">Mes attestations</Link>.
         </p>
       </div>
 

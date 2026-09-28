@@ -97,7 +97,8 @@ export default async function EspaceAccueil() {
           <LienRapide href="/espace/conges" icone="parasol" titre="Mes congés" desc="Demander un congé, suivre mes demandes" />
           <LienRapide href="/espace/dossier" icone="dossier" titre="Mon dossier" desc="Contrat, poste, rémunération" />
           <LienRapide href="/espace/contrats" icone="mallette" titre="Mes contrats" desc="Lire, signer, télécharger" />
-          <LienRapide href="/espace/documents" icone="document" titre="Mes documents" desc="Bulletins, certificats, attestations" />
+          <LienRapide href="/espace/documents" icone="document" titre="Mes documents" desc="Bulletins, congés, certificats" />
+          <LienRapide href="/espace/attestations" icone="recu" titre="Mes attestations" desc="Demander, télécharger" />
         </div>
       </div>
     </div>
