@@ -3,6 +3,9 @@ import { verifySession } from "@/lib/auth";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
+import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
+import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { Avatar } from "@/components/avatar";
 import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "../planning/actions";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
@@ -40,7 +43,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } }
     : {};
 
-  const [conges, prepare, valide, acomptes, changements, echanges] = await Promise.all([
+  const [conges, prepare, valide, acomptes, changements, echanges, attestations] = await Promise.all([
     prisma.leaveRequest.findMany({
       where: { statut: "EN_ATTENTE" },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -73,7 +76,21 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       include: { demandeur: { select: { nom: true, photoUrl: true } }, collegue: { select: { nom: true } } },
       orderBy: { createdAt: "desc" },
     }),
+    prisma.attestation.findMany({
+      where: { statut: "DEMANDEE" },
+      include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+      orderBy: { demandeLe: "asc" },
+    }),
   ]);
+  const attestationRows: AttestationRow[] = attestations.map((a) => ({
+    id: a.id,
+    employeeId: a.employee.id,
+    nom: a.employee.nom,
+    photoUrl: a.employee.photoUrl,
+    typeLibelle: LIBELLE_TYPE_ATTESTATION[a.type],
+    motif: a.motif,
+    demandeLe: jourKinshasa(a.demandeLe),
+  }));
   const shiftsMap = new Map(
     changements.length > 0 || echanges.length > 0
       ? (await prisma.shift.findMany({ select: { id: true, nom: true } })).map((sh) => [sh.id, sh.nom])
@@ -119,7 +136,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     motif: a.motif ?? null,
     demandeLe: new Date(a.dateDemande).toLocaleDateString("fr-FR"),
   }));
-  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length + changements.length + echanges.length;
+  const total = congeRows.length + prepareRows.length + valideRows.length + acompteRows.length + changements.length + echanges.length + attestationRows.length;
 
   return (
     <div className="max-w-5xl">
@@ -157,6 +174,13 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
           Demandes d&apos;acompte sur salaire ({acompteRows.length})
         </h2>
         <AcomptesInbox rows={acompteRows} peutValider={peutValider} />
+      </section>
+
+      <section className="mb-8">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Demandes d&apos;attestation ({attestationRows.length})
+        </h2>
+        <AttestationsInbox rows={attestationRows} peutValider={peutValider} />
       </section>
 
       <section className="mb-8">
