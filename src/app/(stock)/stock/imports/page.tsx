@@ -5,16 +5,21 @@ import Link from "next/link";
 import { ImportFacturesClient } from "./import-factures-client";
 import { ImportMouvementsClient } from "./import-mouvements-client";
 import { BoutonAnnulerImport } from "./annuler-btn";
+import { DoublonsClient } from "./doublons-client";
+import { lotsPourDoublons, ACTION_DOUBLON_RETIRE } from "@/lib/doublons-imports";
 
 export default async function ImportsPage() {
   const user = await verifySession();
   if (user.role !== "ADMIN") notFound(); // Direction uniquement
 
-  const batches = await prisma.importBatch.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 50,
-    include: { _count: { select: { operations: true } } },
-  });
+  const [batches, lots] = await Promise.all([
+    prisma.importBatch.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: { _count: { select: { operations: { where: { action: ACTION_DOUBLON_RETIRE } } } } },
+    }),
+    lotsPourDoublons(),
+  ]);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -37,6 +42,11 @@ export default async function ImportsPage() {
       </section>
 
       <section className="space-y-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Mouvements en double</h2>
+        <DoublonsClient inventaires={lots.inventaires} mouvements={lots.mouvements} defaut={lots.defaut} />
+      </section>
+
+      <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Historique des imports</h2>
         {batches.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucun import pour l&apos;instant.</p>
@@ -52,6 +62,8 @@ export default async function ImportsPage() {
                     <p className="text-xs text-muted-foreground">
                       {new Date(b.createdAt).toLocaleString("fr-FR")} · {b.type === "INVENTAIRE" ? "Inventaire" : b.type === "MOUVEMENTS" ? "Mouvements" : "Factures"}
                       {r.maj != null && ` · ${r.maj} MAJ · ${r.crees ?? 0} créés · ${(r.mvEntree ?? 0) + (r.mvSortie ?? 0)} mouvements · ${r.legumes ?? 0} légumes`}
+                      {r.dejaPresents ? ` · ${r.dejaPresents} déjà présent(s), ignoré(s)` : ""}
+                      {b._count.operations > 0 && ` · ${b._count.operations} doublon(s) retiré(s)`}
                     </p>
                   </div>
                   {!annule && <BoutonAnnulerImport batchId={b.id} libelle={b.libelle} />}
