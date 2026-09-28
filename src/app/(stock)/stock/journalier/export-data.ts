@@ -1,21 +1,38 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { lundiDe } from "@/lib/dates-fr";
-import type { Prisma } from "@prisma/client";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
+import {
+  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, type RoleCol,
+} from "@/lib/journalier-restaurant";
+import { chargerDonneesRestaurant } from "./donnees-restaurant";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
-const nb = (n: number) => (n ? String(Math.round(n * 1000) / 1000) : "");
+const nb = nbExport;
 
-export type RoleCol = "cmd" | "liv" | null;
+export type { RoleCol };
 export type ExportJournalier = {
   titre: string; sousTitre: string; fichierBase: string;
   entete: string[]; colonnes: Colonne[]; lignes: (string | number)[][];
   sectionRows: number[]; colRole: RoleCol[];
+  /** Rôle d'une ligne entière (prime sur celui de la colonne) : livré, consommé, ou aucun (pertes). */
+  rolesLignes?: Record<number, RoleCol>;
+  /** Cellules « r:c » du consommé en écart avec le livré (comparaison). */
+  ecarts?: Set<string>;
+  /** PDF en plusieurs parties (comparaison : trop de colonnes pour une page) — `indices` dans `colonnes`. */
+  partiesPdf?: { titre: string; indices: number[]; colonnes: Colonne[] }[];
 };
+
+/** Rôle (couleur) d'une cellule d'export : celui de la ligne s'il est posé, sinon celui de la colonne. */
+export function roleCellule(d: ExportJournalier, r: number, c: number): RoleCol | "ecart" {
+  if (c === 0) return null;
+  if (d.ecarts?.has(`${r}:${c}`)) return "ecart";
+  if (d.rolesLignes && r in d.rolesLignes) return d.rolesLignes[r]!;
+  return d.colRole[c] ?? null;
+}
 
 /** Prépare les données d'export (PDF/Excel) de la Conso. journalière selon la vue courante. */
 export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJournalier> {
@@ -28,47 +45,27 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
   const sousTitre = `Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`;
   const suffixe = domaine ? (domaine === "NOURRITURE" ? "_Cuisine" : "_Bar") : "";
 
-  // Livraisons (sorties de stock) par article × jour.
-  const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: fin }, ...(domaine ? { article: { domaine } } : {}) };
-  const sorties = await prisma.mouvementStock.findMany({ where, include: { article: { select: { designation: true } } } });
-  const livr = new Map<string, { designation: string; jours: number[] }>();
-  for (const m of sorties) {
-    const row = livr.get(m.articleId) ?? { designation: m.article.designation, jours: Array(7).fill(0) };
-    const idx = Math.floor((new Date(m.date).getTime() - lundi.getTime()) / 86_400_000);
-    if (idx >= 0 && idx < 7) row.jours[idx] += Number(m.quantite);
-    livr.set(m.articleId, row);
-  }
-
-  // ---------- CONSOMMATION (livraisons + légumes frais) ----------
+  // ---------- CONSOMMATION (sorties par motif + légumes frais + consommation réelle) ----------
   if (vue === "conso") {
-    const rows = [...livr.values()].sort((a, b) => a.designation.localeCompare(b.designation));
-    const lignes: (string | number)[][] = [];
-    const sectionRows: number[] = [];
-    if (rows.length) { sectionRows.push(lignes.length); lignes.push(["Articles (sorties de stock)"]); }
-    for (const r of rows) lignes.push([r.designation, ...r.jours.map(nb), nb(r.jours.reduce((a, b) => a + b, 0))]);
-
-    // Légumes frais (achats du jour) — inclus uniquement en Cuisine ou Tous.
+    const donnees = await chargerDonneesRestaurant(lundi, domaine);
+    const legumes: { nom: string; jours: number[] }[] = [];
     if (domaine !== "BOISSON") {
-      const legumes = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } });
+      const achats = await prisma.achatLegume.findMany({ where: { date: { gte: lundi, lt: fin } }, select: { legume: true, date: true, quantite: true } });
       const parLeg = new Map<string, number[]>();
-      for (const l of legumes) {
+      for (const l of achats) {
         const arr = parLeg.get(l.legume) ?? Array(7).fill(0);
         const idx = Math.floor((new Date(l.date).getTime() - lundi.getTime()) / 86_400_000);
         if (idx >= 0 && idx < 7) arr[idx] += Number(l.quantite);
         parLeg.set(l.legume, arr);
       }
-      const legRows = [...parLeg.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-      if (legRows.length) {
-        sectionRows.push(lignes.length); lignes.push(["Légumes frais (achats du jour)"]);
-        for (const [leg, j] of legRows) lignes.push([leg, ...j.map(nb), nb(j.reduce((a, b) => a + b, 0))]);
-      }
+      legumes.push(...[...parLeg.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, jours]) => ({ nom, jours })));
     }
-
+    const { lignes, sectionRows, rolesLignes } = lignesExportConso({ sorties: donnees.sorties, legumes, consoResto: donnees.consoResto });
     return {
       titre: "Consommation journalière", sousTitre, fichierBase: `Conso_journaliere${suffixe}_${iso(lundi)}`,
       entete: ["Article", ...labels, "Total"],
       colonnes: [{ header: "Article", width: "26%" }, ...labels.map((l) => ({ header: l, width: "9%", align: "right" as const })), { header: "Total", width: "11%", align: "right" as const }],
-      lignes, sectionRows, colRole: [null, ...labels.map(() => "liv" as RoleCol), "liv"],
+      lignes, sectionRows, colRole: [null, ...labels.map(() => "liv" as RoleCol), "liv"], rolesLignes,
     };
   }
 
@@ -115,45 +112,25 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
     };
   }
 
-  // ---------- COMPARAISON (Commande C / Livraison L par jour) ----------
-  const lignes: (string | number)[][] = [];
-  const sectionRows: number[] = [];
-  let derniereCat: string | null = null;
-  for (const a of articles) {
-    const cmd = cmdMap[a.id] ?? Array(7).fill(0);
-    const liv = livr.get(a.id)?.jours ?? Array(7).fill(0);
-    if (!cmd.some((v) => v > 0) && !liv.some((v) => v > 0)) continue;
-    const cat = a.categorie?.nom ?? "À classer";
-    if (cat !== derniereCat) { sectionRows.push(lignes.length); lignes.push([cat]); derniereCat = cat; }
-    const cells: (string | number)[] = [a.designation];
-    for (let i = 0; i < 7; i++) { cells.push(nb(cmd[i]), nb(liv[i])); }
-    cells.push(nb(cmd.reduce((x, y) => x + y, 0)), nb(liv.reduce((x, y) => x + y, 0)));
-    lignes.push(cells);
-  }
-  // Légumes frais : commande vs achat.
-  const legComp = [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])]
-    .map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
-    .filter((x) => x.cmd.some((v) => v > 0) || x.liv.some((v) => v > 0))
-    .sort((a, b) => a.nom.localeCompare(b.nom));
-  if (legComp.length) {
-    sectionRows.push(lignes.length); lignes.push(["Légumes frais"]);
-    for (const x of legComp) {
-      const cells: (string | number)[] = [x.nom];
-      for (let i = 0; i < 7; i++) { cells.push(nb(x.cmd[i]), nb(x.liv[i])); }
-      cells.push(nb(x.cmd.reduce((a, b) => a + b, 0)), nb(x.liv.reduce((a, b) => a + b, 0)));
-      lignes.push(cells);
-    }
-  }
-  const colonnes: Colonne[] = [{ header: "Article", width: "18%" }];
-  const entete: string[] = ["Article"];
-  const colRole: RoleCol[] = [null];
-  const dayW = `${82 / 16}%`;
-  for (const l of labels) { colonnes.push({ header: `${l} C`, width: dayW, align: "right" }, { header: `${l} L`, width: dayW, align: "right" }); entete.push(`${l} Cmd`, `${l} Liv`); colRole.push("cmd", "liv"); }
-  colonnes.push({ header: "Tot. C", width: dayW, align: "right" }, { header: "Tot. L", width: dayW, align: "right" });
-  entete.push("Total Cmd", "Total Liv"); colRole.push("cmd", "liv");
+  // ---------- COMPARAISON (commandé / livré au restaurant / consommé, par jour) ----------
+  const donnees = await chargerDonneesRestaurant(lundi, domaine);
+  const commandes: Record<string, number> = {};
+  for (const [id, j] of Object.entries(cmdMap)) j.forEach((q, i) => { if (q) commandes[`${id}_${donnees.jours[i]}`] = q; });
+  const lignesComp = lignesComparaison({
+    jours: donnees.jours,
+    articles: articles.map((a) => ({ id: a.id, designation: a.designation, categorie: a.categorie?.nom ?? "À classer" })),
+    commandes,
+    livraisons: donnees.sorties.livraisons,
+    consoParArticle: consommationParArticleCatalogue(donnees.entrees, donnees.jours),
+    inclureHorsCatalogue: !domaine,
+    legumes: inclureLeg
+      ? [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])].map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
+      : [],
+  });
+  const { lignes, sectionRows, entete, colRole, ecarts, colonnes } = lignesExportComparaison(lignesComp, labels);
 
   return {
-    titre: "Comparaison commande / livraison", sousTitre, fichierBase: `Comparaison${suffixe}_${iso(lundi)}`,
-    entete, colonnes, lignes, sectionRows, colRole,
+    titre: "Comparaison commandé / livré / consommé", sousTitre, fichierBase: `Comparaison${suffixe}_${iso(lundi)}`,
+    entete, colonnes, lignes, sectionRows, colRole, ecarts, partiesPdf: partiesPdfComparaison(labels),
   };
 }

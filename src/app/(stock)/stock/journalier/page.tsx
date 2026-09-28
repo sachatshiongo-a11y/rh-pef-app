@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { Fragment } from "react";
 import { prisma } from "@/lib/prisma";
-import { qte } from "@/lib/stock";
 import { lundiDe } from "@/lib/dates-fr";
-import type { Prisma } from "@prisma/client";
 import { CommandeGrid, type CmdArticle } from "./commande-grid";
 import { LEGUMES } from "../legumes/legumes-data";
+import { TableConso } from "./table-conso";
+import { chargerDonneesRestaurant } from "./donnees-restaurant";
+import { TableComparaison } from "./table-comparaison";
+import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
 import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { semaine?: string; domaine?: string; vue?: string };
@@ -38,7 +39,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Consommation journalière</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Suivi par jour : ce qui est <strong>commandé</strong> par le restaurant et ce qui est <strong>livré</strong> (sorties de stock). Enregistrez les livraisons datées depuis l&apos;onglet Mouvements.
+          Suivi par jour : ce qui est <strong>commandé</strong> par le restaurant, ce qui lui est <strong>livré</strong> (sorties « Livraison restaurant ») et ce qu&apos;il <strong>consomme</strong> (comptages du restaurant). Enregistrez les livraisons datées depuis l&apos;onglet Mouvements.
         </p>
       </div>
 
@@ -79,22 +80,6 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     </div>
   );
 
-  // ---------- Livraisons (sorties de stock) agrégées par article × jour ----------
-  const chargerLivraisons = async () => {
-    const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: finSemaine }, ...(domaine ? { article: { domaine } } : {}) };
-    const sorties = await prisma.mouvementStock.findMany({ where, include: { article: { select: { designation: true } } } });
-    const parArticle = new Map<string, { articleId: string; designation: string; jours: number[]; total: number }>();
-    for (const m of sorties) {
-      const row = parArticle.get(m.articleId) ?? { articleId: m.articleId, designation: m.article.designation, jours: Array(7).fill(0), total: 0 };
-      const idx = Math.floor((new Date(m.date).getTime() - lundi.getTime()) / 86_400_000);
-      const q = Number(m.quantite);
-      if (idx >= 0 && idx < 7) row.jours[idx] += q;
-      row.total += q;
-      parArticle.set(m.articleId, row);
-    }
-    return parArticle;
-  };
-
   // Légumes frais : achats du jour (AchatLegume) et commandes (CommandeLegumeResto). Cuisine only.
   const inclureLegumes = domaine !== "BOISSON";
   const chargerLegumesAchats = async () => {
@@ -117,53 +102,20 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     return map;
   };
 
-  // ---------- VUE CONSOMMATION (livraisons + légumes) ----------
+  // ---------- VUE CONSOMMATION (sorties par motif + légumes + consommation réelle) ----------
   if (vue === "conso") {
-    const [parArticle, legAchats] = await Promise.all([chargerLivraisons(), inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>())]);
-    const rows = [...parArticle.values()].sort((a, b) => a.designation.localeCompare(b.designation));
-    const legRows = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    const totauxJour = jours.map((_, i) => rows.reduce((t, r) => t + r.jours[i], 0));
+    const [donnees, legAchats] = await Promise.all([
+      chargerDonneesRestaurant(lundi, domaine),
+      inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
+    ]);
+    const legumes = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, r]) => ({ nom, ...r }));
     return (
       <div className="space-y-4">
         {enTete}
-        <div className="max-h-[70vh] overflow-auto rounded-lg border">
-          <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
-            <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
-              <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-                <th className="sticky left-0 z-30 bg-muted">Article</th>
-                {joursLabel.map((j) => <th key={j.iso} className="!text-right">{j.label}</th>)}
-                <th className="!text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
-              {rows.map((r) => (
-                <tr key={r.articleId} className="hover:bg-accent/40 even:bg-muted/25">
-                  <td className="sticky left-0 z-10 bg-background font-medium"><Link href={`/stock/catalogue/${r.articleId}`} className="text-primary hover:underline">{r.designation}</Link></td>
-                  {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
-                  <td className="text-right font-semibold">{qte(r.total)}</td>
-                </tr>
-              ))}
-              {legRows.length > 0 && (
-                <tr><td colSpan={9} className="sticky left-0 !bg-emerald-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-emerald-900">Légumes frais (achats du jour)</td></tr>
-              )}
-              {legRows.map(([nom, r]) => (
-                <tr key={`leg-${nom}`} className="hover:bg-accent/40 even:bg-muted/25">
-                  <td className="sticky left-0 z-10 bg-background font-medium">{nom}</td>
-                  {r.jours.map((q, i) => <td key={i} className="text-right text-muted-foreground">{q > 0 ? qte(q) : ""}</td>)}
-                  <td className="text-right font-semibold">{qte(r.total)}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && legRows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">Aucune livraison enregistrée cette semaine.</td></tr>}
-            </tbody>
-            {rows.length > 0 && (
-              <tfoot className="sticky bottom-0"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
-                <td className="sticky left-0 bg-muted/60">Total jour</td>
-                {totauxJour.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
-                <td className="text-right">{qte(totauxJour.reduce((a, b) => a + b, 0))}</td>
-              </tr></tfoot>
-            )}
-          </table>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Seules les sorties « Livraison restaurant » alimentent le restaurant ; les pertes restent au dépôt. La consommation réelle = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour : elle n&apos;existe que les jours comptés (« — » sinon).
+        </p>
+        <TableConso jours={joursLabel} sorties={donnees.sorties} legumes={legumes} consoResto={donnees.consoResto} />
       </div>
     );
   }
@@ -197,79 +149,28 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     );
   }
 
-  // ---------- VUE COMPARAISON (commande vs livraison) ----------
-  const [livrParArticle, commandes, articles, legAchatsC, cmdLegC] = await Promise.all([
-    chargerLivraisons(), chargerCommandes(), chargerArticles(),
+  // ---------- VUE COMPARAISON (commandé / livré au restaurant / consommé) ----------
+  const [donnees, commandes, articles, legAchatsC, cmdLegC] = await Promise.all([
+    chargerDonneesRestaurant(lundi, domaine), chargerCommandes(), chargerArticles(),
     inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
     inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}),
   ]);
-  const nomCat = new Map(articles.map((a) => [a.id, { designation: a.designation, categorie: a.categorie }]));
-  // Assemble par article : commande[7] et livraison[7]. On garde les articles ayant au moins une valeur.
-  const combine = new Map<string, { designation: string; categorie: string; cmd: number[]; liv: number[] }>();
-  for (const a of articles) {
-    const liv = livrParArticle.get(a.id)?.jours ?? Array(7).fill(0);
-    const cmd = joursLabel.map((j) => commandes[`${a.id}_${j.iso}`] ?? 0);
-    if (cmd.some((v) => v > 0) || liv.some((v) => v > 0)) combine.set(a.id, { designation: a.designation, categorie: a.categorie, cmd, liv });
-  }
-  // Articles livrés mais absents du catalogue filtré (autre domaine) : on les ajoute si pas de filtre.
-  if (!domaine) for (const [id, r] of livrParArticle) if (!combine.has(id) && r.total > 0) combine.set(id, { designation: r.designation, categorie: nomCat.get(id)?.categorie ?? "À classer", cmd: Array(7).fill(0), liv: r.jours });
-  // Légumes frais : commande (CommandeLegumeResto) vs achat (AchatLegume).
-  if (inclureLegumes) for (const nom of new Set([...LEGUMES.map((l) => l.nom), ...legAchatsC.keys()])) {
-    const cmd = joursLabel.map((j) => cmdLegC[`legume:${nom}_${j.iso}`] ?? 0);
-    const liv = legAchatsC.get(nom)?.jours ?? Array(7).fill(0);
-    if (cmd.some((v) => v > 0) || liv.some((v) => v > 0)) combine.set(`legume:${nom}`, { designation: nom, categorie: "Légumes frais", cmd, liv });
-  }
-  const rows = [...combine.entries()].map(([id, r]) => ({ id, ...r })).sort((a, b) => a.categorie.localeCompare(b.categorie) || a.designation.localeCompare(b.designation));
+  const isos = joursLabel.map((j) => j.iso);
+  const legumes = inclureLegumes
+    ? [...new Set([...LEGUMES.map((l) => l.nom), ...legAchatsC.keys()])].map((nom) => ({
+        nom, cmd: isos.map((j) => cmdLegC[`legume:${nom}_${j}`] ?? 0), liv: legAchatsC.get(nom)?.jours ?? Array(7).fill(0),
+      }))
+    : [];
+  const lignes = lignesComparaison({
+    jours: isos, articles, commandes, livraisons: donnees.sorties.livraisons,
+    consoParArticle: consommationParArticleCatalogue(donnees.entrees, isos),
+    inclureHorsCatalogue: !domaine, legumes,
+  });
 
   return (
     <div className="space-y-4">
       {enTete}
-      <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span><span className="font-semibold text-emerald-700">C</span> = commandé (vert) · <span className="font-semibold text-red-700">L</span> = livré (rouge)</span>
-        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-orange-200" /> écart (livré ≠ commandé)</span>
-      </p>
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
-        <table className="w-full min-w-[52rem] border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
-            <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
-              <th className="sticky left-0 z-30 bg-muted px-3">Article</th>
-              {joursLabel.map((j) => <th key={j.iso} className="!text-center" colSpan={2}>{j.label}</th>)}
-              <th className="!text-center" colSpan={2}>Total</th>
-            </tr>
-            <tr className="[&>th]:border-b [&>th]:px-1 [&>th]:pb-1 [&>th]:text-[10px] [&>th]:font-medium [&>th]:text-muted-foreground">
-              <th className="sticky left-0 z-30 bg-muted" />
-              {joursLabel.map((j) => <Fragment key={j.iso}><th className="!text-right">C</th><th className="!text-right">L</th></Fragment>)}
-              <th className="!text-right">C</th><th className="!text-right">L</th>
-            </tr>
-          </thead>
-          <tbody className="[&>tr>td]:border-b [&>tr>td]:px-1 [&>tr>td]:py-1.5">
-            {rows.map((r, ri) => {
-              const nouvelleCat = ri === 0 || rows[ri - 1].categorie !== r.categorie;
-              const totC = r.cmd.reduce((a, b) => a + b, 0), totL = r.liv.reduce((a, b) => a + b, 0);
-              return (
-                <Fragment key={r.id}>
-                  {nouvelleCat && <tr><td colSpan={joursLabel.length * 2 + 3} className="sticky left-0 !bg-amber-100 !px-3 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{r.categorie}</td></tr>}
-                  <tr className="even:bg-muted/25 hover:bg-accent/40">
-                    <td className="sticky left-0 z-10 bg-background px-3 font-medium">{r.id.startsWith("legume:") ? r.designation : <Link href={`/stock/catalogue/${r.id}`} className="text-primary hover:underline">{r.designation}</Link>}</td>
-                    {joursLabel.map((j, i) => {
-                      const c = r.cmd[i], l = r.liv[i], ecart = c !== l && (c > 0 || l > 0);
-                      return (
-                        <Fragment key={j.iso}>
-                          <td className={`text-right font-medium tabular-nums text-emerald-700 ${ecart ? "bg-orange-50" : ""}`}>{c > 0 ? qte(c) : ""}</td>
-                          <td className={`text-right font-medium tabular-nums text-red-700 ${ecart ? "bg-orange-100" : ""}`}>{l > 0 ? qte(l) : ""}</td>
-                        </Fragment>
-                      );
-                    })}
-                    <td className="text-right font-semibold tabular-nums text-emerald-700">{totC > 0 ? qte(totC) : ""}</td>
-                    <td className="text-right font-semibold tabular-nums text-red-700">{totL > 0 ? qte(totL) : ""}</td>
-                  </tr>
-                </Fragment>
-              );
-            })}
-            {rows.length === 0 && <tr><td colSpan={joursLabel.length * 2 + 3} className="px-3 py-6 text-center text-muted-foreground">Aucune commande ni livraison cette semaine.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <TableComparaison jours={joursLabel} lignes={lignes} sansMotif={donnees.sorties.sansMotif.length} />
     </div>
   );
 }

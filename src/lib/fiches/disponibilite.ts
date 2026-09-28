@@ -54,10 +54,20 @@ export type FicheDispo = {
   ingredients: IngredientDispo[];
 };
 
-/** Stock du restaurant d'UN article du catalogue, déjà ramené à l'unité de l'article (texte). */
+/**
+ * Stock du restaurant d'UN article du catalogue, déjà ramené à l'unité de l'article (texte) : le
+ * STOCK THÉORIQUE (dernier comptage + livraisons du dépôt reçues depuis — `src/lib/stock-restaurant.ts`).
+ * OK : `dateComptage` = plus ancien des derniers comptages — SEULE date de la règle des 7 jours (une
+ * livraison ne rafraîchit jamais un stock : elle ne dit rien de ce qui a été consommé) ; `recu` :
+ * livraisons additionnées depuis le comptage (null : aucune).
+ * ESTIME : aucun comptage derrière (les seules livraisons, sans rien de consommé) — affiché, jamais
+ * compté dans les portions (décision du contrôleur, 2026-09-28).
+ */
 export type StockRestaurant =
-  | { etat: "OK"; quantite: string; dateComptage: string }
-  | { etat: "UNITE_NON_CONVERTIBLE"; articleResto: string };
+  | { etat: "OK"; quantite: string; dateComptage: string; recu?: string | null }
+  | { etat: "ESTIME"; quantite: string; recu: string | null }
+  | { etat: "UNITE_NON_CONVERTIBLE"; articleResto: string }
+  | { etat: "A_REPARTIR"; articleResto: string };
 
 /**
  * `depot` = `Stock.quantite` (null : aucune ligne `Stock`) ; `restaurant` = null : aucun comptage
@@ -80,6 +90,8 @@ export type MotifDispo =
   | "PAS_DE_STOCK"
   | "UNITE_NON_CONVERTIBLE"
   | "UNITE_NON_CONVERTIBLE_RESTAURANT"
+  | "LIVRAISON_RESTAURANT_A_REPARTIR"
+  | "STOCK_RESTAURANT_ESTIME"
   | "STOCK_NEGATIF"
   | "RENDEMENT_ABSENT"
   | "UNITE_RENDEMENT_INCOHERENTE"
@@ -109,6 +121,10 @@ export type DetailArticleDispo = {
   depot: string | null;
   restaurant: string | null;
   dateComptage: string | null;
+  /** Livraisons du dépôt additionnées au restaurant depuis son comptage, unité de l'article ; null : aucune. */
+  recuRestaurant: string | null;
+  /** Part du restaurant ESTIMÉE (aucun comptage) : affichée, jamais comptée dans `disponible`. */
+  restaurantEstime: boolean;
   /** Date (AAAA-MM-JJ) du dernier mouvement de stock au dépôt ; null : jamais mouvementé. */
   dernierMouvement: string | null;
   disponible: string | null;
@@ -141,6 +157,8 @@ export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   PAS_DE_STOCK: "pas de stock enregistré",
   UNITE_NON_CONVERTIBLE: "unité non convertible",
   UNITE_NON_CONVERTIBLE_RESTAURANT: "unité non convertible (restaurant)",
+  LIVRAISON_RESTAURANT_A_REPARTIR: "livraison au restaurant à répartir (plusieurs articles du restaurant rattachés)",
+  STOCK_RESTAURANT_ESTIME: "stock du restaurant estimé : aucun comptage",
   STOCK_NEGATIF: "stock négatif",
   RENDEMENT_ABSENT: "sous-recette sans rendement renseigné",
   UNITE_RENDEMENT_INCOHERENTE: "rendement de la sous-recette dans une autre unité que la consommation",
@@ -151,15 +169,17 @@ export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   QUANTITE_NON_RENSEIGNEE: "quantité non renseignée",
   STOCK_NON_MIS_A_JOUR: "stock non mis à jour",
   STOCK_JAMAIS_MIS_A_JOUR: "stock jamais mis à jour",
-  COMPTAGE_RESTAURANT_ANCIEN: "comptage du restaurant non mis à jour",
+  COMPTAGE_RESTAURANT_ANCIEN: "comptage du restaurant ancien",
   PORTIONS_INVALIDES: "nombre de portions inexploitable",
   AUCUN_INGREDIENT: "aucun ingrédient",
 };
 
 /** « Crème fraîche : pas de stock enregistré », ou « Aucun ingrédient » quand la raison porte sur la fiche. */
 export function libelleRaison(r: RaisonDispo): string {
-  // Stock figé : « stock non mis à jour depuis le 10/07 ».
-  const texte = MOTIF_DISPO_LABEL[r.motif] + (r.depuis ? ` depuis le ${jjmm(r.depuis)}` : "");
+  // Stock figé : « stock non mis à jour depuis le 10/07 ». Au restaurant, la date est TOUJOURS celle
+  // du dernier comptage (« comptage du restaurant ancien, dernier comptage le 10/07 »).
+  const date = r.depuis ? (r.motif === "COMPTAGE_RESTAURANT_ANCIEN" ? `, dernier comptage le ${jjmm(r.depuis)}` : ` depuis le ${jjmm(r.depuis)}`) : "";
+  const texte = MOTIF_DISPO_LABEL[r.motif] + date;
   return r.ingredient ? `${r.ingredient} : ${texte}` : texte.charAt(0).toUpperCase() + texte.slice(1);
 }
 
@@ -219,49 +239,18 @@ export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: 
   return r === null ? null : r.num.div(r.den).toString();
 }
 
-// ─── Stock du restaurant rattaché au catalogue ───────────────────────────────
-
-export type ComptageRattache = {
-  articleStockId: string;
-  designationResto: string;
-  uniteResto: string | null;
-  /** Date (AAAA-MM-JJ) du DERNIER comptage de cet article du restaurant. */
-  date: string;
-  quantite: Decimal.Value;
-};
-
 /**
- * Somme, par article du catalogue, du dernier comptage de chaque article du restaurant qui lui est
- * rattaché, convertie dans l'unité de l'article. Une conversion impossible rend l'article
- * « unité non convertible (restaurant) » : on n'additionne pas des bouteilles et des kilos.
- * Plusieurs articles du restaurant : la date retenue est la PLUS ANCIENNE des dernières dates —
- * c'est elle qui dit à quel point le chiffre peut être périmé.
+ * Sens inverse : une quantité exprimée dans l'unité de l'ARTICLE du catalogue (une livraison du
+ * dépôt) ramenée dans l'unité du restaurant. C'est l'inverse EXACT de la conversion restaurant →
+ * article ci-dessus (même `facteur()`, mêmes emballages) : une livraison convertie puis reconvertie
+ * retombe sur la quantité sortie du dépôt, sans double compte. `null` = conversion impossible.
  */
-export function stockRestaurantParArticle(
-  comptages: ComptageRattache[],
-  unitesCatalogue: Map<string, string>,
-): Map<string, StockRestaurant> {
-  const res = new Map<string, StockRestaurant>();
-  for (const c of comptages) {
-    const deja = res.get(c.articleStockId);
-    if (deja?.etat === "UNITE_NON_CONVERTIBLE") continue;
-    const converti = convertirVersUniteArticle(c.quantite, c.uniteResto ?? "", unitesCatalogue.get(c.articleStockId) ?? "");
-    if (converti === null) {
-      res.set(c.articleStockId, { etat: "UNITE_NON_CONVERTIBLE", articleResto: c.designationResto });
-      continue;
-    }
-    res.set(
-      c.articleStockId,
-      deja
-        ? {
-            etat: "OK",
-            quantite: new D(deja.quantite).plus(converti).toString(),
-            dateComptage: c.date < deja.dateComptage ? c.date : deja.dateComptage,
-          }
-        : { etat: "OK", quantite: converti, dateComptage: c.date },
-    );
-  }
-  return res;
+export function convertirDepuisUniteArticle(quantite: Decimal.Value, uniteArticle: string, uniteResto: string): string | null {
+  const q = versD(quantite);
+  if (q === null) return null;
+  const unRestoEnArticle = versUniteArticle(fr(UN), uniteResto, uniteArticle);
+  if (unRestoEnArticle === null || unRestoEnArticle.num.isZero()) return null;
+  return q.times(unRestoEnArticle.den).div(unRestoEnArticle.num).toString();
 }
 
 // ─── Décomposition ───────────────────────────────────────────────────────────
@@ -316,8 +305,8 @@ function eclater(ing: IngredientDispo, mult: Fraction, chemin: string, enCours: 
 }
 
 type StockLu = {
-  depot: Dec | null; restaurant: Dec | null; dateComptage: string | null; dernierMouvement: string | null;
-  total: Dec | null; motif: MotifDispo | null; depuis: string | null;
+  depot: Dec | null; restaurant: Dec | null; restaurantEstime: boolean; dateComptage: string | null; recuRestaurant: string | null;
+  dernierMouvement: string | null; total: Dec | null; motif: MotifDispo | null; depuis: string | null;
 };
 
 function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): StockLu {
@@ -325,18 +314,27 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
   const depot = s ? versD(s.depot) : null;
   const dernierMouvement = s?.dernierMouvement ?? null;
   const r = s?.restaurant ?? null;
-  const base = { depot, dernierMouvement, depuis: null };
+  const base = { depot, dernierMouvement, depuis: null, recuRestaurant: null, restaurantEstime: false };
   if (r !== null && r.etat === "UNITE_NON_CONVERTIBLE") {
     return { ...base, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_RESTAURANT" };
   }
+  if (r !== null && r.etat === "A_REPARTIR") {
+    return { ...base, restaurant: null, dateComptage: null, total: null, motif: "LIVRAISON_RESTAURANT_A_REPARTIR" };
+  }
+  if (r !== null && r.etat === "ESTIME") {
+    // Aucun comptage : la part du restaurant est affichée pour information, le dépôt seul compte, et
+    // l'ingrédient est « À vérifier » — jamais de portions sur un stock que personne n'a compté.
+    return { ...base, restaurant: versD(r.quantite), restaurantEstime: true, recuRestaurant: r.recu, dateComptage: null, total: depot, motif: "STOCK_RESTAURANT_ESTIME" };
+  }
   const restaurant = r === null ? null : versD(r.quantite);
   const dateComptage = r === null ? null : r.dateComptage;
-  const lu = { ...base, restaurant, dateComptage };
+  const lu = { ...base, restaurant, dateComptage, recuRestaurant: r?.recu ?? null };
   if (depot === null && restaurant === null) return { ...lu, total: null, motif: "PAS_DE_STOCK" };
   const total = (depot ?? new D(0)).plus(restaurant ?? 0);
   if (total.isNegative()) return { ...lu, total, motif: "STOCK_NEGATIF" };
   // Stock figé : chaque part qui ENTRE dans le calcul doit être à jour. Le dépôt entre dans le
-  // calcul dès qu'il a une ligne `Stock` ; le restaurant, dès qu'un comptage rattaché existe.
+  // calcul dès qu'il a une ligne `Stock` ; le restaurant, dès qu'un comptage rattaché existe. Au
+  // restaurant, seule la date du dernier COMPTAGE fait foi : une livraison ne rafraîchit rien.
   if (depot !== null) {
     if (dernierMouvement === null) return { ...lu, total, motif: "STOCK_JAMAIS_MIS_A_JOUR" };
     if (perimee(dernierMouvement, aujourdhui)) return { ...lu, total, motif: "STOCK_NON_MIS_A_JOUR", depuis: dernierMouvement };
@@ -395,6 +393,8 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo, auj
       depot: s.depot === null ? null : s.depot.toString(),
       restaurant: s.restaurant === null ? null : s.restaurant.toString(),
       dateComptage: s.dateComptage,
+      recuRestaurant: s.recuRestaurant,
+      restaurantEstime: s.restaurantEstime,
       dernierMouvement: s.dernierMouvement,
       disponible: s.total === null ? null : s.total.toString(),
       portions,
