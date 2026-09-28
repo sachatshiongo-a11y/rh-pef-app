@@ -12,6 +12,7 @@ import type {
   TypeDocument,
 } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { notifierContratASigner } from "@/lib/contrats-notification";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -123,7 +124,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
     const coutJour = Number(String(formData.get("coutJourUSD") ?? "").replace(",", "."));
     if (type === "INTERIM" && !agence) throw new Error("Pour un intérimaire, indiquez l'agence d'intérim (c'est elle qui l'emploie et le paie).");
 
-    await prisma.contrat.create({
+    const cree = await prisma.contrat.create({
       data: {
         employeeId,
         type,
@@ -149,6 +150,9 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
       nouvelleValeur: String(formData.get("type")),
       userId: user.id,
     });
+
+    // Le salarié est prévenu qu'un contrat attend sa signature (cloche de l'espace + push).
+    await notifierContratASigner(cree.id);
 
     revalidatePath(`/employes/${employeeId}`);
 

@@ -9,6 +9,7 @@ import { chargerReglesContrats, verifierProlongationCdd, verifierProlongationEss
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { televerserFichier } from "@/lib/storage";
 import type { TypeContrat } from "@prisma/client";
+import { notifierContratASigner, etatSignatureContrat, notifierSiContratARevoir } from "@/lib/contrats-notification";
 
 function revalider(employeeId: string) {
   revalidatePath("/paie");
@@ -41,9 +42,9 @@ export async function transformerContrat(id: string, formData: FormData) {
     if (type !== "CDI" && !dateFinStr) throw new Error(`Un ${type} doit avoir une date de fin.`);
 
     const debut = dateDebutStr ? new Date(dateDebutStr) : new Date();
-    await prisma.$transaction(async (tx) => {
+    const nouveau = await prisma.$transaction(async (tx) => {
       await tx.contrat.update({ where: { id }, data: { statut: "TRANSFORME" } });
-      await tx.contrat.create({
+      const cree = await tx.contrat.create({
         data: {
           employeeId: contrat.employeeId,
           type,
@@ -66,7 +67,9 @@ export async function transformerContrat(id: string, formData: FormData) {
         nouvelleValeur: `${type} à partir du ${dateFr(debut)}`,
         userId: user.id,
       });
+      return cree;
     });
+    await notifierContratASigner(nouveau.id);
     revalider(contrat.employeeId);
   });
 }
@@ -105,6 +108,9 @@ export async function modifierContrat(id: string, formData: FormData) {
     if (!Number.isFinite(heures) || heures <= 0) throw new Error("Heures par semaine invalides.");
     const coutJour = coutJourStr ? Number(coutJourStr) : null;
 
+    // État de signature AVANT la correction : le salarié n'est prévenu que si un contrat SIGNÉ
+    // repasse « à resigner » (spec 2026-09-28, §3.3).
+    const etatAvant = await etatSignatureContrat(id);
     await prisma.$transaction(async (tx) => {
       await tx.contrat.update({
         where: { id },
@@ -134,6 +140,7 @@ export async function modifierContrat(id: string, formData: FormData) {
         userId: user.id,
       });
     });
+    await notifierSiContratARevoir(id, etatAvant);
     revalider(contrat.employeeId);
   });
 }
@@ -213,6 +220,7 @@ export async function prolongerContrat(id: string, formData: FormData) {
       throw new Error("La nouvelle date de fin doit être postérieure à la date de fin actuelle.");
     }
 
+    const etatAvant = await etatSignatureContrat(id);
     await prisma.contrat.update({
       where: { id },
       data: { dateFin: nouvelleFin, renouvellements: { increment: 1 } },
@@ -225,6 +233,7 @@ export async function prolongerContrat(id: string, formData: FormData) {
       nouvelleValeur: `${dateFr(nouvelleFin)} (renouvellement n° ${contrat.renouvellements + 1})`,
       userId: user.id,
     });
+    await notifierSiContratARevoir(id, etatAvant);
     revalider(contrat.employeeId);
   });
 }
@@ -251,6 +260,7 @@ export async function prolongerEssai(id: string, formData: FormData) {
     );
     if (erreur) throw new Error(erreur);
 
+    const etatAvant = await etatSignatureContrat(id);
     await prisma.contrat.update({ where: { id }, data: { finPeriodeEssai: nouvelleFinEssai } });
     await journaliser(prisma, {
       entite: "Contrat",
@@ -260,6 +270,7 @@ export async function prolongerEssai(id: string, formData: FormData) {
       nouvelleValeur: dateFr(nouvelleFinEssai),
       userId: user.id,
     });
+    await notifierSiContratARevoir(id, etatAvant);
     revalider(contrat.employeeId);
   });
 }
