@@ -15,7 +15,7 @@ const CODES_BRUTS = /\b(EN_ATTENTE|APPROUVE|REFUSE|ANNULE|A_SIGNER|A_RESIGNER|DE
 describe("VueAccueil", () => {
   const rendu = (p: Partial<Parameters<typeof VueAccueil>[0]> = {}) =>
     texte(renderToStaticMarkup(
-      <VueAccueil prenom="Awa" contratsASigner={0} echangesARepondre={0} congesEnAttente={1} soldeConge={7.5} prochainService={null} {...p} />,
+      <VueAccueil nom="Awa Kabongo" photoUrl={null} prenom="Awa" contratsASigner={0} echangesARepondre={0} congesEnAttente={1} soldeConge={7.5} prochainService={null} {...p} />,
     ));
 
   it("annonce ce qui attend un geste, et seulement s'il y en a", () => {
@@ -30,6 +30,15 @@ describe("VueAccueil", () => {
     expect(t).toContain("7,5 j");
     expect(t).toContain("Aucun service publié pour le moment.");
     for (const g of ["Mon travail", "Congés et paie", "Mes papiers"]) expect(t).toContain(g);
+  });
+
+  it("photo de fiche en avatar, initiales en repli", () => {
+    expect(renderToStaticMarkup(<VueAccueil nom="Awa Kabongo" photoUrl={null} prenom="Awa" contratsASigner={0} echangesARepondre={0} congesEnAttente={0} soldeConge={0} prochainService={null} />)).toContain(">AK<");
+    expect(renderToStaticMarkup(<VueAccueil nom="Awa Kabongo" photoUrl="/fichiers/e1-1.jpg" prenom="Awa" contratsASigner={0} echangesARepondre={0} congesEnAttente={0} soldeConge={0} prochainService={null} />)).toContain('src="/fichiers/e1-1.jpg"');
+  });
+
+  it("sans prénom utilisable : « Bonjour » tout court", () => {
+    expect(texte(renderToStaticMarkup(<VueAccueil nom="(stagiaire)" photoUrl={null} prenom="" contratsASigner={0} echangesARepondre={0} congesEnAttente={0} soldeConge={0} prochainService={null} />))).toMatch(/Bonjour 👋/);
   });
 
   it("prochain service : horaire, nom et jour", () => {
