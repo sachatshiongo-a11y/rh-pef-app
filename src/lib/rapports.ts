@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 import { chargerExploitation, chargerEcrituresRapport, type LigneEcritureRapport } from "@/app/(exploitation)/exploitation/_data/charger-periode";
 import { chargerAnnee } from "@/app/(exploitation)/exploitation/_data/charger-annee";
 import { construireMatriceAnnuelle, type LigneMatriceAnnuelle } from "@/lib/exploitation/matrice-annuelle";
@@ -90,7 +91,8 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
   }
 
   if (type === "ACHATS") {
-    const rows = await prisma.mouvementStock.findMany({ where: { type: "ENTREE", factureId: null, date: { gte: debut, lt: finExcl } }, select: { date: true, montantUSD: true } });
+    // Achats hors facture = ceux de la Liste d'achat : même règle que son écran (ni réception de BC, ni entrée manuelle).
+    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, select: { date: true, montantUSD: true } });
     const parMois = new Map<string, number>();
     for (const r of rows) { const d = new Date(r.date); const k = cle(d.getUTCFullYear(), d.getUTCMonth() + 1); parMois.set(k, (parMois.get(k) ?? 0) + Number(r.montantUSD ?? 0)); }
     let prev: number | null = null;
@@ -157,7 +159,7 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   }
 
   if (type === "ACHATS") {
-    const rows = await prisma.mouvementStock.findMany({ where: { type: "ENTREE", factureId: null, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true } } } });
+    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true } } } });
     const lignes = rows.map((m) => [jj(m.date), m.article.designation, q3(m.quantite), m.montantUSD !== null ? arr(Number(m.montantUSD)) : "", m.origine ?? ""]);
     return { titre, entete: ["Date", "Article", "Quantité", "Montant USD", "Origine"], lignes, largeurs: ["12%", "34%", "14%", "16%", "24%"], droite: [2, 3], sommables: [3] };
   }

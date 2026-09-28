@@ -5,6 +5,9 @@ import { ListeAchatForm } from "./entree-client";
 import { SupprimerAchatBtn } from "./supprimer-achat-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
+import { OngletsAchats } from "../_achats/onglets-achats";
+import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
+import { jourKinshasaISO } from "@/lib/date-paiement";
 import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { periode?: string };
@@ -16,18 +19,19 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const estDirection = user.role === "ADMIN";
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 
-  const [articles, mouvements, config] = await Promise.all([
+  const [articles, mouvements, config, fournisseurs] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true, prixUnitaireUSD: true } }),
     prisma.mouvementStock.findMany({
-      // Les entrées issues d'une FACTURE (factureId non nul) ne s'affichent PAS ici : elles
-      // apparaissent dans « Mouvements » et se répercutent dans le catalogue. La liste d'achat
-      // ne montre que les achats saisis directement ici.
-      where: { type: "ENTREE", factureId: null },
-      orderBy: { date: "desc" },
+      // Les achats saisis ICI, et eux seuls : ni les entrées par facture ou par réception de bon
+      // de commande (elles vivent dans « Mouvements » — sinon le même achat s'affichait deux
+      // fois), ni les entrées manuelles ou de correction. Voir WHERE_ACHATS_LISTE.
+      where: WHERE_ACHATS_LISTE,
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 400,
-      include: { article: { select: { designation: true } } },
+      include: { article: { select: { designation: true } }, fournisseur: { select: { id: true, nom: true } } },
     }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
+    prisma.fournisseur.findMany({ where: { actif: true }, orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
   ]);
   const taux = config ? Number(config.tauxChangeCDF) : 0;
 
@@ -60,13 +64,15 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="w-full space-y-5">
+      <OngletsAchats />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Liste d&apos;achat</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Réservez cette liste aux achats <strong>sans facture</strong> : chaque ligne alimente directement
             l&apos;inventaire. Un achat avec facture s&apos;enregistre dans <strong>Factures</strong> (c&apos;est la facture
-            qui alimente le stock) ; les légumes frais dans <strong>leur onglet dédié</strong>.
+            qui alimente le stock) ; les légumes frais dans <strong>leur onglet dédié</strong>. Date et
+            fournisseur (facultatif) se règlent à la saisie.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -76,6 +82,8 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
 
       <ListeAchatForm
         articles={articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null }))}
+        fournisseurs={fournisseurs}
+        aujourdhui={jourKinshasaISO()}
         taux={taux}
         estDirection={estDirection}
       />
@@ -105,8 +113,11 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                 <ul className="divide-y border-t text-sm">
                   {g.lignes.map((m) => (
                     <li key={m.id} className="flex items-center justify-between gap-2 px-3 py-1">
-                      <span className="truncate pr-2">
+                      <span className="min-w-0 truncate pr-2">
                         <Link href={`/stock/catalogue/${m.articleId}`} className="text-primary hover:underline">{m.article.designation}</Link>
+                        {m.fournisseur && (
+                          <span className="text-xs text-muted-foreground"> · <Link href={`/stock/fournisseurs/${m.fournisseur.id}`} className="text-primary hover:underline">{m.fournisseur.nom}</Link></span>
+                        )}
                         {m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
