@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { NouveauBonForm } from "../../nouveau/nouveau-client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function ModifierBonPage({ params }: { params: Promise<{ id: string }> }) {
+  await exigerPageStock();
   const { id } = await params;
   const [bc, articles, fournisseurs] = await Promise.all([
     prisma.bonDeCommande.findUnique({ where: { id }, include: { lignes: true } }),

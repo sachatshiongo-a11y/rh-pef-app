@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE, DOMAINE_LABEL } from "@/lib/stock";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function RecherchePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  await exigerPageStock();
   const q = ((await searchParams).q ?? "").trim();
 
   if (q.length < 2) {

@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import {
   mettreAJourConfig,
   basculerEspaceEmploye,
@@ -19,13 +18,14 @@ import { etatCompteSalarie } from "@/lib/comptes-salaries";
 import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import { lireMoisEffet } from "@/lib/config";
+import { exigerPageRH } from "@/lib/garde-page";
 
 // Date d'effet de la paie sur heures planifiées : saisie ici en texte libre, relue par
 // `lireMoisEffet` (config.ts). Une valeur mal formée vaut « ancienne règle partout » : l'écran le dit.
 const CLE_MOIS_EFFET = "paie_reference_planning_depuis";
 
 export default async function ParametresPage({ searchParams }: { searchParams: Promise<{ erreur?: string; msg?: string }> }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const estAdmin = user.role === "ADMIN";
   const sp = await searchParams;
 

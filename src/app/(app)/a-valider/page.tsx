@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
@@ -9,6 +8,7 @@ import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { lireAvertissements } from "@/lib/paie-avertissements";
 import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
+import { exigerPageRH } from "@/lib/garde-page";
 
 function joursAvant(date: Date): number {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
@@ -25,9 +25,9 @@ function money(n: number) {
 }
 
 export default async function AValiderPage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
+  const user = await exigerPageRH();
   // Refus renvoyé par une approbation (planning verrouillé par une paie validée ou payée).
   const { erreur } = await searchParams;
-  const user = await verifySession();
   const peutValider = user.role === "ADMIN";
   const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
 

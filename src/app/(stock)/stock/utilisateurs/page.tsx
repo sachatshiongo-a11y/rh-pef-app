@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { UsersAdmin, type UserRow } from "@/app/(app)/parametres/users-admin";
+import { exigerPageStock } from "@/lib/garde-page";
 
 // Gestion des utilisateurs & accès depuis l'espace Stock — réservée à la Direction (ADMIN).
 // Réutilise le même écran que la RH (création compte Supabase + profil, rôle STOCK inclus).
 export default async function UtilisateursStockPage() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   if (user.role !== "ADMIN") {
     return (
       <div>

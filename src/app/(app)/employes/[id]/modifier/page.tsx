@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { EmployeeForm } from "../../employee-form";
 import { modifierEmploye } from "../../actions";
 import { uploadPhotoEmploye } from "../../photo-actions";
@@ -11,6 +11,7 @@ import { Avatar } from "@/components/avatar";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { CompositionFamiliale } from "../../composition-familiale";
 import { salaireNetUSD } from "@/lib/paie-net";
+import { exigerPageRH } from "@/lib/garde-page";
 
 export default async function ModifierEmployePage({
   params,
@@ -19,8 +20,8 @@ export default async function ModifierEmployePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ erreur?: string }>;
 }) {
+  const user = await exigerPageRH();
   const sp = await searchParams;
-  const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const { id } = await params;
