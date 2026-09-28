@@ -1,10 +1,10 @@
-import { verifySession, requireRole } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { genererFichePostePdf } from "@/lib/pdf/fiche-poste-buffer";
 
 /** Fiche de poste (PDF) générée depuis les infos enregistrées — Direction / Manager. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  if (!g.ok) return g.reponse;
   const { id } = await params;
 
   const pdf = await genererFichePostePdf(id);

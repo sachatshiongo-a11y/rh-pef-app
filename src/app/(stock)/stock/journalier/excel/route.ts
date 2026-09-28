@@ -1,4 +1,4 @@
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { donneesJournalier, roleCellule } from "../export-data";
 
@@ -8,8 +8,8 @@ const ECART = "FFC2410C"; // orange = consommé en écart avec le livré (compar
 const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO, ecart: ECART };
 
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
   const d = await donneesJournalier(new URL(req.url).searchParams);
 
   const buf = await classeurExcel({

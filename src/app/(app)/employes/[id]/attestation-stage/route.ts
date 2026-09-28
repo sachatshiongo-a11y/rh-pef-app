@@ -1,14 +1,14 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { AttestationStageDocument } from "@/lib/pdf/attestation-stage";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { slugFichier } from "@/lib/texte";
 
 /** Attestation de fin de stage (PDF) — générée depuis la fiche employé (Direction / Manager). */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
+  if (!g.ok) return g.reponse;
   const { id } = await params;
 
   const employee = await prisma.employee.findUnique({ where: { id } });

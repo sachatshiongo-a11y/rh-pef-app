@@ -1,6 +1,5 @@
-import { verifySession, estSalarie } from "@/lib/auth";
+import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { prisma } from "@/lib/prisma";
-import { espaceEmployeActif } from "@/lib/espace-employe";
 import { genererDemandeCongePdf } from "@/lib/pdf/demande-conge-buffer";
 
 /**
@@ -15,11 +14,10 @@ import { genererDemandeCongePdf } from "@/lib/pdf/demande-conge-buffer";
  * du document, sans que rien ne signale l'erreur.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const user = await verifySession();
   // 1. L'espace salarié est ouvert, 2. la session est bien celle d'un salarié relié à une fiche.
-  if (!(await espaceEmployeActif()) || !estSalarie(user) || !user.employeeId) {
-    return new Response("Accès refusé", { status: 403 });
-  }
+  const g = await exigerEspaceSalarie();
+  if (!g.ok) return g.reponse;
+  const user = g.user;
 
   const { id } = await params;
   // 3. La demande appartient au salarié CONNECTÉ, et 4. elle est approuvée : les deux se lisent

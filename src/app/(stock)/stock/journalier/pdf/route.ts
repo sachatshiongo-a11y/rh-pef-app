@@ -1,5 +1,5 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { donneesJournalier, roleCellule } from "../export-data";
 
@@ -9,8 +9,8 @@ const ECART = "#C2410C"; // orange = consommé en écart avec le livré (compara
 const COULEUR: Record<string, string | undefined> = { cmd: CMD, liv: LIV, conso: CONSO, ecart: ECART };
 
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
   const d = await donneesJournalier(new URL(req.url).searchParams);
   const large = d.colonnes.length > 9;
 

@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
 import { TableauDocument, TablesDocument, type Colonne, type TableSpec } from "@/lib/pdf/tableau";
 import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
@@ -30,8 +30,9 @@ function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
 const jourLabel = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
 
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
+  const user = g.user;
 
   const sp = new URL(req.url).searchParams;
   const type = sp.get("type") as TypeRapport;

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getJwksKeys } from "@/lib/supabase/jwks";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@prisma/client";
+import { estRH, estStock, estExploitation, estSalarie } from "@/lib/espaces";
 
 export type CurrentUser = {
   id: string;
@@ -79,29 +80,10 @@ export function requireRole(user: CurrentUser, allowed: Role[]) {
 //      (STOCK) relié à sa fiche a À LA FOIS l'espace Stock ET son espace salarié, sans être Direction.
 export type Espace = "rh" | "stock" | "salarie" | "exploitation";
 
-export function estRH(role: Role): boolean {
-  return role === "ADMIN" || role === "MANAGER" || role === "VIEWER";
-}
-
-/** Accès à l'espace Stock : rôles Stock/Direction, OU un salarié à qui l'accès stock a été accordé. */
-export function estStock(user: { role: Role; accesStock?: boolean }): boolean {
-  return user.role === "ADMIN" || user.role === "STOCK" || (user.role === "EMPLOYE" && !!user.accesStock);
-}
-
-/** Accès à l'espace Exploitation (finance : journal de caisse, comptes de trésorerie, plan comptable) :
- *  Direction ou rôle Compta dédié. */
-export function estExploitation(user: { role: Role }): boolean {
-  return user.role === "ADMIN" || user.role === "COMPTA";
-}
-
-/** A un espace salarié : TOUT compte relié à une fiche employé, quel que soit son rôle.
- *  La Direction (ADMIN/MANAGER) qui est aussi salariée y consulte SES bulletins et congés, et peut
- *  prévisualiser l'espace avant de l'ouvrir aux équipes. Sans risque : chaque page/route de
- *  l'espace est déjà limitée aux données de `user.employeeId`.
- *  Ne dépend PAS de l'accès stock. Toujours conditionné à l'activation de la fonctionnalité. */
-export function estSalarie(user: { role: Role; employeeId?: string | null }): boolean {
-  return !!user.employeeId;
-}
+// Les prédicats d'espace vivent dans `@/lib/espaces` (module PUR, sans session ni base) : les gardes
+// des Route Handlers (`@/lib/garde-route`) les importent de là, si bien qu'un test qui simule
+// `verifySession` teste quand même les VRAIES règles d'accès. Réexportés ici pour les appelants.
+export { estRH, estStock, estExploitation, estSalarie };
 
 /** Espaces auxquels un compte a accès. `espaceSalarieActif` = interrupteur global (Config). */
 export function espacesDe(user: CurrentUser, espaceSalarieActif: boolean): Espace[] {

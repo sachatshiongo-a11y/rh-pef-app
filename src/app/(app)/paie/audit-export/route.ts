@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireRole } from "@/lib/auth";
+import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 
 /**
@@ -9,8 +9,8 @@ import { classeurExcel } from "@/lib/export-excel";
  * Optionnel : ?entite=PayrollLine pour filtrer, ?depuis=YYYY-MM-DD pour borner dans le temps.
  */
 export async function GET(request: Request) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  const g = await exigerEspaceRH({ roles: ["ADMIN"] });
+  if (!g.ok) return g.reponse;
 
   const url = new URL(request.url);
   const entite = url.searchParams.get("entite") ?? undefined;
