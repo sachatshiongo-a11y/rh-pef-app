@@ -8,6 +8,8 @@ import { chargerDonneesRestaurant } from "./donnees-restaurant";
 import { TableComparaison } from "./table-comparaison";
 import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
 import { exigerPageStock } from "@/lib/garde-page";
+import { jourKinshasaISO } from "@/lib/date-paiement";
+import { MenuFichesConso } from "./menu-fiches-conso";
 
 type SP = { semaine?: string; domaine?: string; vue?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -76,6 +78,15 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
           <a href={`/stock/journalier/pdf?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
           <a href={`/stock/journalier/excel?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
         </div>
+        {vue === "conso" && (
+          <MenuFichesConso
+            semaine={iso(lundi)}
+            domaine={domaine}
+            libelleSemaine={`Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`}
+            // Jour proposé : aujourd'hui s'il est dans la semaine affichée, sinon son lundi.
+            jourDefaut={jourKinshasaISO() >= iso(lundi) && jourKinshasaISO() < iso(finSemaine) ? jourKinshasaISO() : iso(lundi)}
+          />
+        )}
       </div>
     </div>
   );
