@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { verifySession } from "@/lib/auth";
-import { MESSAGE_PUSH_REFUSE, peutReprendreAbonnement } from "@/lib/acces-notification";
+import { MESSAGE_PUSH_REFUSE, abonnementDuCompte, peutReprendreAbonnement } from "@/lib/acces-notification";
 
 // Abonnements Web Push (bouton « Notifications » des coquilles RH et salarié). Une Server Action ne
 // passe par aucun layout : chaque action vérifie que l'abonnement appartient au compte (règle dans
@@ -41,7 +41,7 @@ export async function supprimerPush(endpoint: string): Promise<ResultatPush> {
   if (!e) return { erreur: "Abonnement incomplet." };
   const existant = await prisma.pushSubscription.findUnique({ where: { endpoint: e }, select: { userId: true } });
   if (!existant) return { ok: true }; // déjà parti : l'état voulu est atteint
-  if (existant.userId !== user.id) return { erreur: MESSAGE_PUSH_REFUSE };
+  if (!abonnementDuCompte(existant, user.id)) return { erreur: MESSAGE_PUSH_REFUSE };
   await prisma.pushSubscription.deleteMany({ where: { endpoint: e, userId: user.id } });
   return { ok: true };
 }

@@ -53,3 +53,8 @@ export function peutReprendreAbonnement(
   if (!existant || existant.userId === userId) return true;
   return existant.p256dh === cles.p256dh && existant.auth === cles.auth;
 }
+
+/** Un abonnement push ne se SUPPRIME que par son propriétaire. */
+export function abonnementDuCompte(existant: { userId: string }, userId: string): boolean {
+  return existant.userId === userId;
+}
