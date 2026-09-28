@@ -49,7 +49,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
 
   return (
     <PrintDoc
-      titre="Catalogue — Stock & Achats"
+      titre="Inventaire — Stock & Achats"
       sousTitre={new Date().toLocaleDateString("fr-FR")}
       entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix USD", "Valeur USD"]}
       aligneDroite={[1, 3, 6, 7]}

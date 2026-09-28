@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { usd } from "@/lib/stock";
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 import { exigerPageStock } from "@/lib/garde-page";
 
@@ -56,9 +58,20 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock du catalogue.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock de l&apos;onglet Inventaire.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <MenuFichePdf libelle="Fiche d'achat (PDF)">
+            <a href="/stock/legumes/fiche" download className={classeLienFiche}>Fiche vierge</a>
+            {/* Fiche remplie : formulaire GET, le PDF se télécharge sans quitter la page. */}
+            <form action="/stock/legumes/fiche" method="get" className="space-y-1.5 rounded-lg border p-2.5">
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                Remplie avec les achats du
+                <input type="date" name="date" required defaultValue={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)} className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground" />
+              </label>
+              <button type="submit" className={`${classeLienFiche} w-full`}>Fiche remplie</button>
+            </form>
+          </MenuFichePdf>
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
         </div>
       </div>
