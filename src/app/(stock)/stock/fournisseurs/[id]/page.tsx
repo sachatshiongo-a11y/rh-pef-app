@@ -2,18 +2,18 @@ import Link from "next/link";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { niveauAlerte, ALERTE_CLASSE, ALERTE_LABEL, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { EditerFournisseur } from "./editer-fournisseur";
 import { formaterMontant, formaterUSD } from "@/lib/montant";
 import { jjmmaaaa } from "@/lib/achats-liste";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const s = (v: string | null) => v ?? "";
 
 export default async function FournisseurDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await exigerPageStock();
   const { id } = await params;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const [f, factures, bons, achatsDirects] = await Promise.all([
     prisma.fournisseur.findUnique({

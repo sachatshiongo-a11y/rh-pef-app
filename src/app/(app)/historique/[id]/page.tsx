@@ -2,8 +2,8 @@ import Link from "next/link";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { exigerPageRH } from "@/lib/garde-page";
 
 function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -14,7 +14,7 @@ export default async function HistoriqueDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await verifySession();
+  await exigerPageRH();
   const { id } = await params;
 
   const run = await prisma.payrollRun.findUnique({

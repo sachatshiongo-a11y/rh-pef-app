@@ -1,15 +1,14 @@
 import { notFound } from "next/navigation";
 import { FilAriane } from "@/components/fil-ariane";
-import { verifySession, requireModule } from "@/lib/auth";
 import { chargerFichesVues, chargerArticlesSelectionnables, chargerStocksDesFiches } from "../_data/charger-fiche";
 import { versFicheCalc, versFicheDispo } from "../_data/fiche-calc";
 import { EditerFiche } from "./editer-fiche";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function FicheDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await exigerPageStock();
   const { id } = await params;
-  const user = await verifySession();
-  requireModule(user, "stock");
 
   const [vues, articles, stocks] = await Promise.all([chargerFichesVues(), chargerArticlesSelectionnables(), chargerStocksDesFiches()]);
   const vue = vues.find((v) => v.id === id);

@@ -2,11 +2,11 @@ import Link from "next/link";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const dCourt = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" }) : "—");
 
@@ -17,9 +17,9 @@ export default async function ArticleFichePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ erreur?: string }>;
 }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
   const { id } = await params;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
 
   const a = await prisma.articleStock.findUnique({

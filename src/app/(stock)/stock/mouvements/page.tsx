@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { MouvementForm, ColonneMouvements, type MvtLite } from "./mouvements-client";
 import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import { OngletsAchats } from "../_achats/onglets-achats";
 import { fournisseurDuMouvement } from "@/lib/achats-liste";
 import type { Prisma } from "@prisma/client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const mvtInclude = {
   article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
@@ -46,8 +46,8 @@ const versLite = (m: Mvt): MvtLite => {
 type SP = { mois?: string; articleId?: string };
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   // Liste BORNÉE : mois courant par défaut (« tous » = tout l'historique, plafonné et signalé).
   const now = new Date();

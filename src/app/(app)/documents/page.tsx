@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -14,6 +13,7 @@ import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../signature-actions";
+import { exigerPageRH } from "@/lib/garde-page";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -42,7 +42,7 @@ export default async function DocumentsPage({
 }: {
   searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string; q?: string }>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const peutFaireSigner = user.role === "ADMIN" || user.role === "MANAGER";
   const sp = await searchParams;
   const onglet = sp.onglet ?? "bulletins";

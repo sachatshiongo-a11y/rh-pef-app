@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { indicateursStock } from "@/lib/indicateurs/stock";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
 export default async function StockDashboard() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   const estDirection = user.role === "ADMIN";
   const prenom = user.nom.split(" ")[0];
   const now = new Date();

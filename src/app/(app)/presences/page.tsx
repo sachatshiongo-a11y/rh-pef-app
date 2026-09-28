@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, reconstituerBrutDepuisNet, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
@@ -9,6 +8,7 @@ import { COULEUR_CODE } from "./attendance-colors";
 import { ImportPointage } from "./import-pointage";
 import { rattraperCodesConges } from "@/lib/conges-presences";
 import { WeeklyBreakdownTable } from "../heures-supp/weekly-breakdown-table";
+import { exigerPageRH } from "@/lib/garde-page";
 
 // Chaque code = couleur + libellé + icône (jamais la couleur seule — D).
 const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
@@ -23,7 +23,7 @@ const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
 ];
 
 export default async function PresencesPage() {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });

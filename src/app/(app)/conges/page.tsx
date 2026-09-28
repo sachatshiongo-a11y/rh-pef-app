@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { demanderConge, approuverConge, refuserConge, supprimerConge } from "./actions";
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
@@ -11,6 +10,7 @@ import { ChampsDatesConge } from "@/components/champs-dates-conge";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { faireSignerDocument } from "../signature-actions";
+import { exigerPageRH } from "@/lib/garde-page";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -30,7 +30,7 @@ export default async function CongesPage({
 }: {
   searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string } & SPCalendrier>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const sp = await searchParams;
 
   // Vue Calendrier (fusion de l'ancien onglet /absences) : même donnée, deux présentations.
