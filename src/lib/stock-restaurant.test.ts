@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  etatRattachementLivraison, recuDuDepot, stockRestaurantTheorique, MENTION_AUCUN_COMPTAGE,
+  consommationReelle, etatRattachementLivraison, recuDuDepot, stockRestaurantTheorique, ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, MENTION_AUCUN_COMPTAGE,
   type ArticleRestoSR, type ComptageSR, type EntreesStockResto, type LivraisonSR,
 } from "./stock-restaurant";
 
@@ -131,5 +131,50 @@ describe("reçu du dépôt, jour par jour", () => {
     const r = recuDuDepot(E([vin], [], [L("cat-vin", "l", "2026-09-21", "3")]), "vin", "2026-09-21");
     expect(r.quantite).toBeNull();
     expect(r.signalements.map((s) => s.motif)).toEqual(["UNITE_INCOMPATIBLE"]);
+  });
+});
+
+describe("consommation réelle", () => {
+  const e = E([farine], [C("farine", "2026-09-20", "1500"), C("farine", "2026-09-21", "2800"), C("farine", "2026-09-23", "900")], [
+    L("cat-farine", "kg", "2026-09-21", "2"),
+    L("cat-farine", "kg", "2026-09-22", "1"),
+    L("cat-farine", "kg", "2026-09-23", "0.5"),
+  ]);
+
+  it("cas nominal : stock compté la veille + livré le jour − compté le jour", () => {
+    // 1500 (compté le 20) + 2000 (livré le 21) − 2800 (compté le 21) = 700.
+    expect(consommationReelle(e, "farine", "2026-09-21")).toEqual({ etat: "CONNUE", quantite: "700", negative: false, stockVeille: "1500", recu: "2000", compte: "2800", veilleEstimee: false });
+  });
+
+  it("veille sans comptage : stock théorique de la veille (dernier comptage + livraisons depuis)", () => {
+    // Veille (22) : 2800 + 1000 = 3800 ; + 500 livré le 23 − 900 compté = 3400.
+    const r = consommationReelle(e, "farine", "2026-09-23");
+    expect(r).toMatchObject({ etat: "CONNUE", quantite: "3400", stockVeille: "3800", recu: "500", compte: "900" });
+  });
+
+  it("jour sans comptage : « — », jamais 0", () => {
+    expect(consommationReelle(e, "farine", "2026-09-22")).toEqual({ etat: "INCONNUE", raison: "PAS_DE_COMPTAGE" });
+    expect(LIBELLE_CONSO_INCONNUE.PAS_DE_COMPTAGE).toBeTruthy();
+  });
+
+  it("premier comptage sans rien avant : stock de la veille inconnu", () => {
+    expect(consommationReelle(e, "farine", "2026-09-20")).toEqual({ etat: "INCONNUE", raison: "STOCK_VEILLE_INCONNU" });
+  });
+
+  it("consommation négative : signalée (« écart : plus compté que reçu »), jamais masquée", () => {
+    const x = E([farine], [C("farine", "2026-09-20", "1000"), C("farine", "2026-09-21", "1800")], [L("cat-farine", "kg", "2026-09-21", "0.5")]);
+    expect(consommationReelle(x, "farine", "2026-09-21")).toMatchObject({ etat: "CONNUE", quantite: "-300", negative: true });
+    expect(ECART_NEGATIF).toBe("écart : plus compté que reçu");
+  });
+
+  it("livraison du jour non additionnable (unité incompatible) : consommation inconnue", () => {
+    const vin = R("vin", "bouteille", "cat-vin", "BAR");
+    const x = E([vin], [C("vin", "2026-09-20", "6"), C("vin", "2026-09-21", "4")], [L("cat-vin", "l", "2026-09-21", "3")]);
+    expect(consommationReelle(x, "vin", "2026-09-21")).toEqual({ etat: "INCONNUE", raison: "LIVRAISON_NON_COMPTEE" });
+  });
+
+  it("veille estimée sans aucun comptage : calculée, mais annoncée comme estimée", () => {
+    const x = E([farine], [C("farine", "2026-09-21", "500")], [L("cat-farine", "kg", "2026-09-20", "1")]);
+    expect(consommationReelle(x, "farine", "2026-09-21")).toMatchObject({ etat: "CONNUE", quantite: "500", veilleEstimee: true });
   });
 });

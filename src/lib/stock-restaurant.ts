@@ -184,3 +184,58 @@ export function recuDuDepot(e: EntreesStockResto, articleRestoId: string, jour: 
     signalements: (idx.signalees.get(articleRestoId) ?? []).filter((s) => s.date === jour),
   };
 }
+
+// ─── Consommation réelle ─────────────────────────────────────────────────────
+
+export type ConsommationReelle =
+  | {
+      etat: "CONNUE";
+      /** Unité du restaurant ; négative = plus compté que reçu, signalée, jamais masquée. */
+      quantite: string;
+      negative: boolean;
+      stockVeille: string;
+      recu: string;
+      compte: string;
+      /** La veille n'a aucun comptage derrière elle : stock estimé à partir des seules livraisons. */
+      veilleEstimee: boolean;
+    }
+  | { etat: "INCONNUE"; raison: "PAS_DE_COMPTAGE" | "STOCK_VEILLE_INCONNU" | "LIVRAISON_NON_COMPTEE" };
+
+export const ECART_NEGATIF = "écart : plus compté que reçu";
+export const LIBELLE_CONSO_INCONNUE: Record<Extract<ConsommationReelle, { etat: "INCONNUE" }>["raison"], string> = {
+  PAS_DE_COMPTAGE: "pas de comptage ce jour",
+  STOCK_VEILLE_INCONNU: "stock de la veille inconnu",
+  LIVRAISON_NON_COMPTEE: "livraison non additionnée (à répartir ou unité incompatible)",
+};
+
+/** Veille d'une date PURE AAAA-MM-JJ (calcul en UTC, aucun fuseau). */
+export function veilleDe(jour: string): string {
+  const d = new Date(`${jour}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Consommation réelle d'un article du restaurant le jour J = stock de la veille (compté, sinon
+ * théorique) + livré le jour J − stock compté le jour J. N'existe que si un comptage existe le
+ * jour J ; sinon « — » (INCONNUE), jamais 0.
+ */
+export function consommationReelle(e: EntreesStockResto, articleRestoId: string, jour: string): ConsommationReelle {
+  const idx = indexer(e);
+  const compte = (idx.comptages.get(articleRestoId) ?? []).find((c) => c.date === jour);
+  if (!compte) return { etat: "INCONNUE", raison: "PAS_DE_COMPTAGE" };
+  const veille = stockDe(idx, articleRestoId, veilleDe(jour));
+  if (veille.stock === null) return { etat: "INCONNUE", raison: "STOCK_VEILLE_INCONNU" };
+  const recu = recuDuDepot(e, articleRestoId, jour);
+  if (veille.signalements.length > 0 || recu.signalements.length > 0) return { etat: "INCONNUE", raison: "LIVRAISON_NON_COMPTEE" };
+  const quantite = new D(veille.stock).plus(recu.quantite ?? 0).minus(compte.quantite);
+  return {
+    etat: "CONNUE",
+    quantite: quantite.toString(),
+    negative: quantite.isNegative() && !quantite.isZero(),
+    stockVeille: veille.stock,
+    recu: recu.quantite ?? "0",
+    compte: compte.quantite,
+    veilleEstimee: veille.aucunComptage,
+  };
+}
