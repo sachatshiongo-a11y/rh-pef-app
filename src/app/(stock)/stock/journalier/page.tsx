@@ -7,6 +7,7 @@ import { TableConso } from "./table-conso";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
 import { TableComparaison } from "./table-comparaison";
 import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { semaine?: string; domaine?: string; vue?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -15,6 +16,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
 
 export default async function JournalierPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await exigerPageStock();
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
   const vue = sp.vue === "commande" || sp.vue === "comparaison" ? sp.vue : "conso";

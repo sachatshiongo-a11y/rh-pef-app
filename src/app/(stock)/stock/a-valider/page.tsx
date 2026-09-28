@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { usd } from "@/lib/stock";
 import { validerBonCommande } from "../commandes/actions";
 import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function AValiderPage() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   const estDirection = user.role === "ADMIN";
 
   const brouillons = await prisma.bonDeCommande.findMany({
@@ -16,7 +16,7 @@ export default async function AValiderPage() {
   });
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="w-full space-y-4">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Demandes à valider</h1>
         <p className="mt-1 text-sm text-muted-foreground">

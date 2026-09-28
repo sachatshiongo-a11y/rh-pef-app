@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { indicateursStock } from "@/lib/indicateurs/stock";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
 export default async function StockDashboard() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   const estDirection = user.role === "ADMIN";
   const prenom = user.nom.split(" ")[0];
   const now = new Date();
@@ -50,7 +50,7 @@ export default async function StockDashboard() {
   const topFourn = fournTop.filter((f) => f.fournisseurId).map((f) => ({ nom: fournNom.get(f.fournisseurId!) ?? "—", n: f._count.fournisseurId }));
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="w-full space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex items-center gap-4">
           <Avatar nom={user.nom} taille={56} photoUrl={maPhoto} />

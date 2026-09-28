@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
 import { PropositionsRattachement } from "./propositions-rattachement";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
@@ -16,12 +15,14 @@ const jjmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 /** « 3 l du 22/09 : unité incompatible » — une livraison du dépôt non additionnée, en clair. */
 const texteSignal = (s: SignalementLivraison, avecDate: boolean) =>
   `${q3(s.quantite)}${s.uniteCatalogue ? ` ${s.uniteCatalogue}` : ""}${avecDate ? ` du ${jjmm(s.date)}` : ""} : ${LIBELLE_SIGNALEMENT[s.motif]}`;
+import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
+import { exigerPageStock } from "@/lib/garde-page";
 
 type SP = { espace?: string; semaine?: string };
 
 export default async function RestaurantPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const espace = sp.espace === "BAR" ? "BAR" : "CUISINE";
   const base = sp.semaine ? new Date(sp.semaine) : new Date();
@@ -109,6 +110,10 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
             <a href={`/stock/restaurant?espace=CUISINE&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "CUISINE" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Cuisine</a>
             <a href={`/stock/restaurant?espace=BAR&semaine=${jours[0].iso}`} className={`rounded-full border px-3 py-1 ${espace === "BAR" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Bar</a>
           </div>
+          <MenuFichePdf libelle="Fiche d'inventaire (PDF)">
+            <a href={`/stock/restaurant/fiche-inventaire?espace=${espace}`} download className={classeLienFiche}>Fiche {espace === "BAR" ? "Bar" : "Cuisine"}</a>
+            <a href="/stock/restaurant/fiche-inventaire?espace=TOUS" download className={classeLienFiche}>Cuisine et Bar</a>
+          </MenuFichePdf>
           <BoutonRapport pdfHref={`/stock/restaurant/pdf?${exportQs}`} excelHref={`/stock/restaurant/excel?${exportQs}`} />
         </div>
       </div>

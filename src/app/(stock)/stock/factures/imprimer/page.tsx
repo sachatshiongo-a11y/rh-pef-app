@@ -1,11 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
 import { PrintDoc } from "../../_print/print-doc";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "");
 const u = (v: unknown) => Number(v).toFixed(2);
 
 export default async function FacturesImprimerPage() {
+  await exigerPageStock();
   const factures = await prisma.factureFournisseur.findMany({
     orderBy: [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }],
     include: { fournisseur: { select: { nom: true } } },

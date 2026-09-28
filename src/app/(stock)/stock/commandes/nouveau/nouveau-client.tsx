@@ -121,7 +121,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                     ligne={String(i)} col={1} valeur={nombreOuNull(l.prix)} onEnregistrer={(v) => maj(i, { prix: texteDe(v) })}
                     onEntreeDerniereLigne={onEntreeDerniereLigne}
                     readOnly={!!l.articleId}
-                    title={l.articleId ? "Prix fixé au catalogue (modifiable dans l'onglet Catalogue)" : "Prix libre"}
+                    title={l.articleId ? "Prix fixé dans l'onglet Inventaire (modifiable là-bas)" : "Prix libre"}
                     min={0}
                     className={`${inp} w-24 text-right ${l.articleId ? "bg-muted/50 text-muted-foreground" : ""}`}
                     aria-label={`Prix unitaire, ligne ${i + 1}`}

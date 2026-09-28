@@ -4,6 +4,8 @@ import { useRef, useState, useTransition } from "react";
 import { analyserInventaireAction, appliquerInventaireAction } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import type { PreviewInventaire } from "@/lib/import-inventaire";
+import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
+import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
 
 export function ImportInventaireClient() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -11,6 +13,7 @@ export function ImportInventaireClient() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [isPending, start] = useTransition();
+  const [sortiesLivraison, setSortiesLivraison] = useState(true);
 
   const analyser = () => {
     setErreur(null); setSucces(null); setPreview(null);
@@ -24,10 +27,15 @@ export function ImportInventaireClient() {
   const appliquer = () => {
     setErreur(null);
     const fd = new FormData(formRef.current!);
+    fd.set(CHAMP_SORTIES_LIVRAISON, sortiesLivraison ? "1" : "0");
     start(async () => {
       const r = await appliquerInventaireAction(fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
-      setSucces(`Import appliqué : ${r.resume.maj} article(s) mis à jour, ${r.resume.crees} créé(s), ${r.resume.mvEntree + r.resume.mvSortie} mouvement(s), ${r.resume.legumes} achat(s) de légumes.`);
+      setSucces(
+        `Import appliqué : stock final posé sur ${r.resume.maj} article(s) (${r.resume.crees} créé(s)), ${r.resume.mvEntree + r.resume.mvSortie} mouvement(s) ajouté(s) au journal` +
+        (r.resume.dejaPresents > 0 ? `, ${r.resume.dejaPresents} mouvement(s) déjà présent(s), ignoré(s)` : "") +
+        `, ${r.resume.legumes} achat(s) de légumes.`
+      );
       setPreview(null); formRef.current?.reset();
     });
   };
@@ -37,6 +45,13 @@ export function ImportInventaireClient() {
 
   return (
     <div className="space-y-3">
+      <div className="space-y-1 rounded-md border bg-card px-3 py-2 text-sm">
+        <p className="font-medium">Cet import fait deux choses :</p>
+        <ul className="list-disc space-y-0.5 pl-5 text-muted-foreground">
+          <li>il <b className="text-foreground">pose le stock final</b> du classeur : la valeur absolue <b className="text-foreground">remplace</b> le stock actuel de chaque article ;</li>
+          <li>il <b className="text-foreground">importe le journal détaillé</b> (entrées et sorties datées) dans l&apos;historique des mouvements. Un mouvement déjà présent (même article, date, type et quantité, par exemple importé par le CSV d&apos;entrées/sorties) est <b className="text-foreground">ignoré</b> : il ne compte pas deux fois.</li>
+        </ul>
+      </div>
       <form ref={formRef} className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4">
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium">Classeur d&apos;inventaire (.xlsx)</span>
@@ -47,6 +62,7 @@ export function ImportInventaireClient() {
           <input name="libelle" placeholder="Inventaire Juillet 2026" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
         </label>
         <button type="button" onClick={analyser} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">{isPending && !preview ? "Analyse…" : "Analyser"}</button>
+        <div className="basis-full"><CaseSortiesLivraison coche={sortiesLivraison} onChange={setSortiesLivraison} /></div>
       </form>
 
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
@@ -55,12 +71,14 @@ export function ImportInventaireClient() {
       {preview && (
         <div className="space-y-3 rounded-lg border p-4">
           <h3 className="font-semibold">Aperçu — rien n&apos;est encore écrit</h3>
+          <MotifSortiesApercu coche={sortiesLivraison} />
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
             <Kpi label="Articles mis à jour" val={preview.resume.maj} />
             <Kpi label="Articles créés" val={preview.resume.crees} accent={preview.resume.crees > 0} />
             <Kpi label="Sans correspondance" val={preview.resume.sansMatch} accent={preview.resume.sansMatch > 0} />
-            <Kpi label="Mouvements entrée" val={preview.resume.mvEntree} />
-            <Kpi label="Mouvements sortie" val={preview.resume.mvSortie} />
+            <Kpi label="Entrées ajoutées au journal" val={preview.resume.mvEntree} />
+            <Kpi label="Sorties ajoutées au journal" val={preview.resume.mvSortie} />
+            <Kpi label="Déjà présents, ignorés" val={preview.resume.dejaPresents} />
             <Kpi label="Achats légumes" val={preview.resume.legumes} />
           </div>
 

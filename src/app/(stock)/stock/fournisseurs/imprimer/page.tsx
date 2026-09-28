@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { PrintDoc } from "../../_print/print-doc";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function FournisseursImprimerPage() {
+  await exigerPageStock();
   const fournisseurs = await prisma.fournisseur.findMany({
     orderBy: { nom: "asc" },
     include: { _count: { select: { articles: true, factures: true } } },

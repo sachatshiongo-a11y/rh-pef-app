@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/stock";
 import { grouperParMois } from "@/lib/dates-fr";
 import { MoisAccordeon } from "@/components/mois-accordeon";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const jfr = (d: Date | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 
@@ -23,14 +23,14 @@ const TYPE_RAPPORT_LABEL: Record<string, string> = {
 };
 
 export default async function ArchivesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await exigerPageStock();
   const sp = await searchParams;
-  await verifySession();
   const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : sp.vue === "bons" ? "bons" : "comptages";
 
   const onglets: [string, string][] = [["comptages", "Comptages"], ["bons", "Bons de commande validés"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
 
   return (
-    <div className="max-w-4xl space-y-4">
+    <div className="w-full space-y-4">
       <div>
         <h1 className="text-xl font-semibold sm:text-2xl">Archives</h1>
         <p className="mt-1 text-sm text-muted-foreground">Historique de l’application : comptages d’inventaire, rapports générés et journal d’activité.</p>

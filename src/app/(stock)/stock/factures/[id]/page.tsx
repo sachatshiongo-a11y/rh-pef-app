@@ -3,18 +3,18 @@ import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { usd, qte, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
-import { verifySession } from "@/lib/auth";
 import { MarquerPayeeBtn } from "./marquer-payee-btn";
 import { JoindreDocument } from "./joindre-document";
 import { EnregistrerPaiement } from "./enregistrer-paiement";
 import { LierBon } from "./lier-bon";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
 
 export default async function FactureDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await exigerPageStock();
   const { id } = await params;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   const facture = await prisma.factureFournisseur.findUnique({
     where: { id },
@@ -66,7 +66,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   const ecartQteTotal = lignesRecon.reduce((t, l) => t + Math.abs(l.qteFac - l.qteBC), 0);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Factures", href: "/stock/factures" }, { label: facture.numero ? `N° ${facture.numero}` : nom }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Facture · {facture.fournisseurId

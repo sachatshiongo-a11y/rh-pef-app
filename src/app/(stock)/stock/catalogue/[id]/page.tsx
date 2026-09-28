@@ -2,11 +2,19 @@ import Link from "next/link";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
+import { exigerPageStock } from "@/lib/garde-page";
+
+// Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
+// page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
+// s'affichent par tranches : les plus récents d'abord, puis un lien qui AJOUTE les plus anciens à
+// la page. Garde-fou : fiche-sans-defilement.test.ts.
+const MOUVEMENTS_AFFICHES = 50;
+const PRIX_AFFICHES = 20;
+const MOUVEMENTS_CHARGES = 200; // au-delà : la page Mouvements, filtrée sur l'article
 
 const dCourt = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit", timeZone: "UTC" }) : "—");
 
@@ -15,11 +23,11 @@ export default async function ArticleFichePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ erreur?: string }>;
+  searchParams: Promise<{ erreur?: string; mouvements?: string; prix?: string }>;
 }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
   const { id } = await params;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
 
   const a = await prisma.articleStock.findUnique({
@@ -30,7 +38,7 @@ export default async function ArticleFichePage({
       fournisseur: { select: { id: true, nom: true } },
       mouvements: {
         orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-        take: 200,
+        take: MOUVEMENTS_CHARGES,
         include: {
           facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
           reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
@@ -39,6 +47,7 @@ export default async function ArticleFichePage({
       lignesFacture: {
         include: { facture: { select: { id: true, numero: true, date: true } } },
       },
+      _count: { select: { mouvements: true } },
     },
   });
   if (!a) notFound();
@@ -61,6 +70,22 @@ export default async function ArticleFichePage({
   const prixHisto = analyse.points;
   const { min: prixMin, max: prixMax, variation, hausse } = analyse;
 
+  // Affichage progressif (sans défilement interne) : l'état « tout voir » vit dans l'adresse.
+  const tousMouvements = sp.mouvements === "tous";
+  const tousPrix = sp.prix === "tous";
+  const lien = (o: { mouvements?: boolean; prix?: boolean }, ancre: string) => {
+    const q = new URLSearchParams();
+    if (o.mouvements ?? tousMouvements) q.set("mouvements", "tous");
+    if (o.prix ?? tousPrix) q.set("prix", "tous");
+    return `/stock/catalogue/${a.id}?${q}#${ancre}`;
+  };
+  const nbMouvements = a._count.mouvements;
+  const mouvementsAffiches = tousMouvements ? a.mouvements : a.mouvements.slice(0, MOUVEMENTS_AFFICHES);
+  const mouvementsChargesEnPlus = a.mouvements.length - mouvementsAffiches.length;
+  const mouvementsHorsPage = nbMouvements - a.mouvements.length; // au-delà des 200 chargés
+  const prixRecents = [...prixHisto].reverse();
+  const prixAffiches = tousPrix ? prixRecents : prixRecents.slice(0, PRIX_AFFICHES);
+
   const source = (m: (typeof a.mouvements)[number]) => {
     const bc = m.reception?.bonDeCommande;
     const fournId = m.facture?.fournisseurId ?? bc?.fournisseurId ?? null;
@@ -69,8 +94,8 @@ export default async function ArticleFichePage({
   };
 
   return (
-    <div className="max-w-4xl space-y-5">
-      <FilAriane segments={[{ label: "Catalogue", href: `/stock/catalogue?domaine=${a.domaine}` }, { label: a.designation }]} />
+    <div className="w-full space-y-5">
+      <FilAriane segments={[{ label: "Inventaire", href: `/stock/catalogue?domaine=${a.domaine}` }, { label: a.designation }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -83,12 +108,13 @@ export default async function ArticleFichePage({
             {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link></span>}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        {/* Les boutons passent à la ligne sur téléphone : à 375 px, les trois côte à côte débordaient. */}
+        <div className="flex flex-wrap items-center gap-2">
           <a href={`/stock/catalogue/${a.id}/pdf`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Exporter PDF
           </a>
           <Link href={`/stock/catalogue?domaine=${a.domaine}&q=${encodeURIComponent(a.designation)}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-            Éditer dans le catalogue
+            Éditer dans l&apos;inventaire
           </Link>
           {estDirection && (
             <form action={supprimerArticle.bind(null, a.id)}>
@@ -163,13 +189,13 @@ export default async function ArticleFichePage({
                 <span className="mr-1 inline-block w-5 border-t-2 border-dashed border-amber-500 align-middle" /> prix de référence ({usd(a.prixUnitaireUSD)}) — un prix d&apos;achat de repère, lui aussi
               </p>
             )}
-            <div className="mt-3 max-h-64 overflow-auto">
+            <div id="prix" className="mt-3">
               <table className="w-full text-sm">
                 <thead className="text-left text-xs text-muted-foreground">
                   <tr><th className="py-1 font-medium">Date</th><th className="py-1 font-medium">Facture</th><th className="py-1 text-right font-medium">Qté</th><th className="py-1 text-right font-medium">Prix unit.</th></tr>
                 </thead>
                 <tbody>
-                  {[...prixHisto].reverse().map((p, i) => (
+                  {prixAffiches.map((p, i) => (
                     <tr key={i} className="border-t">
                       <td className="py-1.5">{dCourt(p.date)}</td>
                       <td className="py-1.5">{p.factureId ? <Link href={`/stock/factures/${p.factureId}`} className="text-primary hover:underline">{p.numero ?? "Facture"}</Link> : <span className="text-muted-foreground">{p.numero ?? "Liste d'achat"}</span>}</td>
@@ -179,20 +205,26 @@ export default async function ArticleFichePage({
                   ))}
                 </tbody>
               </table>
+              {prixAffiches.length < prixRecents.length && (
+                <Link href={lien({ prix: true }, "prix")} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
+                  Voir les {prixRecents.length - prixAffiches.length} achats plus anciens
+                </Link>
+              )}
             </div>
           </>
         )}
       </section>
 
       {/* Historique des mouvements */}
-      <section>
-        <h2 className="mb-2 text-base font-semibold">Mouvements ({a.mouvements.length})</h2>
+      <section id="mouvements">
+        <h2 className="mb-2 text-base font-semibold">Mouvements ({nbMouvements})</h2>
         {a.mouvements.length === 0 ? (
           <p className="rounded-lg border p-4 text-sm text-muted-foreground">Aucun mouvement de stock pour cet article.</p>
         ) : (
-          <div className="overflow-hidden rounded-lg border">
-            <div className="max-h-[70vh] divide-y overflow-auto">
-              {a.mouvements.map((m) => {
+          <>
+          <div className="rounded-lg border">
+            <div className="divide-y">
+              {mouvementsAffiches.map((m) => {
                 const sortie = m.type === "SORTIE";
                 const src = source(m);
                 const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
@@ -216,6 +248,17 @@ export default async function ArticleFichePage({
               })}
             </div>
           </div>
+          {mouvementsChargesEnPlus > 0 && (
+            <Link href={lien({ mouvements: true }, "mouvements")} scroll={false} className="mt-2 inline-block text-sm text-primary hover:underline">
+              Voir les {mouvementsChargesEnPlus} mouvements plus anciens
+            </Link>
+          )}
+          {mouvementsChargesEnPlus === 0 && mouvementsHorsPage > 0 && (
+            <Link href={`/stock/mouvements?articleId=${a.id}&mois=tous`} className="mt-2 inline-block text-sm text-primary hover:underline">
+              Voir les {mouvementsHorsPage} mouvements plus anciens dans Mouvements
+            </Link>
+          )}
+          </>
         )}
       </section>
     </div>
@@ -225,9 +268,9 @@ export default async function ArticleFichePage({
 function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?: "green" | "amber" | "red" }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
   return (
-    <div className={`rounded-lg border p-3 ${cls}`}>
+    <div className={`min-w-0 rounded-lg border p-3 ${cls}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold tabular-nums">{valeur}</p>
+      <p className="mt-0.5 break-words text-lg font-semibold tabular-nums">{valeur}</p>
     </div>
   );
 }

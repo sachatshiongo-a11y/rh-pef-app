@@ -75,7 +75,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold sm:text-2xl">Catalogue</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl">Inventaire</h1>
           <div className="flex overflow-hidden rounded-md border text-sm">
             {DOMAINES.map((d) =>
               (domFiltre ?? "") === d.cle ? (

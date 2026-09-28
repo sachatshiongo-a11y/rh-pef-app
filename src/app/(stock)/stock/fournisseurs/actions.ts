@@ -78,6 +78,9 @@ export const fusionnerFournisseurs = actionLisible(async (sourceId: string, cibl
   await prisma.$transaction([
     prisma.articleStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
     prisma.bonDeCommande.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
+    // Achats DIRECTS de la Liste d'achat : sans ce report, la suppression de la source les
+    // détacherait en silence (FK SET NULL) et ils disparaîtraient de la fiche du fournisseur.
+    prisma.mouvementStock.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId } }),
     // Factures reliées par identifiant OU par libellé figé (import) portant le nom de la source.
     prisma.factureFournisseur.updateMany({ where: { fournisseurId: sourceId }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } }),
     prisma.factureFournisseur.updateMany({ where: { fournisseurId: null, fournisseurNom: source.nom }, data: { fournisseurId: cibleId, fournisseurNom: cible.nom } }),
@@ -91,11 +94,19 @@ export const fusionnerFournisseurs = actionLisible(async (sourceId: string, cibl
   revalidatePath("/stock/commandes");
 });
 
-/** Supprime un fournisseur (les articles/factures/BC liés sont simplement détachés — FK SET NULL). */
+/**
+ * Supprime un fournisseur (les articles/factures/BC liés sont simplement détachés — FK SET NULL).
+ * REFUSÉE s'il porte des achats directs de la Liste d'achat : ils perdraient leur fournisseur en
+ * silence. La fusion, elle, les reporte sur un autre fournisseur.
+ */
 export const supprimerFournisseur = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // suppression réservée à la Direction
   const f = await prisma.fournisseur.findUniqueOrThrow({ where: { id } });
+  const nbAchatsDirects = await prisma.mouvementStock.count({ where: { fournisseurId: id } });
+  if (nbAchatsDirects > 0) {
+    throw new Error(`Suppression impossible : ${nbAchatsDirects} achat(s) direct(s) de la Liste d'achat sont rattachés à « ${f.nom} ». Fusionnez-le plutôt avec un autre fournisseur, qui reprendra ces achats.`);
+  }
   await prisma.fournisseur.delete({ where: { id } });
   await journaliser(prisma, { entite: "Fournisseur", entiteId: id, champ: "suppression", ancienneValeur: f.nom, userId: user.id });
   revalidatePath("/stock/fournisseurs");

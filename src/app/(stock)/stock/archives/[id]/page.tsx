@@ -3,8 +3,10 @@ import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function ArchiveDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await exigerPageStock();
   const { id } = await params;
   const session = await prisma.sessionComptage.findUnique({
     where: { id },
@@ -16,7 +18,7 @@ export default async function ArchiveDetailPage({ params }: { params: Promise<{ 
     Math.abs(Number(l.ecart)) > 0.0001 && (Number(l.theorique) === 0 ? Number(l.physique) !== 0 : Math.abs(Number(l.ecartPct ?? 0)) > SEUIL_TOLERANCE_PCT);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4">
+    <div className="w-full space-y-4">
       <FilAriane segments={[{ label: "Archives", href: "/stock/archives" }, { label: `Comptage du ${new Date(session.date).toLocaleDateString("fr-FR")}` }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Comptage du {new Date(session.date).toLocaleDateString("fr-FR")}</h1>

@@ -1,4 +1,3 @@
-import { verifySession, requireModule } from "@/lib/auth";
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
 import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } from "./_data/charger-fiche";
@@ -6,12 +5,12 @@ import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_da
 import { FichesClient, type FicheRow } from "./fiches-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const ETATS: EtatDispo[] = ["DISPONIBLE", "RUPTURE", "A_VERIFIER"];
 
 export default async function FichesPage({ searchParams }: { searchParams: Promise<{ etat?: string }> }) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const user = await exigerPageStock();
   const sp = await searchParams;
   const etatInitial = ETATS.find((e) => e === sp.etat);
 

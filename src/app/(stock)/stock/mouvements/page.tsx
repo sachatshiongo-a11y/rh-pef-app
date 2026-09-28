@@ -1,15 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { MouvementForm, ColonneMouvements, type MvtLite } from "./mouvements-client";
 import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
+import { OngletsAchats } from "../_achats/onglets-achats";
+import { fournisseurDuMouvement } from "@/lib/achats-liste";
 import type { Prisma } from "@prisma/client";
 import { conseilLivraison, etatRattachementLivraison } from "@/lib/stock-restaurant";
 import type { ConseilLivraison } from "./mouvements-client";
+import { exigerPageStock } from "@/lib/garde-page";
 
 const mvtInclude = {
   article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
   facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
   reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
+  fournisseur: { select: { id: true, nom: true } }, // achat direct de la Liste d'achat
 } satisfies Prisma.MouvementStockInclude;
 type Mvt = Prisma.MouvementStockGetPayload<{ include: typeof mvtInclude }>;
 
@@ -24,6 +27,7 @@ const valeurDe = (m: Mvt): { v: number; estime: boolean } | null => {
 const versLite = (m: Mvt): MvtLite => {
   const bc = m.reception?.bonDeCommande;
   const va = valeurDe(m);
+  const fourn = fournisseurDuMouvement(m);
   return {
     id: m.id,
     articleId: m.articleId,
@@ -36,8 +40,8 @@ const versLite = (m: Mvt): MvtLite => {
     valeurEstimee: va ? va.estime : false,
     facture: m.facture ? { id: m.facture.id, numero: m.facture.numero } : null,
     bc: bc ? { id: bc.id, numero: bc.numero } : null,
-    fournId: m.facture?.fournisseurId ?? bc?.fournisseurId ?? null,
-    fournNom: m.facture?.fournisseurNom ?? bc?.fournisseur?.nom ?? null,
+    fournId: fourn?.id ?? null,
+    fournNom: fourn?.nom ?? null,
     motif: m.categorieSortie,
   };
 };
@@ -52,8 +56,8 @@ const FILTRES_MOTIF: Record<string, { label: string; where: Prisma.MouvementStoc
 };
 
 export default async function MouvementsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const user = await exigerPageStock();
   const sp = await searchParams;
-  const user = await verifySession();
   const estDirection = user.role === "ADMIN";
   // Liste BORNÉE : mois courant par défaut (« tous » = tout l'historique, plafonné et signalé).
   const now = new Date();
@@ -94,6 +98,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
 
   return (
     <div className="space-y-4">
+      <OngletsAchats />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Mouvements de stock</h1>
         <p className="text-xs text-muted-foreground">Les mouvements s&apos;exportent avec l&apos;inventaire du mois (Paramètres → Clôture).</p>

@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { verifySession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CompteNonLie } from "@/components/pointage/compte-non-lie";
 import { PointerClient } from "./pointer-client";
 import { chargerPointageDuJour } from "./pointage-du-jour";
+import { exigerPageRH } from "@/lib/garde-page";
 
 export default async function PointerPage() {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const u = await prisma.user.findUnique({ where: { id: user.id }, select: { employeeId: true } });
 

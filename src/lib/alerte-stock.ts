@@ -50,7 +50,7 @@ export async function notifierNouvellesAlertes(articleIds: string[], avant: Map<
     "",
     ...nouvelles.map((n) => `• ${n.designation} — ${ALERTE_LABEL[n.niveau]}`),
     "",
-    `Voir le catalogue : ${base}/stock/catalogue?alerte=${filtre}`,
+    `Voir l'inventaire : ${base}/stock/catalogue?alerte=${filtre}`,
   ].join("\n");
   await Promise.all([
     envoyerPush(cibles.map((c) => c.id), {
