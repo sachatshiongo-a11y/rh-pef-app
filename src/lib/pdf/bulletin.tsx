@@ -5,7 +5,7 @@ import { PdfHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors, entreprise as entrepriseDefaut, formatMontant, type Devise } from "./theme";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
-import { salaireDeBaseUSD, salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
+import { salaireDeBaseUSD, salaireNetUSD, totalVerseUSD, brutHorsTransportUSD } from "@/lib/paie-net";
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import { formaterNombre, normaliserEspaces } from "@/lib/montant";
 
@@ -326,7 +326,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
   // transport entre dans l'assiette imposable (2026-07-22). Depuis le 2026-09-24, le moteur arrondit
   // chaque gain au centime et le brut en est la somme exacte : cette différence est donc, au
   // centime, la somme des gains hors transport imprimés au-dessus.
-  const baseImposable = Number(ligne.salBrutUSD) - Number(ligne.transportUSD);
+  const baseImposable = brutHorsTransportUSD(ligne);
   // Salaire de base imprimé : voir `salaireDeBaseUSD` (lignes back-office antérieures au 2026-09-24).
   const salaireBaseLigne = salaireDeBaseUSD(ligne, employee.categorie);
   // Back-office : salaire mensuel fixe, pas payé aux heures. Ni base en heures ni taux sur la ligne

@@ -9,6 +9,9 @@ import { PaieBulk, type PaieRow } from "./paie-bulk";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
+import { classerContrats, jourMetier, type Classement } from "@/lib/contrats-classement";
+import { chargerSignatures, etatSignature } from "@/lib/signature";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { HistoriquePaie, type SPHistorique } from "./historique-paie";
 import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
@@ -185,6 +188,8 @@ export default async function PaiePage({
           { dateDebut: { gte: debutMois, lte: finMois } },
           { dateFin: { gte: debutMois, lte: finMois } },
           { finPeriodeEssai: { gte: debutMois, lte: finMois } },
+          // Échus mais encore ACTIF en base, quel que soit leur mois : à « Marquer expiré ».
+          { dateFin: { lt: jourCivilKinshasa(new Date()) } },
         ],
       },
       include: { employee: { select: { id: true, nom: true } } },
@@ -211,14 +216,34 @@ export default async function PaiePage({
   const encoursTotal = pretsRecap.reduce((s, p) => s + p.solde, 0);
   const echeancesMois = pretsRecap.reduce((s, p) => s + p.echeanceMois, 0);
 
+  // Même classement que « Mes contrats » (et même lecture des signatures) : un CDD échu s'affiche
+  // « expiré le … » ici comme dans l'espace du salarié. Chargé seulement pour cet onglet.
+  const idsSuivi = vue === "contrats" ? contratsDuMois.map((c) => c.id) : [];
+  const [fichesContrats, sigContratsSuivi] = await Promise.all([
+    idsSuivi.length > 0
+      ? prisma.contrat.findMany({
+          where: { employeeId: { in: [...new Set(contratsDuMois.map((c) => c.employeeId))] } },
+          select: { id: true, employeeId: true, type: true, statut: true, dateDebut: true, dateFin: true, createdAt: true },
+        })
+      : Promise.resolve([]),
+    chargerSignatures(prisma, "CONTRAT", idsSuivi),
+  ]);
+  const classementSuivi = new Map<string, Classement>();
+  const maintenantSuivi = new Date();
+  for (const e of new Set(fichesContrats.map((f) => f.employeeId))) {
+    for (const [id, cl] of classerContrats(fichesContrats.filter((f) => f.employeeId === e), new Map(), maintenantSuivi)) classementSuivi.set(id, cl);
+  }
   const contratRows: ContratRow[] = contratsDuMois.map((c) => ({
     id: c.id,
     employeeId: c.employee.id,
     nom: c.employee.nom,
     type: c.type,
-    dateDebut: new Date(c.dateDebut).toLocaleDateString("fr-FR"),
-    dateFin: c.dateFin ? new Date(c.dateFin).toLocaleDateString("fr-FR") : null,
-    finPeriodeEssai: c.finPeriodeEssai ? new Date(c.finPeriodeEssai).toLocaleDateString("fr-FR") : null,
+    dateDebut: jourMetier(c.dateDebut),
+    dateFin: c.dateFin ? jourMetier(c.dateFin) : null,
+    finPeriodeEssai: c.finPeriodeEssai ? jourMetier(c.finPeriodeEssai) : null,
+    motif: classementSuivi.get(c.id)?.motif ?? null,
+    expireNonMarque: classementSuivi.get(c.id)?.expireNonMarque ?? false,
+    signature: etatSignature(sigContratsSuivi.get(c.id)),
   }));
 
   const sousOnglets = [

@@ -24,6 +24,25 @@ import { estErreur } from "@/lib/action-lisible";
  */
 export type EtatSignatureUI = "A_SIGNER" | "SIGNE" | "A_RESIGNER";
 
+/**
+ * Ce que la fenêtre dit du geste. SIGNER UN CONTRAT VAUT ACCEPTATION FORMELLE (décision du
+ * 2026-09-23, `enregistrerSignature` pose `accepteLe`) : « avoir pris connaissance » en disait
+ * moins que ce que le geste engage. Bulletins et demandes de congé gardent leur formulation.
+ */
+export function texteSignature(cible: CibleSignature, cote: "SALARIE" | "DIRECTION"): string {
+  if (cote === "DIRECTION") return "La signature sera enregistrée comme recueillie sur l'appareil de l'entreprise, en votre présence.";
+  return cible === "CONTRAT"
+    ? "En signant, vous acceptez ce contrat et ses conditions."
+    : "En signant, vous reconnaissez avoir pris connaissance de ce document.";
+}
+
+/** Le bandeau remis au salarié en présentiel — même distinction que `texteSignature`. */
+function bandeauPresentiel(cible: CibleSignature, nomSalarie: string): string {
+  return cible === "CONTRAT"
+    ? `Remettez l'appareil à ${nomSalarie}. En signant, il ou elle accepte ce contrat et ses conditions.`
+    : `Remettez l'appareil à ${nomSalarie}. En signant, il ou elle reconnaît avoir pris connaissance de ce document.`;
+}
+
 /** Ce que la page serveur lie : l'action de SON côté, jamais choisie par le navigateur. */
 export type ActionSignature = (
   cible: CibleSignature,
@@ -124,9 +143,7 @@ export function BoutonSigner({
               </div>
 
               <p className="mb-3 text-sm text-muted-foreground">
-                {cote === "SALARIE"
-                  ? "En signant, vous reconnaissez avoir pris connaissance de ce document."
-                  : "La signature sera enregistrée comme recueillie sur l'appareil de l'entreprise, en votre présence."}
+                {texteSignature(cible, cote)}
               </p>
 
               {aResigner && (
@@ -145,11 +162,7 @@ export function BoutonSigner({
               <CadreSignature
                 onSigner={signer}
                 enCours={enCours}
-                bandeau={
-                  cote === "DIRECTION"
-                    ? `Remettez l'appareil à ${nomSalarie}. En signant, il ou elle reconnaît avoir pris connaissance de ce document.`
-                    : undefined
-                }
+                bandeau={cote === "DIRECTION" ? bandeauPresentiel(cible, nomSalarie) : undefined}
               />
             </div>
           </div>,

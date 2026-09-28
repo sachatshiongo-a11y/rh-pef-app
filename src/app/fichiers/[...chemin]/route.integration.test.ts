@@ -51,6 +51,9 @@ const FACTURE = "factures/fournisseur-kin-abc123.pdf";
 const BC = "bons-commande/bc-001.pdf";
 const PHOTO_PLAT = "fiches-techniques/plat-1-1700000000003.webp";
 const INCONNU = "parametres/signature-1700000000004.png";
+// Exemplaire figé d'une attestation DU salarié : la RH l'ouvre ici, le salarié jamais — il passe
+// par `/espace/attestations/[id]` (propriété lue en base). Chemin fixé au beforeAll.
+let ATTESTATION_MOI = "";
 
 const compte = (role: Role, employeeId: string | null, accesStock = false): Compte =>
   ({ id: `u-${role}`, email: `${role}@test.pef`, nom: role, role, accesStock, employeeId });
@@ -102,6 +105,9 @@ beforeAll(async () => {
     data: { numero: "001/PEF/JUIL/26", sequence: 1, annee: 2026, mois: 7, documentUrl: `/fichiers/${BC}` },
   });
   await prisma.ficheTechnique.create({ data: { nom: "Plat 1", photoUrl: `/fichiers/${PHOTO_PLAT}` } });
+  const att = await prisma.attestation.create({ data: { employeeId: moiId, type: "TRAVAIL", statut: "DELIVREE", numero: "ATT-2026-0001", delivreeLe: new Date() } });
+  ATTESTATION_MOI = `attestations/${att.id}-1700000000005.pdf`;
+  await prisma.attestation.update({ where: { id: att.id }, data: { pdfUrl: `/fichiers/${ATTESTATION_MOI}` } });
 }, 120_000);
 
 afterAll(async () => { await fermer?.(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -123,6 +129,11 @@ describe("un salarié n'ouvre que SES fichiers", () => {
     await refuse(CONTRAT_FIGE(collegueId));
   });
 
+  it("sa PROPRE attestation figée : refusée ici — le salarié passe par sa route de l'espace", async () => {
+    A.user = compte("EMPLOYE", moiId);
+    await refuse(ATTESTATION_MOI);
+  });
+
   it("chemin inconnu en base, pièces du stock : refusés", async () => {
     A.user = compte("EMPLOYE", moiId);
     await refuse(INCONNU);
@@ -135,7 +146,7 @@ describe("la RH ouvre tout", () => {
   for (const role of ["ADMIN", "MANAGER", "VIEWER"] as const) {
     it(role, async () => {
       A.user = compte(role, null);
-      for (const c of [DOC_MOI(moiId), DOC_MOI(collegueId), PHOTO(collegueId), CONTRAT_FIGE(collegueId), FACTURE, BC, PHOTO_PLAT, INCONNU]) {
+      for (const c of [DOC_MOI(moiId), DOC_MOI(collegueId), PHOTO(collegueId), CONTRAT_FIGE(collegueId), FACTURE, BC, PHOTO_PLAT, INCONNU, ATTESTATION_MOI]) {
         await autorise(c);
       }
     });

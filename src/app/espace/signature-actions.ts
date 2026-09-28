@@ -20,7 +20,8 @@ function pagesConcernees(cible: CibleSignature): string[] {
     case "DEMANDE_CONGE":
       return ["/espace/conges"];
     case "CONTRAT":
-      return ["/espace/documents"];
+      // « Mes contrats » porte le bouton ; l'accueil, la pastille « contrat à signer ».
+      return ["/espace/contrats", "/espace"];
   }
 }
 

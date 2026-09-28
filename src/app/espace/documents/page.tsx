@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "../garde";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -7,7 +8,6 @@ import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer"
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
-import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { signerMonDocument } from "../signature-actions";
@@ -20,7 +20,7 @@ const inputCls = "rounded-md border border-input bg-background px-3 py-2 text-sm
 export default async function EspaceDocuments({ searchParams }: { searchParams: Promise<{ certif?: string; erreur?: string }> }) {
   const s = await chargerSalarie();
   const sp = await searchParams;
-  const [bulletins, contrats, documents, conges] = await Promise.all([
+  const [bulletins, documents, conges] = await Promise.all([
     // Seuls les bulletins VALIDÉS ou PAYÉS sont montrés au salarié (pas les brouillons en préparation).
     prisma.payrollLine.findMany({
       where: { employeeId: s.employeeId, statutPaiement: { in: [...STATUTS_BULLETIN_SALARIE] } },
@@ -28,7 +28,6 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
       take: 60,
     }),
-    prisma.contrat.findMany({ where: { employeeId: s.employeeId }, orderBy: { dateDebut: "desc" } }),
     prisma.documentEmploye.findMany({ where: { employeeId: s.employeeId }, orderBy: { createdAt: "desc" } }),
     // Seules les demandes APPROUVÉES ont un document à remettre : une demande en attente ou
     // refusée ne s'ouvre ni ne se signe (la route /espace/conges/demande la refuse aussi).
@@ -39,12 +38,11 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
     }),
   ]);
 
-  // Les signatures des documents affichés, en TROIS requêtes (une par cible) quel que soit le
+  // Les signatures des documents affichés, en DEUX requêtes (une par cible) quel que soit le
   // nombre de lignes — jamais une requête par bulletin. Ce sont ces lectures qui détectent
   // qu'un document a bougé depuis sa signature : rien n'est stocké sur le bulletin lui-même.
-  const [sigBulletins, sigContrats, sigConges] = await Promise.all([
+  const [sigBulletins, sigConges] = await Promise.all([
     chargerSignatures(prisma, "BULLETIN", bulletins.map((b) => b.id)),
-    chargerSignatures(prisma, "CONTRAT", contrats.map((c) => c.id)),
     chargerSignatures(prisma, "DEMANDE_CONGE", conges.map((c) => c.id)),
   ]);
 
@@ -52,17 +50,11 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold">Mes documents</h1>
-        <p className="text-sm text-muted-foreground">Vos bulletins de paie, contrats et documents personnels.</p>
-      </div>
-
-      {/* Attestations en self-service : générées à la demande depuis le contrat courant. */}
-      <div className="rounded-2xl border bg-card p-5">
-        <h2 className="mb-1 flex items-center gap-2 text-base font-semibold"><Icone nom="document" className="shrink-0 text-muted-foreground" /> Mes attestations</h2>
-        <p className="mb-3 text-sm text-muted-foreground">Générez vous-même votre attestation, sans passer par la Direction.</p>
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <ContratViewerButton href="/espace/attestation/travail" titre="Attestation de travail" libelle="Attestation de travail" className="text-primary underline" />
-          <ContratViewerButton href="/espace/attestation/salaire" titre="Attestation de salaire" libelle="Attestation de salaire" className="text-primary underline" />
-        </div>
+        <p className="text-sm text-muted-foreground">
+          Vos bulletins de paie, congés et documents personnels. Vos contrats sont dans{" "}
+          <Link href="/espace/contrats" className="text-primary underline">Mes contrats</Link>, vos attestations dans{" "}
+          <Link href="/espace/attestations" className="text-primary underline">Mes attestations</Link>.
+        </p>
       </div>
 
       {/* Envoi d'un certificat médical à la Direction */}
@@ -144,50 +136,6 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                 </div>
               </li>
             ))}
-          </ul>
-        )}
-      </Section>
-
-      <Section titre="Contrats">
-        {contrats.length === 0 ? (
-          <Vide>Aucun contrat enregistré.</Vide>
-        ) : (
-          <ul className="divide-y">
-            {contrats.map((c) => {
-              // SIGNER VAUT ACCEPTATION FORMELLE (2026-09-23) : la signature pose `accepteLe` au même
-              // instant (`enregistrerSignature`), et l'ancien clic « Lu et approuvé » n'existe plus.
-              // L'écran ne dit donc l'acceptation qu'UNE fois, par le badge « Signé le … ». La ligne
-              // « accepté le … » ne subsiste que pour un contrat accepté sans aucune signature en
-              // base — cas que la migration du lot 2 a normalement résorbé.
-              const sigC = etatSignature(sigContrats.get(c.id));
-              const signe = sigC.etat !== "A_SIGNER";
-              return (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{c.type} · {c.poste}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {fr(c.dateDebut)} → {c.dateFin ? fr(c.dateFin) : "indéterminé"}
-                    {c.accepteLe && !signe ? <span className="text-emerald-700"> · accepté le {jourKinshasa(c.accepteLe)}</span> : null}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3 text-sm">
-                  <ContratViewerButton href={`/espace/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} className="text-primary underline" />
-                  {c.statut === "ACTIF" && (
-                    <BoutonSigner
-                      cible="CONTRAT"
-                      cibleId={c.id}
-                      nomSalarie={s.nom}
-                      libelleDocument={`Contrat ${c.type} · ${c.poste}`}
-                      cote="SALARIE"
-                      action={signerMonDocument}
-                      {...sigC}
-                    />
-                  )}
-                  {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-xs text-muted-foreground underline">pièce jointe</a>}
-                </div>
-              </li>
-              );
-            })}
           </ul>
         )}
       </Section>

@@ -1,23 +1,28 @@
 import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
+import Link from "next/link";
 import { chargerSalarie } from "../garde";
+import { libelleTypeContrat } from "@/lib/contrats-classement";
+import { chargerContratsClasses } from "@/lib/contrats-espace";
 
 const d = (x: Date | null | undefined) => (x ? new Date(x).toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "—");
 
-const TYPE_CONTRAT: Record<string, string> = {
-  CDI: "CDI — durée indéterminée", CDD: "CDD — durée déterminée", STAGE: "Stage", JOURNALIER: "Journalier", INTERIM: "Intérim",
-};
-
 export default async function EspaceDossier() {
   const s = await chargerSalarie();
-  const [emp, contrat, parametres] = await Promise.all([
+  const [emp, classes, parametres] = await Promise.all([
     prisma.employee.findUniqueOrThrow({
       where: { id: s.employeeId },
       select: { nom: true, matricule: true, poste: true, categorie: true, dateEmbauche: true, telephone: true, email: true, salaireMensuel: true, heuresHebdomadaires: true },
     }),
-    prisma.contrat.findFirst({ where: { employeeId: s.employeeId, statut: "ACTIF" }, orderBy: { dateDebut: "desc" } }),
+    chargerContratsClasses(prisma, s.employeeId),
     chargerParametresPaie(),
   ]);
+  // Le contrat EN COURS est celui que « Mes contrats » range en vigueur (ou à signer) — jamais un
+  // CDD dont la date de fin est passée, même s'il est resté ACTIF en base.
+  // Un contrat qui commence plus tard n'est pas encore « en cours ».
+  const contrat =
+    (classes.find((c) => c.classement.categorie !== "ANCIEN" && !c.classement.aVenir) ??
+      classes.find((c) => c.classement.categorie !== "ANCIEN"))?.contrat ?? null;
 
   return (
     <div className="space-y-5">
@@ -37,14 +42,20 @@ export default async function EspaceDossier() {
       <Bloc titre="Contrat en cours">
         {contrat ? (
           <>
-            <Champ label="Type" valeur={TYPE_CONTRAT[contrat.type] ?? contrat.type} />
+            <Champ label="Type" valeur={libelleTypeContrat(contrat.type)} />
             <Champ label="Début" valeur={d(contrat.dateDebut)} />
             <Champ label="Fin" valeur={contrat.dateFin ? d(contrat.dateFin) : "Indéterminée"} />
             <Champ label="Poste au contrat" valeur={contrat.poste} />
             <Champ label="Heures / semaine" valeur={`${Number(contrat.heuresHebdo).toLocaleString("fr-FR")} h`} />
+            <p className="col-span-full text-sm">
+              <Link href="/espace/contrats" className="text-primary underline">Voir, signer et télécharger mes contrats →</Link>
+            </p>
           </>
         ) : (
-          <p className="col-span-full text-sm text-muted-foreground">Aucun contrat actif enregistré. Rapprochez-vous de la Direction.</p>
+          <p className="col-span-full text-sm text-muted-foreground">
+            Aucun contrat en cours. Rapprochez-vous de la Direction.
+            {classes.length > 0 && <> <Link href="/espace/contrats" className="text-primary underline">Voir mes anciens contrats →</Link></>}
+          </p>
         )}
       </Bloc>
 
