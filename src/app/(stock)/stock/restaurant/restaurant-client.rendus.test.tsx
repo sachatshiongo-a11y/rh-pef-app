@@ -74,4 +74,16 @@ describe("grille du restaurant — reçu du dépôt et stock théorique", () => 
     expect(cellule("Tomate").getAttribute("title") ?? cellule("Tomate").innerHTML).toContain("aucun comptage : stock estimé à partir des seules livraisons");
     expect(cellule("Citron").textContent).toContain("12 pièce du 22/09 à répartir");
   });
+
+  it("deux signalements identiques (deux livraisons de 12 pièces le même jour) : pas de clé React en double", () => {
+    const erreurs = vi.spyOn(console, "error").mockImplementation(() => {});
+    monter([ligne({
+      id: "d", designation: "Citron", unite: "pièce",
+      signauxJour: { "2026-09-21": ["12 pièce : à répartir", "12 pièce : à répartir"] },
+      theorique: { stock: "10", aucunComptage: false, signalements: ["12 pièce du 21/09 : à répartir", "12 pièce du 21/09 : à répartir"] },
+    })]);
+    expect(erreurs.mock.calls.filter((c) => String(c[0]).includes("same key"))).toEqual([]);
+    expect(conteneur.textContent!.split("12 pièce du 21/09 : à répartir").length - 1).toBe(2);
+    erreurs.mockRestore();
+  });
 });

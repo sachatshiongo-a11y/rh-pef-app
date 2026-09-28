@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { qte } from "@/lib/stock";
+import { formaterNombre } from "@/lib/montant";
 import { texteConso, totalConso, SECTION_CONSO, SECTION_LIVRE, SECTION_PERTES, SECTION_SANS_MOTIF, type LigneConso, type LigneJours } from "@/lib/journalier-restaurant";
 import { ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, type ConsommationReelle } from "@/lib/stock-restaurant";
 
@@ -34,9 +35,23 @@ function LignesSorties({ rows, lien }: { rows: LigneJours[]; lien: boolean }) {
   ));
 }
 
+/** « Total jour » d'une section (sorties sans motif) : somme par jour, comme l'ancien pied de tableau. */
+function TotalJour({ libelle, rows }: { libelle: string; rows: LigneJours[] }) {
+  const n = rows[0]?.jours.length ?? 0;
+  const totaux = Array.from({ length: n }, (_, i) => rows.reduce((t, r) => t + r.jours[i]!, 0));
+  return (
+    <tr className="bg-muted/40 font-semibold">
+      <td className="sticky left-0 z-10 bg-muted/40">{libelle}</td>
+      {totaux.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
+      <td className="text-right">{qte(totaux.reduce((a, b) => a + b, 0))}</td>
+    </tr>
+  );
+}
+
 function CelluleConso({ c }: { c: ConsommationReelle }) {
   if (c.etat === "INCONNUE") return <td className="text-right text-muted-foreground" title={LIBELLE_CONSO_INCONNUE[c.raison]}>—</td>;
-  const detail = `veille ${c.stockVeille}${c.veilleEstimee ? " (estimée, aucun comptage)" : ""} + reçu ${c.recu} − compté ${c.compte}`;
+  const n = (v: string) => formaterNombre(Number(v), { maximumFractionDigits: 3 });
+  const detail = `veille ${n(c.stockVeille)}${c.veilleEstimee ? " (estimée, aucun comptage)" : ""} + reçu ${n(c.recu)} − compté ${n(c.compte)}`;
   if (c.negative) {
     return (
       <td className="text-right font-medium text-red-700" title={`${ECART_NEGATIF} — ${detail}`} aria-label={`${texteConso(c)} — ${ECART_NEGATIF}`}>
@@ -69,7 +84,7 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
         <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
           {sorties.livraisons.length > 0 && <><Section titre={SECTION_LIVRE} ton="livre" colSpan={colSpan} /><LignesSorties rows={sorties.livraisons} lien /></>}
           {sorties.pertes.length > 0 && <><Section titre={SECTION_PERTES} ton="pertes" colSpan={colSpan} /><LignesSorties rows={sorties.pertes} lien /></>}
-          {sorties.sansMotif.length > 0 && <><Section titre={`${SECTION_SANS_MOTIF} — ni livrées au restaurant, ni pertes`} ton="sansMotif" colSpan={colSpan} /><LignesSorties rows={sorties.sansMotif} lien /></>}
+          {sorties.sansMotif.length > 0 && <><Section titre={`${SECTION_SANS_MOTIF} — ni livrées au restaurant, ni pertes`} ton="sansMotif" colSpan={colSpan} /><LignesSorties rows={sorties.sansMotif} lien /><TotalJour libelle="Total jour — sorties sans motif" rows={sorties.sansMotif} /></>}
           {legumes.length > 0 && (
             <>
               <Section titre="Légumes frais (achats du jour)" ton="legumes" colSpan={colSpan} />

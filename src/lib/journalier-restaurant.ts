@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import { convertirVersUniteArticle } from "@/lib/fiches/disponibilite";
 import { formaterNombre } from "@/lib/montant";
+import type { Colonne } from "@/lib/pdf/tableau";
 import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT, type ConsommationReelle, type EntreesStockResto } from "@/lib/stock-restaurant";
 
 // Conso. journalière (onglets Consommation et Comparaison) : fonctions PURES partagées par l'écran
@@ -215,7 +216,7 @@ const texteQte = (v: string | null) => (v === null ? "—" : formaterNombre(Numb
  * en écart avec le livré (à colorer).
  */
 export function lignesExportComparaison(lignesComp: LigneComparaison[], labels: string[]): {
-  lignes: string[][]; sectionRows: number[]; entete: string[]; colRole: RoleCol[]; ecarts: Set<string>;
+  lignes: string[][]; sectionRows: number[]; entete: string[]; colRole: RoleCol[]; ecarts: Set<string>; colonnes: Colonne[];
 } {
   const lignes: string[][] = [];
   const sectionRows: number[] = [];
@@ -234,5 +235,43 @@ export function lignesExportComparaison(lignesComp: LigneComparaison[], labels: 
   }
   const entete = ["Article", ...labels.flatMap((l) => [`${l} Cmd`, `${l} Liv`, `${l} Conso`]), "Total Cmd", "Total Liv", "Total Conso"];
   const colRole: RoleCol[] = [null, ...[...labels, "total"].flatMap(() => ["cmd", "liv", "conso"] as RoleCol[])];
-  return { lignes, sectionRows, entete, colRole, ecarts };
+  const colW = `${84 / ((labels.length + 1) * 3)}%`;
+  const colonnes: Colonne[] = [
+    { header: "Article", width: "16%" },
+    ...[...labels, "Tot."].flatMap((l) => [
+      { header: `${l} C`, width: colW, align: "right" as const },
+      { header: `${l} L`, width: colW, align: "right" as const },
+      { header: `${l} Cs`, width: colW, align: "right" as const },
+    ]),
+  ];
+  return { lignes, sectionRows, entete, colRole, ecarts, colonnes };
+}
+
+/**
+ * PDF de la comparaison : 25 colonnes ne tiennent pas lisiblement sur une page (constaté au rendu :
+ * « 1 180,125 » se coupait sur deux lignes). Deux parties, chacune sur sa page paysage : lundi à jeudi,
+ * puis vendredi à dimanche et les totaux. `indices` : colonnes de l'export reprises dans la partie.
+ */
+export function partiesPdfComparaison(labels: string[]): { titre: string; indices: number[]; colonnes: Colonne[] }[] {
+  const coupe = Math.ceil(labels.length / 2 + 0.5); // 7 jours : 4 + 3 (+ totaux)
+  const groupes = [
+    // « à » et non « → » : la flèche n'existe pas dans Optima, la police des PDF (elle sortait en « ’ »).
+    { titre: `${labels[0]} à ${labels[coupe - 1]}`, jours: labels.slice(0, coupe).map((l, i) => ({ l, i })) },
+    { titre: `${labels[coupe]} à ${labels[labels.length - 1]}, et totaux de la semaine`, jours: [...labels.slice(coupe).map((l, i) => ({ l, i: coupe + i })), { l: "Tot.", i: labels.length }] },
+  ];
+  return groupes.map((g) => {
+    const largeur = `${84 / (g.jours.length * 3)}%`;
+    return {
+      titre: g.titre,
+      indices: [0, ...g.jours.flatMap(({ i }) => [1 + i * 3, 2 + i * 3, 3 + i * 3])],
+      colonnes: [
+        { header: "Article", width: "16%" },
+        ...g.jours.flatMap(({ l }) => [
+          { header: `${l} C`, width: largeur, align: "right" as const },
+          { header: `${l} L`, width: largeur, align: "right" as const },
+          { header: `${l} Cs`, width: largeur, align: "right" as const },
+        ]),
+      ],
+    };
+  });
 }

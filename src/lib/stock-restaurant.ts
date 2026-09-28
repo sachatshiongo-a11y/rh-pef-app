@@ -48,7 +48,12 @@ export type LivraisonSR = {
 export function espaceDuDomaine(domaine: string | null | undefined): "CUISINE" | "BAR" | null {
   return domaine === "NOURRITURE" ? "CUISINE" : domaine === "BOISSON" ? "BAR" : null;
 }
-export type EntreesStockResto = { articles: ArticleRestoSR[]; comptages: ComptageSR[]; livraisons: LivraisonSR[] };
+/**
+ * `debutLivraisons` (AAAA-MM-JJ) : les livraisons ne sont chargées qu'à partir de cette date (plus
+ * celles d'après le dernier comptage de chaque article compté). Un article SANS comptage n'estime
+ * donc son stock qu'à partir d'elle — jamais sur un historique chargé à moitié.
+ */
+export type EntreesStockResto = { articles: ArticleRestoSR[]; comptages: ComptageSR[]; livraisons: LivraisonSR[]; debutLivraisons?: string };
 
 // ─── Sorties ─────────────────────────────────────────────────────────────────
 
@@ -205,11 +210,12 @@ function indexer(e: EntreesStockResto): Index {
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
-function stockDe(idx: Index, articleRestoId: string, jour: string): StockTheorique {
+function stockDe(idx: Index, articleRestoId: string, jour: string, debutLivraisons?: string): StockTheorique {
   const comptes = (idx.comptages.get(articleRestoId) ?? []).filter((c) => c.date <= jour);
   const dernier = comptes.at(-1) ?? null;
   // Fenêtre (C, J] : une livraison du jour du comptage est déjà dans le chiffre compté.
-  const dansFenetre = (d: string) => d <= jour && (dernier === null || d > dernier.date);
+  // Sans comptage : seulement les livraisons de la période chargée (`debutLivraisons`).
+  const dansFenetre = (d: string) => d <= jour && (dernier === null ? !debutLivraisons || d >= debutLivraisons : d > dernier.date);
   const livraisonsDepuis = (idx.recues.get(articleRestoId) ?? []).filter((l) => dansFenetre(l.date));
   const signalements = (idx.signalees.get(articleRestoId) ?? []).filter((s) => dansFenetre(s.date));
 
@@ -234,7 +240,7 @@ function stockDe(idx: Index, articleRestoId: string, jour: string): StockTheoriq
 export function stockRestaurantTheorique(e: EntreesStockResto, jour: string): ResultatStockResto {
   const idx = indexer(e);
   return {
-    parArticle: new Map(e.articles.map((a) => [a.id, stockDe(idx, a.id, jour)])),
+    parArticle: new Map(e.articles.map((a) => [a.id, stockDe(idx, a.id, jour, e.debutLivraisons)])),
     nonRattachees: idx.nonRattachees.filter((l) => l.date <= jour),
   };
 }
@@ -288,7 +294,7 @@ export function consommationReelle(e: EntreesStockResto, articleRestoId: string,
   const idx = indexer(e);
   const compte = (idx.comptages.get(articleRestoId) ?? []).find((c) => c.date === jour);
   if (!compte) return { etat: "INCONNUE", raison: "PAS_DE_COMPTAGE" };
-  const veille = stockDe(idx, articleRestoId, veilleDe(jour));
+  const veille = stockDe(idx, articleRestoId, veilleDe(jour), e.debutLivraisons);
   if (veille.stock === null) return { etat: "INCONNUE", raison: "STOCK_VEILLE_INCONNU" };
   const recu = recuDuDepot(e, articleRestoId, jour);
   if (veille.signalements.length > 0 || recu.signalements.length > 0) return { etat: "INCONNUE", raison: "LIVRAISON_NON_COMPTEE" };

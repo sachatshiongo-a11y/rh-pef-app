@@ -69,6 +69,17 @@ describe("stock théorique du restaurant", () => {
     expect(MENTION_AUCUN_COMPTAGE).toBe("aucun comptage : stock estimé à partir des seules livraisons");
   });
 
+  it("aucun comptage et livraisons chargées depuis une date : l'estimation ne compte que la période chargée", () => {
+    const e = { ...E([farine], [], [L("cat-farine", "kg", "2026-09-21", "2")]), debutLivraisons: "2026-09-21" };
+    expect(stockDe(e, "farine", "2026-09-22").stock).toBe("2000");
+    // Un article compté, lui, garde toutes ses livraisons depuis le comptage, même avant la période.
+    const f = { ...E([farine], [C("farine", "2026-09-15", "100")], [L("cat-farine", "kg", "2026-09-16", "1")]), debutLivraisons: "2026-09-21" };
+    expect(stockDe(f, "farine", "2026-09-22").stock).toBe("1100");
+    // Une livraison chargée par erreur avant la période n'entre pas dans une estimation sans comptage.
+    const g = { ...E([farine], [], [L("cat-farine", "kg", "2026-09-10", "5"), L("cat-farine", "kg", "2026-09-21", "2")]), debutLivraisons: "2026-09-21" };
+    expect(stockDe(g, "farine", "2026-09-22").stock).toBe("2000");
+  });
+
   it("conversion d'emballage : 4 paquets « 500 GR » livrés = 2 kg au restaurant", () => {
     const pates = R("pates", "kg", "cat-pates");
     const e = E([pates], [C("pates", "2026-09-20", "1")], [L("cat-pates", "500 GR", "2026-09-21", "4")]);

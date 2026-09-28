@@ -46,6 +46,21 @@ describe("onglet Consommation", () => {
     expect(l.at(-1)).toBe("Total livré au restaurant 2 2");
   });
 
+  it("sorties sans motif : leur « Total jour » est rendu, à part des livraisons", () => {
+    const div = renderToStaticMarkup(
+      <TableConso jours={JOURS} legumes={[]} consoResto={[]}
+        sorties={sortiesParMotif([S("Farine", "2026-09-21", 2, null), S("Sel", "2026-09-21", 0.5, null), S("Sel", "2026-09-22", 1, null)], isos)} />,
+    );
+    const l = lignes(div);
+    expect(l).toContain("Total jour — sorties sans motif 2,5 1 3,5");
+  });
+
+  it("l'infobulle de la consommation écrit les nombres à la française", () => {
+    const x: EntreesStockResto = { ...e, comptages: [{ articleRestoId: "f", date: "2026-09-20", quantite: "1000.5" }, { articleRestoId: "f", date: "2026-09-21", quantite: "1500" }] };
+    const html = renderToStaticMarkup(<TableConso jours={JOURS} legumes={[]} consoResto={consommationsSemaine(x, isos)} sorties={sortiesParMotif([], isos)} />);
+    expect(html).toContain("veille 1 000,5 + reçu 2 000 − compté 1 500");
+  });
+
   it("ajoute la consommation réelle quand un comptage existe ; « — » sinon ; l'écart négatif est signalé", () => {
     const html = rendre();
     const l = lignes(html);

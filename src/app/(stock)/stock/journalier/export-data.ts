@@ -4,7 +4,7 @@ import { lundiDe } from "@/lib/dates-fr";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
 import {
-  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, type RoleCol,
+  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, type RoleCol,
 } from "@/lib/journalier-restaurant";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
 
@@ -22,6 +22,8 @@ export type ExportJournalier = {
   rolesLignes?: Record<number, RoleCol>;
   /** Cellules « r:c » du consommé en écart avec le livré (comparaison). */
   ecarts?: Set<string>;
+  /** PDF en plusieurs parties (comparaison : trop de colonnes pour une page) — `indices` dans `colonnes`. */
+  partiesPdf?: { titre: string; indices: number[]; colonnes: Colonne[] }[];
 };
 
 /** Rôle (couleur) d'une cellule d'export : celui de la ligne s'il est posé, sinon celui de la colonne. */
@@ -125,19 +127,10 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
       ? [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])].map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
       : [],
   });
-  const { lignes, sectionRows, entete, colRole, ecarts } = lignesExportComparaison(lignesComp, labels);
-  const colW = `${84 / 24}%`;
-  const colonnes: Colonne[] = [
-    { header: "Article", width: "16%" },
-    ...[...labels, "Tot."].flatMap((l) => [
-      { header: `${l} C`, width: colW, align: "right" as const },
-      { header: `${l} L`, width: colW, align: "right" as const },
-      { header: `${l} Cs`, width: colW, align: "right" as const },
-    ]),
-  ];
+  const { lignes, sectionRows, entete, colRole, ecarts, colonnes } = lignesExportComparaison(lignesComp, labels);
 
   return {
     titre: "Comparaison commandé / livré / consommé", sousTitre, fichierBase: `Comparaison${suffixe}_${iso(lundi)}`,
-    entete, colonnes, lignes, sectionRows, colRole, ecarts,
+    entete, colonnes, lignes, sectionRows, colRole, ecarts, partiesPdf: partiesPdfComparaison(labels),
   };
 }

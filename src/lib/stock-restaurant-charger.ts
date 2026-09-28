@@ -8,9 +8,9 @@ import { MOTIF_LIVRAISON_RESTAURANT, type EntreesStockResto } from "@/lib/stock-
 //   1. les articles du restaurant actifs (rattachements) ;
 //   2. la date du dernier comptage de chaque article AVANT la période (une requête groupée) ;
 //   3. les comptages : ce dernier comptage + tous ceux de la période ;
-//   4. les sorties « Livraison restaurant » jusqu'à la fin de la période, à partir du plus ancien de
-//      ces derniers comptages (sans borne si un article rattaché n'a jamais été compté : son stock
-//      théorique est alors la somme de TOUTES ses livraisons).
+//   4. les sorties « Livraison restaurant » de la période, et, pour les articles comptés avant elle,
+//      celles reçues depuis le plus ancien de ces derniers comptages. Jamais tout l'historique : un
+//      article jamais compté n'estime son stock que sur la période (`debutLivraisons`).
 // Lecture seule : rien n'est écrit, ni comptage, ni `Stock.quantite`.
 
 const jourPur = (iso: string) => new Date(`${iso}T00:00:00Z`);
@@ -32,14 +32,14 @@ export async function chargerEntreesStockResto({ depuis, jusquA }: { depuis: str
 
   const derniers = avant.flatMap((g) => (g._max.date ? [{ articleRestoId: g.articleRestoId, date: g._max.date }] : []));
   const dernierAvant = new Map(derniers.map((d) => [d.articleRestoId, d.date]));
-  const rattaches = articles.filter((a) => a.articleStockId !== null);
-  let dateLivraison: Prisma.DateTimeFilter = { lte: jourPur(jusquA) };
-  if (rattaches.length === 0) {
-    dateLivraison = { gte: jourPur(depuis), lte: jourPur(jusquA) }; // seules les non rattachées de la période comptent
-  } else if (rattaches.every((a) => dernierAvant.has(a.id))) {
-    const borne = rattaches.map((a) => dernierAvant.get(a.id)!).reduce((x, y) => (x < y ? x : y));
-    dateLivraison = { gt: borne, lte: jourPur(jusquA) };
-  }
+  // Livraisons utiles : celles de la période, et, pour un article COMPTÉ avant la période, celles
+  // reçues depuis ce comptage. Un article jamais compté n'a besoin que de la période (C1 : sans
+  // comptage, le stock n'est qu'une estimation, hors des portions).
+  const rattachesComptes = articles.filter((a) => a.articleStockId !== null && dernierAvant.has(a.id));
+  const borne = rattachesComptes.map((a) => dernierAvant.get(a.id)!).reduce<Date | null>((x, y) => (x === null || y < x ? y : x), null);
+  const dateLivraison: Prisma.DateTimeFilter = borne !== null && borne < jourPur(depuis)
+    ? { gt: borne, lte: jourPur(jusquA) }
+    : { gte: jourPur(depuis), lte: jourPur(jusquA) };
 
   const [comptages, livraisons] = await Promise.all([
     prisma.comptageResto.findMany({
@@ -53,6 +53,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA }: { depuis: str
   ]);
 
   return {
+    debutLivraisons: depuis,
     articles: articles.map((a) => ({
       id: a.id, designation: a.designation, espace: a.espace, unite: a.unite, articleStockId: a.articleStockId,
       uniteCatalogue: a.articleStock?.unite ?? null,

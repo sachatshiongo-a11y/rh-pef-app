@@ -62,11 +62,15 @@ describe("chargerEntreesStockResto", () => {
     ]);
   }, 60_000);
 
-  it("un article rattaché jamais compté avant la période : toutes ses livraisons sont chargées", async () => {
+  it("un article rattaché jamais compté : seules les livraisons de la période sont chargées (plus tout l'historique)", async () => {
+    await prisma.mouvementStock.deleteMany(); await prisma.comptageResto.deleteMany(); await prisma.articleResto.deleteMany();
     const beurre = await prisma.articleStock.create({ data: { designation: "Beurre", domaine: "NOURRITURE", unite: "kg" } });
     await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Beurre", unite: "kg", articleStockId: beurre.id } });
-    await prisma.mouvementStock.create({ data: { articleId: beurre.id, type: "SORTIE", quantite: "1", date: new Date("2026-06-01"), categorieSortie: "LIVRAISON_RESTAURANT" } });
+    const livrer = (date: string) => prisma.mouvementStock.create({ data: { articleId: beurre.id, type: "SORTIE", quantite: "1", date: new Date(date), categorieSortie: "LIVRAISON_RESTAURANT" } });
+    await livrer("2026-06-01");
+    await livrer("2026-09-22");
     const e = await chargerEntreesStockResto({ depuis: "2026-09-21", jusquA: "2026-09-27" });
-    expect(e.livraisons.some((l) => l.designation === "Beurre" && l.date === "2026-06-01")).toBe(true);
+    expect(e.livraisons.map((l) => l.date)).toEqual(["2026-09-22"]);
+    expect(e.debutLivraisons).toBe("2026-09-21");
   }, 60_000);
 });

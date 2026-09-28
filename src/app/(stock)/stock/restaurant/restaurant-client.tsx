@@ -154,8 +154,8 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, onS
               reçu {qteTexte(ligne.recus[j.iso]!)}
             </div>
           )}
-          {(ligne.signauxJour[j.iso] ?? []).map((t) => (
-            <div key={t} className="mt-0.5 text-[10px] font-medium text-amber-800">{t}</div>
+          {(ligne.signauxJour[j.iso] ?? []).map((t, k) => (
+            <div key={k} className="mt-0.5 text-[10px] font-medium text-amber-800">{t}</div>
           ))}
         </td>
       ))}
@@ -164,7 +164,7 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, onS
           <span className="font-medium tabular-nums">{qteTexte(ligne.theorique.stock)}{ligne.unite ? ` ${ligne.unite}` : ""}</span>
         )}
         {ligne.theorique.aucunComptage && ligne.theorique.stock !== null && <div className="text-[10px] text-muted-foreground">estimé (aucun comptage)</div>}
-        {ligne.theorique.signalements.map((t) => <div key={t} className="text-[10px] font-medium text-amber-800">{t}</div>)}
+        {ligne.theorique.signalements.map((t, k) => <div key={k} className="text-[10px] font-medium text-amber-800">{t}</div>)}
       </td>
       {estDirection && <td className="text-right"><button onClick={() => { if (confirm(`Supprimer « ${ligne.designation} » ?`)) onDelete(ligne.id); }} className="rounded border px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive/10">✕</button></td>}
     </tr>
