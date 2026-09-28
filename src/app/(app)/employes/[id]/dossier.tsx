@@ -32,7 +32,7 @@ import { transformerContrat, prolongerContrat, prolongerEssai, modifierContrat, 
 import { BoutonSigner } from "@/components/bouton-signer";
 import { faireSignerDocument } from "../../signature-actions";
 import type { EtatSignature } from "@/lib/signature";
-import { libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
+import { LIBELLE_TYPE_CONTRAT, libelleTypeContrat, type Classement } from "@/lib/contrats-classement";
 import { BoutonMarquerExpire } from "../../paie/marquer-expire";
 
 const MOTIF_FIN: Record<string, string> = {
@@ -87,13 +87,8 @@ function d(date: Date | null | undefined) {
   return date ? new Date(date).toLocaleDateString("fr-FR") : "—";
 }
 
-const TYPE_CONTRAT_LABEL: Record<string, string> = {
-  CDI: "CDI — durée indéterminée",
-  CDD: "CDD — durée déterminée",
-  STAGE: "Stage",
-  JOURNALIER: "Journalier",
-  INTERIM: "Intérim",
-};
+// Libellés du type de contrat : source unique partagée avec l'espace salarié (« Mes contrats »).
+const TYPE_CONTRAT_LABEL = LIBELLE_TYPE_CONTRAT;
 
 // Dates relatives de la carte « Conditions actuelles » (« il y a 3 ans », « dans 6 mois »).
 function ecartMois(a: Date, b: Date) {
