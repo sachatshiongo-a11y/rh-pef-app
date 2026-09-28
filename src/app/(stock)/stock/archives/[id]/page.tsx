@@ -3,8 +3,10 @@ import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function ArchiveDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await exigerPageStock();
   const { id } = await params;
   const session = await prisma.sessionComptage.findUnique({
     where: { id },

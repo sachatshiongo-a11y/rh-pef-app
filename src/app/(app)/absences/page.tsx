@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { exigerPageRH } from "@/lib/garde-page";
 
 /** Le calendrier des absences a été fusionné dans « Congés & absences » (/conges?vue=calendrier).
  * On y redirige les anciens liens en transportant les paramètres (vue semaine/mois → cal). */
@@ -7,6 +8,7 @@ export default async function AbsencesPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  await exigerPageRH();
   const sp = await searchParams;
   const p = new URLSearchParams({ vue: "calendrier" });
   if (sp.vue === "semaine" || sp.vue === "mois") p.set("cal", sp.vue);

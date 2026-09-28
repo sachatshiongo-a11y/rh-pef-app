@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { FournisseursClient, type FournRow } from "./fournisseurs-client";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { exigerPageStock } from "@/lib/garde-page";
 
 export default async function FournisseursPage() {
-  const user = await verifySession();
+  const user = await exigerPageStock();
   const fournisseurs = await prisma.fournisseur.findMany({
     orderBy: { nom: "asc" },
     include: { _count: { select: { articles: true } } },

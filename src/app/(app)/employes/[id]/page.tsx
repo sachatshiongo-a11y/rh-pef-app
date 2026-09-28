@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
@@ -35,6 +34,7 @@ import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/sign
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
+import { exigerPageRH } from "@/lib/garde-page";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -69,7 +69,7 @@ export default async function FicheEmployePage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ tab?: string; erreur?: string }>;
 }) {
-  const user = await verifySession();
+  const user = await exigerPageRH();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
   const { id } = await params;

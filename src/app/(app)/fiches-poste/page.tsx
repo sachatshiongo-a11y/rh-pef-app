@@ -1,18 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { verifySession } from "@/lib/auth";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { enregistrerFichePoste, supprimerFichePoste, importerFichesEnMasse, creerPoste, renommerPoste, supprimerPoste } from "./actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { CATEGORIES_PRO } from "@/lib/categorie-professionnelle";
+import { exigerPageRH } from "@/lib/garde-page";
 
 export default async function FichesPostePage({
   searchParams,
 }: {
   searchParams: Promise<{ erreur?: string; msg?: string }>;
 }) {
+  const user = await exigerPageRH();
   const sp = await searchParams;
-  const user = await verifySession();
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
 
