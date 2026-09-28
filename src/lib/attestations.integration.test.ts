@@ -430,3 +430,90 @@ describe("« à sa demande » dans l'instantané", () => {
     expect((y.donnees as { aSaDemande?: boolean }).aSaDemande).toBe(false);
   });
 });
+
+describe("libre-service : l'attestation de salaire du mois, obtenue par le salarié (décision du 2026-09-28)", () => {
+  const libre = (employeeId: string, db: PrismaClient = prisma, maintenant = MAINTENANT) =>
+    prisma.user.findUniqueOrThrow({ where: { employeeId } }).then((u) =>
+      delivrerAttestation(db, { employeeId, type: "SALAIRE", parId: u.id, libreService: true, maintenant }));
+
+  it("délivrée tout de suite : numéro, instantané de la dernière paie validée, exemplaire figé, journal ; la Direction est informée", async () => {
+    const a = await salarie();
+    await paie(a, 5, 2026, "PAYE", 280, 320);
+    const juillet = await paie(a, 7, 2026, "VALIDE", 300, 350);
+    await paie(a, 8, 2026, "PAS_VALIDE", 999, 999); // brouillon : ignoré
+    const r = await libre(a);
+    if (!r.ok) throw new Error(r.motif);
+    expect(r.existante).toBeUndefined();
+    const att = await prisma.attestation.findUniqueOrThrow({ where: { id: r.id } });
+    expect(att).toEqual(expect.objectContaining({ statut: "DELIVREE", type: "SALAIRE", numero: r.numero, payrollLineId: juillet.id }));
+    expect(att.donnees).toEqual(expect.objectContaining({ libreService: true, aSaDemande: true, salaire: expect.objectContaining({ mois: 7, annee: 2026, netUSD: "300.00" }) }));
+    expect(F.figees).toHaveLength(1);
+    const j = await prisma.journalAudit.findFirstOrThrow({ where: { entite: "Attestation", entiteId: r.id, champ: "delivrance" } });
+    expect(j.nouvelleValeur).toBe(`${r.numero} (libre-service)`);
+    expect(N.direction).toEqual([expect.stringContaining(`a obtenu son attestation de salaire ${r.numero} en libre-service`)]);
+    expect(N.salarie, "le salarié est l'auteur : pas de notification à lui-même").toEqual([]);
+  });
+
+  it("second clic : LA MÊME attestation, sans nouveau numéro, rien d'écrit", async () => {
+    const a = await salarie();
+    await paie(a, 7, 2026, "VALIDE");
+    const r1 = await libre(a);
+    const avant = await prisma.compteurAttestation.findMany();
+    const r2 = await libre(a);
+    if (!r1.ok || !r2.ok) throw new Error("refus inattendu");
+    expect(r2).toEqual({ ok: true, id: r1.id, numero: r1.numero, existante: true });
+    expect(await prisma.compteurAttestation.findMany()).toEqual(avant);
+    expect(await prisma.attestation.count({ where: { employeeId: a } })).toBe(1);
+  });
+
+  it("double clic SIMULTANÉ (deux connexions) : une seule attestation, un seul numéro", async () => {
+    const a = await salarie();
+    await paie(a, 7, 2026, "VALIDE");
+    const autre = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+    try {
+      const rs = await Promise.all([libre(a), libre(a, autre), libre(a), libre(a, autre)]);
+      const numeros = new Set(rs.map((r) => (r.ok ? r.numero : r.motif)));
+      expect(numeros.size).toBe(1);
+      expect(rs.filter((r) => r.ok && !r.existante)).toHaveLength(1);
+      expect(await prisma.attestation.count({ where: { employeeId: a } })).toBe(1);
+    } finally {
+      await autre.$disconnect();
+    }
+  });
+
+  it("nouvelle paie validée (mois suivant) → nouvelle attestation ; paie du même mois revue → nouvelle aussi", async () => {
+    const a = await salarie();
+    const juillet = await paie(a, 7, 2026, "VALIDE", 300, 350);
+    const r1 = await libre(a);
+    await prisma.payrollLine.update({ where: { id: juillet.id }, data: { salBrutUSD: 400 } }); // rouverte, corrigée, revalidée
+    const r2 = await libre(a);
+    await paie(a, 8, 2026, "VALIDE", 310, 360);
+    const r3 = await libre(a);
+    const ids = [r1, r2, r3].map((r) => (r.ok ? r.id : r.motif));
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it("aucune paie validée : refus lisible, rien d'écrit, la Direction n'est pas dérangée", async () => {
+    const a = await salarie();
+    await paie(a, 7, 2026, "PAS_VALIDE");
+    expect(await libre(a)).toEqual({ ok: false, motif: "Aucune paie validée : l'attestation de salaire reprend la dernière paie validée ou payée." });
+    expect(await prisma.attestation.count({ where: { employeeId: a } })).toBe(0);
+    expect(N.direction).toEqual([]);
+  });
+
+  it("une demande de salaire en attente n'est ni reprise ni refusée par le clic du salarié", async () => {
+    const a = await salarie();
+    const u = await prisma.user.findUniqueOrThrow({ where: { employeeId: a } });
+    const dem = await prisma.attestation.create({ data: { employeeId: a, type: "SALAIRE", demandeParId: u.id } });
+    expect((await libre(a)).ok).toBe(false); // pas de paie validée
+    expect((await prisma.attestation.findUniqueOrThrow({ where: { id: dem.id } })).statut).toBe("DEMANDEE");
+  });
+
+  it("seule l'attestation de salaire s'obtient en libre-service", async () => {
+    const a = await salarie();
+    expect(await delivrerAttestation(prisma, { employeeId: a, type: "TRAVAIL", parId: directionId, libreService: true })).toEqual({
+      ok: false,
+      motif: "Seule l'attestation de salaire s'obtient en libre-service.",
+    });
+  });
+});

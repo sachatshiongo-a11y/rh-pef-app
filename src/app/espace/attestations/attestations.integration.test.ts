@@ -4,8 +4,9 @@ import path from "node:path";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
-// « Mes attestations » (spec 2026-09-28, §4.3-4.4) : le salarié DEMANDE, ne télécharge que SES
-// attestations délivrées ; l'ancien libre-service n'existe plus.
+// « Mes attestations » (spec 2026-09-28, §4.3-4.4) : le salarié DEMANDE (travail, stage), obtient
+// TOUT DE SUITE son attestation de salaire (libre-service, décision du 2026-09-28 — une action, plus
+// l'ancienne route), et ne télécharge que SES attestations délivrées.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "EMPLOYE", nom: "Salariée", employeeId: "seed" as string | null } }));
 const F = vi.hoisted(() => ({ espaceActif: true }));
@@ -37,7 +38,7 @@ vi.mock("@/lib/notifications", () => ({
   supprimerNotificationsPour: async () => {},
 }));
 
-const { demanderMonAttestation } = await import("./actions");
+const { demanderMonAttestation, obtenirMonAttestationSalaire } = await import("./actions");
 const { GET } = await import("./[id]/route");
 const { delivrerAttestation } = await import("@/lib/attestations");
 
@@ -131,5 +132,48 @@ describe("l'ancien libre-service a disparu", () => {
     parcourir(path.resolve(__dirname, "../.."));
     const liens = fichiers.filter((f) => /\/espace\/attestation\//.test(fs.readFileSync(f, "utf8")));
     expect(liens).toEqual([]);
+  });
+});
+
+describe("attestation de salaire en libre-service", () => {
+  async function paieValidee(employeeId: string, mois: number) {
+    const run =
+      (await prisma.payrollRun.findUnique({ where: { mois_annee: { mois, annee: 2026 } } })) ??
+      (await prisma.payrollRun.create({ data: { mois, annee: 2026, statut: "VALIDE", tauxChangeUtilise: 2800 } }));
+    await prisma.payrollLine.create({
+      data: {
+        payrollRunId: run.id, employeeId, statutPaiement: "VALIDE", transportUSD: 15, salBrutUSD: 330, cnssSalarieUSD: 15,
+        netImposableUSD: 285, iprCalculeUSD: 10, allocFamilialeUSD: 0, salNetUSD: 305, salNetCDF: 854000,
+        cnssPatronalUSD: 36, coutEmployeurUSD: 336, coutEmployeurCDF: 940800,
+      },
+    });
+  }
+
+  it("la demande d'une attestation de SALAIRE est redirigée vers le libre-service", async () => {
+    expect(await demanderMonAttestation("SALAIRE", null)).toEqual({
+      erreur: "L'attestation de salaire s'obtient directement : bouton « Obtenir mon attestation de salaire ».",
+    });
+  });
+
+  it("sans paie validée : refus lisible", async () => {
+    const r = await obtenirMonAttestationSalaire();
+    expect(r).toEqual({ erreur: "Aucune paie validée : l'attestation de salaire reprend la dernière paie validée ou payée." });
+  });
+
+  it("obtenue tout de suite pour SON dossier seulement, la même au second clic, téléchargeable par lui", async () => {
+    await paieValidee(moi, 7);
+    await paieValidee(collegue, 7);
+    const r1 = await obtenirMonAttestationSalaire();
+    if ("erreur" in r1) throw new Error(r1.erreur);
+    const att = await prisma.attestation.findUniqueOrThrow({ where: { id: r1.id } });
+    expect(att.employeeId).toBe(moi);
+    expect(await prisma.attestation.count({ where: { employeeId: collegue, type: "SALAIRE" } }), "rien pour le collègue").toBe(0);
+    expect(await obtenirMonAttestationSalaire()).toEqual({ ...r1, existante: true });
+    expect((await telecharger(r1.id)).status).toBe(200);
+  });
+
+  it("espace fermé : refusé", async () => {
+    F.espaceActif = false;
+    expect(await obtenirMonAttestationSalaire()).toEqual({ erreur: "Accès refusé." });
   });
 });

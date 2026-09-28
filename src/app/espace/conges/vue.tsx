@@ -181,6 +181,7 @@ function SectionAbsences({
                       nomSalarie={nomSalarie}
                       libelleDocument={`${l.type} du ${jourLong(l.dateDebut)}`}
                       cote="SALARIE"
+                tactile
                       action={signer}
                       {...l.signature}
                     />

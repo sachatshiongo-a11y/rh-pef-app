@@ -1,3 +1,6 @@
+import { formaterUSD } from "@/lib/montant";
+import { MOIS_FR } from "@/lib/dates-fr";
+
 // Libellés EN CLAIR de ce que l'espace salarié affiche. Une valeur brute d'énumération
 // (« EN_ATTENTE », « CERTIFICAT_MEDICAL », « DEMANDE_CONGE »…) ne doit jamais atteindre l'écran
 // d'un salarié : chaque statut, chaque type passe par ici. Une valeur inconnue devient un libellé
@@ -52,3 +55,11 @@ export const PAGE_CIBLE_SIGNATURE: Record<string, string> = {
   BULLETIN: "/espace/documents",
   DEMANDE_CONGE: "/espace/conges",
 };
+
+/** Notification envoyée au salarié quand la Direction décide de SA demande d'acompte. */
+export function messageDecisionAcompte(montantUSD: number, mois: number, annee: number, accepte: boolean): string {
+  const periode = `${MOIS_FR[mois - 1] ?? ""} ${annee}`.trim();
+  return accepte
+    ? `Votre demande d'acompte de ${formaterUSD(montantUSD)} (${periode}) a été acceptée ✅. Le montant sera déduit de votre salaire.`
+    : `Votre demande d'acompte de ${formaterUSD(montantUSD)} (${periode}) a été refusée.`;
+}

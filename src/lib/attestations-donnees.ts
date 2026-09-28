@@ -39,6 +39,11 @@ export type DonneesAttestation = {
    * l'intéressé(e), à sa demande ». Une délivrance à l'initiative de la Direction ne le prétend pas.
    */
   aSaDemande?: boolean;
+  /**
+   * Obtenue par le salarié lui-même, en libre-service (attestation de salaire du mois, décision
+   * Direction 2026-09-28) — le registre l'affiche « Libre-service ». Même PDF, même signature.
+   */
+  libreService?: boolean;
   /** Attestation de stage : le dernier contrat de stage. */
   stage?: { debut: string; fin: string | null };
 };
@@ -69,4 +74,9 @@ export function estTypeAttestation(v: unknown): v is TypeAttestationCode {
 /** `ATT-2026-0007` — le rang vient de la séquence de l'année, jamais d'un comptage. */
 export function numeroAttestation(annee: number, rang: number): string {
   return `ATT-${annee}-${String(rang).padStart(4, "0")}`;
+}
+
+/** Vrai si l'attestation a été obtenue par le salarié en libre-service (lu dans l'instantané). */
+export function estLibreService(donnees: unknown): boolean {
+  return typeof donnees === "object" && donnees !== null && (donnees as { libreService?: unknown }).libreService === true;
 }

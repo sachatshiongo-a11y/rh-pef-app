@@ -71,6 +71,7 @@ export function VueMesContrats({
                 nomSalarie={nomSalarie}
                 libelleDocument={`Contrat ${titre(l)}`}
                 cote="SALARIE"
+                tactile
                 action={action}
                 {...l.etat}
               />

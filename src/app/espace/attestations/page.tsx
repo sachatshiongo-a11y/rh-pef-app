@@ -5,6 +5,7 @@ import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { FormulaireDemande } from "./formulaire";
+import { ObtenirAttestationSalaire } from "./salaire-libre-service";
 
 const COULEUR: Record<string, string> = {
   DEMANDEE: "bg-amber-100 text-amber-800",
@@ -20,19 +21,28 @@ export default async function EspaceAttestations() {
     orderBy: { demandeLe: "desc" },
     take: 100,
   });
-  const types = (["TRAVAIL", "SALAIRE", "STAGE"] as const).map((v) => ({ v, label: LIBELLE_TYPE_ATTESTATION[v] }));
+  // L'attestation de SALAIRE s'obtient en libre-service (ci-dessous) : seules travail et stage se demandent.
+  const types = (["TRAVAIL", "STAGE"] as const).map((v) => ({ v, label: LIBELLE_TYPE_ATTESTATION[v] }));
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold">Mes attestations</h1>
         <p className="text-sm text-muted-foreground">
-          Demandez une attestation : la Direction la délivre, numérotée et signée, ou vous dit pourquoi elle ne le peut pas.
+          L&apos;attestation de salaire s&apos;obtient tout de suite. Les autres se demandent : la Direction les délivre, numérotées et signées, ou vous dit pourquoi elle ne le peut pas.
         </p>
       </div>
 
       <section className="rounded-2xl border bg-card p-5">
-        <h2 className="mb-3 text-base font-semibold">Demander une attestation</h2>
+        <h2 className="mb-1 text-base font-semibold">Attestation de salaire</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Tout de suite, sans attendre la Direction : elle reprend votre dernière paie validée, avec un numéro et la signature de la Direction.
+        </p>
+        <ObtenirAttestationSalaire />
+      </section>
+
+      <section className="rounded-2xl border bg-card p-5">
+        <h2 className="mb-3 text-base font-semibold">Demander une attestation de travail ou de stage</h2>
         <FormulaireDemande types={types} />
       </section>
 

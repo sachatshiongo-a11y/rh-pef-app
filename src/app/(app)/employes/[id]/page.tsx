@@ -1,9 +1,10 @@
 import { FilAriane } from "@/components/fil-ariane";
+import { estLibreService } from "@/lib/attestations-donnees";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
+import { ancienneteEnMois, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
@@ -29,7 +30,7 @@ import { construireEcheancier } from "@/lib/prets";
 import { CompositionFamiliale } from "../composition-familiale";
 import { CompteEmployePanel } from "../compte-employe-panel";
 import { labelCategoriePro } from "@/lib/categorie-professionnelle";
-import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
@@ -123,7 +124,6 @@ export default async function FicheEmployePage({
   });
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   // Plafond d'acompte de la période : affiché AVANT la saisie plutôt que refusé après coup.
   const plafondAcompte = await chargerPlafondAcompte(prisma, { employeeId: id, mois, annee });
 
@@ -135,7 +135,7 @@ export default async function FicheEmployePage({
   });
   const ageLimiteEnfant = config?.ageLimiteEnfantACharge ?? 18;
 
-  const [attendances, leaveRequests, payrollLines, compteParType] = await Promise.all([
+  const [attendances, leaveRequests, payrollLines, soldeConge] = await Promise.all([
     prisma.attendance.findMany({
       where: { employeeId: id, date: { gte: debutMois, lte: finMois } },
       orderBy: { date: "asc" },
@@ -150,7 +150,7 @@ export default async function FicheEmployePage({
       include: { payrollRun: true },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
-    chargerCompteDansSoldeParType(),
+    chargerSoldeCongeSalarie(prisma, id),
   ]);
 
   // Signatures des bulletins et des contrats de cette fiche : DEUX requêtes, quel que soit
@@ -177,7 +177,7 @@ export default async function FicheEmployePage({
           type: a.type,
           statut: a.statut,
           date: jourKinshasa(a.statut === "DEMANDEE" ? a.demandeLe : (a.delivreeLe ?? a.updatedAt)),
-          par: a.statut === "DEMANDEE" ? (a.demandePar?.nom ?? null) : (a.delivreePar?.nom ?? null),
+          par: a.statut === "DEMANDEE" ? (a.demandePar?.nom ?? null) : estLibreService(a.donnees) ? "Libre-service (le salarié)" : (a.delivreePar?.nom ?? null),
           motifRefus: a.motifRefus,
         }))
       : [];
@@ -336,16 +336,11 @@ export default async function FicheEmployePage({
   const transportMoisCDF = transportMoisUSD * parametres.tauxChangeCDF;
 
   const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(annee, mois - 1, 1));
-  const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
-  const congesPrisAnnee = leaveRequests
-    .filter(
-      (l) =>
-        l.statut === "APPROUVE" &&
-        new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(compteParType.get(l.type))
-    )
-    .reduce((acc, l) => acc + Number(l.nbJours), 0);
-  const soldeConges = Math.round((congesAcquis - congesPrisAnnee) * 10) / 10;
+  // Solde de congé : LA source unique de l'espace salarié, à l'HORLOGE (règle maison : le mois RH
+  // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
+  // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
+  // lire deux soldes différents.
+  const { acquis: congesAcquis, pris: congesPrisAnnee, solde: soldeConges } = soldeConge;
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];

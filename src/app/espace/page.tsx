@@ -13,7 +13,8 @@ export default async function EspaceAccueil() {
   const today = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
   const lundiCourant = lundiDe(k);
 
-  const [congesEnAttente, prochainsCreneaux, publiees, contratsClasses, echangesARepondre, solde] = await Promise.all([
+  const [fiche, congesEnAttente, prochainsCreneaux, publiees, contratsClasses, echangesARepondre, solde] = await Promise.all([
+    prisma.employee.findUnique({ where: { id: s.employeeId }, select: { photoUrl: true } }),
     prisma.leaveRequest.count({ where: { employeeId: s.employeeId, statut: "EN_ATTENTE" } }),
     // Prochains services À PARTIR D'AUJOURD'HUI (plus de créneaux passés de la semaine).
     prisma.planningCreneau.findMany({
@@ -37,6 +38,8 @@ export default async function EspaceAccueil() {
 
   return (
     <VueAccueil
+      nom={s.nom}
+      photoUrl={fiche?.photoUrl ?? null}
       prenom={s.prenom}
       contratsASigner={contratsClasses.filter((c) => c.classement.categorie === "A_SIGNER").length}
       echangesARepondre={echangesARepondre}

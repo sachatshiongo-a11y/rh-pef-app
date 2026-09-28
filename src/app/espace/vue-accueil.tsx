@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icone } from "@/components/icones";
+import { Avatar } from "@/components/avatar";
 import { formaterNombre } from "@/lib/montant";
 import { GROUPES_ESPACE } from "./navigation";
 
@@ -10,6 +11,8 @@ import { GROUPES_ESPACE } from "./navigation";
 export type ProchainService = { nom: string; heureDebut: string | null; heureFin: string | null; date: Date; aujourdhui: boolean };
 
 export function VueAccueil({
+  nom,
+  photoUrl,
   prenom,
   contratsASigner,
   echangesARepondre,
@@ -17,6 +20,9 @@ export function VueAccueil({
   soldeConge,
   prochainService: p,
 }: {
+  /** Nom complet et photo de fiche : l'avatar (initiales en repli). */
+  nom: string;
+  photoUrl: string | null;
   prenom: string;
   contratsASigner: number;
   echangesARepondre: number;
@@ -26,9 +32,12 @@ export function VueAccueil({
 }) {
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold">Bonjour {prenom} 👋</h1>
-        <p className="text-sm text-muted-foreground">Voici votre espace personnel.</p>
+      <div className="flex items-center gap-3">
+        <Avatar nom={nom} taille={56} photoUrl={photoUrl} />
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold">{prenom ? `Bonjour ${prenom}` : "Bonjour"} 👋</h1>
+          <p className="text-sm text-muted-foreground">Voici votre espace personnel.</p>
+        </div>
       </div>
 
       {/* À faire : ce qui attend un geste du salarié, en tête de page. */}

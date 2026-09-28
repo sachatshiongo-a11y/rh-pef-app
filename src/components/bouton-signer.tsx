@@ -59,6 +59,7 @@ export function BoutonSigner({
   etat,
   signeLeTexte,
   action,
+  tactile = false,
 }: {
   cible: CibleSignature;
   cibleId: string;
@@ -70,6 +71,11 @@ export function BoutonSigner({
   etat: EtatSignatureUI;
   signeLeTexte: string | null;
   action: ActionSignature;
+  /**
+   * Cible tactile d'au moins 44 px (espace salarié, sur téléphone — décision Direction 2026-09-28).
+   * Les écrans de la Direction gardent la taille compacte de leurs tableaux.
+   */
+  tactile?: boolean;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -107,9 +113,13 @@ export function BoutonSigner({
           setOuvert(true);
         }}
         className={
-          aResigner
-            ? "whitespace-nowrap rounded-full border border-amber-400 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-200"
-            : "whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+          tactile
+            ? aResigner
+              ? "inline-flex min-h-11 items-center whitespace-nowrap rounded-md border border-amber-400 bg-amber-100 px-4 text-sm font-medium text-amber-900 hover:bg-amber-200"
+              : "inline-flex min-h-11 items-center whitespace-nowrap rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent"
+            : aResigner
+              ? "whitespace-nowrap rounded-full border border-amber-400 bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-200"
+              : "whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent"
         }
         title={aResigner ? "Ce document a été modifié après la signature : il doit être resigné." : undefined}
       >

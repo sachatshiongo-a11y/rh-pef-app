@@ -61,3 +61,13 @@ describe("l'espace salarié lit le solde de congé à une seule source", () => {
     }
   });
 });
+
+// Décision 2026-09-28 : la fiche de la Direction lit le MÊME solde, à l'horloge (jamais
+// Config.moisCourant, qui peut rester figé) — sinon Direction et salarié lisent deux soldes.
+describe("la fiche employé de la Direction lit le même solde", () => {
+  const fiche = readFileSync(path.resolve(__dirname, "../app/(app)/employes/[id]/page.tsx"), "utf8");
+  it("passe par chargerSoldeCongeSalarie, sans date de référence tirée de Config", () => {
+    expect(fiche).toMatch(/chargerSoldeCongeSalarie\(prisma, id\)/);
+    expect(fiche).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b/);
+  });
+});

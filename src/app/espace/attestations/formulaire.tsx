@@ -8,7 +8,7 @@ import { demanderMonAttestation } from "./actions";
 const inputCls = "w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-base sm:text-sm outline-none focus:ring-2 focus:ring-ring";
 
 /** « Demander une attestation » : type + motif facultatif. Le refus revient comme un message. */
-export function FormulaireDemande({ types }: { types: { v: "TRAVAIL" | "SALAIRE" | "STAGE"; label: string }[] }) {
+export function FormulaireDemande({ types }: { types: { v: "TRAVAIL" | "STAGE"; label: string }[] }) {
   const [type, setType] = useState(types[0]?.v ?? "TRAVAIL");
   const [motif, setMotif] = useState("");
   const [avis, setAvis] = useState<{ ok: boolean; texte: string } | null>(null);

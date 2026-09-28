@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
-import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
+import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
+import { messageDecisionAcompte } from "@/lib/libelles-espace";
 import { recalculerPaieSiCalculee } from "./actions";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
@@ -278,6 +279,18 @@ async function deciderAcompte(
     userId: user.id,
   });
   await supprimerNotificationsPour(id);
+  // Le salarié est prévenu (cloche + push), à l'unité comme en lot (le lot passe par ici). Le refId
+  // `…:decision` est DISTINCT de l'id : `supprimerNotificationsPour(id)` ne l'efface pas — même
+  // idiome que la décision sur un congé.
+  const compte = await compteSalarieDe(a.employeeId);
+  if (compte) {
+    await notifierSalarie(compte, {
+      type: "AUTRE",
+      message: messageDecisionAcompte(Number(a.montantUSD), a.mois, a.annee, statut === "APPROUVE"),
+      lien: "/espace/paie",
+      refId: `${id}:decision`,
+    });
+  }
   // Un acompte APPROUVÉ est déduit du net → recalculer le bulletin déjà calculé (non figé).
   if (statut === "APPROUVE" && recalculer) await recalculerPaieSiCalculee();
   revalidatePath("/a-valider");

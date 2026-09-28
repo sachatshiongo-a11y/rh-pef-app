@@ -137,6 +137,11 @@ export function EspaceShell({
           {navigation && (
             <div className="ml-auto flex items-center gap-2">
               <ClocheSalarie items={notifs.items} nonLues={notifs.nonLues} />
+              {/* Sa photo de fiche (initiales en repli) → « Mes informations ». Sur ordinateur, elle
+                  est déjà dans le bloc du compte du menu, toujours visible. */}
+              <Link href="/espace/dossier" aria-label="Mes informations" className="rounded-full lg:hidden">
+                <Avatar nom={nom} taille={36} photoUrl={photoUrl} />
+              </Link>
             </div>
           )}
         </header>
