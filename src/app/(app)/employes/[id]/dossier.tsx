@@ -413,13 +413,6 @@ export function DossierEmploye({
               {c.documentUrl && (
                 <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>
               )}
-              {c.type === "STAGE" && (
-                <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
-                  Attestation de fin de stage →
-                </a>
-              )}
-              <ContratViewerButton href={`/employes/${employeeId}/attestation/travail`} titre="Attestation de travail" libelle="Attestation de travail (PDF)" className="text-sm font-medium text-primary underline" />
-              <ContratViewerButton href={`/employes/${employeeId}/attestation/salaire`} titre="Attestation de salaire" libelle="Attestation de salaire (PDF)" className="text-sm font-medium text-primary underline" />
               {/* Figeage par la Direction : indispensable si l'espace salarié (acceptation) est désactivé. */}
               {peutModifier && !c.pdfAccepteUrl && (
                 <form action={figerContrat.bind(null, c.id)}>
@@ -590,11 +583,6 @@ export function DossierEmploye({
                   {peutModifier && classementsContrats[c.id]?.expireNonMarque && <BoutonMarquerExpire ids={[c.id]} />}
                   {c.documentUrl && (
                     <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>
-                  )}
-                  {c.type === "STAGE" && (
-                    <a href={`/employes/${employeeId}/attestation-stage`} download className="text-sm font-medium text-primary underline">
-                      Attestation de fin de stage →
-                    </a>
                   )}
                   {estAdmin && (
                     <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">

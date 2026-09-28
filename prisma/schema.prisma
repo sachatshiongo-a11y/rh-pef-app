@@ -153,6 +153,8 @@ model User {
   actionsAudit       JournalAudit[]
   pushSubscriptions  PushSubscription[]
   signaturesPresentees  SignatureElectronique[] @relation("SignaturePresenteePar")
+  attestationsDemandees Attestation[] @relation("AttestationDemandeePar")
+  attestationsDelivrees Attestation[] @relation("AttestationDelivreePar")
   scansVerifies      ScanPointage[]     @relation("ScanVerifiePar")
 
   @@schema("public")
@@ -355,6 +357,7 @@ model Employee {
   avantagesNature      AvantageNature[]
   signatures            SignatureElectronique[]
   scansPointage        ScanPointage[]
+  attestations         Attestation[]
 
   @@schema("public")
 }
@@ -1057,6 +1060,7 @@ model PayrollLine {
 
   transitions      TransitionPaie[]
   versionsBulletin VersionBulletin[]
+  attestations     Attestation[]
 
   @@unique([payrollRunId, employeeId])
   @@schema("public")
@@ -1944,4 +1948,74 @@ model ActiviteJour {
   creeLe             DateTime @default(now())
   majLe              DateTime @updatedAt
   @@schema("exploitation")
+}
+
+/// Attestations délivrées par la Direction (spec 2026-09-28-contrats-attestations-espace, lot 4).
+enum TypeAttestation {
+  TRAVAIL
+  SALAIRE
+  STAGE
+
+  @@schema("public")
+}
+
+enum StatutAttestation {
+  DEMANDEE
+  DELIVREE
+  REFUSEE
+
+  @@schema("public")
+}
+
+/// Une attestation : demandée par le salarié (ou créée directement par la Direction), puis
+/// délivrée — numérotée, figée, tracée — ou refusée avec un motif. Plus aucune attestation ne sort
+/// sans numéro ni trace.
+///
+/// « Une seule demande EN COURS par type » est tenue par l'application sous verrou de la ligne
+/// Employee (`lib/attestations.ts`), pas par un index partiel : le schéma Prisma n'en exprime pas,
+/// et `migrations.integration.test.ts` exige que les migrations aboutissent exactement au schéma.
+model Attestation {
+  id            String            @id @default(uuid())
+  employeeId    String
+  employee      Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type          TypeAttestation
+  statut        StatutAttestation @default(DEMANDEE)
+  /// Motif facultatif donné par le salarié à sa demande (« dossier bancaire »…).
+  motif         String?
+  motifRefus    String?
+  /// `ATT-AAAA-NNNN`, attribué dans la transaction de délivrance (`CompteurAttestation`). Nul tant
+  /// que l'attestation n'est pas délivrée ; jamais réutilisé.
+  numero        String?           @unique
+  demandeLe     DateTime          @default(now())
+  /// Le compte qui a demandé : le salarié, ou la Direction quand elle délivre directement.
+  demandeParId  String?
+  demandePar    User?             @relation("AttestationDemandeePar", fields: [demandeParId], references: [id], onDelete: SetNull)
+  delivreeLe    DateTime?
+  delivreeParId String?
+  delivreePar   User?             @relation("AttestationDelivreePar", fields: [delivreeParId], references: [id], onDelete: SetNull)
+  /// La paie retenue pour une attestation de salaire (dernière ligne VALIDE ou PAYE).
+  payrollLineId String?
+  payrollLine   PayrollLine?      @relation(fields: [payrollLineId], references: [id], onDelete: SetNull)
+  /// Exemplaire FIGÉ au moment de la délivrance, dans le stockage privé.
+  pdfUrl        String?
+  /// Instantané des valeurs imprimées : le PDF se régénère à l'identique depuis lui, jamais
+  /// depuis la fiche du jour.
+  donnees       Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([employeeId, type, statut])
+  @@index([statut])
+  @@schema("public")
+}
+
+/// Séquence des numéros d'attestation, une ligne par année. Incrémentée par
+/// `INSERT … ON CONFLICT DO UPDATE … RETURNING` : la ligne est verrouillée jusqu'à la fin de la
+/// transaction de délivrance, deux délivrances simultanées ne peuvent pas tirer le même numéro,
+/// et un numéro n'est jamais réutilisé (même si l'attestation disparaît).
+model CompteurAttestation {
+  annee   Int @id
+  dernier Int @default(0)
+
+  @@schema("public")
 }
