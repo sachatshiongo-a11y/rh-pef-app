@@ -1,6 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
-import { verifySession, requireModule } from "@/lib/auth";
+import { exigerEspaceStock } from "@/lib/garde-route";
 import { FicheAchatLegumesDocument, ficheAchatRemplie, ficheAchatVierge } from "@/lib/pdf/fiche-achat-legumes";
 import { LEGUMES } from "../legumes-data";
 
@@ -10,8 +10,8 @@ import { LEGUMES } from "../legumes-data";
  * - `?date=AAAA-MM-JJ` : fiche REMPLIE avec les achats de légumes enregistrés ce jour-là.
  */
 export async function GET(req: Request) {
-  const user = await verifySession();
-  requireModule(user, "stock");
+  const g = await exigerEspaceStock();
+  if (!g.ok) return g.reponse;
 
   const brut = (new URL(req.url).searchParams.get("date") ?? "").trim();
   const jour = new Date(`${brut}T00:00:00.000Z`);
