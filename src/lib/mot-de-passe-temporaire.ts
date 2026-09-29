@@ -2,8 +2,8 @@ import type { Role } from "@prisma/client";
 
 // Qui peut remplacer son mot de passe par /espace/mot-de-passe, et qui doit y être envoyé.
 // Fonctions PURES : l'action, la page et les gardes (entrée, espace salarié, espace Stock) lisent
-// la même règle. Ce formulaire ne demande PAS l'ancien mot de passe et n'est pas journalisé : il
-// n'est fait que pour remplacer le mot de passe TEMPORAIRE d'une fiche de connexion.
+// la même règle. Ce formulaire ne demande PAS l'ancien mot de passe (le changement est journalisé,
+// jamais le mot de passe) : il n'est fait que pour remplacer le mot de passe TEMPORAIRE d'une fiche.
 
 export type CompteMotDePasse = {
   role: Role;

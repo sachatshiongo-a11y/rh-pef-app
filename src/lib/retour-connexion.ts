@@ -38,3 +38,23 @@ export function retourPourChemin(pathname: string, search: string): string | nul
   if (pathname !== "/scan") return null;
   return retourValide(`${pathname}${search}`);
 }
+
+// ── Le retour survit au changement du mot de passe temporaire ────────────────────────────────
+// Un salarié dont le mot de passe est encore temporaire, arrivé par l'affiche, passe par
+// `/espace/mot-de-passe` avant de pouvoir pointer. Le retour l'accompagne (même règle : seul le
+// scan), puis la page de changement l'y ramène. Le code de l'affiche est le seul secret qui voyage
+// dans l'adresse — il y est déjà, imprimé sur l'affiche ; le mot de passe, jamais.
+
+export const PAGE_CHANGEMENT_MOT_DE_PASSE = "/espace/mot-de-passe";
+
+/** Le retour vers le scan d'un code d'affiche (encodé comme l'affiche l'imprime), ou `null`. */
+export function retourDuScan(code: string | undefined): string | null {
+  if (!code) return null;
+  return retourValide(`/scan?c=${encodeURIComponent(code)}`);
+}
+
+/** L'adresse de la page de changement, avec le retour s'il est permis (revalidé ici). */
+export function adresseChangementMotDePasse(retour: unknown): string {
+  const r = retourValide(retour);
+  return r ? `${PAGE_CHANGEMENT_MOT_DE_PASSE}?retour=${encodeURIComponent(r)}` : PAGE_CHANGEMENT_MOT_DE_PASSE;
+}

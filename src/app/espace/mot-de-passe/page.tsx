@@ -2,20 +2,31 @@ import { verifySession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { formulaireMotDePasseOuvert } from "@/lib/mot-de-passe-temporaire";
+import { retourValide } from "@/lib/retour-connexion";
 import { redirect } from "next/navigation";
 import { changerMonMotDePasse } from "../actions";
 
-export default async function MotDePassePage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
+export default async function MotDePassePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ erreur?: string; retour?: string | string[] }>;
+}) {
   const user = await verifySession();
   const [espaceOuvert, compte] = await Promise.all([
     espaceEmployeActif(),
     prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true } }),
   ]);
   const premiereFois = compte?.motDePasseTemporaire ?? false;
+  const sp = await searchParams;
+  // Où revenir après le changement : le scan de l'affiche qui a amené ici, seul retour permis
+  // (lib/retour-connexion — jamais une autre adresse, quoi que dise l'URL).
+  const retour = retourValide(sp.retour);
+  // Déjà personnel (changé dans un autre onglet, bouton « Précédent »…) : rien à changer, on
+  // reprend le scan. Pas de boucle : /scan n'envoie ici que si le mot de passe est temporaire.
+  if (retour && !premiereFois) redirect(retour);
   // Même règle que l'action : hors EMPLOYE, le formulaire ne sert qu'au mot de passe temporaire.
   if (!formulaireMotDePasseOuvert({ role: user.role, employeeId: user.employeeId, motDePasseTemporaire: premiereFois, espaceOuvert }))
     redirect("/entree");
-  const sp = await searchParams;
 
   return (
     <div className="mx-auto w-full max-w-md py-2 sm:py-8">
@@ -25,7 +36,9 @@ export default async function MotDePassePage({ searchParams }: { searchParams: P
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {premiereFois
-            ? "Pour votre sécurité, remplacez le mot de passe temporaire par un mot de passe personnel avant d'accéder à votre espace."
+            ? retour
+              ? "Pour votre sécurité, remplacez le mot de passe temporaire par un mot de passe personnel. Vous reviendrez ensuite à votre pointage."
+              : "Pour votre sécurité, remplacez le mot de passe temporaire par un mot de passe personnel avant d'accéder à votre espace."
             : "Choisissez un nouveau mot de passe personnel."}
         </p>
 
@@ -34,6 +47,7 @@ export default async function MotDePassePage({ searchParams }: { searchParams: P
         )}
 
         <form action={changerMonMotDePasse} className="mt-5 flex flex-col gap-4">
+          {retour && <input type="hidden" name="retour" value={retour} />}
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Nouveau mot de passe
             <input type="password" name="motDePasse" required minLength={6} autoComplete="new-password"

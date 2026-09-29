@@ -7,6 +7,8 @@ import { verifySession, estSalarie } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { changerMotDePasseAdmin } from "@/lib/securite-connexion";
 import { peutChangerSonMotDePasse } from "@/lib/mot-de-passe-temporaire";
+import { adresseChangementMotDePasse, retourValide } from "@/lib/retour-connexion";
+import { journaliser } from "@/lib/audit";
 import { calculerJoursOuvrables } from "@/lib/payroll";
 import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
@@ -40,7 +42,11 @@ export async function supprimerMaNotification(id: string) {
 
 /** Le salarié définit son nouveau mot de passe (fin du mot de passe temporaire). */
 export async function changerMonMotDePasse(formData: FormData) {
-  return formulaireLisible("/espace/mot-de-passe", async () => {
+  // Le scan de l'affiche qui a amené ici, s'il y en a un : revalidé côté serveur (le champ caché
+  // vient du navigateur, donc de n'importe qui — seul `/scan?…` passe). Il survit à une erreur de
+  // saisie (la page d'erreur le garde) et sert de destination après un changement réussi.
+  const retour = retourValide(formData.get("retour"));
+  return formulaireLisible(adresseChangementMotDePasse(retour), async () => {
     const user = await verifySession();
     // Un compte EMPLOYE, comme avant ; tout autre compte seulement pour remplacer le mot de passe
     // TEMPORAIRE d'une fiche (ex. un compte Stock à identifiant matricule) : ce formulaire ne
@@ -57,9 +63,22 @@ export async function changerMonMotDePasse(formData: FormData) {
     if (mdp !== confirmation) throw new Error("Les deux mots de passe ne correspondent pas.");
 
     await changerMotDePasseAdmin(user.id, mdp);
-    await prisma.user.update({ where: { id: user.id }, data: { motDePasseTemporaire: false } });
-    // EMPLOYE : son espace, comme avant. Les autres ont plusieurs espaces : le sélecteur les oriente.
-    redirect(user.role === "EMPLOYE" ? "/espace" : "/entree");
+    // Le drapeau et la trace ensemble. Le journal dit QUI a changé QUOI, jamais le mot de passe.
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: user.id }, data: { motDePasseTemporaire: false } });
+      await journaliser(tx, {
+        entite: "User",
+        entiteId: user.id,
+        champ: "motDePasse",
+        ancienneValeur: regle.motDePasseTemporaire ? "temporaire" : "personnel",
+        nouvelleValeur: "personnel (changé par le salarié)",
+        userId: user.id,
+      });
+    });
+    // Retour au scan de l'affiche s'il a amené ici (le salarié y retrouve « Pointer maintenant »,
+    // rien n'est pointé sans son geste). Sinon — EMPLOYE : son espace, comme avant ; les autres ont
+    // plusieurs espaces : le sélecteur les oriente.
+    redirect(retour ?? (user.role === "EMPLOYE" ? "/espace" : "/entree"));
   });
 }
 

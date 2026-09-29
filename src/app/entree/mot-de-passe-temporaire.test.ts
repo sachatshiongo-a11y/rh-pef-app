@@ -30,16 +30,19 @@ vi.mock("@/lib/espace-employe", async (original) => ({
   ...(await original<typeof import("@/lib/espace-employe")>()),
   espaceEmployeActif: async () => S.espaceActif,
 }));
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
+vi.mock("@/lib/prisma", () => {
+  const prisma = {
     user: {
       findUnique: async () => ({ motDePasseTemporaire: S.temporaire }),
       update: async (a: unknown) => void S.miseAJour.push(a),
     },
+    journalAudit: { createMany: async () => {} },
     bonDeCommande: { count: async () => 0 },
     $queryRaw: async () => [],
-  },
-}));
+    $transaction: async (f: (tx: unknown) => Promise<unknown>) => f(prisma),
+  };
+  return { prisma };
+});
 vi.mock("@/lib/securite-connexion", () => ({
   changerMotDePasseAdmin: async (_id: string, mdp: string) => void S.motsDePasse.push(mdp),
 }));
