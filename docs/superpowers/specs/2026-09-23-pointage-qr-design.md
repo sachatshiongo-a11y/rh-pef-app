@@ -216,12 +216,41 @@ Ce paragraphe remplace, pour le parcours du salarié, les points 4 à 7 du §2 e
    ensuite (facultatif, le jour même) : c'est alors **la sienne** qui compte, heures refaites. Une
    journée déjà close n'est jamais rechangée ; une journée **corrigée par la Direction** (heures ou
    code retouchés dans Présences & heures) n'est plus touchée ni par la pause saisie ni par
-   l'annulation. Visible partout comme telle : « pause par défaut 30 min » (écran de scan,
+   l'annulation. Visible partout comme telle : « pause par défaut 30 min (non déduite) » (écran de scan,
    « Pointer », Suivi, Présences & heures — « p* » dans la case, en toutes lettres dans
    l'infobulle et sur mobile). Chaque clôture est journalisée (entité « Pointage », champ
    « cloture » : état des présences avant / après).
-   - **Effet en argent** (analyse du moteur de paie, 2026-09-29) — back-office : aucun (salaire
-     mensuel fixe, les heures n'entrent pas dans l'argent). Brigade : la quantité payée vient des
+   - **Décision d'argent de la Direction (Sacha, 2026-09-29, réponse explicite)** : « La paie ne
+     doit pas être affectée. » Règle retenue parmi les deux proposées : **la pause par défaut
+     n'est pas déduite.**
+     - Elle reste AFFICHÉE : « pause par défaut 30 min (non déduite) » (écran de scan, « Pointer »,
+       Suivi, Présences & heures — « p* » dans la case, libellé complet dans l'infobulle, sur
+       mobile et dans la légende). Elle ne retire AUCUNE heure : heures payées = départ − arrivée.
+     - Une pause SAISIE par le salarié (étape facultative, après le départ) se déduit comme avant ;
+       elle remplace la pause par défaut (`pauseParDefaut` passe à faux). Le champ reste
+       pré-rempli à 30 min : l'enregistrer déduit donc 30 min (l'écran le dit).
+     - Rien d'autre ne bouge : taux (heures planifiées), créneaux, heures supp. hors cet effet,
+       mois passés, import IVMS (sa propre pause, décision de 2026-07, inchangée). Aucune journée
+       close avec la pause par défaut n'existe en production (lot non déployé au moment de la
+       décision) : rien à reprendre.
+     - **Forme retenue** (la plus sûre) : `Pointage.pauseMinutes` = minutes DÉDUITES, donc **0**
+       pour la pause par défaut, portée par `pauseParDefaut = true` ; la durée affichée vient de
+       `PAUSE_PAR_DEFAUT_MIN`. Un lecteur qui calculerait « départ − arrivée − pauseMinutes » sans
+       lire le drapeau tomberait donc juste. Et toutes les heures d'un pointage passent par UNE
+       fonction, `heuresPayables` (`lib/pointage-jour.ts`), qui ignore `pauseMinutes` sous le
+       drapeau (une ligne à 30 + vrai reste payée sans déduction) : clôture → `OvertimeEntry`,
+       pause saisie, contrôle « journée corrigée », « Pointer » (calcul côté serveur), Suivi.
+       Aucune migration.
+     - Tests : `pointage-jour.test.ts` ; `pointage-scan.integration.test.ts` (OvertimeEntry sans
+       déduction, 45 min déduites, défaut puis 30 min saisies, annulation) ;
+       `pointage-pause-paie.integration.test.ts` (**preuve d'argent** : trois salariés identiques
+       pointant les mêmes heures — pause par défaut, pause saisie 0, pause saisie 30 — sur le vrai
+       moteur `calculerLignesPaie` : la ligne de paie de la pause par défaut est ÉGALE, rubrique
+       par rubrique, à celle de la journée sans pause) ; Présences (`temps-grid.pause.rendus.test.tsx`)
+       et Suivi (`lignes-suivi.test.ts`) ; garde-fou `pointage-heures.garde-fou.test.ts` (aucun
+       fichier ne retire `pauseMinutes` hors de `heuresPayables`).
+   - *Analyse d'avant la décision (2026-09-29, conservée pour mémoire)* — back-office : aucun effet
+     (salaire mensuel fixe, les heures n'entrent pas dans l'argent). Brigade : la quantité payée vient des
      heures POINTÉES (taux t = S / heures planifiées du mois, base = t × heures normales faites) ;
      les créneaux du planning ne retirent aucune pause. Chaque jour clos avec la pause par défaut
      compte donc 0,5 h de moins que la durée du créneau : −0,5 × t par jour hors heures supp.
@@ -230,7 +259,8 @@ Ce paragraphe remplace, pour le parcours du salarié, les points 4 à 7 du §2 e
      écran proposait déjà 30 min pré-remplies). Par rapport à une journée laissée ouverte (rien
      écrit : la journée planifiée n'était pas payée du tout), la clôture automatique paie la
      journée. **Question pour la Direction** : faut-il retirer aussi 30 min des créneaux du
-     planning (durée explicite), pour qu'une journée complète reste payée S ?
+     planning (durée explicite), pour qu'une journée complète reste payée S ? → **Tranché
+     autrement** : la pause par défaut n'est pas déduite (ci-dessus) ; les créneaux ne bougent pas.
    - Un départ scanné avant la mise en service, jamais clos, est clos au rescan suivant avec la
      pause par défaut (ou avec la pause saisie).
 5. **Affiche** — deux étapes : « 1 Scannez ce code avec l'appareil photo de votre téléphone » ;
