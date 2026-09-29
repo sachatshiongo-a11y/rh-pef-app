@@ -92,6 +92,18 @@ function adresseLisible(url: string): string {
 
 const t = (s: string) => normaliserEspaces(s);
 
+/**
+ * L'adresse sous le QR tient sur UNE ligne (un nom de domaine ne se coupe pas) et doit rester dans
+ * la largeur du QR. La mise en page a été calibrée sur « rh.patesenfolie.cd » (18 caractères) ;
+ * depuis le passage à « gestion.patesenfolie.cd » (2026-09-29), une adresse plus longue est
+ * réduite en proportion — jamais sous 70 % de la taille de base, pour rester lisible.
+ */
+const LONGUEUR_CALIBREE = 18;
+export function tailleAdresse(adresse: string, base: number): number {
+  if (adresse.length <= LONGUEUR_CALIBREE) return base;
+  return Math.max(base * 0.7, (base * LONGUEUR_CALIBREE) / adresse.length);
+}
+
 /** Le contenu d'une fiche — le même sur la planche A4 et sur la fiche individuelle. */
 function ContenuFiche({ fiche, qrPng, adresse, st }: { fiche: FicheConnexion; qrPng: Buffer; adresse: string; st: ReturnType<typeof stylesFiche> }) {
   return (
@@ -108,7 +120,7 @@ function ContenuFiche({ fiche, qrPng, adresse, st }: { fiche: FicheConnexion; qr
         </View>
         <View style={st.qrBloc}>
           <Image src={{ data: qrPng, format: "png" }} style={st.qr} />
-          <Text style={st.adresse}>{t(adresse)}</Text>
+          <Text style={[st.adresse, { fontSize: tailleAdresse(adresse, st.adresse.fontSize as number) }]}>{t(adresse)}</Text>
         </View>
       </View>
       <Text style={st.consigne}>
