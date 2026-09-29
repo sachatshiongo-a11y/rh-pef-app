@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { retourValide, retourPourChemin } from "./retour-connexion";
+import { retourValide, retourPourChemin, retourDuScan, adresseChangementMotDePasse } from "./retour-connexion";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LE RETOUR APRÈS CONNEXION — une seule destination permise : le scan de l'affiche.
@@ -76,4 +76,36 @@ describe("retourPourChemin : ce que le garde d'authentification mémorise", () =
     expect(retourPourChemin("/espace/pointer", "")).toBeNull();
     expect(retourPourChemin("/scan", "")).toBeNull();
   });
+});
+
+describe("retourDuScan : le retour qu'emporte un salarié envoyé changer son mot de passe", () => {
+  it("encode le code comme l'affiche l'imprime", () => {
+    expect(retourDuScan("abc_DEF-123")).toBe("/scan?c=abc_DEF-123");
+    expect(retourDuScan("a+b")).toBe("/scan?c=a%2Bb");
+  });
+
+  it("un code hostile reste DANS le paramètre c (jamais un autre chemin, jamais une autre origine)", () => {
+    expect(retourDuScan("x&retour=//evil.com")).toBe("/scan?c=x%26retour%3D%2F%2Fevil.com");
+    expect(retourDuScan("\\evil.com")).toBe("/scan?c=%5Cevil.com");
+    expect(retourDuScan("x y\r\n")).toBe("/scan?c=x%20y%0D%0A");
+  });
+
+  it("sans code, ou code démesuré : pas de retour", () => {
+    expect(retourDuScan(undefined)).toBeNull();
+    expect(retourDuScan("")).toBeNull();
+    expect(retourDuScan("a".repeat(600))).toBeNull();
+  });
+});
+
+describe("adresseChangementMotDePasse : le retour ne passe que revalidé", () => {
+  it("emporte le scan, encodé", () => {
+    expect(adresseChangementMotDePasse("/scan?c=X")).toBe("/espace/mot-de-passe?retour=%2Fscan%3Fc%3DX");
+  });
+
+  it.each(["//evil.com", "https://evil.com", "/\\evil", "javascript:alert(1)", "/espace/../paie", null, undefined])(
+    "retour hostile ou absent (%s) : page nue",
+    (r) => {
+      expect(adresseChangementMotDePasse(r)).toBe("/espace/mot-de-passe");
+    },
+  );
 });

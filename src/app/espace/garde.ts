@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { prenomDe } from "@/lib/texte";
 import { doitChangerSonMotDePasse, type CompteMotDePasse } from "@/lib/mot-de-passe-temporaire";
+import { adresseChangementMotDePasse } from "@/lib/retour-connexion";
 
 export type Salarie = {
   userId: string;
@@ -17,9 +18,11 @@ export type Salarie = {
  * Le mot de passe temporaire se change AVANT tout accès : même chemin pour l'espace salarié,
  * l'entrée et l'espace Stock. N'y envoie que si la page de changement accueillera le compte
  * (sinon elle le renverrait vers /entree : boucle).
+ * `retour` (le scan de l'affiche, cf. lib/retour-connexion) : où revenir une fois le mot de passe
+ * changé ; revalidé, ignoré s'il n'est pas permis.
  */
-export function exigerMotDePassePersonnel(c: CompteMotDePasse): void {
-  if (doitChangerSonMotDePasse(c)) redirect("/espace/mot-de-passe");
+export function exigerMotDePassePersonnel(c: CompteMotDePasse, retour?: string | null): void {
+  if (doitChangerSonMotDePasse(c)) redirect(adresseChangementMotDePasse(retour));
 }
 
 /**

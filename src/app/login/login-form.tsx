@@ -3,10 +3,18 @@
 import { useActionState, useState } from "react";
 import { login } from "./actions";
 
-/** `retour` : chemin déjà validé par la page (`retourValide`) ; l'action le revalide de son côté. */
+/**
+ * `retour` : chemin déjà validé par la page (`retourValide`) ; l'action le revalide de son côté.
+ * Venu d'un scan de l'affiche (retour présent), c'est un salarié debout au restaurant, téléphone en
+ * main : champs en 16 px (sous 16 px, Safari iOS zoome à la saisie et décale la page), gros bouton.
+ * `autocomplete="username"` / `"current-password"` : le gestionnaire de mots de passe du téléphone
+ * propose l'identifiant enregistré — la connexion tient alors en un appui.
+ */
 export function LoginForm({ retour }: { retour?: string | null }) {
   const [state, action, pending] = useActionState(login, undefined);
   const [visible, setVisible] = useState(false);
+  const depuisScan = !!retour;
+  const tailleChamp = depuisScan ? "text-base py-3" : "text-base py-2 sm:text-sm";
 
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -23,8 +31,8 @@ export function LoginForm({ retour }: { retour?: string | null }) {
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
-          placeholder="vous@exemple.cd ou votre matricule"
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          placeholder={depuisScan ? "Votre matricule" : "vous@exemple.cd ou votre matricule"}
+          className={`rounded-md border border-input bg-background px-3 outline-none focus:ring-2 focus:ring-ring ${tailleChamp}`}
         />
       </div>
 
@@ -39,7 +47,7 @@ export function LoginForm({ retour }: { retour?: string | null }) {
             type={visible ? "text" : "password"}
             required
             autoComplete="current-password"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 pr-16 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className={`w-full rounded-md border border-input bg-background px-3 pr-16 outline-none focus:ring-2 focus:ring-ring ${tailleChamp}`}
           />
           <button
             type="button"
@@ -58,7 +66,9 @@ export function LoginForm({ retour }: { retour?: string | null }) {
       <button
         type="submit"
         disabled={pending}
-        className="mt-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        className={`mt-2 rounded-md bg-primary px-4 font-medium text-primary-foreground disabled:opacity-60 ${
+          depuisScan ? "min-h-12 w-full py-3 text-base" : "py-2 text-sm"
+        }`}
       >
         {pending ? "Connexion..." : "Se connecter"}
       </button>
