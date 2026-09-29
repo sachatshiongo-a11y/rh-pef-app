@@ -222,7 +222,7 @@ export function ecranDepuisResultat(r: ResultatScan | { erreur: string }): Ecran
       };
     case "DEPART": {
       const journee = r.presencesEcrites
-        ? `${nombreHeures(r.heures)} h de travail, ${libellePause(r.pause.minutes, r.pause.parDefaut)}. ${MESSAGE_JOURNEE_ENREGISTREE}`
+        ? `${nombreHeures(r.heures)} h de travail, ${libellePause(r.pause)}. ${MESSAGE_JOURNEE_ENREGISTREE}`
         : MESSAGE_DEPART_JOUR_DE_CONGE;
       return {
         type: "DEPART",
@@ -240,7 +240,7 @@ export function ecranDepuisResultat(r: ResultatScan | { erreur: string }): Ecran
       return {
         type: "COMPLETE",
         titre: MESSAGE_JOURNEE_COMPLETE,
-        detail: `Arrivée à ${heure(r.arriveeA)}, départ à ${heure(r.departA)}, ${libellePause(r.pause.minutes, r.pause.parDefaut)}.`,
+        detail: `Arrivée à ${heure(r.arriveeA)}, départ à ${heure(r.departA)}, ${libellePause(r.pause)}.`,
       };
   }
 }
@@ -276,7 +276,7 @@ export function ecranApresPause(
     type: "PAUSE_ENREGISTREE",
     titre: `Départ enregistré à ${heure(r.heureFin)}`,
     detail: r.presencesEcrites
-      ? `Pause de ${r.pauseMinutes} min enregistrée : ${nombreHeures(r.heures)} h de travail. ${MESSAGE_JOURNEE_ENREGISTREE}`
+      ? `Pause de ${r.pauseMinutes} min enregistrée et déduite : ${nombreHeures(r.heures)} h de travail. ${MESSAGE_JOURNEE_ENREGISTREE}`
       : MESSAGE_DEPART_JOUR_DE_CONGE,
     heuresComptees: r.presencesEcrites,
     avertissement: depart.avertissement,

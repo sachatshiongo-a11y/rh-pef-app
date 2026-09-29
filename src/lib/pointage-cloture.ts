@@ -4,7 +4,10 @@ import "server-only";
 //
 // Décision de la Direction du 2026-09-29 : le départ scanné clôt la journée TOUT DE SUITE, avec la
 // pause par défaut (30 min) quand le salarié n'a pas saisi la sienne. Clore = `heureFin` à
-// l'instant du SCAN, la pause, puis les heures nettes écrites aux présences (comme avant).
+// l'instant du SCAN, la pause, puis les heures PAYABLES écrites aux présences (comme avant).
+// Décision d'argent du même jour : la pause par défaut n'est PAS déduite — elle est stockée
+// `pauseParDefaut = true` avec `pauseMinutes = 0` (les minutes DÉDUITES), et les heures viennent
+// de `heuresPayables` (`pointage-jour.ts`), la seule fonction qui retire une pause.
 //
 // Chaque clôture est JOURNALISÉE (entité « Pointage », champ « cloture ») avec ce que Présences +
 // Heures portaient AVANT elle et ce qu'elle y a écrit. C'est ce qui permet :
@@ -15,7 +18,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { journaliser } from "@/lib/audit";
-import { heuresNettes } from "@/lib/pointage-jour";
+import { heuresPayables, type PausePointage } from "@/lib/pointage-jour";
 import { appliquerAuxPresences, etatPresences, type EtatPresences } from "@/lib/pointage-presences";
 
 type Tx = Prisma.TransactionClient;
@@ -35,20 +38,32 @@ export type Cloture = {
 type PointageAClore = { id: string; employeeId: string; date: Date; heureDebut: Date };
 
 /**
- * Clôt la journée à l'instant du départ scanné, avec `pauseMinutes` (`parDefaut` : la pause de
- * 30 min posée d'office). À appeler SOUS le verrou de la ligne du pointage. Ne clôt jamais une
- * journée déjà close (`heureFin: null` dans le filtre).
+ * La pause à ÉCRIRE sur le pointage : `pauseSaisie` = minutes saisies par le salarié (déduites) ;
+ * `null` = pas de saisie → la pause par défaut, marquée comme telle et NON déduite (0 min).
+ */
+export function pauseAEcrire(pauseSaisie: number | null): PausePointage {
+  return pauseSaisie === null
+    ? { pauseMinutes: 0, pauseParDefaut: true }
+    : { pauseMinutes: pauseSaisie, pauseParDefaut: false };
+}
+
+/**
+ * Clôt la journée à l'instant du départ scanné, avec la pause saisie (`pauseSaisie`, déduite) ou,
+ * à défaut (`null`), la pause par défaut (affichée, NON déduite). À appeler SOUS le verrou de la
+ * ligne du pointage. Ne clôt jamais une journée déjà close (`heureFin: null` dans le filtre).
+ * Renvoie aussi la pause écrite, pour que l'appelant ne la reconstitue pas.
  */
 export async function clore(
   tx: Tx,
-  p: { pointage: PointageAClore; heureFin: Date; pauseMinutes: number; parDefaut: boolean; userId: string },
-): Promise<{ heures: number; presencesEcrites: boolean }> {
+  p: { pointage: PointageAClore; heureFin: Date; pauseSaisie: number | null; userId: string },
+): Promise<{ heures: number; presencesEcrites: boolean; pause: PausePointage }> {
   const { pointage } = p;
-  const heures = heuresNettes(pointage.heureDebut, p.heureFin, p.pauseMinutes);
+  const pause = pauseAEcrire(p.pauseSaisie);
+  const heures = heuresPayables({ heureDebut: pointage.heureDebut, heureFin: p.heureFin, ...pause });
   const avant = await etatPresences(tx, pointage.employeeId, pointage.date);
   const clos = await tx.pointage.updateMany({
     where: { id: pointage.id, heureFin: null },
-    data: { heureFin: p.heureFin, pauseMinutes: p.pauseMinutes, pauseParDefaut: p.parDefaut },
+    data: { heureFin: p.heureFin, ...pause },
   });
   if (clos.count === 0) throw new Error("Votre journée est déjà close.");
   const presencesEcrites = await appliquerAuxPresences(tx, pointage.employeeId, pointage.date, heures);
@@ -60,15 +75,15 @@ export async function clore(
     ancienneValeur: JSON.stringify(avant),
     nouvelleValeur: JSON.stringify({
       heureFin: p.heureFin.toISOString(),
-      pauseMinutes: p.pauseMinutes,
-      pauseParDefaut: p.parDefaut,
+      pauseMinutes: pause.pauseMinutes,
+      pauseParDefaut: pause.pauseParDefaut,
       heures,
       presencesEcrites,
       code: apres.code,
     }),
     userId: p.userId,
   });
-  return { heures, presencesEcrites };
+  return { heures, presencesEcrites, pause };
 }
 
 /** La DERNIÈRE clôture journalisée de ce pointage (null s'il n'a jamais été clos par un scan). */
@@ -96,7 +111,7 @@ export async function lireCloture(tx: Tx, pointageId: string): Promise<Cloture |
  */
 export async function journeeTouchee(
   tx: Tx,
-  pointage: PointageAClore & { heureFin: Date | null; pauseMinutes: number },
+  pointage: PointageAClore & PausePointage & { heureFin: Date | null },
 ): Promise<boolean> {
   if (!pointage.heureFin) return true;
   const cloture = await lireCloture(tx, pointage.id);
@@ -104,6 +119,6 @@ export async function journeeTouchee(
   const maintenant = await etatPresences(tx, pointage.employeeId, pointage.date);
   // Rien n'avait été écrit (congé approuvé ce jour) : toute heure apparue depuis vient d'ailleurs.
   if (!cloture.presencesEcrites) return maintenant.heures !== null;
-  const attendu = heuresNettes(pointage.heureDebut, pointage.heureFin, pointage.pauseMinutes);
+  const attendu = heuresPayables({ ...pointage, heureFin: pointage.heureFin });
   return maintenant.heures !== attendu || maintenant.code !== cloture.code;
 }

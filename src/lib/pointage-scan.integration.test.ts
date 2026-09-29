@@ -313,7 +313,7 @@ describe("enregistrerScan — scan répété sous 10 minutes : rien de nouveau",
       etat: "COMPLETE",
       arriveeA: ARRIVEE.toISOString(),
       departA: j.instantDepart.toISOString(),
-      pause: { minutes: 30, parDefaut: true },
+      pause: { parDefaut: true, minutesDeduites: 0 },
     });
     const apres = await base(j.employeeId);
     expect(apres.scans).toEqual(avant.scans);
@@ -346,20 +346,20 @@ describe("enregistrerScan — le départ clôt la journée, pause par défaut 30
       heure: j.instantDepart.toISOString(),
       arriveeA: ARRIVEE.toISOString(),
       verdict: { verdict: "A_VERIFIER", motif: "LOIN" },
-      pause: { minutes: 30, parDefaut: true },
-      heures: 7.5,
+      pause: { parDefaut: true, minutesDeduites: 0 },
+      heures: 8, // 8 h de présence, pause par défaut NON déduite (décision d'argent du 2026-09-29)
       presencesEcrites: true,
       pauseModifiable: true,
       annulableMs: 5 * 60_000,
     });
     const b = await base(j.employeeId);
-    expect(b.pointages[0]).toMatchObject({ heureFin: j.instantDepart, pauseMinutes: 30, pauseParDefaut: true });
+    expect(b.pointages[0]).toMatchObject({ heureFin: j.instantDepart, pauseMinutes: 0, pauseParDefaut: true });
     expect(b.scans[1]).toMatchObject({ id: j.depart.scanId, moment: "DEPART", instant: j.instantDepart, verdict: "A_VERIFIER", annuleLe: null });
-    expect(await presences(j.employeeId)).toEqual({ heures: 7.5, code: "P" });
+    expect(await presences(j.employeeId)).toEqual({ heures: 8, code: "P" });
     // La clôture est journalisée avec l'état d'AVANT (rien) : c'est ce qui permet de la défaire.
     const journal = await prisma.journalAudit.findFirst({ where: { entite: "Pointage", entiteId: b.pointages[0].id, champ: "cloture" } });
     expect(JSON.parse(journal!.ancienneValeur!)).toEqual({ heures: null, code: null });
-    expect(JSON.parse(journal!.nouvelleValeur!)).toMatchObject({ pauseMinutes: 30, pauseParDefaut: true, heures: 7.5, presencesEcrites: true, code: "P" });
+    expect(JSON.parse(journal!.nouvelleValeur!)).toMatchObject({ pauseMinutes: 0, pauseParDefaut: true, heures: 8, presencesEcrites: true, code: "P" });
   });
 
   it("sans position (8 s dépassées) → départ enregistré quand même, « à vérifier », position non transmise", async () => {
@@ -380,7 +380,7 @@ describe("enregistrerScan — le départ clôt la journée, pause par défaut 30
     const avant = await base(employeeId);
 
     const r = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 9 * 60) });
-    expect(r).toMatchObject({ etat: "COMPLETE", pause: { minutes: 45, parDefaut: false } });
+    expect(r).toMatchObject({ etat: "COMPLETE", pause: { parDefaut: false, minutesDeduites: 45 } });
     const apres = await base(employeeId);
     expect(apres.pointages).toEqual(avant.pointages);
     expect(apres.nbScans).toBe(0);
@@ -396,10 +396,10 @@ describe("enregistrerScan — le départ clôt la journée, pause par défaut 30
     });
 
     const r = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60 + 30) });
-    expect(r).toMatchObject({ etat: "DEPART", scanId: ancienDepart.id, heure: plus(ARRIVEE, 8 * 60).toISOString(), heures: 7.5 });
+    expect(r).toMatchObject({ etat: "DEPART", scanId: ancienDepart.id, heure: plus(ARRIVEE, 8 * 60).toISOString(), heures: 8 });
     const b = await base(employeeId);
     expect(b.nbDeparts).toBe(1);
-    expect(b.pointages[0]).toMatchObject({ heureFin: plus(ARRIVEE, 8 * 60), pauseMinutes: 30, pauseParDefaut: true });
+    expect(b.pointages[0]).toMatchObject({ heureFin: plus(ARRIVEE, 8 * 60), pauseMinutes: 0, pauseParDefaut: true });
   });
 });
 
@@ -444,7 +444,7 @@ describe("saisirPauseScan — la pause, facultative, saisie après le départ", 
     await expect(
       saisirPauseScan(prisma, { ...j, scanId: j.depart.scanId, pauseMinutes: 0, maintenant: plus(j.instantDepart, 3) }),
     ).rejects.toThrow("La Direction a déjà corrigé cette journée");
-    expect(await presences(j.employeeId)).toEqual({ heures: 7.5, code: "N" });
+    expect(await presences(j.employeeId)).toEqual({ heures: 8, code: "N" });
   });
 
   it("un autre jour (Kinshasa) : refus, rien réécrit", async () => {
@@ -453,7 +453,7 @@ describe("saisirPauseScan — la pause, facultative, saisie après le départ", 
     await expect(
       saisirPauseScan(prisma, { ...j, scanId: j.depart.scanId, pauseMinutes: 0, maintenant: new Date("2026-09-15T23:30:00Z") }),
     ).rejects.toThrow(MESSAGE_DEPART_AUTRE_JOUR);
-    expect((await base(j.employeeId)).pointages[0]).toMatchObject({ pauseMinutes: 30, pauseParDefaut: true });
+    expect((await base(j.employeeId)).pointages[0]).toMatchObject({ pauseMinutes: 0, pauseParDefaut: true });
   });
 
   it("pause bornée à 600 min et jamais négative", async () => {
@@ -473,7 +473,7 @@ describe("saisirPauseScan — la pause, facultative, saisie après le départ", 
     await expect(
       saisirPauseScan(prisma, { ...collegue, scanId: arrivee.id, pauseMinutes: 0, maintenant: plus(collegue.instantDepart, 1) }),
     ).rejects.toThrow("Ce départ est introuvable.");
-    expect((await base(collegue.employeeId)).pointages[0]).toMatchObject({ pauseMinutes: 30, pauseParDefaut: true });
+    expect((await base(collegue.employeeId)).pointages[0]).toMatchObject({ pauseMinutes: 0, pauseParDefaut: true });
   });
 
   it("un départ ancien jamais clos se clôt avec la pause SAISIE (pas « par défaut ») ; congé approuvé : rien aux présences", async () => {
@@ -572,7 +572,7 @@ describe("annulerScan — « Annuler ce pointage » : 5 minutes, le propriétair
     await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
     const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 6 * 60) });
     if (d.etat !== "DEPART") throw new Error("départ attendu");
-    expect(await presences(employeeId)).toEqual({ heures: 5.5, code: "P" });
+    expect(await presences(employeeId)).toEqual({ heures: 6, code: "P" });
 
     const r = await annulerScan(prisma, { employeeId, userId, scanId: d.scanId, maintenant: plus(ARRIVEE, 6 * 60 + 2) });
     expect(r).toEqual({ moment: "DEPART", heure: plus(ARRIVEE, 6 * 60).toISOString() });
@@ -588,9 +588,9 @@ describe("annulerScan — « Annuler ce pointage » : 5 minutes, le propriétair
 
     // Le vrai départ, plus tard : un NOUVEAU départ (le scan annulé ne compte plus).
     const vrai = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 8 * 60) });
-    expect(vrai).toMatchObject({ etat: "DEPART", repete: false, heure: plus(ARRIVEE, 8 * 60).toISOString(), heures: 7.5 });
+    expect(vrai).toMatchObject({ etat: "DEPART", repete: false, heure: plus(ARRIVEE, 8 * 60).toISOString(), heures: 8 });
     expect((await base(employeeId)).nbDeparts).toBe(2);
-    expect(await presences(employeeId)).toEqual({ heures: 7.5, code: "P" });
+    expect(await presences(employeeId)).toEqual({ heures: 8, code: "P" });
   });
 
   it("départ annulé sans rien avant : heures et présence créées par la clôture sont retirées", async () => {
@@ -715,5 +715,67 @@ describe("actions serveur — session → employé lié → module", () => {
     A.user = { id: collegue.userId, role: "EMPLOYE", nom: "Collègue", employeeId: collegue.employeeId };
     expect(await annulerPointage({ scanId: d.scanId })).toMatchObject({ moment: "DEPART" });
     expect((await base(collegue.employeeId)).pointages[0].heureFin).toBeNull();
+  });
+});
+
+// Décision d'argent de la Direction du 2026-09-29 : « la paie ne doit pas être affectée ». La pause
+// par défaut s'affiche mais n'est PAS déduite ; une pause SAISIE par le salarié l'est.
+describe("pause par défaut NON déduite — ce qui part vers la paie (OvertimeEntry)", () => {
+  it("départ sans pause saisie : heures payées = départ − arrivée, OvertimeEntry sans déduction, pause stockée 0 min + drapeau", async () => {
+    const j = await journeeScannee(9 * 60); // 8 h 02 → 17 h 02
+    expect(j.depart).toMatchObject({ etat: "DEPART", heures: 9, pause: { parDefaut: true, minutesDeduites: 0 } });
+    expect(await presences(j.employeeId)).toEqual({ heures: 9, code: "P" });
+    expect((await base(j.employeeId)).pointages[0]).toMatchObject({ pauseMinutes: 0, pauseParDefaut: true });
+  });
+
+  it("pause SAISIE de 45 min : déduite (9 h − 0,75 = 8,25 h aux présences)", async () => {
+    const j = await journeeScannee(9 * 60);
+    const r = await saisirPauseScan(prisma, { ...j, scanId: j.depart.scanId, pauseMinutes: 45, maintenant: plus(j.instantDepart, 2) });
+    expect(r.heures).toBe(8.25);
+    expect(await presences(j.employeeId)).toEqual({ heures: 8.25, code: "P" });
+  });
+
+  it("pause par défaut PUIS pause saisie de 30 min : les 30 min sont alors déduites, journalisées comme telles", async () => {
+    const j = await journeeScannee(9 * 60);
+    expect(await presences(j.employeeId)).toEqual({ heures: 9, code: "P" });
+    const r = await saisirPauseScan(prisma, { ...j, scanId: j.depart.scanId, pauseMinutes: 30, maintenant: plus(j.instantDepart, 2) });
+    expect(r).toMatchObject({ heures: 8.5, pauseMinutes: 30 });
+    expect(await presences(j.employeeId)).toEqual({ heures: 8.5, code: "P" });
+    const b = await base(j.employeeId);
+    expect(b.pointages[0]).toMatchObject({ pauseMinutes: 30, pauseParDefaut: false });
+    const journal = await prisma.journalAudit.findFirst({ where: { entite: "Pointage", entiteId: b.pointages[0].id, champ: "pauseMinutes" } });
+    expect(journal).toMatchObject({
+      ancienneValeur: "pause par défaut 30 min (non déduite)",
+      nouvelleValeur: "30 min (saisie par le salarié, déduite)",
+    });
+  });
+
+  it("annuler un départ clos avec la pause par défaut rend l'état d'avant ; le nouveau départ repaie départ − arrivée", async () => {
+    const { employeeId, userId } = await nouvelEmploye();
+    await prisma.overtimeEntry.create({ data: { employeeId, date: JOUR, heuresTravaillees: 9 } });
+    await prisma.attendance.create({ data: { employeeId, date: JOUR, code: "P" } });
+    await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: ARRIVEE });
+    const d = await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 4 * 60) });
+    if (d.etat !== "DEPART") throw new Error("départ attendu");
+    expect(await presences(employeeId)).toEqual({ heures: 4, code: "P" });
+    await annulerScan(prisma, { employeeId, userId, scanId: d.scanId, maintenant: plus(ARRIVEE, 4 * 60 + 1) });
+    expect(await presences(employeeId)).toEqual({ heures: 9, code: "P" });
+    expect((await base(employeeId)).pointages[0]).toMatchObject({ heureFin: null, pauseMinutes: 0, pauseParDefaut: false });
+    await enregistrerScan(prisma, { employeeId, userId, code: CODE, position: AU_RESTAURANT, maintenant: plus(ARRIVEE, 9 * 60) });
+    expect(await presences(employeeId)).toEqual({ heures: 9, code: "P" });
+  });
+
+  it("« Pointer » (pointage du jour) : heures calculées côté serveur = départ − arrivée, pause « par défaut, 0 déduite »", async () => {
+    const j = await journeeScannee(9 * 60);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(plus(j.instantDepart, 1));
+    try {
+      expect((await chargerPointageDuJour(j.employeeId)).pointage).toMatchObject({
+        heures: 9,
+        pause: { parDefaut: true, minutesDeduites: 0 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

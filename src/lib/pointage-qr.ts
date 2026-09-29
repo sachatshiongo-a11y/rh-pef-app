@@ -3,6 +3,7 @@
 // d'affiche (node:crypto) vit à part, dans `pointage-code.ts`, jamais importé côté client.
 
 import { formaterNombre } from "@/lib/montant";
+import type { PauseDuJour } from "@/lib/pointage-jour";
 
 export type Coordonnees = { lat: number; lng: number };
 
@@ -39,8 +40,10 @@ export const DELAI_SCAN_REPETE_MS = 10 * 60_000;
 export const DELAI_ANNULATION_MS = 5 * 60_000;
 /**
  * Pause posée d'office quand le départ est pointé sans pause saisie (décision de la Direction du
- * 2026-09-29) : la journée est close avec cette pause, marquée « par défaut ». Le salarié peut
- * saisir la sienne ensuite (facultatif) : c'est alors la sienne qui compte.
+ * 2026-09-29) : la journée est close avec cette pause, marquée « par défaut ». Décision d'argent du
+ * même jour (« la paie ne doit pas être affectée ») : elle s'AFFICHE mais n'est PAS DÉDUITE des
+ * heures payées — `heuresPayables` (`pointage-jour.ts`). Le salarié peut saisir la sienne ensuite
+ * (facultatif) : c'est alors la sienne qui compte, et elle se déduit.
  */
 export const PAUSE_PAR_DEFAUT_MIN = 30;
 
@@ -165,8 +168,14 @@ export function resumePointagesSemaine(
 
 /**
  * La pause d'une journée pointée, telle que l'affichent le scan, « Pointer », le Suivi et Présences &
- * heures — un seul libellé partout : la pause posée d'office ne se confond jamais avec une pause saisie.
+ * heures — un seul libellé partout : la pause posée d'office ne se confond jamais avec une pause
+ * saisie, et dit qu'elle n'est pas déduite (décision d'argent du 2026-09-29), pour que la Direction
+ * comprenne pourquoi les heures valent départ − arrivée. Sa durée affichée est TOUJOURS
+ * `PAUSE_PAR_DEFAUT_MIN` : en base, `pauseMinutes` ne porte que les minutes déduites (0 ici).
  */
-export function libellePause(minutes: number, parDefaut: boolean): string {
-  return parDefaut ? `pause par défaut ${minutes} min` : `pause ${minutes} min`;
+export function libellePause(pause: PauseDuJour): string {
+  return pause.parDefaut ? LIBELLE_PAUSE_PAR_DEFAUT : `pause ${pause.minutesDeduites} min`;
 }
+
+/** « pause par défaut 30 min (non déduite) » — le libellé unique de la pause posée d'office. */
+export const LIBELLE_PAUSE_PAR_DEFAUT = `pause par défaut ${PAUSE_PAR_DEFAUT_MIN} min (non déduite)`;

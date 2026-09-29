@@ -15,7 +15,7 @@ import { COULEUR_CODE_HEX } from "./attendance-colors";
 import { useJourMobile } from "@/components/jour-mobile";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
-import { libellePause } from "@/lib/pointage-qr";
+import { LIBELLE_PAUSE_PAR_DEFAUT } from "@/lib/pointage-qr";
 import { lireSaisieNombre } from "@/lib/nombre";
 import {
   calculerHeuresSupp,
@@ -42,9 +42,11 @@ type Cellule = { code: string; heures: number | null };
 
 /** Horaires du jour affichés dans la case (façon planning) : début et fin « HH:MM ».
  *  `reel` = heures issues d'un pointage horodaté (sinon : créneau planifié ou modèle hebdo).
- *  `pauseParDefaut` = minutes de la pause posée d'office au départ scanné (le salarié n'a pas saisi
- *  la sienne), sinon absent/null : affiché « p* » dans la case et en toutes lettres dans l'infobulle. */
-export type InfoShift = { debut: string | null; fin: string | null; reel: boolean; pauseParDefaut?: number | null };
+ *  `pauseParDefaut` = vrai quand la journée pointée est close avec la pause posée d'office au départ
+ *  scanné (le salarié n'a pas saisi la sienne) : affiché « p* » dans la case et en toutes lettres
+ *  dans l'infobulle — « pause par défaut 30 min (non déduite) ». Elle ne retire aucune heure : les
+ *  heures de la case valent départ − arrivée (décision d'argent de la Direction du 2026-09-29). */
+export type InfoShift = { debut: string | null; fin: string | null; reel: boolean; pauseParDefaut?: boolean };
 
 // « HH:MM » → minutes depuis minuit (null si non parsable).
 function enMinutes(hhmm: string | null): number | null {
@@ -95,7 +97,7 @@ function infoHoraire(
     horaire = `${info.debut}–${info.fin}`;
   }
 
-  const pause = info.reel && info.pauseParDefaut != null ? ` · ${libellePause(info.pauseParDefaut, true)}` : "";
+  const pause = info.reel && info.pauseParDefaut ? ` · ${LIBELLE_PAUSE_PAR_DEFAUT}` : "";
   const titre = horaire
     ? ` ${horaire}${info.reel ? " (pointage réel)" : " (planifié)"}${pause}${supp ? " · heures supp." : ""}`
     : "";
@@ -454,7 +456,7 @@ export function TempsGrid({
                   {hs.horaire && (
                     <div className={`truncate text-[11px] tabular-nums ${hs.supp ? "font-semibold text-amber-700" : info?.reel ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
                       {info?.reel ? "● " : ""}{hs.horaire}{hs.supp ? " · h. supp." : ""}
-                      {info?.reel && info.pauseParDefaut != null ? ` · ${libellePause(info.pauseParDefaut, true)}` : ""}
+                      {info?.reel && info.pauseParDefaut ? ` · ${LIBELLE_PAUSE_PAR_DEFAUT}` : ""}
                     </div>
                   )}
                 </div>
@@ -621,7 +623,7 @@ export function TempsGrid({
                             {hs.horaire ? (
                               <span className={`mt-0.5 text-[8px] tabular-nums ${hs.supp ? "font-semibold text-amber-700" : info?.reel ? "font-semibold" : "opacity-60"}`}>
                                 {info?.reel ? "● " : ""}{hs.horaire}
-                                {info?.reel && info.pauseParDefaut != null ? " p*" : ""}
+                                {info?.reel && info.pauseParDefaut ? " p*" : ""}
                               </span>
                             ) : (
                               <span className="mt-0.5 text-[8px] opacity-40">—</span>

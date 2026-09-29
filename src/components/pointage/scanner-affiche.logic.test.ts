@@ -189,7 +189,8 @@ describe("dimensionsLecture : l'image lue par jsQR", () => {
   });
 });
 
-const pauseDefaut = { minutes: 30, parDefaut: true };
+// La pause par défaut : affichée « 30 min (non déduite) », 0 min retirée (décision d'argent du 2026-09-29).
+const pauseDefaut = { parDefaut: true, minutesDeduites: 0 };
 
 describe("ecranDepuisResultat : un écran par état", () => {
   const arrivee = (verdict: VerdictPosition, repete = false): ResultatScan => ({
@@ -250,7 +251,7 @@ describe("ecranDepuisResultat : un écran par état", () => {
       type: "DEPART",
       scanId: "s1",
       titre: "Départ enregistré à 17 h 05",
-      detail: "Arrivée à 8 h 02. 8,55 h de travail, pause par défaut 30 min. Journée enregistrée dans vos présences et vos heures.",
+      detail: "Arrivée à 8 h 02. 8,55 h de travail, pause par défaut 30 min (non déduite). Journée enregistrée dans vos présences et vos heures.",
       heuresComptees: true,
       avertissement: null,
       motif: null,
@@ -267,9 +268,15 @@ describe("ecranDepuisResultat : un écran par état", () => {
 
   it("COMPLETE : la journée, ses deux heures et sa pause", () => {
     expect(
-      ecranDepuisResultat({ etat: "COMPLETE", arriveeA: ARRIVEE_8H02, departA: DEPART_17H05, pause: { minutes: 45, parDefaut: false } }),
+      ecranDepuisResultat({ etat: "COMPLETE", arriveeA: ARRIVEE_8H02, departA: DEPART_17H05, pause: { parDefaut: false, minutesDeduites: 45 } }),
     ).toEqual({
       type: "COMPLETE", titre: MESSAGE_JOURNEE_COMPLETE, detail: "Arrivée à 8 h 02, départ à 17 h 05, pause 45 min.",
+    });
+  });
+
+  it("COMPLETE avec la pause par défaut : dite « non déduite »", () => {
+    expect(ecranDepuisResultat({ etat: "COMPLETE", arriveeA: ARRIVEE_8H02, departA: DEPART_17H05, pause: pauseDefaut })).toMatchObject({
+      detail: "Arrivée à 8 h 02, départ à 17 h 05, pause par défaut 30 min (non déduite).",
     });
   });
 
@@ -328,7 +335,7 @@ describe("ecranApresPause : la pause, facultative, saisie après le départ", ()
     expect(ecranApresPause({ heureFin: DEPART_17H05, heures: 8.3, presencesEcrites: true, pauseMinutes: 45 }, depart)).toEqual({
       type: "PAUSE_ENREGISTREE",
       titre: "Départ enregistré à 17 h 05",
-      detail: "Pause de 45 min enregistrée : 8,3 h de travail. Journée enregistrée dans vos présences et vos heures.",
+      detail: "Pause de 45 min enregistrée et déduite : 8,3 h de travail. Journée enregistrée dans vos présences et vos heures.",
       heuresComptees: true,
       avertissement: A_VERIFIER_HORS_RESTAURANT,
       motif: "à 2,3 km",

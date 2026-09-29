@@ -18,24 +18,26 @@ import "server-only";
 //   • le départ CLÔT la journée tout de suite, avec la pause par défaut (30 min) si le salarié n'a
 //     pas saisi la sienne ; il peut la saisir ensuite (`saisirPauseScan`), tant que la Direction
 //     n'a pas corrigé la journée (`pointage-cloture.ts`).
+// Décision d'argent du même jour : la pause par défaut s'affiche mais n'est PAS déduite (heures =
+// départ − arrivée) ; une pause saisie l'est. Toutes les heures viennent de `heuresPayables`.
 
 import { Prisma, type PrismaClient, type ScanPointage } from "@prisma/client";
 import { codesEgaux } from "@/lib/pointage-code";
-import { dateDuJourKinshasa, heuresNettes } from "@/lib/pointage-jour";
+import { dateDuJourKinshasa, heuresPayables, pauseDuJour, type PauseDuJour, type PausePointage } from "@/lib/pointage-jour";
 import {
   DELAI_SCAN_REPETE_MS,
-  PAUSE_PAR_DEFAUT_MIN,
+  LIBELLE_PAUSE_PAR_DEFAUT,
   verdictPosition,
   type PositionScan,
   type VerdictPosition,
 } from "@/lib/pointage-qr";
 import { appliquerAuxPresences, refusSiPaieValideeOuConge } from "@/lib/pointage-presences";
 import { annulableMs } from "@/lib/pointage-annulation";
-import { clore, journeeTouchee, lireCloture } from "@/lib/pointage-cloture";
+import { clore, journeeTouchee, lireCloture, pauseAEcrire } from "@/lib/pointage-cloture";
 import { journaliser } from "@/lib/audit";
 
-/** La pause retenue pour la journée : `parDefaut` = posée d'office (30 min), pas saisie. */
-export type PauseDuJour = { minutes: number; parDefaut: boolean };
+/** La pause retenue pour la journée (`pointage-jour.ts`) : `parDefaut` = posée d'office, non déduite. */
+export type { PauseDuJour };
 
 /**
  * `repete` : ce scan n'a rien écrit, il réaffiche le pointage déjà fait. `annulableMs` : temps
@@ -196,7 +198,7 @@ async function scanner(
     const arrivee = arrivees.length > 0 ? arrivees[arrivees.length - 1] : null;
     const depart = valables.find((s) => s.moment === "DEPART") ?? null;
     const arriveeAnnulee = arrivee === null && courant.scans.some((s) => s.moment === "ARRIVEE");
-    const pause: PauseDuJour = { minutes: courant.pauseMinutes, parDefaut: courant.pauseParDefaut };
+    const pause = pauseDuJour(courant);
 
     // 5. Journée close : le départ qui l'a close est réaffiché s'il date de moins de 10 min (scan
     //    répété), sinon « journée complète ». Rien n'est écrit.
@@ -233,14 +235,8 @@ async function scanner(
     // 7. Un départ scanné AVANT la mise en service de la clôture automatique, jamais clos : on le
     //    clôt maintenant, avec la pause par défaut — la même règle qu'un départ d'aujourd'hui.
     if (depart) {
-      const r = await clore(tx, {
-        pointage: courant,
-        heureFin: depart.instant,
-        pauseMinutes: PAUSE_PAR_DEFAUT_MIN,
-        parDefaut: true,
-        userId: p.userId,
-      });
-      const clos = { ...courant, heureFin: depart.instant, pauseMinutes: PAUSE_PAR_DEFAUT_MIN, pauseParDefaut: true };
+      const r = await clore(tx, { pointage: courant, heureFin: depart.instant, pauseSaisie: null, userId: p.userId });
+      const clos = { ...courant, heureFin: depart.instant, ...r.pause };
       return resultatDepart(clos, depart, { repete: false, presencesEcrites: r.presencesEcrites }, maintenant);
     }
 
@@ -254,14 +250,8 @@ async function scanner(
     const nouveau = await tx.scanPointage.create({
       data: { ...scan, pointageId: courant.id, employeeId: p.employeeId, moment: "DEPART", instant: maintenant },
     });
-    const r = await clore(tx, {
-      pointage: courant,
-      heureFin: maintenant,
-      pauseMinutes: PAUSE_PAR_DEFAUT_MIN,
-      parDefaut: true,
-      userId: p.userId,
-    });
-    const clos = { ...courant, heureFin: maintenant, pauseMinutes: PAUSE_PAR_DEFAUT_MIN, pauseParDefaut: true };
+    const r = await clore(tx, { pointage: courant, heureFin: maintenant, pauseSaisie: null, userId: p.userId });
+    const clos = { ...courant, heureFin: maintenant, ...r.pause };
     return resultatDepart(clos, nouveau, { repete: false, presencesEcrites: r.presencesEcrites }, maintenant);
   });
 }
@@ -278,7 +268,7 @@ function resultatArrivee(s: ScanPointage, repete: boolean, maintenant: Date): Re
 }
 
 function resultatDepart(
-  pointage: { date: Date; heureDebut: Date; heureFin: Date | null; pauseMinutes: number; pauseParDefaut: boolean },
+  pointage: PausePointage & { date: Date; heureDebut: Date; heureFin: Date | null },
   s: ScanPointage,
   o: { repete: boolean; presencesEcrites: boolean },
   maintenant: Date,
@@ -292,8 +282,8 @@ function resultatDepart(
     verdict: verdictDe(s),
     repete: o.repete,
     annulableMs: annulableMs(s.instant, maintenant),
-    pause: { minutes: pointage.pauseMinutes, parDefaut: pointage.pauseParDefaut },
-    heures: heuresNettes(pointage.heureDebut, heureFin, pointage.pauseMinutes),
+    pause: pauseDuJour(pointage),
+    heures: heuresPayables({ ...pointage, heureFin }),
     presencesEcrites: o.presencesEcrites,
     // La pause par défaut se remplace le jour même (Kinshasa) ; la Direction a pu corriger ensuite :
     // le serveur le revérifie à la saisie (`saisirPauseScan`).
@@ -313,7 +303,8 @@ export const MESSAGE_JOURNEE_CLOSE_AUTREMENT =
 
 /**
  * La pause SAISIE par le salarié après son départ (étape facultative) : elle remplace la pause par
- * défaut, et les heures nettes aux présences suivent. `heureFin` reste l'instant du SCAN.
+ * défaut (qui n'était pas déduite) et SE DÉDUIT des heures ; les heures aux présences suivent.
+ * `heureFin` reste l'instant du SCAN.
  *
  * Refusée (rien n'est réécrit) : un autre jour que celui du départ ; une pause déjà saisie ; une
  * journée que la Direction a corrigée depuis (heures ou code retouchés dans Présences & heures) ;
@@ -350,7 +341,7 @@ export async function saisirPauseScan(
     if (relu.annuleLe) throw new Error(MESSAGE_DEPART_ANNULE);
 
     if (!pointage.heureFin) {
-      const r = await clore(tx, { pointage, heureFin: scan.instant, pauseMinutes, parDefaut: false, userId: p.userId });
+      const r = await clore(tx, { pointage, heureFin: scan.instant, pauseSaisie: pauseMinutes, userId: p.userId });
       return { heureFin: scan.instant.toISOString(), heures: r.heures, presencesEcrites: r.presencesEcrites, pauseMinutes };
     }
 
@@ -358,10 +349,11 @@ export async function saisirPauseScan(
     if (!pointage.pauseParDefaut) throw new Error(MESSAGE_PAUSE_DEJA_SAISIE);
     if (await journeeTouchee(tx, pointage)) throw new Error("La Direction a déjà corrigé cette journée : pour la modifier, adressez-vous à elle.");
 
-    const heures = heuresNettes(pointage.heureDebut, pointage.heureFin, pauseMinutes);
+    const saisie = pauseAEcrire(pauseMinutes);
+    const heures = heuresPayables({ heureDebut: pointage.heureDebut, heureFin: pointage.heureFin, ...saisie });
     const maj = await tx.pointage.updateMany({
       where: { id: pointage.id, pauseParDefaut: true },
-      data: { pauseMinutes, pauseParDefaut: false },
+      data: saisie,
     });
     if (maj.count === 0) throw new Error(MESSAGE_PAUSE_DEJA_SAISIE);
     const cloture = await lireCloture(tx, pointage.id);
@@ -373,8 +365,8 @@ export async function saisirPauseScan(
       entite: "Pointage",
       entiteId: pointage.id,
       champ: "pauseMinutes",
-      ancienneValeur: `${pointage.pauseMinutes} min (par défaut)`,
-      nouvelleValeur: `${pauseMinutes} min (saisie par le salarié)`,
+      ancienneValeur: LIBELLE_PAUSE_PAR_DEFAUT,
+      nouvelleValeur: `${pauseMinutes} min (saisie par le salarié, déduite)`,
       userId: p.userId,
     });
     return { heureFin: pointage.heureFin.toISOString(), heures, presencesEcrites, pauseMinutes };

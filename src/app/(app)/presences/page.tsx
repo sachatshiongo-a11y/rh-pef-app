@@ -55,7 +55,7 @@ export default async function PresencesPage() {
     // un pointage réel : le créneau planifié reste affiché (rien n'est effacé en base).
     prisma.pointage.findMany({
       where: { AND: [{ date: { gte: debutMois, lte: finMois } }, POINTAGE_VALABLE] },
-      select: { employeeId: true, date: true, heureDebut: true, heureFin: true, pauseMinutes: true, pauseParDefaut: true },
+      select: { employeeId: true, date: true, heureDebut: true, heureFin: true, pauseParDefaut: true },
     }),
     prisma.planningCreneau.findMany({
       where: { date: { gte: debutMois, lte: finMois } },
@@ -99,8 +99,9 @@ export default async function PresencesPage() {
       debut: fmtHeure(p.heureDebut),
       fin: p.heureFin ? fmtHeure(p.heureFin) : null,
       reel: true,
-      // La pause posée d'office au départ scanné (30 min), jamais confondue avec une pause saisie.
-      pauseParDefaut: p.heureFin && p.pauseParDefaut ? p.pauseMinutes : null,
+      // La pause posée d'office au départ scanné (30 min, NON déduite), jamais confondue avec une
+      // pause saisie. Les heures de la case viennent d'OvertimeEntry, écrites par `heuresPayables`.
+      pauseParDefaut: !!p.heureFin && p.pauseParDefaut,
     };
   }
 
@@ -203,7 +204,7 @@ export default async function PresencesPage() {
           Sous le code : les horaires du jour (Planning / modèle hebdo) — <b>●</b> = pointage réel
         </span>
         <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
-          <b>p*</b> = pause par défaut {PAUSE_PAR_DEFAUT_MIN} min (départ pointé sans pause saisie par le salarié)
+          <b>p*</b> = pause par défaut {PAUSE_PAR_DEFAUT_MIN} min, non déduite : heures = départ − arrivée (départ pointé sans pause saisie par le salarié)
         </span>
         <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
           Heures en <b>ambre</b> = au-delà du shift prévu (heures supplémentaires)

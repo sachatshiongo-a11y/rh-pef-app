@@ -328,8 +328,9 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
       );
 
     case "DEPART": {
-      // La journée est CLOSE (départ horodaté au scan, pause par défaut 30 min si rien n'est
-      // saisi) ; la pause du salarié vient après, facultative, et remplace alors la pause par défaut.
+      // La journée est CLOSE (départ horodaté au scan, pause par défaut 30 min, NON déduite, si rien
+      // n'est saisi) ; la pause du salarié vient après, facultative, remplace alors la pause par
+      // défaut et SE DÉDUIT (décision d'argent de la Direction du 2026-09-29).
       const minutes = pauseLue(pause);
       return (
         <div className="space-y-3">
@@ -363,7 +364,8 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
                 </span>
               </label>
               <p className="text-xs text-muted-foreground">
-                Sans saisie, la pause par défaut de {PAUSE_DEFAUT_MIN} min est retenue.
+                Sans saisie, la pause par défaut de {PAUSE_DEFAUT_MIN} min s&apos;affiche mais n&apos;est pas déduite de
+                vos heures. Une pause enregistrée ici est déduite.
               </p>
               <BoutonValider
                 type="button"

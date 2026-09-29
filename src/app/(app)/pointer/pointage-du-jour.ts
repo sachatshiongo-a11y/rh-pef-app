@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { dateDuJourKinshasa } from "@/lib/pointage-jour";
+import { dateDuJourKinshasa, heuresPayables, pauseDuJour, type PauseDuJour } from "@/lib/pointage-jour";
 import { POINTAGE_VALABLE, SCAN_VALABLE } from "@/lib/pointage-annulation";
 
 // L'état du jour affiché par l'écran « Pointer » (espace RH et espace salarié) : un seul chargement
@@ -12,7 +12,11 @@ export type PointageDuJour = {
   nom: string | null;
   photoUrl: string | null;
   dateLabel: string;
-  pointage: { heureDebut: string; heureFin: string | null; pauseMinutes: number; pauseParDefaut: boolean } | null;
+  /**
+   * `heures` = heures PAYABLES de la journée close (`heuresPayables` : la pause par défaut n'est pas
+   * déduite), calculées ICI, côté serveur — l'écran ne refait aucun calcul d'heures. null si ouverte.
+   */
+  pointage: { heureDebut: string; heureFin: string | null; pause: PauseDuJour; heures: number | null } | null;
   /** Départ scanné AVANT la clôture automatique, jamais clos (instant ISO), sinon null. */
   departScanne: string | null;
 };
@@ -41,8 +45,8 @@ export async function chargerPointageDuJour(employeeId: string): Promise<Pointag
       ? {
           heureDebut: p.heureDebut.toISOString(),
           heureFin: p.heureFin ? p.heureFin.toISOString() : null,
-          pauseMinutes: p.pauseMinutes,
-          pauseParDefaut: p.pauseParDefaut,
+          pause: pauseDuJour(p),
+          heures: p.heureFin ? heuresPayables({ ...p, heureFin: p.heureFin }) : null,
         }
       : null,
     departScanne: depart ? depart.instant.toISOString() : null,
