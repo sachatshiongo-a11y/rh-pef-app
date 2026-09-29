@@ -10,8 +10,11 @@ import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journa
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { MenuFichesConso } from "./menu-fiches-conso";
+import { VentesGrid } from "./ventes-grid";
+import { chargerVentesSemaine } from "./ventes-data";
+import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
 
-type SP = { semaine?: string; domaine?: string; vue?: string };
+type SP = { semaine?: string; domaine?: string; vue?: string; dimanche?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -21,7 +24,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   await exigerPageStock();
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
-  const vue = sp.vue === "commande" || sp.vue === "comparaison" ? sp.vue : "conso";
+  const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" ? sp.vue : "conso";
   const lundi = sp.semaine ? lundiDe(new Date(sp.semaine)) : lundiDe(new Date());
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const finSemaine = addDays(lundi, 7);
@@ -48,7 +51,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       {/* Sélecteur de vue — pleine largeur et gros onglets sur mobile (bien visible au doigt),
           compact sur ordinateur. */}
       <div className="flex w-full overflow-hidden rounded-lg border text-sm font-medium sm:w-fit">
-        {([["conso", "Consommation"], ["commande", "Commande"], ["comparaison", "Comparaison"]] as const).map(([v, label]) => (
+        {([["conso", "Consommation"], ["ventes", "Ventes"], ["commande", "Commande"], ["comparaison", "Comparaison"]] as const).map(([v, label]) => (
           <Link
             key={v}
             href={lien({ vue: v })}
@@ -72,13 +75,13 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
             <Link key={k} href={lien({ domaine: k })} className={`rounded-full border px-3 py-1 ${(domaine ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
           ))}
         </div>
-        <span className="text-muted-foreground">·</span>
-        <div className="flex items-center overflow-hidden rounded-md border">
+        {vue !== "ventes" && <span className="text-muted-foreground">·</span>}
+        {vue !== "ventes" && <div className="flex items-center overflow-hidden rounded-md border">
           <span className="px-2 py-1 text-xs text-muted-foreground">Exporter</span>
           <a href={`/stock/journalier/pdf?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
           <a href={`/stock/journalier/excel?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
-        </div>
-        {vue === "conso" && (
+        </div>}
+        {(vue === "conso" || vue === "ventes") && (
           <MenuFichesConso
             semaine={iso(lundi)}
             domaine={domaine}
@@ -127,6 +130,35 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
           Seules les sorties « Livraison restaurant » alimentent le restaurant ; les pertes restent au dépôt. La consommation réelle = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour : elle n&apos;existe que les jours comptés (« — » sinon).
         </p>
         <TableConso jours={joursLabel} sorties={donnees.sorties} legumes={legumes} consoResto={donnees.consoResto} />
+      </div>
+    );
+  }
+
+  // ---------- VUE VENTES (saisie des plats et boissons vendus, forme du « Rapport journalier ») ----------
+  if (vue === "ventes") {
+    const espaces: EspaceVente[] = domaine === "NOURRITURE" ? ["CUISINE"] : domaine === "BOISSON" ? ["BAR"] : ["CUISINE", "BAR"];
+    const v = await chargerVentesSemaine(lundi, espaces);
+    // Lundi → samedi comme le classeur ; le dimanche dès qu'il porte une vente, ou à la demande.
+    const dimancheVendu = avecDimanche(v.jours, v.ventes);
+    const dimanche = dimancheVendu || sp.dimanche === "1";
+    const jours = joursLabel.slice(0, dimanche ? 7 : 6).map((j) => ({ ...j, fige: v.joursFiges.has(j.iso) }));
+    const lienDimanche = (afficher: boolean) => `${lien({})}${afficher ? "&dimanche=1" : ""}`;
+    return (
+      <div className="space-y-4">
+        {enTete}
+        <p className="text-xs text-muted-foreground">
+          Saisissez le <strong>nombre vendu</strong> par plat (Cuisine : fiches techniques « Plat vendu ») et par boisson (Bar : articles de l&apos;écran Stock restaurant et fiches techniques Bar), jour par jour. Case vide = pas de saisie (« — ») ; 0 = rien vendu. Enregistrement automatique ; collage depuis Excel possible. Un plat absent de la liste s&apos;ajoute en créant sa fiche technique.
+          {" "}
+          {!dimancheVendu && (
+            <Link href={lienDimanche(!dimanche)} className="underline underline-offset-2 hover:text-foreground">{dimanche ? "Masquer le dimanche" : "Saisir aussi le dimanche"}</Link>
+          )}
+        </p>
+        <VentesGrid
+          lignes={espaces.flatMap((e) => v.lignes[e])}
+          jours={jours}
+          ventes={Object.fromEntries(v.ventes)}
+          peutModifier
+        />
       </div>
     );
   }
