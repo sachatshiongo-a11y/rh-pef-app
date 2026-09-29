@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { demanderConge, approuverConge, refuserConge, supprimerConge } from "./actions";
+import { demanderConge, approuverCongeFormulaire, refuserConge, supprimerConge } from "./actions";
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -28,7 +28,7 @@ function chipDate(dt: Date) {
 export default async function CongesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string } & SPCalendrier>;
+  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string; erreurDecision?: string } & SPCalendrier>;
 }) {
   const user = await exigerPageRH();
   const sp = await searchParams;
@@ -60,6 +60,8 @@ export default async function CongesPage({
       (!q || d.employee.nom.toLowerCase().includes(q) || d.employee.matricule.toLowerCase().includes(q))
   );
   const filtreActif = !!(sp.statut || sp.type || q);
+  // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant.
+  const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q };
 
   const now = new Date();
   const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
@@ -212,6 +214,12 @@ export default async function CongesPage({
         )}
       </form>
 
+      {/* Échec d'une décision prise dans la liste : affiché ici, au-dessus de la liste, et non
+          dans le bloc « Nouvelle demande » (qui a sa propre erreur, `?erreur=`). */}
+      {sp.erreurDecision && (
+        <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreurDecision}</p>
+      )}
+
       {demandes.length === 0 ? (
         <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
           Aucune demande de congé {filtreActif ? "pour ce filtre" : "enregistrée"}.
@@ -250,7 +258,7 @@ export default async function CongesPage({
                 <div className="flex items-center gap-2">
                   {peutApprouver && d.statut === "EN_ATTENTE" && (
                     <>
-                      <form action={approuverConge.bind(null, d.id)} className="inline">
+                      <form action={approuverCongeFormulaire.bind(null, d.id, filtresListe)} className="inline">
                         <BoutonApprouver type="submit" />
                       </form>
                       <form action={refuserConge.bind(null, d.id)} className="inline">

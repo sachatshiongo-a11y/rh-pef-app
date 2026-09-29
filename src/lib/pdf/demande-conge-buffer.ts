@@ -3,6 +3,7 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
+import { soldeFigeDe, type SoldeImprime } from "@/lib/solde-conge-imprime";
 import { signatureImprimable } from "@/lib/signature";
 
 /**
@@ -27,13 +28,20 @@ export async function genererDemandeCongePdf(
   });
   if (!demande) return null;
 
-  // Le solde se lit à la SOURCE UNIQUE, à l'horloge (2026-09-29) — le chiffre de l'écran « Mes
-  // congés » et de la fiche Direction. Avant, il était recalculé ici sur Config.moisCourant (qui peut
-  // rester figé) → le PDF pouvait afficher un autre solde que l'écran.
-  // Ce solde n'entre PAS dans l'empreinte de signature (`instantaneDemandeConge` : matricule, type,
-  // dates, jours, statut, approbateur) et aucun PDF n'est stocké : le document est rendu à chaque
-  // ouverture. Ce changement ne fait donc basculer aucune demande signée « à resigner ».
-  const { solde: soldeConges } = await chargerSoldeCongeSalarie(prisma, demande.employeeId);
+  // LE SOLDE IMPRIMÉ (décision Direction 2026-09-29, voir `lib/solde-conge-imprime.ts`) :
+  //  - demande APPROUVÉE : le solde FIGÉ à l'approbation, daté de l'approbation ;
+  //  - sinon (en attente, refusée, ou approuvée avant l'instantané) : le solde du jour, lu à la
+  //    SOURCE UNIQUE à l'horloge — le chiffre de « Mes congés » et de la fiche Direction — et daté
+  //    de l'ÉDITION, en toutes lettres. Rien n'est reconstitué pour une ancienne approbation.
+  // Aucun de ces chiffres n'entre dans l'empreinte de signature (`instantaneDemandeConge` :
+  // matricule, type, dates, jours, statut, approbateur) : figer le solde ne fait basculer aucune
+  // demande signée « à resigner ». Aucun PDF n'est stocké : le document est rendu à chaque ouverture.
+  const maintenant = new Date();
+  const solde: SoldeImprime = soldeFigeDe(demande) ?? {
+    jours: (await chargerSoldeCongeSalarie(prisma, demande.employeeId, maintenant)).solde,
+    au: maintenant,
+    origine: "EDITION",
+  };
 
   const signatureSalarie = await signatureImprimable(prisma, "DEMANDE_CONGE", demande.id);
   const buffer = await renderPdfBuffer(
@@ -42,7 +50,7 @@ export async function genererDemandeCongePdf(
       demande,
       approuvePar: demande.approuvePar,
       remplacant: demande.remplacant,
-      soldeConges,
+      solde,
       signatureSalarie,
     })
   );

@@ -3,6 +3,7 @@ import type { Employee, LeaveRequest, User } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors } from "./theme";
+import { dateDuSolde, joursDuSolde, libelleSolde, type SoldeImprime } from "@/lib/solde-conge-imprime";
 
 registerPdfFonts();
 
@@ -49,8 +50,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
   },
   soldeLabel: { fontSize: 9, color: pdfColors.brownDark },
+  soldeDate: { fontSize: 8, color: pdfColors.textMuted, marginTop: 2 },
   soldeValue: { fontSize: 12, fontWeight: 700, color: pdfColors.brownDark },
   statutBox: {
     margin: 8,
@@ -89,14 +92,15 @@ export function DemandeCongeDocument({
   demande,
   approuvePar,
   remplacant,
-  soldeConges,
+  solde,
   signatureSalarie,
 }: {
   employee: Employee;
   demande: LeaveRequest;
   approuvePar: User | null;
   remplacant: Employee | null;
-  soldeConges: number;
+  /** Le solde à imprimer et sa date : figé à l'approbation, ou du jour d'édition (`lib/solde-conge-imprime.ts`). */
+  solde: SoldeImprime;
   /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */
   signatureSalarie?: SignatureImprimable;
 }) {
@@ -128,8 +132,11 @@ export function DemandeCongeDocument({
         </View>
 
         <View style={styles.soldeBox}>
-          <Text style={styles.soldeLabel}>Solde de congé annuel disponible</Text>
-          <Text style={styles.soldeValue}>{soldeConges} jours</Text>
+          <View>
+            <Text style={styles.soldeLabel}>{libelleSolde(solde)}</Text>
+            <Text style={styles.soldeDate}>{dateDuSolde(solde)}</Text>
+          </View>
+          <Text style={styles.soldeValue}>{joursDuSolde(solde)}</Text>
         </View>
 
         <View style={styles.section}>
