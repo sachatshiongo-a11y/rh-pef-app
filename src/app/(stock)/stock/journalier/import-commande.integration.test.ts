@@ -163,6 +163,40 @@ describe("import du classeur Commande journalière", () => {
   }, 60_000);
 });
 
+describe("onglet Commande : exports sur le modèle du classeur", () => {
+  const ecran = async (sp: Record<string, string>) => renderToStaticMarkup(await PageJournalier({ searchParams: Promise.resolve({ vue: "commande", ...sp }) }));
+  const selectionne = (html: string) => /<option value="(\d{4}-\d{2}-\d{2})" selected="">/.exec(html)?.[1];
+
+  it("le menu « Commande journalière » remplace l'export générique : un jour, toute la semaine, puis le tableau brut", async () => {
+    const html = await ecran({ semaine: "2026-09-21", domaine: "BOISSON" });
+    expect(html).toContain("Commande journalière (PDF / Excel)");
+    expect(html).toContain('action="/stock/journalier/fiche"');
+    expect(html).toContain('href="/stock/journalier/fiche?type=commande&amp;tout=1&amp;semaine=2026-09-21&amp;domaine=BOISSON&amp;format=pdf"');
+    // Le tableau brut reste, sous son libellé, dans le menu — plus de bouton « Exporter » générique à côté.
+    expect(html).toContain("Tableau de la semaine");
+    expect(html).toContain('href="/stock/journalier/pdf?vue=commande&amp;semaine=2026-09-21&amp;domaine=BOISSON"');
+    expect(html.match(/\/stock\/journalier\/pdf\?vue=commande/g)).toHaveLength(1);
+    expect(html).not.toContain(">Exporter<");
+    // Les 7 jours de la semaine affichée ; hors de la semaine en cours, le lundi est proposé.
+    expect([...html.matchAll(/<option value="([^"]+)"/g)].map((m) => m[1])).toEqual(["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-26", "2026-09-27"]);
+    expect(selectionne(html)).toBe("2026-09-21");
+    // Le menu des fiches de l'onglet Consommation n'y est pas (une seule entrée « Commande journalière »).
+    expect(html).not.toContain("Fiches (PDF / Excel)");
+  }, 60_000);
+
+  it("semaine en cours : aujourd'hui (Kinshasa) est proposé", async () => {
+    const { jourKinshasaISO } = await import("@/lib/date-paiement");
+    expect(selectionne(await ecran({ semaine: jourKinshasaISO() }))).toBe(jourKinshasaISO());
+  }, 60_000);
+
+  it("les autres onglets gardent leurs exports : générique en Consommation et Comparaison, fiches en Consommation", async () => {
+    const conso = renderToStaticMarkup(await PageJournalier({ searchParams: Promise.resolve({ vue: "conso", semaine: "2026-09-21" }) }));
+    expect(conso).toContain(">Exporter<");
+    expect(conso).toContain("Fiches (PDF / Excel)");
+    expect(conso).not.toContain("Commande journalière (PDF / Excel)");
+  }, 60_000);
+});
+
 describe("Inventaire : mettre sur la fiche commande / retirer, en lot", () => {
   it("colonne « Nom court » : saisie enregistrée, case vidée = pas de nom court", async () => {
     const fd = (v: string) => { const f = new FormData(); f.set("nomCourt", v); return f; };

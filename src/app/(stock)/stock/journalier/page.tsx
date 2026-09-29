@@ -9,7 +9,7 @@ import { TableComparaison } from "./table-comparaison";
 import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { MenuFichesConso } from "./menu-fiches-conso";
+import { MenuFicheCommande, MenuFichesConso } from "./menu-fiches-conso";
 import { VentesGrid } from "./ventes-grid";
 import { ImportClasseur } from "./import-classeur";
 import { ImportCommande } from "./import-commande";
@@ -32,6 +32,10 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const finSemaine = addDays(lundi, 7);
   const joursLabel = jours.map((d, i) => ({ iso: iso(d), label: `${JOURS[i]} ${d.getUTCDate()}` }));
+  const libelleSemaine = `Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`;
+  // Jour proposé par les fiches « Commande journalière » : aujourd'hui s'il est dans la semaine affichée, sinon son lundi.
+  const aujourdhui = jourKinshasaISO();
+  const jourDefaut = aujourdhui >= iso(lundi) && aujourdhui < iso(finSemaine) ? aujourdhui : iso(lundi);
 
   const lien = (params: Partial<SP>) => {
     const p = new URLSearchParams();
@@ -68,7 +72,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <div className="flex items-center gap-1">
           <Link href={lien({ semaine: iso(addDays(lundi, -7)) })} className="rounded-md border px-2 py-1 hover:bg-accent">←</Link>
-          <span className="px-2 font-medium">Semaine du {lundi.getUTCDate()}/{lundi.getUTCMonth() + 1} au {addDays(lundi, 6).getUTCDate()}/{addDays(lundi, 6).getUTCMonth() + 1}</span>
+          <span className="px-2 font-medium">{libelleSemaine}</span>
           <Link href={lien({ semaine: iso(addDays(lundi, 7)) })} className="rounded-md border px-2 py-1 hover:bg-accent">→</Link>
           <Link href={lien({ semaine: iso(new Date()) })} className="ml-1 rounded-md border px-2 py-1 hover:bg-accent">Cette semaine</Link>
         </div>
@@ -79,19 +83,17 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
           ))}
         </div>
         {vue !== "ventes" && <span className="text-muted-foreground">·</span>}
-        {vue !== "ventes" && <div className="flex items-center overflow-hidden rounded-md border">
+        {/* Onglet Commande : la fiche sur le modèle du classeur (le tableau brut y reste, en second). */}
+        {vue === "commande" && (
+          <MenuFicheCommande semaine={iso(lundi)} jours={joursLabel.map((j) => j.iso)} jourDefaut={jourDefaut} domaine={domaine} libelleSemaine={libelleSemaine} />
+        )}
+        {(vue === "conso" || vue === "comparaison") && <div className="flex items-center overflow-hidden rounded-md border">
           <span className="px-2 py-1 text-xs text-muted-foreground">Exporter</span>
           <a href={`/stock/journalier/pdf?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
           <a href={`/stock/journalier/excel?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
         </div>}
         {(vue === "conso" || vue === "ventes") && (
-          <MenuFichesConso
-            semaine={iso(lundi)}
-            domaine={domaine}
-            libelleSemaine={`Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`}
-            // Jour proposé : aujourd'hui s'il est dans la semaine affichée, sinon son lundi.
-            jourDefaut={jourKinshasaISO() >= iso(lundi) && jourKinshasaISO() < iso(finSemaine) ? jourKinshasaISO() : iso(lundi)}
-          />
+          <MenuFichesConso semaine={iso(lundi)} domaine={domaine} libelleSemaine={libelleSemaine} jourDefaut={jourDefaut} />
         )}
       </div>
     </div>

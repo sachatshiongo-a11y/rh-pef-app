@@ -131,3 +131,16 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
   );
   return { fiches, sansMotif };
 }
+
+/**
+ * Fiches commande de la SEMAINE du `lundi` : les 7 jours (lundi → dimanche), chacun avec ses
+ * fiches (une par espace) et ses sorties sans motif. Le tri des jours imprimés (dimanche vide
+ * omis) est fait par `fichesCommandeSemaine` (pur).
+ */
+export async function chargerCommandesSemaine(lundi: Date, espaces: EspaceFiche[]): Promise<{ date: string; fiches: Fiche[]; sansMotif: number }[]> {
+  const jours = Array.from({ length: 7 }, (_, i) => { const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + i); return iso(d); });
+  // Jour après jour (jamais 7 × 6 requêtes à la fois sur le pool) : même construction que la fiche d'un jour.
+  const resultat: { date: string; fiches: Fiche[]; sansMotif: number }[] = [];
+  for (const date of jours) resultat.push({ date, ...(await chargerCommandesJournalieres(date, espaces)) });
+  return resultat;
+}
