@@ -15,6 +15,18 @@ import { prisma } from "@/lib/prisma";
 const rang = (annee: number, mois: number) => annee * 12 + (mois - 1);
 const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split("-").reverse().join("/");
 
+/** Dernier mois clôturé du stock (borne de la période figée), ou null si rien n'est clôturé. */
+export type BorneCloture = { annee: number; mois: number } | null;
+
+export async function derniereClotureStock(): Promise<BorneCloture> {
+  return prisma.clotureStock.findFirst({ orderBy: [{ annee: "desc" }, { mois: "desc" }], select: { annee: true, mois: true } });
+}
+
+/** Vrai si la date (jour pur, UTC) tombe dans la période figée : mois clôturé ou antérieur. PURE. */
+export function estDansPeriodeFigee(date: Date, borne: BorneCloture): boolean {
+  return borne !== null && rang(date.getUTCFullYear(), date.getUTCMonth() + 1) <= rang(borne.annee, borne.mois);
+}
+
 /** Lève une erreur si la date tombe dans un mois clôturé ou dans un mois qui précède le dernier mois clôturé. */
 export async function exigerPeriodeOuverte(date: Date) {
   await exigerPeriodesOuvertes([date]);
@@ -23,10 +35,10 @@ export async function exigerPeriodeOuverte(date: Date) {
 /** Idem pour plusieurs dates d'un coup (une seule requête). */
 export async function exigerPeriodesOuvertes(dates: Date[]) {
   if (dates.length === 0) return;
-  const derniere = await prisma.clotureStock.findFirst({ orderBy: [{ annee: "desc" }, { mois: "desc" }], select: { annee: true, mois: true } });
+  const derniere = await derniereClotureStock();
   if (!derniere) return;
   const borne = rang(derniere.annee, derniere.mois);
-  const figee = dates.find((d) => rang(d.getUTCFullYear(), d.getUTCMonth() + 1) <= borne);
+  const figee = dates.find((d) => estDansPeriodeFigee(d, derniere));
   if (!figee) return;
   const periode = `${String(derniere.mois).padStart(2, "0")}/${derniere.annee}`;
   if (rang(figee.getUTCFullYear(), figee.getUTCMonth() + 1) === borne) {

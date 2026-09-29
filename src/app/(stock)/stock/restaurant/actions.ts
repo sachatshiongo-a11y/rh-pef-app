@@ -72,6 +72,11 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
 export const supprimerArticleResto = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
+  // Une boisson qui porte des ventes (Conso. journalière → Ventes) ne se supprime pas (contrainte
+  // RESTRICT en base) : ses ventes disparaîtraient du rapport journalier sans que rien ne le dise.
+  if (await prisma.venteJournaliere.count({ where: { articleRestoId: id } })) {
+    throw new Error("Suppression impossible : cet article a des ventes enregistrées (Conso. journalière, onglet Ventes). Videz d'abord ses cases de vente, ou gardez l'article.");
+  }
   await prisma.articleResto.delete({ where: { id } });
   revalidatePath("/stock/restaurant");
 });

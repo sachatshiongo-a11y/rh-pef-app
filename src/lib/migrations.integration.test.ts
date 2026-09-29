@@ -288,6 +288,32 @@ describe("migrations rejouées sur une base Supabase neuve", () => {
     expect(politiques.map((r) => r.p)).toEqual([]);
   });
 
+  it("ventes journalières : un plat OU une boisson, jamais les deux ni aucun ; jamais négatif ; unique par (jour, ligne)", async () => {
+    // Contraintes CHECK de 20260929090000_ventes_journalieres : Prisma ne les connaît pas (les bases
+    // de test en `db push` ne les ont pas), seule la base construite par les migrations les porte.
+    await sb.client.query(`
+      INSERT INTO stock."FicheTechnique" (id, nom, "majLe") VALUES ('f-test', 'Carbonara', now());
+      INSERT INTO stock."ArticleResto" (id, espace, designation) VALUES ('a-test', 'BAR', 'Coca');`);
+    const inserer = (fiche: string | null, article: string | null, q: number, id: string) =>
+      sb.client.query(`INSERT INTO stock."VenteJournaliere" (id, date, "ficheId", "articleRestoId", quantite, "updatedAt") VALUES ($1, '2026-09-22', $2, $3, $4, now())`, [id, fiche, article, q]);
+    try {
+      await inserer("f-test", null, 0, "v1"); // 0 vendu : accepté
+      await inserer(null, "a-test", 3, "v2");
+      await expect(inserer(null, null, 1, "v3")).rejects.toThrow(/VenteJournaliere_une_ligne_check/);
+      await expect(inserer("f-test", "a-test", 1, "v4")).rejects.toThrow(/VenteJournaliere_une_ligne_check/);
+      await expect(inserer("f-test", null, -1, "v5")).rejects.toThrow(/VenteJournaliere_quantite_check/);
+      await expect(inserer("f-test", null, 2, "v6")).rejects.toThrow(/VenteJournaliere_date_ficheId_key/);
+      await expect(inserer(null, "a-test", 2, "v7")).rejects.toThrow(/VenteJournaliere_date_articleRestoId_key/);
+      // RESTRICT : un plat vendu ne se supprime pas.
+      await expect(sb.client.query(`DELETE FROM stock."FicheTechnique" WHERE id = 'f-test'`)).rejects.toThrow(/VenteJournaliere_ficheId_fkey/);
+    } finally {
+      await sb.client.query(`
+        DELETE FROM stock."VenteJournaliere";
+        DELETE FROM stock."FicheTechnique" WHERE id = 'f-test';
+        DELETE FROM stock."ArticleResto" WHERE id = 'a-test';`);
+    }
+  });
+
   it("ne laissent AUCUN droit effectif à anon/authenticated (nommément ou via PUBLIC)", async () => {
     const droits = await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS);
     expect(droits.map((d) => d.droit)).toEqual([]);

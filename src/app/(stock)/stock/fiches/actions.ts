@@ -136,6 +136,14 @@ export const supprimerFiches = actionLisible(async (ids: string[]) => {
     throw new Error(`Suppression impossible : ${detail}. Retirez d'abord ces lignes des fiches concernées.`);
   }
 
+  // Une fiche qui porte des ventes (Conso. journalière → Ventes) ne se supprime pas : ses ventes
+  // disparaîtraient du rapport journalier. On la désactive (contrainte RESTRICT en base).
+  const vendues = await prisma.venteJournaliere.findMany({ where: { ficheId: { in: ids } }, distinct: ["ficheId"], select: { fiche: { select: { nom: true } } } });
+  if (vendues.length) {
+    const noms = vendues.map((v) => `« ${v.fiche?.nom} »`).join(", ");
+    throw new Error(`Suppression impossible : ${noms} ${vendues.length > 1 ? "ont" : "a"} des ventes enregistrées. Désactivez ${vendues.length > 1 ? "ces fiches" : "cette fiche"} plutôt.`);
+  }
+
   // Les lignes des fiches supprimées partent D'ABORD : la contrainte RESTRICT sur `sousFicheId`
   // est vérifiée ligne à ligne, donc supprimer d'un coup un plat et sa sous-recette échouerait
   // (l'ordre de suppression n'est pas garanti). Le cascade seul ne suffit pas ici.
