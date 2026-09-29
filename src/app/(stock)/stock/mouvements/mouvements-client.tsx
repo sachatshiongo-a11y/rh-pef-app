@@ -8,6 +8,7 @@ import { qte, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
 import { ChangerMotif } from "./changer-motif";
+import { BORNE_TOUT_LE_FILTRE, type ColonneMouvements as Colonne, type FiltreMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -45,15 +46,37 @@ const MOTIF_CHIP: Record<string, { texte: string; classe: string }> = {
 const chip = "rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20";
 
 /**
+ * Bandeau au-dessus des colonnes quand le filtre compte plus de mouvements que l'écran n'en montre
+ * (le 2026-09-29, 26 sorties non affichées sont restées sans motif : une mention discrète ne suffisait pas).
+ */
+export function BandeauPlafond({ affiches, total, estDirection }: { affiches: number; total: number; estDirection: boolean }) {
+  return (
+    <div role="status" data-bandeau="plafond" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <span className="font-semibold">{affiches} mouvements affichés sur {total}</span> : les plus anciens ne sont pas à l&apos;écran.{" "}
+      {estDirection ? "Sélectionnez tout le filtre ou affinez par mois, produit ou motif." : "Affinez par mois, produit ou motif."}
+    </div>
+  );
+}
+
+/** Pour « sélectionner tout le filtre » : le filtre normalisé, la colonne, son libellé et son total. */
+export type ToutLeFiltre = { filtre: FiltreMouvements; colonne: Colonne; libelle: string; total: number };
+
+/**
  * Colonne de mouvements (entrées ou sorties) groupés par jour, avec sélection multiple et
  * suppression groupée (Direction) — même logique « actions groupées » que le reste de l'app.
+ * Quand tout l'affiché est coché et que le filtre compte davantage, la barre propose de
+ * sélectionner TOUT le filtre (à la Gmail) : les actions visent alors l'ensemble, recompté par le serveur.
  */
-export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection, requalifiable = false }: {
+export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection, requalifiable = false, toutLeFiltre }: {
   titre: string; mouvements: MvtLite[]; signe: string; couleur: string; estDirection: boolean;
   /** Sorties : la Direction peut changer le motif des lignes cochées (sans toucher au stock). */
   requalifiable?: boolean;
+  toutLeFiltre?: ToutLeFiltre;
 }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [modeFiltre, setModeFiltre] = useState(false);
+  // Nombre recompté par le serveur (refus « le nombre a changé ») : vaut tant que le total reçu ne change pas.
+  const [recompte, setRecompte] = useState<{ base: number; n: number } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -71,35 +94,77 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
     return acc;
   }, [mouvements]);
 
+  const nom = toutLeFiltre?.colonne === "SORTIES" || requalifiable ? "sorties" : "entrées";
+  const totalFiltre = toutLeFiltre ? (recompte && recompte.base === toutLeFiltre.total ? recompte.n : toutLeFiltre.total) : mouvements.length;
+  const toutAfficheCoche = mouvements.length > 0 && mouvements.every((m) => sel.has(m.id));
+  const filtreDepasse = !!toutLeFiltre && totalFiltre > mouvements.length;
+  const enModeFiltre = modeFiltre && filtreDepasse && toutAfficheCoche;
+  /** Ce que l'action vise : les id cochés, ou tout le filtre avec le nombre confirmé. */
+  const selection: SelectionMouvements = enModeFiltre && toutLeFiltre
+    ? { filtre: toutLeFiltre.filtre, colonne: toutLeFiltre.colonne, attendu: totalFiltre }
+    : [...sel];
+  const decrire = enModeFiltre && toutLeFiltre ? `${totalFiltre} ${nom} (${toutLeFiltre.libelle})` : `${sel.size} mouvement(s)`;
+
+  const vider = () => { setSel(new Set()); setModeFiltre(false); };
+  // Décocher quoi que ce soit quitte le mode « tout le filtre » (comme Gmail).
+  const toggle = (id: string) => { setModeFiltre(false); setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+  const toggleJour = (lignes: MvtLite[], on: boolean) => { if (!on) setModeFiltre(false); setSel((s) => { const n = new Set(s); for (const m of lignes) { if (on) n.add(m.id); else n.delete(m.id); } return n; }); };
   const totalValeur = (ms: MvtLite[]) => ms.reduce((t, m) => t + (m.valeur ?? 0), 0);
-  const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const toggleJour = (lignes: MvtLite[], on: boolean) => setSel((s) => { const n = new Set(s); for (const m of lignes) { if (on) n.add(m.id); else n.delete(m.id); } return n; });
+  /** Le serveur a recompté un autre nombre : rien n'est écrit, on affiche le nouveau pour reconfirmer. */
+  const surRecompte = (n: number) => { if (toutLeFiltre) setRecompte({ base: toutLeFiltre.total, n }); };
 
   const supprimerSel = () => {
-    if (!confirm(`Supprimer ${sel.size} mouvement(s) ? Leur effet sur le stock sera annulé.`)) return;
-    setErreur(null);
-    start(async () => { const r = await supprimerMouvementsEnLot([...sel]); if (estErreur(r)) { setErreur(r.erreur); return; } setSel(new Set()); });
+    if (!confirm(`Supprimer ${decrire} ? Leur effet sur le stock sera annulé.`)) return;
+    setErreur(null); setInfo(null);
+    start(async () => {
+      const r = await supprimerMouvementsEnLot(selection);
+      if (estErreur(r)) { setErreur(r.erreur); if (typeof (r as { nouveauNombre?: unknown }).nouveauNombre === "number") surRecompte((r as { nouveauNombre: number }).nouveauNombre); return; }
+      vider();
+    });
   };
 
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-sm font-semibold ${couleur}`}>
         <span className="flex items-center gap-2">
-          {estDirection && requalifiable && mouvements.length > 0 && (
-            <input type="checkbox" checked={sel.size === mouvements.length} onChange={(e) => setSel(e.target.checked ? new Set(mouvements.map((m) => m.id)) : new Set())} aria-label={`Tout sélectionner (${mouvements.length} affichés)`} />
+          {estDirection && mouvements.length > 0 && (
+            <input type="checkbox" checked={toutAfficheCoche} onChange={(e) => { if (e.target.checked) setSel(new Set(mouvements.map((m) => m.id))); else vider(); }} aria-label={`Tout sélectionner (${mouvements.length} affichés)`} />
           )}
-          {titre} <span className="font-normal opacity-70">· {mouvements.length}</span>
+          {titre} <span className="font-normal opacity-70">· {mouvements.length}{filtreDepasse ? ` affichées sur ${totalFiltre}` : ""}</span>
         </span>
-        <span className="text-xs font-normal opacity-80">≈ {usd(totalValeur(mouvements))}</span>
+        <span className="text-xs font-normal opacity-80">≈ {usd(totalValeur(mouvements))}{filtreDepasse ? " (affichées)" : ""}</span>
       </div>
 
       {/* Barre d'actions groupées (Direction) */}
       {estDirection && sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2 text-sm">
-          <span className="font-medium">{sel.size} sélectionné(s)</span>
+          {enModeFiltre && toutLeFiltre ? (
+            <span data-tout-le-filtre="actif" className="font-medium">Les {totalFiltre} {nom} du filtre ({toutLeFiltre.libelle}) sont sélectionnées</span>
+          ) : (
+            <span className="font-medium">{sel.size} sélectionné(s)</span>
+          )}
           <button disabled={isPending} onClick={supprimerSel} className="rounded-md border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer la sélection</button>
-          <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
-          {requalifiable && <ChangerMotif ids={[...sel]} onFait={(t) => { setInfo(t); setSel(new Set()); }} />}
+          <button onClick={vider} className="text-xs text-muted-foreground underline">Annuler</button>
+          {requalifiable && (
+            <ChangerMotif
+              ids={[...sel]}
+              toutLeFiltre={enModeFiltre && toutLeFiltre ? { filtre: toutLeFiltre.filtre, attendu: totalFiltre, libelle: toutLeFiltre.libelle } : undefined}
+              onFait={(t) => { setInfo(t); vider(); }}
+              onRecompte={surRecompte}
+            />
+          )}
+          {toutAfficheCoche && filtreDepasse && !enModeFiltre && toutLeFiltre && (
+            <span data-tout-le-filtre="proposer" className="basis-full text-xs">
+              Les {mouvements.length} {nom} affichées sont sélectionnées.{" "}
+              {totalFiltre > BORNE_TOUT_LE_FILTRE ? (
+                <span className="text-amber-900">Le filtre en compte {totalFiltre} : au-delà de {BORNE_TOUT_LE_FILTRE}, affinez par mois, produit ou motif.</span>
+              ) : (
+                <button type="button" onClick={() => { setModeFiltre(true); setInfo(null); setErreur(null); }} className="font-medium text-primary underline">
+                  Sélectionner les {totalFiltre} {nom} du filtre ({toutLeFiltre.libelle})
+                </button>
+              )}
+            </span>
+          )}
         </div>
       )}
       {info && <p className="border-b bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{info}</p>}
