@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "./garde";
 import { lundiDe } from "@/lib/dates-fr";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { chargerContratsClasses } from "@/lib/contrats-espace";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { VueAccueil } from "./vue-accueil";
@@ -9,9 +10,8 @@ export default async function EspaceAccueil() {
   const s = await chargerSalarie();
   const now = new Date();
   // « Aujourd'hui » à l'heure de Kinshasa (UTC+1) → DATE à minuit UTC (cohérent avec le planning).
-  const k = new Date(Date.now() + 3_600_000);
-  const today = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
-  const lundiCourant = lundiDe(k);
+  const today = jourCivilKinshasa(now);
+  const lundiCourant = lundiDe(today);
 
   const [fiche, congesEnAttente, prochainsCreneaux, publiees, contratsClasses, echangesARepondre, solde] = await Promise.all([
     prisma.employee.findUnique({ where: { id: s.employeeId }, select: { photoUrl: true } }),

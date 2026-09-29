@@ -27,3 +27,28 @@ describe("heure de Kinshasa", () => {
     expect(heureKinshasa(MINUIT_ET_DEMIE_A_KINSHASA)).toBe("0 h 30"); // pas « 24 h 30 », pas la veille UTC
   });
 });
+
+// 2026-09-29 : l'espace salarié et la fiche employé calculaient « aujourd'hui à Kinshasa » par
+// `new Date(Date.now() + 3_600_000)` (règle react-hooks/purity en erreur). Ils lisent désormais
+// `jourCivilKinshasa(new Date())`. Seuls l'année, le mois et le jour de cet instant décalé servaient :
+// les deux formes doivent donner le MÊME jour, y compris autour de minuit et en fin de mois/d'année.
+describe("jourCivilKinshasa remplace le décalage d'une heure à la main", () => {
+  const ancien = (d: Date) => {
+    const k = new Date(d.getTime() + 3_600_000);
+    return new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
+  };
+  for (const iso of [
+    "2026-09-28T22:59:59.999Z", // 23 h 59 à Kinshasa : encore le 28
+    "2026-09-28T23:00:00.000Z", // minuit à Kinshasa : déjà le 29
+    "2026-09-29T00:30:00.000Z",
+    "2026-09-30T23:30:00.000Z", // bascule de mois
+    "2026-12-31T23:00:00.000Z", // bascule d'année
+    "2026-03-29T01:30:00.000Z", // passage à l'heure d'été européenne : sans effet à Kinshasa
+    "2026-10-25T01:30:00.000Z",
+  ]) {
+    it(iso, () => {
+      const d = new Date(iso);
+      expect(jourCivilKinshasa(d).toISOString()).toBe(ancien(d).toISOString());
+    });
+  }
+});
