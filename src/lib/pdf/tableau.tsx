@@ -28,6 +28,7 @@ const styles = StyleSheet.create({
   pied: { marginTop: 10, fontSize: 7, fontStyle: "italic", color: pdfColors.textMuted },
   note: { fontSize: 6, fontWeight: 400, color: pdfColors.textMuted },
   titrePartie: { fontSize: 11, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 6 },
+  sousTitrePartie: { fontSize: 9.5, fontWeight: 700, color: pdfColors.text, marginBottom: 6 },
   blocTableau: { marginBottom: 14 },
   titreTableau: { fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" },
 });
@@ -59,7 +60,9 @@ function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sectionRow
       {lignes.map((ligne, r) => {
         if (sections.has(r)) {
           return (
-            <View key={r} style={[styles.tr, styles.trSection]} wrap={false}>
+            // Un titre de rubrique ne reste jamais seul en bas de page : il exige la place d'une
+            // rangée après lui, sinon il passe à la page suivante avec ses lignes.
+            <View key={r} style={[styles.tr, styles.trSection]} wrap={false} minPresenceAhead={18}>
               <Text style={[styles.tdSection, { width: "100%" }]}>{texteCellule(ligne[0])}</Text>
             </View>
           );
@@ -162,6 +165,7 @@ export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { 
 
 export type PartieTableau = {
   titre: string; // titre de la partie, affiché au-dessus de son tableau (ex. « Brigade — 12 salariés »)
+  sousTitre?: string; // ligne sous le titre de la partie (ex. « Date : 22/09/2026 »)
   colonnes: Colonne[];
   lignes: Cellule[][];
   totalDerniereLigne?: boolean;
@@ -194,7 +198,16 @@ export function TableauxParPartieDocument({
         <Page key={pi} size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
           <PdfHeader title={titre} subtitle={sousTitre} />
           <Text style={styles.meta}>Période : {sousTitre} · Édité le {exporteLe}</Text>
-          <Text style={styles.titrePartie}>{p.titre}</Text>
+          {p.sousTitre ? (
+            // Titre daté (« Date : 22/09/2026 ») : répété en haut de chaque page de la partie, pour
+            // qu'une page de suite dise toujours de quel jour elle est.
+            <View fixed>
+              <Text style={[styles.titrePartie, { marginBottom: 2 }]}>{p.titre}</Text>
+              <Text style={styles.sousTitrePartie}>{p.sousTitre}</Text>
+            </View>
+          ) : (
+            <Text style={styles.titrePartie}>{p.titre}</Text>
+          )}
           <CorpsTableau colonnes={p.colonnes} lignes={p.lignes} totalDerniereLigne={p.totalDerniereLigne} sectionRows={p.sectionRows} couleurCellule={p.couleurCellule} />
           {pied && pi === parties.length - 1 && <Text style={styles.pied}>{pied}</Text>}
           <PdfFooter docLabel={`${titre} — ${sousTitre}`} />
