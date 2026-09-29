@@ -8,6 +8,8 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
+import { Prisma } from "@prisma/client";
+import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 
 
 /**
@@ -97,28 +99,85 @@ export const supprimerMouvement = actionLisible(async (id: string) => {
   revalidatePath("/stock");
 });
 
-/** Supprime plusieurs mouvements d'un coup (Direction) — annule leur effet sur le stock. */
-export const supprimerMouvementsEnLot = actionLisible(async (ids: string[]) => {
+// ─── Sélection d'une action groupée : les id cochés, ou TOUT le filtre (décision du 2026-09-29) ──
+
+const SELECT_SELECTION = {
+  id: true, type: true, date: true, articleId: true, quantite: true, categorieSortie: true, raisonSortie: true, origine: true,
+} satisfies Prisma.MouvementStockSelect;
+type MvtSelection = Prisma.MouvementStockGetPayload<{ select: typeof SELECT_SELECTION }>;
+type SelectionResolue = { mvs: MvtSelection[]; nbDemandes: number } | { erreur: string; nouveauNombre?: number };
+
+/** Délai de la transaction : une action « tout le filtre » peut toucher jusqu'à BORNE_TOUT_LE_FILTRE lignes. */
+const DELAI_TOUT_LE_FILTRE = 60_000;
+
+/**
+ * Résout la sélection DANS la transaction d'écriture. Liste d'id : les mouvements existants.
+ * Filtre : le `where` est RECONSTRUIT par la même fonction que la page (`whereColonne`), puis
+ * RECOMPTÉ : au-delà de la borne, refus ; si le nombre diffère de celui que la Direction a confirmé,
+ * rien n'est écrit et le nouveau nombre revient pour une nouvelle confirmation.
+ */
+async function resoudreSelection(tx: Prisma.TransactionClient, selection: SelectionMouvements, nom: string, videMsg: string): Promise<SelectionResolue> {
+  if (Array.isArray(selection)) {
+    const uniq = [...new Set(selection.map(String))].filter(Boolean);
+    if (uniq.length === 0) return { erreur: videMsg };
+    return { mvs: await tx.mouvementStock.findMany({ where: { id: { in: uniq } }, select: SELECT_SELECTION }), nbDemandes: uniq.length };
+  }
+  if (!selection || typeof selection !== "object") return { erreur: "Sélection invalide : rechargez la page." };
+  const { attendu } = selection;
+  const colonne: ColonneMouvements | null = selection.colonne === "SORTIES" || selection.colonne === "ENTREES" ? selection.colonne : null;
+  if (!colonne || !Number.isInteger(attendu) || attendu <= 0) return { erreur: "Sélection invalide : rechargez la page." };
+  const where = whereColonne(lireFiltreMouvements(selection.filtre, new Date()), colonne);
+  const n = await tx.mouvementStock.count({ where });
+  if (n > BORNE_TOUT_LE_FILTRE) {
+    return { erreur: `Le filtre compte ${n} ${nom} : au-delà de ${BORNE_TOUT_LE_FILTRE}, une action groupée est refusée. Affinez par mois, produit ou motif.` };
+  }
+  const recompte = (k: number) => ({
+    erreur: `Le filtre compte maintenant ${k} ${nom}, et non ${attendu} comme confirmé : rien n'a été modifié. Vérifiez, puis confirmez à nouveau.`,
+    nouveauNombre: k,
+  });
+  if (n !== attendu) return recompte(n);
+  const mvs = await tx.mouvementStock.findMany({ where, select: SELECT_SELECTION, take: BORNE_TOUT_LE_FILTRE + 1 });
+  if (mvs.length !== attendu) return recompte(mvs.length); // écrit entre le comptage et la lecture
+  return { mvs, nbDemandes: attendu };
+}
+
+/**
+ * Supprime plusieurs mouvements d'un coup (Direction) — les id cochés ou tout le filtre d'une
+ * colonne — et annule leur effet sur le stock, en une transaction. Chaque suppression est journalisée.
+ */
+export const supprimerMouvementsEnLot = actionLisible(async (selection: SelectionMouvements) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]);
-  const uniq = [...new Set(ids.map(String))].filter(Boolean);
-  if (uniq.length === 0) return;
-  const mvs = await prisma.mouvementStock.findMany({ where: { id: { in: uniq } } });
-  await exigerPeriodesOuvertes(mvs.map((m) => new Date(m.date)));
-  await prisma.$transaction(async (tx) => {
+  if (Array.isArray(selection) && selection.filter(Boolean).length === 0) return;
+  const r = await prisma.$transaction(async (tx) => {
+    const res = await resoudreSelection(tx, selection, "mouvements", "Cochez au moins un mouvement.");
+    if ("erreur" in res) return res;
+    const { mvs } = res;
+    await exigerPeriodesOuvertes(mvs.map((m) => new Date(m.date)));
+    // Effet sur le stock, cumulé par article (en décimal exact) : une ENTRÉE supprimée décrémente,
+    // une SORTIE incrémente ; un AJUSTEMENT n'enregistre pas son sens → la ligne part sans recalcul.
+    const deltas = new Map<string, Prisma.Decimal>();
     for (const m of mvs) {
-      const q = Number(m.quantite);
-      if (m.type === "ENTREE") await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { decrement: q } } });
-      else if (m.type === "SORTIE") await tx.stock.updateMany({ where: { articleId: m.articleId }, data: { quantite: { increment: q } } });
+      if (m.type === "AJUSTEMENT") continue;
+      const d = deltas.get(m.articleId) ?? new Prisma.Decimal(0);
+      deltas.set(m.articleId, m.type === "ENTREE" ? d.minus(m.quantite) : d.plus(m.quantite));
     }
-    await tx.mouvementStock.deleteMany({ where: { id: { in: uniq } } });
-  });
-  await journaliser(prisma, { entite: "MouvementStock", entiteId: "lot", champ: "suppression", nouvelleValeur: `${mvs.length} mouvement(s)`, userId: user.id });
+    for (const [articleId, delta] of deltas) {
+      if (!delta.isZero()) await tx.stock.updateMany({ where: { articleId }, data: { quantite: { increment: delta } } });
+    }
+    await tx.mouvementStock.deleteMany({ where: { id: { in: mvs.map((m) => m.id) } } });
+    await journaliserPlusieurs(tx, mvs.map((m) => ({
+      entite: "MouvementStock", entiteId: m.id, champ: "suppression", ancienneValeur: `${m.type} ${Number(m.quantite)} (${m.origine ?? ""})`, userId: user.id,
+    })));
+    return { n: mvs.length };
+  }, { timeout: DELAI_TOUT_LE_FILTRE });
+  if ("erreur" in r) return r;
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/entree"); // l'historique de la liste d'achat affiche aussi ces mouvements
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
+  return r;
 });
 
 // ─── Requalifier le motif des sorties (action groupée, Direction) ────────────
@@ -134,52 +193,54 @@ const estOrigineAutomatique = (o: string | null) =>
 const libelleMotif = (motif: string | null, raison: string | null) => `${motif ?? "sans motif"}${raison ? ` (${raison})` : ""}`;
 
 /**
- * Change le motif des SORTIES sélectionnées : « Livraison restaurant », « Perte » (raison
+ * Change le motif des SORTIES sélectionnées (id cochés, ou tout le filtre de la colonne Sorties) : « Livraison restaurant », « Perte » (raison
  * obligatoire) ou sans motif (`""`). Une REQUALIFICATION, pas un mouvement : ni la quantité ni
  * `Stock.quantite` ne bougent. Chaque changement est journalisé. Période clôturée : refus lisible.
  * Le libellé d'origine n'est réécrit que s'il était le libellé automatique d'une saisie manuelle.
  */
-export const requalifierSorties = actionLisible(async (ids: string[], motif: string, raison?: string) => {
+export const requalifierSorties = actionLisible(async (selection: SelectionMouvements, motif: string, raison?: string) => {
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // décision de la Direction
-  const uniq = [...new Set(ids.map(String))].filter(Boolean);
-  if (uniq.length === 0) return { erreur: "Cochez au moins une sortie." };
   const cible: MotifSortie | undefined = motif === "LIVRAISON_RESTAURANT" || motif === "PERTE" ? motif : motif === "" ? null : undefined;
   if (cible === undefined) return { erreur: "Motif inconnu." };
   const raisonPerte = cible === "PERTE" ? (raison ?? "").trim() || null : null;
   if (cible === "PERTE" && !raisonPerte) return { erreur: "Indiquez la raison de la perte." };
-
-  const mvs = await prisma.mouvementStock.findMany({
-    where: { id: { in: uniq } },
-    select: { id: true, type: true, date: true, categorieSortie: true, raisonSortie: true, origine: true },
-  });
-  if (mvs.length !== uniq.length) return { erreur: "Certaines sorties n'existent plus : rechargez la page." };
-  if (mvs.some((m) => m.type !== "SORTIE")) return { erreur: "Seules les sorties ont un motif : décochez les entrées et ajustements." };
-
-  const paires = [...new Set(mvs.map((m) => `${m.date.getUTCFullYear()}-${m.date.getUTCMonth() + 1}`))]
-    .map((k) => { const [annee, mois] = k.split("-").map(Number); return { annee: annee!, mois: mois! }; });
-  const cloture = await prisma.clotureStock.findFirst({ where: { OR: paires }, orderBy: [{ annee: "asc" }, { mois: "asc" }] });
-  if (cloture) {
-    return { erreur: `La période ${String(cloture.mois).padStart(2, "0")}/${cloture.annee} est clôturée : le motif de ses sorties ne peut plus être changé. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)` };
+  if (!Array.isArray(selection) && selection?.colonne !== "SORTIES") {
+    return { erreur: "Seules les sorties ont un motif : décochez les entrées et ajustements." };
   }
 
-  const aChanger = mvs.filter((m) => m.categorieSortie !== cible || (m.raisonSortie ?? null) !== raisonPerte);
-  if (aChanger.length > 0) {
-    const auto = aChanger.filter((m) => estOrigineAutomatique(m.origine)).map((m) => m.id);
-    const saisis = aChanger.filter((m) => !estOrigineAutomatique(m.origine)).map((m) => m.id);
-    await prisma.$transaction(async (tx) => {
+  const r = await prisma.$transaction(async (tx) => {
+    const res = await resoudreSelection(tx, selection, "sorties", "Cochez au moins une sortie.");
+    if ("erreur" in res) return res;
+    const { mvs } = res;
+    if (mvs.length !== res.nbDemandes) return { erreur: "Certaines sorties n'existent plus : rechargez la page." };
+    if (mvs.some((m) => m.type !== "SORTIE")) return { erreur: "Seules les sorties ont un motif : décochez les entrées et ajustements." };
+
+    const paires = [...new Set(mvs.map((m) => `${m.date.getUTCFullYear()}-${m.date.getUTCMonth() + 1}`))]
+      .map((k) => { const [annee, mois] = k.split("-").map(Number); return { annee: annee!, mois: mois! }; });
+    const cloture = await tx.clotureStock.findFirst({ where: { OR: paires }, orderBy: [{ annee: "asc" }, { mois: "asc" }] });
+    if (cloture) {
+      return { erreur: `La période ${String(cloture.mois).padStart(2, "0")}/${cloture.annee} est clôturée : le motif de ses sorties ne peut plus être changé. (Direction : Paramètres → Clôture mensuelle pour la rouvrir.)` };
+    }
+
+    const aChanger = mvs.filter((m) => m.categorieSortie !== cible || (m.raisonSortie ?? null) !== raisonPerte);
+    if (aChanger.length > 0) {
+      const auto = aChanger.filter((m) => estOrigineAutomatique(m.origine)).map((m) => m.id);
+      const saisis = aChanger.filter((m) => !estOrigineAutomatique(m.origine)).map((m) => m.id);
       if (auto.length) await tx.mouvementStock.updateMany({ where: { id: { in: auto } }, data: { categorieSortie: cible, raisonSortie: raisonPerte, origine: origineAutomatique(cible, raisonPerte) } });
       if (saisis.length) await tx.mouvementStock.updateMany({ where: { id: { in: saisis } }, data: { categorieSortie: cible, raisonSortie: raisonPerte } });
       await journaliserPlusieurs(tx, aChanger.map((m) => ({
         entite: "MouvementStock", entiteId: m.id, champ: "categorieSortie",
         ancienneValeur: libelleMotif(m.categorieSortie, m.raisonSortie), nouvelleValeur: libelleMotif(cible, raisonPerte), userId: user.id,
       })));
-    });
-  }
+    }
+    return { n: aChanger.length };
+  }, { timeout: DELAI_TOUT_LE_FILTRE });
+  if ("erreur" in r) return r;
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/journalier");
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/fiches");
-  return { n: aChanger.length };
+  return r;
 });
