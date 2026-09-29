@@ -10,40 +10,9 @@ import { PushToggle } from "./push-toggle";
 import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
-
-// Menu groupé façon PayFit : sections + icônes.
-const NAV_GROUPS: { titre: string; items: { href: string; label: string; icone: string; adminOnly?: boolean }[] }[] = [
-  {
-    titre: "Les essentiels",
-    items: [
-      { href: "/accueil", label: "Tableau de bord", icone: "accueil" },
-      { href: "/a-valider", label: "Demandes de validation", icone: "valider", adminOnly: true },
-      { href: "/employes", label: "Employés", icone: "employes" },
-      { href: "/fiches-poste", label: "Fiches de poste", icone: "document" },
-      { href: "/paie", label: "Paie", icone: "billet" },
-    ],
-  },
-  {
-    titre: "Temps de travail",
-    items: [
-      { href: "/pointer", label: "Pointer", icone: "horloge" },
-      { href: "/planning", label: "Planning", icone: "calendrier" },
-      { href: "/presences", label: "Présences & heures", icone: "presence" },
-      { href: "/conges", label: "Congés & absences", icone: "parasol" },
-    ],
-  },
-  {
-    titre: "Finances & archives",
-    items: [
-      { href: "/declarations", label: "Déclarations", icone: "recu" },
-      { href: "/documents", label: "Documents", icone: "dossier" },
-    ],
-  },
-  {
-    titre: "Configuration",
-    items: [{ href: "/parametres", label: "Paramètres", icone: "parametres" }],
-  },
-];
+import { BarreDuBas, RESERVE_BARRE_DU_BAS } from "@/components/barre-du-bas";
+import { choisirBarreDuBas, entreesVisibles } from "@/lib/navigation-espaces";
+import { BARRE_DU_BAS, NAV_GROUPS, lienActif } from "./navigation";
 
 type NotifData = React.ComponentProps<typeof NotificationBell> | null;
 
@@ -69,8 +38,8 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const fermer = () => setOpen(false);
   const pathname = usePathname();
-  // État actif du menu (même règle que l'espace Stock) : accueil = exact, sinon préfixe.
-  const actif = (href: string) => (href === "/accueil" ? pathname === href : pathname.startsWith(href));
+  // État actif du menu et de la barre du bas (règle dans ./navigation) : accueil = exact, sinon préfixe.
+  const actif = (href: string) => lienActif(href, pathname);
 
   const roleLabel =
     userRole === "ADMIN" ? "Direction" : userRole === "MANAGER" ? "Responsable RH" : "Consultation";
@@ -84,16 +53,18 @@ export function AppShell({
           positionne bien par rapport au viewport entier. */}
       {open && (
         <div
-          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
           onClick={fermer}
           aria-hidden
         />
       )}
 
-      <div className="flex h-dvh overflow-hidden">
+      <div className={`flex h-dvh overflow-hidden ${RESERVE_BARRE_DU_BAS}`}>
         {/* Barre latérale : tiroir coulissant sur mobile, fixe sur grand écran */}
         <aside
-          className={`fixed inset-y-0 left-0 z-40 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
+          id="menu-rh"
+          aria-label="Menu"
+          className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
             open ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -114,7 +85,7 @@ export function AppShell({
               type="button"
               onClick={fermer}
               aria-label="Fermer le menu"
-              className="-mr-1 rounded-md p-1 text-muted-foreground hover:bg-accent lg:hidden"
+              className="-mr-2 -mt-2 flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-accent lg:hidden"
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M6 6l12 12M18 6L6 18" />
@@ -136,7 +107,7 @@ export function AppShell({
 
           <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
             {NAV_GROUPS.map((groupe) => {
-              const items = groupe.items.filter((it) => !it.adminOnly || userRole === "ADMIN");
+              const items = entreesVisibles(groupe.items, userRole);
               if (items.length === 0) return null;
               return (
               <div key={groupe.titre}>
@@ -151,7 +122,7 @@ export function AppShell({
                         key={item.href}
                         href={item.href}
                         onClick={fermer}
-                        className={`flex items-center gap-2.5 rounded-md px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:py-1.5 ${actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"}`}
+                        className={`flex min-h-11 items-center gap-2.5 rounded-md px-2 py-2 text-sm lg:min-h-0 outline-none focus-visible:ring-2 focus-visible:ring-ring lg:py-1.5 ${actif(item.href) ? "bg-accent font-medium text-accent-foreground" : "hover:bg-accent hover:text-accent-foreground"}`}
                       >
                         <Icone nom={item.icone} className="w-4 shrink-0 text-muted-foreground" />
                         <span className="flex-1">{item.label}</span>
@@ -186,7 +157,7 @@ export function AppShell({
                 key={e.href}
                 href={e.href}
                 onClick={fermer}
-                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="mt-1 flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm lg:min-h-0 outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Icone nom={e.icone} /> {e.label}
               </Link>
@@ -194,7 +165,7 @@ export function AppShell({
             <form action={logout}>
               <button
                 type="submit"
-                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="mt-1 flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm lg:min-h-0 outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Icone nom="deconnexion" /> Déconnexion
               </button>
@@ -203,19 +174,10 @@ export function AppShell({
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-          {/* En-tête mobile : hamburger + titre + cloche — collant, sous l'encoche (safe-area) */}
+          {/* En-tête mobile : retour + titre + cloche — collant, sous l'encoche (safe-area). Le menu
+              s'ouvre depuis la barre du bas (« Menu »), plus de hamburger en haut. */}
           <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
             <BoutonRetour />
-            <button
-              type="button"
-              onClick={() => setOpen(true)}
-              aria-label="Ouvrir le menu"
-              className="rounded-md p-1.5 hover:bg-accent"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
             <span className="truncate font-medium">Pâtes en Folie — Ressources humaines</span>
             <div className="ml-auto flex items-center gap-2">
               {notif && <NotificationBell {...notif} />}
@@ -240,6 +202,15 @@ export function AppShell({
           <div className="p-4 lg:p-8">{children}</div>
         </main>
       </div>
+
+      {/* Barre du bas — téléphone et tablette : le composant commun à tous les espaces. */}
+      <BarreDuBas
+        entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges)}
+        estActif={actif}
+        menuOuvert={open}
+        onMenu={() => setOpen(true)}
+        menuId="menu-rh"
+      />
     </>
   );
 }

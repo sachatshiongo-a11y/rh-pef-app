@@ -24,8 +24,9 @@ export async function pagesDuPdf(pdf: Buffer): Promise<{ lignes: string[]; plat:
   }));
 }
 
-/** Un morceau de texte posé sur une page : `y` = distance au HAUT de la page, en points. */
-export type TextePose = { page: number; texte: string; x: number; y: number };
+/** Un morceau de texte posé sur une page : `y` = distance au HAUT de la page, en points ;
+ *  `taille` = corps du texte en points (lu dans la matrice de texte) ; `largeur` = largeur dessinée. */
+export type TextePose = { page: number; texte: string; x: number; y: number; taille: number; largeur: number };
 
 /**
  * Textes du PDF avec leur POSITION : permet de vérifier la mise en page, pas seulement le texte
@@ -41,7 +42,7 @@ export async function textesPoses(pdf: Buffer): Promise<TextePose[]> {
     const { items } = await page.getTextContent();
     for (const it of items) {
       if (!("str" in it) || !it.str.trim()) continue;
-      sortie.push({ page: n, texte: it.str.trim(), x: it.transform[4], y: hauteur - it.transform[5] });
+      sortie.push({ page: n, texte: it.str.trim(), x: it.transform[4], y: hauteur - it.transform[5], taille: Math.hypot(it.transform[2], it.transform[3]), largeur: it.width });
     }
   }
   await doc.destroy();
