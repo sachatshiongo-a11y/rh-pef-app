@@ -18,7 +18,11 @@ export const config = {
     // c'est la page de connexion qui sera gardée sous le nom du worker — et la visionneuse restera
     // cassée sur ce téléphone, sans un seul message d'erreur. Aucune route de l'application ne se
     // termine par `.mjs` : seuls des fichiers statiques de `public/` sont concernés.
+    //
+    // `icons/` AVEC la barre (2026-09-29) : sans elle, le motif excluait tout chemin qui COMMENCE par
+    // « icons » — une future page « /icons-admin » ou « /iconsxyz » aurait échappé au garde. Seul le
+    // DOSSIER public/icons est exclu.
     // Vérifié par src/lib/chemins-publics.test.ts.
-    "/((?!_next/static|_next/image|favicon.ico|manifest.json|manifest-espace.json|icons|sw.js|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mjs)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|manifest-espace.json|icons/|sw.js|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mjs)$).*)",
   ],
 };

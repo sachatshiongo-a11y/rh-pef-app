@@ -44,6 +44,9 @@ const RECUPEREES_SANS_SESSION = [
   { chemin: "/hors-ligne", pourquoi: "la page servie sans réseau ; sinon le cache du service worker retient la page de connexion à sa place" },
   { chemin: "/icons/icon-192.png", pourquoi: "l'icône de l'écran d'accueil" },
   { chemin: "/icons/icon-512.png", pourquoi: "l'icône de l'écran d'accueil" },
+  { chemin: "/icons/icon-maskable-192.png", pourquoi: "l'icône adaptative du manifeste (Android)" },
+  { chemin: "/icons/icon-maskable-512.png", pourquoi: "l'icône adaptative du manifeste (Android)" },
+  { chemin: "/icons/apple-touch-icon.png", pourquoi: "l'icône de l'écran d'accueil iOS" },
   {
     chemin: "/pdf.worker.min.mjs",
     pourquoi:
@@ -100,5 +103,15 @@ describe("le garde d'authentification ne laisse pas fuir, et ne bloque pas ce qu
     // test ci-dessus passerait au vert en ne protégeant plus personne.
     expect(examineeParLeGarde("/paie")).toBe(true);
     expect(examineeParLeGarde("/employes")).toBe(true);
+  });
+
+  it("l'exclusion des icônes vise le DOSSIER icons/, pas tout chemin qui commence par « icons »", () => {
+    // Avant le 2026-09-29, le motif excluait « icons » sans barre : une future page « /icons-admin »
+    // aurait échappé au garde sans que personne ne l'ait décidé. Même défaut que le startsWith nu.
+    for (const page of ["/icons", "/icons-admin", "/iconsxyz", "/icons-admin/utilisateurs"]) {
+      expect(examineeParLeGarde(page), `${page} doit passer par le garde`).toBe(true);
+    }
+    // Un fichier du dossier qui ne porte pas une extension d'image exclue reste hors garde.
+    expect(examineeParLeGarde("/icons/site.webmanifest")).toBe(false);
   });
 });
