@@ -22,7 +22,9 @@ export const config = {
     // `icons/` AVEC la barre (2026-09-29) : sans elle, le motif excluait tout chemin qui COMMENCE par
     // « icons » — une future page « /icons-admin » ou « /iconsxyz » aurait échappé au garde. Seul le
     // DOSSIER public/icons est exclu.
+    // Même règle pour `api/cron/` (le DOSSIER des déclencheurs) et `api/version` (ce chemin exact, ou
+    // sous lui) : une future route « /api/cron-admin » ou « /api/versionner » passe par le garde.
     // Vérifié par src/lib/chemins-publics.test.ts.
-    "/((?!_next/static|_next/image|favicon.ico|manifest.json|manifest-espace.json|icons/|sw.js|api/cron|api/version|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mjs)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|manifest-espace.json|icons/|sw.js|api/cron/|api/version(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mjs)$).*)",
   ],
 };
