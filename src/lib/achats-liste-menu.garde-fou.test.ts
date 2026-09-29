@@ -9,6 +9,9 @@ import { ENTREE_MENU_ACHATS, SOUS_ONGLETS_ACHATS } from "./achats-liste";
 
 const RACINE = path.resolve(__dirname, "../..");
 const lire = (r: string) => readFileSync(path.join(RACINE, r), "utf8");
+// Le menu vit dans la navigation de l'espace Stock (lue par le tiroir ET par la barre du bas,
+// 2026-09-29) ; la coquille l'importe et applique sa règle d'état actif.
+const NAVIGATION = "src/app/(stock)/navigation.ts";
 const SHELL = "src/app/(stock)/stock-shell.tsx";
 const PAGES: Record<string, string> = {
   "/stock/mouvements": "src/app/(stock)/stock/mouvements/page.tsx",
@@ -17,8 +20,16 @@ const PAGES: Record<string, string> = {
 };
 
 describe("menu Stock — « Achats & mouvements »", () => {
-  const shell = lire(SHELL);
-  const menu = shell.slice(shell.indexOf("const NAV_GROUPS"), shell.indexOf("export function StockShell"));
+  const navigation = lire(NAVIGATION);
+  const debut = navigation.indexOf("export const NAV_GROUPS");
+  const fin = navigation.indexOf("export const BARRE_DU_BAS");
+  const menu = navigation.slice(debut, fin);
+
+  it("le menu a bien été trouvé", () => {
+    expect(debut).toBeGreaterThanOrEqual(0);
+    expect(fin).toBeGreaterThan(debut);
+    expect(menu).toContain('href: "/stock/catalogue"');
+  });
 
   it("une seule entrée, qui s'ouvre sur Mouvements", () => {
     expect(ENTREE_MENU_ACHATS).toMatchObject({ href: "/stock/mouvements", label: "Achats & mouvements" });
@@ -31,7 +42,8 @@ describe("menu Stock — « Achats & mouvements »", () => {
   });
 
   it("l'entrée est active sur ses trois sous-onglets", () => {
-    expect(shell).toMatch(/href === ENTREE_MENU_ACHATS\.href \? sousOngletActif\(pathname\) !== null/);
+    expect(navigation).toMatch(/href === ENTREE_MENU_ACHATS\.href \? sousOngletActif\(pathname\) !== null/);
+    expect(lire(SHELL)).toMatch(/const actif = \(href: string\) => lienActif\(href, pathname\);/);
   });
 
   it.each(Object.entries(PAGES))("%s affiche les sous-onglets", (_href, fichier) => {
