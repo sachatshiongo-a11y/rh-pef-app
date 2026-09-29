@@ -158,3 +158,51 @@ scans lointains ; borne pour les salariés sans smartphone.
 Régler la position au restaurant ; imprimer et afficher ; créer les comptes et distribuer les
 fiches ; un salarié pointe arrivée et départ sur **iPhone** et sur **Android** ; regarder la
 précision relevée dans le Suivi pendant la première semaine.
+
+---
+
+## 11. Décision de la Direction du 2026-09-29 — « scanner = pointer » (état : EN ATTENTE)
+
+> « Le fait de scanner le QR code doit commencer le pointage, il ne faut pas d'étape
+> intermédiaire. » — remplace l'appui obligatoire sur « Pointer maintenant » (§2).
+
+### Ce qui est livré (branche `fix/scan-apres-mot-de-passe`)
+- **Le scan survit au mot de passe temporaire** : `/scan?c=…` → `/espace/mot-de-passe?retour=…`
+  → retour au scan. Retour validé par la liste blanche de `lib/retour-connexion.ts` (`/scan?…`
+  seul) ; espace salarié fermé → message sur `/scan`, sans redirection.
+- **Connexion depuis un scan** : champs 16 px (pas de zoom iOS), gros bouton, `autocomplete`
+  `username` / `current-password`.
+- **Durée de session** : le code ne l'écourte pas (cookies `@supabase/ssr` 0.12 : 400 jours,
+  posés par le serveur, rafraîchis par le proxy à chaque navigation ; aucun délai d'inactivité
+  dans le code). Seuls les réglages du tableau de bord Supabase peuvent la limiter (§11.3).
+
+### Ce qui n'est PAS livré — à confirmer par Sacha
+Le pointage **sans geste** sur `/scan?c=…`, et le remplacement de la confirmation « double scan »
+(5 min) par la règle « scan répété = rien de nouveau » (10 min), ont été **bloqués par la garde de
+permissions de l'agent** (classés « affaiblissement d'une protection ») : ils demandent l'accord
+explicite de Sacha. Tant qu'il manque, « Pointer maintenant » reste obligatoire sur `/scan?c=…`, et
+l'affiche garde ses consignes actuelles (la nouvelle formulation promettrait un pointage « tout
+seul » que l'application ne fait pas).
+
+Conception prête pour la reprise :
+1. **Envoi sans geste** : depuis le script de la page, après chargement, jamais depuis la requête
+   GET (un aperçu de lien ou un préchargement n'exécute pas le script : rien n'est pointé).
+   Position demandée en parallèle, plafond 8 s ; sans position → enregistré « à vérifier ».
+2. **Scan répété** : moins de 10 min après le scan d'arrivée → rien d'écrit, l'arrivée est
+   réaffichée ; après un départ, tout rescan réaffiche CE départ (règle existante).
+3. **« Annuler ce pointage »** (5 min, propriétaire seul). `ScanPointage` n'est jamais réécrit, et
+   `Pointage` ne peut pas être supprimé (la cascade effacerait ses scans). Sans migration,
+   l'annulation est une **entrée du journal d'audit** sur le scan ; le moteur et chaque lecteur de
+   `Pointage` (pointage du jour, Suivi, compteur de la semaine, grille Présences) ignorent les scans
+   annulés, et une arrivée annulée est refaite au scan suivant, sur la même ligne. Une colonne
+   `annuleLe` sur `ScanPointage` (migration) serait plus propre : à arbitrer.
+4. **Pause** : le départ est enregistré au scan ; la pause reste une étape après, facultative.
+   Sans pause, la journée reste ouverte (« départ scanné, pause non saisie » au Suivi) et la
+   Direction la clôt. Clore automatiquement avec une pause par défaut changerait des heures
+   payées : **décision d'argent**, non prise.
+
+### 11.3 Réglages Supabase à vérifier (tableau de bord, NON modifiés)
+Authentication → Sessions : « Time-box user sessions » et « Inactivity timeout » (vides = aucune
+limite) ; « Detect and revoke potentially compromised refresh tokens » et « Refresh token reuse
+interval ». Authentication → JWT : « Access token expiry » (1 h par défaut ; il se rafraîchit seul,
+il ne déconnecte pas).
