@@ -257,6 +257,19 @@ textarea,
   height: 0;
 }
 
+/* Barre de navigation du bas (composant BarreDuBas, sous `lg`) : sa hauteur, pour ce qui se fixe
+   en bas de l'écran hors des coquilles (bandeau « Nouvelle version ») et doit se poser AU-DESSUS
+   d'elle au lieu de la recouvrir. 0 quand la barre est absente (ordinateur, pages sans barre).
+   Les coquilles, elles, réservent la place par une classe (RESERVE_BARRE_DU_BAS), sans :has(). */
+:root {
+  --reserve-barre-du-bas: 0px;
+}
+@media (width < 64rem) {
+  :root:has([data-barre-du-bas]) {
+    --reserve-barre-du-bas: calc(4rem + 1px + env(safe-area-inset-bottom));
+  }
+}
+
 /* Sur mobile, les champs de saisie < 16px déclenchent un zoom automatique iOS (effet saccadé) :
    on force 16px pour les champs où l'on tape. */
 @media (max-width: 640px) {

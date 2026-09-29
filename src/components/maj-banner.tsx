@@ -30,7 +30,11 @@ export function MajBanner({ version }: { version: string }) {
 
   if (!nouvelle) return null;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[60] flex items-center justify-center gap-3 border-t bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg" style={{ paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}>
+    <div className="fixed inset-x-0 z-[60] flex items-center justify-center gap-3 border-t bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-lg" style={{
+        // Au-dessus de la barre du bas quand elle est là (téléphone), sinon collé au bord de l'écran.
+        bottom: "var(--reserve-barre-du-bas, 0px)",
+        paddingBottom: "max(0.625rem, calc(env(safe-area-inset-bottom) - var(--reserve-barre-du-bas, 0px)))",
+      }}>
       <span>✨ Une nouvelle version de l&apos;application est disponible.</span>
       <button onClick={() => window.location.reload()} className="rounded-md bg-white/90 px-3 py-1 font-semibold text-primary hover:bg-white">
         Recharger
