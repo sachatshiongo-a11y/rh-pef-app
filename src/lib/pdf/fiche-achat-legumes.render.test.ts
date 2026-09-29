@@ -13,13 +13,13 @@ const achat = (legume: string, unite: string | null, quantite: number, montantCD
   ({ legume, unite, quantite, montantCDF, montantUSD });
 
 describe("liste des légumes", () => {
-  it("reprend les 38 lignes de la fiche de la Direction, dans son ordre, « Menthe » sans unité", () => {
+  it("reprend les 38 lignes de la fiche de la Direction, dans son ordre ; la menthe à la botte (décision Direction 2026-09-29)", () => {
     expect(LEGUMES).toHaveLength(38);
     expect(LEGUMES.slice(0, 3).map((l) => l.nom)).toEqual(["Ail", "Ananas", "Aubergine"]);
     expect(LEGUMES.slice(-6).map((l) => `${l.nom}|${l.unite}`)).toEqual([
-      "Tomates fraiches|Kg", "Cubes|Pièce", "Cerise en boîte|Boîte", "Tomates cerises|Kg", "Tomates séchées|Boîte", "Feuilles de menthe|Boîte",
+      "Tomates fraiches|Kg", "Cubes|Pièce", "Cerise en boîte|Boîte", "Tomates cerises|Kg", "Tomates séchées|Boîte", "Feuilles de menthe|Botte",
     ]);
-    expect(LEGUMES.find((l) => l.nom === "Menthe")?.unite).toBe("");
+    expect(LEGUMES.find((l) => l.nom === "Menthe")?.unite).toBe("Botte");
     expect(new Set(LEGUMES.map((l) => l.nom)).size).toBe(38);
   });
 });
@@ -92,7 +92,7 @@ describe("fiche d'achat remplie", () => {
     expect(lignes).toContain("Aubergine Kg"); // non acheté : cases vides
     expect(lignes).toContain("Champignons de Paris Kg 1,25 1 234 567,5");
     // Le hors-liste vient APRÈS le dernier légume de la liste.
-    expect(lignes.indexOf("Champignons de Paris Kg 1,25 1 234 567,5")).toBeGreaterThan(lignes.indexOf("Feuilles de menthe Boîte"));
+    expect(lignes.indexOf("Champignons de Paris Kg 1,25 1 234 567,5")).toBeGreaterThan(lignes.indexOf("Feuilles de menthe Botte"));
     expect(plat).toMatch(/Montant total CDF 1 287 567,5/);
     expect(plat).toMatch(/Montant total \$ 459,82/);
     expect(policesDeRepli(pdf)).toEqual([]);

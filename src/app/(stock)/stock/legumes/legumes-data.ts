@@ -1,6 +1,8 @@
 // Liste figée des légumes frais : celle de la fiche « Achat de légumes Marché » remise par la
 // Direction (classeur fiche-inventaire-legumes.xlsx, feuille « Achat légumes », 2026-09-28) —
-// 38 lignes, même ordre, mêmes unités. « Menthe » n'a pas d'unité sur la fiche : elle reste sans.
+// 38 lignes, même ordre, mêmes unités — sauf la menthe : la fiche disait « Boîte » pour les
+// feuilles et rien pour « Menthe » ; la Direction a tranché le 2026-09-29 : la menthe s'achète à la
+// BOTTE, pour les deux lignes.
 //
 // Les achats déjà enregistrés gardent leur libellé en texte libre : cette liste ne sert qu'à
 // proposer un choix à la saisie, à dresser la fiche d'achat imprimable et à nommer les lignes
@@ -29,7 +31,7 @@ export const LEGUMES: { nom: string; unite: string }[] = [
   { nom: "Lemons / Citrons-verts", unite: "Kg" }, // fiche : « Lemons/ Citrons-verts » (voir plus haut)
   { nom: "Mangue", unite: "Pièce" },
   { nom: "Maracuja", unite: "Pièce" },
-  { nom: "Menthe", unite: "" },
+  { nom: "Menthe", unite: "Botte" },
   { nom: "Oignons", unite: "Kg" },
   { nom: "Orange", unite: "Kg" },
   { nom: "Pastèque", unite: "Pièce" },
@@ -47,5 +49,5 @@ export const LEGUMES: { nom: string; unite: string }[] = [
   { nom: "Cerise en boîte", unite: "Boîte" },
   { nom: "Tomates cerises", unite: "Kg" },
   { nom: "Tomates séchées", unite: "Boîte" },
-  { nom: "Feuilles de menthe", unite: "Boîte" },
+  { nom: "Feuilles de menthe", unite: "Botte" },
 ];
