@@ -87,4 +87,22 @@ describe("instantaneDemandeConge", () => {
     const b = empreinteDe(instantaneDemandeConge({ ...demande, nbJours: 5 } as never));
     expect(a).not.toBe(b);
   });
+
+  // 2026-09-29 : le solde FIGÉ à l'approbation est imprimé sur la demande, mais il n'est PAS signé.
+  // S'il entrait dans l'empreinte, toutes les demandes signées avant ce changement (sans instantané)
+  // basculeraient « à resigner » dès la première lecture de leur signature.
+  it("le solde figé à l'approbation n'entre PAS dans l'empreinte", () => {
+    const sans = empreinteDe(instantaneDemandeConge(demande as never));
+    const avec = empreinteDe(instantaneDemandeConge({
+      ...demande, soldeFigeJours: 12.5, soldeFigeAcquis: 18, soldeFigePris: 5.5, soldeFigeLe: new Date("2026-09-29T10:00:00Z"),
+    } as never));
+    expect(avec).toBe(sans);
+  });
+  it("l'empreinte d'une demande est celle d'avant le solde figé (valeur de référence, ne pas « mettre à jour »)", () => {
+    // Calculée le 2026-09-29 sur le code d'AVANT l'instantané : si elle change, toute demande déjà
+    // signée passe « à resigner ». Une nouvelle donnée signée se décide, elle ne s'ajoute pas ici.
+    expect(empreinteDe(instantaneDemandeConge(demande as never))).toBe(
+      "767d3938e1400e6f010c200e9bd87c1d677f8ffd16225d3a67ae7a31b892382a",
+    );
+  });
 });

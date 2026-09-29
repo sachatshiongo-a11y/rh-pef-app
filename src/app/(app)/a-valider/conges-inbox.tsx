@@ -51,8 +51,11 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
     });
   }
   function individuel(fn: (id: string) => Promise<unknown>, id: string) {
+    setNote(null);
     startTransition(async () => {
-      await fn(id);
+      const r = await fn(id);
+      // Une approbation qui n'a pas pu figer le solde n'est pas enregistrée : la raison est dite.
+      if (r && typeof r === "object" && "erreur" in r && typeof r.erreur === "string") setNote(r.erreur);
     });
   }
 

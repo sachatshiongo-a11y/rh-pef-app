@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { demanderConge, approuverConge, refuserConge, supprimerConge } from "./actions";
+import { demanderConge, approuverCongeFormulaire, refuserConge, supprimerConge } from "./actions";
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -250,7 +250,7 @@ export default async function CongesPage({
                 <div className="flex items-center gap-2">
                   {peutApprouver && d.statut === "EN_ATTENTE" && (
                     <>
-                      <form action={approuverConge.bind(null, d.id)} className="inline">
+                      <form action={approuverCongeFormulaire.bind(null, d.id)} className="inline">
                         <BoutonApprouver type="submit" />
                       </form>
                       <form action={refuserConge.bind(null, d.id)} className="inline">
