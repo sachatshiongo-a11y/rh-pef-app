@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "../garde";
 import { lundiDe, MOIS_FR } from "@/lib/dates-fr";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import Link from "next/link";
 import { Icone } from "@/components/icones";
 
@@ -16,13 +17,14 @@ function fmtH(h: number) {
 
 export default async function EspacePlanning() {
   const s = await chargerSalarie();
-  const lundiCourant = lundiDe(new Date(Date.now() + 3_600_000));
+  // « Aujourd'hui » à l'heure de Kinshasa (DATE à minuit UTC) : semaine et mois en cours en découlent.
+  const k = jourCivilKinshasa(new Date());
+  const lundiCourant = lundiDe(k);
   // 4 semaines à venir (courante incluse) — on n'affiche QUE celles publiées par la Direction.
   const semaines = [0, 1, 2, 3].map((i) => addJours(lundiCourant, i * 7));
   const fin = addJours(semaines[semaines.length - 1], 6);
 
   // Heures RÉELLEMENT effectuées : mois civil en cours (heure de Kinshasa).
-  const k = new Date(Date.now() + 3_600_000);
   const debutMois = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), 1));
   const finMois = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth() + 1, 0));
 

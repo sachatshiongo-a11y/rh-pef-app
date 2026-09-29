@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { chargerParametresPaie } from "@/lib/config";
-import { ancienneteEnMois, calculerCongesAcquis, calculerJoursOuvrables, congeDeductibleDuSolde } from "@/lib/payroll";
+import { calculerJoursOuvrables } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
-import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -102,7 +101,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   const debutAnnee = new Date(Date.UTC(annee, 0, 1));
   const finAnnee = new Date(Date.UTC(annee, 11, 31));
 
-  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee, params, compteParType] = await Promise.all([
+  const [employees, demandesRange, demandesAnnee, feries, feriesAnnee] = await Promise.all([
     prisma.employee.findMany({
       where: { actif: true },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
@@ -117,8 +116,6 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
     }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutRange, lte: finRange } } }),
     prisma.jourFerie.findMany({ where: { date: { gte: debutAnnee, lte: finAnnee } }, select: { date: true } }),
-    chargerParametresPaie(),
-    chargerCompteDansSoldeParType(),
   ]);
 
   const feriesIso = new Set(feries.map((f) => isoJour(new Date(f.date))));
@@ -145,17 +142,29 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
     }
   }
 
-  // --- Soldes annuels (conservés sous le calendrier) ---
-  const congesAnnuelsParEmp = new Map<string, number>();
-  for (const d of demandesAnnee) {
-    if (!congeDeductibleDuSolde(compteParType.get(d.type))) continue;
-    const debut = new Date(Math.max(new Date(d.dateDebut).getTime(), debutAnnee.getTime()));
-    const fin = new Date(Math.min(new Date(d.dateFin).getTime(), finAnnee.getTime()));
-    if (debut > fin) continue;
-    congesAnnuelsParEmp.set(
-      d.employeeId,
-      (congesAnnuelsParEmp.get(d.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin, feriesAnnee.map((f) => f.date))
-    );
+  // --- Soldes de congé (sous le calendrier) ---
+  // Le SOLDE vient de la source unique, à l'horloge (2026-09-29) : c'est le chiffre de la fiche
+  // employé, de l'espace salarié et des PDF. Avant, cet écran le recalculait sur l'année AFFICHÉE et
+  // en jours ouvrables recomptés : la Direction lisait ici un autre solde qu'ailleurs. 4 requêtes pour
+  // tous les salariés, quel que soit leur nombre.
+  const anneeCourante = maintenant.getUTCFullYear();
+  const { soldes, entameLeSolde } = await chargerSoldesCongeSalaries(prisma, employeesAff.map((e) => e.id), maintenant);
+
+  // Jours décomptés DANS L'ANNÉE AFFICHÉE, quand elle n'est pas l'année en cours : une information
+  // d'historique (« pris en 2025 »), qui n'est pas un solde et ne s'en soustrait pas. Même règle de
+  // décompte que le solde (types cochés), jours ouvrables bornés à l'année.
+  const prisAnneeAffichee = new Map<string, number>();
+  if (annee !== anneeCourante) {
+    for (const d of demandesAnnee) {
+      if (!entameLeSolde(d.type)) continue;
+      const debut = new Date(Math.max(new Date(d.dateDebut).getTime(), debutAnnee.getTime()));
+      const fin = new Date(Math.min(new Date(d.dateFin).getTime(), finAnnee.getTime()));
+      if (debut > fin) continue;
+      prisAnneeAffichee.set(
+        d.employeeId,
+        (prisAnneeAffichee.get(d.employeeId) ?? 0) + calculerJoursOuvrables(debut, fin, feriesAnnee.map((f) => f.date))
+      );
+    }
   }
 
   const typesPresents = Array.from(new Set(demandesAff.map((d) => d.type))).sort();
@@ -295,23 +304,21 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
       </div>
 
       {/* Soldes de congés annuels */}
-      <h2 className="mb-2 mt-8 text-base font-semibold">Soldes de congé annuel — {annee}</h2>
+      <h2 className="mb-2 mt-8 text-base font-semibold">Soldes de congé annuel — à ce jour</h2>
       <div className="max-h-[70vh] overflow-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Employé</th>
               <th className="px-3 py-2 text-center">Droits acquis</th>
-              <th className="px-3 py-2 text-center">Congés pris (décomptés)</th>
+              <th className="px-3 py-2 text-center">Congés pris depuis le 1er janvier {anneeCourante}</th>
               <th className="px-3 py-2 text-center">Solde annuel</th>
+              {annee !== anneeCourante && <th className="px-3 py-2 text-center">Décomptés en {annee}</th>}
             </tr>
           </thead>
           <tbody>
             {employeesAff.map((e) => {
-              const anciennete = ancienneteEnMois(new Date(e.dateEmbauche), maintenant);
-              const droits = typeSansConges(e.contrat) ? 0 : calculerCongesAcquis(anciennete, params.droitsCongesAnnuel);
-              const pris = congesAnnuelsParEmp.get(e.id) ?? 0;
-              const solde = droits - pris;
+              const s = soldes.get(e.id);
               return (
                 <tr key={e.id} className="border-t">
                   <td className="whitespace-nowrap px-3 py-1.5">
@@ -320,11 +327,14 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
                       {e.nom}
                     </Link>
                   </td>
-                  <td className="px-3 py-1.5 text-center">{droits} j</td>
-                  <td className="px-3 py-1.5 text-center">{pris} j</td>
-                  <td className={`px-3 py-1.5 text-center font-semibold ${solde < 0 ? "text-red-700" : "text-foreground"}`}>
-                    {solde} j
+                  <td className="px-3 py-1.5 text-center">{s ? `${s.acquis} j` : "—"}</td>
+                  <td className="px-3 py-1.5 text-center">{s ? `${s.pris} j` : "—"}</td>
+                  <td className={`px-3 py-1.5 text-center font-semibold ${s && s.solde < 0 ? "text-red-700" : "text-foreground"}`}>
+                    {s ? `${s.solde} j` : "—"}
                   </td>
+                  {annee !== anneeCourante && (
+                    <td className="px-3 py-1.5 text-center text-muted-foreground">{prisAnneeAffichee.get(e.id) ?? 0} j</td>
+                  )}
                 </tr>
               );
             })}
@@ -334,8 +344,9 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
 
       <p className="mt-4 text-xs text-muted-foreground">
         Source : demandes de congé <span className="font-medium">approuvées</span>. Solde = droits acquis
-        selon l&apos;ancienneté − congés décomptés sur l&apos;année (seuls les types cochés « Solde
-        annuel » dans Paramètres se déduisent). Les droits légaux restent à valider
+        selon l&apos;ancienneté (mois révolus à ce jour) − congés décomptés depuis le 1er janvier (seuls
+        les types cochés « Solde annuel » dans Paramètres se déduisent) — le même chiffre que sur la
+        fiche employé et l&apos;espace salarié. Les droits légaux restent à valider
         par un comptable. Colonne orange = dimanche ou jour férié.
       </p>
     </div>

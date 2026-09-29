@@ -135,7 +135,7 @@ describe("attestation de travail", () => {
     const a = await salarie({ dateEmbauche: "2023-05-02" });
     await contrat(a, "CDD", "2023-05-02", "2023-12-31", "EXPIRE");
     await contrat(a, "CDI", "2024-01-01", null);
-    const r = await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "TRAVAIL");
     expect(r).toEqual({
       ok: true,
       payrollLineId: null,
@@ -149,21 +149,21 @@ describe("attestation de travail", () => {
     await prisma.finContrat.create({
       data: { employeeId: a, motif: "DEMISSION", dateFin: new Date("2026-06-30"), salaireJournalierUSD: 0, joursTravaillesMois: 0, salaireProrataUSD: 0, joursCongesNonPris: 0, indemniteCongesUSD: 0, preavisJours: 0, indemnitePreavisUSD: 0, indemniteLicenciementUSD: 0, autresUSD: 0, totalUSD: 0, creeParId: directionId },
     });
-    const r = await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "TRAVAIL");
     expect(r.ok && r.donnees).toEqual(expect.objectContaining({ enPoste: false, dateSortie: "2026-06-30" }));
   });
 
   it("sorti sans fin de contrat enregistrée : la date de fin du dernier contrat", async () => {
     const a = await salarie({ actif: false });
     await contrat(a, "CDD", "2025-01-01", "2025-12-31", "EXPIRE");
-    const r = await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "TRAVAIL");
     expect(r.ok && r.donnees.dateSortie).toBe("2025-12-31");
   });
 
   it("sorti sans AUCUNE date de sortie : refus lisible, jamais « au — »", async () => {
     const a = await salarie({ actif: false });
     await contrat(a, "CDI", "2024-03-01", null, "RESILIE");
-    const r = await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "TRAVAIL");
     expect(r).toEqual({ ok: false, motif: "Votre date de sortie n'est pas enregistrée : la Direction doit la compléter.", aCompleter: true });
   });
 });
@@ -174,7 +174,7 @@ describe("attestation de salaire", () => {
     await paie(a, 7, 2026, "PAYE", 280, 320, 3);
     const aout = await paie(a, 8, 2026, "VALIDE", 290, 330, 4.5);
     await paie(a, 9, 2026, "PAS_VALIDE", 999, 999);
-    const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "SALAIRE");
     expect(r).toEqual({
       ok: true,
       payrollLineId: aout.id,
@@ -190,7 +190,7 @@ describe("attestation de salaire", () => {
     // Versé 250 $ = 300 net + 15 transport + 45 frais médicaux − 80 acompte − 30 prêt.
     const l = await paie(a, 8, 2026, "PAYE", 300, 340, 0, { acompte: 80, pret: 30, fraisMedicaux: 45 });
     expect(Number(l.salNetUSD)).toBe(250);
-    const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "SALAIRE");
     expect(r.ok && r.donnees.salaire).toEqual(expect.objectContaining({ netUSD: "300.00", brutUSD: "325.00" }));
   });
 
@@ -204,7 +204,7 @@ describe("attestation de salaire", () => {
         cnssPatronalUSD: 36, coutEmployeurUSD: 436, coutEmployeurCDF: 0,
       },
     });
-    const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+    const r = await instantaneAttestation(prisma, a, "SALAIRE");
     expect(r.ok && r.donnees.salaire?.brutUSD).toBe("357.50");
     expect(r.ok && r.donnees.salaire?.brutUSD).toBe(brutHorsTransportUSD({ salBrutUSD: 400, transportUSD: 42.5 }).toFixed(2));
   });
@@ -212,16 +212,16 @@ describe("attestation de salaire", () => {
   it("aucune paie validée → refus", async () => {
     const a = await salarie();
     await paie(a, 9, 2026, "PAS_VALIDE");
-    expect(await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT)).toEqual({ ok: false, motif: expect.stringMatching(/Aucune paie validée/) });
+    expect(await instantaneAttestation(prisma, a, "SALAIRE")).toEqual({ ok: false, motif: expect.stringMatching(/Aucune paie validée/) });
   });
 
   it("stagiaire ou intérimaire → refus", async () => {
     const st = await salarie({ contrat: "STAGE" });
     await contrat(st, "STAGE", "2026-06-01", "2026-11-30");
     await paie(st, 8, 2026, "PAYE");
-    expect(await instantaneAttestation(prisma, st, "SALAIRE", MAINTENANT)).toEqual({ ok: false, motif: expect.stringMatching(/stagiaire ou un intérimaire/) });
+    expect(await instantaneAttestation(prisma, st, "SALAIRE")).toEqual({ ok: false, motif: expect.stringMatching(/stagiaire ou un intérimaire/) });
     const it_ = await salarie({ contrat: "INTERIM" });
-    expect(await instantaneAttestation(prisma, it_, "SALAIRE", MAINTENANT)).toEqual({ ok: false, motif: expect.stringMatching(/stagiaire ou un intérimaire/) });
+    expect(await instantaneAttestation(prisma, it_, "SALAIRE")).toEqual({ ok: false, motif: expect.stringMatching(/stagiaire ou un intérimaire/) });
   });
 });
 
@@ -229,10 +229,10 @@ describe("attestation de stage", () => {
   it("le dernier contrat de stage ; sans stage → refus", async () => {
     const st = await salarie({ contrat: "STAGE" });
     await contrat(st, "STAGE", "2026-03-01", "2026-08-31");
-    const r = await instantaneAttestation(prisma, st, "STAGE", MAINTENANT);
+    const r = await instantaneAttestation(prisma, st, "STAGE");
     expect(r.ok && r.donnees.stage).toEqual({ debut: "2026-03-01", fin: "2026-08-31" });
     const cdi = await salarie();
-    expect(await instantaneAttestation(prisma, cdi, "STAGE", MAINTENANT)).toEqual({ ok: false, motif: expect.stringMatching(/contrat de stage/) });
+    expect(await instantaneAttestation(prisma, cdi, "STAGE")).toEqual({ ok: false, motif: expect.stringMatching(/contrat de stage/) });
   });
 });
 
@@ -341,13 +341,13 @@ describe("date d'effet : seule une paie à partir de la paie au planning fait fo
     try {
       const a = await salarie();
       await paie(a, 6, 2026, "PAYE", 250, 300);
-      expect(await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT)).toEqual({
+      expect(await instantaneAttestation(prisma, a, "SALAIRE")).toEqual({
         ok: false,
         motif: "Aucune paie validée depuis septembre 2026 : la Direction doit d'abord valider la paie.",
       });
-      expect((await instantaneAttestation(prisma, a, "TRAVAIL", MAINTENANT)).ok).toBe(true);
+      expect((await instantaneAttestation(prisma, a, "TRAVAIL")).ok).toBe(true);
       const sept = await paie(a, 9, 2026, "VALIDE", 310, 360);
-      const r = await instantaneAttestation(prisma, a, "SALAIRE", MAINTENANT);
+      const r = await instantaneAttestation(prisma, a, "SALAIRE");
       expect(r.ok && r.payrollLineId).toBe(sept.id);
       expect(r.ok && r.donnees.salaire?.mois).toBe(9);
     } finally {

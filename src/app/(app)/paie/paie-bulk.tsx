@@ -37,6 +37,8 @@ export type PaieRow = {
   cnssUSD: number;
   iprUSD: number;
   acompteUSD: number;
+  /** Échéance de prêt retenue ce mois (jamais inconnue : 0 par défaut en base comme dans le moteur). */
+  retenuePretUSD: number;
   // Référence d'heures du mois (paie sur heures planifiées, 2026-09-23) et avertissements.
   sourceReference: SourceReference;
   motifReference: string | null;
