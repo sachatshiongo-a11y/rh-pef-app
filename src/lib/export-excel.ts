@@ -30,7 +30,17 @@ export type FeuilleExcel = {
    * section (un tri les mélangerait aussi) ; sans ligne de données, aucun filtre n'est posé.
    */
   autofiltre?: boolean;
+  /**
+   * Colonnes de montant affichées au format maison : séparateur de milliers, deux décimales,
+   * négatif entre parenthèses et en rouge (jamais « − »). La cellule reste un NOMBRE calculable.
+   */
+  colonnesMontantFormat?: number[];
+  /** Lignes (indices dans `lignes`) en gras : sous-totaux et totaux écrits dans les données. */
+  lignesGras?: number[];
 };
+
+/** Format Excel des montants : milliers, 2 décimales, négatif = parenthèses rouges. */
+export const FORMAT_MONTANT_EXCEL = "#,##0.00;[Red](#,##0.00)";
 
 /**
  * Indices des colonnes de montant d'un tableau, repérées par leur EN-TÊTE (« … $ », « … CDF »),
@@ -182,6 +192,22 @@ export async function classeurExcel(opts: {
         cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_SECTION } };
       }
+    }
+
+    // Montants au format maison (nombres conservés, seul l'affichage change).
+    if (f.colonnesMontantFormat?.length) {
+      const derniere = rTot ? rTot.number : debutData + f.lignes.length - 1;
+      for (let r = debutData; r <= derniere; r++) {
+        for (const ci of f.colonnesMontantFormat) {
+          const cell = ws.getRow(r).getCell(ci + 1);
+          if (typeof cell.value === "number") cell.numFmt = FORMAT_MONTANT_EXCEL;
+        }
+      }
+    }
+
+    // Sous-totaux et totaux écrits dans les données : en gras.
+    for (const idx of f.lignesGras ?? []) {
+      ws.getRow(debutData + idx).eachCell((cell) => { cell.font = { ...cell.font, name: OPTIMA, size: 10, bold: true }; });
     }
 
     // Ligne Total en gras, fond or clair.
