@@ -54,7 +54,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       {/* Sélecteur de vue — pleine largeur et gros onglets sur mobile (bien visible au doigt),
           compact sur ordinateur. */}
       <div className="flex w-full overflow-hidden rounded-lg border text-sm font-medium sm:w-fit">
-        {([["conso", "Consommation"], ["ventes", "Ventes"], ["commande", "Commande"], ["comparaison", "Comparaison"]] as const).map(([v, label]) => (
+        {([["commande", "Commande"], ["conso", "Consommation"], ["comparaison", "Comparaison"], ["ventes", "Rapport journalier"]] as const).map(([v, label]) => (
           <Link
             key={v}
             href={lien({ vue: v })}
