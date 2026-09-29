@@ -4,7 +4,8 @@ import { urlAffiche, lireCodeDepuisQr } from "./pointage-qr";
 // L'application répond sur DEUX adresses en production. Un salarié a pu l'installer depuis l'une
 // ou l'autre ; l'affiche, elle, n'en porte qu'une. Le scanner doit donc accepter l'origine où il
 // tourne ET l'origine de l'affiche — et rien d'autre.
-const OFFICIELLE = "https://rh.patesenfolie.cd";
+const OFFICIELLE = "https://gestion.patesenfolie.cd";
+const ANCIENNE = "https://rh.patesenfolie.cd";
 const RENDER = "https://rh-pef.onrender.com";
 
 async function chargerOrigines() {
@@ -40,8 +41,15 @@ describe("originesAcceptees", () => {
   it("l'origine courante et celle de l'affiche, sans doublon", async () => {
     vi.stubEnv("NEXT_PUBLIC_ORIGINE_AFFICHE", "");
     const { originesAcceptees } = await chargerOrigines();
-    expect(originesAcceptees(RENDER)).toEqual([RENDER, OFFICIELLE]);
-    expect(originesAcceptees(OFFICIELLE)).toEqual([OFFICIELLE]);
+    expect(originesAcceptees(RENDER)).toEqual([RENDER, OFFICIELLE, ANCIENNE]);
+    expect(originesAcceptees(OFFICIELLE)).toEqual([OFFICIELLE, ANCIENNE]);
+  });
+
+  it("une affiche imprimée avec l'ANCIENNE adresse (rh.) reste lisible depuis la nouvelle", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ORIGINE_AFFICHE", "");
+    const { originesAcceptees } = await chargerOrigines();
+    const ancienneAffiche = urlAffiche(ANCIENNE, "XyZ_-9");
+    expect(lireCodeDepuisQr(ancienneAffiche, originesAcceptees(OFFICIELLE))).toBe("XyZ_-9");
   });
 
   it("le QR officiel lu depuis l'adresse Render est accepté", async () => {

@@ -234,7 +234,7 @@ describe("imprimer l'affiche", () => {
     expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
     // Le QR imprimé porte l'adresse OFFICIELLE et le code en vigueur — jamais l'adresse d'où la
     // Direction imprime (l'application répond aussi sur rh-pef.onrender.com).
-    expect(await qrLuSurLaPage(pdf)).toBe(urlAffiche("https://rh.patesenfolie.cd", code!));
+    expect(await qrLuSurLaPage(pdf)).toBe(urlAffiche("https://gestion.patesenfolie.cd", code!));
 
     const r2 = await imprimerAffiche();
     expect(r2.status).toBe(200);
