@@ -74,7 +74,7 @@ export function ApercuBulletinCard({ apercu, periode, avecAvertissements = true 
           <Ligne taux={t} label={L.cnss} usd={Number(l.cnssSalarieUSD)} signe="-" />
           <Ligne taux={t} label={L.ipr} usd={Number(l.iprCalculeUSD)} signe="-" />
           {Number(l.acompteUSD) > 0 && <Ligne taux={t} label={L.acompte} usd={Number(l.acompteUSD)} signe="-" />}
-          {Number(l.retenuePretUSD ?? 0) > 0 && <Ligne taux={t} label="Retenue prêt" usd={Number(l.retenuePretUSD)} signe="-" />}
+          {Number(l.retenuePretUSD ?? 0) > 0 && <Ligne taux={t} label={L.pret} usd={Number(l.retenuePretUSD)} signe="-" />}
           <Ligne taux={t} label="Total retenues" usd={totalRetenues} signe="-" />
           <p className="mt-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase text-muted-foreground">Heures</p>
           <div className="flex items-center justify-between px-3 py-1.5 text-sm">

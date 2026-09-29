@@ -60,4 +60,10 @@ describe("carte mobile de la paie : l'échéance de prêt", () => {
     const pdf = readFileSync(path.resolve(__dirname, "../../../lib/pdf/bulletin.tsx"), "utf8");
     expect(pdf).toContain(`designation="${LBL_BULLETIN.pret}"`);
   });
+
+  it("l'aperçu du bulletin de la fiche employé emploie le libellé commun", () => {
+    const apercu = readFileSync(path.resolve(__dirname, "../employes/[id]/apercu-bulletin.tsx"), "utf8");
+    expect(apercu).toMatch(/label=\{L\.pret\}/);
+    expect(apercu).not.toMatch(/"Retenue prêt/);
+  });
 });
