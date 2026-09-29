@@ -29,10 +29,16 @@ vi.mock("@/lib/auth", () => ({
   requireRole: (u: { role: Role }, roles: Role[]) => { if (!roles.includes(u.role)) throw new Error("Accès refusé."); },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => {} }), redirect: () => { throw new Error("redirection"); } }));
 
 const { analyserClasseurCommande, appliquerImportCommande } = await import("./import-commande-actions");
 const { basculerFicheCommande, modifierArticle } = await import("../catalogue/actions");
 const { GET: fiche } = await import("./fiche/route");
+const { ficheCommandeCalee } = await import("./fiches-data");
+const { default: PageJournalier } = await import("./page");
+const { renderToStaticMarkup } = await import("react-dom/server");
+const ecranCommande = async () => renderToStaticMarkup(await PageJournalier({ searchParams: Promise.resolve({ vue: "commande", semaine: "2026-09-21" }) }));
+const BANDEAU = "Fiche commande pas encore calée sur votre classeur";
 
 const VRAI_CLASSEUR = `${process.env.HOME}/Downloads/PEF Commande Journalière.xlsx`;
 let prisma: PrismaClient;
@@ -126,6 +132,24 @@ describe("import du classeur Commande journalière", () => {
     expect(lignes.some((l) => l.startsWith("Haché maison") || l.startsWith("Viande Hachée"))).toBe(false);
     expect(lignes.filter((l) => l.startsWith("Carré d'agneau"))).toHaveLength(1); // l'article « Carré d'agneau » non coché n'y est pas
     expect(lignes.some((l) => l.includes("Lamb Rack"))).toBe(false);
+  }, 120_000);
+
+  it("installation neuve (AUCUN article coché) : la fiche garde l'ancien contenu, tous les articles actifs — sans note dans le PDF", async () => {
+    expect(await ficheCommandeCalee()).toBe(false);
+    expect(await ecranCommande()).toContain(`${BANDEAU} : lancez « Importer les lignes du classeur Commande journalière ».`); // le remède, sur l'écran
+    const r = await fiche(new Request("http://pef.test/stock/journalier/fiche?type=commande&date=2026-09-22&domaine=NOURRITURE&format=pdf"));
+    const pages = await pagesDuPdf(Buffer.from(await r.arrayBuffer()));
+    const lignes = pages.flatMap((p) => p.lignes);
+    for (const n of ["Carré d'agneau", "Haché maison", "Lamb Rack NZ Frozen", "Côte de porc", "Agneau entier (hors fiche)"]) expect(lignes.some((l) => l.startsWith(n)), n).toBe(true);
+    expect(pages.map((p) => p.plat).join(" ")).not.toMatch(/calée|Importer les lignes/);
+    // Dès qu'un article est coché, la règle du classeur s'applique.
+    await basculerFicheCommande([ids.porc!], true);
+    expect(await ficheCommandeCalee()).toBe(true);
+    expect(await ecranCommande()).not.toContain(BANDEAU);
+    const r2 = await fiche(new Request("http://pef.test/stock/journalier/fiche?type=commande&date=2026-09-22&domaine=NOURRITURE&format=pdf"));
+    const lignes2 = (await pagesDuPdf(Buffer.from(await r2.arrayBuffer()))).flatMap((p) => p.lignes);
+    expect(lignes2.some((l) => l.startsWith("Côte de porc"))).toBe(true);
+    expect(lignes2.some((l) => l.startsWith("Lamb Rack"))).toBe(false);
   }, 120_000);
 
   it.skipIf(!fs.existsSync(VRAI_CLASSEUR))("le VRAI classeur se lit et s'analyse (Direction), sans rien créer", async () => {

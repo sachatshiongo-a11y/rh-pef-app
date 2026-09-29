@@ -14,6 +14,7 @@ import { VentesGrid } from "./ventes-grid";
 import { ImportClasseur } from "./import-classeur";
 import { ImportCommande } from "./import-commande";
 import { chargerVentesSemaine } from "./ventes-data";
+import { ficheCommandeCalee } from "./fiches-data";
 import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
 
 type SP = { semaine?: string; domaine?: string; vue?: string; dimanche?: string };
@@ -184,12 +185,18 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
 
   // ---------- VUE COMMANDE (saisie) ----------
   if (vue === "commande") {
-    const [articles, commandes, cmdLeg] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({})]);
+    const [articles, commandes, cmdLeg, calee] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}), ficheCommandeCalee()]);
     if (inclureLegumes) articles.push(...LEGUMES.map((l) => ({ id: `legume:${l.nom}`, designation: l.unite ? `${l.nom} (${l.unite})` : l.nom, categorie: "Légumes frais" })));
     return (
       <div className="space-y-4">
         {enTete}
         <p className="text-xs text-muted-foreground">Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</p>
+        {/* Le document constate, le remède va sur l'écran : aucune note dans le PDF. */}
+        {!calee && (
+          <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Fiche commande pas encore calée sur votre classeur : lancez « Importer les lignes du classeur Commande journalière ».
+          </p>
+        )}
         {user.role === "ADMIN" && <ImportCommande />}
         <CommandeGrid articles={articles} jours={joursLabel} commandes={{ ...commandes, ...cmdLeg }} peutModifier />
       </div>

@@ -1,6 +1,7 @@
 -- Ventes journalières du restaurant (Conso. journalière → Ventes ; fiche « Rapport journalier
--- cuisine et bar », 2026-09-29). Migration PUREMENT ADDITIVE : une table neuve, rien d'existant
--- n'est modifié.
+-- cuisine et bar » et « Commande journalière », 2026-09-29). Migration PUREMENT ADDITIVE : une
+-- table neuve, et des colonnes NOUVELLES sur FicheTechnique et ArticleStock (nullables, ou booléen
+-- à false par défaut). Aucune colonne existante n'est modifiée, aucune donnée n'est réécrite.
 -- Une ligne = le nombre vendu d'UNE unité de vente (fiche technique « Plat vendu » ou fiche Bar)
 -- un jour donné. Pas de ligne = pas de saisie ; quantite = 0 = « rien vendu », saisi.
 
