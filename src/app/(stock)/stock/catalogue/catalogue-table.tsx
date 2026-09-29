@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
-import { Fragment, memo, useCallback, useMemo, useState, useTransition, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { formaterNombre } from "@/lib/montant";
 
 /** Valeur d'une case numérique à partir du texte reçu du serveur (« 12.5 », « » → null). */
 const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
@@ -64,6 +65,14 @@ const manqueDe = (a: ArticleRow, m: ManqueKey) =>
 
 const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+/** Tris proposés sur téléphone (même `tri` que les en-têtes de l'ordinateur) : valeur = « colonne:sens ». */
+const TRIS_MOBILE: readonly (readonly [string, string])[] = [
+  ["", "Tri : catégories"],
+  ["stock:1", "Tri : stock bas"],
+  ["stock:-1", "Tri : stock haut"],
+  ["alerte:1", "Tri : alertes"],
+  ["designation:1", "Tri : nom A-Z"],
+];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
 export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte }) {
@@ -153,6 +162,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     return r;
   }, []);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Téléphone : un seul article déplié à la fois (ses champs éditables), un nouvel appui le replie.
+  const [ouvert, setOuvert] = useState<string | null>(null);
+  const basculerOuvert = useCallback((id: string) => setOuvert((o) => (o === id ? null : id)), []);
   const toutSel = (on: boolean) => setSel(on ? new Set(visibles.map((a) => a.id)) : new Set());
 
   return (
@@ -198,7 +210,21 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm max-lg:min-h-11 max-lg:min-w-0 max-lg:flex-[1.15]" />
+        {/* Téléphone : le tri des en-têtes de colonne n'existe pas — même état `tri` que l'ordinateur, choisi par une liste. */}
+        <label className="flex min-w-0 flex-1 text-sm lg:hidden">
+          <select
+            value={tri ? `${tri.col}:${tri.dir}` : ""}
+            onChange={(e) => {
+              const [col, dir] = e.target.value.split(":");
+              setTri(col ? { col: col as TriCol, dir: dir === "-1" ? -1 : 1 } : null);
+            }}
+            className="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm"
+            aria-label="Trier les articles"
+          >
+            {TRIS_MOBILE.map(([valeur, label]) => <option key={valeur} value={valeur}>{label}</option>)}
+          </select>
+        </label>
         {/* Le domaine se choisit via les pilules d'en-tête (Tous / Nourriture / Boissons / Autre). */}
         <div className="flex gap-1.5 text-sm">
           {ALERTES.map(([k, label]) => (
@@ -333,16 +359,20 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       <ZoneTableur>
-      {/* Mobile : cartes éditables (une par article), groupées par catégorie. */}
-      <div data-tableur="" data-tableur-tab="natif" className="space-y-2 lg:hidden">
+      {/* Mobile : une rangée compacte par article (stock en gros), groupée par catégorie ; un appui déplie les champs éditables. */}
+      <div data-tableur="" data-tableur-tab="natif" data-vue="rangees-mobile" className="space-y-1.5 lg:hidden">
         {affichees.map((a, i) => (
           <Fragment key={a.id}>
             {!tri && (i === 0 || affichees[i - 1].categorieId !== a.categorieId) && (
-              <div className="px-1 pt-1 text-xs font-bold uppercase tracking-wide text-amber-900">
+              <div className="px-1 pt-2 text-sm font-semibold text-amber-900">
                 {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
               </div>
             )}
-            <CarteArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
+            <CarteArticle
+              a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save}
+              ouvert={ouvert === a.id} onOuvrir={basculerOuvert}
+              categorieNom={tri && a.categorieId ? catNom.get(a.categorieId) ?? null : null}
+            />
           </Fragment>
         ))}
         {visibles.length === 0 && <EtatVide message="Aucun article." />}
@@ -477,75 +507,141 @@ const LigneArticle = memo(function LigneArticle({
 
 const champLabel = "flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground";
 
-/** Carte éditable d'un article — équivalent mobile de LigneArticle (même logique d'enregistrement au blur). */
-const CarteArticle = memo(function CarteArticle({
-  a, categories, fournisseurs, selected, onToggle, onSave,
+/**
+ * Façon dont la rangée mobile montre le stock d'un article. AUCUNE règle nouvelle : la couleur suit
+ * le niveau d'alerte déjà calculé côté serveur (`niveauAlerte` : URGENT = rupture avec seuil défini,
+ * APPRO = sous le seuil), les mots sont ceux du badge (`ALERTE_LABEL`). Deux ajouts de lecture seulement :
+ *  - stock NÉGATIF : rouge et signalé « Négatif », quel que soit le seuil (c'est une anomalie à corriger) ;
+ *  - quantité INCONNUE (`niveau` nul = pas de ligne de stock, la valeur « 0 » du tableau n'est alors
+ *    qu'un défaut) : « — », jamais 0.
+ */
+export function etatStock(a: Pick<ArticleRow, "quantite" | "niveau">) {
+  const q = a.quantite.trim() === "" ? Number.NaN : Number(a.quantite);
+  const inconnu = a.niveau === null || !Number.isFinite(q);
+  const negatif = !inconnu && q < 0;
+  const ton: "rupture" | "bas" | "ok" | "inconnu" =
+    inconnu ? "inconnu" : negatif || a.niveau === "URGENT" ? "rupture" : a.niveau === "APPRO" ? "bas" : "ok";
+  return { inconnu, negatif, ton, quantite: inconnu ? null : q };
+}
+const TON_QUANTITE = { rupture: "text-red-700", bas: "text-amber-700", ok: "text-foreground", inconnu: "text-muted-foreground" } as const;
+const TON_RANGEE = { rupture: "border-red-300 bg-red-50/60", bas: "border-amber-300 bg-amber-50/60", ok: "bg-card", inconnu: "bg-card" } as const;
+
+/**
+ * Article sur téléphone — équivalent mobile de LigneArticle. Fermé : UNE rangée compacte (case des
+ * actions groupées, nom, stock + unité en gros, seuil). Ouvert : les champs éditables, avec le même
+ * enregistrement case par case qu'avant (au blur, `onSave` → `modifierArticle`).
+ */
+export const CarteArticle = memo(function CarteArticle({
+  a, categories, fournisseurs, selected, onToggle, onSave, ouvert, onOuvrir, categorieNom,
 }: {
   a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
   selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
+  ouvert: boolean; onOuvrir: (id: string) => void;
+  /** Catégorie à rappeler sous le nom quand la liste n'est pas groupée par catégorie (liste triée). */
+  categorieNom?: string | null;
 }) {
   const [busy, setBusy] = useState(false);
+  const racine = useRef<HTMLDivElement>(null);
+  // À l'ouverture, l'article reste visible en entier (marges d'écart : en-tête collant et barre du bas).
+  useEffect(() => { if (ouvert) racine.current?.scrollIntoView?.({ block: "nearest" }); }, [ouvert]);
   const catsPour = categories.filter((c) => c.domaine === a.domaine);
   const write = (name: string, value: string, prev: string) => {
     if (value === prev) return;
     setBusy(true);
     onSave(a.id, name, value).finally(() => setBusy(false));
   };
+  const etat = etatStock(a);
+  const unite = (a.unite ?? "").trim();
+  const min = Number(a.stockMinimum);
+  const idChamps = `champs-article-${a.id}`;
+  const sousNom = [a.nomCourt?.trim(), categorieNom].filter(Boolean).join(" · ");
 
   return (
-    <div className={`rounded-xl border p-3 ${selected ? "bg-primary/10" : "bg-card"} ${busy ? "opacity-60" : ""}`}>
-      <div className="flex items-start gap-2">
-        <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="mt-2 shrink-0" aria-label="Sélectionner" />
-        <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} flex-1 min-w-0 !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
-        {a.surFicheCommande && <span className="mt-1 shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary" title="Sur la fiche Commande journalière">fiche cmd</span>}
-        {a.haussePct != null && <span className="mt-1 shrink-0 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
-        <Link href={`/stock/catalogue/${a.id}`} className="mt-1.5 shrink-0 text-primary hover:text-primary/70" title="Fiche article" aria-label="Fiche article">↗</Link>
-        {a.niveau && <span className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
-      </div>
-      <label className={`${champLabel} mt-2`}>Nom court (fiche commande)
-        <input defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${a.designation}`} />
-      </label>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        {/* Stock + seuil mis en avant (comme les colonnes du tableur). */}
-        <label className={champLabel}>Stock (auto)
-          <span className={`rounded border px-1.5 py-1.5 text-right text-xs font-medium tabular-nums ${Number(a.quantite) < 0 ? "border-red-300 bg-red-50 text-red-700" : "border-input/40 bg-muted/40 text-muted-foreground"}`}>{a.quantite}</span>
+    <div ref={racine} data-article={a.id} className={`scroll-mb-24 scroll-mt-16 rounded-xl border ${selected ? "bg-primary/10" : TON_RANGEE[etat.ton]} ${busy ? "opacity-60" : ""}`}>
+      <div className="flex items-stretch">
+        {/* Case des actions groupées : la zone entière (44 px) est cliquable. */}
+        <label className="flex w-11 shrink-0 cursor-pointer items-center justify-center">
+          <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="h-5 w-5" aria-label={`Sélectionner ${a.designation}`} />
         </label>
-        <label className={champLabel}>Stock min.
-          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
-        </label>
-        <label className={`${champLabel} col-span-2`}>Catégorie
-          <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
-            <option value="">— à classer —</option>
-            {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
-          </select>
-        </label>
-        <label className={`${champLabel} col-span-2`}>
-          <span className="flex items-center justify-between">Fournisseur
-            {a.fournisseurId && (
-              <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="text-primary hover:underline">Voir la fiche ↗</Link>
-            )}
+        <button
+          type="button"
+          onClick={() => onOuvrir(a.id)}
+          aria-expanded={ouvert}
+          aria-controls={ouvert ? idChamps : undefined}
+          title={ouvert ? "Replier les champs" : "Modifier l'article"}
+          className="grid min-h-14 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-1.5 pr-3 text-left"
+        >
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{a.designation}</span>
+            <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+              {a.niveau && a.niveau !== "OK" && <span className={`shrink-0 rounded-full px-1.5 py-px font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
+              {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
+              {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
+              {sousNom && <span className="truncate">{sousNom}</span>}
+            </span>
           </span>
-          <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} !py-1.5`}>
-            <option value="">—</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
-        </label>
-        <label className={champLabel}>Code article
-          <input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
-        </label>
-        <label className={champLabel}>Unité
-          <input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
-        </label>
-        <label className={champLabel}>Valeur
-          <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
-        </label>
-        <label className={champLabel}>Prix USD
-          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
-        </label>
-        <label className={`${champLabel} col-span-2`}>Unités / carton
-          <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
-        </label>
+          <span className="text-right">
+            <span data-stock={etat.ton} className={`block text-xl font-bold leading-tight tabular-nums ${TON_QUANTITE[etat.ton]}`}>
+              {etat.quantite === null ? "—" : formaterNombre(etat.quantite, { maximumFractionDigits: 3 })}
+              {etat.quantite !== null && unite && <span className="ml-1 text-sm font-semibold">{unite}</span>}
+            </span>
+            <span className="block text-[11px] text-muted-foreground">{Number.isFinite(min) && min > 0 ? `min. ${formaterNombre(min, { maximumFractionDigits: 3 })}` : "sans seuil"}</span>
+          </span>
+        </button>
       </div>
+
+      {ouvert && (
+        <div id={idChamps} className="border-t px-3 pb-3 pt-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {a.surFicheCommande && <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary" title="Sur la fiche Commande journalière">fiche cmd</span>}
+            <Link href={`/stock/catalogue/${a.id}`} className="ml-auto inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:text-primary/70" aria-label={`Fiche article — ${a.designation}`}>Ouvrir la fiche ↗</Link>
+          </div>
+          <label className={champLabel}>Nom
+            <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
+          </label>
+          <label className={`${champLabel} mt-2`}>Nom court (fiche commande)
+            <input defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${a.designation}`} />
+          </label>
+          <div className="mt-2 grid grid-cols-2 gap-2 [&>*]:min-w-0">
+            <label className={champLabel}>Stock min.
+              <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
+            </label>
+            <label className={champLabel}>Unité
+              <input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
+            </label>
+            <label className={`${champLabel} col-span-2`}>Catégorie
+              <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
+                <option value="">— à classer —</option>
+                {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              </select>
+            </label>
+            <label className={`${champLabel} col-span-2`}>
+              <span className="flex items-center justify-between">Fournisseur
+                {a.fournisseurId && (
+                  <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="py-1 text-primary hover:underline">Voir la fiche ↗</Link>
+                )}
+              </span>
+              <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} !py-1.5`}>
+                <option value="">—</option>
+                {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
+              </select>
+            </label>
+            <label className={champLabel}>Code article
+              <input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
+            </label>
+            <label className={champLabel}>Prix USD
+              <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
+            </label>
+            <label className={champLabel}>Unités / carton
+              <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
+            </label>
+            <label className={champLabel}>Valeur du stock
+              <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
+            </label>
+          </div>
+          <button type="button" onClick={() => onOuvrir(a.id)} className="mt-2 min-h-11 w-full rounded-md border text-sm font-medium hover:bg-accent">Replier</button>
+        </div>
+      )}
     </div>
   );
 });
