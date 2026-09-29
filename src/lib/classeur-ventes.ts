@@ -1,5 +1,4 @@
-import JSZip from "jszip";
-import { normTexte } from "@/lib/texte";
+import { colonneDesignation, cleTexte, lireFeuillesXlsx, propre } from "@/lib/xlsx-leger";
 import { SANS_RUBRIQUE, SEPARATEUR_SOUS_RUBRIQUE, type EspaceVente } from "@/lib/ventes-journalieres";
 
 // « Importer les lignes du classeur » (Conso. journalière → Ventes, 2026-09-29) : la Direction dépose
@@ -22,8 +21,7 @@ import { SANS_RUBRIQUE, SEPARATEUR_SOUS_RUBRIQUE, type EspaceVente } from "@/lib
 //    intitulé et n'est pas une unité de vente ;
 //  - les en-têtes répétés (« Designation/Date », jours, dates) et les nombres sont ignorés.
 
-/** Taille maximale acceptée à l'envoi (le classeur de PEF fait 25 Mo, logo compris). */
-export const TAILLE_MAX_CLASSEUR = 60 * 1024 * 1024;
+export { TAILLE_MAX_CLASSEUR } from "@/lib/xlsx-leger";
 
 /** Formats de vente d'une boisson, écrits en ligne sous elle dans le classeur. */
 export const FORMATS_DE_VENTE = ["verre", "pichet 1/4", "pichet 1/2", "bouteille", "coupe", "carafe", "demi-bouteille", "1/2 bouteille"];
@@ -46,97 +44,17 @@ export type LectureClasseur = { ok: true; lignes: LigneClasseur[] } | { ok: fals
 const REFUS_CLASSEUR =
   "Ce fichier n'est pas le classeur « Rapport journalier cuisine et bar » : il faut une feuille « Cuisine » et une feuille « Bar », chacune avec une colonne « Designation/Date ».";
 
-const propre = (s: string) => s.replace(/\s+/g, " ").trim();
-const cleTexte = (s: string) => normTexte(propre(s));
-
-function decoder(s: string): string {
-  return s
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
-}
-
-function attributs(balise: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const m of balise.matchAll(/([\w:]+)="([^"]*)"/g)) out[m[1]!] = decoder(m[2]!);
-  return out;
-}
-
-/** Texte d'un <si> ou d'un <is> : tous les <t> bout à bout (texte enrichi), sans la phonétique. */
-const texteRiche = (xml: string) =>
-  decoder([...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => m[1]).join(""));
-
-const lettres = (ref: string) => ref.replace(/\d+$/, "");
-
-type Cellule = { col: string; texte: string | null; gras: boolean };
-
-async function lireFichier(zip: JSZip, chemin: string): Promise<string | null> {
-  const f = zip.file(chemin);
-  return f ? f.async("string") : null;
-}
-
 /** Lit le classeur (octets du .xlsx). Ne lève jamais : un refus revient en `{ ok: false, erreur }`. */
 export async function lireClasseurVentes(donnees: ArrayBuffer | Uint8Array): Promise<LectureClasseur> {
-  if (donnees.byteLength > TAILLE_MAX_CLASSEUR) return { ok: false, erreur: "Fichier trop lourd (plus de 60 Mo) : ce n'est pas le classeur attendu." };
-  let zip: JSZip;
-  try {
-    zip = await JSZip.loadAsync(donnees);
-  } catch {
-    return { ok: false, erreur: "Fichier illisible : un classeur Excel (.xlsx) est attendu." };
-  }
-  const classeur = await lireFichier(zip, "xl/workbook.xml");
-  const liens = await lireFichier(zip, "xl/_rels/workbook.xml.rels");
-  if (!classeur || !liens) return { ok: false, erreur: "Fichier illisible : un classeur Excel (.xlsx) est attendu." };
-
-  const cibles = new Map<string, string>();
-  for (const m of liens.matchAll(/<Relationship\b[^>]*>/g)) {
-    const a = attributs(m[0]);
-    if (a.Id && a.Target) cibles.set(a.Id, a.Target.startsWith("/") ? a.Target.slice(1) : `xl/${a.Target}`);
-  }
-  const feuilles = new Map<string, string>(); // nom normalisé → chemin
-  for (const m of classeur.matchAll(/<sheet\b[^>]*>/g)) {
-    const a = attributs(m[0]);
-    const chemin = cibles.get(a["r:id"] ?? "");
-    if (a.name && chemin) feuilles.set(cleTexte(a.name), chemin);
-  }
-  const cheminCuisine = feuilles.get("cuisine");
-  const cheminBar = feuilles.get("bar");
-  if (!cheminCuisine || !cheminBar) return { ok: false, erreur: REFUS_CLASSEUR };
-
-  const partages = [...((await lireFichier(zip, "xl/sharedStrings.xml")) ?? "").matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => texteRiche(m[1]!));
-
-  // Styles : style de cellule → police → gras ?
-  const styles = (await lireFichier(zip, "xl/styles.xml")) ?? "";
-  const blocPolices = /<fonts\b[^>]*>([\s\S]*?)<\/fonts>/.exec(styles)?.[1] ?? "";
-  const policesGras = [...blocPolices.matchAll(/<font\b[^>]*?(?:\/>|>([\s\S]*?)<\/font>)/g)].map((m) => {
-    const b = /<b\b([^>]*)\/?>/.exec(m[1] ?? "");
-    return !!b && !/val="(0|false)"/.test(b[1] ?? "");
-  });
-  const blocXf = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(styles)?.[1] ?? "";
-  const styleGras = [...blocXf.matchAll(/<xf\b[^>]*>/g)].map((m) => policesGras[Number(attributs(m[0]).fontId ?? 0)] ?? false);
-
+  const lu = await lireFeuillesXlsx(donnees, (nom) => nom === "cuisine" || nom === "bar");
+  if (!lu.ok) return lu;
   const lignes: LigneClasseur[] = [];
-  for (const [feuille, chemin] of [["CUISINE", cheminCuisine], ["BAR", cheminBar]] as const) {
-    const xml = await lireFichier(zip, chemin);
-    if (!xml) return { ok: false, erreur: REFUS_CLASSEUR };
-    const rangees: Cellule[][] = [];
-    for (const r of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
-      const cellules: Cellule[] = [];
-      for (const c of (r[1] ?? "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-        const a = attributs(c[1]!);
-        const contenu = c[2] ?? "";
-        const v = /<v>([\s\S]*?)<\/v>/.exec(contenu)?.[1];
-        const texte = a.t === "s" ? (v !== undefined ? partages[Number(v)] ?? null : null)
-          : a.t === "inlineStr" ? texteRiche(contenu)
-          : a.t === "str" && v !== undefined ? decoder(v)
-          : null; // nombre, date, vide : jamais une désignation
-        cellules.push({ col: lettres(a.r ?? ""), texte: texte !== null && propre(texte) ? propre(texte) : null, gras: styleGras[Number(a.s ?? 0)] ?? false });
-      }
-      rangees.push(cellules);
-    }
-    const iEntete = rangees.findIndex((cs) => cs.some((c) => c.texte && cleTexte(c.texte).startsWith("designation")));
-    if (iEntete < 0) return { ok: false, erreur: REFUS_CLASSEUR };
-    const col = rangees[iEntete]!.find((c) => c.texte && cleTexte(c.texte).startsWith("designation"))!.col;
+  for (const [feuille, nom] of [["CUISINE", "cuisine"], ["BAR", "bar"]] as const) {
+    const rangees = lu.feuilles.get(nom);
+    if (!rangees) return { ok: false, erreur: REFUS_CLASSEUR };
+    const tete = colonneDesignation(rangees);
+    if (!tete) return { ok: false, erreur: REFUS_CLASSEUR };
+    const { col, entete: iEntete } = tete;
 
     let rubrique: string | null = null;
     let titrePrecedent: string | null = null; // rubrique « nue » de la rangée précédente, si c'en était une
