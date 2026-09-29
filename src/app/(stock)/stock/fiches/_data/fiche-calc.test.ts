@@ -124,8 +124,17 @@ describe("passerelle écran → moteur de disponibilité", () => {
     const r = disponibilitesDesFiches([sauce, plat], articles, { a1: { depot: "2", restaurant: null, dernierMouvement: "2026-09-23" } }, "2026-09-24");
     expect(r.get("p1")).toMatchObject({ etat: "DISPONIBLE", portions: 8, limitant: "Crème" });
     expect(resumerDispo(r.get("s1")!, sauce)).toEqual({
-      etat: "DISPONIBLE", portions: 2, limitant: "Crème", enRupture: [], raisons: [], rendement: "1 000 g",
+      etat: "DISPONIBLE", recetteACompleter: false, portions: 2, limitant: "Crème", enRupture: [], raisons: [], rendement: "1 000 g",
     });
+  });
+
+  it("fiche SANS recette (import du classeur des ventes) : « Recette à compléter », ni disponible ni à vérifier", () => {
+    const plat = fiche({ id: "p1", nom: "Pesto", nbPortions: 1, lignes: [] });
+    const r = disponibilitesDesFiches([plat], [], {}, "2026-09-24").get("p1")!;
+    expect(r.etat).not.toBe("DISPONIBLE");
+    const d = resumerDispo(r, plat);
+    expect(d.recetteACompleter).toBe(true);
+    expect(badgeDispo(d, false).texte).toBe("Recette à compléter");
   });
 
   it("liste des fiches : un stock figé met sa raison dans le badge « À vérifier »", () => {

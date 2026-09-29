@@ -11,6 +11,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { MenuFichesConso } from "./menu-fiches-conso";
 import { VentesGrid } from "./ventes-grid";
+import { ImportClasseur } from "./import-classeur";
 import { chargerVentesSemaine } from "./ventes-data";
 import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
 
@@ -21,7 +22,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
 
 export default async function JournalierPage({ searchParams }: { searchParams: Promise<SP> }) {
-  await exigerPageStock();
+  const user = await exigerPageStock();
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
   const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" ? sp.vue : "conso";
@@ -147,12 +148,13 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       <div className="space-y-4">
         {enTete}
         <p className="text-xs text-muted-foreground">
-          Saisissez le <strong>nombre vendu</strong> par plat (Cuisine : fiches techniques « Plat vendu ») et par boisson (Bar : articles de l&apos;écran Stock restaurant et fiches techniques Bar), jour par jour. Case vide = pas de saisie (« — ») ; 0 = rien vendu. Enregistrement automatique ; collage depuis Excel possible. Un plat absent de la liste s&apos;ajoute en créant sa fiche technique.
+          Saisissez le <strong>nombre vendu</strong> par unité de vente, jour par jour : Cuisine = fiches techniques « Plat vendu », Bar = fiches techniques Bar (verre, cocktail, café…) — jamais les bouteilles du stock. Case vide = pas de saisie (« — ») ; 0 = rien vendu. Enregistrement automatique ; collage depuis Excel possible.
           {" "}
           {!dimancheVendu && (
             <Link href={lienDimanche(!dimanche)} className="underline underline-offset-2 hover:text-foreground">{dimanche ? "Masquer le dimanche" : "Saisir aussi le dimanche"}</Link>
           )}
         </p>
+        {user.role === "ADMIN" && <ImportClasseur />}
         <VentesGrid
           lignes={espaces.flatMap((e) => v.lignes[e])}
           jours={jours}

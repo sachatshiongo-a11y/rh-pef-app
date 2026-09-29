@@ -10,7 +10,7 @@ import { estErreur } from "@/lib/action-lisible";
 import { usd } from "@/lib/stock";
 import { normTexte } from "@/lib/texte";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
-import { pct, TYPE_LABEL, badgeDispo, DISPO_CLASSE, type DispoRow } from "./_data/fiche-calc";
+import { pct, TYPE_LABEL, badgeDispo, CLASSE_RECETTE_A_COMPLETER, DISPO_CLASSE, type DispoRow } from "./_data/fiche-calc";
 import { creerFiche, supprimerFiches, dupliquerFiches } from "./actions";
 
 export type FicheRow = {
@@ -248,7 +248,7 @@ function BadgeDispo({ dispo, estSousRecette }: { dispo: DispoRow; estSousRecette
   const { texte, detail } = badgeDispo(dispo, estSousRecette);
   return (
     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      <span title={detail ?? undefined} className={`inline-block max-w-full whitespace-normal break-words rounded-full px-2 py-0.5 text-[11px] font-medium ${DISPO_CLASSE[dispo.etat]}`}>
+      <span title={detail ?? undefined} className={`inline-block max-w-full whitespace-normal break-words rounded-full px-2 py-0.5 text-[11px] font-medium ${dispo.recetteACompleter ? CLASSE_RECETTE_A_COMPLETER : DISPO_CLASSE[dispo.etat]}`}>
         {texte}
       </span>
       {detail && <span className="text-[11px] text-muted-foreground sm:hidden">{detail}</span>}

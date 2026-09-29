@@ -431,6 +431,15 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo, auj
 }
 
 /** Décompte par état (tableau de bord de l'Exploitation). */
+/**
+ * Fiche SANS RECETTE (aucun ingrédient) : ni disponible, ni en rupture — « Recette à compléter ».
+ * Cas des fiches créées par l'import du classeur des ventes (2026-09-29), que la Direction complète
+ * ensuite : elles ne doivent ni gonfler les « à vérifier » ni passer pour disponibles.
+ */
+export function recetteACompleter(r: { raisons: RaisonDispo[] }): boolean {
+  return r.raisons.length > 0 && r.raisons.every((x) => x.motif === "AUCUN_INGREDIENT" && x.ingredient === null);
+}
+
 export function decompterEtats(resultats: Iterable<{ etat: EtatDispo }>): Record<EtatDispo, number> {
   const n: Record<EtatDispo, number> = { DISPONIBLE: 0, RUPTURE: 0, A_VERIFIER: 0 };
   for (const r of resultats) n[r.etat] += 1;

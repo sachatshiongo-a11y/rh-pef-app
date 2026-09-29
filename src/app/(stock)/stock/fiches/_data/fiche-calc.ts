@@ -9,7 +9,7 @@
 
 import type { FicheCalc, IngredientCalc, MotifSansPrix } from "@/lib/fiches/cout";
 import {
-  calculerDisponibilite, libelleRaison,
+  calculerDisponibilite, libelleRaison, recetteACompleter,
   type ArticleDispo, type EtatDispo, type FicheDispo, type ResultatDisponibilite, type StockArticle,
 } from "@/lib/fiches/disponibilite";
 import { formaterNombre } from "@/lib/montant";
@@ -197,12 +197,15 @@ export type DispoRow = {
   raisons: string[];
   /** Sous-recette : son rendement lisible (« 1 000 g »), sinon null. */
   rendement: string | null;
+  /** Fiche sans aucun ingrédient : « Recette à compléter » (ni disponible, ni à vérifier). */
+  recetteACompleter?: boolean;
 };
 
 export function resumerDispo(r: ResultatDisponibilite, vue: Pick<FicheVue, "estSousRecette" | "rendementQuantite" | "rendementUnite">): DispoRow {
   const q = Number(vue.rendementQuantite);
   return {
     etat: r.etat,
+    recetteACompleter: recetteACompleter(r),
     portions: r.portions,
     limitant: r.limitant,
     enRupture: r.enRupture,
@@ -212,6 +215,9 @@ export function resumerDispo(r: ResultatDisponibilite, vue: Pick<FicheVue, "estS
       : null,
   };
 }
+
+/** Badge neutre d'une fiche sans recette. */
+export const CLASSE_RECETTE_A_COMPLETER = "bg-muted text-muted-foreground";
 
 export const DISPO_CLASSE: Record<EtatDispo, string> = {
   DISPONIBLE: "bg-emerald-100 text-emerald-800",
@@ -224,6 +230,7 @@ export const DISPO_CLASSE: Record<EtatDispo, string> = {
  * (« 3 × 1 000 g »). `detail` est l'ingrédient limitant (infobulle, et texte visible sur téléphone).
  */
 export function badgeDispo(d: DispoRow, estSousRecette: boolean): { texte: string; detail: string | null } {
+  if (d.recetteACompleter) return { texte: "Recette à compléter", detail: null };
   if (d.etat === "A_VERIFIER") {
     const n = d.raisons.length;
     return { texte: `À vérifier · ${d.raisons[0] ?? "raison inconnue"}${n > 1 ? ` · ${n} raisons` : ""}`, detail: null };

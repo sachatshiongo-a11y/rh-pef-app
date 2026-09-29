@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { formaterNombre } from "@/lib/montant";
 import {
-  libelleRaison,
+  libelleRaison, recetteACompleter,
   type DetailArticleDispo, type DetailLigneDispo, type ResultatDisponibilite,
 } from "@/lib/fiches/disponibilite";
-import { DISPO_CLASSE } from "../_data/fiche-calc";
+import { CLASSE_RECETTE_A_COMPLETER, DISPO_CLASSE } from "../_data/fiche-calc";
 
 // Disponibilité sur la page d'une fiche : pure présentation du résultat de `calculerDisponibilite`
 // (aucun calcul ici). Quantités par `formaterNombre` (montant.ts), jamais un formateur local.
@@ -25,6 +25,16 @@ export function BlocDisponibilite({
 }) {
   const unite = estSousRecette ? (rendement ? `× ${rendement}` : "fournée(s)") : "portion(s)";
   const limitant = dispo.limitantId ? dispo.articles.find((a) => a.articleId === dispo.limitantId) : undefined;
+  // Fiche sans recette (import du classeur des ventes) : ni disponible, ni « à vérifier ».
+  if (recetteACompleter(dispo)) {
+    return (
+      <section className="rounded-xl border p-4">
+        <h2 className="mb-2 text-base font-semibold">Disponibilité selon le stock</h2>
+        <span className={`rounded-full px-2.5 py-0.5 text-sm font-medium ${CLASSE_RECETTE_A_COMPLETER}`}>Recette à compléter</span>
+        <p className="mt-2 text-sm text-muted-foreground">Aucun ingrédient : ni coût ni disponibilité tant que la recette n&apos;est pas saisie.</p>
+      </section>
+    );
+  }
   return (
     <section className="rounded-xl border p-4">
       <h2 className="mb-2 text-base font-semibold">Disponibilité selon le stock</h2>
