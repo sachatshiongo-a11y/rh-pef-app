@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ConsommationReelle } from "@/lib/stock-restaurant";
 import {
-  dateLongue, enteteJour, feuilleExcel, ficheCommandeJournaliere, nomImprime, ficheConsommationReelle, ficheRapportJournalier, partiePdf, semaineIso, texteCase,
+  dateCourte, dateLongue, enteteJour, feuilleExcel, ficheCommandeJournaliere, ficheCommandeRemplie, fichesCommandeSemaine, nomFeuilleJour, nomImprime, ficheConsommationReelle, ficheRapportJournalier, partiePdf, semaineIso, texteCase,
 } from "./fiches-conso";
 import type { LigneVente } from "./ventes-journalieres";
 
@@ -221,5 +221,60 @@ describe("commande journalière", () => {
     expect(x.sectionRows).toEqual([0]);
     expect(x.couleurTexteCellule(1, 2)).toBe("FF1B7F3B");
     expect(x.couleurTexteCellule(0, 2)).toBeUndefined(); // ligne de rubrique
+  });
+});
+
+describe("commande journalière de toute la semaine", () => {
+  const articles = [{ id: "boeuf", designation: "Filet pur Boeuf", unite: "Kg", categorie: "Viande" }, { id: "castel", designation: "Castel", unite: null, categorie: "Bière" }];
+  const vide = new Map<string, number>();
+  const jour = (date: string, cmd = vide, liv = vide) => ({
+    date,
+    fiches: (["CUISINE", "BAR"] as const).map((espace) => ficheCommandeJournaliere({ espace, date, articles, commandes: cmd, livraisons: liv })),
+  });
+  const semaine = (dimanche: ReturnType<typeof jour>) => [
+    jour("2026-09-28", new Map([["boeuf", 2]])), jour("2026-09-29"), jour("2026-09-30"), jour("2026-10-01"), jour("2026-10-02"), jour("2026-10-03"), dimanche,
+  ];
+
+  it("en-tête du classeur : « Date : JJ/MM/AAAA » sous le titre « … — semaine N », repris dans le PDF et l'Excel", () => {
+    expect(dateCourte("2026-09-02")).toBe("02/09/2026");
+    const f = jour("2026-09-29").fiches[0]!;
+    expect(f.titre).toBe("Commande cuisine — semaine 40");
+    expect(f.sousTitre).toBe("Date : 29/09/2026");
+    expect(partiePdf(f)).toMatchObject({ titre: "Commande cuisine — semaine 40", sousTitre: "Date : 29/09/2026" });
+    expect(feuilleExcel(f).titre).toBe("Commande cuisine — semaine 40 — Date : 29/09/2026");
+    // Les autres fiches n'ont pas de sous-titre : rien ne change pour elles.
+    expect("sousTitre" in partiePdf({ ...f, sousTitre: undefined })).toBe(false);
+  });
+
+  it("fiche remplie = au moins une quantité commandée OU livrée ; l'unité ne compte pas", () => {
+    expect(ficheCommandeRemplie(jour("2026-10-04").fiches[0]!)).toBe(false); // unité « Kg » seule
+    expect(ficheCommandeRemplie(jour("2026-10-04", new Map([["boeuf", 1]])).fiches[0]!)).toBe(true);
+    expect(ficheCommandeRemplie(jour("2026-10-04", vide, new Map([["castel", 6]])).fiches[1]!)).toBe(true);
+  });
+
+  it("noms de feuille « Lun 28 Cuisine », « Jeu 1 Bar » : 31 caractères au plus", () => {
+    expect(nomFeuilleJour("2026-09-28", "CUISINE")).toBe("Lun 28 Cuisine");
+    expect(nomFeuilleJour("2026-10-01", "BAR")).toBe("Jeu 1 Bar");
+    expect(nomFeuilleJour("2026-10-04", "CUISINE")).toBe("Dim 4 Cuisine");
+    for (let i = 0; i < 7; i++) for (const e of ["CUISINE", "BAR"] as const) expect(nomFeuilleJour(`2026-09-${String(21 + i).padStart(2, "0")}`, e).length).toBeLessThanOrEqual(31);
+  });
+
+  it("lundi → samedi ; le dimanche vide est omis, jamais un jour de semaine vide", () => {
+    const r = fichesCommandeSemaine(semaine(jour("2026-10-04")), ["CUISINE", "BAR"]);
+    expect(r.map((j) => j.date)).toEqual(["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03"]);
+    expect(r.flatMap((j) => j.fiches.map((f) => f.feuille))).toEqual(
+      ["Lun 28", "Mar 29", "Mer 30", "Jeu 1", "Ven 2", "Sam 3"].flatMap((j) => [`${j} Cuisine`, `${j} Bar`]),
+    );
+    // Cuisine puis Bar, chaque jour ; le contenu de la fiche n'est pas touché.
+    expect(r[0]!.fiches.map((f) => f.titre)).toEqual(["Commande cuisine — semaine 40", "Commande bar — semaine 40"]);
+  });
+
+  it("le dimanche apparaît dès qu'une de ses fiches porte une commande ou une livraison", () => {
+    const r = fichesCommandeSemaine(semaine(jour("2026-10-04", vide, new Map([["castel", 6]]))), ["CUISINE", "BAR"]);
+    expect(r.map((j) => j.date).at(-1)).toBe("2026-10-04");
+    expect(r.at(-1)!.fiches.map((f) => f.feuille)).toEqual(["Dim 4 Cuisine", "Dim 4 Bar"]);
+    // Filtre de l'écran (Bar seul) : les noms suivent l'espace demandé.
+    const bar = fichesCommandeSemaine(semaine(jour("2026-10-04")).map((j) => ({ date: j.date, fiches: [j.fiches[1]!] })), ["BAR"]);
+    expect(bar.map((j) => j.fiches[0]!.feuille)).toEqual(["Lun 28 Bar", "Mar 29 Bar", "Mer 30 Bar", "Jeu 1 Bar", "Ven 2 Bar", "Sam 3 Bar"]);
   });
 });

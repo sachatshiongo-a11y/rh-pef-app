@@ -37,6 +37,8 @@ export type Fiche = {
   feuille: string;
   /** Titre de la fiche (partie du PDF, titre de la feuille Excel). */
   titre: string;
+  /** Ligne sous le titre (« Date : 22/09/2026 », comme la case « Date : » du classeur). */
+  sousTitre?: string;
   /** Colonnes après « Désignation ». */
   colonnes: { entete: string; role: RoleColonne }[];
   /** Libellé de la 1re colonne (« Désignation/Date » ou « Désignation », comme le classeur). */
@@ -66,6 +68,9 @@ export function enteteJour(iso: string): string {
   const d = jourPur(iso);
   return `${JOURS_COURTS[(d.getUTCDay() + 6) % 7]} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 }
+
+/** « 22/09/2026 ». */
+export const dateCourte = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 
 /** « mardi 22 septembre 2026 ». */
 export function dateLongue(iso: string): string {
@@ -294,10 +299,38 @@ export function ficheCommandeJournaliere(p: {
   return {
     feuille: cuisine ? "Fiche commande cuisine" : "Fiche commande Bar",
     titre: `Commande ${cuisine ? "cuisine" : "bar"} — semaine ${semaineIso(p.date)}`,
+    sousTitre: `Date : ${dateCourte(p.date)}`,
     enteteDesignation: cuisine ? "Désignation/Date" : "Désignation",
     colonnes,
     sections,
   };
+}
+
+/** Vrai quand la fiche commande porte au moins une quantité commandée ou livrée. */
+export function ficheCommandeRemplie(f: Fiche): boolean {
+  return f.sections.some((s) => s.lignes.some((l) => l.cases.some((c, i) => {
+    const role = f.colonnes[i]?.role;
+    return (role === "cmd" || role === "liv") && typeof c.valeur === "number";
+  })));
+}
+
+/** Nom de feuille Excel d'une fiche commande de la semaine : « Lun 29 Cuisine », « Lun 29 Bar » (≤ 31 caractères). */
+export function nomFeuilleJour(iso: string, espace: EspaceFiche): string {
+  const d = jourPur(iso);
+  return `${JOURS_COURTS[(d.getUTCDay() + 6) % 7]} ${d.getUTCDate()} ${espace === "CUISINE" ? "Cuisine" : "Bar"}`;
+}
+
+/**
+ * Commande journalière de TOUTE une semaine : pour chaque jour (lundi → samedi, et le dimanche
+ * seulement s'il porte une commande ou une livraison — une donnée n'est jamais cachée, un jour
+ * vide n'est pas ajouté au modèle), les fiches du jour dans l'ordre des `espaces` (Cuisine puis
+ * Bar). Chaque fiche prend le nom de feuille de son jour (« Lun 29 Cuisine »).
+ * `jours` : les 7 jours de la semaine, dans l'ordre, chacun avec ses fiches (une par espace).
+ */
+export function fichesCommandeSemaine(jours: { date: string; fiches: Fiche[] }[], espaces: EspaceFiche[]): { date: string; fiches: Fiche[] }[] {
+  return jours
+    .filter((j) => jourPur(j.date).getUTCDay() !== 0 || j.fiches.some(ficheCommandeRemplie))
+    .map((j) => ({ date: j.date, fiches: j.fiches.map((f, i) => ({ ...f, feuille: nomFeuilleJour(j.date, espaces[i]!) })) }));
 }
 
 // ─── Rendu : PDF (une partie par fiche) et Excel (une feuille par fiche) ─────
@@ -347,6 +380,7 @@ export function partiePdf(f: Fiche): PartieTableau {
   const { lignes, sectionRows } = aPlat(f, texteCase);
   return {
     titre: f.titre,
+    ...(f.sousTitre ? { sousTitre: f.sousTitre } : {}),
     colonnes: largeurs(f),
     lignes,
     sectionRows,
@@ -371,7 +405,7 @@ export function feuilleExcel(f: Fiche): {
   const rubriques = new Set(sectionRows);
   return {
     nom: f.feuille,
-    titre: f.titre,
+    titre: f.sousTitre ? `${f.titre} — ${f.sousTitre}` : f.titre,
     entete: [f.enteteDesignation, ...f.colonnes.map((c) => c.entete)],
     lignes,
     sectionRows,

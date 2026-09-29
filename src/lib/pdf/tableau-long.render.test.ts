@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import React from "react";
 import { Document, Page } from "@react-pdf/renderer";
 import { renderPdfBuffer } from "./fonts";
-import { TablesDocument } from "./tableau";
+import { TableauxParPartieDocument, TablesDocument } from "./tableau";
 import { TableauMouvements } from "./rapport-exploitation";
 import { celluleRapportPdf, libellePeriodeRapport, versTableSpec } from "@/lib/rapports-pdf";
 import { ecartMinimalEntreRangees, pagesDuPdf, policesDeRepli, textesPoses } from "@/lib/test/pdf-lecture";
@@ -98,4 +98,34 @@ describe("cellules des rapports dans le PDF", () => {
     expect(celluleRapportPdf("Variation", "↓ 5 %")).toBe("−5 %");
     expect(celluleRapportPdf("Statut", "Payée")).toBe("Payée");
   });
+});
+
+describe("titre de rubrique en bas de page (fiches de la Conso. journalière)", () => {
+  // Commande journalière du 2026-09-29, sur les lignes du vrai classeur : « Crèmerie-Fromagerie »
+  // restait SEUL en bas de la page 1, ses lignes sur la page suivante.
+  it("un titre de rubrique n'est jamais la dernière rangée d'une page : il part avec ses lignes", async () => {
+    const RUB = /^Rubrique \d+$/, LIGNE = /^Ligne \d+-\d+$/;
+    for (let decalage = 1; decalage <= 5; decalage++) {
+      const lignes: string[][] = [], sectionRows: number[] = [];
+      for (let i = 0; i < decalage; i++) lignes.push([`Ligne 0-${i}`, "Kg", "", ""]);
+      for (let k = 1; k <= 30; k++) {
+        sectionRows.push(lignes.length);
+        lignes.push([`Rubrique ${k}`]);
+        for (let i = 0; i < 4; i++) lignes.push([`Ligne ${k}-${i}`, "Kg", "", ""]);
+      }
+      const pdf = await renderPdfBuffer(TableauxParPartieDocument({
+        titre: "Commande journalière", sousTitre: "semaine 40",
+        parties: [{ titre: "Commande cuisine — semaine 40", sousTitre: "Date : 29/09/2026", sectionRows, lignes, colonnes: [
+          { header: "Désignation/Date", width: "52%" }, { header: "Unité", width: "16%" }, { header: "Commande", width: "16%" }, { header: "Livraison", width: "16%" },
+        ] }],
+      }));
+      const textes = (await textesPoses(pdf)).filter((t) => RUB.test(t.texte) || LIGNE.test(t.texte));
+      const pages = [...new Set(textes.map((t) => t.page))];
+      expect(pages.length, `décalage ${decalage}`).toBeGreaterThan(2);
+      for (const p of pages) {
+        const derniere = textes.filter((t) => t.page === p).sort((a, b) => b.y - a.y)[0]!;
+        expect(derniere.texte, `décalage ${decalage}, page ${p}`).toMatch(LIGNE);
+      }
+    }
+  }, 60_000);
 });
