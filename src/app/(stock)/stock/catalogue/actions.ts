@@ -57,6 +57,7 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
   const data: Prisma.ArticleStockUpdateInput = {};
   if (formData.has("code")) data.code = String(formData.get("code") ?? "").trim() || null;
   if (formData.has("designation")) data.designation = String(formData.get("designation")).trim();
+  if (formData.has("nomCourt")) data.nomCourt = String(formData.get("nomCourt") ?? "").trim() || null;
   if (formData.has("prixUnitaireUSD")) data.prixUnitaireUSD = dec(formData.get("prixUnitaireUSD"));
   if (formData.has("uniteParCarton")) data.uniteParCarton = dec(formData.get("uniteParCarton"));
   if (formData.has("unite")) data.unite = String(formData.get("unite")).trim() || null;
@@ -151,6 +152,21 @@ export const basculerActifArticles = actionLisible(async (articleIds: string[], 
   await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "actif", nouvelleValeur: `${n.count} article(s) ${actif ? "activé(s)" : "désactivé(s)"}`, userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
+});
+
+/**
+ * Met des articles « Sur la fiche commande » (ou les en retire), d'un coup. Un article mis sans rang
+ * se range en fin de sa rubrique ; retirer garde son rang et sa rubrique (le remettre les retrouve).
+ */
+export const basculerFicheCommande = actionLisible(async (articleIds: string[], sur: boolean) => {
+  const user = await garde();
+  const uniq = [...new Set((Array.isArray(articleIds) ? articleIds : []).map(String))].filter(Boolean);
+  if (uniq.length === 0) throw new Error("Aucun article sélectionné.");
+  const n = await prisma.articleStock.updateMany({ where: { id: { in: uniq }, surFicheCommande: !sur }, data: { surFicheCommande: sur } });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "ficheCommande", nouvelleValeur: `${n.count} article(s) ${sur ? "mis sur" : "retiré(s) de"} la fiche commande`, userId: user.id });
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/journalier");
+  return { ok: true as const, modifies: n.count };
 });
 
 /** Affecte un fournisseur (ou le retire si vide) à plusieurs articles d'un coup. */

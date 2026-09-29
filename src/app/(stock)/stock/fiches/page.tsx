@@ -51,7 +51,9 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
     };
   });
 
-  const partielles = rows.filter((r) => r.incomplet).length;
+  // Une fiche SANS recette n'a pas un coût partiel : elle n'a pas de coût (« — », recette à compléter).
+  const partielles = rows.filter((r) => r.incomplet && r.nbIngredients > 0).length;
+  const sansRecette = rows.filter((r) => r.nbIngredients === 0 && !r.estSousRecette).length;
 
   return (
     <div className="space-y-4">
@@ -59,7 +61,7 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
         <h1 className="text-xl font-semibold sm:text-2xl">Fiches techniques</h1>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-muted-foreground">
-            {rows.length} fiche(s){partielles > 0 && ` · ${partielles} au coût partiel`}
+            {rows.length} fiche(s){partielles > 0 && ` · ${partielles} au coût partiel`}{sansRecette > 0 && ` · ${sansRecette} recette(s) à compléter`}
           </span>
           <BoutonRapport excelHref="/stock/fiches/export" />
         </div>

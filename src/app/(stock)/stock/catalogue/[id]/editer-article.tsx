@@ -16,6 +16,7 @@ export type ArticleEdit = {
   domaine: "NOURRITURE" | "BOISSON" | "AUTRE";
   code: string | null;
   designation: string;
+  nomCourt: string | null;
   unite: string | null;
   uniteParCarton: string | null;
   prixUnitaireUSD: string | null;
@@ -76,6 +77,9 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Désignation *
             <input name="designation" defaultValue={a.designation} required className={inp} />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Nom court (fiche Commande journalière)
+            <input name="nomCourt" defaultValue={a.nomCourt ?? ""} placeholder="ex. Carré d'agneau" className={inp} />
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Code article
             <input name="code" defaultValue={a.code ?? ""} placeholder="ex. 137" className={inp} />

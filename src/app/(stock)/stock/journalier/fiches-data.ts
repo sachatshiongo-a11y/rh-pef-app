@@ -2,11 +2,12 @@ import "server-only";
 
 import type { DomaineStock } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
+import { articlesRestoDeLaPeriode, chargerEntreesStockResto, designationResto } from "@/lib/stock-restaurant-charger";
 import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { ficheAchatRemplie } from "@/lib/pdf/fiche-achat-legumes";
-import { ficheCommandeJournaliere, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
+import { ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
 import { LEGUMES } from "../legumes/legumes-data";
+import { chargerVentesSemaine } from "./ventes-data";
 
 // Chargement des fiches de l'onglet Consommation (lecture seule, requêtes groupées).
 
@@ -20,21 +21,33 @@ const jourPur = (s: string) => new Date(`${s}T00:00:00Z`);
  */
 export const DOMAINES_FICHE: Record<EspaceFiche, DomaineStock[]> = { CUISINE: ["NOURRITURE", "AUTRE"], BAR: ["BOISSON"] };
 
-/** Rapport journalier (une fiche par espace) de la semaine du `lundi`. */
+/** Rapport journalier — plats et boissons VENDUS (une fiche par espace) — de la semaine du `lundi`. */
 export async function chargerRapportsJournaliers(lundi: Date, espaces: EspaceFiche[]): Promise<Fiche[]> {
+  const v = await chargerVentesSemaine(lundi, espaces);
+  return espaces.map((espace) => ficheRapportJournalier({ espace, jours: v.jours, lignes: v.lignes[espace], ventes: v.ventes }));
+}
+
+/** Consommation réelle des articles du restaurant (une fiche par espace) de la semaine du `lundi`. */
+export async function chargerConsommationsReelles(lundi: Date, espaces: EspaceFiche[]): Promise<Fiche[]> {
   const jours = Array.from({ length: 7 }, (_, i) => { const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + i); return iso(d); });
   const [articles, entrees] = await Promise.all([
     // Même ordre que l'écran « Stock restaurant » (et sa fiche d'inventaire).
+    // Actifs, et désactivés qui ont un comptage ou une livraison dans la semaine (« (désactivé) »).
     prisma.articleResto.findMany({
-      where: { actif: true, espace: { in: espaces } },
+      where: { AND: [{ espace: { in: espaces } }, articlesRestoDeLaPeriode(jours[0]!, jours[6]!)] },
       orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
-      select: { id: true, designation: true, unite: true, categorie: true, espace: true },
+      select: { id: true, designation: true, unite: true, categorie: true, espace: true, actif: true },
     }),
-    chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]! }),
+    chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]!, inclureDesactives: true }),
   ]);
   return espaces.map((espace) =>
-    ficheRapportJournalier({ espace, jours, articles: articles.filter((a) => a.espace === espace), conso: (id, j) => consommationReelle(entrees, id, j) }),
+    ficheConsommationReelle({ espace, jours, articles: articles.filter((a) => a.espace === espace).map((a) => ({ ...a, designation: designationResto(a) })), conso: (id, j) => consommationReelle(entrees, id, j) }),
   );
+}
+
+/** Vrai dès qu'au moins un article est coché « Sur la fiche commande » (fiche calée sur le classeur). */
+export async function ficheCommandeCalee(): Promise<boolean> {
+  return (await prisma.articleStock.count({ where: { surFicheCommande: true } })) > 0;
 }
 
 /**
@@ -61,13 +74,21 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
     else if (s.categorieSortie !== "PERTE") sansMotif++;
   }
 
-  // Articles actifs, plus ceux (désactivés depuis) qui ont une commande ou une livraison ce jour :
-  // une quantité enregistrée n'est jamais cachée.
   const mouvementes = [...new Set([...cmd.keys(), ...liv.keys()])];
+  // Comme le classeur : les articles COCHÉS « Sur la fiche commande » — plus ceux qui ont une
+  // commande ou une livraison ce jour-là (une quantité enregistrée n'est jamais cachée). Tant
+  // qu'AUCUN article n'est coché (fiche pas encore calée sur le classeur), l'ancien contenu : tous
+  // les articles actifs — jamais une fiche presque vide. Le document ne le dit pas : l'écran, oui.
+  const calee = await ficheCommandeCalee();
   const articles = await prisma.articleStock.findMany({
-    where: { domaine: { in: domaines }, OR: [{ actif: true }, { id: { in: mouvementes } }] },
+    where: { domaine: { in: domaines }, OR: [{ actif: true, ...(calee ? { surFicheCommande: true } : {}) }, { id: { in: mouvementes } }] },
     orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
-    select: { id: true, designation: true, unite: true, domaine: true, categorie: { select: { nom: true } } },
+    select: {
+      id: true, designation: true, nomCourt: true, unite: true, domaine: true, categorie: { select: { nom: true } },
+      surFicheCommande: true, ordreCommande: true, rubriqueCommande: true,
+      // Nom court de repli : l'article du restaurant rattaché (geste de la Direction, jamais deviné).
+      articlesResto: { where: { actif: true }, select: { designation: true } },
+    },
   });
   const rang = (d: DomaineStock) => domaines.indexOf(d);
 
@@ -99,7 +120,10 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
       articles: articles
         .filter((a) => DOMAINES_FICHE[espace].includes(a.domaine))
         .sort((a, b) => rang(a.domaine) - rang(b.domaine))
-        .map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, categorie: a.categorie?.nom ?? null })),
+        .map((a) => ({
+          id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: a.articlesResto.map((r) => r.designation), unite: a.unite, categorie: a.categorie?.nom ?? null,
+          surFicheCommande: calee ? a.surFicheCommande : undefined, ordreCommande: a.ordreCommande, rubriqueCommande: a.rubriqueCommande,
+        })),
       commandes: cmd,
       livraisons: liv,
       legumes: espace === "CUISINE" ? legumes : undefined,

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import type { StockArticle } from "@/lib/fiches/disponibilite";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { stockRestaurantPourDisponibilite } from "@/lib/stock-restaurant";
-import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
+import { chargerEntreesStockResto, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import type { ArticleOption, FicheVue } from "./fiche-calc";
 
 // Lecture Prisma → vues d'écran. Les `Decimal` de la base sont convertis en TEXTE (jamais en
@@ -127,10 +127,13 @@ export async function chargerArticlesSelectionnables(): Promise<ArticleOption[]>
  * `aujourdhui` (AAAA-MM-JJ, Kinshasa) : les livraisons datées après ne comptent pas encore.
  */
 export async function chargerStocksDesFiches(aujourdhui: string = jourKinshasaISO()): Promise<Record<string, StockArticle>> {
-  const [depots, entrees, mouvements] = await Promise.all([
+  const [depots, entrees, mouvements, desactives] = await Promise.all([
     prisma.stock.findMany({ select: { articleId: true, quantite: true } }),
     chargerEntreesStockResto({ depuis: aujourdhui, jusquA: aujourdhui }),
     prisma.mouvementStock.groupBy({ by: ["articleId"], _max: { date: true } }),
+    // Articles du restaurant DÉSACTIVÉS avec encore du stock compté : l'article du catalogue
+    // rattaché passe « À vérifier » (jamais repli silencieux sur le dépôt seul).
+    stocksComptesResto({ actif: false, articleStockId: { not: null } }),
   ]);
   // `MouvementStock.date` est une date PURE (@db.Date, minuit UTC) : AAAA-MM-JJ sans fuseau.
   const dernierMouvement = new Map(mouvements.map((m) => [m.articleId, m._max.date ? m._max.date.toISOString().slice(0, 10) : null]));
@@ -140,6 +143,10 @@ export async function chargerStocksDesFiches(aujourdhui: string = jourKinshasaIS
   for (const d of depots) stocks[d.articleId] = { depot: d.quantite.toString(), restaurant: null, dernierMouvement: dm(d.articleId) };
   for (const [articleId, restaurant] of stockRestaurantPourDisponibilite(entrees, aujourdhui)) {
     stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant, dernierMouvement: dm(articleId) };
+  }
+  for (const d of desactives) {
+    const articleId = d.articleStockId!;
+    stocks[articleId] = { depot: stocks[articleId]?.depot ?? null, restaurant: { etat: "DESACTIVE_AVEC_STOCK", articleResto: d.designation, dateComptage: d.dateComptage }, dernierMouvement: dm(articleId) };
   }
   return stocks;
 }

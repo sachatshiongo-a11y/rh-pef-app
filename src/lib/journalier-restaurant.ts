@@ -41,7 +41,7 @@ export function consommationsSemaine(e: EntreesStockResto, jours: string[], espa
   return e.articles
     .filter((a) => comptes.has(a.id) && (!espace || a.espace === espace))
     .sort((a, b) => a.designation.localeCompare(b.designation, "fr"))
-    .map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, espace: a.espace, jours: jours.map((j) => consommationReelle(e, a.id, j)) }));
+    .map((a) => ({ id: a.id, designation: a.inactif ? `${a.designation} (désactivé)` : a.designation, unite: a.unite, espace: a.espace, jours: jours.map((j) => consommationReelle(e, a.id, j)) }));
 }
 
 /** « 1 500 », « -300 » (quantité, pas un montant) ; « — » quand la consommation est inconnue. */

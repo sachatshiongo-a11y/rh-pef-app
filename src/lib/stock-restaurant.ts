@@ -30,6 +30,8 @@ export const MOTIF_LIVRAISON_RESTAURANT = "LIVRAISON_RESTAURANT";
 export type ArticleRestoSR = {
   id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; articleStockId: string | null;
   uniteCatalogue?: string | null;
+  /** Désactivé depuis (chargé seulement pour une période passée où il a un comptage ou une livraison). */
+  inactif?: boolean;
 };
 /** Comptage saisi au restaurant (dates PURES AAAA-MM-JJ, quantités en texte pleine précision). */
 export type ComptageSR = { articleRestoId: string; date: string; quantite: string };

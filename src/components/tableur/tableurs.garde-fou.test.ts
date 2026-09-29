@@ -13,6 +13,7 @@ const SRC = path.join(RACINE, "src");
 /** Les tableurs (grilles lignes × colonnes à saisie numérique, enregistrées case par case). */
 const TABLEURS: Record<string, string> = {
   "src/app/(stock)/stock/journalier/commande-grid.tsx": "Stock → Conso. journalière → Commande (articles × 7 jours)",
+  "src/app/(stock)/stock/journalier/ventes-grid.tsx": "Stock → Conso. journalière → Ventes (plats et boissons × jours)",
   "src/app/(stock)/stock/restaurant/restaurant-client.tsx": "Stock → Restaurant (stock de base + comptage par jour)",
   "src/app/(stock)/stock/reconciliation/reconciliation-client.tsx": "Stock → Réconciliation (comptage physique par article)",
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": "Stock → Inventaire (stock min., prix, unités/carton)",

@@ -1369,6 +1369,16 @@ model ArticleStock {
   id              String          @id @default(uuid())
   code            String? // « Code article » du fichier (non fiable comme clé → optionnel)
   designation     String
+  // Nom court imprimé sur la fiche « Commande journalière » (« Carré d'agneau » plutôt que la
+  // désignation du fournisseur). Saisi par la Direction ; null = repli (article du restaurant
+  // rattaché, sinon désignation). Jamais déduit.
+  nomCourt        String?
+  // Fiche « Commande journalière » (modèle du classeur de la Direction, 2026-09-29) : l'article y
+  // figure s'il est coché, sous la rubrique et au rang du classeur. Posé par l'import du classeur
+  // Commande ou par l'action groupée de l'Inventaire ; jamais déduit.
+  surFicheCommande Boolean      @default(false)
+  ordreCommande   Int?
+  rubriqueCommande String?
   domaine         DomaineStock
   categorieId     String?
   categorie       CategorieStock? @relation(fields: [categorieId], references: [id])
@@ -1698,6 +1708,29 @@ model ComptageResto {
   @@schema("stock")
 }
 
+// ─── Ventes journalières du restaurant (« Rapport journalier cuisine et bar ») ───
+// Nombre vendu par jour et par UNITÉ DE VENTE : une fiche technique « Plat vendu » (feuille Cuisine)
+// ou une fiche Bar (verre de vin, cocktail… : feuille Bar). Les bouteilles du stock bar ne sont pas
+// des lignes de vente (décision de la Direction, 2026-09-29) : leur consommation se déduira plus
+// tard de la recette de la fiche Bar (ex. un verre = x cl de la bouteille).
+// Saisi dans Conso. journalière → Ventes (pas de caisse connectée) ; un import de caisse pourra
+// écrire ici plus tard. Pas de ligne = pas de saisie (« — ») ; 0 = « rien vendu », saisi.
+// RESTRICT : une fiche qui porte des ventes ne se supprime pas (on la désactive).
+model VenteJournaliere {
+  id         String         @id @default(uuid())
+  date       DateTime       @db.Date
+  ficheId    String
+  fiche      FicheTechnique @relation(fields: [ficheId], references: [id], onDelete: Restrict)
+  quantite   Int
+  saisiParId String? // User.id (pas de FK cross-schéma)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([date, ficheId])
+  @@index([ficheId])
+  @@schema("stock")
+}
+
 // ─── Archives des fiches de comptage (inventaire physique) ───
 model SessionComptage {
   id         String          @id @default(uuid())
@@ -1774,11 +1807,17 @@ model FicheTechnique {
   // URL PRIVÉE (jamais l'URL publique du bucket) : servie par /fichiers/[...chemin], session
   // obligatoire — même patron que Employee.photoUrl (src/app/(app)/employes/photo-actions.ts).
   photoUrl              String?
+  // Rapport journalier des ventes (2026-09-29) : libellé et rang de la ligne dans le classeur de la
+  // Direction (« PEF Rapport journalier cuisine et bar »), posés par le geste « Importer les lignes
+  // du classeur ». Null = libellé = nom, rangée après les lignes du classeur.
+  libelleVente          String?
+  ordreVente            Int?
   creeLe                DateTime  @default(now())
   majLe                 DateTime  @updatedAt
 
   ingredients  IngredientFiche[] @relation("FicheIngredients")
   utiliseeDans IngredientFiche[] @relation("SousRecette")
+  ventes       VenteJournaliere[]
 
   @@schema("stock")
 }

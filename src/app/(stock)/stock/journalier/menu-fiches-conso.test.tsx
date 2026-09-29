@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MenuFichesConso } from "./menu-fiches-conso";
 
 // Menu des fiches de l'onglet Consommation : même bouton à menu que les fiches de Légumes frais,
-// le rapport de la semaine affichée et la commande d'un jour au choix, en PDF et en Excel.
+// le rapport (ventes) et la consommation réelle de la semaine affichée, la commande d'un jour au
+// choix, en PDF et en Excel.
 
 function rendre(domaine?: string) {
   const div = document.createElement("div");
@@ -13,13 +14,19 @@ function rendre(domaine?: string) {
 }
 
 describe("menu des fiches de consommation", () => {
-  it("rapport de la semaine affichée (PDF, Excel) ; commande du jour proposé, filtre de l'écran repris", () => {
+  it("rapport (ventes) et consommation réelle de la semaine affichée (PDF, Excel) ; commande du jour proposé, filtre de l'écran repris", () => {
     const div = rendre("BOISSON");
     expect(div.querySelector("summary")!.textContent).toContain("Fiches (PDF / Excel)");
     expect([...div.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href"), a.hasAttribute("download")])).toEqual([
       ["PDF", "/stock/journalier/fiche?type=rapport&semaine=2026-09-21&domaine=BOISSON&format=pdf", true],
       ["Excel", "/stock/journalier/fiche?type=rapport&semaine=2026-09-21&domaine=BOISSON&format=excel", true],
+      ["PDF", "/stock/journalier/fiche?type=consommation&semaine=2026-09-21&domaine=BOISSON&format=pdf", true],
+      ["Excel", "/stock/journalier/fiche?type=consommation&semaine=2026-09-21&domaine=BOISSON&format=excel", true],
     ]);
+    // Le rapport journalier liste les ventes ; la consommation réelle garde son propre nom.
+    const titres = [...div.querySelectorAll("p.font-medium")].map((p) => p.textContent);
+    expect(titres).toEqual(["Rapport journalier cuisine et bar", "Consommation réelle du restaurant", "Commande journalière"]);
+    expect(div.textContent).toContain("Plats et boissons vendus");
     const form = div.querySelector("form")!;
     expect(form.getAttribute("action")).toBe("/stock/journalier/fiche");
     expect(form.getAttribute("method")).toBe("get");

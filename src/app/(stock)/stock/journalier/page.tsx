@@ -10,18 +10,24 @@ import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journa
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { MenuFichesConso } from "./menu-fiches-conso";
+import { VentesGrid } from "./ventes-grid";
+import { ImportClasseur } from "./import-classeur";
+import { ImportCommande } from "./import-commande";
+import { chargerVentesSemaine } from "./ventes-data";
+import { ficheCommandeCalee } from "./fiches-data";
+import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
 
-type SP = { semaine?: string; domaine?: string; vue?: string };
+type SP = { semaine?: string; domaine?: string; vue?: string; dimanche?: string };
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; };
 
 export default async function JournalierPage({ searchParams }: { searchParams: Promise<SP> }) {
-  await exigerPageStock();
+  const user = await exigerPageStock();
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
-  const vue = sp.vue === "commande" || sp.vue === "comparaison" ? sp.vue : "conso";
+  const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" ? sp.vue : "conso";
   const lundi = sp.semaine ? lundiDe(new Date(sp.semaine)) : lundiDe(new Date());
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const finSemaine = addDays(lundi, 7);
@@ -48,7 +54,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       {/* Sélecteur de vue — pleine largeur et gros onglets sur mobile (bien visible au doigt),
           compact sur ordinateur. */}
       <div className="flex w-full overflow-hidden rounded-lg border text-sm font-medium sm:w-fit">
-        {([["conso", "Consommation"], ["commande", "Commande"], ["comparaison", "Comparaison"]] as const).map(([v, label]) => (
+        {([["conso", "Consommation"], ["ventes", "Ventes"], ["commande", "Commande"], ["comparaison", "Comparaison"]] as const).map(([v, label]) => (
           <Link
             key={v}
             href={lien({ vue: v })}
@@ -72,13 +78,13 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
             <Link key={k} href={lien({ domaine: k })} className={`rounded-full border px-3 py-1 ${(domaine ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
           ))}
         </div>
-        <span className="text-muted-foreground">·</span>
-        <div className="flex items-center overflow-hidden rounded-md border">
+        {vue !== "ventes" && <span className="text-muted-foreground">·</span>}
+        {vue !== "ventes" && <div className="flex items-center overflow-hidden rounded-md border">
           <span className="px-2 py-1 text-xs text-muted-foreground">Exporter</span>
           <a href={`/stock/journalier/pdf?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
           <a href={`/stock/journalier/excel?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
-        </div>
-        {vue === "conso" && (
+        </div>}
+        {(vue === "conso" || vue === "ventes") && (
           <MenuFichesConso
             semaine={iso(lundi)}
             domaine={domaine}
@@ -131,6 +137,36 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     );
   }
 
+  // ---------- VUE VENTES (saisie des plats et boissons vendus, forme du « Rapport journalier ») ----------
+  if (vue === "ventes") {
+    const espaces: EspaceVente[] = domaine === "NOURRITURE" ? ["CUISINE"] : domaine === "BOISSON" ? ["BAR"] : ["CUISINE", "BAR"];
+    const v = await chargerVentesSemaine(lundi, espaces);
+    // Lundi → samedi comme le classeur ; le dimanche dès qu'il porte une vente, ou à la demande.
+    const dimancheVendu = avecDimanche(v.jours, v.ventes);
+    const dimanche = dimancheVendu || sp.dimanche === "1";
+    const jours = joursLabel.slice(0, dimanche ? 7 : 6).map((j) => ({ ...j, fige: v.joursFiges.has(j.iso) }));
+    const lienDimanche = (afficher: boolean) => `${lien({})}${afficher ? "&dimanche=1" : ""}`;
+    return (
+      <div className="space-y-4">
+        {enTete}
+        <p className="text-xs text-muted-foreground">
+          Saisissez le <strong>nombre vendu</strong> par unité de vente, jour par jour : Cuisine = fiches techniques « Plat vendu », Bar = fiches techniques Bar (verre, cocktail, café…) — jamais les bouteilles du stock. Case vide = pas de saisie (« — ») ; 0 = rien vendu. Enregistrement automatique ; collage depuis Excel possible.
+          {" "}
+          {!dimancheVendu && (
+            <Link href={lienDimanche(!dimanche)} className="underline underline-offset-2 hover:text-foreground">{dimanche ? "Masquer le dimanche" : "Saisir aussi le dimanche"}</Link>
+          )}
+        </p>
+        {user.role === "ADMIN" && <ImportClasseur />}
+        <VentesGrid
+          lignes={espaces.flatMap((e) => v.lignes[e])}
+          jours={jours}
+          ventes={Object.fromEntries(v.ventes)}
+          peutModifier
+        />
+      </div>
+    );
+  }
+
   // Articles actifs (filtrés par domaine) + catégorie, pour la saisie et la comparaison.
   const chargerArticles = async (): Promise<CmdArticle[]> => {
     const articles = await prisma.articleStock.findMany({
@@ -149,12 +185,19 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
 
   // ---------- VUE COMMANDE (saisie) ----------
   if (vue === "commande") {
-    const [articles, commandes, cmdLeg] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({})]);
+    const [articles, commandes, cmdLeg, calee] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}), ficheCommandeCalee()]);
     if (inclureLegumes) articles.push(...LEGUMES.map((l) => ({ id: `legume:${l.nom}`, designation: l.unite ? `${l.nom} (${l.unite})` : l.nom, categorie: "Légumes frais" })));
     return (
       <div className="space-y-4">
         {enTete}
         <p className="text-xs text-muted-foreground">Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</p>
+        {/* Le document constate, le remède va sur l'écran : aucune note dans le PDF. */}
+        {!calee && (
+          <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Fiche commande pas encore calée sur votre classeur : lancez « Importer les lignes du classeur Commande journalière ».
+          </p>
+        )}
+        {user.role === "ADMIN" && <ImportCommande />}
         <CommandeGrid articles={articles} jours={joursLabel} commandes={{ ...commandes, ...cmdLeg }} peutModifier />
       </div>
     );

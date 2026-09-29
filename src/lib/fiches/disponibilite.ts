@@ -67,7 +67,10 @@ export type StockRestaurant =
   | { etat: "OK"; quantite: string; dateComptage: string; recu?: string | null }
   | { etat: "ESTIME"; quantite: string; recu: string | null }
   | { etat: "UNITE_NON_CONVERTIBLE"; articleResto: string }
-  | { etat: "A_REPARTIR"; articleResto: string };
+  | { etat: "A_REPARTIR"; articleResto: string }
+  // L'article du restaurant rattaché est DÉSACTIVÉ alors qu'il avait du stock au dernier comptage :
+  // ce stock n'est plus compté — jamais repli silencieux sur le dépôt seul (« À vérifier »).
+  | { etat: "DESACTIVE_AVEC_STOCK"; articleResto: string; dateComptage: string };
 
 /**
  * `depot` = `Stock.quantite` (null : aucune ligne `Stock`) ; `restaurant` = null : aucun comptage
@@ -88,6 +91,7 @@ export type EtatDispo = "DISPONIBLE" | "RUPTURE" | "A_VERIFIER";
 
 export type MotifDispo =
   | "PAS_DE_STOCK"
+  | "RESTAURANT_DESACTIVE_AVEC_STOCK"
   | "UNITE_NON_CONVERTIBLE"
   | "UNITE_NON_CONVERTIBLE_RESTAURANT"
   | "LIVRAISON_RESTAURANT_A_REPARTIR"
@@ -155,6 +159,7 @@ export type ResultatDisponibilite = {
 
 export const MOTIF_DISPO_LABEL: Record<MotifDispo, string> = {
   PAS_DE_STOCK: "pas de stock enregistré",
+  RESTAURANT_DESACTIVE_AVEC_STOCK: "article du restaurant désactivé avec du stock compté",
   UNITE_NON_CONVERTIBLE: "unité non convertible",
   UNITE_NON_CONVERTIBLE_RESTAURANT: "unité non convertible (restaurant)",
   LIVRAISON_RESTAURANT_A_REPARTIR: "livraison au restaurant à répartir (plusieurs articles du restaurant rattachés)",
@@ -318,6 +323,9 @@ function lireStock(articleId: string, ctx: ContexteDispo, aujourdhui: string): S
   if (r !== null && r.etat === "UNITE_NON_CONVERTIBLE") {
     return { ...base, restaurant: null, dateComptage: null, total: null, motif: "UNITE_NON_CONVERTIBLE_RESTAURANT" };
   }
+  if (r !== null && r.etat === "DESACTIVE_AVEC_STOCK") {
+    return { ...base, restaurant: null, dateComptage: r.dateComptage, total: null, motif: "RESTAURANT_DESACTIVE_AVEC_STOCK" };
+  }
   if (r !== null && r.etat === "A_REPARTIR") {
     return { ...base, restaurant: null, dateComptage: null, total: null, motif: "LIVRAISON_RESTAURANT_A_REPARTIR" };
   }
@@ -431,6 +439,15 @@ export function calculerDisponibilite(fiche: FicheDispo, ctx: ContexteDispo, auj
 }
 
 /** Décompte par état (tableau de bord de l'Exploitation). */
+/**
+ * Fiche SANS RECETTE (aucun ingrédient) : ni disponible, ni en rupture — « Recette à compléter ».
+ * Cas des fiches créées par l'import du classeur des ventes (2026-09-29), que la Direction complète
+ * ensuite : elles ne doivent ni gonfler les « à vérifier » ni passer pour disponibles.
+ */
+export function recetteACompleter(r: { raisons: RaisonDispo[] }): boolean {
+  return r.raisons.length > 0 && r.raisons.every((x) => x.motif === "AUCUN_INGREDIENT" && x.ingredient === null);
+}
+
 export function decompterEtats(resultats: Iterable<{ etat: EtatDispo }>): Record<EtatDispo, number> {
   const n: Record<EtatDispo, number> = { DISPONIBLE: 0, RUPTURE: 0, A_VERIFIER: 0 };
   for (const r of resultats) n[r.etat] += 1;

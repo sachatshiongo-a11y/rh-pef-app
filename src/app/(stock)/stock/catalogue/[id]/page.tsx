@@ -125,6 +125,7 @@ export default async function ArticleFichePage({
               domaine: a.domaine,
               code: a.code,
               designation: a.designation,
+              nomCourt: a.nomCourt,
               unite: a.unite,
               uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
               prixUnitaireUSD: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,

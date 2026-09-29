@@ -288,6 +288,22 @@ describe("migrations rejouées sur une base Supabase neuve", () => {
     expect(politiques.map((r) => r.p)).toEqual([]);
   });
 
+  it("ventes journalières : jamais négatif ; unique par (jour, fiche) ; une fiche vendue ne se supprime pas", async () => {
+    // Contrainte CHECK de 20260929090000_ventes_journalieres : Prisma ne la connaît pas (les bases
+    // de test en `db push` ne l'ont pas), seule la base construite par les migrations la porte.
+    await sb.client.query(`INSERT INTO stock."FicheTechnique" (id, nom, "majLe") VALUES ('f-test', 'Carbonara', now())`);
+    const inserer = (q: number, id: string) =>
+      sb.client.query(`INSERT INTO stock."VenteJournaliere" (id, date, "ficheId", quantite, "updatedAt") VALUES ($1, '2026-09-22', 'f-test', $2, now())`, [id, q]);
+    try {
+      await expect(inserer(-1, "v0")).rejects.toThrow(/VenteJournaliere_quantite_check/);
+      await inserer(0, "v1"); // 0 vendu : accepté
+      await expect(inserer(2, "v2")).rejects.toThrow(/VenteJournaliere_date_ficheId_key/);
+      await expect(sb.client.query(`DELETE FROM stock."FicheTechnique" WHERE id = 'f-test'`)).rejects.toThrow(/VenteJournaliere_ficheId_fkey/);
+    } finally {
+      await sb.client.query(`DELETE FROM stock."VenteJournaliere"; DELETE FROM stock."FicheTechnique" WHERE id = 'f-test';`);
+    }
+  });
+
   it("ne laissent AUCUN droit effectif à anon/authenticated (nommément ou via PUBLIC)", async () => {
     const droits = await lignes<{ droit: string }>(SQL_DROITS_EFFECTIFS);
     expect(droits.map((d) => d.droit)).toEqual([]);
