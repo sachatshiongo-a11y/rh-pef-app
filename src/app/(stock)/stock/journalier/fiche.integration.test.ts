@@ -46,6 +46,19 @@ beforeAll(async () => {
   await art("Vim", "AUTRE", entretien.id, "Boîte");
   const castel = await art("Castel", "BOISSON", bieres.id, "Bouteille");
   const ancien = await art("Ancien article", "NOURRITURE", viande.id, "Kg", false);
+  // Noms COURTS (demande de Sacha) : saisi au catalogue, ou celui de l'article du restaurant rattaché.
+  const viandeClasseur = await cat("Viande -Volaille-Poisson-Crustacé", "NOURRITURE");
+  const pates = await cat("Pâtes", "NOURRITURE");
+  const agneau = await prisma.articleStock.create({ data: { designation: "Lamb Rack NZ Frozen Frenched 1kg", nomCourt: "Carré d'agneau", domaine: "NOURRITURE", categorieId: viandeClasseur.id, unite: "Kg" } });
+  const spaghetti = await art("Spaghetti Lm Chef 12 X 1KG", "NOURRITURE", pates.id, "Kg");
+  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Pâtes", designation: "Spaghetti", ordre: 50, articleStockId: spaghetti.id } });
+  const heineken = await art("Heineken Bottle 33cl x24 (local)", "BOISSON", bieres.id, "Bouteille");
+  await prisma.articleResto.create({ data: { espace: "BAR", categorie: "Bière locale", designation: "Heineken local", ordre: 20, articleStockId: heineken.id } });
+  // Deux articles du restaurant rattachés au même article : aucun n'est choisi au hasard.
+  const creme = await art("Elle & Vire Crème de cuisson 1L", "NOURRITURE", cremerie.id, "L");
+  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Crèmerie", designation: "Crème A", ordre: 60, articleStockId: creme.id } });
+  await prisma.articleResto.create({ data: { espace: "CUISINE", categorie: "Crèmerie", designation: "Crème B", ordre: 61, articleStockId: creme.id } });
+  await prisma.commandeResto.create({ data: { articleId: agneau.id, date: le("2026-09-22"), quantite: 3 } });
   // 30 articles de plus : la fiche cuisine déborde d'une page (rubrique répétée, rangées lisibles).
   for (let i = 1; i <= 40; i++) await art(`Épice n° ${String(i).padStart(2, "0")}`, "NOURRITURE", null, "g");
 
@@ -82,14 +95,15 @@ beforeAll(async () => {
   const duo = await fiche("Duo de capitaine et de saumon fumé", "Entrées froides");
   await fiche("Sauce bolognaise", "Pâtes classiques", "PLAT", true); // sous-recette : jamais au rapport
   const mojito = await fiche("Mojito", "Cocktail", "BAR");
+  const cocaVendu = await fiche("Coca", "Limonade et autre", "BAR");
   // 45 desserts de plus : la feuille Cuisine déborde d'une page (en-tête répété, rangées lisibles).
   for (let i = 1; i <= 45; i++) await fiche(`Dessert n° ${String(i).padStart(2, "0")}`, "Desserts");
-  const vendre = (d: { ficheId?: string; articleRestoId?: string }, date: string, quantite: number) =>
+  const vendre = (d: { ficheId: string }, date: string, quantite: number) =>
     prisma.venteJournaliere.create({ data: { ...d, date: le(date), quantite } });
   await vendre({ ficheId: carbo.id }, "2026-09-21", 12);
   await vendre({ ficheId: carbo.id }, "2026-09-22", 0); // saisi : rien vendu
   await vendre({ ficheId: duo.id }, "2026-09-26", 3);
-  await vendre({ articleRestoId: coca.id }, "2026-09-23", 24);
+  await vendre({ ficheId: cocaVendu.id }, "2026-09-23", 24);
   await vendre({ ficheId: mojito.id }, "2026-09-26", 6);
   await vendre({ ficheId: carbo.id }, "2026-09-28", 99); // semaine suivante : pas sur la fiche
 }, 120_000);
@@ -133,6 +147,29 @@ describe("fiche « Commande journalière »", () => {
     expect(pages[pageBar]!.plat).not.toContain("Filet pur Boeuf");
     expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Épice n° \d+$/)).toBeGreaterThanOrEqual(8);
     expect(policesDeRepli(buf)).toEqual([]);
+  }, 120_000);
+
+  it("noms COURTS de cuisine, rubriques dans l'ordre du classeur, aucune mention superflue", async () => {
+    const { buf } = await lire("type=commande&date=2026-09-22&format=pdf");
+    const pages = await pagesDuPdf(buf);
+    const lignes = pages.flatMap((p) => p.lignes);
+    const plat = pages.map((p) => p.plat).join(" ");
+    expect(lignes).toContain("Carré d'agneau Kg 3"); // nom court saisi au catalogue
+    expect(plat).not.toContain("Lamb Rack");
+    expect(lignes).toContain("Spaghetti Kg"); // nom de l'article du restaurant rattaché
+    expect(plat).not.toContain("Lm Chef");
+    expect(lignes).toContain("Heineken local");
+    expect(lignes).toContain("Elle & Vire Crème de cuisson 1L L"); // deux rattachés : la désignation, rien de deviné
+    // Rubriques : celles du classeur dans son ordre, puis les autres (alphabétique), « À classer » en dernier.
+    const rang = (t: string) => lignes.indexOf(t);
+    expect(rang("Viande -Volaille-Poisson-Crustacé")).toBeLessThan(rang("Pâtes"));
+    expect(rang("Pâtes")).toBeLessThan(rang("Fruits & Légumes frais"));
+    expect(rang("Fruits & Légumes frais")).toBeLessThan(rang("Crèmerie"));
+    expect(rang("Crèmerie")).toBeLessThan(rang("Viande"));
+    expect(rang("Viande")).toBeLessThan(rang("À classer"));
+    // Une seule mention possible : les sorties sans motif (un fait qui change la lecture).
+    expect(plat).not.toContain("Case vide");
+    expect(plat).not.toContain("saisie de l'onglet Commande");
   }, 120_000);
 
   it("Excel : une feuille par fiche, nombres calculables, volet figé sur la ligne des colonnes", async () => {
@@ -180,11 +217,14 @@ describe("fiche « Rapport journalier cuisine et bar » : plats et boissons vend
     expect(lignes).toContain("Duo de capitaine et de saumon fumé — — — — — 3");
     expect(plat).not.toContain("Sauce bolognaise");
     expect(plat).not.toContain("99");
-    // Bar : les boissons (articles du bar) et les fiches Bar ; pas les articles de la cuisine.
-    expect(lignes).toContain("Coca (Bouteille) — — 24 — — —");
-    expect(lignes).toContain("Fanta (Bouteille) — — — — — —");
+    // Bar : les UNITÉS DE VENTE (fiches Bar), jamais les articles du stock (bouteilles).
+    expect(lignes).toContain("Coca — — 24 — — —");
     expect(lignes).toContain("Mojito — — — — — 6");
+    expect(plat).not.toContain("(Bouteille)");
+    expect(plat).not.toContain("Fanta");
     expect(plat).not.toContain("Filet de boeuf");
+    // Comme le classeur : aucune mention sous la fiche.
+    expect(plat).not.toContain("Nombre vendu");
     // Rubriques du classeur, dans son ordre.
     const iEntrees = lignes.indexOf("Entrées froides"), iPates = lignes.indexOf("Pâtes classiques"), iDesserts = lignes.indexOf("Desserts");
     expect(iEntrees).toBeGreaterThanOrEqual(0);
@@ -211,7 +251,8 @@ describe("fiche « Rapport journalier cuisine et bar » : plats et boissons vend
     expect(cuisine.find((r) => r[0] === "Désignation/Date")).toEqual(["Désignation/Date", "Lun 21/09", "Mar 22/09", "Mer 23/09", "Jeu 24/09", "Ven 25/09", "Sam 26/09"]);
     expect(cuisine.find((r) => r[0] === "Carbonara")).toEqual(["Carbonara", 12, 0, "—", "—", "—", "—"]);
     const bar = rangeesDe(wb.getWorksheet("Bar")!);
-    expect(bar.find((r) => r[0] === "Coca (Bouteille)")).toEqual(["Coca (Bouteille)", "—", "—", 24, "—", "—", "—"]);
+    expect(bar.find((r) => r[0] === "Coca")).toEqual(["Coca", "—", "—", 24, "—", "—", "—"]);
+    expect(bar.some((r) => String(r[0]).includes("Fanta"))).toBe(false);
     expect(bar.find((r) => r[0] === "Mojito")).toEqual(["Mojito", "—", "—", "—", "—", "—", 6]);
   }, 120_000);
 

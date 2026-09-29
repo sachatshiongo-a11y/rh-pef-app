@@ -20,6 +20,7 @@ const ARTICLE = {
   domaine: "NOURRITURE" as const,
   code: "137",
   designation: "Farine",
+  nomCourt: null,
   unite: "Kg",
   uniteParCarton: "24",
   prixUnitaireUSD: "2.5",

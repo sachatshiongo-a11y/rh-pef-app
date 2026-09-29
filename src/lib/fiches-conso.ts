@@ -160,7 +160,42 @@ export function ficheConsommationReelle(p: {
 
 // ─── 2. Commande journalière ─────────────────────────────────────────────────
 
-export type ArticleCommande = { id: string; designation: string; unite: string | null; categorie: string | null };
+export type ArticleCommande = {
+  id: string; designation: string; unite: string | null; categorie: string | null;
+  /** Nom court saisi au catalogue (« Carré d'agneau »). */
+  nomCourt?: string | null;
+  /** Désignations des articles du restaurant (Stock restaurant) rattachés à cet article, actifs. */
+  nomsRestaurant?: string[];
+};
+
+/**
+ * Nom imprimé sur la fiche commande (demande de Sacha, 2026-09-29 : « la cuisine n'a pas besoin du
+ * nom complet ») : le NOM COURT saisi au catalogue ; à défaut, le nom de l'article du restaurant
+ * rattaché — s'il n'y en a qu'UN (deux rattachés : aucun n'est choisi au hasard) ; à défaut, la
+ * désignation du catalogue. Rien n'est déduit du texte.
+ */
+export function nomImprime(a: Pick<ArticleCommande, "designation" | "nomCourt" | "nomsRestaurant">): string {
+  const court = a.nomCourt?.trim();
+  if (court) return court;
+  const resto = (a.nomsRestaurant ?? []).map((n) => n.trim()).filter(Boolean);
+  return resto.length === 1 ? resto[0]! : a.designation.trim();
+}
+
+/** Rubriques du classeur « PEF Commande Journalière », dans son ordre (le reste suit, alphabétique). */
+export const RUBRIQUES_COMMANDE: Record<EspaceFiche, string[]> = {
+  CUISINE: [
+    "Viande -Volaille-Poisson-Crustacé", "Crèmerie-Fromagerie", "Pâtes", "Fruits & Légumes frais", "Épices et assaisonnements",
+    "Autres", "Produits d'entretien & Autre non-alimentaire", "Boulangerie-Patisserie",
+  ],
+  BAR: [
+    "Eau plate et petillante", "Limonade et autre", "Bière locale", "Bière importée", "Sirop", "Jus de fruit", "Apéritif",
+    "Vin Blanc", "Vin Rosé", "Vin Rouge", "Vin Mousseux", "Champagne", "Digestif", "Cognac", "Gin, Vodka et Tequila", "Rhum", "Whisky", "Autres",
+  ],
+};
+/** Titre de la rubrique des légumes frais, celui du classeur. */
+export const RUBRIQUE_LEGUMES = "Fruits & Légumes frais";
+
+const cleRubrique = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 export type LegumeCommande = { designation: string; unite: string | null; commande: number | null; livraison: number | null };
 
 const quantite = (q: number | null | undefined): ValeurFiche => (q ? q : "");
@@ -168,8 +203,9 @@ const quantite = (q: number | null | undefined): ValeurFiche => (q ? q : "");
 /**
  * Fiche commande d'un espace pour UN jour : pour chaque article, la quantité COMMANDÉE par le
  * restaurant (onglet Commande) et la quantité LIVRÉE (sorties « Livraison restaurant » du jour).
- * Case vide = rien commandé / rien livré ; unité absente du catalogue = « — ».
- * Cuisine : colonne Unité et, en fin de fiche, les légumes frais (commande de l'onglet Commande,
+ * Case vide = rien commandé / rien livré ; unité absente du catalogue = « — ». Noms COURTS
+ * (`nomImprime`), rubriques dans l'ordre du classeur « PEF Commande Journalière ».
+ * Cuisine : colonne Unité et la rubrique « Fruits & Légumes frais » (commande de l'onglet Commande,
  * livraison = achats du jour, comme la Comparaison). Bar : pas de colonne Unité, comme le classeur.
  */
 export function ficheCommandeJournaliere(p: {
@@ -191,13 +227,27 @@ export function ficheCommandeJournaliere(p: {
     designation,
     cases: [...(cuisine ? [{ valeur: unite?.trim() || null }] : []), { valeur: cmd }, { valeur: liv }],
   });
+  // Ordre du classeur : ses rubriques d'abord, les autres par ordre alphabétique, « À classer » en
+  // dernier ; dans une rubrique, les noms imprimés par ordre alphabétique (comme le classeur).
+  const reference = RUBRIQUES_COMMANDE[p.espace].map(cleRubrique);
+  const rang = (titre: string) => {
+    if (titre === A_CLASSER) return Number.MAX_SAFE_INTEGER;
+    const i = reference.indexOf(cleRubrique(titre));
+    return i < 0 ? reference.length : i;
+  };
+  const compare = (a: string, b: string) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true });
+  const tries = p.articles
+    .map((a) => ({ a, nom: nomImprime(a), rubrique: a.categorie?.trim() || A_CLASSER }))
+    .sort((x, y) => rang(x.rubrique) - rang(y.rubrique) || compare(x.rubrique, y.rubrique) || compare(x.nom, y.nom));
   const sections = enSections(
-    p.articles,
-    (a) => a.categorie?.trim() || A_CLASSER,
-    (a) => ligne(a.designation, a.unite, quantite(p.commandes.get(a.id)), quantite(p.livraisons.get(a.id))),
+    tries,
+    (x) => x.rubrique,
+    (x) => ligne(x.nom, x.a.unite, quantite(p.commandes.get(x.a.id)), quantite(p.livraisons.get(x.a.id))),
   );
   if (cuisine && p.legumes?.length) {
-    sections.push({ titre: "Légumes frais", lignes: p.legumes.map((l) => ligne(l.designation, l.unite, quantite(l.commande), quantite(l.livraison))) });
+    const legumes = { titre: RUBRIQUE_LEGUMES, lignes: p.legumes.map((l) => ligne(l.designation, l.unite, quantite(l.commande), quantite(l.livraison))) };
+    const i = sections.findIndex((s) => rang(s.titre) > rang(RUBRIQUE_LEGUMES));
+    sections.splice(i < 0 ? sections.length : i, 0, legumes);
   }
   return {
     feuille: cuisine ? "Fiche commande cuisine" : "Fiche commande Bar",

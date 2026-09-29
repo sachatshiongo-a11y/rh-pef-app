@@ -56,7 +56,7 @@ export async function GET(req: Request) {
     if (ventes) {
       titre = "Rapport journalier cuisine et bar";
       fichier = `Rapport_journalier${suffixe}_${lundiIso}`;
-      pied = "Nombre vendu par jour, saisi dans l'onglet Ventes de la Conso. journalière (espace Stock). Cuisine : plats (fiches techniques « Plat vendu ») ; Bar : boissons (articles du bar, fiches techniques Bar). « — » : rien saisi ce jour-là ; 0 : rien vendu. Le dimanche n'apparaît que s'il porte une vente.";
+      pied = ""; // comme le classeur : aucune mention sous la fiche
     } else {
       titre = "Consommation réelle du restaurant";
       fichier = `Consommation_reelle${suffixe}_${lundiIso}`;
@@ -70,8 +70,8 @@ export async function GET(req: Request) {
     titre = "Commande journalière";
     periode = `${dateLongue(date)} (semaine ${semaineIso(date)})`;
     fichier = `Commande_journaliere${suffixe}_${date}`;
-    pied = "Commande : saisie de l'onglet Commande. Livraison : sorties « Livraison restaurant » du jour (légumes frais : achats du jour). Case vide : rien ce jour-là ; « — » : unité non renseignée au catalogue."
-      + (r.sansMotif > 0 ? ` ${formaterNombre(r.sansMotif)} sortie(s) sans motif ce jour-là ne sont pas comptées comme livrées (onglet Consommation).` : "");
+    // Comme le classeur : aucune mention, sauf un fait qui changerait la lecture de la fiche.
+    pied = r.sansMotif > 0 ? `${formaterNombre(r.sansMotif)} sortie(s) sans motif ce jour-là ne sont pas comptées comme livrées (onglet Consommation).` : "";
   }
 
   if (format === "excel") {
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const pdf = await renderPdfBuffer(TableauxParPartieDocument({ titre, sousTitre: periode, parties: fiches.map(partiePdf), pied }));
+  const pdf = await renderPdfBuffer(TableauxParPartieDocument({ titre, sousTitre: periode, parties: fiches.map(partiePdf), ...(pied ? { pied } : {}) }));
   return new Response(new Uint8Array(pdf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fichier}.pdf"` },
   });

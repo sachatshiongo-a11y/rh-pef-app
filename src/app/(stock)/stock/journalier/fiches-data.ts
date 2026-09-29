@@ -74,7 +74,11 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
   const articles = await prisma.articleStock.findMany({
     where: { domaine: { in: domaines }, OR: [{ actif: true }, { id: { in: mouvementes } }] },
     orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
-    select: { id: true, designation: true, unite: true, domaine: true, categorie: { select: { nom: true } } },
+    select: {
+      id: true, designation: true, nomCourt: true, unite: true, domaine: true, categorie: { select: { nom: true } },
+      // Nom court de repli : l'article du restaurant rattaché (geste de la Direction, jamais deviné).
+      articlesResto: { where: { actif: true }, select: { designation: true } },
+    },
   });
   const rang = (d: DomaineStock) => domaines.indexOf(d);
 
@@ -106,7 +110,7 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
       articles: articles
         .filter((a) => DOMAINES_FICHE[espace].includes(a.domaine))
         .sort((a, b) => rang(a.domaine) - rang(b.domaine))
-        .map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, categorie: a.categorie?.nom ?? null })),
+        .map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: a.articlesResto.map((r) => r.designation), unite: a.unite, categorie: a.categorie?.nom ?? null })),
       commandes: cmd,
       livraisons: liv,
       legumes: espace === "CUISINE" ? legumes : undefined,

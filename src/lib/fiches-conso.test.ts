@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ConsommationReelle } from "@/lib/stock-restaurant";
 import {
-  dateLongue, enteteJour, feuilleExcel, ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, partiePdf, semaineIso, texteCase,
+  dateLongue, enteteJour, feuilleExcel, ficheCommandeJournaliere, nomImprime, ficheConsommationReelle, ficheRapportJournalier, partiePdf, semaineIso, texteCase,
 } from "./fiches-conso";
 import type { LigneVente } from "./ventes-journalieres";
 
@@ -126,7 +126,7 @@ describe("commande journalière", () => {
   const commandes = new Map([["boeuf", 2.5]]);
   const livraisons = new Map([["boeuf", 2], ["sucre", 1]]);
 
-  it("cuisine : Désignation/Date | Unité | Commande | Livraison ; vide = rien ; unité absente = « — » ; légumes en fin", () => {
+  it("cuisine : Désignation/Date | Unité | Commande | Livraison ; vide = rien ; unité absente = « — » ; rubriques du classeur d'abord", () => {
     const f = ficheCommandeJournaliere({
       espace: "CUISINE", date: "2026-09-22", articles, commandes, livraisons,
       legumes: [{ designation: "Ail", unite: "Kg", commande: 3, livraison: 2.75 }, { designation: "Basilic", unite: "Botte", commande: null, livraison: null }],
@@ -134,19 +134,40 @@ describe("commande journalière", () => {
     expect(f.feuille).toBe("Fiche commande cuisine");
     expect(f.titre).toBe("Commande cuisine — semaine 39");
     expect([f.enteteDesignation, ...f.colonnes.map((c) => c.entete)]).toEqual(["Désignation/Date", "Unité", "Commande", "Livraison"]);
-    expect(f.sections.map((s) => s.titre)).toEqual(["Viande", "À classer", "Légumes frais"]);
+    // « Fruits & Légumes frais » est une rubrique du classeur : elle passe avant « Viande » (inconnue).
+    expect(f.sections.map((s) => s.titre)).toEqual(["Fruits & Légumes frais", "Viande", "À classer"]);
     const textes = f.sections.map((s) => s.lignes.map((l) => [l.designation, ...l.cases.map(texteCase)]));
-    expect(textes[0]).toEqual([["Filet pur Boeuf", "Kg", "2,5", "2"], ["Côtes de porc", "Pièce", "", ""]]);
-    expect(textes[1]).toEqual([["Sucre glace", "—", "", "1"]]);
-    expect(textes[2]).toEqual([["Ail", "Kg", "3", "2,75"], ["Basilic", "Botte", "", ""]]);
+    expect(textes[0]).toEqual([["Ail", "Kg", "3", "2,75"], ["Basilic", "Botte", "", ""]]);
+    expect(textes[1]).toEqual([["Côtes de porc", "Pièce", "", ""], ["Filet pur Boeuf", "Kg", "2,5", "2"]]);
+    expect(textes[2]).toEqual([["Sucre glace", "—", "", "1"]]);
   });
 
   it("bar : Désignation | Commande | Livraison, sans unité ni légumes", () => {
     const f = ficheCommandeJournaliere({ espace: "BAR", date: "2026-09-22", articles, commandes, livraisons, legumes: [{ designation: "Ail", unite: "Kg", commande: 1, livraison: 1 }] });
     expect(f.feuille).toBe("Fiche commande Bar");
     expect([f.enteteDesignation, ...f.colonnes.map((c) => c.entete)]).toEqual(["Désignation", "Commande", "Livraison"]);
-    expect(f.sections.map((s) => s.titre)).not.toContain("Légumes frais");
-    expect(f.sections[0]!.lignes[0]!.cases.map(texteCase)).toEqual(["2,5", "2"]);
+    expect(f.sections.map((s) => s.titre)).not.toContain("Fruits & Légumes frais");
+    expect(f.sections[0]!.lignes.map((l) => [l.designation, ...l.cases.map(texteCase)])).toEqual([["Côtes de porc", "", ""], ["Filet pur Boeuf", "2,5", "2"]]);
+  });
+
+  it("noms COURTS : saisi au catalogue, sinon l'article du restaurant rattaché s'il est seul, sinon la désignation", () => {
+    expect(nomImprime({ designation: "Lamb Rack 1kg", nomCourt: " Carré d'agneau ", nomsRestaurant: ["Agneau"] })).toBe("Carré d'agneau");
+    expect(nomImprime({ designation: "Spaghetti Lm Chef 12 X 1KG", nomCourt: null, nomsRestaurant: ["Spaghetti"] })).toBe("Spaghetti");
+    expect(nomImprime({ designation: "Crème 1L", nomCourt: "", nomsRestaurant: ["Crème A", "Crème B"] })).toBe("Crème 1L");
+    expect(nomImprime({ designation: "Vim", nomsRestaurant: [] })).toBe("Vim");
+  });
+
+  it("bar : rubriques dans l'ordre du classeur (Eau, Limonade, Bière locale…), inconnues ensuite", () => {
+    const f = ficheCommandeJournaliere({
+      espace: "BAR", date: "2026-09-22", commandes: new Map(), livraisons: new Map(),
+      articles: [
+        { id: "1", designation: "Tembo", unite: null, categorie: "Bière locale" },
+        { id: "2", designation: "Cognac X", unite: null, categorie: "Spiritueux divers" },
+        { id: "3", designation: "Coca Cola", unite: null, categorie: "Limonade et autre" },
+        { id: "4", designation: "Dasani", unite: null, categorie: "Eau plate et petillante" },
+      ],
+    });
+    expect(f.sections.map((s) => s.titre)).toEqual(["Eau plate et petillante", "Limonade et autre", "Bière locale", "Spiritueux divers"]);
   });
 
   it("PDF : textes au format maison, rubriques à part, couleurs commande / livraison ; Excel : nombres calculables", () => {

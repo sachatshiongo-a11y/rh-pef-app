@@ -57,6 +57,7 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
   const data: Prisma.ArticleStockUpdateInput = {};
   if (formData.has("code")) data.code = String(formData.get("code") ?? "").trim() || null;
   if (formData.has("designation")) data.designation = String(formData.get("designation")).trim();
+  if (formData.has("nomCourt")) data.nomCourt = String(formData.get("nomCourt") ?? "").trim() || null;
   if (formData.has("prixUnitaireUSD")) data.prixUnitaireUSD = dec(formData.get("prixUnitaireUSD"));
   if (formData.has("uniteParCarton")) data.uniteParCarton = dec(formData.get("uniteParCarton"));
   if (formData.has("unite")) data.unite = String(formData.get("unite")).trim() || null;
