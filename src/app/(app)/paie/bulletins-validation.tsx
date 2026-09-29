@@ -102,6 +102,9 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                   <MiniLigne label={L.cnss} usd={-r.cnssUSD} />
                   <MiniLigne label={L.ipr} usd={-r.iprUSD} />
                   {r.acompteUSD > 0 && <MiniLigne label={L.acompte} usd={-r.acompteUSD} />}
+                  {/* Échéance de prêt : le bulletin PDF (aperçu ordinateur) l'imprime, la carte
+                      l'omettait → les lignes ne s'additionnaient plus au net (2026-09-29). */}
+                  {r.retenuePretUSD > 0 && <MiniLigne label={L.pret} usd={-r.retenuePretUSD} />}
                   {r.allocUSD > 0 && <MiniLigne label={L.alloc} usd={r.allocUSD} />}
                   {r.fraisMedUSD > 0 && <MiniLigne label={L.fraisMedicaux} usd={r.fraisMedUSD} />}
                   <div className="mt-1 flex items-center justify-between border-t pt-1 text-sm font-semibold">

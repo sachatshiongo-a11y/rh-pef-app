@@ -12,6 +12,7 @@ export const LBL_BULLETIN = {
   cnss: "CNSS (part salarié)",
   ipr: "IPR (impôt sur le revenu)",
   acompte: "Acompte sur salaire",
+  pret: "Retenue prêt au personnel",
   alloc: "Allocation familiale",
   fraisMedicaux: "Frais médicaux",
   net: "Salaire net",

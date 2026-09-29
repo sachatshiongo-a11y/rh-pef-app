@@ -71,3 +71,26 @@ describe("la fiche employé de la Direction lit le même solde", () => {
     expect(fiche).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b/);
   });
 });
+
+// 2026-09-29 : les deux PDF qui impriment un solde (fiche employé, demande de congé) le lisaient
+// encore sur Config.moisCourant → un PDF pouvait contredire l'écran. Ils passent par la même source.
+describe("les PDF impriment le même solde que l'écran", () => {
+  const pdfs = ["../app/(app)/employes/[id]/fiche/route.ts", "./pdf/demande-conge-buffer.ts"];
+  for (const rel of pdfs) {
+    it(`${rel} lit chargerSoldeCongeSalarie et ne recalcule rien`, () => {
+      const src = readFileSync(path.resolve(__dirname, rel), "utf8");
+      expect(src).toMatch(/\bchargerSoldeCongeSalarie\(prisma, /);
+      expect(src).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b|\bchargerCompteDansSoldeParType\b/);
+    });
+  }
+});
+
+// 2026-09-29 : le tableau des soldes du calendrier des congés recalculait le solde sur l'année
+// AFFICHÉE, en jours ouvrables recomptés → un troisième chiffre. Il lit la source, en lot.
+describe("le calendrier des congés affiche le même solde", () => {
+  const cal = readFileSync(path.resolve(__dirname, "../app/(app)/conges/calendrier.tsx"), "utf8");
+  it("passe par chargerSoldesCongeSalaries et ne recalcule ni droits ni décompte", () => {
+    expect(cal).toMatch(/\bchargerSoldesCongeSalaries\(prisma, /);
+    expect(cal).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b|\bancienneteEnMois\b|\bcompteDansSolde\b/);
+  });
+});

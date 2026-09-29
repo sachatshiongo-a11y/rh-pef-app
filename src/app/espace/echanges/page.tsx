@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "../garde";
 import { lundiDe } from "@/lib/dates-fr";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { Icone } from "@/components/icones";
 import { demanderEchange, demanderChangementShift } from "../actions";
 import { RepondreEchange, AnnulerEchange, AnnulerChangement } from "./boutons";
@@ -15,9 +16,9 @@ export default async function EspaceEchanges({ searchParams }: { searchParams: P
   const s = await chargerSalarie();
   const sp = await searchParams;
 
-  const k = new Date(Date.now() + 3_600_000);
-  const today = new Date(Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()));
-  const lundiCourant = lundiDe(k);
+  // « Aujourd'hui » à l'heure de Kinshasa → DATE à minuit UTC.
+  const today = jourCivilKinshasa(new Date());
+  const lundiCourant = lundiDe(today);
   const fin = new Date(lundiCourant); fin.setUTCDate(fin.getUTCDate() + 27); // 4 semaines
 
   const emp = await prisma.employee.findUniqueOrThrow({ where: { id: s.employeeId }, select: { poste: true } });

@@ -2,9 +2,9 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
-import { calculerCongesAcquis, congeDeductibleDuSolde, resumerPresences, type CodePresence } from "@/lib/payroll";
+import { resumerPresences, type CodePresence } from "@/lib/payroll";
 import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
-import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { formaterNombre } from "@/lib/montant";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 
@@ -25,9 +25,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const annee = config?.anneeCourante ?? new Date().getFullYear();
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
-  const debutAnnee = new Date(Date.UTC(annee, 0, 1));
 
-  const [contrats, attendances, leaveRequests, payrollLines, parametres, compteParType] = await Promise.all([
+  const [contrats, attendances, leaveRequests, payrollLines, parametres, soldeConge] = await Promise.all([
     prisma.contrat.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" } }),
     prisma.attendance.findMany({ where: { employeeId: id, date: { gte: debutMois, lte: finMois } } }),
     prisma.leaveRequest.findMany({ where: { employeeId: id }, orderBy: { dateDebut: "desc" }, take: 15 }),
@@ -37,7 +36,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
     chargerParametresPaie(),
-    chargerCompteDansSoldeParType(),
+    // Le solde de congé se lit à la SOURCE UNIQUE, à l'horloge (2026-09-29) : c'est le chiffre de
+    // la fiche à l'écran et de l'espace salarié. Avant, ce PDF le recalculait sur Config.moisCourant
+    // (qui peut rester figé) et sur les 15 dernières demandes seulement → il pouvait différer de l'écran.
+    // L'ancienneté imprimée plus bas n'est PAS concernée (hors du périmètre de ce correctif).
+    chargerSoldeCongeSalarie(prisma, id),
   ]);
 
   const resume = resumerPresences(attendances.map((a) => a.code as CodePresence));
@@ -46,16 +49,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const anciennete =
     (new Date(annee, mois - 1).getFullYear() - new Date(employee.dateEmbauche).getFullYear()) * 12 +
     (new Date(annee, mois - 1).getMonth() - new Date(employee.dateEmbauche).getMonth());
-  const congesAcquis = typeSansConges(employee.contrat) ? 0 : calculerCongesAcquis(anciennete, parametres.droitsCongesAnnuel);
-  // Seuls les types cochés « compte dans le solde » (Paramètres) entament le solde de congé annuel.
-  const congesPris = leaveRequests
-    .filter(
-      (l) =>
-        l.statut === "APPROUVE" &&
-        new Date(l.dateDebut) >= debutAnnee &&
-        congeDeductibleDuSolde(compteParType.get(l.type))
-    )
-    .reduce((acc, l) => acc + Number(l.nbJours), 0);
 
   const periodePresences = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {
     month: "long",
@@ -94,9 +87,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       ],
       periodePresences,
       soldes: [
-        { label: "Congés acquis (année)", value: `${congesAcquis} j` },
-        { label: "Congés pris (année)", value: `${congesPris} j` },
-        { label: "Solde de congé annuel", value: `${Math.round((congesAcquis - congesPris) * 10) / 10} j` },
+        { label: "Congés acquis (année)", value: `${soldeConge.acquis} j` },
+        { label: "Congés pris (année)", value: `${soldeConge.pris} j` },
+        { label: "Solde de congé annuel", value: `${soldeConge.solde} j` },
       ],
       conges: leaveRequests.map((l) => ({
         type: l.type,

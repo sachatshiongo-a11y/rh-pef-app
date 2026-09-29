@@ -52,7 +52,6 @@ export async function instantaneAttestation(
   db: Lecture,
   employeeId: string,
   type: TypeAttestation,
-  maintenant: Date,
 ): Promise<{ ok: true; donnees: DonneesAttestation; payrollLineId: string | null } | Refus> {
   const emp = await db.employee.findUnique({
     where: { id: employeeId },
@@ -173,7 +172,7 @@ export async function demanderAttestation(
     await verrouillerEmploye(tx, p.employeeId);
     const enCours = await tx.attestation.findFirst({ where: { employeeId: p.employeeId, type: p.type, statut: "DEMANDEE" }, select: { id: true } });
     if (enCours) return { ok: false, motif: `Une demande d'${NOM_TYPE_ATTESTATION[p.type]} est déjà en cours.` };
-    const eligible = await instantaneAttestation(tx, p.employeeId, p.type, new Date());
+    const eligible = await instantaneAttestation(tx, p.employeeId, p.type);
     if (!eligible.ok) return { ...eligible, nom: undefined };
     const a = await tx.attestation.create({
       data: { employeeId: p.employeeId, type: p.type, motif: p.motif?.trim() || null, demandeParId: p.parId },
@@ -291,7 +290,7 @@ export async function delivrerAttestation(
       }
     }
 
-    const eligible = await instantaneAttestation(tx, employeeId, type, maintenant);
+    const eligible = await instantaneAttestation(tx, employeeId, type);
     if (!eligible.ok) {
       if (!demandeId) return eligible;
       const { count } = await tx.attestation.updateMany({

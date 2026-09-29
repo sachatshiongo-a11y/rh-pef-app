@@ -42,30 +42,57 @@ export function calculerSoldeConge(p: {
   return { acquis: p.acquis, pris, solde: Math.round((p.acquis - pris) * 10) / 10 };
 }
 
+/**
+ * Les soldes de PLUSIEURS salariés, en lot : 4 requêtes quel que soit leur nombre (salariés,
+ * paramètres, types, demandes approuvées de l'année). Même règle, ligne à ligne, que pour un seul.
+ *
+ * `entameLeSolde` est la règle de décompte (case « compte dans le solde » du type, types retirés
+ * compris) : un écran qui compte des jours pris sur une AUTRE période — le calendrier sur l'année
+ * affichée — l'emprunte ici plutôt que de la réécrire.
+ */
+export async function chargerSoldesCongeSalaries(
+  db: Prisma.TransactionClient,
+  employeeIds: string[],
+  maintenant: Date = new Date(),
+): Promise<{ soldes: Map<string, SoldeConge>; entameLeSolde: (type: string) => boolean }> {
+  const debutAnnee = new Date(Date.UTC(maintenant.getUTCFullYear(), 0, 1));
+  const [emps, params, types, approuvees] = await Promise.all([
+    db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true } }),
+    chargerParametresPaie(db),
+    // TOUS les types (actifs ou non) : un congé approuvé garde son effet si le type est retiré ensuite.
+    db.typeConge.findMany({ orderBy: { ordre: "asc" }, select: { nom: true, compteDansSolde: true, actif: true } }),
+    db.leaveRequest.findMany({
+      where: { employeeId: { in: employeeIds }, statut: "APPROUVE", dateDebut: { gte: debutAnnee } },
+      select: { employeeId: true, type: true, nbJours: true, dateDebut: true },
+    }),
+  ]);
+  const compteDansSolde = new Map(types.map((t) => [t.nom, t.compteDansSolde]));
+  const typesDeduits = types.filter((t) => t.actif && t.compteDansSolde).map((t) => t.nom);
+  const soldes = new Map<string, SoldeConge>();
+  for (const emp of emps) {
+    const acquis = typeSansConges(emp.contrat)
+      ? 0
+      : calculerCongesAcquis(ancienneteEnMois(new Date(emp.dateEmbauche), maintenant), params.droitsCongesAnnuel);
+    const r = calculerSoldeConge({
+      acquis,
+      demandesApprouvees: approuvees
+        .filter((l) => l.employeeId === emp.id)
+        .map((l) => ({ type: l.type, nbJours: Number(l.nbJours), dateDebut: l.dateDebut })),
+      compteDansSolde,
+      debutAnnee,
+    });
+    soldes.set(emp.id, { ...r, typesDeduits });
+  }
+  return { soldes, entameLeSolde: (type) => congeDeductibleDuSolde(compteDansSolde.get(type)) };
+}
+
 export async function chargerSoldeCongeSalarie(
   db: Prisma.TransactionClient,
   employeeId: string,
   maintenant: Date = new Date(),
 ): Promise<SoldeConge> {
-  const debutAnnee = new Date(Date.UTC(maintenant.getUTCFullYear(), 0, 1));
-  const [emp, params, types, approuvees] = await Promise.all([
-    db.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { contrat: true, dateEmbauche: true } }),
-    chargerParametresPaie(db),
-    // TOUS les types (actifs ou non) : un congé approuvé garde son effet si le type est retiré ensuite.
-    db.typeConge.findMany({ orderBy: { ordre: "asc" }, select: { nom: true, compteDansSolde: true, actif: true } }),
-    db.leaveRequest.findMany({
-      where: { employeeId, statut: "APPROUVE", dateDebut: { gte: debutAnnee } },
-      select: { type: true, nbJours: true, dateDebut: true },
-    }),
-  ]);
-  const acquis = typeSansConges(emp.contrat)
-    ? 0
-    : calculerCongesAcquis(ancienneteEnMois(new Date(emp.dateEmbauche), maintenant), params.droitsCongesAnnuel);
-  const r = calculerSoldeConge({
-    acquis,
-    demandesApprouvees: approuvees.map((l) => ({ type: l.type, nbJours: Number(l.nbJours), dateDebut: l.dateDebut })),
-    compteDansSolde: new Map(types.map((t) => [t.nom, t.compteDansSolde])),
-    debutAnnee,
-  });
-  return { ...r, typesDeduits: types.filter((t) => t.actif && t.compteDansSolde).map((t) => t.nom) };
+  const { soldes } = await chargerSoldesCongeSalaries(db, [employeeId], maintenant);
+  const solde = soldes.get(employeeId);
+  if (!solde) throw new Error(`Salarié introuvable : ${employeeId}`);
+  return solde;
 }

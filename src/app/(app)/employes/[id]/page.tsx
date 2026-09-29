@@ -33,7 +33,7 @@ import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
-import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
@@ -187,7 +187,7 @@ export default async function FicheEmployePage({
   );
 
   // Semaine en cours (lundi→dimanche, heure de Kinshasa) : planning prévu + réalisé réel.
-  const kinshasa = new Date(Date.now() + 3_600_000);
+  const kinshasa = jourCivilKinshasa(new Date());
   const lundiSemaine = lundiDe(kinshasa);
   const dimancheSemaine = new Date(lundiSemaine);
   dimancheSemaine.setUTCDate(dimancheSemaine.getUTCDate() + 6);
