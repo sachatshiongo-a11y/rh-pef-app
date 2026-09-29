@@ -3,8 +3,11 @@ import { classeurExcel } from "@/lib/export-excel";
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import { chargerFichesVues, chargerArticlesDesFiches } from "../_data/charger-fiche";
 import { construireContexte, TYPE_LABEL } from "../_data/fiche-calc";
+import { familleBoisson, lireOngletFiches, ongletFiche, FAMILLES_BOISSON } from "@/lib/fiches/famille-boisson";
 
-// Export Excel des fiches techniques (toutes, ou la sélection de la barre d'actions groupées).
+// Export Excel des fiches techniques : celles de l'onglet affiché (`?vue=plats|boissons`), ou la
+// sélection de la barre d'actions groupées (`?ids=`, déjà limitée à l'onglet par l'écran).
+// Sans l'un ni l'autre, toutes les fiches (ancien lien, conservé).
 // Les coûts sont recalculés par le moteur au moment de l'export : jamais un chiffre stocké,
 // jamais un arrondi maison.
 
@@ -12,12 +15,21 @@ export async function GET(req: Request) {
   const g = await exigerEspaceStock();
   if (!g.ok) return g.reponse;
 
-  const param = new URL(req.url).searchParams.get("ids");
+  const sp = new URL(req.url).searchParams;
+  const param = sp.get("ids");
   const choisis = new Set((param ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+  const vue = sp.has("vue") ? lireOngletFiches(sp.get("vue")) : null;
+  const boissons = vue === "boissons";
+  const libelleFamille = new Map(FAMILLES_BOISSON.map((f) => [f.valeur, f.libelle]));
+  const rangFamille = new Map(FAMILLES_BOISSON.map((f, i) => [f.valeur, i]));
 
   const [vues, articles] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches()]);
   const contexte = construireContexte(vues, new Map(articles.map((a) => [a.id, a])));
-  const retenues = choisis.size ? vues.filter((v) => choisis.has(v.id)) : vues;
+  const retenues = (choisis.size ? vues.filter((v) => choisis.has(v.id)) : vue ? vues.filter((v) => ongletFiche(v) === vue) : vues)
+    // Onglet Boissons : même ordre qu'à l'écran — les cocktails & mocktails d'abord (tri stable :
+    // l'ordre catégorie/nom du chargement est conservé à l'intérieur de chaque famille).
+    .slice()
+    .sort((a, b) => (boissons ? rangFamille.get(familleBoisson(a.categorie))! - rangFamille.get(familleBoisson(b.categorie))! : 0));
 
   const lignes = retenues.map((v) => {
     const r = calculerCout(contexte.fiches.get(v.id)!, contexte);
@@ -50,6 +62,7 @@ export async function GET(req: Request) {
     return [
       v.nom,
       v.categorie,
+      ...(boissons ? [libelleFamille.get(familleBoisson(v.categorie))!] : []),
       TYPE_LABEL[v.type] ?? v.type,
       v.estSousRecette ? "Sous-recette" : "Plat vendu",
       v.nbPortions,
@@ -84,13 +97,14 @@ export async function GET(req: Request) {
     ];
   });
 
+  const suffixe = vue === "boissons" ? "Boissons" : vue === "plats" ? "Plats" : null;
   const buf = await classeurExcel({
-    titre: "Fiches techniques — coût de revient",
+    titre: `Fiches techniques${suffixe ? ` (${suffixe})` : ""} — coût de revient`,
     periode: new Date().toLocaleDateString("fr-FR"),
     feuilles: [{
-      nom: "Fiches techniques",
+      nom: suffixe ?? "Fiches techniques",
       entete: [
-        "Fiche", "Catégorie", "Type", "Nature", "Portions", "Ingrédients",
+        "Fiche", "Catégorie", ...(boissons ? ["Famille"] : []), "Type", "Nature", "Portions", "Ingrédients",
         "Coût total HT USD", "Coût / portion HT USD", "Coût partiel", "Ingrédients non valorisés",
         "Origine du prix", "PV HT USD", "PV TTC USD", "Marge brute USD",
         "Coefficient", "Taux de marque %", "Taux de marge %", "Ratio matière %", "Prix conseillé HT USD", "État",
@@ -102,7 +116,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Fiches_techniques_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Fiches_techniques_${suffixe ? `${suffixe}_` : ""}${new Date().toISOString().slice(0, 10)}.xlsx"`,
     },
   });
 }

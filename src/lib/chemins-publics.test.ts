@@ -126,3 +126,19 @@ describe("le garde d'authentification ne laisse pas fuir, et ne bloque pas ce qu
     }
   });
 });
+
+describe("ancienne adresse rh.patesenfolie.cd", () => {
+  it("renvoie vers gestion.patesenfolie.cd, même page et mêmes paramètres", async () => {
+    const { redirectionAncienneAdresse } = await import("@/lib/supabase/middleware");
+    expect(redirectionAncienneAdresse(new URL("https://rh.patesenfolie.cd/scan?c=XyZ_-9"))).toBe("https://gestion.patesenfolie.cd/scan?c=XyZ_-9");
+    expect(redirectionAncienneAdresse(new URL("https://RH.patesenfolie.cd/paie"))).toBe("https://gestion.patesenfolie.cd/paie");
+    expect(redirectionAncienneAdresse(new URL("https://gestion.patesenfolie.cd/scan?c=1"))).toBeNull();
+    expect(redirectionAncienneAdresse(new URL("https://rh-pef.onrender.com/login"))).toBeNull();
+    expect(redirectionAncienneAdresse(new URL("http://localhost:3000/"))).toBeNull();
+    // Derrière Render, l'URL interne ne porte pas le domaine : c'est l'en-tête qui compte.
+    expect(redirectionAncienneAdresse(new URL("http://localhost:10000/scan?c=Q"), "rh.patesenfolie.cd")).toBe("https://gestion.patesenfolie.cd/scan?c=Q");
+    expect(redirectionAncienneAdresse(new URL("http://localhost:10000/paie"), "rh.patesenfolie.cd:443")).toBe("https://gestion.patesenfolie.cd/paie");
+    expect(redirectionAncienneAdresse(new URL("http://localhost:10000/paie"), "rh.patesenfolie.cd, proxy.interne")).toBe("https://gestion.patesenfolie.cd/paie");
+    expect(redirectionAncienneAdresse(new URL("http://localhost:10000/paie"), "gestion.patesenfolie.cd")).toBeNull();
+  });
+});

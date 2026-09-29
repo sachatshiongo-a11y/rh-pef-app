@@ -5,6 +5,7 @@ import { versFicheCalc, versFicheDispo } from "../_data/fiche-calc";
 import { EditerFiche } from "./editer-fiche";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { exigerPageStock } from "@/lib/garde-page";
+import { ongletFiche } from "@/lib/fiches/famille-boisson";
 
 export default async function FicheDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await exigerPageStock();
@@ -27,7 +28,8 @@ export default async function FicheDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="w-full space-y-5">
-      <FilAriane segments={[{ label: "Fiches techniques", href: "/stock/fiches" }, { label: vue.nom }]} />
+      {/* Le retour mène à l'onglet de la fiche (Plats ou Boissons), pas toujours aux plats. */}
+      <FilAriane segments={[{ label: "Fiches techniques", href: `/stock/fiches?vue=${ongletFiche(vue)}` }, { label: vue.nom }]} />
       {/* La clé remonte le composant dès que les données enregistrées changent : l'état local
           (entête + lignes en cours d'édition) repart toujours de ce que la base contient. */}
       <EditerFiche

@@ -31,7 +31,31 @@ export function cheminPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+/**
+ * Ancienne adresse → nouvelle (décision de la Direction du 2026-09-29 : l'application s'appelle
+ * gestion.patesenfolie.cd). Toute requête reçue sur rh.patesenfolie.cd est renvoyée, chemin et
+ * paramètres compris, vers la même page de gestion.patesenfolie.cd — une affiche QR ou un lien déjà
+ * distribué avec l'ancienne adresse continue donc de marcher. 308 : la méthode est conservée.
+ * Exportée pour son test.
+ */
+export const HOTES_REDIRIGES: Record<string, string> = { "rh.patesenfolie.cd": "gestion.patesenfolie.cd" };
+export function redirectionAncienneAdresse(url: URL, hoteDemande?: string | null): string | null {
+  // Derrière l'hébergeur (Render), l'URL vue par le serveur ne porte pas le nom de domaine appelé :
+  // c'est l'en-tête (X-Forwarded-Host, sinon Host) qui dit sur quelle adresse le visiteur est venu.
+  // Vu en production le 2026-09-29 : lire `url.hostname` seul ne redirigeait rien.
+  const hote = (hoteDemande ?? url.hostname).split(",")[0]!.trim().toLowerCase().replace(/:\d+$/, "");
+  const cible = HOTES_REDIRIGES[hote];
+  if (!cible) return null;
+  return `https://${cible}${url.pathname}${url.search}`;
+}
+
 export async function updateSession(request: NextRequest) {
+  const nouvelleAdresse = redirectionAncienneAdresse(
+    request.nextUrl,
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host"),
+  );
+  if (nouvelleAdresse) return NextResponse.redirect(nouvelleAdresse, 308);
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
