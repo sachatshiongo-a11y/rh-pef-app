@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import { creerBaseTest } from "@/lib/test/db";
+import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
 
 /**
  * L'ÉCRAN ET LE DOCUMENT DISENT LA MÊME CHOSE.
@@ -60,6 +60,8 @@ let empId: string;
 beforeAll(async () => {
   const db = await creerBaseTest();
   prisma = db.prisma; fermer = db.fermer; H.client = prisma;
+  // Le contrat imprime les droits de congé de l'exercice actif : sans lui, il refuse de se générer.
+  await seedParametresLegaux(prisma);
   const emp = await prisma.employee.create({
     data: {
       matricule: "CS01-PEF", nom: "Claire Signature", sexe: "F", etatCivil: "Célibataire",

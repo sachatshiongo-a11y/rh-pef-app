@@ -287,11 +287,13 @@ export default async function FicheEmployePage({
     };
   }
   // Paramètres légaux de départ (préavis, indemnité) — configurables dans Paramètres (À VALIDER).
+  // Exercice ACTIF seulement : avec un second exercice en base, la clé existerait deux fois.
   const paramsDepart =
     tab === "fin"
       ? await prisma.parametreLegal.findMany({
           where: {
             cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "indemnite_licenciement_jours_par_an"] },
+            exercice: { actif: true },
           },
           select: { cle: true, valeur: true },
         })

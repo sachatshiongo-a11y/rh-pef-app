@@ -2,6 +2,7 @@ import { exigerEspaceSalarie } from "@/lib/garde-route";
 import { genererContratPdf } from "@/lib/pdf/contrat-buffer";
 import { prisma } from "@/lib/prisma";
 import { chargerContratsClasses } from "@/lib/contrats-espace";
+import { ParametreLegalManquantError } from "@/lib/config";
 
 /** Contrat de travail (PDF) du salarié pour SON espace — accès limité à ses propres contrats. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -16,7 +17,20 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const exemplaireFige =
     sp.get("exemplaire") === "fige" &&
     (await chargerContratsClasses(prisma, user.employeeId)).some((c) => c.contrat.id === id && c.classement.categorie === "ANCIEN");
-  const pdf = await genererContratPdf(id, { exemplaireFige });
+  let pdf: Awaited<ReturnType<typeof genererContratPdf>>;
+  try {
+    pdf = await genererContratPdf(id, { exemplaireFige });
+  } catch (e) {
+    // Paramètre légal manquant : l'affaire de la Direction, pas du salarié — on ne lui montre pas
+    // le nom technique de la clé, seulement qu'il n'y est pour rien et à qui s'adresser.
+    if (e instanceof ParametreLegalManquantError) {
+      return new Response("Votre contrat ne peut pas être affiché pour le moment : un réglage manque côté Direction. Prévenez-la.", {
+        status: 409,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    throw e;
+  }
   if (!pdf) return new Response("Contrat introuvable", { status: 404 });
   if (pdf.employeeId !== user.employeeId) return new Response("Accès refusé", { status: 403 });
 

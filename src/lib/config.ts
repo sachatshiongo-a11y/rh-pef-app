@@ -21,6 +21,45 @@ export function lireMoisEffet(v: number | null | undefined): number | null {
 }
 
 /**
+ * Un paramètre légal OBLIGATOIRE manque (ou aucun exercice fiscal n'est actif). Le message dit
+ * lequel et pour quel exercice : il est fait pour être montré à la Direction, telle quelle. Classe
+ * dédiée pour que les routes de document puissent le rendre lisible (409) au lieu d'une erreur 500
+ * muette — les autres appelants, qui attrapent `Error`, n'y voient aucune différence.
+ */
+export class ParametreLegalManquantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ParametreLegalManquantError";
+  }
+}
+
+const AUCUN_EXERCICE_ACTIF = "Aucun exercice fiscal actif : chargez les paramètres légaux (scripts/seed-legal-2026.ts).";
+
+/**
+ * Les valeurs de quelques clés de l'exercice fiscal ACTIF — jamais d'un autre exercice, même si
+ * celui-là porte la clé et l'actif non. Clé absente ou vide = `null`, à l'appelant de décider si
+ * c'est admissible. Lève si aucun exercice n'est actif.
+ */
+async function lireExerciceActif(
+  db: Prisma.TransactionClient,
+  cles: string[],
+): Promise<{ annee: number; valeur: (cle: string) => number | null }> {
+  const exercice = await db.exerciceFiscal.findFirst({
+    where: { actif: true },
+    select: { annee: true, parametres: { where: { cle: { in: cles } }, select: { cle: true, valeur: true } } },
+  });
+  if (!exercice) throw new ParametreLegalManquantError(AUCUN_EXERCICE_ACTIF);
+  const valeurs = new Map(exercice.parametres.map((p) => [p.cle, p.valeur]));
+  return {
+    annee: exercice.annee,
+    valeur: (cle) => {
+      const v = valeurs.get(cle);
+      return v === undefined || v === null ? null : Number(v);
+    },
+  };
+}
+
+/**
  * Les droits annuels de congé (jours) — la SEULE donnée de paie dont le solde de congé a besoin.
  *
  * Même source et même règle que `chargerParametresPaie().droitsCongesAnnuel` (clé
@@ -32,18 +71,59 @@ export function lireMoisEffet(v: number | null | undefined): number | null {
  * l'approbation, elle, sait s'en passer (`lib/solde-conge-fige.ts`).
  */
 export async function chargerDroitsCongesAnnuel(db: Prisma.TransactionClient = prisma): Promise<number> {
-  const exercice = await db.exerciceFiscal.findFirst({
-    where: { actif: true },
-    select: { annee: true, parametres: { where: { cle: "droits_conges_annuel" }, select: { valeur: true } } },
-  });
-  if (!exercice) {
-    throw new Error("Aucun exercice fiscal actif : chargez les paramètres légaux (scripts/seed-legal-2026.ts).");
+  const exercice = await lireExerciceActif(db, ["droits_conges_annuel"]);
+  return droitsCongesRequis(exercice);
+}
+
+function droitsCongesRequis({ annee, valeur }: { annee: number; valeur: (cle: string) => number | null }): number {
+  const v = valeur("droits_conges_annuel");
+  if (v === null) {
+    throw new ParametreLegalManquantError(`Paramètre légal manquant ou vide : droits_conges_annuel (exercice ${annee}).`);
   }
-  const v = exercice.parametres[0]?.valeur;
-  if (v === undefined || v === null) {
-    throw new Error(`Paramètre légal manquant ou vide : droits_conges_annuel (exercice ${exercice.annee}).`);
-  }
-  return Number(v);
+  return v;
+}
+
+/** Ce que le contrat de travail imprime des paramètres légaux (`lib/pdf/contrat-buffer.ts`). */
+export type ParametresLegauxContrat = {
+  /** Obligatoire : le contrat ne s'imprime pas sans (même règle que le solde de congé). */
+  droitsCongesAnnuel: number;
+  /**
+   * Facultatifs : aucune installation ne les pose d'office (ni seed ni migration), et le contrat a
+   * une formulation prévue pour leur absence — « moyennant un préavis légal », qui renvoie au Code
+   * du travail sans inventer de chiffre. Absents de l'exercice actif = `null`, jamais la valeur
+   * d'un autre exercice.
+   */
+  preavisDemission: number | null;
+  preavisLicenciement: number | null;
+  /** Même lecture que `chargerParametresPaie().salairesSaisisEnNet` : absent = OFF. */
+  salairesSaisisEnNet: boolean;
+};
+
+/**
+ * Les paramètres légaux du CONTRAT DE TRAVAIL, tous lus dans l'exercice fiscal ACTIF.
+ *
+ * Pourquoi l'exercice actif et non celui de la date d'effet du contrat : un contrat régénéré montre
+ * les conditions ACTUELLES — c'est ce que le salarié signe (`instantaneContrat`), et l'exemplaire
+ * figé garde, lui, celles du jour de l'acceptation. Il imprime aussi le brut reconstitué par
+ * `chargerParametresPaie` (exercice actif) : lire les préavis ailleurs mélangerait deux exercices
+ * dans un même document. Et seul 2026 existe en base : un contrat pris effet en 2024 ou 2025 ne
+ * s'imprimerait plus.
+ *
+ * Ne dépend PAS du reste de la paie (ligne Config, barème IPR…) : un contrat au BRUT s'imprime même
+ * si la paie est incomplète — au NET, en revanche, `contrat-buffer` reconstitue le brut et exige
+ * alors `chargerParametresPaie`. Lève si l'exercice actif ou `droits_conges_annuel` manque.
+ */
+export async function chargerParametresContrat(db: Prisma.TransactionClient = prisma): Promise<ParametresLegauxContrat> {
+  const exercice = await lireExerciceActif(db, [
+    "droits_conges_annuel", "preavis_jours_demission", "preavis_jours_licenciement", "salaires_saisis_en_net",
+  ]);
+  const { valeur } = exercice;
+  return {
+    droitsCongesAnnuel: droitsCongesRequis(exercice),
+    preavisDemission: valeur("preavis_jours_demission"),
+    preavisLicenciement: valeur("preavis_jours_licenciement"),
+    salairesSaisisEnNet: valeur("salaires_saisis_en_net") === 1,
+  };
 }
 
 /**
@@ -63,18 +143,14 @@ export async function chargerParametresPaie(db: Prisma.TransactionClient = prism
     }),
   ]);
 
-  if (!exercice) {
-    throw new Error(
-      "Aucun exercice fiscal actif : chargez les paramètres légaux (scripts/seed-legal-2026.ts)."
-    );
-  }
+  if (!exercice) throw new ParametreLegalManquantError(AUCUN_EXERCICE_ACTIF);
 
   const valeurs = new Map(exercice.parametres.map((p) => [p.cle, p.valeur]));
 
   const requis = (cle: string): number => {
     const v = valeurs.get(cle);
     if (v === undefined || v === null) {
-      throw new Error(`Paramètre légal manquant ou vide : ${cle} (exercice ${exercice.annee}).`);
+      throw new ParametreLegalManquantError(`Paramètre légal manquant ou vide : ${cle} (exercice ${exercice.annee}).`);
     }
     return Number(v);
   };
@@ -84,7 +160,7 @@ export async function chargerParametresPaie(db: Prisma.TransactionClient = prism
   };
 
   if (exercice.tranchesIpr.length === 0) {
-    throw new Error(`Barème IPR vide pour l'exercice ${exercice.annee}.`);
+    throw new ParametreLegalManquantError(`Barème IPR vide pour l'exercice ${exercice.annee}.`);
   }
 
   return {
