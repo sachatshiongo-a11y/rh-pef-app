@@ -2,9 +2,7 @@ import "server-only";
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { DemandeCongeDocument } from "@/lib/pdf/demande-conge";
-import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
-import { chargerParametresPaie } from "@/lib/config";
-import { typeSansConges, chargerCompteDansSoldeParType } from "@/lib/regles-contrats";
+import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { signatureImprimable } from "@/lib/signature";
 
 /**
@@ -29,30 +27,13 @@ export async function genererDemandeCongePdf(
   });
   if (!demande) return null;
 
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const debutAnnee = new Date(Date.UTC(annee, 0, 1));
-
-  const ancienneteMois = ancienneteEnMois(new Date(demande.employee.dateEmbauche), new Date(annee, mois - 1, 1));
-  const parametres = await chargerParametresPaie();
-  const congesAcquis = typeSansConges(demande.employee.contrat) ? 0 : calculerCongesAcquis(ancienneteMois, parametres.droitsCongesAnnuel);
-
-  const [approuvees, compteParType] = await Promise.all([
-    prisma.leaveRequest.findMany({
-      where: {
-        employeeId: demande.employeeId,
-        statut: "APPROUVE",
-        dateDebut: { gte: debutAnnee },
-      },
-    }),
-    chargerCompteDansSoldeParType(),
-  ]);
-  // Seuls les types cochés « compte dans le solde » (Paramètres) entament le solde de congé annuel.
-  const congesPris = approuvees
-    .filter((l) => congeDeductibleDuSolde(compteParType.get(l.type)))
-    .reduce((acc, l) => acc + Number(l.nbJours), 0);
-  const soldeConges = Math.round((congesAcquis - congesPris) * 10) / 10;
+  // Le solde se lit à la SOURCE UNIQUE, à l'horloge (2026-09-29) — le chiffre de l'écran « Mes
+  // congés » et de la fiche Direction. Avant, il était recalculé ici sur Config.moisCourant (qui peut
+  // rester figé) → le PDF pouvait afficher un autre solde que l'écran.
+  // Ce solde n'entre PAS dans l'empreinte de signature (`instantaneDemandeConge` : matricule, type,
+  // dates, jours, statut, approbateur) et aucun PDF n'est stocké : le document est rendu à chaque
+  // ouverture. Ce changement ne fait donc basculer aucune demande signée « à resigner ».
+  const { solde: soldeConges } = await chargerSoldeCongeSalarie(prisma, demande.employeeId);
 
   const signatureSalarie = await signatureImprimable(prisma, "DEMANDE_CONGE", demande.id);
   const buffer = await renderPdfBuffer(

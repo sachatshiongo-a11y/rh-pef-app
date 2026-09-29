@@ -71,3 +71,16 @@ describe("la fiche employé de la Direction lit le même solde", () => {
     expect(fiche).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b/);
   });
 });
+
+// 2026-09-29 : les deux PDF qui impriment un solde (fiche employé, demande de congé) le lisaient
+// encore sur Config.moisCourant → un PDF pouvait contredire l'écran. Ils passent par la même source.
+describe("les PDF impriment le même solde que l'écran", () => {
+  const pdfs = ["../app/(app)/employes/[id]/fiche/route.ts", "./pdf/demande-conge-buffer.ts"];
+  for (const rel of pdfs) {
+    it(`${rel} lit chargerSoldeCongeSalarie et ne recalcule rien`, () => {
+      const src = readFileSync(path.resolve(__dirname, rel), "utf8");
+      expect(src).toMatch(/\bchargerSoldeCongeSalarie\(prisma, /);
+      expect(src).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b|\bchargerCompteDansSoldeParType\b/);
+    });
+  }
+});
