@@ -12,6 +12,7 @@ import { jourKinshasaISO } from "@/lib/date-paiement";
 import { MenuFichesConso } from "./menu-fiches-conso";
 import { VentesGrid } from "./ventes-grid";
 import { ImportClasseur } from "./import-classeur";
+import { ImportCommande } from "./import-commande";
 import { chargerVentesSemaine } from "./ventes-data";
 import { avecDimanche, type EspaceVente } from "@/lib/ventes-journalieres";
 
@@ -189,6 +190,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       <div className="space-y-4">
         {enTete}
         <p className="text-xs text-muted-foreground">Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</p>
+        {user.role === "ADMIN" && <ImportCommande />}
         <CommandeGrid articles={articles} jours={joursLabel} commandes={{ ...commandes, ...cmdLeg }} peutModifier />
       </div>
     );

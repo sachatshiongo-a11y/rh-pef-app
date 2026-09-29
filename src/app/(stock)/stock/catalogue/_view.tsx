@@ -55,6 +55,8 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       id: a.id,
       code: a.code,
       designation: a.designation,
+      nomCourt: a.nomCourt,
+      surFicheCommande: a.surFicheCommande,
       domaine: a.domaine,
       categorieId: a.categorieId,
       fournisseurId: a.fournisseurId,

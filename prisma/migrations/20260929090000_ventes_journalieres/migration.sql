@@ -39,3 +39,10 @@ ALTER TABLE "stock"."FicheTechnique" ADD COLUMN "ordreVente" INTEGER;
 -- Nom court d'un article du catalogue, imprimé sur la fiche « Commande journalière ». Colonne
 -- NOUVELLE et NULLABLE : aucune ligne existante n'est modifiée.
 ALTER TABLE "stock"."ArticleStock" ADD COLUMN "nomCourt" TEXT;
+
+-- Fiche « Commande journalière » sur le modèle du classeur : article coché, rang et rubrique du
+-- classeur. Colonnes NOUVELLES (booléen à false par défaut, les autres NULLABLES) : aucune ligne
+-- existante n'est modifiée.
+ALTER TABLE "stock"."ArticleStock" ADD COLUMN "surFicheCommande" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "stock"."ArticleStock" ADD COLUMN "ordreCommande" INTEGER;
+ALTER TABLE "stock"."ArticleStock" ADD COLUMN "rubriqueCommande" TEXT;

@@ -1,7 +1,7 @@
 import { formaterNombre } from "@/lib/montant";
 import type { Colonne, PartieTableau } from "@/lib/pdf/tableau";
 import type { ConsommationReelle } from "@/lib/stock-restaurant";
-import { cleCase, type EspaceVente, type LigneVente } from "@/lib/ventes-journalieres";
+import { cleCase, SEPARATEUR_SOUS_RUBRIQUE, type EspaceVente, type LigneVente } from "@/lib/ventes-journalieres";
 
 // Fiches de l'onglet Consommation (Stock → Conso. journalière), reproduites d'après les deux
 // classeurs de la Direction (2026-09-28) et remplies avec les données de l'application :
@@ -166,6 +166,11 @@ export type ArticleCommande = {
   nomCourt?: string | null;
   /** Désignations des articles du restaurant (Stock restaurant) rattachés à cet article, actifs. */
   nomsRestaurant?: string[];
+  /** Coché « Sur la fiche commande » (import du classeur ou Inventaire). */
+  surFicheCommande?: boolean;
+  /** Rang et rubrique du classeur « Commande journalière » (« Viande … — 1. Viande Rouge »). */
+  ordreCommande?: number | null;
+  rubriqueCommande?: string | null;
 };
 
 /**
@@ -227,27 +232,64 @@ export function ficheCommandeJournaliere(p: {
     designation,
     cases: [...(cuisine ? [{ valeur: unite?.trim() || null }] : []), { valeur: cmd }, { valeur: liv }],
   });
-  // Ordre du classeur : ses rubriques d'abord, les autres par ordre alphabétique, « À classer » en
-  // dernier ; dans une rubrique, les noms imprimés par ordre alphabétique (comme le classeur).
+  // Ordre du CLASSEUR : ses rubriques dans son ordre (puis les autres, alphabétiques ; « À classer »
+  // en dernier) ; dans une rubrique, les lignes au rang du classeur, puis celles sans rang par nom ;
+  // un article imprimé SANS être coché (il a une commande ou une livraison ce jour-là) ferme sa
+  // rubrique. Une sous-rubrique (« Viande … — 1. Viande Rouge ») imprime sa rubrique au-dessus.
   const reference = RUBRIQUES_COMMANDE[p.espace].map(cleRubrique);
+  const parentDe = (r: string) => r.split(SEPARATEUR_SOUS_RUBRIQUE)[0]!;
   const rang = (titre: string) => {
     if (titre === A_CLASSER) return Number.MAX_SAFE_INTEGER;
-    const i = reference.indexOf(cleRubrique(titre));
+    const i = reference.indexOf(cleRubrique(parentDe(titre)));
     return i < 0 ? reference.length : i;
   };
+  const INFINI = Number.POSITIVE_INFINITY;
   const compare = (a: string, b: string) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true });
-  const tries = p.articles
-    .map((a) => ({ a, nom: nomImprime(a), rubrique: a.categorie?.trim() || A_CLASSER }))
-    .sort((x, y) => rang(x.rubrique) - rang(y.rubrique) || compare(x.rubrique, y.rubrique) || compare(x.nom, y.nom));
-  const sections = enSections(
+  const items = p.articles.map((a) => ({
+    a, nom: nomImprime(a),
+    rubrique: a.rubriqueCommande?.trim() || a.categorie?.trim() || A_CLASSER,
+    horsFiche: a.surFicheCommande === false,
+    ordre: a.surFicheCommande === false ? INFINI : a.ordreCommande ?? INFINI,
+  }));
+  const premier = new Map<string, number>();
+  for (const x of items) premier.set(x.rubrique, Math.min(premier.get(x.rubrique) ?? INFINI, x.ordre));
+  const diff = (a: number, b: number) => (a === b ? 0 : a - b);
+  // Rubrique : celles du classeur importé dans SON ordre (rang de leur première ligne) ; puis les
+  // autres, dans l'ordre des rubriques du classeur de PEF, puis alphabétiques ; « À classer » en dernier.
+  const cleRub = (r: string): [number, number] => {
+    if (r === A_CLASSER) return [2, 0];
+    const p = premier.get(r)!;
+    return Number.isFinite(p) ? [0, p] : [1, rang(r)];
+  };
+  const tries = items.sort((x, y) => {
+    const [gx, rx] = cleRub(x.rubrique), [gy, ry] = cleRub(y.rubrique);
+    return gx - gy || diff(rx, ry) || compare(x.rubrique, y.rubrique)
+      || Number(x.horsFiche) - Number(y.horsFiche) || diff(x.ordre, y.ordre) || compare(x.nom, y.nom);
+  });
+  const groupes = enSections(
     tries,
     (x) => x.rubrique,
     (x) => ligne(x.nom, x.a.unite, quantite(p.commandes.get(x.a.id)), quantite(p.livraisons.get(x.a.id))),
   );
   if (cuisine && p.legumes?.length) {
     const legumes = { titre: RUBRIQUE_LEGUMES, lignes: p.legumes.map((l) => ligne(l.designation, l.unite, quantite(l.commande), quantite(l.livraison))) };
-    const i = sections.findIndex((s) => rang(s.titre) > rang(RUBRIQUE_LEGUMES));
-    sections.splice(i < 0 ? sections.length : i, 0, legumes);
+    // Des articles déjà rangés sous « Fruits & Légumes frais » : une seule rubrique, légumes à la suite.
+    const meme = groupes.find((g) => cleRubrique(g.titre) === cleRubrique(RUBRIQUE_LEGUMES));
+    if (meme) meme.lignes.push(...legumes.lignes);
+    else {
+      const i = groupes.findIndex((s) => rang(s.titre) > rang(RUBRIQUE_LEGUMES));
+      groupes.splice(i < 0 ? groupes.length : i, 0, legumes);
+    }
+  }
+  const sections: SectionFiche[] = [];
+  let parentPrecedent: string | null = null;
+  for (const g of groupes) {
+    const k = g.titre.indexOf(SEPARATEUR_SOUS_RUBRIQUE);
+    if (k < 0) { sections.push(g); parentPrecedent = null; continue; }
+    const parent = g.titre.slice(0, k);
+    if (parent !== parentPrecedent) sections.push({ titre: parent, lignes: [] });
+    sections.push({ titre: g.titre.slice(k + SEPARATEUR_SOUS_RUBRIQUE.length), lignes: g.lignes });
+    parentPrecedent = parent;
   }
   return {
     feuille: cuisine ? "Fiche commande cuisine" : "Fiche commande Bar",

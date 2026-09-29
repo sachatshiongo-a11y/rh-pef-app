@@ -1373,6 +1373,12 @@ model ArticleStock {
   // désignation du fournisseur). Saisi par la Direction ; null = repli (article du restaurant
   // rattaché, sinon désignation). Jamais déduit.
   nomCourt        String?
+  // Fiche « Commande journalière » (modèle du classeur de la Direction, 2026-09-29) : l'article y
+  // figure s'il est coché, sous la rubrique et au rang du classeur. Posé par l'import du classeur
+  // Commande ou par l'action groupée de l'Inventaire ; jamais déduit.
+  surFicheCommande Boolean      @default(false)
+  ordreCommande   Int?
+  rubriqueCommande String?
   domaine         DomaineStock
   categorieId     String?
   categorie       CategorieStock? @relation(fields: [categorieId], references: [id])

@@ -68,14 +68,15 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
     else if (s.categorieSortie !== "PERTE") sansMotif++;
   }
 
-  // Articles actifs, plus ceux (désactivés depuis) qui ont une commande ou une livraison ce jour :
-  // une quantité enregistrée n'est jamais cachée.
   const mouvementes = [...new Set([...cmd.keys(), ...liv.keys()])];
   const articles = await prisma.articleStock.findMany({
-    where: { domaine: { in: domaines }, OR: [{ actif: true }, { id: { in: mouvementes } }] },
+    // Comme le classeur : les articles COCHÉS « Sur la fiche commande » — plus ceux qui ont une
+    // commande ou une livraison ce jour-là (une quantité enregistrée n'est jamais cachée).
+    where: { domaine: { in: domaines }, OR: [{ actif: true, surFicheCommande: true }, { id: { in: mouvementes } }] },
     orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
     select: {
       id: true, designation: true, nomCourt: true, unite: true, domaine: true, categorie: { select: { nom: true } },
+      surFicheCommande: true, ordreCommande: true, rubriqueCommande: true,
       // Nom court de repli : l'article du restaurant rattaché (geste de la Direction, jamais deviné).
       articlesResto: { where: { actif: true }, select: { designation: true } },
     },
@@ -110,7 +111,10 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
       articles: articles
         .filter((a) => DOMAINES_FICHE[espace].includes(a.domaine))
         .sort((a, b) => rang(a.domaine) - rang(b.domaine))
-        .map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: a.articlesResto.map((r) => r.designation), unite: a.unite, categorie: a.categorie?.nom ?? null })),
+        .map((a) => ({
+          id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: a.articlesResto.map((r) => r.designation), unite: a.unite, categorie: a.categorie?.nom ?? null,
+          surFicheCommande: a.surFicheCommande, ordreCommande: a.ordreCommande, rubriqueCommande: a.rubriqueCommande,
+        })),
       commandes: cmd,
       livraisons: liv,
       legumes: espace === "CUISINE" ? legumes : undefined,

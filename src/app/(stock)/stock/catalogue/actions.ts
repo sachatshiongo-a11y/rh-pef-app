@@ -154,6 +154,21 @@ export const basculerActifArticles = actionLisible(async (articleIds: string[], 
   revalidatePath("/stock");
 });
 
+/**
+ * Met des articles « Sur la fiche commande » (ou les en retire), d'un coup. Un article mis sans rang
+ * se range en fin de sa rubrique ; retirer garde son rang et sa rubrique (le remettre les retrouve).
+ */
+export const basculerFicheCommande = actionLisible(async (articleIds: string[], sur: boolean) => {
+  const user = await garde();
+  const uniq = [...new Set((Array.isArray(articleIds) ? articleIds : []).map(String))].filter(Boolean);
+  if (uniq.length === 0) throw new Error("Aucun article sélectionné.");
+  const n = await prisma.articleStock.updateMany({ where: { id: { in: uniq }, surFicheCommande: !sur }, data: { surFicheCommande: sur } });
+  await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "ficheCommande", nouvelleValeur: `${n.count} article(s) ${sur ? "mis sur" : "retiré(s) de"} la fiche commande`, userId: user.id });
+  revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/journalier");
+  return { ok: true as const, modifies: n.count };
+});
+
 /** Affecte un fournisseur (ou le retire si vide) à plusieurs articles d'un coup. */
 export const definirFournisseurEnMasse = actionLisible(async (articleIds: string[], fournisseurId: string) => {
   const user = await garde();

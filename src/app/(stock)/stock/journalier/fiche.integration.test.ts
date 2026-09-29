@@ -62,6 +62,10 @@ beforeAll(async () => {
   // 30 articles de plus : la fiche cuisine déborde d'une page (rubrique répétée, rangées lisibles).
   for (let i = 1; i <= 40; i++) await art(`Épice n° ${String(i).padStart(2, "0")}`, "NOURRITURE", null, "g");
 
+  // Fiche commande : les articles COCHÉS « Sur la fiche commande » (tous ici, sauf l'ancien article
+  // désactivé, qui n'apparaît que par sa livraison du jour).
+  await prisma.articleStock.updateMany({ where: { actif: true }, data: { surFicheCommande: true } });
+
   // Mardi 22/09/2026 : commandes, livraisons, perte, sortie sans motif, légumes.
   await prisma.commandeResto.createMany({ data: [
     { articleId: boeuf.id, date: le("2026-09-22"), quantite: 2.5 },

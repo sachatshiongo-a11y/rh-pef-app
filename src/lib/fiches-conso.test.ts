@@ -157,6 +157,42 @@ describe("commande journalière", () => {
     expect(nomImprime({ designation: "Vim", nomsRestaurant: [] })).toBe("Vim");
   });
 
+  it("modèle du classeur : rang et rubrique du classeur, sous-rubrique sous sa rubrique, article non coché (mais commandé) en fin de rubrique", () => {
+    const V = "Viande -Volaille-Poisson-Crustacé";
+    const f = ficheCommandeJournaliere({
+      espace: "CUISINE", date: "2026-09-22", livraisons: new Map(), commandes: new Map([["hors", 2]]),
+      articles: [
+        { id: "cailles", designation: "Cailles", unite: "Pièce", categorie: "Volailles", surFicheCommande: true, ordreCommande: 6, rubriqueCommande: `${V} — 2. Volaille` },
+        { id: "agneau", designation: "Lamb Rack", nomCourt: "Carré d'agneau", unite: "Kg", categorie: "Viande", surFicheCommande: true, ordreCommande: 1, rubriqueCommande: `${V} — 1. Viande Rouge` },
+        { id: "hachee", designation: "Viande Hachée", unite: "Kg", categorie: "Viande", surFicheCommande: true, ordreCommande: 4, rubriqueCommande: `${V} — 1. Viande Rouge` },
+        { id: "hors", designation: "Agneau entier", unite: "Kg", categorie: "Viande", surFicheCommande: false, rubriqueCommande: null },
+        { id: "beurre", designation: "Beurre", unite: "Unité", categorie: "Crèmerie-Fromagerie", surFicheCommande: true, ordreCommande: 28, rubriqueCommande: "Crèmerie-Fromagerie" },
+        // Orthographe du classeur (« assaisonements ») : rangée par son rang, pas par son nom.
+        { id: "curry", designation: "Curry", unite: "g", categorie: "Épices", surFicheCommande: true, ordreCommande: 91, rubriqueCommande: "Epices et assaisonements" },
+        { id: "vim", designation: "Vim", unite: "Boîte", categorie: "Entretien", surFicheCommande: true, ordreCommande: 180, rubriqueCommande: "Produits d'entretien & Autre non-alimentaire" },
+      ],
+    });
+    expect(f.sections.map((s) => [s.titre, s.lignes.map((l) => l.designation)])).toEqual([
+      [V, []], // la rubrique du classeur, au-dessus de ses sous-rubriques
+      ["1. Viande Rouge", ["Carré d'agneau", "Viande Hachée"]],
+      ["2. Volaille", ["Cailles"]],
+      ["Crèmerie-Fromagerie", ["Beurre"]],
+      ["Epices et assaisonements", ["Curry"]],
+      ["Produits d'entretien & Autre non-alimentaire", ["Vim"]],
+      ["Viande", ["Agneau entier"]], // pas sur la fiche, mais commandé ce jour : imprimé, jamais perdu
+    ]);
+    const p = partiePdf(f);
+    expect(p.lignes[0]).toEqual([V]);
+    // Un article rangé sous « Fruits & Légumes frais » et les légumes : une seule rubrique.
+    const g = ficheCommandeJournaliere({
+      espace: "CUISINE", date: "2026-09-22", commandes: new Map(), livraisons: new Map(),
+      articles: [{ id: "x", designation: "Salade Lolo", unite: "Kg", categorie: null, surFicheCommande: true, ordreCommande: 70, rubriqueCommande: "Fruits & Légumes frais" }],
+      legumes: [{ designation: "Ail", unite: "Kg", commande: null, livraison: null }],
+    });
+    expect(g.sections.map((s) => [s.titre, s.lignes.map((l) => l.designation)])).toEqual([["Fruits & Légumes frais", ["Salade Lolo", "Ail"]]]);
+    expect(p.sectionRows).toEqual([0, 1, 4, 6, 8, 10, 12]);
+  });
+
   it("bar : rubriques dans l'ordre du classeur (Eau, Limonade, Bière locale…), inconnues ensuite", () => {
     const f = ficheCommandeJournaliere({
       espace: "BAR", date: "2026-09-22", commandes: new Map(), livraisons: new Map(),
