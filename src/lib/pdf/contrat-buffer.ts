@@ -3,7 +3,7 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { ContratDocument, type ParamsContrat } from "@/lib/pdf/contrat";
 import { chargerEntreprise } from "@/lib/entreprise";
-import { chargerParametresPaie } from "@/lib/config";
+import { chargerParametresContrat, chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import { lireFichier } from "@/lib/storage";
 import { formaterNombre } from "@/lib/montant";
@@ -79,21 +79,16 @@ export async function genererContratPdf(
   const poste = (contrat.poste || contrat.employee.poste).trim();
   const fiche = poste ? await prisma.fichePoste.findFirst({ where: { poste: { equals: poste, mode: "insensitive" } }, select: { descriptionPoste: true } }) : null;
 
-  // Préavis + droits congés depuis les paramètres légaux versionnés (À VALIDER par un comptable).
-  const legaux = await prisma.parametreLegal.findMany({
-    where: { cle: { in: ["preavis_jours_demission", "preavis_jours_licenciement", "droits_conges_annuel", "salaires_saisis_en_net"] } },
-    select: { cle: true, valeur: true },
-  });
-  const val = (cle: string) => {
-    const p = legaux.find((x) => x.cle === cle);
-    return p ? Number(p.valeur) : null;
-  };
+  // Préavis, droits congés et interprétation du salaire : paramètres légaux de l'exercice fiscal
+  // ACTIF (et d'aucun autre — `chargerParametresContrat` dit pourquoi pas celui de la date d'effet).
+  // Lève, avec un message qui nomme la clé et l'exercice, si les droits de congé manquent.
+  const legaux = await chargerParametresContrat();
   const params: ParamsContrat = {
-    preavisDemission: val("preavis_jours_demission"),
-    preavisLicenciement: val("preavis_jours_licenciement"),
-    droitsCongesAnnuel: val("droits_conges_annuel"),
+    preavisDemission: legaux.preavisDemission,
+    preavisLicenciement: legaux.preavisLicenciement,
+    droitsCongesAnnuel: legaux.droitsCongesAnnuel,
   };
-  const salaireEstNet = val("salaires_saisis_en_net") === 1;
+  const salaireEstNet = legaux.salairesSaisisEnNet;
 
   // Salaire brut reconstitué (affiché à côté du net sur le contrat, décision client 2026-07-22).
   let salaireBrut: string | null = null;
