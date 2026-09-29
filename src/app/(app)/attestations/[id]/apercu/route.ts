@@ -15,7 +15,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const a = await prisma.attestation.findUnique({ where: { id }, select: { employeeId: true, type: true } });
   if (!a) return new Response("Demande introuvable", { status: 404 });
   const maintenant = new Date();
-  const r = await instantaneAttestation(prisma, a.employeeId, a.type, maintenant);
+  const r = await instantaneAttestation(prisma, a.employeeId, a.type);
   if (!r.ok) return new Response(r.motif, { status: 409, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   // Si la demande est délivrée, elle répondra à la demande du salarié : l'aperçu le dit déjà.
   const pdf = await rendreApercuAttestationPdf({ donnees: { ...r.donnees, aSaDemande: true }, delivreeLe: maintenant });
