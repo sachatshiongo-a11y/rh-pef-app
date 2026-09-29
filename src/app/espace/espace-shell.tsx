@@ -8,6 +8,7 @@ import { Icone } from "@/components/icones";
 import { Avatar } from "@/components/avatar";
 import { PushToggle } from "@/app/(app)/push-toggle";
 import { ClocheSalarie } from "./cloche-salarie";
+import { BarreDuBas } from "@/components/barre-du-bas";
 import { logout } from "@/app/login/actions";
 import type { NotificationItem } from "@/lib/notifications";
 import { ACCUEIL, BARRE_DU_BAS, GROUPES_ESPACE, lienActif, type LienEspace } from "./navigation";
@@ -20,8 +21,8 @@ const CLASSE_LIEN_COMPTE =
  * - Téléphone : barre du bas à cinq boutons (Accueil, Pointer, Planning, Congés, Menu), toujours
  *   sous le pouce ; « Menu » ouvre le tiroir, rangé en trois groupes.
  * - Ordinateur : le menu est ouvert en permanence à gauche, la barre du bas disparaît.
- * La barre du bas est `position: fixed` SANS `backdrop-filter` : les deux ensemble la font
- * décrocher en PWA iOS (piège déjà rencontré).
+ * La barre du bas est le composant commun `BarreDuBas` (le même que les espaces RH, Stock et
+ * Exploitation) : `position: fixed` SANS `backdrop-filter`, qui la ferait décrocher en PWA iOS.
  * `navigation={false}` (mot de passe temporaire à remplacer) : ni menu ni barre — les liens
  * ramèneraient de toute façon au formulaire.
  */
@@ -155,46 +156,15 @@ export function EspaceShell({
         </main>
       </div>
 
-      {/* Barre du bas — téléphone et tablette. Fond plein, jamais de flou (voir plus haut). */}
+      {/* Barre du bas — téléphone et tablette : le composant commun à tous les espaces. */}
       {navigation && (
-        <nav
-          aria-label="Navigation principale"
-          className="fixed inset-x-0 bottom-0 z-30 border-t bg-background pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] lg:hidden"
-        >
-          <ul className="grid grid-cols-5">
-            {BARRE_DU_BAS.map((l) => {
-              const actif = lienActif(l.href, pathname);
-              return (
-                <li key={l.href}>
-                  <Link
-                    href={l.href}
-                    aria-current={actif ? "page" : undefined}
-                    className={`flex h-16 flex-col items-center justify-center gap-1 text-xs font-medium ${actif ? "text-primary" : "text-muted-foreground"}`}
-                  >
-                    <span className={`flex h-7 w-12 items-center justify-center rounded-full ${actif ? "bg-primary/10" : ""}`}>
-                      <Icone nom={l.icone} taille={20} />
-                    </span>
-                    {l.court}
-                  </Link>
-                </li>
-              );
-            })}
-            <li>
-              <button
-                type="button"
-                onClick={() => setTiroir(true)}
-                aria-expanded={tiroir}
-                aria-controls="menu-espace"
-                className="flex h-16 w-full flex-col items-center justify-center gap-1 text-xs font-medium text-muted-foreground"
-              >
-                <span className="flex h-7 w-12 items-center justify-center rounded-full">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M3 6h18M3 12h18M3 18h18" /></svg>
-                </span>
-                Menu
-              </button>
-            </li>
-          </ul>
-        </nav>
+        <BarreDuBas
+          entrees={BARRE_DU_BAS.map((l) => ({ href: l.href, icone: l.icone, court: l.court ?? l.label }))}
+          estActif={(href) => lienActif(href, pathname)}
+          menuOuvert={tiroir}
+          onMenu={() => setTiroir(true)}
+          menuId="menu-espace"
+        />
       )}
     </div>
   );
