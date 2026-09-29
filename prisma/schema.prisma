@@ -1167,6 +1167,19 @@ model LeaveRequest {
   approuvePar   User?       @relation("ApprovedBy", fields: [approuveParId], references: [id])
   dateEnreg     DateTime    @default(now())
 
+  /// SOLDE FIGÉ À L'APPROBATION (décision Direction 2026-09-29) : le solde de congé annuel du
+  /// salarié tel qu'il se lisait à la source unique (`lib/solde-conge-salarie.ts`) À L'INSTANT où
+  /// la demande est passée APPROUVÉ, CETTE demande comprise (solde « après approbation » : c'est ce
+  /// qu'imprimait déjà le PDF, recalculé à chaque ouverture). Écrit dans la même transaction que le
+  /// statut, effacé (null) dès que la demande quitte APPROUVÉ ; une nouvelle approbation en reprend
+  /// un. Null sur une demande approuvée avant ce changement : rien n'est reconstitué.
+  /// HORS de l'empreinte de signature (`instantaneDemandeConge`).
+  soldeFigeJours  Decimal?  @db.Decimal(6, 2)
+  soldeFigeAcquis Decimal?  @db.Decimal(6, 2)
+  soldeFigePris   Decimal?  @db.Decimal(6, 2)
+  /// L'instant de l'approbation (et donc de l'instantané).
+  soldeFigeLe     DateTime?
+
   @@index([employeeId])
   @@schema("public")
 }
