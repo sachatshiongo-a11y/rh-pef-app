@@ -1,13 +1,18 @@
 import { formaterNombre } from "@/lib/montant";
 import type { Colonne, PartieTableau } from "@/lib/pdf/tableau";
 import type { ConsommationReelle } from "@/lib/stock-restaurant";
+import { cleCase, type EspaceVente, type LigneVente } from "@/lib/ventes-journalieres";
 
 // Fiches de l'onglet Consommation (Stock → Conso. journalière), reproduites d'après les deux
 // classeurs de la Direction (2026-09-28) et remplies avec les données de l'application :
 //
-//   1. « PEF Rapport journalier cuisine et bar » — une feuille Cuisine, une feuille Bar ; une
-//      SEMAINE par fiche : « Semaine N », « Désignation/Date » puis une colonne par jour (jour abrégé
-//      + date), du lundi au samedi ; lignes regroupées par rubrique ; aucun total.
+//   1. « PEF Rapport journalier cuisine et bar » — une feuille Cuisine (les PLATS vendus), une
+//      feuille Bar (les BOISSONS vendues) ; une SEMAINE par fiche : « Semaine N », « Désignation/Date »
+//      puis une colonne par jour (jour abrégé + date), du lundi au samedi ; lignes regroupées par
+//      rubrique ; aucun total. Rempli par la saisie des ventes (onglet Ventes, 2026-09-29).
+//   1 bis. « Consommation réelle du restaurant » — ce que le rapport journalier montrait jusqu'au
+//      2026-09-29, faute de ventes saisies : même forme, la consommation réelle des ARTICLES du
+//      restaurant (comptages). Gardée sous ce nom, à part.
 //   2. « PEF Commande Journalière » — « Fiche commande cuisine » (Désignation/Date | Unité | Commande
 //      | Livraison) et « Fiche commande Bar » (Désignation | Commande | Livraison, sans unité) ; un
 //      JOUR par fiche (« Date : … », « Semaine N ») ; lignes regroupées par rubrique ; aucun total.
@@ -21,7 +26,7 @@ export type EspaceFiche = "CUISINE" | "BAR";
 export type ValeurFiche = number | string | null;
 /** Une case de la fiche ; `ecart` : consommation négative (plus compté que reçu), signalée. */
 export type CaseFiche = { valeur: ValeurFiche; ecart?: boolean };
-export type RoleColonne = "cmd" | "liv" | "conso" | null;
+export type RoleColonne = "cmd" | "liv" | "conso" | "vente" | null;
 
 export type LigneFiche = { designation: string; cases: CaseFiche[] };
 export type SectionFiche = { titre: string; lignes: LigneFiche[] };
@@ -80,7 +85,40 @@ function enSections<T>(items: T[], rubrique: (t: T) => string, ligne: (t: T) => 
   return sections;
 }
 
-// ─── 1. Rapport journalier cuisine et bar ────────────────────────────────────
+// ─── 1. Rapport journalier cuisine et bar (ventes) ───────────────────────────
+
+/**
+ * Rapport journalier d'un espace pour une semaine : le NOMBRE VENDU de chaque plat (Cuisine) ou
+ * boisson (Bar), jour par jour, tel que saisi dans l'onglet Ventes. `jours` : les 7 jours (lundi →
+ * dimanche). Lundi → samedi comme le classeur ; le dimanche n'y est ajouté que s'il porte une vente
+ * — une donnée n'est jamais cachée pour tenir dans le modèle. Jour non saisi = « — », jamais 0 ;
+ * 0 saisi = 0. `lignes` : celles de l'écran de saisie, dans son ordre (rubriques comprises).
+ */
+export function ficheRapportJournalier(p: {
+  espace: EspaceVente;
+  jours: string[];
+  lignes: LigneVente[];
+  ventes: ReadonlyMap<string, number>;
+}): Fiche {
+  const dimancheVendu = p.jours[6] !== undefined && p.lignes.some((l) => p.ventes.has(cleCase(l.cle, p.jours[6]!)));
+  const jours = p.jours.slice(0, dimancheVendu ? 7 : 6);
+  return {
+    feuille: p.espace === "CUISINE" ? "Cuisine" : "Bar",
+    titre: `Rapport journalier ${p.espace === "CUISINE" ? "cuisine" : "bar"} — semaine ${semaineIso(p.jours[0]!)}`,
+    enteteDesignation: "Désignation/Date",
+    colonnes: jours.map((j) => ({ entete: enteteJour(j), role: "vente" as const })),
+    sections: enSections(
+      p.lignes,
+      (l) => l.rubrique,
+      (l) => ({
+        designation: l.inactif ? `${l.designation} (désactivé)` : l.designation,
+        cases: jours.map((j) => ({ valeur: p.ventes.get(cleCase(l.cle, j)) ?? null })),
+      }),
+    ),
+  };
+}
+
+// ─── 1 bis. Consommation réelle du restaurant (articles) ─────────────────────
 
 export type ArticleRapport = { id: string; designation: string; unite: string | null; categorie: string | null };
 
@@ -90,13 +128,14 @@ export function caseConso(c: ConsommationReelle): CaseFiche {
 }
 
 /**
- * Rapport journalier d'un espace du restaurant pour une semaine : la CONSOMMATION RÉELLE de chaque
- * article du restaurant (comptages), jour par jour. `jours` : les 7 jours (lundi → dimanche).
+ * Consommation réelle d'un espace du restaurant pour une semaine : la CONSOMMATION RÉELLE de chaque
+ * article du restaurant (comptages), jour par jour — le contenu du « Rapport journalier » avant la
+ * saisie des ventes, gardé sous son vrai nom. `jours` : les 7 jours (lundi → dimanche).
  * Comme le classeur, la fiche va du lundi au samedi ; le dimanche n'y est ajouté que s'il porte
  * une consommation connue — une donnée n'est jamais cachée pour tenir dans le modèle.
  * `articles` : articles ACTIFS de l'espace, dans l'ordre de l'écran « Stock restaurant ».
  */
-export function ficheRapportJournalier(p: {
+export function ficheConsommationReelle(p: {
   espace: EspaceFiche;
   jours: string[];
   articles: ArticleRapport[];
@@ -107,8 +146,8 @@ export function ficheRapportJournalier(p: {
   const nbJours = dimancheConnu ? 7 : 6;
   const libelle = p.espace === "CUISINE" ? "cuisine" : "bar";
   return {
-    feuille: p.espace === "CUISINE" ? "Cuisine" : "Bar",
-    titre: `Rapport journalier ${libelle} — semaine ${semaineIso(p.jours[0]!)}`,
+    feuille: p.espace === "CUISINE" ? "Conso. réelle cuisine" : "Conso. réelle bar",
+    titre: `Consommation réelle ${libelle} — semaine ${semaineIso(p.jours[0]!)}`,
     enteteDesignation: "Désignation/Date",
     colonnes: p.jours.slice(0, nbJours).map((j) => ({ entete: enteteJour(j), role: "conso" as const })),
     sections: enSections(
@@ -171,9 +210,9 @@ export function ficheCommandeJournaliere(p: {
 
 // ─── Rendu : PDF (une partie par fiche) et Excel (une feuille par fiche) ─────
 
-/** Couleurs des exports de la Conso. journalière : vert = commandé, rouge = livré, indigo = consommé. */
-export const COULEUR_PDF: Record<Exclude<RoleColonne, null>, string> = { cmd: "#1B7F3B", liv: "#B42318", conso: "#3730A3" };
-export const COULEUR_EXCEL: Record<Exclude<RoleColonne, null>, string> = { cmd: "FF1B7F3B", liv: "FFB42318", conso: "FF3730A3" };
+/** Couleurs des exports de la Conso. journalière : vert = commandé, rouge = livré, indigo = consommé, bleu canard = vendu. */
+export const COULEUR_PDF: Record<Exclude<RoleColonne, null>, string> = { cmd: "#1B7F3B", liv: "#B42318", conso: "#3730A3", vente: "#0F766E" };
+export const COULEUR_EXCEL: Record<Exclude<RoleColonne, null>, string> = { cmd: "FF1B7F3B", liv: "FFB42318", conso: "FF3730A3", vente: "FF0F766E" };
 
 /** Texte d'une case dans le PDF : format maison, « — » pour l'inconnu, « (écart) » si négative. */
 export function texteCase(c: CaseFiche): string {

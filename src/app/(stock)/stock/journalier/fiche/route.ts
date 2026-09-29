@@ -6,12 +6,15 @@ import { lundiDe } from "@/lib/dates-fr";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { dateLongue, feuilleExcel, partiePdf, semaineIso, type EspaceFiche, type Fiche } from "@/lib/fiches-conso";
 import { formaterNombre } from "@/lib/montant";
-import { chargerCommandesJournalieres, chargerRapportsJournaliers } from "../fiches-data";
+import { chargerCommandesJournalieres, chargerConsommationsReelles, chargerRapportsJournaliers } from "../fiches-data";
 
 /**
  * Fiches de l'onglet Consommation (Stock → Conso. journalière), en PDF ou en Excel :
- * - `type=rapport&semaine=AAAA-MM-JJ` : « Rapport journalier cuisine et bar » de la semaine ;
- * - `type=commande&date=AAAA-MM-JJ`   : « Commande journalière » (fiche cuisine, fiche bar) du jour.
+ * - `type=rapport&semaine=AAAA-MM-JJ`      : « Rapport journalier cuisine et bar » de la semaine —
+ *   plats et boissons VENDUS (onglet Ventes) ;
+ * - `type=consommation&semaine=AAAA-MM-JJ` : « Consommation réelle du restaurant » de la semaine —
+ *   articles, d'après les comptages (le contenu du rapport journalier avant le 2026-09-29) ;
+ * - `type=commande&date=AAAA-MM-JJ`        : « Commande journalière » (fiche cuisine, fiche bar) du jour.
  * `domaine` (NOURRITURE / BOISSON), comme le filtre de l'écran : une seule fiche ; sinon les deux.
  */
 
@@ -31,7 +34,7 @@ export async function GET(req: Request) {
 
   const sp = new URL(req.url).searchParams;
   const type = sp.get("type");
-  if (type !== "rapport" && type !== "commande") return new Response("Fiche inconnue.", { status: 400 });
+  if (type !== "rapport" && type !== "consommation" && type !== "commande") return new Response("Fiche inconnue.", { status: 400 });
   const format = sp.get("format") === "excel" ? "excel" : "pdf";
   const domaine = sp.get("domaine");
   const espaces: EspaceFiche[] = domaine === "NOURRITURE" ? ["CUISINE"] : domaine === "BOISSON" ? ["BAR"] : ["CUISINE", "BAR"];
@@ -39,19 +42,26 @@ export async function GET(req: Request) {
 
   let titre: string, periode: string, fichier: string, pied: string;
   let fiches: Fiche[];
-  if (type === "rapport") {
+  if (type === "rapport" || type === "consommation") {
     const brut = sp.get("semaine");
     const choisi = brut === null ? jourKinshasaISO() : datePure(brut);
     if (!choisi) return new Response("Semaine invalide (attendu : AAAA-MM-JJ).", { status: 400 });
     const lundi = lundiDe(new Date(`${choisi}T00:00:00Z`));
     const lundiIso = lundi.toISOString().slice(0, 10);
-    fiches = await chargerRapportsJournaliers(lundi, espaces);
+    const ventes = type === "rapport";
+    fiches = ventes ? await chargerRapportsJournaliers(lundi, espaces) : await chargerConsommationsReelles(lundi, espaces);
     // Du lundi au samedi comme le classeur ; au dimanche quand une fiche l'a ajouté.
     const dernier = new Date(lundi); dernier.setUTCDate(dernier.getUTCDate() + (fiches.some((f) => f.colonnes.length === 7) ? 6 : 5));
-    titre = "Rapport journalier cuisine et bar";
     periode = `semaine ${semaineIso(lundiIso)}, du ${JJMM(lundiIso)} au ${JJMM(dernier.toISOString().slice(0, 10))}`;
-    fichier = `Rapport_journalier${suffixe}_${lundiIso}`;
-    pied = "Consommation réelle au restaurant = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour, dans l'unité de comptage. « — » : pas de comptage ce jour-là (ou stock de la veille inconnu). Le dimanche n'apparaît que s'il porte une consommation.";
+    if (ventes) {
+      titre = "Rapport journalier cuisine et bar";
+      fichier = `Rapport_journalier${suffixe}_${lundiIso}`;
+      pied = "Nombre vendu par jour, saisi dans l'onglet Ventes de la Conso. journalière (espace Stock). Cuisine : plats (fiches techniques « Plat vendu ») ; Bar : boissons (articles du bar, fiches techniques Bar). « — » : rien saisi ce jour-là ; 0 : rien vendu. Le dimanche n'apparaît que s'il porte une vente.";
+    } else {
+      titre = "Consommation réelle du restaurant";
+      fichier = `Consommation_reelle${suffixe}_${lundiIso}`;
+      pied = "Consommation réelle au restaurant = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour, dans l'unité de comptage. « — » : pas de comptage ce jour-là (ou stock de la veille inconnu). Le dimanche n'apparaît que s'il porte une consommation.";
+    }
   } else {
     const date = sp.get("date") === null ? jourKinshasaISO() : datePure(sp.get("date"));
     if (!date) return new Response("Date invalide (attendu : AAAA-MM-JJ).", { status: 400 });

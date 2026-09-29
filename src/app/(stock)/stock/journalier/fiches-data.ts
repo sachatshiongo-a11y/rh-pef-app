@@ -5,8 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
 import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { ficheAchatRemplie } from "@/lib/pdf/fiche-achat-legumes";
-import { ficheCommandeJournaliere, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
+import { ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
 import { LEGUMES } from "../legumes/legumes-data";
+import { chargerVentesSemaine } from "./ventes-data";
 
 // Chargement des fiches de l'onglet Consommation (lecture seule, requêtes groupées).
 
@@ -20,8 +21,14 @@ const jourPur = (s: string) => new Date(`${s}T00:00:00Z`);
  */
 export const DOMAINES_FICHE: Record<EspaceFiche, DomaineStock[]> = { CUISINE: ["NOURRITURE", "AUTRE"], BAR: ["BOISSON"] };
 
-/** Rapport journalier (une fiche par espace) de la semaine du `lundi`. */
+/** Rapport journalier — plats et boissons VENDUS (une fiche par espace) — de la semaine du `lundi`. */
 export async function chargerRapportsJournaliers(lundi: Date, espaces: EspaceFiche[]): Promise<Fiche[]> {
+  const v = await chargerVentesSemaine(lundi, espaces);
+  return espaces.map((espace) => ficheRapportJournalier({ espace, jours: v.jours, lignes: v.lignes[espace], ventes: v.ventes }));
+}
+
+/** Consommation réelle des articles du restaurant (une fiche par espace) de la semaine du `lundi`. */
+export async function chargerConsommationsReelles(lundi: Date, espaces: EspaceFiche[]): Promise<Fiche[]> {
   const jours = Array.from({ length: 7 }, (_, i) => { const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + i); return iso(d); });
   const [articles, entrees] = await Promise.all([
     // Même ordre que l'écran « Stock restaurant » (et sa fiche d'inventaire).
@@ -33,7 +40,7 @@ export async function chargerRapportsJournaliers(lundi: Date, espaces: EspaceFic
     chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]! }),
   ]);
   return espaces.map((espace) =>
-    ficheRapportJournalier({ espace, jours, articles: articles.filter((a) => a.espace === espace), conso: (id, j) => consommationReelle(entrees, id, j) }),
+    ficheConsommationReelle({ espace, jours, articles: articles.filter((a) => a.espace === espace), conso: (id, j) => consommationReelle(entrees, id, j) }),
   );
 }
 

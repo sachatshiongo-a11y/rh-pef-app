@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { ConsommationReelle } from "@/lib/stock-restaurant";
 import {
-  dateLongue, enteteJour, feuilleExcel, ficheCommandeJournaliere, ficheRapportJournalier, partiePdf, semaineIso, texteCase,
+  dateLongue, enteteJour, feuilleExcel, ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, partiePdf, semaineIso, texteCase,
 } from "./fiches-conso";
+import type { LigneVente } from "./ventes-journalieres";
 
 /**
  * Fiches de l'onglet Consommation, d'après les classeurs de la Direction (2026-09-28) :
@@ -26,7 +27,64 @@ describe("dates des fiches", () => {
   });
 });
 
-describe("rapport journalier cuisine et bar", () => {
+describe("rapport journalier cuisine et bar : plats et boissons VENDUS", () => {
+  const plat = (id: string, designation: string, rubrique: string, inactif = false): LigneVente => ({ cle: `fiche:${id}`, designation, rubrique, espace: "CUISINE", inactif });
+  const lignes = [
+    plat("duo", "Duo de capitaine et de saumon fumé", "Entrées froides"),
+    plat("carbo", "Carbonara", "Pâtes classiques"),
+    plat("bolo", "Bolognaise", "Pâtes classiques", true),
+  ];
+  const ventes = new Map([
+    ["fiche:carbo_2026-09-21", 12],
+    ["fiche:carbo_2026-09-22", 0], // saisi : rien vendu
+    ["fiche:duo_2026-09-26", 3],
+    ["fiche:bolo_2026-09-23", 1],
+  ]);
+
+  it("lundi → samedi, rubriques dans l'ordre reçu, « — » pour un jour non saisi, 0 saisi = 0", () => {
+    const f = ficheRapportJournalier({ espace: "CUISINE", jours: SEMAINE, lignes, ventes });
+    expect(f.feuille).toBe("Cuisine");
+    expect(f.titre).toBe("Rapport journalier cuisine — semaine 39");
+    expect(f.enteteDesignation).toBe("Désignation/Date");
+    expect(f.colonnes.map((c) => c.entete)).toEqual(["Lun 21/09", "Mar 22/09", "Mer 23/09", "Jeu 24/09", "Ven 25/09", "Sam 26/09"]);
+    expect(f.colonnes.every((c) => c.role === "vente")).toBe(true);
+    expect(f.sections.map((s) => s.titre)).toEqual(["Entrées froides", "Pâtes classiques"]);
+    const textes = f.sections.map((s) => s.lignes.map((l) => [l.designation, ...l.cases.map(texteCase)]));
+    expect(textes[0]).toEqual([["Duo de capitaine et de saumon fumé", "—", "—", "—", "—", "—", "3"]]);
+    expect(textes[1]).toEqual([
+      ["Carbonara", "12", "0", "—", "—", "—", "—"],
+      ["Bolognaise (désactivé)", "—", "—", "1", "—", "—", "—"],
+    ]);
+  });
+
+  it("le dimanche s'ajoute dès qu'une vente y est saisie (même 0) — jamais caché pour tenir dans le modèle", () => {
+    const f = ficheRapportJournalier({ espace: "BAR", jours: SEMAINE, lignes: [{ cle: "resto:coca", designation: "Coca Cola", rubrique: "Limonade et autre", espace: "BAR", inactif: false }], ventes: new Map([["resto:coca_2026-09-27", 0]]) });
+    expect(f.feuille).toBe("Bar");
+    expect(f.titre).toBe("Rapport journalier bar — semaine 39");
+    expect(f.colonnes.at(-1)!.entete).toBe("Dim 27/09");
+    expect(f.sections[0]!.lignes[0]!.cases.map(texteCase)).toEqual(["—", "—", "—", "—", "—", "—", "0"]);
+  });
+
+  it("une vente d'une ligne absente du rapport ne fait pas apparaître le dimanche", () => {
+    const f = ficheRapportJournalier({ espace: "CUISINE", jours: SEMAINE, lignes, ventes: new Map([["fiche:autre_2026-09-27", 4]]) });
+    expect(f.colonnes).toHaveLength(6);
+  });
+
+  it("PDF : « — » discret, nombres colorés ; Excel : nombres calculables, « — » en texte", () => {
+    const f = ficheRapportJournalier({ espace: "CUISINE", jours: SEMAINE, lignes, ventes });
+    const p = partiePdf(f);
+    expect(p.lignes[3]).toEqual(["Carbonara", "12", "0", "—", "—", "—", "—"]);
+    expect(p.sectionRows).toEqual([0, 2]);
+    expect(p.couleurCellule!(3, 1)).toBe("#0F766E");
+    expect(p.couleurCellule!(3, 2)).toBe("#0F766E"); // 0 est une saisie : coloré comme un nombre
+    expect(p.couleurCellule!(3, 3)).toBeUndefined();
+    const x = feuilleExcel(f);
+    expect(x.lignes[3]).toEqual(["Carbonara", 12, 0, "—", "—", "—", "—"]);
+    expect(x.couleurTexteCellule(3, 1)).toBe("FF0F766E");
+  });
+});
+
+describe("consommation réelle du restaurant (l'ancien contenu du rapport journalier)", () => {
   const articles = [
     { id: "a", designation: "Coca", unite: "Bouteille", categorie: "Limonade et autre" },
     { id: "b", designation: "Fanta", unite: null, categorie: "Limonade et autre" },
@@ -35,12 +93,12 @@ describe("rapport journalier cuisine et bar", () => {
   ];
 
   it("lundi → samedi, rubriques dans l'ordre reçu, unité avec la désignation, « — » pour l'inconnu", () => {
-    const f = ficheRapportJournalier({
+    const f = ficheConsommationReelle({
       espace: "BAR", jours: SEMAINE, articles,
       conso: (id, j) => (id === "a" && j === "2026-09-22" ? connue("12") : id === "c" && j === "2026-09-21" ? connue("-2", true) : inconnue),
     });
-    expect(f.feuille).toBe("Bar");
-    expect(f.titre).toBe("Rapport journalier bar — semaine 39");
+    expect(f.feuille).toBe("Conso. réelle bar");
+    expect(f.titre).toBe("Consommation réelle bar — semaine 39");
     expect(f.enteteDesignation).toBe("Désignation/Date");
     expect(f.colonnes.map((c) => c.entete)).toEqual(["Lun 21/09", "Mar 22/09", "Mer 23/09", "Jeu 24/09", "Ven 25/09", "Sam 26/09"]);
     expect(f.sections.map((s) => s.titre)).toEqual(["Limonade et autre", "Bière locale", "Sans catégorie"]);
@@ -52,8 +110,8 @@ describe("rapport journalier cuisine et bar", () => {
   });
 
   it("le dimanche est ajouté s'il porte une consommation — jamais caché pour tenir dans le modèle", () => {
-    const f = ficheRapportJournalier({ espace: "CUISINE", jours: SEMAINE, articles, conso: (id, j) => (id === "d" && j === "2026-09-27" ? connue("3") : inconnue) });
-    expect(f.feuille).toBe("Cuisine");
+    const f = ficheConsommationReelle({ espace: "CUISINE", jours: SEMAINE, articles, conso: (id, j) => (id === "d" && j === "2026-09-27" ? connue("3") : inconnue) });
+    expect(f.feuille).toBe("Conso. réelle cuisine");
     expect(f.colonnes.at(-1)!.entete).toBe("Dim 27/09");
     expect(f.sections.at(-1)!.lignes[0]!.cases.map(texteCase).at(-1)).toBe("3");
   });

@@ -73,6 +73,25 @@ beforeAll(async () => {
   const compter = (id: string, date: string, q: number) => prisma.comptageResto.create({ data: { articleRestoId: id, date: le(date), quantite: q } });
   await compter(coca.id, "2026-09-21", 40);
   await compter(coca.id, "2026-09-22", 28); // 40 − 28 = 12 consommées le mardi
+
+  // Ventes (onglet Ventes) : plats (fiches PLAT), boissons (articles du bar, fiche Bar).
+  const fiche = (nom: string, categorie: string | null, type: "PLAT" | "BAR" = "PLAT", estSousRecette = false) =>
+    prisma.ficheTechnique.create({ data: { nom, categorie, type, estSousRecette } });
+  const carbo = await fiche("Carbonara", "Pâtes classiques");
+  await fiche("Arrabbiata", "Pâtes classiques");
+  const duo = await fiche("Duo de capitaine et de saumon fumé", "Entrées froides");
+  await fiche("Sauce bolognaise", "Pâtes classiques", "PLAT", true); // sous-recette : jamais au rapport
+  const mojito = await fiche("Mojito", "Cocktail", "BAR");
+  // 45 desserts de plus : la feuille Cuisine déborde d'une page (en-tête répété, rangées lisibles).
+  for (let i = 1; i <= 45; i++) await fiche(`Dessert n° ${String(i).padStart(2, "0")}`, "Desserts");
+  const vendre = (d: { ficheId?: string; articleRestoId?: string }, date: string, quantite: number) =>
+    prisma.venteJournaliere.create({ data: { ...d, date: le(date), quantite } });
+  await vendre({ ficheId: carbo.id }, "2026-09-21", 12);
+  await vendre({ ficheId: carbo.id }, "2026-09-22", 0); // saisi : rien vendu
+  await vendre({ ficheId: duo.id }, "2026-09-26", 3);
+  await vendre({ articleRestoId: coca.id }, "2026-09-23", 24);
+  await vendre({ ficheId: mojito.id }, "2026-09-26", 6);
+  await vendre({ ficheId: carbo.id }, "2026-09-28", 99); // semaine suivante : pas sur la fiche
 }, 120_000);
 
 afterAll(async () => { await fermer?.(); });
@@ -142,29 +161,101 @@ describe("fiche « Commande journalière »", () => {
   }, 120_000);
 });
 
-describe("fiche « Rapport journalier cuisine et bar »", () => {
-  it("PDF : consommation réelle par jour, « — » les jours sans comptage, lundi → samedi", async () => {
+describe("fiche « Rapport journalier cuisine et bar » : plats et boissons vendus", () => {
+  it("PDF : nombre vendu par jour, « — » les jours non saisis, 0 saisi = 0, lundi → samedi, en-tête répété", async () => {
     const { buf, nom } = await lire("type=rapport&semaine=2026-09-23&format=pdf");
     expect(nom).toBe("Rapport_journalier_2026-09-21.pdf");
     const pages = await pagesDuPdf(buf);
     const lignes = pages.flatMap((p) => p.lignes);
     const plat = pages.map((p) => p.plat).join(" ");
+    expect(plat).toContain("Rapport journalier cuisine et bar");
     expect(plat).toContain("semaine 39, du 21/09/2026 au 26/09/2026");
     expect(plat).toContain("Rapport journalier cuisine — semaine 39");
     expect(plat).toContain("Rapport journalier bar — semaine 39");
+    expect(plat).not.toContain("27/09");
+    expect(plat).not.toContain("→");
+    // Cuisine : les plats (fiches « Plat vendu »), par rubrique ; jamais une sous-recette.
+    expect(lignes).toContain("Carbonara 12 0 — — — —");
+    expect(lignes).toContain("Arrabbiata — — — — — —");
+    expect(lignes).toContain("Duo de capitaine et de saumon fumé — — — — — 3");
+    expect(plat).not.toContain("Sauce bolognaise");
+    expect(plat).not.toContain("99");
+    // Bar : les boissons (articles du bar) et les fiches Bar ; pas les articles de la cuisine.
+    expect(lignes).toContain("Coca (Bouteille) — — 24 — — —");
+    expect(lignes).toContain("Fanta (Bouteille) — — — — — —");
+    expect(lignes).toContain("Mojito — — — — — 6");
+    expect(plat).not.toContain("Filet de boeuf");
+    // Rubriques du classeur, dans son ordre.
+    const iEntrees = lignes.indexOf("Entrées froides"), iPates = lignes.indexOf("Pâtes classiques"), iDesserts = lignes.indexOf("Desserts");
+    expect(iEntrees).toBeGreaterThanOrEqual(0);
+    expect(iEntrees).toBeLessThan(iPates);
+    expect(iPates).toBeLessThan(iDesserts);
+    // La feuille Cuisine déborde : chaque page porte l'en-tête des colonnes ; rangées lisibles.
+    const pagesCuisine = pages.filter((p) => p.plat.includes("Dessert n°"));
+    expect(pagesCuisine.length).toBeGreaterThan(1);
+    for (const p of pagesCuisine) expect(p.lignes.some((l) => l.toUpperCase().startsWith("DÉSIGNATION/DATE LUN 21/09 MAR 22/09"))).toBe(true);
+    // La fiche Bar commence sur sa propre page.
+    const pageBar = pages.findIndex((p) => p.plat.includes("Rapport journalier bar"));
+    expect(pages[pageBar]!.plat).not.toContain("Dessert n°");
+    expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Dessert n° \d+$/)).toBeGreaterThanOrEqual(8);
+    expect(policesDeRepli(buf)).toEqual([]);
+  }, 120_000);
+
+  it("Excel : feuilles Cuisine et Bar, un nombre vendu est un nombre, « — » pour un jour non saisi", async () => {
+    const { buf, nom } = await lire("type=rapport&semaine=2026-09-21&format=excel");
+    expect(nom).toBe("Rapport_journalier_2026-09-21.xlsx");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Cuisine", "Bar"]);
+    const cuisine = rangeesDe(wb.getWorksheet("Cuisine")!);
+    expect(cuisine.find((r) => r[0] === "Désignation/Date")).toEqual(["Désignation/Date", "Lun 21/09", "Mar 22/09", "Mer 23/09", "Jeu 24/09", "Ven 25/09", "Sam 26/09"]);
+    expect(cuisine.find((r) => r[0] === "Carbonara")).toEqual(["Carbonara", 12, 0, "—", "—", "—", "—"]);
+    const bar = rangeesDe(wb.getWorksheet("Bar")!);
+    expect(bar.find((r) => r[0] === "Coca (Bouteille)")).toEqual(["Coca (Bouteille)", "—", "—", 24, "—", "—", "—"]);
+    expect(bar.find((r) => r[0] === "Mojito")).toEqual(["Mojito", "—", "—", "—", "—", "—", 6]);
+  }, 120_000);
+
+  it("filtre Cuisine : la seule feuille Cuisine ; le dimanche apparaît dès qu'il porte une vente", async () => {
+    const ventes = await prisma.venteJournaliere.create({ data: { date: le("2026-09-27"), ficheId: (await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Arrabbiata" } })).id, quantite: 4 } });
+    try {
+      const { buf, nom } = await lire("type=rapport&semaine=2026-09-21&domaine=NOURRITURE&format=pdf");
+      expect(nom).toBe("Rapport_journalier_cuisine_2026-09-21.pdf");
+      const pages = await pagesDuPdf(buf);
+      const plat = pages.map((p) => p.plat).join(" ");
+      expect(plat).toContain("du 21/09/2026 au 27/09/2026");
+      expect(plat).not.toContain("Rapport journalier bar");
+      expect(pages.flatMap((p) => p.lignes)).toContain("Arrabbiata — — — — — — 4");
+    } finally {
+      await prisma.venteJournaliere.delete({ where: { id: ventes.id } });
+    }
+  }, 120_000);
+});
+
+describe("fiche « Consommation réelle du restaurant » (l'ancien contenu du rapport journalier)", () => {
+  it("PDF : consommation réelle par jour, « — » les jours sans comptage, lundi → samedi", async () => {
+    const { buf, nom } = await lire("type=consommation&semaine=2026-09-23&format=pdf");
+    expect(nom).toBe("Consommation_reelle_2026-09-21.pdf");
+    const pages = await pagesDuPdf(buf);
+    const lignes = pages.flatMap((p) => p.lignes);
+    const plat = pages.map((p) => p.plat).join(" ");
+    expect(plat).toContain("Consommation réelle du restaurant");
+    expect(plat).toContain("semaine 39, du 21/09/2026 au 26/09/2026");
+    expect(plat).toContain("Consommation réelle cuisine — semaine 39");
+    expect(plat).toContain("Consommation réelle bar — semaine 39");
     expect(plat).not.toContain("DIM 27/09");
     expect(lignes).toContain("Coca (Bouteille) — 12 — — — —");
     expect(lignes).toContain("Fanta (Bouteille) — — — — — —");
     expect(lignes).toContain("Filet de boeuf (Kg) — — — — — —");
+    expect(plat).not.toContain("Carbonara"); // les ventes n'y sont pas
     expect(policesDeRepli(buf)).toEqual([]);
   }, 120_000);
 
-  it("Excel : feuilles Cuisine et Bar, la consommation connue est un nombre, l'inconnue « — »", async () => {
-    const { buf } = await lire("type=rapport&semaine=2026-09-21&format=excel");
+  it("Excel : feuilles « Conso. réelle cuisine » et « Conso. réelle bar », la consommation connue est un nombre", async () => {
+    const { buf } = await lire("type=consommation&semaine=2026-09-21&format=excel");
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
-    expect(wb.worksheets.map((w) => w.name)).toEqual(["Cuisine", "Bar"]);
-    const bar = rangeesDe(wb.getWorksheet("Bar")!);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Conso. réelle cuisine", "Conso. réelle bar"]);
+    const bar = rangeesDe(wb.getWorksheet("Conso. réelle bar")!);
     expect(bar.find((r) => r[0] === "Désignation/Date")).toEqual(["Désignation/Date", "Lun 21/09", "Mar 22/09", "Mer 23/09", "Jeu 24/09", "Ven 25/09", "Sam 26/09"]);
     expect(bar.find((r) => r[0] === "Coca (Bouteille)")).toEqual(["Coca (Bouteille)", "—", 12, "—", "—", "—", "—"]);
   }, 120_000);
@@ -172,7 +263,7 @@ describe("fiche « Rapport journalier cuisine et bar »", () => {
 
 describe("paramètres", () => {
   it("date ou semaine illisible, fiche inconnue : refusées (jamais un autre jour à la place)", async () => {
-    for (const q of ["type=commande&date=2026-02-31", "type=commande&date=hier", "type=rapport&semaine=demain", "type=autre"]) {
+    for (const q of ["type=commande&date=2026-02-31", "type=commande&date=hier", "type=rapport&semaine=demain", "type=consommation&semaine=2026-13-01", "type=autre"]) {
       expect((await fiche(new Request(`http://pef.test/stock/journalier/fiche?${q}`))).status, q).toBe(400);
     }
   });
