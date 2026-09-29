@@ -84,3 +84,13 @@ describe("les PDF impriment le même solde que l'écran", () => {
     });
   }
 });
+
+// 2026-09-29 : le tableau des soldes du calendrier des congés recalculait le solde sur l'année
+// AFFICHÉE, en jours ouvrables recomptés → un troisième chiffre. Il lit la source, en lot.
+describe("le calendrier des congés affiche le même solde", () => {
+  const cal = readFileSync(path.resolve(__dirname, "../app/(app)/conges/calendrier.tsx"), "utf8");
+  it("passe par chargerSoldesCongeSalaries et ne recalcule ni droits ni décompte", () => {
+    expect(cal).toMatch(/\bchargerSoldesCongeSalaries\(prisma, /);
+    expect(cal).not.toMatch(/\bcalculerCongesAcquis\b|\bcongeDeductibleDuSolde\b|\bancienneteEnMois\b|\bcompteDansSolde\b/);
+  });
+});
