@@ -40,6 +40,16 @@ describe("présentation", () => {
     expect(dateDuSolde(s)).toBe("au 15/10/2026, date d'édition");
     expect(joursDuSolde(s)).toBe("18 jours");
   });
+  it("« jour » au singulier jusqu'à 1 inclus (en valeur absolue), « jours » au-delà", () => {
+    const j = (jours: number) => joursDuSolde({ jours, au: new Date("2026-09-29T10:00:00Z"), origine: "APPROBATION" });
+    expect(j(0)).toBe("0 jour");
+    expect(j(0.5)).toBe("0,5 jour");
+    expect(j(1)).toBe("1 jour");
+    expect(j(1.5)).toBe("1,5 jours");
+    expect(j(2)).toBe("2 jours");
+    expect(j(-0.5)).toBe("-0,5 jour");
+    expect(j(-3)).toBe("-3 jours");
+  });
   it("la date est le jour de KINSHASA (UTC+1), pas celui du serveur", () => {
     // 23 h 30 UTC le 28 = 0 h 30 le 29 à Kinshasa : l'approbation a eu lieu le 29.
     expect(dateDuSolde({ jours: 1, au: new Date("2026-09-28T23:30:00Z"), origine: "APPROBATION" })).toBe("au 29/09/2026, date d'approbation");

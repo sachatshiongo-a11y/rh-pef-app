@@ -21,6 +21,32 @@ export function lireMoisEffet(v: number | null | undefined): number | null {
 }
 
 /**
+ * Les droits annuels de congé (jours) — la SEULE donnée de paie dont le solde de congé a besoin.
+ *
+ * Même source et même règle que `chargerParametresPaie().droitsCongesAnnuel` (clé
+ * `droits_conges_annuel` de l'exercice fiscal ACTIF, obligatoire, sans valeur implicite) : même
+ * chiffre. Mais le solde ne dépend plus du reste de la paie (ligne Config, clés CNSS/IPR/HS, barème
+ * IPR) : une base neuve ou un passage d'exercice incomplet ne bloque plus les écrans de congé, les
+ * PDF, ni surtout l'APPROBATION d'une demande (2026-09-29).
+ * Lève encore si l'exercice actif ou cette clé-là manque — comme avant, pour les écrans ;
+ * l'approbation, elle, sait s'en passer (`lib/solde-conge-fige.ts`).
+ */
+export async function chargerDroitsCongesAnnuel(db: Prisma.TransactionClient = prisma): Promise<number> {
+  const exercice = await db.exerciceFiscal.findFirst({
+    where: { actif: true },
+    select: { annee: true, parametres: { where: { cle: "droits_conges_annuel" }, select: { valeur: true } } },
+  });
+  if (!exercice) {
+    throw new Error("Aucun exercice fiscal actif : chargez les paramètres légaux (scripts/seed-legal-2026.ts).");
+  }
+  const v = exercice.parametres[0]?.valeur;
+  if (v === undefined || v === null) {
+    throw new Error(`Paramètre légal manquant ou vide : droits_conges_annuel (exercice ${exercice.annee}).`);
+  }
+  return Number(v);
+}
+
+/**
  * Charge l'ensemble des paramètres de paie :
  * — opérationnels (taux de change, mois/année courants) depuis Config ;
  * — légaux (CNSS, IPR, INPP, ONEM, HS...) depuis ParametreLegal de l'exercice fiscal actif,

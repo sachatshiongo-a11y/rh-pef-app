@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { Prisma } from "@prisma/client";
-import { chargerParametresPaie } from "@/lib/config";
+import { chargerDroitsCongesAnnuel } from "@/lib/config";
 import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { typeSansConges } from "@/lib/regles-contrats";
 
@@ -44,7 +44,7 @@ export function calculerSoldeConge(p: {
 
 /**
  * Les soldes de PLUSIEURS salariés, en lot : 4 requêtes quel que soit leur nombre (salariés,
- * paramètres, types, demandes approuvées de l'année). Même règle, ligne à ligne, que pour un seul.
+ * droits annuels de l'exercice actif, types, demandes approuvées de l'année). Même règle, ligne à ligne, que pour un seul.
  *
  * `entameLeSolde` est la règle de décompte (case « compte dans le solde » du type, types retirés
  * compris) : un écran qui compte des jours pris sur une AUTRE période — le calendrier sur l'année
@@ -56,9 +56,11 @@ export async function chargerSoldesCongeSalaries(
   maintenant: Date = new Date(),
 ): Promise<{ soldes: Map<string, SoldeConge>; entameLeSolde: (type: string) => boolean }> {
   const debutAnnee = new Date(Date.UTC(maintenant.getUTCFullYear(), 0, 1));
-  const [emps, params, types, approuvees] = await Promise.all([
+  const [emps, droitsCongesAnnuel, types, approuvees] = await Promise.all([
     db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true } }),
-    chargerParametresPaie(db),
+    // Les SEULS droits annuels, pas toute la paie : une clé CNSS absente ou un barème IPR vide ne
+    // doit ni vider un écran de congé ni bloquer une approbation (2026-09-29).
+    chargerDroitsCongesAnnuel(db),
     // TOUS les types (actifs ou non) : un congé approuvé garde son effet si le type est retiré ensuite.
     db.typeConge.findMany({ orderBy: { ordre: "asc" }, select: { nom: true, compteDansSolde: true, actif: true } }),
     db.leaveRequest.findMany({
@@ -72,7 +74,7 @@ export async function chargerSoldesCongeSalaries(
   for (const emp of emps) {
     const acquis = typeSansConges(emp.contrat)
       ? 0
-      : calculerCongesAcquis(ancienneteEnMois(new Date(emp.dateEmbauche), maintenant), params.droitsCongesAnnuel);
+      : calculerCongesAcquis(ancienneteEnMois(new Date(emp.dateEmbauche), maintenant), droitsCongesAnnuel);
     const r = calculerSoldeConge({
       acquis,
       demandesApprouvees: approuvees

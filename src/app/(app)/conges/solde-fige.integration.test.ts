@@ -22,7 +22,9 @@ import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN", nom: "Direction" } }));
 // Compteur d'appels de la source unique : prouve la lecture EN LOT (une seule pour tout un lot).
-const S = vi.hoisted(() => ({ lots: [] as string[][], unitaires: 0, panne: false }));
+// `panne` : "js" = la lecture lève ; "sql" = une vraie requête en échec DANS la transaction
+// (PostgreSQL la met alors en échec : seul un point de sauvegarde permet de continuer).
+const S = vi.hoisted(() => ({ lots: [] as string[][], unitaires: 0, panne: null as null | "js" | "sql", revalidations: 0 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, p) => {
@@ -32,7 +34,7 @@ vi.mock("@/lib/prisma", () => ({
   }),
 }));
 vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule: () => {}, requireRole: () => {} }));
-vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("next/cache", () => ({ revalidatePath: () => { S.revalidations++; } }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(`REDIRECT ${url}`); } }));
 vi.mock("@/lib/storage", () => ({ televerserFichier: async () => "/fichiers/x.png", lireFichier: async () => null }));
 vi.mock("@/lib/solde-conge-salarie", async (original) => {
@@ -41,7 +43,8 @@ vi.mock("@/lib/solde-conge-salarie", async (original) => {
     ...vrai,
     chargerSoldesCongeSalaries: (...a: Parameters<typeof vrai.chargerSoldesCongeSalaries>) => {
       S.lots.push([...a[1]]);
-      if (S.panne) return Promise.reject(new Error("panne simulée de la lecture des soldes"));
+      if (S.panne === "js") return Promise.reject(new Error("panne simulée de la lecture des soldes"));
+      if (S.panne === "sql") return a[0].$queryRawUnsafe("SELECT 1/0").then(() => vrai.chargerSoldesCongeSalaries(...a));
       return vrai.chargerSoldesCongeSalaries(...a);
     },
     chargerSoldeCongeSalarie: (...a: Parameters<typeof vrai.chargerSoldeCongeSalarie>) => {
@@ -51,7 +54,7 @@ vi.mock("@/lib/solde-conge-salarie", async (original) => {
   };
 });
 
-const { approuverConge, refuserConge, approuverCongesEnLot, demanderConge } = await import("./actions");
+const { approuverConge, approuverCongeFormulaire, refuserConge, approuverCongesEnLot, demanderConge } = await import("./actions");
 const { genererDemandeCongePdf } = await import("@/lib/pdf/demande-conge-buffer");
 const { enregistrerSignature, chargerSignature } = await import("@/lib/signature");
 
@@ -158,36 +161,130 @@ describe("approbation en lot", () => {
   }, 60_000);
 });
 
-describe("statut et instantané : tout ou rien", () => {
-  it("si le solde ne peut pas être figé, AUCUNE demande du lot n'est approuvée, et l'échec est rendu nommé", async () => {
+describe("l'approbation ne dépend jamais du solde", () => {
+  const vide = { jours: null, acquis: null, pris: null, le: null };
+  const traceNonFige = (id: string) =>
+    prisma.journalAudit.findFirst({ where: { entite: "LeaveRequest", entiteId: id, champ: "soldeFige" } });
+
+  it("paramètres de PAIE incomplets (barème IPR vide, clé CNSS absente) : approuvée ET figée, même chiffre", async () => {
+    // Le solde ne lit que `droits_conges_annuel` : le reste de la paie peut manquer.
+    const ex = await prisma.exerciceFiscal.findFirstOrThrow({ where: { actif: true } });
+    const tranches = await prisma.trancheIprCDF.findMany({ where: { exerciceId: ex.id } });
+    const cnss = await prisma.parametreLegal.findFirstOrThrow({ where: { exerciceId: ex.id, cle: "cnss_salarie" } });
+    await prisma.trancheIprCDF.deleteMany({ where: { exerciceId: ex.id } });
+    await prisma.parametreLegal.delete({ where: { id: cnss.id } });
+    try {
+      const { chargerParametresPaie } = await import("@/lib/config");
+      await expect(chargerParametresPaie(prisma)).rejects.toThrow(); // témoin : la paie, elle, est bien cassée
+      const emp = await salarie();
+      const id = await demande(emp, "2026-10-05", 5);
+      horloge(APPROBATION);
+      expect(await approuverConge(id)).toEqual({});
+      expect((await relire(id)).statut).toBe("APPROUVE");
+      expect(await instantane(id)).toEqual({ jours: 13, acquis: 18, pris: 5, le: APPROBATION.toISOString() });
+    } finally {
+      await prisma.parametreLegal.create({ data: { exerciceId: ex.id, cle: cnss.cle, valeur: cnss.valeur, unite: cnss.unite, libelle: cnss.libelle } });
+      await prisma.trancheIprCDF.createMany({
+        data: tranches.map((t) => ({ exerciceId: t.exerciceId, ordre: t.ordre, plafondAnnuelCDF: t.plafondAnnuelCDF, taux: t.taux })),
+      });
+    }
+  }, 60_000);
+
+  it("exercice fiscal INACTIF : approuvée quand même, instantané vide, échec journalisé", async () => {
+    const emp = await salarie();
+    const id = await demande(emp, "2026-10-05", 2);
+    const ex = await prisma.exerciceFiscal.findFirstOrThrow({ where: { actif: true } });
+    await prisma.exerciceFiscal.update({ where: { id: ex.id }, data: { actif: false } });
+    const erreurs = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await approuverConge(id)).toEqual({});
+    } finally {
+      await prisma.exerciceFiscal.update({ where: { id: ex.id }, data: { actif: true } });
+      erreurs.mockRestore();
+    }
+    expect((await relire(id)).statut).toBe("APPROUVE");
+    expect(await instantane(id)).toEqual(vide);
+    expect((await traceNonFige(id))?.nouvelleValeur).toMatch(/^non figé \(solde illisible : Aucun exercice fiscal actif/);
+    // Et le PDF, le solde de nouveau lisible, retombe sur le solde du jour, daté de l'édition.
+    horloge(new Date("2026-10-15T09:00:00Z"));
+    const texte = await textePdf(id);
+    expect(texte).toContain("au 15/10/2026, date d'édition");
+    expect(texte).toContain("16 jours");
+  }, 120_000);
+
+  it("en lot : solde illisible, les demandes sont approuvées sans instantané et le lot ne signale aucun échec", async () => {
     const emp = await salarie();
     const a = await demande(emp, "2026-10-05", 2);
     const b = await demande(emp, "2026-10-12", 1);
-    S.panne = true;
+    S.panne = "js";
+    const erreurs = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const r = await approuverCongesEnLot([a, b]);
-      expect(r.traitees).toBe(0);
-      expect(r.echecs).toHaveLength(2);
-      expect(r.echecs[0]).toMatch(/^Salarié \d+ : approbation non enregistrée \(panne simulée/);
+      expect(await approuverCongesEnLot([a, b])).toEqual({ traitees: 2, echecs: [] });
     } finally {
-      S.panne = false;
+      S.panne = null;
+      erreurs.mockRestore();
     }
-    expect((await relire(a)).statut).toBe("EN_ATTENTE");
-    expect((await relire(b)).statut).toBe("EN_ATTENTE");
+    for (const id of [a, b]) {
+      expect((await relire(id)).statut).toBe("APPROUVE");
+      expect(await instantane(id)).toEqual(vide);
+      expect((await traceNonFige(id))?.nouvelleValeur).toMatch(/panne simulée/);
+    }
   }, 60_000);
 
-  it("à l'unité aussi : pas d'approbation sans instantané", async () => {
+  it("une vraie requête SQL en échec pendant la lecture ne fait pas échouer la transaction d'approbation", async () => {
     const emp = await salarie();
     const id = await demande(emp, "2026-10-05", 2);
-    S.panne = true;
+    S.panne = "sql";
+    const erreurs = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      // L'erreur est RENDUE, jamais lancée.
-      expect((await approuverConge(id)).erreur).toMatch(/^Approbation non enregistrée : panne simulée/);
+      expect(await approuverConge(id)).toEqual({});
     } finally {
-      S.panne = false;
+      S.panne = null;
+      erreurs.mockRestore();
     }
-    expect((await relire(id)).statut).toBe("EN_ATTENTE");
+    expect((await relire(id)).statut).toBe("APPROUVE");
+    expect(await instantane(id)).toEqual(vide);
+    expect((await traceNonFige(id))?.nouvelleValeur).toMatch(/^non figé \(solde illisible : .*division by zero/);
   }, 60_000);
+
+  it("approbation d'office : solde illisible, la demande est quand même créée approuvée", async () => {
+    const emp = await salarie();
+    S.panne = "sql";
+    const erreurs = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await demanderConge(fd({ employeeId: emp, type: "Congé annuel", dateDebut: "2026-10-05", dateFin: "2026-10-06", nbJours: "2" }));
+    } finally {
+      S.panne = null;
+      erreurs.mockRestore();
+    }
+    const d = await prisma.leaveRequest.findFirstOrThrow({ where: { employeeId: emp } });
+    expect(d.statut).toBe("APPROUVE");
+    expect(await instantane(d.id)).toEqual(vide);
+  }, 60_000);
+});
+
+describe("écran Congés", () => {
+  it("double approbation : rien n'est écrit, mais les écrans sont revalidés", async () => {
+    const emp = await salarie();
+    const id = await demande(emp, "2026-10-05", 1);
+    await approuverConge(id);
+    S.revalidations = 0;
+    expect(await approuverConge(id)).toEqual({});
+    expect(S.revalidations).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("échec d'une décision : retour à la liste AVEC ses filtres, l'erreur dans erreurDecision (pas erreur)", async () => {
+    const inexistante = "00000000-0000-0000-0000-000000000000";
+    const err = await approuverCongeFormulaire(inexistante, { statut: "EN_ATTENTE", type: "Congé annuel", q: "dupont" }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    const url = new URL((err as Error).message.replace(/^REDIRECT /, ""), "http://x");
+    expect(url.pathname).toBe("/conges");
+    expect(url.searchParams.get("statut")).toBe("EN_ATTENTE");
+    expect(url.searchParams.get("type")).toBe("Congé annuel");
+    expect(url.searchParams.get("q")).toBe("dupont");
+    expect(url.searchParams.get("erreurDecision")).toBe("Demande de congé introuvable.");
+    expect(url.searchParams.has("erreur")).toBe(false);
+  });
 });
 
 describe("approbation d'office (demande saisie par la Direction)", () => {

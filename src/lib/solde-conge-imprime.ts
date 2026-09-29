@@ -51,7 +51,11 @@ export function dateDuSolde(s: SoldeImprime): string {
   return `au ${jourKinshasa(s.au)}, date ${s.origine === "APPROBATION" ? "d'approbation" : "d'édition"}`;
 }
 
-/** « 12,5 jours » — virgule française, espaces normalisées (police Optima du PDF). */
+/**
+ * « 12,5 jours », « 1 jour », « 0,5 jour » — virgule française, espaces normalisées (police Optima
+ * du PDF). Singulier jusqu'à 1 inclus, en valeur absolue (« -0,5 jour », « -3 jours »).
+ */
 export function joursDuSolde(s: SoldeImprime): string {
-  return `${formaterNombre(s.jours, { minimumFractionDigits: 0, maximumFractionDigits: 1 })} jours`;
+  const unite = Math.abs(s.jours) <= 1 ? "jour" : "jours";
+  return `${formaterNombre(s.jours, { minimumFractionDigits: 0, maximumFractionDigits: 1 })} ${unite}`;
 }

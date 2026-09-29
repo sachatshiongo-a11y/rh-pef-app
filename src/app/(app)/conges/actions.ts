@@ -18,6 +18,8 @@ import { figerSoldesApprobation, INSTANTANE_SOLDE_EFFACE, resumeInstantane } fro
  * pour un lot d'une trentaine de demandes sur une base distante.
  */
 const DELAI_APPROBATION_LOT = 60_000;
+/** Délai d'une transaction d'approbation UNITAIRE (statut + instantané d'une seule demande). */
+const DELAI_APPROBATION_UNITAIRE = 15_000;
 
 function revaliderConges() {
   revalidatePath("/conges");
@@ -57,9 +59,9 @@ export async function demanderConge(formData: FormData) {
       const d = await tx.leaveRequest.create({
         data: { employeeId, type, dateDebut, dateFin, nbJours, motif, remplacantId, statut: autoValide ? "APPROUVE" : "EN_ATTENTE", ...(autoValide ? { approuveParId: user.id } : {}) },
       });
-      if (autoValide) await figerSoldesApprobation(tx, [d], new Date());
+      if (autoValide) await figerSoldesApprobation(tx, [d], new Date(), user.id);
       return d;
-    });
+    }, { timeout: DELAI_APPROBATION_UNITAIRE });
 
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });
     // Notification TOUJOURS émise (choix client : trace visible même en auto-validation).
@@ -90,8 +92,10 @@ export async function demanderConge(formData: FormData) {
 
 /**
  * Seuls les comptes Admin (Directrice, Sacha) peuvent autoriser ou refuser une demande.
- * Statut et solde figé s'écrivent ensemble ou pas du tout : si le solde ne peut pas être lu, la
- * demande reste EN ATTENTE et la raison est RENDUE (`erreur`), jamais lancée.
+ * Statut et solde figé s'écrivent dans la même transaction. L'approbation ne dépend PAS du solde :
+ * s'il est illisible, la demande est approuvée sans instantané (voir `figerSoldesApprobation`).
+ * Seul un échec de la base elle-même laisse la demande EN ATTENTE ; la raison est alors RENDUE
+ * (`erreur`), jamais lancée.
  */
 export async function approuverConge(leaveRequestId: string): Promise<{ erreur?: string }> {
   const user = await verifySession();
@@ -110,13 +114,17 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
         data: { statut: "APPROUVE", approuveParId: user.id },
       });
       if (count === 0) return false;
-      await figerSoldesApprobation(tx, [demande], new Date());
+      await figerSoldesApprobation(tx, [demande], new Date(), user.id);
       return true;
-    });
+    }, { timeout: DELAI_APPROBATION_UNITAIRE });
   } catch (e) {
     return { erreur: `Approbation non enregistrée : ${e instanceof Error ? e.message : "erreur inattendue"}` };
   }
-  if (!approuvee) return {};
+  if (!approuvee) {
+    // Déjà approuvée : rien à écrire, mais l'écran de celui qui a cliqué doit refléter la base.
+    revaliderConges();
+    return {};
+  }
   // Synchro grille Présences : jours ouvrables du congé → code C/S, heures retirées.
   await poserCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), demande.type);
   await journaliser(prisma, {
@@ -133,12 +141,31 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
   return {};
 }
 
-/** `approuverConge` pour un `<form action>` (écran Congés) : l'erreur revient par la page (`?erreur=`). */
-export async function approuverCongeFormulaire(leaveRequestId: string): Promise<void> {
+/** Filtres de la liste des congés, conservés dans l'URL de retour d'une décision. */
+export type FiltresListeConges = { statut?: string; type?: string; q?: string };
+
+/**
+ * `approuverConge` pour un `<form action>` (écran Congés). L'erreur revient par la page, dans
+ * `?erreurDecision=` (affichée au-dessus de la liste, PAS dans le bloc « Nouvelle demande », qui
+ * lit `?erreur=`), et les filtres actifs sont gardés. Le chemin est fixe et seuls les trois
+ * filtres connus, en texte court, sont repris : les arguments liés reviennent du navigateur.
+ */
+export async function approuverCongeFormulaire(leaveRequestId: string, filtres: FiltresListeConges = {}): Promise<void> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
   const { erreur } = await approuverConge(leaveRequestId);
-  if (erreur) redirect(`/conges?erreur=${encodeURIComponent(erreur)}`);
+  if (erreur) redirect(urlRetourConges(filtres, erreur));
+}
+
+/** `/conges?statut=…&type=…&q=…&erreurDecision=…` */
+function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
+  const p = new URLSearchParams();
+  for (const cle of ["statut", "type", "q"] as const) {
+    const v = filtres?.[cle];
+    if (typeof v === "string" && v !== "") p.set(cle, v.slice(0, 200));
+  }
+  p.set("erreurDecision", erreur);
+  return `/conges?${p.toString()}`;
 }
 
 export async function refuserConge(leaveRequestId: string) {
@@ -244,7 +271,8 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
   const candidates = ids.map((id) => demandeParId.get(id)).filter((d): d is NonNullable<typeof d> => d !== undefined && d.statut === "EN_ATTENTE");
   // 1. Statuts ET soldes figés dans UNE transaction : les soldes se lisent en lot (4 requêtes pour
   //    tous les salariés), une fois les statuts écrits, donc chaque demande approuvée comprise. Une
-  //    demande approuvée entre-temps par quelqu'un d'autre n'est ni réapprouvée ni refigée.
+  //    demande approuvée entre-temps par quelqu'un d'autre n'est ni réapprouvée ni refigée. Un
+  //    solde illisible n'empêche aucune approbation (instantané vide, voir figerSoldesApprobation).
   let approuvees: typeof candidates;
   try {
     approuvees = await prisma.$transaction(async (tx) => {
@@ -256,7 +284,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
         });
         if (count === 1) ok.push(d);
       }
-      await figerSoldesApprobation(tx, ok, new Date());
+      await figerSoldesApprobation(tx, ok, new Date(), user.id);
       return ok;
     }, { timeout: DELAI_APPROBATION_LOT });
   } catch (e) {
