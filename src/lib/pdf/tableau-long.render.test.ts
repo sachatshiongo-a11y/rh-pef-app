@@ -78,7 +78,7 @@ describe("rapport « Achats de légumes frais — détail » (plusieurs tableaux
 
 describe("rapport Exploitation — tableau des écritures", () => {
   it("90 écritures : plusieurs pages, rangées jamais superposées", async () => {
-    const lignes = Array.from({ length: 90 }, (_, i) => ({ rubrique: "Achats", categorie: "Matières", denomination: `Écriture ${i + 1}`, compte: "Caisse", montantUSD: 10 + i, fournisseur: null, fournisseurStockId: null }));
+    const lignes = Array.from({ length: 90 }, (_, i) => ({ date: "2026-09-01", rubrique: "Achats", categorie: "Matières", denomination: `Écriture ${i + 1}`, compte: "Caisse", montantUSD: 10 + i, fournisseur: null, fournisseurStockId: null }));
     const doc = React.createElement(Document, null, React.createElement(Page, { size: "A4", style: { padding: 30, fontFamily: "Optima", fontSize: 8.5 } },
       React.createElement(TableauMouvements, { titre: "Dépenses", couleur: "#b42318", lignes, totalLabel: "Total dépenses", totalMontant: 1234, messageVide: "Aucune" })));
     const pdf = await renderPdfBuffer(doc as Parameters<typeof renderPdfBuffer>[0]);

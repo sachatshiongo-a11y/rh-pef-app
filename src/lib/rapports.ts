@@ -5,7 +5,8 @@ import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 import { chargerExploitation, chargerEcrituresRapport, type LigneEcritureRapport } from "@/app/(exploitation)/exploitation/_data/charger-periode";
 import { chargerAnnee } from "@/app/(exploitation)/exploitation/_data/charger-annee";
 import { construireMatriceAnnuelle, type LigneMatriceAnnuelle } from "@/lib/exploitation/matrice-annuelle";
-import type { RatioResultat, ResultatExploitation } from "@/lib/exploitation/calcul";
+import type { RatioResultat } from "@/lib/exploitation/calcul";
+import { construireRapportVisuel, type DonneesRapportVisuel } from "@/lib/exploitation/rapport-regroupe";
 
 export type { LigneEcritureRapport };
 
@@ -322,17 +323,14 @@ export async function genererRapportExploitation(type: TypeRapportExploitation, 
   };
 }
 
-// ─── Rapport « visuel » (Task 12) ────────────────────────────────────────────────────────────
+// ─── Rapport « visuel » (Task 12, regroupé le 2026-09-29) ──────────────────────────────────────
 // Second mapping du même moteur (`chargerExploitation`), à côté de `genererRapportExploitation`
-// ci-dessus : celui-ci alimente la présentation calquée sur le modèle papier de la Direction
-// (cartes KPI, soldes des comptes, tableaux Recettes/Dépenses ligne à ligne) — écran
-// (`ApercuRapport`) ET PDF (`RapportExploitationDocument`), pour rester rigoureusement identiques
-// (« cohérence écran/PDF » demandée par le brief). L'export Excel, lui, continue d'utiliser
-// `genererRapportExploitation`/`DonneesRapport` (structure tabulaire générique, inchangée).
-// AUCUN chiffre n'est recalculé ici : les totaux viennent tels quels de `ResultatExploitation`
-// (Task 6/8) ; seules les lignes Recettes/Dépenses sont un LISTING (déjà lu ci-dessus,
-// `chargerEcrituresRapport`) — leur somme coïncide avec les totaux du moteur car un sens
-// RECETTE/DEPENSE n'existe que sur les rubriques de ce même sens (cf. seed-exploitation.ts).
+// ci-dessus : il alimente l'écran (`ApercuRapport`), le PDF (`RapportExploitationDocument`) et les
+// feuilles Recettes/Dépenses de l'Excel, qui lisent donc les MÊMES groupes. AUCUN total n'est
+// recalculé : ceux affichés viennent tels quels de `ResultatExploitation` ; les groupes rubrique ›
+// catégorie sont la somme des écritures listées (`chargerEcrituresRapport`) — elle coïncide avec
+// les totaux du moteur car un sens RECETTE/DEPENSE n'existe que sur les rubriques de ce même sens
+// (cf. seed-exploitation.ts). Un écart éventuel est calculé et affiché, jamais masqué.
 
 const MOIS_LONG = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const JOURS_LONG = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
@@ -348,26 +346,14 @@ export function libellePeriodeRapport(type: TypeRapportExploitation, debut: Date
   return `Année ${debut.getUTCFullYear()}`;
 }
 
-export type DonneesRapportVisuel = {
-  type: TypeRapportExploitation;
-  titre: string; // « Rapport journalier »... (TYPES_RAPPORT_EXPLOITATION)
-  periodeTexte: string; // libellePeriodeRapport ci-dessus
-  resultat: ResultatExploitation;
-  totalCouverts: number;
-  recettes: LigneEcritureRapport[];
-  depenses: LigneEcritureRapport[];
-};
+export type { DonneesRapportVisuel };
 
 /**
- * Version « visuelle » du rapport Exploitation (écran + PDF, Task 12) : mêmes bornes/horizon que
- * `genererRapportExploitation`, mais renvoie le `ResultatExploitation` tel quel (pas aplati en
- * lignes Poste/Montant) + les écritures Recettes/Dépenses de la période, triées pour que les
- * tableaux « ressemblent » au regroupement du compte d'exploitation même s'ils listent des
- * écritures individuelles : dépenses dans le même ordre rubrique (montant décroissant — même tri
- * que `_ui/panneau-depenses.tsx`, `parRubrique` n'étant PAS ordonné en sortie du moteur, cf.
- * calcul.ts) puis catégorie (Task 10, `categories` déjà trié par montant décroissant, lui) ;
- * recettes par rubrique puis catégorie alphabétique (le moteur n'a pas d'équivalent `parRubrique`
- * côté recettes).
+ * Version « visuelle » du rapport Exploitation (écran + PDF + Excel) : mêmes bornes/horizon que
+ * `genererRapportExploitation`, renvoie le `ResultatExploitation` tel quel + les écritures
+ * Recettes/Dépenses de la période, en liste plate (présentation historique « liste ») ET
+ * regroupées par rubrique › catégorie (présentations « compact » / « détaillé », demande Direction
+ * du 2026-09-29). Assemblage pur dans `construireRapportVisuel` (testable sans base).
  */
 export async function genererRapportExploitationVisuel(type: TypeRapportExploitation, debut: Date, fin: Date): Promise<DonneesRapportVisuel> {
   const horizon = type === "ANNUEL" ? "annuel" : "mensuel";
@@ -375,29 +361,17 @@ export async function genererRapportExploitationVisuel(type: TypeRapportExploita
     chargerExploitation(jourIso(debut), jourIso(fin), horizon),
     chargerEcrituresRapport(jourIso(debut), jourIso(fin)),
   ]);
-
-  const rubriquesTriees = resultat.parRubrique.slice().sort((a, b) => b.montant - a.montant);
-  const ordreRubrique = new Map(rubriquesTriees.map((d, i) => [d.rubrique, i]));
-  const ordreCategorie = new Map<string, number>();
-  for (const d of rubriquesTriees) d.categories.forEach((c, i) => ordreCategorie.set(`${d.rubrique}··${c.categorie}`, i));
-
-  const depensesTriees = depenses.slice().sort((a, b) => {
-    const ra = ordreRubrique.get(a.rubrique) ?? 999, rb = ordreRubrique.get(b.rubrique) ?? 999;
-    if (ra !== rb) return ra - rb;
-    const ca = ordreCategorie.get(`${a.rubrique}··${a.categorie}`) ?? 999, cb = ordreCategorie.get(`${b.rubrique}··${b.categorie}`) ?? 999;
-    return ca - cb;
-  });
-  const recettesTriees = recettes.slice().sort((a, b) => a.rubrique.localeCompare(b.rubrique, "fr") || a.categorie.localeCompare(b.categorie, "fr"));
-
-  return {
+  return construireRapportVisuel({
     type,
     titre: TYPES_RAPPORT_EXPLOITATION[type],
     periodeTexte: libellePeriodeRapport(type, debut, fin),
+    debut,
+    fin,
     resultat,
     totalCouverts,
-    recettes: recettesTriees,
-    depenses: depensesTriees,
-  };
+    recettes,
+    depenses,
+  });
 }
 
 // ─── Rapport ANNUEL « visuel » — matrice (Task 11) ──────────────────────────────────────────────
