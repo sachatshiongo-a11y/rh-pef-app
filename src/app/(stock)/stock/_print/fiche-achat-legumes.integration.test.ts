@@ -62,7 +62,8 @@ describe("fiche d'achat de légumes", () => {
     expect(lignes).toContain("Oignons Kg 15 37 500");
     expect(lignes).toContain("Aubergine Kg"); // acheté la veille seulement : vide ce jour
     const horsListe = lignes.indexOf("Champignons de Paris Kg 1,25 1 234 567,5");
-    expect(horsListe).toBeGreaterThan(lignes.indexOf("Feuilles de menthe Boîte"));
+    expect(lignes.indexOf("Feuilles de menthe Botte")).toBeGreaterThan(-1);
+    expect(horsListe).toBeGreaterThan(lignes.indexOf("Feuilles de menthe Botte"));
     expect(plat).toContain("Montant total CDF 1 284 567,5");
     expect(plat).toContain("Montant total $ 458,77");
     expect(plat).toMatch(/Montant donné \$ Montant total CDF/); // « Montant donné $ » reste vide
@@ -74,7 +75,7 @@ describe("fiche d'achat de légumes", () => {
     const { pdf, pages, lignes, plat } = await pdfDe(await ficheAchat(new Request("http://pef.test/stock/legumes/fiche")));
     expect(pages).toHaveLength(1);
     expect(lignes).toContain("Ail Kg");
-    expect(lignes).toContain("Menthe");
+    expect(lignes).toContain("Menthe Botte");
     expect(plat).toMatch(/Date : Désignation Unité QTÉ Montant/);
     expect(plat).toMatch(/Montant donné \$ Montant total CDF Montant total \$/);
     expect(policesDeRepli(pdf)).toEqual([]);
