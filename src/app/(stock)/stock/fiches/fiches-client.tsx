@@ -10,6 +10,7 @@ import { estErreur } from "@/lib/action-lisible";
 import { usd } from "@/lib/stock";
 import { normTexte } from "@/lib/texte";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
+import { familleBoisson, FAMILLES_BOISSON, type OngletFiches } from "@/lib/fiches/famille-boisson";
 import { pct, TYPE_LABEL, badgeDispo, CLASSE_RECETTE_A_COMPLETER, DISPO_CLASSE, type DispoRow } from "./_data/fiche-calc";
 import { creerFiche, supprimerFiches, dupliquerFiches } from "./actions";
 
@@ -56,10 +57,16 @@ function motifIncomplet(f: FicheRow): { badge: string; cause: string } {
 }
 
 /**
- * Liste des fiches techniques : navigation (le nom mène à la fiche, où se fait l'édition) +
- * actions groupées (supprimer / dupliquer / exporter) sur la sélection.
+ * Liste des fiches techniques d'UN onglet : navigation (le nom mène à la fiche, où se fait
+ * l'édition) + actions groupées (supprimer / dupliquer / exporter) sur la sélection.
+ *
+ * `fiches` ne contient QUE les fiches de l'onglet affiché (`vue`) : la sélection, « Tout
+ * sélectionner », les filtres et les compteurs ne peuvent donc porter que sur elles. L'écran
+ * remonte ce composant à chaque changement d'onglet (clé = onglet) : une sélection faite dans
+ * « Boissons » ne survit pas au passage dans « Plats ».
  */
-export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etatInitial?: EtatDispo }) {
+export function FichesClient({ fiches, etatInitial, vue = "plats" }: { fiches: FicheRow[]; etatInitial?: EtatDispo; vue?: OngletFiches }) {
+  const boissons = vue === "boissons";
   const router = useRouter();
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -97,6 +104,13 @@ export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etat
     });
   }, [fiches, q, categorie, nature, etat]);
 
+  // Onglet Boissons : deux sections, rangées par la RUBRIQUE (jamais par le nom). Onglet Plats :
+  // une seule liste, les sous-recettes y gardent leur repère « Sous-recette ».
+  const sections = boissons
+    ? FAMILLES_BOISSON.map(({ valeur, libelle }) => ({ cle: valeur, titre: libelle, fiches: visibles.filter((f) => familleBoisson(f.categorie) === valeur) }))
+        .filter((s) => s.fiches.length > 0)
+    : [{ cle: "PLATS", titre: null, fiches: visibles }];
+
   const creer = (fd: FormData) => {
     setErreur(null);
     start(async () => {
@@ -112,15 +126,16 @@ export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etat
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher (nom, catégorie)…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher (nom, catégorie)…" aria-label="Rechercher" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
         <select value={categorie} onChange={(e) => setCategorie(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
           <option value="">Toutes les catégories</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <select value={nature} onChange={(e) => setNature(e.target.value as typeof nature)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
           <option value="">Toutes les fiches</option>
-          <option value="PLAT_FINAL">Plats vendus</option>
-          <option value="SOUS_RECETTE">Sous-recettes</option>
+          {/* Aucune sous-recette dans l'onglet Boissons (elles restent avec les plats). */}
+          {!boissons && <option value="PLAT_FINAL">Plats vendus</option>}
+          {!boissons && <option value="SOUS_RECETTE">Sous-recettes</option>}
           <option value="PARTIEL">Coût partiel</option>
         </select>
         <select value={etat} onChange={(e) => setEtat(e.target.value as typeof etat)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" aria-label="Disponibilité">
@@ -131,23 +146,30 @@ export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etat
         </select>
         <span className="text-xs text-muted-foreground">{visibles.length} / {fiches.length} fiche(s)</span>
         <button onClick={() => setAjout((v) => !v)} className="ml-auto rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
-          {ajout ? "Fermer" : "+ Nouvelle fiche"}
+          {ajout ? "Fermer" : boissons ? "+ Nouvelle fiche boisson" : "+ Nouvelle fiche"}
         </button>
       </div>
 
       {ajout && (
-        <form action={creer} className="grid grid-cols-2 gap-2 rounded-lg border p-3 md:grid-cols-4">
+        <form action={creer} aria-label="Nouvelle fiche" className="grid grid-cols-2 gap-2 rounded-lg border p-3 md:grid-cols-4">
           <input name="nom" placeholder="Nom de la fiche *" required className={inp} />
-          <input name="categorie" placeholder="Catégorie (ex. Pâtes classiques)" className={inp} />
+          <input name="categorie" placeholder={boissons ? "Catégorie (ex. Cocktail, Vin rouge)" : "Catégorie (ex. Pâtes classiques)"} className={inp} />
           <input name="nbPortions" type="number" min="1" step="1" defaultValue="1" placeholder="Portions" className={inp} />
-          <select name="type" defaultValue="PLAT" className={inp}>
+          {/* Type prérempli par l'onglet : Boissons crée une fiche Bar, Plats une fiche Plat. */}
+          <select name="type" defaultValue={boissons ? "BAR" : "PLAT"} className={inp} aria-label="Type">
             <option value="PLAT">Plat</option>
             <option value="BAR">Bar</option>
           </select>
-          <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-4">
-            <input type="checkbox" name="estSousRecette" />
-            <span>C&apos;est une <strong>sous-recette</strong> (sauce, base…) : elle n&apos;a pas de prix de vente, elle entre dans d&apos;autres fiches.</span>
-          </label>
+          {boissons ? (
+            <p className="col-span-2 text-xs text-muted-foreground md:col-span-4">
+              Une boisson se range dans « Cocktails &amp; mocktails » quand sa catégorie est <strong>Cocktail</strong> ou <strong>Mocktail</strong>, sinon dans « Boissons ». Les sous-recettes se créent depuis l&apos;onglet Plats.
+            </p>
+          ) : (
+            <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-4">
+              <input type="checkbox" name="estSousRecette" />
+              <span>C&apos;est une <strong>sous-recette</strong> (sauce, base…) : elle n&apos;a pas de prix de vente, elle entre dans d&apos;autres fiches.</span>
+            </label>
+          )}
           <button disabled={isPending} className="col-span-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50 md:col-span-4">Créer la fiche</button>
         </form>
       )}
@@ -155,7 +177,7 @@ export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etat
       {fiches.length > 0 && (
         <BulkBar count={sel.size} total={visibles.length} onAll={(on) => setAll(visibles.map((f) => f.id), on)}>
           <a
-            href={`/stock/fiches/export?ids=${ids.join(",")}`}
+            href={`/stock/fiches/export?vue=${vue}&ids=${ids.join(",")}`}
             download
             className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
@@ -180,61 +202,68 @@ export function FichesClient({ fiches, etatInitial }: { fiches: FicheRow[]; etat
       )}
 
       {visibles.length === 0 ? (
-        <EtatVide message={fiches.length ? "Aucune fiche pour ce filtre." : "Aucune fiche technique. Créez-en une pour connaître le coût de revient d'un plat."} />
-      ) : (
-        <ul className="divide-y overflow-hidden rounded-lg border text-sm">
-          {visibles.map((f) => (
-            <li key={f.id} className={`flex items-center gap-2 px-3 py-2 ${sel.has(f.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
-              <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="shrink-0" aria-label={`Sélectionner ${f.nom}`} />
-              {/* Vignette : la photo si la fiche en a une, sinon un cadre neutre — carré à coins
-                  arrondis (jamais un cercle : un plat n'est pas un visage, voir vignette-plat.tsx). */}
-              <Link href={`/stock/fiches/${f.id}`} className="shrink-0" tabIndex={-1} aria-hidden>
-                <VignettePlat nom={f.nom} photoUrl={f.photoUrl} />
-              </Link>
-              <div className="min-w-0 flex-1">
-                <Link href={`/stock/fiches/${f.id}`} className="font-medium text-primary hover:underline">{f.nom}</Link>
-                {f.estSousRecette && <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-800">Sous-recette</span>}
-                {!f.actif && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Inactive</span>}
-                <div className="truncate text-xs text-muted-foreground">
-                  {[f.categorie || "Sans catégorie", TYPE_LABEL[f.type] ?? f.type, `${f.nbPortions} portion(s)`, `${f.nbIngredients} ingrédient(s)`].join(" · ")}
+        <EtatVide message={fiches.length ? "Aucune fiche pour ce filtre." : boissons ? "Aucune fiche boisson. Créez-en une pour connaître le coût de revient d'une boisson." : "Aucune fiche technique. Créez-en une pour connaître le coût de revient d'un plat."} />
+      ) : sections.map((s) => (
+        <section key={s.cle} data-section={s.cle} className="space-y-1.5">
+          {s.titre && (
+            <h2 className="flex items-baseline gap-2 text-sm font-semibold">
+              {s.titre} <span className="text-xs font-normal text-muted-foreground">{s.fiches.length} fiche(s)</span>
+            </h2>
+          )}
+          <ul className="divide-y overflow-hidden rounded-lg border text-sm">
+            {s.fiches.map((f) => (
+              <li key={f.id} className={`flex items-center gap-2 px-3 py-2 ${sel.has(f.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
+                <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="shrink-0" aria-label={`Sélectionner ${f.nom}`} />
+                {/* Vignette : la photo si la fiche en a une, sinon un cadre neutre — carré à coins
+                    arrondis (jamais un cercle : un plat n'est pas un visage, voir vignette-plat.tsx). */}
+                <Link href={`/stock/fiches/${f.id}`} className="shrink-0" tabIndex={-1} aria-hidden>
+                  <VignettePlat nom={f.nom} photoUrl={f.photoUrl} />
+                </Link>
+                <div className="min-w-0 flex-1">
+                  <Link href={`/stock/fiches/${f.id}`} className="font-medium text-primary hover:underline">{f.nom}</Link>
+                  {f.estSousRecette && <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-800">Sous-recette</span>}
+                  {!f.actif && <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Inactive</span>}
+                  <div className="truncate text-xs text-muted-foreground">
+                    {[f.categorie || "Sans catégorie", TYPE_LABEL[f.type] ?? f.type, `${f.nbPortions} portion(s)`, `${f.nbIngredients} ingrédient(s)`].join(" · ")}
+                  </div>
+                  <BadgeDispo dispo={f.dispo} estSousRecette={f.estSousRecette} />
                 </div>
-                <BadgeDispo dispo={f.dispo} estSousRecette={f.estSousRecette} />
-              </div>
-
-              {/* Un coût partiel n'est JAMAIS affiché en chiffre nu : le « ≥ » ET le badge vivent
-                  dans la MÊME cellule que le montant, donc à toute largeur d'écran. L'app est
-                  installée en PWA sur téléphone : une colonne masquée sous 640 px emporterait la
-                  mention et laisserait le chiffre tout seul. */}
-              <div className="shrink-0 text-right">
-                <div className="font-semibold tabular-nums">
-                  {f.coutConnu ? `${f.coutPartiel ? "≥ " : ""}${usd(f.coutPortion)}` : "—"}
+  
+                {/* Un coût partiel n'est JAMAIS affiché en chiffre nu : le « ≥ » ET le badge vivent
+                    dans la MÊME cellule que le montant, donc à toute largeur d'écran. L'app est
+                    installée en PWA sur téléphone : une colonne masquée sous 640 px emporterait la
+                    mention et laisserait le chiffre tout seul. */}
+                <div className="shrink-0 text-right">
+                  <div className="font-semibold tabular-nums">
+                    {f.coutConnu ? `${f.coutPartiel ? "≥ " : ""}${usd(f.coutPortion)}` : "—"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">coût / portion</div>
+                  {f.incomplet && (
+                    <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                      {motifIncomplet(f).badge}
+                    </span>
+                  )}
                 </div>
-                <div className="text-[11px] text-muted-foreground">coût / portion</div>
-                {f.incomplet && (
-                  <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                    {motifIncomplet(f).badge}
-                  </span>
-                )}
-              </div>
-
-              <div className="hidden w-40 shrink-0 text-right sm:block">
-                {f.incomplet ? (
-                  <span className="text-[11px] text-muted-foreground">Prix et marge non fiables : {motifIncomplet(f).cause}</span>
-                ) : f.estSousRecette ? (
-                  <span className="text-[11px] text-muted-foreground">Sous-recette : pas de marge</span>
-                ) : (
-                  <>
-                    <div className="text-xs tabular-nums">{usd(f.prixVenteHT)} HT</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {f.prixEstConseille ? "conseillé · " : ""}taux de marque {pct(f.tauxMarque)}
-                    </div>
-                  </>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+  
+                <div className="hidden w-40 shrink-0 text-right sm:block">
+                  {f.incomplet ? (
+                    <span className="text-[11px] text-muted-foreground">Prix et marge non fiables : {motifIncomplet(f).cause}</span>
+                  ) : f.estSousRecette ? (
+                    <span className="text-[11px] text-muted-foreground">Sous-recette : pas de marge</span>
+                  ) : (
+                    <>
+                      <div className="text-xs tabular-nums">{usd(f.prixVenteHT)} HT</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {f.prixEstConseille ? "conseillé · " : ""}taux de marque {pct(f.tauxMarque)}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

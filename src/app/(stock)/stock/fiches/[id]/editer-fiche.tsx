@@ -12,6 +12,7 @@ import {
   type DetailArticleDispo, type DetailLigneDispo, type FicheDispo, type StockArticle,
 } from "@/lib/fiches/disponibilite";
 import { usd, qte } from "@/lib/stock";
+import { ongletFiche } from "@/lib/fiches/famille-boisson";
 import {
   MOTIF_LABEL, coef, pct, versFicheCalc, versFicheDispo, resumerDispo,
   type ArticleOption, type FicheVue, type LigneFiche,
@@ -134,7 +135,7 @@ export function EditerFiche({
 
   const supprimer = () => {
     if (!confirm(`Supprimer la fiche « ${vue.nom} » et ses ingrédients ? Action irréversible.`)) return;
-    run(() => supprimerFiches([vue.id]), () => router.push("/stock/fiches"));
+    run(() => supprimerFiches([vue.id]), () => router.push(`/stock/fiches?vue=${ongletFiche(vue)}`));
   };
 
   const dupliquer = () => {

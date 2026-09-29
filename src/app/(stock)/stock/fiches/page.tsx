@@ -2,17 +2,21 @@ import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
 import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } from "./_data/charger-fiche";
 import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_data/fiche-calc";
-import { FichesClient, type FicheRow } from "./fiches-client";
-import { BoutonRapport } from "../_rapport/bouton-rapport";
+import type { FicheRow } from "./fiches-client";
+import { EcranFiches } from "./ecran-fiches";
+import { lireOngletFiches } from "@/lib/fiches/famille-boisson";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { exigerPageStock } from "@/lib/garde-page";
 
 const ETATS: EtatDispo[] = ["DISPONIBLE", "RUPTURE", "A_VERIFIER"];
 
-export default async function FichesPage({ searchParams }: { searchParams: Promise<{ etat?: string }> }) {
+export default async function FichesPage({ searchParams }: { searchParams: Promise<{ etat?: string; vue?: string }> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const etatInitial = ETATS.find((e) => e === sp.etat);
+  // Onglet « Plats » par défaut : les liens existants (`?etat=RUPTURE` depuis Exploitation, qui
+  // compte des PLATS) y arrivent donc sans rien changer.
+  const vue = lireOngletFiches(sp.vue);
 
   // Stock (dépôt + restaurant) lu UNE fois pour toutes les fiches, jamais une requête par fiche.
   const [vues, articles, stocks] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches(), chargerStocksDesFiches()]);
@@ -51,22 +55,5 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
     };
   });
 
-  // Une fiche SANS recette n'a pas un coût partiel : elle n'a pas de coût (« — », recette à compléter).
-  const partielles = rows.filter((r) => r.incomplet && r.nbIngredients > 0).length;
-  const sansRecette = rows.filter((r) => r.nbIngredients === 0 && !r.estSousRecette).length;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-xl font-semibold sm:text-2xl">Fiches techniques</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-muted-foreground">
-            {rows.length} fiche(s){partielles > 0 && ` · ${partielles} au coût partiel`}{sansRecette > 0 && ` · ${sansRecette} recette(s) à compléter`}
-          </span>
-          <BoutonRapport excelHref="/stock/fiches/export" />
-        </div>
-      </div>
-      <FichesClient fiches={rows} etatInitial={etatInitial} />
-    </div>
-  );
+  return <EcranFiches rows={rows} vue={vue} etatInitial={etatInitial} />;
 }
