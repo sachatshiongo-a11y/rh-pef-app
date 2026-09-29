@@ -61,3 +61,32 @@ export async function appliquerAuxPresences(client: Client, employeeId: string, 
   if (!presence) await client.attendance.create({ data: { employeeId, date, code: ferie ? "F" : "P" } });
   return true;
 }
+
+/** Ce que Présences + Heures portent pour ce jour, AVANT qu'une clôture de pointage n'y écrive. */
+export type EtatPresences = { heures: number | null; code: string | null };
+
+export async function etatPresences(client: Client, employeeId: string, date: Date): Promise<EtatPresences> {
+  const [entree, presence] = await Promise.all([
+    client.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId, date } }, select: { heuresTravaillees: true } }),
+    client.attendance.findUnique({ where: { employeeId_date: { employeeId, date } }, select: { code: true } }),
+  ]);
+  return { heures: entree ? Number(entree.heuresTravaillees) : null, code: presence?.code ?? null };
+}
+
+/**
+ * Défait ce qu'une clôture de pointage a écrit (« Annuler ce pointage » sur un départ) : les heures
+ * reviennent à leur valeur d'AVANT (ou disparaissent s'il n'y en avait pas) ; la présence créée par
+ * la clôture (P ou F) est retirée — une présence qui existait avant n'a jamais été touchée.
+ */
+export async function restaurerPresences(client: Client, employeeId: string, date: Date, avant: EtatPresences): Promise<void> {
+  if (avant.heures === null) {
+    await client.overtimeEntry.deleteMany({ where: { employeeId, date } });
+  } else {
+    await client.overtimeEntry.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      update: { heuresTravaillees: avant.heures },
+      create: { employeeId, date, heuresTravaillees: avant.heures },
+    });
+  }
+  if (avant.code === null) await client.attendance.deleteMany({ where: { employeeId, date, code: { in: ["P", "F"] } } });
+}

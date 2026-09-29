@@ -19,10 +19,14 @@ import { ScannerAffiche } from "@/components/pointage/scanner-affiche";
 // lui-même n'est jugé que par le serveur, au scan (`scannerAffiche`).
 //
 // Mot de passe temporaire : il se change avant de pointer, et le scan N'EST PAS PERDU — le retour
-// `/scan?c=…` accompagne le salarié jusqu'à la page de changement, qui l'y ramène ensuite ; il
-// retrouve alors « Pointer maintenant » (jamais de pointage sans ce geste). Si la page de
-// changement ne l'accueillerait pas (espace salarié fermé), on ne l'y envoie pas : elle le
+// `/scan?c=…` accompagne le salarié jusqu'à la page de changement, qui l'y ramène ensuite. Si la
+// page de changement ne l'accueillerait pas (espace salarié fermé), on ne l'y envoie pas : elle le
 // renverrait vers /entree, et le scan serait perdu en silence. Un message le dit, ici même.
+//
+// Scanner = pointer (décision de la Direction du 2026-09-29) : cette page ne POINTE RIEN côté
+// serveur. C'est le script du scanner, une fois la page chargée DANS LE NAVIGATEUR, qui envoie le
+// code : un aperçu de lien ou un préchargement (requête GET, sans script) n'écrit aucun scan —
+// garde-fou vérifié par `scan-get.integration.test.ts`.
 export default async function ScanPage({ searchParams }: { searchParams: Promise<{ c?: string | string[] }> }) {
   const user = await verifySession();
   const { c } = await searchParams;

@@ -11,22 +11,25 @@
 //   • la caméra est libérée (toutes les pistes arrêtées) dès qu'un code d'affiche est lu, au
 //     démontage, et quand la page passe en arrière-plan — cf. `cameraDoitTourner`.
 // Aucun bouton ne pointe sans scan : sans caméra, le recours est l'appareil photo du téléphone.
-// Et aucun scan ne pointe sans geste quand le code arrive par l'adresse (`/scan?c=…`) : on attend
-// « Pointer maintenant » (cf. `phaseInitiale`).
+// Scanner = pointer (décision de la Direction du 2026-09-29) : un code lu par la caméra, ou reçu
+// par l'adresse (`/scan?c=…`), part tout seul — depuis CE script, après le chargement de la page,
+// jamais depuis la requête GET (un aperçu de lien ou un préchargement ne pointe rien). Garde-fous
+// à la place du bouton : scan répété sous 10 min = rien de nouveau (serveur) ; « Annuler ce
+// pointage » pendant 5 min ; la pause, facultative, se saisit après (sinon : 30 min par défaut).
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import jsQR from "jsqr";
 import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
-import { confirmerDepart, scannerAffiche } from "@/app/pointage/actions";
+import { annulerPointage, saisirMaPause, scannerAffiche } from "@/app/pointage/actions";
 import type { PositionScan } from "@/lib/pointage-qr";
 import { originesAcceptees } from "@/lib/pointage-origines";
 import {
   CONTRAINTES_CAMERA,
   DELAI_MAX_POSITION_MS,
   INTERVALLE_LECTURE_MS,
-  LIBELLE_POINTER_MAINTENANT,
-  MESSAGE_ATTENTE_GESTE,
+  LIBELLE_ANNULER,
+  MENTION_HEURE_SERVEUR,
   MESSAGE_CONNEXION_PERDUE,
   OPTIONS_GEOLOCALISATION,
   PAUSE_DEFAUT_MIN,
@@ -34,17 +37,17 @@ import {
   cameraDoitTourner,
   causeCameraIndisponible,
   dimensionsLecture,
-  ecranApresConfirmation,
-  ecranDepartRenonce,
+  ecranApresAnnulation,
+  ecranApresPause,
   ecranDepuisResultat,
   lectureQr,
   messageCameraIndisponible,
   pauseLue,
-  phaseApresGeste,
   phaseInitiale,
   positionAReprendre,
   positionDepuisCoordonnees,
   positionDepuisErreur,
+  SUITE_A_VERIFIER,
   type Ecran,
   type Phase,
 } from "./scanner-affiche.logic";
@@ -103,7 +106,6 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const position = useRef<{ promesse: Promise<PositionScan>; demandeeA: number } | null>(null);
-  const dernierEnvoi = useRef<{ code: string; position: PositionScan } | null>(null);
 
   const positionFraiche = useCallback((): Promise<PositionScan> => {
     const maintenant = Date.now();
@@ -113,24 +115,19 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     return position.current.promesse;
   }, []);
 
-  const envoyer = useCallback(
-    async (code: string, p: PositionScan, confirmerDepartRapide: boolean) => {
-      dernierEnvoi.current = { code, position: p };
+  const envoyerCode = useCallback(
+    async (code: string) => {
       let ecran: Ecran;
       try {
-        ecran = ecranDepuisResultat(await scannerAffiche({ code, position: p, confirmerDepartRapide }));
+        // Sans position au bout de 8 s (ou refusée), le pointage part quand même : « à vérifier ».
+        ecran = ecranDepuisResultat(await scannerAffiche({ code, position: await positionFraiche() }));
       } catch {
         ecran = { type: "ERREUR", titre: MESSAGE_CONNEXION_PERDUE };
       }
       setEtat({ phase: "ECRAN", ecran });
-      if (ecran.type === "ARRIVEE" || ecran.type === "COMPLETE" || ecran.type === "DEPART_A_CONFIRMER") router.refresh();
+      if (ecran.type === "ARRIVEE" || ecran.type === "DEPART" || ecran.type === "COMPLETE") router.refresh();
     },
-    [router],
-  );
-
-  const envoyerCode = useCallback(
-    async (code: string) => envoyer(code, await positionFraiche(), false),
-    [envoyer, positionFraiche],
+    [router, positionFraiche],
   );
 
   const codeLu = useCallback(
@@ -141,18 +138,22 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     [envoyerCode],
   );
 
-  // La position est demandée dès l'ouverture, EN PARALLÈLE de la visée (ou de l'attente du geste) :
-  // elle est prête au scan. Chemin /scan?c=… : RIEN n'est envoyé ici — la phase initiale est
-  // ATTENTE, l'envoi ne part qu'au geste « Pointer maintenant ». Le code est aussi retiré de
-  // l'adresse, pour qu'un rechargement de l'onglet (Safari restaure les onglets des heures plus
-  // tard) ne ramène pas l'affiche lue.
+  // Au chargement : la position est demandée tout de suite (en parallèle de la visée, ou de l'envoi
+  // du code reçu par l'adresse). Chemin /scan?c=… : le pointage part ICI, une seule fois (le
+  // double montage du mode strict ne l'envoie pas deux fois) — et le code est retiré de l'adresse,
+  // pour qu'un rechargement de l'onglet (Safari restaure les onglets des heures plus tard) ne
+  // rejoue pas l'affiche lue. Un rescan malgré tout ne ferait rien de nouveau sous 10 min.
   const initialise = useRef(false);
   useEffect(() => {
     if (initialise.current) return;
     initialise.current = true;
-    if (codeInitial) window.history.replaceState(window.history.state, "", window.location.pathname);
-    void positionFraiche();
-  }, [codeInitial, positionFraiche]);
+    if (codeInitial) {
+      window.history.replaceState(window.history.state, "", window.location.pathname);
+      void envoyerCode(codeInitial);
+    } else {
+      void positionFraiche();
+    }
+  }, [codeInitial, envoyerCode, positionFraiche]);
 
   // La boucle de lecture appelle toujours la DERNIÈRE version de `codeLu` sans relancer la caméra.
   const codeLuRef = useRef(codeLu);
@@ -224,39 +225,56 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     };
   }, [camera]);
 
-  // Un double appui avant le rendu suivant n'envoie qu'une fois.
-  const gesteFait = useRef(false);
-  const pointerMaintenant = (code: string) => {
-    if (gesteFait.current) return;
-    gesteFait.current = true;
-    setEtat((e) => phaseApresGeste(e));
-    void envoyerCode(code);
-  };
+  // « Annuler ce pointage » disparaît à l'échéance donnée par le serveur (compte à rebours depuis
+  // SA réponse : l'horloge du téléphone n'y entre pas). Le serveur refuse de toute façon au-delà.
+  const annulable =
+    etat.phase === "ECRAN" && (etat.ecran.type === "ARRIVEE" || etat.ecran.type === "DEPART") && etat.ecran.annulableMs > 0
+      ? etat.ecran
+      : null;
+  const annulableId = annulable?.scanId;
+  const annulableDelai = annulable?.annulableMs;
+  useEffect(() => {
+    if (!annulableId || !annulableDelai) return;
+    const minuteur = setTimeout(() => {
+      setEtat((e) =>
+        e.phase === "ECRAN" && (e.ecran.type === "ARRIVEE" || e.ecran.type === "DEPART") && e.ecran.scanId === annulableId
+          ? { phase: "ECRAN", ecran: { ...e.ecran, annulableMs: 0 } }
+          : e,
+      );
+    }, annulableDelai);
+    return () => clearTimeout(minuteur);
+  }, [annulableId, annulableDelai]);
 
   const reviser = () => {
     setPause(String(PAUSE_DEFAUT_MIN));
     setEtat({ phase: "VISEE", avis: null });
   };
 
-  const confirmerDepartRapide = () => {
-    const d = dernierEnvoi.current;
-    if (!d) return reviser();
-    setEtat({ phase: "ENVOI" });
-    void envoyer(d.code, d.position, true); // même code, même position
+  const annuler = (origine: Extract<Ecran, { type: "ARRIVEE" | "DEPART" }>) => {
+    demarrer(async () => {
+      let suite: Ecran;
+      try {
+        suite = ecranApresAnnulation(await annulerPointage({ scanId: origine.scanId }), origine);
+      } catch {
+        suite = { ...origine, erreur: MESSAGE_CONNEXION_PERDUE };
+      }
+      setEtat({ phase: "ECRAN", ecran: suite });
+      router.refresh();
+    });
   };
 
-  const validerPause = (attente: Extract<Ecran, { type: "DEPART_A_CONFIRMER" }>) => {
+  const validerPause = (depart: Extract<Ecran, { type: "DEPART" }>) => {
     const minutes = pauseLue(pause);
     if (minutes === null) return;
     demarrer(async () => {
       let suite: Ecran;
       try {
-        suite = ecranApresConfirmation(await confirmerDepart({ scanId: attente.scanId, pauseMinutes: minutes }), attente);
+        suite = ecranApresPause(await saisirMaPause({ scanId: depart.scanId, pauseMinutes: minutes }), depart);
       } catch {
-        suite = { ...attente, erreur: MESSAGE_CONNEXION_PERDUE };
+        suite = { ...depart, erreur: MESSAGE_CONNEXION_PERDUE };
       }
       setEtat({ phase: "ECRAN", ecran: suite });
-      if (suite.type === "DEPART_CONFIRME") router.refresh();
+      if (suite.type === "PAUSE_ENREGISTREE") router.refresh();
     });
   };
 
@@ -287,18 +305,6 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     );
   }
 
-  if (etat.phase === "ATTENTE") {
-    const code = etat.code;
-    return (
-      <div className="space-y-3">
-        <Avis ton="neutre">{MESSAGE_ATTENTE_GESTE}</Avis>
-        <BoutonValider type="button" onClick={() => pointerMaintenant(code)} className={CLASSES_BOUTON_PLEIN}>
-          {LIBELLE_POINTER_MAINTENANT}
-        </BoutonValider>
-      </div>
-    );
-  }
-
   if (etat.phase === "ENVOI") {
     return (
       <div role="status" className="flex flex-col items-center gap-2 rounded-2xl border bg-background px-4 py-8 text-center">
@@ -314,89 +320,95 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
     case "ARRIVEE":
       return (
         <div className="space-y-3">
-          <Avis ton="succes">
-            <span className="block text-base font-semibold">{ecran.titre}</span>
-          </Avis>
+          <Resultat titre={ecran.titre} detail={ecran.detail} />
           <AvertissementPosition avertissement={ecran.avertissement} motif={ecran.motif} />
+          {ecran.erreur && <Avis ton="erreur">{ecran.erreur}</Avis>}
+          {ecran.annulableMs > 0 && <BoutonAnnuler onClick={() => annuler(ecran)} enCours={enCours} />}
         </div>
       );
 
-    case "DEPART_CONFIRME":
+    case "DEPART": {
+      // La journée est CLOSE (départ horodaté au scan, pause par défaut 30 min si rien n'est
+      // saisi) ; la pause du salarié vient après, facultative, et remplace alors la pause par défaut.
+      const minutes = pauseLue(pause);
+      return (
+        <div className="space-y-3">
+          {ecran.heuresComptees ? (
+            <Resultat titre={ecran.titre} detail={ecran.detail} />
+          ) : (
+            <>
+              <Resultat titre={ecran.titre} detail={null} />
+              <Avis ton="attention">{ecran.detail}</Avis>
+            </>
+          )}
+          <AvertissementPosition avertissement={ecran.avertissement} motif={ecran.motif} />
+          {ecran.pauseModifiable && (
+            <div className="space-y-2 rounded-xl border bg-background px-4 py-3">
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-medium">
+                  Ma pause du jour <span className="font-normal text-muted-foreground">(facultatif)</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    max={600}
+                    step={5}
+                    value={pause}
+                    onChange={(e) => setPause(e.target.value)}
+                    className="w-20 rounded-md border border-input bg-background px-2 py-1 text-right text-base tabular-nums"
+                  />
+                  <span className="text-muted-foreground">min</span>
+                </span>
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Sans saisie, la pause par défaut de {PAUSE_DEFAUT_MIN} min est retenue.
+              </p>
+              <BoutonValider
+                type="button"
+                onClick={() => validerPause(ecran)}
+                disabled={enCours || minutes === null}
+                className={CLASSES_BOUTON_PLEIN}
+              >
+                {enCours ? "Enregistrement…" : "Enregistrer ma pause"}
+              </BoutonValider>
+            </div>
+          )}
+          {ecran.erreur && <Avis ton="erreur">{ecran.erreur}</Avis>}
+          {ecran.annulableMs > 0 && <BoutonAnnuler onClick={() => annuler(ecran)} enCours={enCours} />}
+        </div>
+      );
+    }
+
+    case "PAUSE_ENREGISTREE":
       // Congé approuvé ce jour : le départ est clos mais les heures ne sont pas comptées — encadré
       // d'attention, jamais le vert d'une journée enregistrée.
       return (
         <div className="space-y-3">
-          <Avis ton="succes">
-            <span className="block text-base font-semibold">{ecran.titre}</span>
-            {ecran.heuresComptees && <span className="mt-1 block">{ecran.detail}</span>}
-          </Avis>
+          <Resultat titre={ecran.titre} detail={ecran.heuresComptees ? ecran.detail : null} />
           {!ecran.heuresComptees && <Avis ton="attention">{ecran.detail}</Avis>}
           <AvertissementPosition avertissement={ecran.avertissement} motif={ecran.motif} />
         </div>
       );
 
-    case "DEPART_TROP_TOT":
-      return (
-        <div className="space-y-3">
-          <Avis ton="attention">{ecran.titre}</Avis>
-          <div className="flex flex-col gap-2">
-            <BoutonValider type="button" onClick={confirmerDepartRapide} className={CLASSES_BOUTON_PLEIN}>
-              Oui, pointer mon départ
-            </BoutonValider>
-            <BoutonNeutre
-              type="button"
-              onClick={() => setEtat({ phase: "ECRAN", ecran: ecranDepartRenonce(ecran) })}
-              className={CLASSES_BOUTON_PLEIN}
-            >
-              Non, c&apos;était une erreur
-            </BoutonNeutre>
-          </div>
-        </div>
-      );
-
-    case "DEPART_A_CONFIRMER": {
-      const minutes = pauseLue(pause);
-      return (
-        <div className="space-y-3">
-          <div className="rounded-2xl border bg-background px-4 py-3">
-            <p className="text-base font-semibold">{ecran.titre}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{ecran.detail}</p>
-          </div>
-          <AvertissementPosition avertissement={ecran.avertissement} motif={ecran.motif} />
-          <label className="flex items-center justify-between gap-3 rounded-xl border bg-background px-4 py-3 text-sm">
-            <span className="font-medium">Ma pause du jour</span>
-            <span className="flex items-center gap-2">
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={600}
-                step={5}
-                value={pause}
-                onChange={(e) => setPause(e.target.value)}
-                className="w-20 rounded-md border border-input bg-background px-2 py-1 text-right text-base tabular-nums"
-              />
-              <span className="text-muted-foreground">min</span>
-            </span>
-          </label>
-          {ecran.erreur && <Avis ton="erreur">{ecran.erreur}</Avis>}
-          <BoutonValider
-            type="button"
-            onClick={() => validerPause(ecran)}
-            disabled={enCours || minutes === null}
-            className={CLASSES_BOUTON_PLEIN}
-          >
-            {enCours ? "Enregistrement…" : "Valider mon départ"}
-          </BoutonValider>
-        </div>
-      );
-    }
-
     case "COMPLETE":
-      return <Avis ton="succes">{ecran.titre}</Avis>;
+      return (
+        <Avis ton="succes">
+          <span className="block text-base font-semibold">{ecran.titre}</span>
+          <span className="mt-1 block">{ecran.detail}</span>
+        </Avis>
+      );
 
     case "INFO":
-      return <Avis ton="neutre">{ecran.titre}</Avis>;
+      return (
+        <div className="space-y-3">
+          <Avis ton="neutre">{ecran.titre}</Avis>
+          <BoutonNeutre type="button" onClick={reviser} className={CLASSES_BOUTON_PLEIN}>
+            Scanner de nouveau
+          </BoutonNeutre>
+        </div>
+      );
 
     case "ERREUR":
       return (
@@ -410,11 +422,31 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
   }
 }
 
+/** Le résultat EN GRAND (« Arrivée enregistrée à 8 h 02 »), l'heure étant celle du serveur. */
+function Resultat({ titre, detail }: { titre: string; detail: string | null }) {
+  return (
+    <Avis ton="succes">
+      <span className="block text-2xl font-bold leading-tight tabular-nums">{titre}</span>
+      <span className="mt-1 block text-xs opacity-80">{MENTION_HEURE_SERVEUR}</span>
+      {detail && <span className="mt-2 block">{detail}</span>}
+    </Avis>
+  );
+}
+
+function BoutonAnnuler({ onClick, enCours }: { onClick: () => void; enCours: boolean }) {
+  return (
+    <BoutonNeutre type="button" onClick={onClick} disabled={enCours} className={CLASSES_BOUTON_PLEIN}>
+      {enCours ? "Un instant…" : LIBELLE_ANNULER}
+    </BoutonNeutre>
+  );
+}
+
 function AvertissementPosition({ avertissement, motif }: { avertissement: string | null; motif: string | null }) {
   if (!avertissement) return null;
   return (
     <Avis ton="attention">
-      {avertissement}
+      <span className="block font-semibold">{avertissement}</span>
+      <span className="mt-1 block">{SUITE_A_VERIFIER}</span>
       {motif && <span className="mt-1 block text-xs opacity-80">Motif : {motif}.</span>}
     </Avis>
   );

@@ -27,8 +27,22 @@ export const PRECISION_REGLAGE_MAX_M = 100;
  */
 export const MESSAGE_POSITION_NON_REGLEE =
   "Réglez d'abord la position du restaurant : sans elle, chaque scan de l'affiche serait refusé.";
-/** Un second scan avant ce délai après l'arrivée déclenche la confirmation « double scan ». */
-export const DELAI_DOUBLE_SCAN_MS = 5 * 60_000;
+/**
+ * Scan répété (décision de la Direction du 2026-09-29) : un scan qui suit de moins de 10 minutes le
+ * dernier pointage (arrivée ou départ) de la même personne n'enregistre RIEN de nouveau — l'écran
+ * réaffiche le pointage déjà fait. Scanner l'affiche pointe désormais sans confirmation : sans
+ * cette règle, un double scan (le téléphone qui relit l'affiche, un onglet rouvert) ferait arrivée
+ * puis départ. Remplace la confirmation « double scan » à 5 minutes.
+ */
+export const DELAI_SCAN_REPETE_MS = 10 * 60_000;
+/** « Annuler ce pointage » : ouvert au salarié lui-même seulement, pendant ce délai après le scan. */
+export const DELAI_ANNULATION_MS = 5 * 60_000;
+/**
+ * Pause posée d'office quand le départ est pointé sans pause saisie (décision de la Direction du
+ * 2026-09-29) : la journée est close avec cette pause, marquée « par défaut ». Le salarié peut
+ * saisir la sienne ensuite (facultatif) : c'est alors la sienne qui compte.
+ */
+export const PAUSE_PAR_DEFAUT_MIN = 30;
 
 /** Distance haversine entre deux points, en mètres. */
 export function distanceMetres(a: Coordonnees, b: Coordonnees): number {
@@ -147,4 +161,12 @@ export function resumePointagesSemaine(
   const horsRestaurant = pointages.filter((p) => p.verdicts.includes("A_VERIFIER")).length;
   const pourcent = total === 0 ? 0 : Math.round((horsRestaurant / total) * 100);
   return { total, horsRestaurant, pourcent };
+}
+
+/**
+ * La pause d'une journée pointée, telle que l'affichent le scan, « Pointer », le Suivi et Présences &
+ * heures — un seul libellé partout : la pause posée d'office ne se confond jamais avec une pause saisie.
+ */
+export function libellePause(minutes: number, parDefaut: boolean): string {
+  return parDefaut ? `pause par défaut ${minutes} min` : `pause ${minutes} min`;
 }

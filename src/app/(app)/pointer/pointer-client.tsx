@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { ScannerAffiche } from "@/components/pointage/scanner-affiche";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
+import { libellePause } from "@/lib/pointage-qr";
 
 // L'écran « Pointer » : l'état du jour (cadran) et le SCANNER de l'affiche. Plus aucun bouton
 // « Pointer mon arrivée / mon départ », ni de saisie manuelle par le salarié : on ne pointe
 // qu'en scannant l'affiche du restaurant (docs/superpowers/specs/2026-09-23-pointage-qr-design.md,
 // §7). Un oubli de pointage se corrige uniquement par la Direction (Heures supp., Présences).
 
-type PointageVue = { heureDebut: string; heureFin: string | null; pauseMinutes: number } | null;
+type PointageVue = { heureDebut: string; heureFin: string | null; pauseMinutes: number; pauseParDefaut: boolean } | null;
 
 const hhmm = (iso: string) => heureKinshasa(new Date(iso));
 const dureeH = (ms: number) => {
@@ -29,7 +30,7 @@ export function PointerClient({
   photoUrl: string | null;
   dateLabel: string;
   pointage: PointageVue;
-  /** Instant ISO du départ SCANNÉ dont la pause n'est pas encore saisie (null sinon). */
+  /** Instant ISO d'un départ scanné AVANT la clôture automatique, jamais clos (null sinon). */
   departScanne: string | null;
 }) {
   const [elapsed, setElapsed] = useState(0);
@@ -78,7 +79,7 @@ export function PointerClient({
           {/* Cadran */}
           <div className="flex flex-col items-center rounded-2xl border bg-background py-7">
             <span className="text-xs uppercase tracking-wide text-muted-foreground">
-              {termine ? "Journée pointée" : pauseAttendue ? "Départ scanné, pause à saisir" : enCours ? "Temps écoulé aujourd'hui" : "Aujourd'hui"}
+              {termine ? "Journée pointée" : pauseAttendue ? "Départ enregistré" : enCours ? "Temps écoulé aujourd'hui" : "Aujourd'hui"}
             </span>
             <span className="mt-1 text-4xl font-bold tabular-nums">
               {/* Même écriture partout (« 7h 30m »), comme « Mon planning » : « 7,5 h » se lisait mal. */}
@@ -87,17 +88,17 @@ export function PointerClient({
             {enCours && pointage && (
               <span className="mt-1 text-xs text-muted-foreground">
                 Arrivée pointée à {hhmm(pointage.heureDebut)}
-                {departScanne && ` · départ scanné à ${hhmm(departScanne)}`}
+                {departScanne && ` · départ enregistré à ${hhmm(departScanne)}`}
               </span>
             )}
             {pauseAttendue && (
               <span className="mt-2 px-4 text-center text-xs text-muted-foreground">
-                Scannez de nouveau l&apos;affiche pour saisir votre pause et clore la journée.
+                Scannez de nouveau l&apos;affiche pour clore la journée.
               </span>
             )}
             {termine && pointage && (
               <span className="mt-1 text-xs text-muted-foreground">
-                {hhmm(pointage.heureDebut)} → {hhmm(pointage.heureFin!)} · pause {pointage.pauseMinutes} min
+                {hhmm(pointage.heureDebut)} → {hhmm(pointage.heureFin!)} · {libellePause(pointage.pauseMinutes, pointage.pauseParDefaut)}
               </span>
             )}
           </div>

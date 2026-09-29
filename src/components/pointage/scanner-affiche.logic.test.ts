@@ -1,15 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
 import type { ResultatScan } from "@/lib/pointage-scan";
+import type { VerdictPosition } from "@/lib/pointage-qr";
 import {
+  A_VERIFIER_HORS_RESTAURANT,
+  A_VERIFIER_NON_TRANSMISE,
   CONTRAINTES_CAMERA,
   DELAI_MAX_POSITION_MS,
   FRAICHEUR_POSITION_MS,
   INTERVALLE_LECTURE_MS,
-  LIBELLE_POINTER_MAINTENANT,
-  MESSAGE_ATTENTE_GESTE,
+  LIBELLE_ANNULER,
+  MENTION_HEURE_SERVEUR,
   MESSAGE_CONNEXION_PERDUE,
   MESSAGE_DEPART_JOUR_DE_CONGE,
-  MESSAGE_HORS_RESTAURANT,
   MESSAGE_JOURNEE_COMPLETE,
   MESSAGE_QR_ETRANGER,
   OPTIONS_GEOLOCALISATION,
@@ -18,13 +20,12 @@ import {
   cameraDoitTourner,
   causeCameraIndisponible,
   dimensionsLecture,
-  ecranApresConfirmation,
-  ecranDepartRenonce,
+  ecranApresAnnulation,
+  ecranApresPause,
   ecranDepuisResultat,
   lectureQr,
   messageCameraIndisponible,
   pauseLue,
-  phaseApresGeste,
   phaseInitiale,
   positionAReprendre,
   positionDepuisCoordonnees,
@@ -34,9 +35,10 @@ import {
 } from "./scanner-affiche.logic";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CE DÉPÔT N'A PAS DE DOM EN TEST (`environment: "node"`) : la caméra, jsQR, la géolocalisation et
-// les écrans ne tournent jamais ici. Toutes les DÉCISIONS du scanner vivent donc dans
-// `scanner-affiche.logic.ts`, exercé ci-dessous ; le composant ne fait que brancher les appareils.
+// La caméra, jsQR et la géolocalisation ne tournent jamais ici (`environment: "node"`). Toutes les
+// DÉCISIONS du scanner vivent donc dans `scanner-affiche.logic.ts`, exercé ci-dessous ; le
+// composant ne fait que brancher les appareils (son envoi sans geste est rendu, avec une action
+// simulée, dans `scanner-affiche.rendu.test.tsx`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ORIGINE = "https://rh.patesenfolie.cd";
@@ -52,17 +54,20 @@ describe("les messages exacts de la conception", () => {
   it("sont repris mot pour mot", () => {
     expect(MESSAGE_QR_ETRANGER).toBe("Ce n'est pas l'affiche de pointage.");
     expect(MESSAGE_JOURNEE_COMPLETE).toBe("Votre journée est déjà complète.");
-    expect(MESSAGE_HORS_RESTAURANT).toBe(
-      "Pointage enregistré. Votre position n'a pas pu confirmer que vous êtes au restaurant : la Direction le vérifiera.",
-    );
+    // Décision de la Direction du 2026-09-29 : « à vérifier : position hors du restaurant / non transmise ».
+    expect(A_VERIFIER_HORS_RESTAURANT).toBe("À vérifier : position hors du restaurant");
+    expect(A_VERIFIER_NON_TRANSMISE).toBe("À vérifier : position non transmise");
+    expect(LIBELLE_ANNULER).toBe("Annuler ce pointage");
+    expect(MENTION_HEURE_SERVEUR).toMatch(/serveur/);
   });
 
   it("les réglages des appareils sont ceux de la conception", () => {
     expect(CONTRAINTES_CAMERA).toEqual({ video: { facingMode: "environment" }, audio: false });
-    expect(OPTIONS_GEOLOCALISATION).toEqual({ enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 });
+    expect(OPTIONS_GEOLOCALISATION).toEqual({ enableHighAccuracy: true, timeout: 8_000, maximumAge: 0 });
     expect(1000 / INTERVALLE_LECTURE_MS).toBe(5); // ~5 lectures par seconde
-    expect(PAUSE_DEFAUT_MIN).toBe(30); // comme l'ancien écran de pointage
-    expect(DELAI_MAX_POSITION_MS).toBeGreaterThan(OPTIONS_GEOLOCALISATION.timeout);
+    expect(PAUSE_DEFAUT_MIN).toBe(30); // la pause par défaut de la Direction (2026-09-29)
+    // 8 s au plus (décision du 2026-09-29) : au-delà, le pointage part sans position, « à vérifier ».
+    expect(DELAI_MAX_POSITION_MS).toBe(8_000);
   });
 });
 
@@ -97,35 +102,23 @@ describe("cameraDoitTourner : la caméra ne vit QUE pendant la visée, page au p
   it("s'arrête quand la page passe en arrière-plan", () => expect(cameraDoitTourner(visee, false)).toBe(false));
   it("s'arrête dès qu'un code est lu (phase d'envoi) et sur tous les écrans de résultat", () => {
     expect(cameraDoitTourner({ phase: "ENVOI" }, true)).toBe(false);
-    expect(cameraDoitTourner({ phase: "ECRAN", ecran: { type: "COMPLETE", titre: MESSAGE_JOURNEE_COMPLETE } }, true)).toBe(false);
+    expect(cameraDoitTourner({ phase: "ECRAN", ecran: { type: "COMPLETE", titre: MESSAGE_JOURNEE_COMPLETE, detail: "" } }, true)).toBe(false);
     expect(cameraDoitTourner({ phase: "CAMERA_INDISPONIBLE", message: "x" }, true)).toBe(false);
   });
   it("le QR étranger laisse la caméra tourner (on continue de viser)", () =>
     expect(cameraDoitTourner({ phase: "VISEE", avis: MESSAGE_QR_ETRANGER }, true)).toBe(true));
 });
 
-describe("phaseInitiale : /scan?c=… saute la caméra, mais ne pointe JAMAIS sans geste", () => {
+describe("phaseInitiale : /scan?c=… pointe sans geste (décision du 2026-09-29)", () => {
   it("sans code → la caméra", () => {
     expect(phaseInitiale()).toEqual({ phase: "VISEE", avis: null });
     expect(phaseInitiale("")).toEqual({ phase: "VISEE", avis: null });
   });
-  it("avec le code de l'affiche → l'ATTENTE du geste, pas l'envoi (un lien ouvert par mégarde ne pointe rien)", () => {
-    const p = phaseInitiale("Abc");
-    expect(p).toEqual({ phase: "ATTENTE", code: "Abc" });
-    expect(p.phase).not.toBe("ENVOI");
+  it("avec le code de l'affiche → l'ENVOI directement, sans écran d'attente ni bouton", () => {
+    expect(phaseInitiale("Abc")).toEqual({ phase: "ENVOI" });
   });
-  it("pendant l'attente, la caméra ne tourne pas", () =>
+  it("pendant l'envoi, la caméra ne tourne pas", () =>
     expect(cameraDoitTourner(phaseInitiale("Abc"), true)).toBe(false));
-  it("le geste « Pointer maintenant » fait passer de l'attente à l'envoi — et seulement de l'attente", () => {
-    expect(phaseApresGeste(phaseInitiale("Abc"))).toEqual({ phase: "ENVOI" });
-    const visee: Phase = { phase: "VISEE", avis: null };
-    expect(phaseApresGeste(visee)).toBe(visee);
-  });
-  it("le message d'attente dit que rien n'est encore enregistré, et nomme le bouton", () => {
-    expect(MESSAGE_ATTENTE_GESTE).toMatch(/Rien n'est encore enregistré/);
-    expect(MESSAGE_ATTENTE_GESTE).toContain(`« ${LIBELLE_POINTER_MAINTENANT} »`);
-    expect(LIBELLE_POINTER_MAINTENANT).toBe("Pointer maintenant");
-  });
 });
 
 describe("arreterPistes : TOUTES les pistes sont arrêtées", () => {
@@ -196,59 +189,88 @@ describe("dimensionsLecture : l'image lue par jsQR", () => {
   });
 });
 
+const pauseDefaut = { minutes: 30, parDefaut: true };
+
 describe("ecranDepuisResultat : un écran par état", () => {
-  it("ARRIVEE au restaurant : « Arrivée pointée à 8 h 02. », sans avertissement", () => {
-    const e = ecranDepuisResultat({ etat: "ARRIVEE", heure: ARRIVEE_8H02, verdict: AU_RESTO });
-    expect(e).toEqual({ type: "ARRIVEE", titre: "Arrivée pointée à 8 h 02.", avertissement: null, motif: null });
+  const arrivee = (verdict: VerdictPosition, repete = false): ResultatScan => ({
+    etat: "ARRIVEE", scanId: "a1", heure: ARRIVEE_8H02, verdict, repete, annulableMs: 300_000,
+  });
+  const depart = (o: { repete?: boolean; verdict?: VerdictPosition; presencesEcrites?: boolean } = {}): ResultatScan => ({
+    etat: "DEPART", scanId: "s1", heure: DEPART_17H05, arriveeA: ARRIVEE_8H02, verdict: o.verdict ?? AU_RESTO,
+    repete: o.repete ?? false, annulableMs: 300_000, pause: pauseDefaut, heures: 8.55,
+    presencesEcrites: o.presencesEcrites ?? true, pauseModifiable: true,
   });
 
-  it("ARRIVEE loin : enregistrée QUAND MÊME, avec le message hors restaurant exact et le motif", () => {
-    const e = ecranDepuisResultat({ etat: "ARRIVEE", heure: ARRIVEE_8H02, verdict: LOIN });
-    expect(e).toMatchObject({ type: "ARRIVEE", titre: "Arrivée pointée à 8 h 02.", avertissement: MESSAGE_HORS_RESTAURANT, motif: "à 2,3 km" });
-  });
-
-  it("position refusée → même message, motif lisible", () => {
-    const e = ecranDepuisResultat({
-      etat: "ARRIVEE", heure: ARRIVEE_8H02, verdict: { verdict: "A_VERIFIER", motif: "POSITION_REFUSEE", distanceM: null },
-    });
-    expect(e).toMatchObject({ avertissement: MESSAGE_HORS_RESTAURANT, motif: "position refusée" });
-  });
-
-  it("DEPART_TROP_TOT : la question de la conception, mot pour mot", () => {
-    expect(ecranDepuisResultat({ etat: "DEPART_TROP_TOT", arriveeA: ARRIVEE_8H02 })).toEqual({
-      type: "DEPART_TROP_TOT",
-      titre: "Vous avez pointé votre arrivée à 8 h 02. Pointer votre départ maintenant ?",
-      heureArrivee: "8 h 02",
-    });
-  });
-
-  it("DEPART_TROP_TOT refusé (« Non ») : rien n'est écrit, l'arrivée reste — la caméra ne se rouvre pas", () => {
-    const question = ecranDepuisResultat({ etat: "DEPART_TROP_TOT", arriveeA: ARRIVEE_8H02 });
-    const e = ecranDepartRenonce(question as Extract<Ecran, { type: "DEPART_TROP_TOT" }>);
-    expect(e).toEqual({ type: "INFO", titre: "Rien n'a été enregistré : votre arrivée de 8 h 02 reste pointée." });
-    expect(cameraDoitTourner({ phase: "ECRAN", ecran: e }, true)).toBe(false);
-  });
-
-  it("DEPART_A_CONFIRMER : l'heure du SCAN, l'arrivée, la pause à saisir", () => {
-    const e = ecranDepuisResultat({ etat: "DEPART_A_CONFIRMER", scanId: "s1", heure: DEPART_17H05, arriveeA: ARRIVEE_8H02, verdict: AU_RESTO });
-    expect(e).toEqual({
-      type: "DEPART_A_CONFIRMER",
-      scanId: "s1",
-      titre: "Départ scanné à 17 h 05.",
-      detail: "Arrivée à 8 h 02. Indiquez votre pause pour clore la journée.",
+  it("ARRIVEE au restaurant : « Arrivée enregistrée à 8 h 02 », sans avertissement, annulable", () => {
+    expect(ecranDepuisResultat(arrivee(AU_RESTO))).toEqual({
+      type: "ARRIVEE",
+      scanId: "a1",
+      titre: "Arrivée enregistrée à 8 h 02",
+      detail: null,
       avertissement: null,
       motif: null,
+      annulableMs: 300_000,
       erreur: null,
     });
   });
 
-  it("DEPART_A_CONFIRMER loin : le message hors restaurant", () => {
-    const e = ecranDepuisResultat({ etat: "DEPART_A_CONFIRMER", scanId: "s1", heure: DEPART_17H05, arriveeA: ARRIVEE_8H02, verdict: LOIN });
-    expect(e).toMatchObject({ avertissement: MESSAGE_HORS_RESTAURANT, motif: "à 2,3 km" });
+  it("ARRIVEE loin : enregistrée QUAND MÊME, « à vérifier : position hors du restaurant » et le motif", () => {
+    expect(ecranDepuisResultat(arrivee(LOIN))).toMatchObject({
+      titre: "Arrivée enregistrée à 8 h 02", avertissement: A_VERIFIER_HORS_RESTAURANT, motif: "à 2,3 km",
+    });
   });
 
-  it("COMPLETE : « Votre journée est déjà complète. »", () => {
-    expect(ecranDepuisResultat({ etat: "COMPLETE" })).toEqual({ type: "COMPLETE", titre: MESSAGE_JOURNEE_COMPLETE });
+  it("précision insuffisante : hors du restaurant (la position n'a pas permis de conclure)", () => {
+    expect(
+      ecranDepuisResultat(arrivee({ verdict: "A_VERIFIER", motif: "PRECISION_INSUFFISANTE", distanceM: 40, precisionM: 900 })),
+    ).toMatchObject({ avertissement: A_VERIFIER_HORS_RESTAURANT, motif: "précision ±900 m" });
+  });
+
+  it("position refusée ou indisponible (8 s dépassées) : « à vérifier : position non transmise »", () => {
+    expect(ecranDepuisResultat(arrivee({ verdict: "A_VERIFIER", motif: "POSITION_REFUSEE", distanceM: null }))).toMatchObject({
+      avertissement: A_VERIFIER_NON_TRANSMISE, motif: "position refusée",
+    });
+    expect(ecranDepuisResultat(arrivee({ verdict: "A_VERIFIER", motif: "POSITION_INDISPONIBLE", distanceM: null }))).toMatchObject({
+      avertissement: A_VERIFIER_NON_TRANSMISE, motif: "position indisponible",
+    });
+  });
+
+  it("scan répété : « déjà enregistrée », et l'écran dit que ce scan n'a rien changé", () => {
+    expect(ecranDepuisResultat(arrivee(AU_RESTO, true))).toMatchObject({
+      titre: "Arrivée déjà enregistrée à 8 h 02", detail: "Ce nouveau scan n'a rien changé.",
+    });
+    expect(ecranDepuisResultat(depart({ repete: true }))).toMatchObject({
+      titre: "Départ déjà enregistré à 17 h 05",
+      detail: expect.stringMatching(/Ce nouveau scan n'a rien changé\.$/),
+    });
+  });
+
+  it("DEPART : enregistré à l'heure du SCAN, journée close, pause PAR DÉFAUT nommée comme telle, annulable", () => {
+    expect(ecranDepuisResultat(depart())).toEqual({
+      type: "DEPART",
+      scanId: "s1",
+      titre: "Départ enregistré à 17 h 05",
+      detail: "Arrivée à 8 h 02. 8,55 h de travail, pause par défaut 30 min. Journée enregistrée dans vos présences et vos heures.",
+      heuresComptees: true,
+      avertissement: null,
+      motif: null,
+      annulableMs: 300_000,
+      pauseModifiable: true,
+      erreur: null,
+    });
+  });
+
+  it("DEPART un jour de congé approuvé : l'écran ne prétend PAS que la journée est enregistrée", () => {
+    const e = ecranDepuisResultat(depart({ presencesEcrites: false }));
+    expect(e).toMatchObject({ heuresComptees: false, detail: `Arrivée à 8 h 02. ${MESSAGE_DEPART_JOUR_DE_CONGE}` });
+  });
+
+  it("COMPLETE : la journée, ses deux heures et sa pause", () => {
+    expect(
+      ecranDepuisResultat({ etat: "COMPLETE", arriveeA: ARRIVEE_8H02, departA: DEPART_17H05, pause: { minutes: 45, parDefaut: false } }),
+    ).toEqual({
+      type: "COMPLETE", titre: MESSAGE_JOURNEE_COMPLETE, detail: "Arrivée à 8 h 02, départ à 17 h 05, pause 45 min.",
+    });
   });
 
   it("un refus du serveur s'affiche tel quel (affiche périmée, paie validée, congé…)", () => {
@@ -258,12 +280,11 @@ describe("ecranDepuisResultat : un écran par état", () => {
 
   it("chaque état du serveur a son écran (aucun oublié)", () => {
     const tous: ResultatScan[] = [
-      { etat: "ARRIVEE", heure: ARRIVEE_8H02, verdict: AU_RESTO },
-      { etat: "DEPART_A_CONFIRMER", scanId: "s", heure: DEPART_17H05, arriveeA: ARRIVEE_8H02, verdict: AU_RESTO },
-      { etat: "DEPART_TROP_TOT", arriveeA: ARRIVEE_8H02 },
-      { etat: "COMPLETE" },
+      arrivee(AU_RESTO),
+      depart(),
+      { etat: "COMPLETE", arriveeA: ARRIVEE_8H02, departA: DEPART_17H05, pause: pauseDefaut },
     ];
-    expect(tous.map((r) => ecranDepuisResultat(r).type)).toEqual(["ARRIVEE", "DEPART_A_CONFIRMER", "DEPART_TROP_TOT", "COMPLETE"]);
+    expect(tous.map((r) => ecranDepuisResultat(r).type)).toEqual(["ARRIVEE", "DEPART", "COMPLETE"]);
   });
 
   it("une connexion perdue ne se fait pas passer pour un refus ni pour un succès", () => {
@@ -272,40 +293,57 @@ describe("ecranDepuisResultat : un écran par état", () => {
   });
 });
 
-describe("ecranApresConfirmation : la pause validée", () => {
-  const attente = ecranDepuisResultat({
-    etat: "DEPART_A_CONFIRMER", scanId: "s1", heure: DEPART_17H05, arriveeA: ARRIVEE_8H02, verdict: LOIN,
-  }) as Extract<Ecran, { type: "DEPART_A_CONFIRMER" }>;
+describe("ecranApresAnnulation : « Annuler ce pointage »", () => {
+  const origine = ecranDepuisResultat({
+    etat: "ARRIVEE", scanId: "a1", heure: ARRIVEE_8H02, verdict: AU_RESTO, repete: false, annulableMs: 300_000,
+  }) as Extract<Ecran, { type: "ARRIVEE" }>;
 
-  it("départ pointé à l'heure du scan, heures nettes, avertissement conservé", () => {
-    expect(ecranApresConfirmation({ heureFin: DEPART_17H05, heures: 8.55, presencesEcrites: true }, attente)).toEqual({
-      type: "DEPART_CONFIRME",
-      titre: "Départ pointé à 17 h 05.",
-      detail: "8,55 h de travail, pause déduite. Journée enregistrée dans vos présences et vos heures.",
+  it("arrivée ou départ annulé : ce qui n'est plus retenu, et comment reprendre", () => {
+    expect(ecranApresAnnulation({ moment: "ARRIVEE", heure: ARRIVEE_8H02 }, origine)).toEqual({
+      type: "INFO",
+      titre: "Pointage annulé. Votre arrivée de 8 h 02 n'est plus retenue : scannez de nouveau l'affiche pour pointer.",
+    });
+    expect(ecranApresAnnulation({ moment: "DEPART", heure: DEPART_17H05 }, origine)).toMatchObject({
+      titre:
+        "Pointage annulé. Votre départ de 17 h 05 n'est plus retenu, votre journée est rouverte : scannez de nouveau l'affiche pour pointer.",
+    });
+  });
+
+  it("refus (délai passé…) : l'écran d'origine, le refus, et plus de bouton d'annulation", () => {
+    expect(ecranApresAnnulation({ erreur: "Le délai d'annulation (5 minutes) est passé." }, origine)).toEqual({
+      ...origine,
+      annulableMs: 0,
+      erreur: "Le délai d'annulation (5 minutes) est passé.",
+    });
+  });
+});
+
+describe("ecranApresPause : la pause, facultative, saisie après le départ", () => {
+  const depart = ecranDepuisResultat({
+    etat: "DEPART", scanId: "s1", heure: DEPART_17H05, arriveeA: ARRIVEE_8H02, verdict: LOIN, repete: false,
+    annulableMs: 0, pause: pauseDefaut, heures: 8.55, presencesEcrites: true, pauseModifiable: true,
+  }) as Extract<Ecran, { type: "DEPART" }>;
+
+  it("départ à l'heure du scan, la pause SAISIE et les heures nettes, avertissement conservé", () => {
+    expect(ecranApresPause({ heureFin: DEPART_17H05, heures: 8.3, presencesEcrites: true, pauseMinutes: 45 }, depart)).toEqual({
+      type: "PAUSE_ENREGISTREE",
+      titre: "Départ enregistré à 17 h 05",
+      detail: "Pause de 45 min enregistrée : 8,3 h de travail. Journée enregistrée dans vos présences et vos heures.",
       heuresComptees: true,
-      avertissement: MESSAGE_HORS_RESTAURANT,
+      avertissement: A_VERIFIER_HORS_RESTAURANT,
       motif: "à 2,3 km",
     });
   });
 
-  it("congé approuvé entre l'arrivée et le départ : l'écran ne prétend PAS que la journée est enregistrée", () => {
-    const e = ecranApresConfirmation({ heureFin: DEPART_17H05, heures: 8.55, presencesEcrites: false }, attente);
-    expect(e).toEqual({
-      type: "DEPART_CONFIRME",
-      titre: "Départ pointé à 17 h 05.",
-      detail: "Un congé est approuvé pour ce jour : vos heures n'ont pas été comptées dans vos présences.",
-      heuresComptees: false,
-      avertissement: MESSAGE_HORS_RESTAURANT,
-      motif: "à 2,3 km",
-    });
-    expect(e).toMatchObject({ detail: MESSAGE_DEPART_JOUR_DE_CONGE });
-    expect((e as { detail: string }).detail).not.toMatch(/enregistrée dans vos présences/);
+  it("congé approuvé ce jour : l'écran ne prétend PAS que la journée est enregistrée", () => {
+    const e = ecranApresPause({ heureFin: DEPART_17H05, heures: 8.3, presencesEcrites: false, pauseMinutes: 45 }, depart);
+    expect(e).toMatchObject({ type: "PAUSE_ENREGISTREE", heuresComptees: false, detail: MESSAGE_DEPART_JOUR_DE_CONGE });
   });
 
-  it("un refus garde l'écran de la pause, avec le message, pour réessayer", () => {
-    expect(ecranApresConfirmation({ erreur: "Votre départ est déjà confirmé." }, attente)).toEqual({
-      ...attente,
-      erreur: "Votre départ est déjà confirmé.",
+  it("un refus garde l'écran du départ, avec le message, pour réessayer", () => {
+    expect(ecranApresPause({ erreur: "Votre pause est déjà enregistrée." }, depart)).toEqual({
+      ...depart,
+      erreur: "Votre pause est déjà enregistrée.",
     });
   });
 });

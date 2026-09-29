@@ -2,7 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
 import { verdictDe } from "@/lib/pointage-scan";
-import { libelleMotif, scanAVerifier } from "@/lib/pointage-qr";
+import { libelleMotif, libellePause, scanAVerifier } from "@/lib/pointage-qr";
+import { POINTAGE_VALABLE, SCAN_VALABLE } from "@/lib/pointage-annulation";
 import { resumeSemaineCourante } from "@/lib/pointage-suivi";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
@@ -37,11 +38,14 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
       select: { id: true, nom: true, photoUrl: true, categorie: true },
     }),
+    // Un pointage dont l'arrivée a été annulée par le salarié n'existe pas ici ; un scan annulé ne
+    // compte pas (rien n'est effacé en base : cf. lib/pointage-annulation).
     prisma.pointage.findMany({
-      where: { date },
+      where: { AND: [{ date }, POINTAGE_VALABLE] },
       select: {
-        id: true, employeeId: true, heureDebut: true, heureFin: true, pauseMinutes: true, source: true,
+        id: true, employeeId: true, heureDebut: true, heureFin: true, pauseMinutes: true, pauseParDefaut: true, source: true,
         scans: {
+          where: SCAN_VALABLE,
           orderBy: { instant: "asc" },
           select: { id: true, moment: true, verdict: true, motif: true, distanceM: true, precisionM: true, verifieLe: true },
         },
@@ -75,7 +79,8 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
       pointageId: p?.id ?? null,
       arriveeLabel: p ? heureKinshasa(p.heureDebut) : "—",
       departLabel: p?.heureFin ? heureKinshasa(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : "—",
-      pauseLabel: p ? `${p.pauseMinutes} min` : "—",
+      // La pause posée d'office au départ (30 min) se lit « pause par défaut », jamais comme saisie.
+      pauseLabel: p ? (p.pauseParDefaut ? libellePause(p.pauseMinutes, true) : `${p.pauseMinutes} min`) : "—",
       heuresLabel: heures !== null ? `${heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—",
       statut,
       sourceLabel: p ? LABEL_SOURCE[p.source] : null,
