@@ -38,6 +38,7 @@ const client = () => prisma as unknown as ClientEcriture;
 
 /** Repart d'une base vide entre deux scénarios (l'ordre respecte les clés étrangères). */
 async function vider() {
+  await prisma.venteJournaliere.deleteMany({});
   await prisma.ingredientFiche.deleteMany({});
   await prisma.ficheTechnique.deleteMany({});
   await prisma.articleStock.deleteMany({});
@@ -292,5 +293,23 @@ describe("articles préexistants", () => {
     expect(enBase).toHaveLength(2);
     const r = await ecrireEnBase(client(), res, { force: false });
     expect(r.statut).toBe("DEJA_FAIT"); // conformes ⇒ pas d'abandon, pas de doublon
+  });
+});
+
+describe("fiches qui portent des ventes (Conso. journalière → Ventes)", () => {
+  beforeAll(vider);
+
+  it("--force refuse AVANT toute suppression si une fiche à remplacer porte des ventes, et le dit", async () => {
+    expect((await ecrireEnBase(client(), res, { force: false })).statut).toBe("IMPORTE");
+    const bolo = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Bolognaise" } });
+    await prisma.venteJournaliere.create({ data: { ficheId: bolo.id, date: new Date("2026-09-22T00:00:00Z"), quantite: 4 } });
+    const avant = await etat();
+    const r = await ecrireEnBase(client(), res, { force: true });
+    expect(r.statut).toBe("ABANDON");
+    expect(r.fichesProtegees).toEqual(["Bolognaise"]);
+    expect(r.message).toContain("portent des ventes enregistrées");
+    expect(r.fichesSupprimees).toEqual([]); // rien n'a été détruit, pas même la sous-recette
+    expect(await etat()).toEqual(avant);
+    expect(await prisma.venteJournaliere.count()).toBe(1);
   });
 });

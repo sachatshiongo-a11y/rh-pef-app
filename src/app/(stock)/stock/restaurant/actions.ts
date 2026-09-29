@@ -72,13 +72,30 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
 export const supprimerArticleResto = actionLisible(async (id: string) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // seule la Direction peut supprimer
-  // Une boisson qui porte des ventes (Conso. journalière → Ventes) ne se supprime pas (contrainte
-  // RESTRICT en base) : ses ventes disparaîtraient du rapport journalier sans que rien ne le dise.
-  if (await prisma.venteJournaliere.count({ where: { articleRestoId: id } })) {
-    throw new Error("Suppression impossible : cet article a des ventes enregistrées (Conso. journalière, onglet Ventes). Videz d'abord ses cases de vente, ou gardez l'article.");
-  }
   await prisma.articleResto.delete({ where: { id } });
   revalidatePath("/stock/restaurant");
+});
+
+/**
+ * Désactive (ou réactive) des articles du stock restaurant, à l'unité ou en lot. Un article
+ * désactivé disparaît des saisies (comptage, fiches d'inventaire, stock théorique) mais garde tout
+ * son historique (comptages) ; il se réactive à l'identique. Mêmes droits que la suppression.
+ */
+export const changerActivationArticlesResto = actionLisible(async (ids: string[], actif: boolean) => {
+  const user = await garde();
+  requireRole(user, ["ADMIN"]); // Direction, comme la suppression
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error("Aucun article sélectionné.");
+  const articles = await prisma.articleResto.findMany({ where: { id: { in: ids }, actif: !actif }, select: { id: true, designation: true } });
+  if (articles.length === 0) return { ok: true as const, modifies: 0 };
+  await prisma.$transaction(async (tx) => {
+    await tx.articleResto.updateMany({ where: { id: { in: articles.map((a) => a.id) } }, data: { actif } });
+    await journaliserPlusieurs(tx, articles.map((a) => ({
+      entite: "ArticleResto", entiteId: a.id, champ: "actif",
+      ancienneValeur: actif ? "désactivé" : "actif", nouvelleValeur: `${actif ? "actif" : "désactivé"} (${a.designation})`, userId: user.id,
+    })));
+  });
+  revalidatePath("/stock/restaurant");
+  return { ok: true as const, modifies: articles.length };
 });
 
 // ─── Rattachement au catalogue (disponibilité des plats) ─────────────────────

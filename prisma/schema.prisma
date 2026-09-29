@@ -134,28 +134,28 @@ enum MotifScan {
 
 // Compte utilisateur applicatif, lié au user Supabase Auth (id = auth.users.id)
 model User {
-  id                   String    @id @default(uuid())
-  email                String    @unique
-  nom                  String
-  role                 Role      @default(VIEWER)
-  actif                Boolean   @default(true)
-  employeeId           String?   @unique // compte lié à une fiche employé (même personne)
-  employe              Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
-  motDePasseTemporaire Boolean   @default(false) // compte salarié : forcer le changement à la 1re connexion
-  accesStock           Boolean   @default(false) // compte salarié qui a AUSSI accès à l'espace Stock (cumul de rôles)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  id         String    @id @default(uuid())
+  email      String    @unique
+  nom        String
+  role       Role      @default(VIEWER)
+  actif      Boolean   @default(true)
+  employeeId String?   @unique // compte lié à une fiche employé (même personne)
+  employe    Employee? @relation("CompteEmploye", fields: [employeeId], references: [id], onDelete: SetNull)
+  motDePasseTemporaire Boolean @default(false) // compte salarié : forcer le changement à la 1re connexion
+  accesStock Boolean @default(false) // compte salarié qui a AUSSI accès à l'espace Stock (cumul de rôles)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  leavesApproved        LeaveRequest[]          @relation("ApprovedBy")
-  paiementsConfirmes    PayrollLine[]           @relation("PayeParUser")
-  transitionsPaie       TransitionPaie[]
-  versionsBulletin      VersionBulletin[]
-  actionsAudit          JournalAudit[]
-  pushSubscriptions     PushSubscription[]
+  leavesApproved     LeaveRequest[]     @relation("ApprovedBy")
+  paiementsConfirmes PayrollLine[]      @relation("PayeParUser")
+  transitionsPaie    TransitionPaie[]
+  versionsBulletin   VersionBulletin[]
+  actionsAudit       JournalAudit[]
+  pushSubscriptions  PushSubscription[]
   signaturesPresentees  SignatureElectronique[] @relation("SignaturePresenteePar")
-  attestationsDemandees Attestation[]           @relation("AttestationDemandeePar")
-  attestationsDelivrees Attestation[]           @relation("AttestationDelivreePar")
-  scansVerifies         ScanPointage[]          @relation("ScanVerifiePar")
+  attestationsDemandees Attestation[] @relation("AttestationDemandeePar")
+  attestationsDelivrees Attestation[] @relation("AttestationDelivreePar")
+  scansVerifies      ScanPointage[]     @relation("ScanVerifiePar")
 
   @@schema("public")
 }
@@ -177,24 +177,24 @@ model PushSubscription {
 // Paramètres OPÉRATIONNELS (non légaux) — une seule ligne (id fixe "singleton").
 // Les paramètres légaux (CNSS, IPR, INPP, ONEM, HS, congés...) sont dans ParametreLegal.
 model Config {
-  id                     String   @id @default("singleton")
-  tauxChangeCDF          Decimal  @db.Decimal(10, 2)
-  anneeCourante          Int
-  moisCourant            Int
-  jourPaie               Int      @default(30) // jour du mois de la paie convenue (frise + alerte clôture)
-  espaceEmployeActif     Boolean  @default(false) // ouvre l'espace salarié (self-service) — OFF par défaut
+  id            String   @id @default("singleton")
+  tauxChangeCDF Decimal  @db.Decimal(10, 2)
+  anneeCourante Int
+  moisCourant   Int
+  jourPaie      Int      @default(30) // jour du mois de la paie convenue (frise + alerte clôture)
+  espaceEmployeActif Boolean @default(false) // ouvre l'espace salarié (self-service) — OFF par défaut
   // Âge au-delà duquel un enfant cesse d'être compté à charge dans la composition familiale.
   // 18 ans par défaut — À VALIDER par un comptable-juriste (des prolongations existent, notamment
   // pour les enfants aux études). Ne sert QU'À SIGNALER un écart avec le compteur `Employee.enfants` ;
   // ne modifie JAMAIS un calcul de paie (décision 2026-08-16).
-  ageLimiteEnfantACharge Int      @default(18)
+  ageLimiteEnfantACharge Int @default(18)
   // Pointage par QR : position du restaurant (nulle tant que non réglée) et rayon de tolérance ;
   // code de l'affiche (aléatoire, nul tant qu'aucune affiche n'a été produite).
-  pointageLatitude       Decimal? @db.Decimal(9, 6)
-  pointageLongitude      Decimal? @db.Decimal(9, 6)
-  pointageRayonM         Int      @default(150)
-  pointageCode           String?
-  updatedAt              DateTime @updatedAt
+  pointageLatitude  Decimal? @db.Decimal(9, 6)
+  pointageLongitude Decimal? @db.Decimal(9, 6)
+  pointageRayonM    Int      @default(150)
+  pointageCode      String?
+  updatedAt     DateTime @updatedAt
 
   @@schema("public")
 }
@@ -202,24 +202,24 @@ model Config {
 // Identité de l'entreprise (singleton) — éditable dans Paramètres. Remplace/complète les valeurs
 // par défaut de src/lib/pdf/theme.ts sur tous les documents PDF. Champs vides = valeur par défaut.
 model ParamEntreprise {
-  id             String   @id @default("singleton")
-  nom            String?
-  enseigne       String?
-  telephone      String?
-  email          String?
-  site           String?
-  adresse        String? // siège social
-  lieuTravail    String? // restaurant / lieu de travail
-  pays           String?
+  id            String   @id @default("singleton")
+  nom           String?
+  enseigne      String?
+  telephone     String?
+  email         String?
+  site          String?
+  adresse       String? // siège social
+  lieuTravail   String? // restaurant / lieu de travail
+  pays          String?
   compteBancaire String?
-  rccm           String?
-  idNat          String?
-  numImpot       String?
-  logoUrl        String? // logo d'en-tête des documents (Storage)
-  logoNom        String?
-  signatureUrl   String? // signature de la Direction (Storage)
-  signatureNom   String?
-  updatedAt      DateTime @updatedAt
+  rccm          String?
+  idNat         String?
+  numImpot      String?
+  logoUrl       String? // logo d'en-tête des documents (Storage)
+  logoNom       String?
+  signatureUrl  String? // signature de la Direction (Storage)
+  signatureNom  String?
+  updatedAt     DateTime @updatedAt
 
   @@schema("public")
 }
@@ -332,32 +332,32 @@ model Employee {
   createdAt                DateTime         @default(now())
   updatedAt                DateTime         @updatedAt
 
-  attendances             Attendance[]
-  overtimeEntries         OvertimeEntry[]
-  pointages               Pointage[]
-  payrollLines            PayrollLine[]
-  leaveRequests           LeaveRequest[]
-  remplaceDans            LeaveRequest[]           @relation("Remplacant")
-  contrats                Contrat[]
-  historiqueSalaire       HistoriqueSalaire[]
-  dossierDisciplinaire    DossierDisciplinaire[]
-  evaluations             Evaluation[]
-  documents               DocumentEmploye[]
-  planningCreneaux        PlanningCreneau[]
-  primes                  Prime[]
-  acomptes                AcompteSalaire[]
-  prets                   PretPersonnel[]
-  tachesOnboarding        TacheOnboarding[]
-  fraisMed                FraisMedical[]
+  attendances          Attendance[]
+  overtimeEntries      OvertimeEntry[]
+  pointages            Pointage[]
+  payrollLines         PayrollLine[]
+  leaveRequests        LeaveRequest[]
+  remplaceDans         LeaveRequest[]         @relation("Remplacant")
+  contrats             Contrat[]
+  historiqueSalaire    HistoriqueSalaire[]
+  dossierDisciplinaire DossierDisciplinaire[]
+  evaluations          Evaluation[]
+  documents            DocumentEmploye[]
+  planningCreneaux     PlanningCreneau[]
+  primes               Prime[]
+  acomptes             AcompteSalaire[]
+  prets                PretPersonnel[]
+  tachesOnboarding     TacheOnboarding[]
+  fraisMed             FraisMedical[]
   demandesChangementShift DemandeChangementShift[]
-  echangesDemandes        EchangeCreneau[]         @relation("EchangeDemandeur")
-  echangesRecus           EchangeCreneau[]         @relation("EchangeCollegue")
-  compte                  User?                    @relation("CompteEmploye")
-  famille                 MembreFamille[]
-  avantagesNature         AvantageNature[]
-  signatures              SignatureElectronique[]
-  scansPointage           ScanPointage[]
-  attestations            Attestation[]
+  echangesDemandes     EchangeCreneau[]       @relation("EchangeDemandeur")
+  echangesRecus        EchangeCreneau[]       @relation("EchangeCollegue")
+  compte               User?                  @relation("CompteEmploye")
+  famille              MembreFamille[]
+  avantagesNature      AvantageNature[]
+  signatures            SignatureElectronique[]
+  scansPointage        ScanPointage[]
+  attestations         Attestation[]
 
   @@schema("public")
 }
@@ -431,20 +431,20 @@ model DemandeChangementShift {
 
 // Prime appliquée à un employé pour un mois donné (répercutée sur le bulletin de la période).
 model Prime {
-  id              String   @id @default(uuid())
-  employeeId      String
-  employee        Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  nom             String // ex. "Prime de performance"
-  montantUSD      Decimal  @db.Decimal(12, 2)
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  nom        String // ex. "Prime de performance"
+  montantUSD Decimal  @db.Decimal(12, 2)
   // Majoration exprimée en POURCENTAGE du salaire de base : le taux saisi est conservé pour la
   // traçabilité, mais c'est `montantUSD` qui fait foi — il est figé à la saisie et reste
   // librement ajustable, comme la prime d'ancienneté. Rien n'est recalculé à la paie.
   pourcentageBase Decimal? @db.Decimal(5, 2)
-  motif           String? // raison libre de la majoration (« remplacement du chef de partie »)
-  mois            Int
-  annee           Int
-  createdAt       DateTime @default(now())
-  creeParId       String?
+  motif      String? // raison libre de la majoration (« remplacement du chef de partie »)
+  mois       Int
+  annee      Int
+  createdAt  DateTime @default(now())
+  creeParId  String?
 
   @@index([employeeId, annee, mois])
   @@schema("public")
@@ -483,13 +483,13 @@ enum StatutAcompte {
 // Types de congés/absences paramétrables. joursPayes / tauxPct = null → « À VALIDER »
 // (par un comptable-juriste) et non appliqués en paie tant que non renseignés.
 model TypeConge {
-  id              String  @id @default(uuid())
-  nom             String  @unique
-  joursPayes      Int? // nombre de jours payés (null = À VALIDER)
-  tauxPct         Int? // taux de rémunération en % (null = À VALIDER)
-  ordre           Int     @default(0)
-  systeme         Boolean @default(false)
-  actif           Boolean @default(true)
+  id         String  @id @default(uuid())
+  nom        String  @unique
+  joursPayes Int? // nombre de jours payés (null = À VALIDER)
+  tauxPct    Int? // taux de rémunération en % (null = À VALIDER)
+  ordre      Int     @default(0)
+  systeme    Boolean @default(false)
+  actif      Boolean @default(true)
   // Seul(s) type(s) déduit(s) du solde de congé annuel — décidé ici, dans Paramètres, jamais par
   // le nom du type. Coché à la migration pour tout type dont le nom contient « annuel ».
   compteDansSolde Boolean @default(false)
@@ -525,17 +525,17 @@ enum StatutPret {
 
 // Prêt au personnel : montant avancé, remboursé par retenues mensuelles automatiques sur la paie.
 model PretPersonnel {
-  id                  String        @id @default(uuid())
-  employeeId          String
-  employee            Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  montantUSD          Decimal       @db.Decimal(12, 2)
-  retenueMensuelleUSD Decimal       @db.Decimal(12, 2)
-  motif               String?
-  statut              StatutPret    @default(EN_COURS)
-  dateAccord          DateTime      @default(now())
-  creeParId           String?
-  createdAt           DateTime      @default(now())
-  retenues            RetenuePret[]
+  id                 String        @id @default(uuid())
+  employeeId         String
+  employee           Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  montantUSD         Decimal       @db.Decimal(12, 2)
+  retenueMensuelleUSD Decimal      @db.Decimal(12, 2)
+  motif              String?
+  statut             StatutPret    @default(EN_COURS)
+  dateAccord         DateTime      @default(now())
+  creeParId          String?
+  createdAt          DateTime      @default(now())
+  retenues           RetenuePret[]
 
   @@index([employeeId, statut])
   @@schema("public")
@@ -567,13 +567,13 @@ model TacheOnboarding {
 
 // Une retenue mensuelle appliquée sur la paie pour rembourser un prêt (une par mois/année).
 model RetenuePret {
-  id         String        @id @default(uuid())
-  pretId     String
-  pret       PretPersonnel @relation(fields: [pretId], references: [id], onDelete: Cascade)
-  mois       Int
-  annee      Int
-  montantUSD Decimal       @db.Decimal(12, 2)
-  createdAt  DateTime      @default(now())
+  id            String   @id @default(uuid())
+  pretId        String
+  pret          PretPersonnel @relation(fields: [pretId], references: [id], onDelete: Cascade)
+  mois          Int
+  annee         Int
+  montantUSD    Decimal  @db.Decimal(12, 2)
+  createdAt     DateTime @default(now())
 
   @@unique([pretId, mois, annee])
   @@index([pretId])
@@ -712,30 +712,30 @@ enum StatutContrat {
 
 // Contrat de travail : dates, période d'essai, échéance (pour alertes CDD).
 model Contrat {
-  id                 String        @id @default(uuid())
-  employeeId         String
-  employee           Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  type               TypeContrat
-  dateDebut          DateTime      @db.Date
-  dateFin            DateTime?     @db.Date // null pour CDI
-  finPeriodeEssai    DateTime?     @db.Date
-  heuresHebdo        Decimal       @default(48) @db.Decimal(5, 2)
-  salaireMensuel     Decimal       @db.Decimal(12, 2)
-  devise             String        @default("USD")
-  poste              String
-  statut             StatutContrat @default(ACTIF)
-  documentUrl        String?
-  renouvellements    Int           @default(0) // nb de prolongations du CDD (garde-fou légal)
-  agence             String? // INTERIM : agence d'intérim qui emploie et paie la personne
-  coutJourUSD        Decimal?      @db.Decimal(12, 2) // INTERIM : coût journalier facturé par l'agence
-  accepteLe          DateTime? // acceptation numérique du salarié (« Lu et approuvé », horodatée)
+  id              String        @id @default(uuid())
+  employeeId      String
+  employee        Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type            TypeContrat
+  dateDebut       DateTime      @db.Date
+  dateFin         DateTime?     @db.Date // null pour CDI
+  finPeriodeEssai DateTime?     @db.Date
+  heuresHebdo     Decimal       @default(48) @db.Decimal(5, 2)
+  salaireMensuel  Decimal       @db.Decimal(12, 2)
+  devise          String        @default("USD")
+  poste           String
+  statut          StatutContrat @default(ACTIF)
+  documentUrl     String?
+  renouvellements Int           @default(0) // nb de prolongations du CDD (garde-fou légal)
+  agence          String? // INTERIM : agence d'intérim qui emploie et paie la personne
+  coutJourUSD     Decimal?      @db.Decimal(12, 2) // INTERIM : coût journalier facturé par l'agence
+  accepteLe       DateTime? // acceptation numérique du salarié (« Lu et approuvé », horodatée)
   // PDF FIGÉ au moment de l'acceptation : c'est l'exemplaire qui fait foi (le contrat n'est plus
   // régénéré ensuite, même si le modèle évolue). Stocké dans Supabase Storage.
-  pdfAccepteUrl      String?
+  pdfAccepteUrl   String?
   // Passe à true si les conditions sont corrigées APRÈS le figeage : l'exemplaire figé ne reflète
   // plus le contrat → la Direction est avertie et peut le re-figer.
-  pdfAccepteObsolete Boolean       @default(false)
-  createdAt          DateTime      @default(now())
+  pdfAccepteObsolete Boolean @default(false)
+  createdAt       DateTime      @default(now())
 
   @@index([employeeId])
   @@schema("public")
@@ -834,26 +834,26 @@ model DocumentEmploye {
 // Fiche de poste : une par intitulé de poste (Employee.poste). Description libre + fichier
 // importé (PDF ou Word), stocké dans Supabase Storage (URL conservée ici).
 model FichePoste {
-  id                       String   @id @default(uuid())
-  poste                    String   @unique
-  descriptionPoste         String?  @db.Text // mission / rôle (« Description du poste »)
-  description              String?  @db.Text // responsabilités / missions (« Description des tâches »)
+  id          String   @id @default(uuid())
+  poste       String   @unique
+  descriptionPoste String? @db.Text // mission / rôle (« Description du poste »)
+  description String?  @db.Text // responsabilités / missions (« Description des tâches »)
   // Champs du modèle « fiche de poste » (générateur PDF). La classe/catégorie est déduite des salariés du poste.
-  typeContrat              String? // ex. « CDD à temps partiel »
-  echelleSalariale         String? // ex. « 100 usd »
+  typeContrat           String? // ex. « CDD à temps partiel »
+  echelleSalariale      String? // ex. « 100 usd »
   categorieProfessionnelle String? // classe RDC du poste (MANOEUVRE/OUVRIER_QUALIFIE/EMPLOYE/AGENT_MAITRISE/CADRE)
-  superieurHierarchique    String? // ex. « Contrôleur de gestion »
-  tempsTravail             String? // ex. « 10 heures/semaine »
-  competencesTechniques    String?  @db.Text
-  savoirEtre               String?  @db.Text
-  formationsRequises       String?  @db.Text
-  diplomesRequis           String?  @db.Text
-  experiencesExigees       String?  @db.Text
-  fichierUrl               String?
-  fichierNom               String?
-  creeParId                String?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  superieurHierarchique String? // ex. « Contrôleur de gestion »
+  tempsTravail          String? // ex. « 10 heures/semaine »
+  competencesTechniques String? @db.Text
+  savoirEtre            String? @db.Text
+  formationsRequises    String? @db.Text
+  diplomesRequis        String? @db.Text
+  experiencesExigees    String? @db.Text
+  fichierUrl  String?
+  fichierNom  String?
+  creeParId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@schema("public")
 }
@@ -895,23 +895,23 @@ model Pointage {
 /// avoir plusieurs scans (ex. refusé puis réessayé). Le verdict « à vérifier » se dérive d'ici
 /// (scan A_VERIFIER sans `verifieLe`) — aucun booléen recopié sur `Pointage`.
 model ScanPointage {
-  id           String      @id @default(uuid())
-  pointageId   String
-  pointage     Pointage    @relation(fields: [pointageId], references: [id], onDelete: Cascade)
-  employeeId   String
-  employee     Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  moment       MomentScan
-  instant      DateTime
-  latitude     Decimal?    @db.Decimal(9, 6)
-  longitude    Decimal?    @db.Decimal(9, 6)
-  precisionM   Int?
-  distanceM    Int?
-  verdict      VerdictScan
-  motif        MotifScan?
+  id          String       @id @default(uuid())
+  pointageId  String
+  pointage    Pointage     @relation(fields: [pointageId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  moment      MomentScan
+  instant     DateTime
+  latitude    Decimal?     @db.Decimal(9, 6)
+  longitude   Decimal?     @db.Decimal(9, 6)
+  precisionM  Int?
+  distanceM   Int?
+  verdict     VerdictScan
+  motif       MotifScan?
   verifieParId String?
   verifiePar   User?       @relation("ScanVerifiePar", fields: [verifieParId], references: [id], onDelete: SetNull)
   verifieLe    DateTime?
-  createdAt    DateTime    @default(now())
+  createdAt   DateTime     @default(now())
 
   @@index([pointageId])
   @@index([employeeId, instant])
@@ -995,35 +995,35 @@ model PayrollLine {
   employee     Employee   @relation(fields: [employeeId], references: [id])
 
   // Brigade — jours & HS (0 pour backoffice)
-  joursPayes100             Int     @default(0)
-  joursPayes2_3             Int     @default(0)
-  joursNonPayes             Int     @default(0)
-  nombreAbsences            Int     @default(0) // A + N + S sur la période
-  remuneration100           Decimal @default(0) @db.Decimal(12, 2)
+  joursPayes100   Int     @default(0)
+  joursPayes2_3   Int     @default(0)
+  joursNonPayes   Int     @default(0)
+  nombreAbsences  Int     @default(0) // A + N + S sur la période
+  remuneration100 Decimal @default(0) @db.Decimal(12, 2)
   // Scission de remuneration100 pour l'affichage du bulletin : part « jours payés non
   // travaillés » (congés/fériés/repos sans heures, valorisés à la journée). 0 = anciens
   // bulletins figés → le bulletin retombe sur la ligne unique historique.
   joursPayesNonTravailles   Int     @default(0)
   remunerationJoursPayesUSD Decimal @default(0) @db.Decimal(12, 2)
-  remuneration2_3           Decimal @default(0) @db.Decimal(12, 2)
-  hsValorisee               Decimal @default(0) @db.Decimal(12, 2)
+  remuneration2_3 Decimal @default(0) @db.Decimal(12, 2)
+  hsValorisee     Decimal @default(0) @db.Decimal(12, 2)
 
   // Détail heures (snapshot au moment du calcul)
-  heuresTravaillees          Decimal             @default(0) @db.Decimal(6, 2)
+  heuresTravaillees    Decimal @default(0) @db.Decimal(6, 2)
   // Référence du mois (paie sur heures planifiées, 2026-09-23) : R en mode PLANNING, heures/sem ×
   // 52/12 sinon. La SOURCE dit laquelle ; le MOTIF dit pourquoi un mois est retombé sur le contrat.
-  heuresContractuelles       Decimal             @default(0) @db.Decimal(6, 2)
-  sourceReference            SourceReferencePaie @default(CONTRAT)
-  motifReference             String?
+  heuresContractuelles Decimal             @default(0) @db.Decimal(6, 2)
+  sourceReference      SourceReferencePaie @default(CONTRAT)
+  motifReference       String?
   // Heures des jours payés non travaillés (congés, fériés dus, repos payés, absences payées) :
   // la base du bulletin se lit en heures × taux. 0 = ligne antérieure au 2026-09-23.
-  heuresPayeesNonTravaillees Decimal             @default(0) @db.Decimal(6, 2)
+  heuresPayeesNonTravaillees Decimal @default(0) @db.Decimal(6, 2)
   // Avertissements (repli, saisies d'avance, travail hors planning…) figés avec la ligne : une
   // ligne validée garde la trace de ce que la Direction a vu en validant. Jamais bloquants.
-  avertissementsPaie         Json                @default("[]")
-  heuresSupp30               Decimal             @default(0) @db.Decimal(6, 2)
-  heuresSupp60               Decimal             @default(0) @db.Decimal(6, 2)
-  heuresSupp100              Decimal             @default(0) @db.Decimal(6, 2)
+  avertissementsPaie Json @default("[]")
+  heuresSupp30         Decimal @default(0) @db.Decimal(6, 2)
+  heuresSupp60         Decimal @default(0) @db.Decimal(6, 2)
+  heuresSupp100        Decimal @default(0) @db.Decimal(6, 2)
 
   // Congés & frais médicaux
   joursCongePris     Int     @default(0)
@@ -1031,25 +1031,25 @@ model PayrollLine {
   fraisMedicauxUSD   Decimal @default(0) @db.Decimal(12, 2)
 
   // Commun
-  transportUSD       Decimal @default(0) @db.Decimal(12, 2)
-  primesUSD          Decimal @default(0) @db.Decimal(12, 2)
+  transportUSD      Decimal @default(0) @db.Decimal(12, 2)
+  primesUSD         Decimal @default(0) @db.Decimal(12, 2)
   // Avantages en nature du mois — SNAPSHOT INFORMATIF, hors de tout calcul (voir AvantageNature).
   // Figé ici pour que le bulletin archivé reste fidèle même si la saisie change ensuite.
   avantagesNatureUSD Decimal @default(0) @db.Decimal(12, 2)
-  acompteUSD         Decimal @default(0) @db.Decimal(12, 2)
-  retenuePretUSD     Decimal @default(0) @db.Decimal(12, 2) // échéance de prêt du personnel, déduite du net
-  salBrutUSD         Decimal @db.Decimal(12, 2)
-  cnssSalarieUSD     Decimal @db.Decimal(12, 2)
-  netImposableUSD    Decimal @db.Decimal(12, 2)
-  iprCalculeUSD      Decimal @db.Decimal(12, 2)
-  allocFamilialeUSD  Decimal @db.Decimal(12, 2)
-  salNetUSD          Decimal @db.Decimal(12, 2)
-  salNetCDF          Decimal @db.Decimal(14, 2)
-  cnssPatronalUSD    Decimal @db.Decimal(12, 2)
-  inppUSD            Decimal @default(0) @db.Decimal(12, 2)
-  onemUSD            Decimal @default(0) @db.Decimal(12, 2)
-  coutEmployeurUSD   Decimal @db.Decimal(12, 2)
-  coutEmployeurCDF   Decimal @db.Decimal(14, 2)
+  acompteUSD        Decimal @default(0) @db.Decimal(12, 2)
+  retenuePretUSD    Decimal @default(0) @db.Decimal(12, 2) // échéance de prêt du personnel, déduite du net
+  salBrutUSD        Decimal @db.Decimal(12, 2)
+  cnssSalarieUSD    Decimal @db.Decimal(12, 2)
+  netImposableUSD   Decimal @db.Decimal(12, 2)
+  iprCalculeUSD     Decimal @db.Decimal(12, 2)
+  allocFamilialeUSD Decimal @db.Decimal(12, 2)
+  salNetUSD         Decimal @db.Decimal(12, 2)
+  salNetCDF         Decimal @db.Decimal(14, 2)
+  cnssPatronalUSD   Decimal @db.Decimal(12, 2)
+  inppUSD           Decimal @default(0) @db.Decimal(12, 2)
+  onemUSD           Decimal @default(0) @db.Decimal(12, 2)
+  coutEmployeurUSD  Decimal @db.Decimal(12, 2)
+  coutEmployeurCDF  Decimal @db.Decimal(14, 2)
 
   // Machine à états du paiement
   statutPaiement PaymentStatus @default(PAS_VALIDE)
@@ -1106,27 +1106,27 @@ model VersionBulletin {
 /// (`donnees` + `empreinte`). Un document modifié après coup passe `obsolete` — la signature
 /// n'est jamais effacée.
 model SignatureElectronique {
-  id         String         @id @default(uuid())
-  cible      CibleSignature
-  cibleId    String // id du Contrat / PayrollLine / LeaveRequest
-  employeeId String
-  employee   Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  id            String         @id @default(uuid())
+  cible         CibleSignature
+  cibleId       String // id du Contrat / PayrollLine / LeaveRequest
+  employeeId    String
+  employee      Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   /// PNG du tracé (bucket privé, `/fichiers/signatures/<cible>/<cibleId>.png`).
   /// NULL = contrat accepté au CLIC avant le 2026-09-22 : il n'y a jamais eu de tracé.
   traceUrl      String?
-  signeLe       DateTime      @default(now())
+  signeLe       DateTime       @default(now())
   mode          ModeSignature
   /// Compte Direction qui a présenté l'appareil — obligatoire en PRESENTIEL, null sinon.
   presenteParId String?
-  presentePar   User?         @relation("SignaturePresenteePar", fields: [presenteParId], references: [id])
+  presentePar   User?          @relation("SignaturePresenteePar", fields: [presenteParId], references: [id])
 
   /// Instantané canonique des données signées, et son SHA-256.
-  donnees   Json
-  empreinte String
-  obsolete  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  donnees       Json
+  empreinte     String
+  obsolete      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@unique([cible, cibleId])
   @@index([employeeId])
@@ -1210,15 +1210,15 @@ model DeclarationTaxe {
 /// Notifications in-app (cloche) destinées à la Direction : demandes de congé / d'acompte,
 /// clôture de paie proche… `lu` global (petite structure, 1–2 comptes Direction).
 model Notification {
-  id                 String   @id @default(uuid())
-  domaine            String   @default("RH") // RH | STOCK | SALARIE — cloisonne la cloche par espace
+  id        String   @id @default(uuid())
+  domaine   String   @default("RH") // RH | STOCK | SALARIE — cloisonne la cloche par espace
   destinataireUserId String? // pour SALARIE : le compte salarié destinataire (cloche personnelle)
-  type               String // CONGE | ACOMPTE | CLOTURE | PLANNING | AUTRE
-  refId              String? // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
-  message            String
-  lien               String?
-  lu                 Boolean  @default(false)
-  createdAt          DateTime @default(now())
+  type      String // CONGE | ACOMPTE | CLOTURE | PLANNING | AUTRE
+  refId     String? // id de la demande source (congé, acompte) — la notif est supprimée quand traitée
+  message   String
+  lien      String?
+  lu        Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   @@index([domaine, lu, createdAt])
   @@index([destinataireUserId, lu, createdAt])
@@ -1369,6 +1369,10 @@ model ArticleStock {
   id              String          @id @default(uuid())
   code            String? // « Code article » du fichier (non fiable comme clé → optionnel)
   designation     String
+  // Nom court imprimé sur la fiche « Commande journalière » (« Carré d'agneau » plutôt que la
+  // désignation du fournisseur). Saisi par la Direction ; null = repli (article du restaurant
+  // rattaché, sinon désignation). Jamais déduit.
+  nomCourt        String?
   domaine         DomaineStock
   categorieId     String?
   categorie       CategorieStock? @relation(fields: [categorieId], references: [id])
@@ -1413,19 +1417,19 @@ model Stock {
 }
 
 model MouvementStock {
-  id                String              @id @default(uuid())
+  id                String             @id @default(uuid())
   articleId         String
-  article           ArticleStock        @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  article           ArticleStock       @relation(fields: [articleId], references: [id], onDelete: Cascade)
   type              TypeMouvementStock
-  quantite          Decimal             @db.Decimal(14, 3) // toujours positif ; le sens vient de `type`
-  date              DateTime            @default(now()) @db.Date
+  quantite          Decimal            @db.Decimal(14, 3) // toujours positif ; le sens vient de `type`
+  date              DateTime           @default(now()) @db.Date
   origine           String? // « Réception BC 001/PEF/… », « Consommation cuisine », « Inventaire »
   devise            DeviseSaisie? // devise de saisie (FC ou USD selon le magasin)
-  montantOrigine    Decimal?            @db.Decimal(16, 2) // valeur totale du mouvement, devise saisie
-  tauxChangeUtilise Decimal?            @db.Decimal(10, 2) // taux figé au moment du mouvement
-  montantUSD        Decimal?            @db.Decimal(14, 4) // équivalent USD figé
+  montantOrigine    Decimal?           @db.Decimal(16, 2) // valeur totale du mouvement, devise saisie
+  tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du mouvement
+  montantUSD        Decimal?           @db.Decimal(14, 4) // équivalent USD figé
   receptionId       String?
-  reception         Reception?          @relation(fields: [receptionId], references: [id])
+  reception         Reception?         @relation(fields: [receptionId], references: [id])
   factureId         String?
   facture           FactureFournisseur? @relation(fields: [factureId], references: [id], onDelete: SetNull)
   categorieSortie   String? // pour une SORTIE : PERTE | LIVRAISON_RESTAURANT
@@ -1433,9 +1437,9 @@ model MouvementStock {
   // Fournisseur d'un ACHAT DIRECT (Liste d'achat, sans facture ni bon de commande) — facultatif.
   // Une entrée par facture ou par réception trouve son fournisseur via `facture`/`reception`.
   fournisseurId     String?
-  fournisseur       Fournisseur?        @relation(fields: [fournisseurId], references: [id], onDelete: SetNull)
+  fournisseur       Fournisseur?       @relation(fields: [fournisseurId], references: [id], onDelete: SetNull)
   creeParId         String? // User.id (pas de FK cross-schéma)
-  createdAt         DateTime            @default(now())
+  createdAt         DateTime           @default(now())
 
   @@index([articleId, date])
   @@index([factureId])
@@ -1573,8 +1577,8 @@ model Paiement {
   tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du paiement
   modePaiement      String?
   note              String?
-  creeParId         String? // User.id (pas de FK cross-schéma)
-  createdAt         DateTime           @default(now())
+  creeParId    String? // User.id (pas de FK cross-schéma)
+  createdAt    DateTime           @default(now())
 
   @@index([factureId])
   @@schema("stock")
@@ -1622,7 +1626,7 @@ model ClotureStock {
   createdAt DateTime @default(now())
   // Instantané du stock figé au moment de la clôture : { valeurTotaleUSD, lignes: [{ designation, domaine, quantite, prixUnitaireUSD }] }.
   // Permet d'exporter l'inventaire « à la date de clôture » même après des mouvements ultérieurs.
-  snapshot  Json?
+  snapshot Json?
 
   @@unique([annee, mois])
   @@schema("stock")
@@ -1667,20 +1671,19 @@ enum EspaceResto {
 }
 
 model ArticleResto {
-  id                  String             @id @default(uuid())
+  id                  String          @id @default(uuid())
   espace              EspaceResto
   categorie           String? // en-tête de section (« Viande -Volaille »…)
   designation         String
   unite               String?
-  stockBaseJournalier Decimal?           @db.Decimal(14, 3) // niveau cible par jour
-  ordre               Int                @default(0)
-  actif               Boolean            @default(true)
+  stockBaseJournalier Decimal?        @db.Decimal(14, 3) // niveau cible par jour
+  ordre               Int             @default(0)
+  actif               Boolean         @default(true)
   // Article du catalogue dont cet article du restaurant est le comptage (disponibilité des plats,
   // 2026-09-24). Posé UNIQUEMENT par un geste de la Direction (page Restaurant) : jamais deviné.
   articleStockId      String?
-  articleStock        ArticleStock?      @relation(fields: [articleStockId], references: [id], onDelete: SetNull)
+  articleStock        ArticleStock?   @relation(fields: [articleStockId], references: [id], onDelete: SetNull)
   comptages           ComptageResto[]
-  ventes              VenteJournaliere[]
 
   @@index([espace, ordre])
   @@index([articleStockId])
@@ -1700,28 +1703,25 @@ model ComptageResto {
 }
 
 // ─── Ventes journalières du restaurant (« Rapport journalier cuisine et bar ») ───
-// Nombre vendu par jour et par ligne du rapport : un PLAT (fiche technique, feuille Cuisine — ou
-// fiche Bar : cocktail…) OU une BOISSON (article du bar, écran Stock restaurant). Exactement l'un
-// des deux (contrainte CHECK de la migration). Saisi dans Conso. journalière → Ventes (pas de
-// caisse connectée, 2026-09-29) ; un import de caisse pourra écrire ici plus tard.
-// Pas de ligne = pas de saisie (« — ») ; une ligne à 0 = « rien vendu », saisi. Jamais confondus.
-// RESTRICT : une fiche ou un article qui porte des ventes ne se supprime pas (on le désactive).
+// Nombre vendu par jour et par UNITÉ DE VENTE : une fiche technique « Plat vendu » (feuille Cuisine)
+// ou une fiche Bar (verre de vin, cocktail… : feuille Bar). Les bouteilles du stock bar ne sont pas
+// des lignes de vente (décision de la Direction, 2026-09-29) : leur consommation se déduira plus
+// tard de la recette de la fiche Bar (ex. un verre = x cl de la bouteille).
+// Saisi dans Conso. journalière → Ventes (pas de caisse connectée) ; un import de caisse pourra
+// écrire ici plus tard. Pas de ligne = pas de saisie (« — ») ; 0 = « rien vendu », saisi.
+// RESTRICT : une fiche qui porte des ventes ne se supprime pas (on la désactive).
 model VenteJournaliere {
-  id             String          @id @default(uuid())
-  date           DateTime        @db.Date
-  ficheId        String?
-  fiche          FicheTechnique? @relation(fields: [ficheId], references: [id], onDelete: Restrict)
-  articleRestoId String?
-  articleResto   ArticleResto?   @relation(fields: [articleRestoId], references: [id], onDelete: Restrict)
-  quantite       Int
-  saisiParId     String? // User.id (pas de FK cross-schéma)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id         String         @id @default(uuid())
+  date       DateTime       @db.Date
+  ficheId    String
+  fiche      FicheTechnique @relation(fields: [ficheId], references: [id], onDelete: Restrict)
+  quantite   Int
+  saisiParId String? // User.id (pas de FK cross-schéma)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   @@unique([date, ficheId])
-  @@unique([date, articleRestoId])
   @@index([ficheId])
-  @@index([articleRestoId])
   @@schema("stock")
 }
 
@@ -1801,11 +1801,16 @@ model FicheTechnique {
   // URL PRIVÉE (jamais l'URL publique du bucket) : servie par /fichiers/[...chemin], session
   // obligatoire — même patron que Employee.photoUrl (src/app/(app)/employes/photo-actions.ts).
   photoUrl              String?
+  // Rapport journalier des ventes (2026-09-29) : libellé et rang de la ligne dans le classeur de la
+  // Direction (« PEF Rapport journalier cuisine et bar »), posés par le geste « Importer les lignes
+  // du classeur ». Null = libellé = nom, rangée après les lignes du classeur.
+  libelleVente          String?
+  ordreVente            Int?
   creeLe                DateTime  @default(now())
   majLe                 DateTime  @updatedAt
 
-  ingredients  IngredientFiche[]  @relation("FicheIngredients")
-  utiliseeDans IngredientFiche[]  @relation("SousRecette")
+  ingredients  IngredientFiche[] @relation("FicheIngredients")
+  utiliseeDans IngredientFiche[] @relation("SousRecette")
   ventes       VenteJournaliere[]
 
   @@schema("stock")
@@ -1893,46 +1898,43 @@ enum NatureCharge {
 }
 
 model CompteTresorerie {
-  id                    Int              @id @default(autoincrement())
-  nom                   String           @unique
-  ordre                 Int              @default(0)
-  actif                 Boolean          @default(true)
-  soldeInitialUSD       Decimal          @default(0) @db.Decimal(14, 2)
+  id              Int      @id @default(autoincrement())
+  nom             String   @unique
+  ordre           Int      @default(0)
+  actif           Boolean  @default(true)
+  soldeInitialUSD Decimal  @default(0) @db.Decimal(14, 2)
   ecritures             EcritureCaisse[] @relation("compteEcriture")
   ecrituresContrepartie EcritureCaisse[] @relation("contrepartieEcriture")
-  creeLe                DateTime         @default(now())
-  majLe                 DateTime         @updatedAt
-
+  creeLe          DateTime @default(now())
+  majLe           DateTime @updatedAt
   @@schema("exploitation")
 }
 
 model Rubrique {
-  id               Int              @id @default(autoincrement())
-  nom              String           @unique
-  sens             SensEcriture
-  ordre            Int              @default(0)
-  actif            Boolean          @default(true)
-  ratioIdeal       Decimal?         @db.Decimal(5, 4)
-  ratioMax         Decimal?         @db.Decimal(5, 4)
-  ratioIdealAnnuel Decimal?         @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,25)
-  ratioMaxAnnuel   Decimal?         @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,30)
-  categories       Categorie[]
-  ecritures        EcritureCaisse[]
-
+  id         Int          @id @default(autoincrement())
+  nom        String       @unique
+  sens       SensEcriture
+  ordre      Int          @default(0)
+  actif      Boolean      @default(true)
+  ratioIdeal       Decimal? @db.Decimal(5, 4)
+  ratioMax         Decimal? @db.Decimal(5, 4)
+  ratioIdealAnnuel Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,25)
+  ratioMaxAnnuel   Decimal? @db.Decimal(5, 4) // override annuel (ex. Coûts Matières premières 0,30)
+  categories Categorie[]
+  ecritures  EcritureCaisse[]
   @@schema("exploitation")
 }
 
 model Categorie {
-  id                 Int                     @id @default(autoincrement())
-  nom                String                  @unique
-  rubriqueId         Int
-  rubrique           Rubrique                @relation(fields: [rubriqueId], references: [id])
+  id                Int           @id @default(autoincrement())
+  nom               String        @unique
+  rubriqueId        Int
+  rubrique          Rubrique      @relation(fields: [rubriqueId], references: [id])
   natureChargeDefaut NatureCharge?
-  ordre              Int                     @default(0)
-  actif              Boolean                 @default(true)
-  ecritures          EcritureCaisse[]
-  denominations      DenominationFrequente[]
-
+  ordre             Int           @default(0)
+  actif             Boolean       @default(true)
+  ecritures         EcritureCaisse[]
+  denominations     DenominationFrequente[]
   @@schema("exploitation")
 }
 
@@ -1942,35 +1944,33 @@ model DenominationFrequente {
   categorieId Int?
   categorie   Categorie? @relation(fields: [categorieId], references: [id])
   actif       Boolean    @default(true)
-
   @@schema("exploitation")
 }
 
 model EcritureCaisse {
-  id                   Int               @id @default(autoincrement())
-  date                 DateTime          @db.Date
-  sens                 SensEcriture
-  natureCharge         NatureCharge?
-  rubriqueId           Int
-  rubrique             Rubrique          @relation(fields: [rubriqueId], references: [id])
-  categorieId          Int
-  categorie            Categorie         @relation(fields: [categorieId], references: [id])
-  denomination         String
-  compteId             Int
-  compte               CompteTresorerie  @relation("compteEcriture", fields: [compteId], references: [id])
-  compteContrepartieId Int? // requis SI sens = NEUTRE (transfert) : compte destination ; source = compteId
+  id                Int           @id @default(autoincrement())
+  date              DateTime      @db.Date
+  sens              SensEcriture
+  natureCharge      NatureCharge?
+  rubriqueId        Int
+  rubrique          Rubrique      @relation(fields: [rubriqueId], references: [id])
+  categorieId       Int
+  categorie         Categorie     @relation(fields: [categorieId], references: [id])
+  denomination      String
+  compteId          Int
+  compte            CompteTresorerie @relation("compteEcriture", fields: [compteId], references: [id])
+  compteContrepartieId Int?         // requis SI sens = NEUTRE (transfert) : compte destination ; source = compteId
   compteContrepartie   CompteTresorerie? @relation("contrepartieEcriture", fields: [compteContrepartieId], references: [id])
-  montantOrigine       Decimal           @db.Decimal(14, 2)
-  devise               Devise
-  tauxChangeUtilise    Decimal           @db.Decimal(14, 4)
-  montantUSD           Decimal           @db.Decimal(14, 2)
-  fournisseur          String? // référence souple (pas de FK cross-schéma) ; autocomplétion depuis stock.Fournisseur
-  fournisseurStockId   String? // id (UUID) du Fournisseur du Stock si choisi (non relationnel) — stock.Fournisseur.id = String @default(uuid())
-  note                 String?
-  creePar              String?
-  creeLe               DateTime          @default(now())
-  majLe                DateTime          @updatedAt
-
+  montantOrigine    Decimal       @db.Decimal(14, 2)
+  devise            Devise
+  tauxChangeUtilise Decimal       @db.Decimal(14, 4)
+  montantUSD        Decimal       @db.Decimal(14, 2)
+  fournisseur       String?       // référence souple (pas de FK cross-schéma) ; autocomplétion depuis stock.Fournisseur
+  fournisseurStockId String?      // id (UUID) du Fournisseur du Stock si choisi (non relationnel) — stock.Fournisseur.id = String @default(uuid())
+  note              String?
+  creePar           String?
+  creeLe            DateTime      @default(now())
+  majLe             DateTime      @updatedAt
   @@index([date])
   @@index([rubriqueId])
   @@index([compteId])
@@ -1978,15 +1978,14 @@ model EcritureCaisse {
 }
 
 model ActiviteJour {
-  id                  Int      @id @default(autoincrement())
-  date                DateTime @unique @db.Date
-  nbCouverts          Int?
-  nbCouvertsSurPlace  Int?
+  id                 Int      @id @default(autoincrement())
+  date               DateTime @unique @db.Date
+  nbCouverts         Int?
+  nbCouvertsSurPlace Int?
   nbCommandesEmporter Int?
-  note                String?
-  creeLe              DateTime @default(now())
-  majLe               DateTime @updatedAt
-
+  note               String?
+  creeLe             DateTime @default(now())
+  majLe              DateTime @updatedAt
   @@schema("exploitation")
 }
 

@@ -6,28 +6,32 @@ import { normTexte } from "@/lib/texte";
 // rubrique), une colonne par jour, du lundi au samedi.
 //
 // Fonctions PURES (ni Prisma, ni React). Règles :
-//   - les lignes viennent de l'application, jamais d'une liste recopiée du classeur : Cuisine = les
-//     fiches techniques « Plat vendu » (type PLAT) ; Bar = les articles du bar (écran Stock
-//     restaurant) et les fiches techniques de type BAR (cocktails…). Un plat du classeur absent de
-//     l'application n'est PAS créé : la Direction crée sa fiche, il apparaît alors ;
+//   - les lignes sont des UNITÉS DE VENTE de l'application, jamais une liste recopiée en dur :
+//     Cuisine = les fiches techniques « Plat vendu » (type PLAT) ; Bar = les fiches techniques de
+//     type BAR (verre de vin, cocktail, café…). Les bouteilles du stock bar ne sont PAS des lignes
+//     de vente (décision de la Direction, 2026-09-29) ; leur consommation se déduira plus tard de la
+//     recette de la fiche Bar. Une ligne du classeur absente de l'application se crée par le geste
+//     « Importer les lignes du classeur » (lib/classeur-ventes), jamais d'office ;
 //   - aucun rattachement deviné : une vente est enregistrée sur LA ligne que l'utilisateur a saisie ;
 //   - case vide = pas de saisie (« — »), jamais 0 ; 0 saisi = 0.
 
 export type EspaceVente = "CUISINE" | "BAR";
 
-/** Ligne du rapport : un plat (fiche technique) ou une boisson (article du bar). */
+/** Ligne du rapport : une unité de vente (fiche technique PLAT ou BAR). */
 export type LigneVente = {
-  /** Clé stable de la ligne : `fiche:<id>` ou `resto:<id>`. */
+  /** Clé stable de la ligne : `fiche:<id>`. */
   cle: string;
   designation: string;
   /** Rubrique (catégorie de la fiche ou de l'article), « Sans rubrique » à défaut. */
   rubrique: string;
   espace: EspaceVente;
-  /** Fiche ou article désactivé depuis, affiché parce qu'il porte des ventes cette semaine. */
+  /** Fiche désactivée depuis, affichée parce qu'elle porte des ventes cette semaine. */
   inactif: boolean;
 };
 
 export const SANS_RUBRIQUE = "Sans rubrique";
+/** Séparateur d'une sous-rubrique (« Vin rouge — Français ») et d'un format (« Vin blanc maison — Verre »). */
+export const SEPARATEUR_SOUS_RUBRIQUE = " — ";
 
 /**
  * Ordre des rubriques du classeur, feuille Cuisine. Sert UNIQUEMENT à ranger les rubriques des
@@ -39,7 +43,7 @@ export const RUBRIQUES_CUISINE = [
   "Autres accompagnements", "Desserts", "Supplément",
 ];
 
-/** Idem, feuille Bar (pour les rubriques des fiches Bar absentes des articles du bar). */
+/** Idem, feuille Bar. */
 export const RUBRIQUES_BAR = [
   "Eau plate", "Eau pétillante", "Limonade et autre", "Bière locale", "Bière importée", "Sirop et accompagnement",
   "Jus de fruit", "Mocktail", "Apéritif", "Vin blanc", "Vin rosé", "Vin rouge", "Vin mousseux", "Champagne",
@@ -47,15 +51,12 @@ export const RUBRIQUES_BAR = [
 ];
 
 const PREFIXE_FICHE = "fiche:";
-const PREFIXE_RESTO = "resto:";
 
 export const cleFiche = (id: string) => `${PREFIXE_FICHE}${id}`;
-export const cleResto = (id: string) => `${PREFIXE_RESTO}${id}`;
 
-/** Lit une clé de ligne ; null si elle n'est ni une fiche ni un article du bar. */
-export function lireCleLigne(cle: string): { type: "fiche" | "resto"; id: string } | null {
+/** Lit une clé de ligne ; null si elle ne désigne pas une fiche. */
+export function lireCleLigne(cle: string): { type: "fiche"; id: string } | null {
   if (cle.startsWith(PREFIXE_FICHE) && cle.length > PREFIXE_FICHE.length) return { type: "fiche", id: cle.slice(PREFIXE_FICHE.length) };
-  if (cle.startsWith(PREFIXE_RESTO) && cle.length > PREFIXE_RESTO.length) return { type: "resto", id: cle.slice(PREFIXE_RESTO.length) };
   return null;
 }
 
@@ -64,70 +65,68 @@ export const cleCase = (ligne: string, jour: string) => `${ligne}_${jour}`;
 
 // ─── Construction et ordre des lignes ────────────────────────────────────────
 
-export type FicheVendue = { id: string; nom: string; categorie: string | null; type: "PLAT" | "BAR"; actif: boolean };
-export type BoissonBar = { id: string; designation: string; unite: string | null; categorie: string | null; ordre: number; actif: boolean };
+export type FicheVendue = {
+  id: string; nom: string; categorie: string | null; type: "PLAT" | "BAR"; actif: boolean;
+  /** Libellé du classeur (import) ; null = le nom de la fiche. */
+  libelleVente?: string | null;
+  /** Rang de la ligne dans le classeur (import) ; null = après les lignes du classeur. */
+  ordreVente?: number | null;
+};
 
-const rubriqueDe = (c: string | null | undefined) => c?.trim() || SANS_RUBRIQUE;
 const compare = (a: string, b: string) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true });
+const INFINI = Number.POSITIVE_INFINITY;
 
+/** Rang d'une rubrique dans l'ordre du classeur (sans accents ni casse) ; inconnue = à la fin. */
 function rangClasseur(rubrique: string, reference: string[]): number {
   const n = normTexte(rubrique.trim());
   const i = reference.findIndex((r) => normTexte(r) === n);
-  return i < 0 ? Number.POSITIVE_INFINITY : i;
+  if (i >= 0) return i;
+  // Sous-rubrique « Vin rouge — Français » : juste après sa rubrique.
+  const j = reference.findIndex((r) => n.startsWith(`${normTexte(r)} ${SEPARATEUR_SOUS_RUBRIQUE.trim()} `));
+  return j < 0 ? INFINI : j + 0.5;
 }
 
 /**
- * Lignes du rapport pour un espace, dans l'ordre d'affichage :
- *  - Cuisine : fiches PLAT ; rubriques dans l'ordre du classeur (inconnues après, alphabétiques),
- *    plats par nom ;
- *  - Bar : articles du bar dans l'ORDRE DE L'ÉCRAN Stock restaurant (leur rubrique arrive à sa
- *    première apparition), puis les fiches BAR — dans la rubrique d'un article si elle existe, sinon
- *    dans une rubrique rangée selon le classeur, puis alphabétique.
- * « Sans rubrique » ferme toujours la marche.
+ * Lignes du rapport pour un espace, dans l'ordre d'affichage : fiches PLAT (Cuisine) ou BAR (Bar),
+ * sous leur libellé du classeur quand l'import l'a posé.
+ *  - Ordre du CLASSEUR d'abord : les lignes importées gardent leur rang (`ordreVente`) et leur
+ *    rubrique arrive à la place de sa première ligne ;
+ *  - puis les rubriques sans ligne importée, dans l'ordre des rubriques du classeur de PEF, les
+ *    inconnues par ordre alphabétique ; « Sans rubrique » ferme la marche ;
+ *  - dans une rubrique : lignes importées dans l'ordre du classeur, puis les autres par nom.
+ * Une même rubrique à la casse et aux accents près n'en fait qu'une.
  */
-export function lignesDuRapport(espace: EspaceVente, fiches: FicheVendue[], boissons: BoissonBar[] = []): LigneVente[] {
-  const deFiche = (f: FicheVendue): LigneVente => ({ cle: cleFiche(f.id), designation: f.nom.trim(), rubrique: rubriqueDe(f.categorie), espace, inactif: !f.actif });
-  const lignesFiches = fiches
+export function lignesDuRapport(espace: EspaceVente, fiches: FicheVendue[]): LigneVente[] {
+  const avecRang = fiches
     .filter((f) => (espace === "CUISINE" ? f.type === "PLAT" : f.type === "BAR"))
-    .map(deFiche)
-    .sort((a, b) => compare(a.designation, b.designation));
+    .map((f) => ({
+      ligne: {
+        cle: cleFiche(f.id),
+        designation: (f.libelleVente?.trim() || f.nom).trim(),
+        rubrique: f.categorie?.trim() || SANS_RUBRIQUE,
+        espace,
+        inactif: !f.actif,
+      } as LigneVente,
+      rang: f.ordreVente ?? INFINI,
+    }))
+    .sort((a, b) => a.rang - b.rang || compare(a.ligne.designation, b.ligne.designation));
 
-  const lignesBoissons: LigneVente[] = espace === "BAR"
-    ? [...boissons]
-        .sort((a, b) => a.ordre - b.ordre || compare(a.designation, b.designation))
-        .map((b) => ({
-          cle: cleResto(b.id),
-          designation: `${b.designation.trim()}${b.unite?.trim() ? ` (${b.unite.trim()})` : ""}`,
-          rubrique: rubriqueDe(b.categorie),
-          espace,
-          inactif: !b.actif,
-        }))
-    : [];
-
-  // Même rubrique à la casse et aux accents près (« Vin blanc » / « Vin Blanc ») : une seule, sous
-  // l'orthographe des articles du bar (puis celle de la première fiche rencontrée).
   const orthographe = new Map<string, string>();
-  for (const l of [...lignesBoissons, ...lignesFiches]) {
-    const n = normTexte(l.rubrique);
-    if (!orthographe.has(n)) orthographe.set(n, l.rubrique);
-    l.rubrique = orthographe.get(n)!;
+  for (const { ligne } of avecRang) {
+    const n = normTexte(ligne.rubrique);
+    if (!orthographe.has(n)) orthographe.set(n, ligne.rubrique);
+    ligne.rubrique = orthographe.get(n)!;
   }
 
-  // Rubriques : rang principal (ordre de l'écran pour les articles du bar, sinon classeur), puis nom.
   const reference = espace === "CUISINE" ? RUBRIQUES_CUISINE : RUBRIQUES_BAR;
-  const rangs = new Map<string, [number, number]>();
-  lignesBoissons.forEach((l, i) => { if (!rangs.has(l.rubrique)) rangs.set(l.rubrique, [0, i]); });
-  for (const l of lignesFiches) if (!rangs.has(l.rubrique)) rangs.set(l.rubrique, [1, rangClasseur(l.rubrique, reference)]);
-  const cleRubrique = (r: string): [number, number, number] => {
-    const [groupe, rang] = rangs.get(r) ?? [1, Number.POSITIVE_INFINITY];
-    return [r === SANS_RUBRIQUE ? 1 : 0, groupe, rang];
-  };
-  const rubriques = [...rangs.keys()].sort((a, b) => {
-    const [xa, ya, za] = cleRubrique(a), [xb, yb, zb] = cleRubrique(b);
-    return xa - xb || ya - yb || (za === zb ? compare(a, b) : za - zb);
+  const premierRang = new Map<string, number>();
+  for (const { ligne, rang } of avecRang) premierRang.set(ligne.rubrique, Math.min(premierRang.get(ligne.rubrique) ?? INFINI, rang));
+  const cle = (r: string): [number, number, number] => [r === SANS_RUBRIQUE ? 1 : 0, premierRang.get(r) ?? INFINI, rangClasseur(r, reference)];
+  const rubriques = [...premierRang.keys()].sort((a, b) => {
+    const [xa, ya, za] = cle(a), [xb, yb, zb] = cle(b);
+    return xa - xb || (ya === yb ? (za === zb ? compare(a, b) : za - zb) : ya - yb);
   });
-
-  return rubriques.flatMap((r) => [...lignesBoissons.filter((l) => l.rubrique === r), ...lignesFiches.filter((l) => l.rubrique === r)]);
+  return rubriques.flatMap((r) => avecRang.filter((x) => x.ligne.rubrique === r).map((x) => x.ligne));
 }
 
 // ─── Semaine affichée ────────────────────────────────────────────────────────

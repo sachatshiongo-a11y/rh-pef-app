@@ -14,6 +14,7 @@ export type JourVente = { iso: string; label: string; fige: boolean };
 
 const inp = "w-14 rounded border border-input bg-background px-1 py-1 text-center text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
 const TITRE_ESPACE: Record<EspaceVente, string> = { CUISINE: "Cuisine — plats vendus", BAR: "Bar — boissons vendues" };
+const TOTAL_ESPACE: Record<EspaceVente, string> = { CUISINE: "Total jour — Cuisine", BAR: "Total jour — Bar" };
 
 /** Repos après la dernière case enregistrée avant de revalider la page (une fois pour toute la rafale). */
 const REPOS_AVANT_RAFRAICHISSEMENT_MS = 3000;
@@ -23,7 +24,8 @@ const texteTotal = (t: number | null) => (t === null ? "—" : formaterNombre(t)
 
 /**
  * Saisie des VENTES du restaurant (forme du classeur « Rapport journalier cuisine et bar ») :
- * lignes = plats (Cuisine) et boissons (Bar) par rubrique, colonnes = jours. Tableur « comme
+ * lignes = unités de vente (fiches « Plat vendu » pour la Cuisine, fiches Bar pour le Bar) par
+ * rubrique, colonnes = jours. Un total par espace (jamais plats + boissons). Tableur « comme
  * Excel » (case partagée `CelluleNombre` : Entrée descend, collage d'un bloc Excel).
  * Case vide = pas de saisie (« — ») ; 0 saisi = 0 vendu, enregistré. Un jour de période clôturée
  * est en lecture seule.
@@ -108,8 +110,10 @@ export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
             <tbody className="[&>tr>td]:border-b [&>tr>td]:px-3 [&>tr>td]:py-1.5">
               {visibles.map((l, i) => {
                 const prec = visibles[i - 1];
+                const suiv = visibles[i + 1];
                 const nouvelEspace = deuxEspaces && (!prec || prec.espace !== l.espace);
                 const nouvelleRubrique = !prec || prec.espace !== l.espace || prec.rubrique !== l.rubrique;
+                const finEspace = !suiv || suiv.espace !== l.espace;
                 return (
                   <Fragment key={l.cle}>
                     {nouvelEspace && (
@@ -119,22 +123,26 @@ export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
                       <tr><td colSpan={nbCol} className="sticky left-0 !bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.rubrique}</td></tr>
                     )}
                     <LigneVenteGrille l={l} jours={jours} valeurs={jours.map((j) => valeur(l.cle, j.iso))} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />
+                    {/* Total PAR ESPACE : additionner des plats et des boissons ne dirait rien. */}
+                    {finEspace && (() => {
+                      const parmi = visibles.filter((x) => x.espace === l.espace);
+                      const totaux = jours.map((j) => totalJour(j.iso, parmi));
+                      const semaine = totaux.reduce<number | null>((t, x) => (x === null ? t : (t ?? 0) + x), null);
+                      return (
+                        <tr className="bg-muted/60 font-semibold [&>td]:!py-2" data-total={l.espace}>
+                          <td className="sticky left-0 z-10 bg-muted/60">{TOTAL_ESPACE[l.espace]}</td>
+                          {totaux.map((t, k) => <td key={jours[k]!.iso} className="text-right">{texteTotal(t)}</td>)}
+                          <td className="text-right">{texteTotal(semaine)}</td>
+                        </tr>
+                      );
+                    })()}
                   </Fragment>
                 );
               })}
               {visibles.length === 0 && (
-                <tr><td colSpan={nbCol} className="px-3 py-6 text-center text-muted-foreground">{lignes.length === 0 ? "Aucun plat ni boisson à vendre : créez les fiches techniques (Plat vendu) et les articles du bar." : "Aucune ligne pour cette recherche."}</td></tr>
+                <tr><td colSpan={nbCol} className="px-3 py-6 text-center text-muted-foreground">{lignes.length === 0 ? "Aucune unité de vente : importez les lignes du classeur, ou créez les fiches techniques (Plat vendu, Bar)." : "Aucune ligne pour cette recherche."}</td></tr>
               )}
             </tbody>
-            {visibles.length > 0 && (
-              <tfoot className="sticky bottom-0">
-                <tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
-                  <td className="sticky left-0 z-10 bg-muted/60">Total jour</td>
-                  {jours.map((j) => <td key={j.iso} className="text-right">{texteTotal(totalJour(j.iso, visibles))}</td>)}
-                  <td className="text-right">{texteTotal(jours.reduce<number | null>((t, j) => { const x = totalJour(j.iso, visibles); return x === null ? t : (t ?? 0) + x; }, null))}</td>
-                </tr>
-              </tfoot>
-            )}
           </table>
         </div>
       </ZoneTableur>

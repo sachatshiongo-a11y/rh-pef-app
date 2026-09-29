@@ -25,9 +25,9 @@ const LIGNES = [
   L("fiche:carbo", "Carbonara", "Pâtes classiques", "CUISINE"),
   L("fiche:bolo", "Bolognaise", "Pâtes classiques", "CUISINE", true),
   L("fiche:creme", "Crème brûlée", "Desserts", "CUISINE"),
-  L("resto:coca", "Coca Cola", "Limonade et autre", "BAR"),
+  L("fiche:coca", "Coca", "Limonade et autre", "BAR"),
 ];
-const VENTES = { "fiche:carbo_2026-09-01": 12, "fiche:carbo_2026-09-02": 0, "resto:coca_2026-08-31": 5 };
+const VENTES = { "fiche:carbo_2026-09-01": 12, "fiche:carbo_2026-09-02": 0, "fiche:coca_2026-08-31": 5 };
 
 let conteneur: HTMLDivElement;
 let racine: Root;
@@ -51,10 +51,10 @@ function taper(el: HTMLInputElement, texte: string) {
 }
 
 describe("grille des ventes", () => {
-  it("Cuisine puis Bar, rubriques du classeur, fiche désactivée signalée ; aucune case type=number", () => {
+  it("Cuisine puis Bar, rubriques du classeur, fiche désactivée signalée, un total PAR ESPACE ; aucune case type=number", () => {
     expect(rangees().map((r) => r.querySelector("td")!.textContent)).toEqual([
-      "Cuisine — plats vendus", "Pâtes classiques", "Carbonara", "Bolognaise(désactivé)", "Desserts", "Crème brûlée",
-      "Bar — boissons vendues", "Limonade et autre", "Coca Cola",
+      "Cuisine — plats vendus", "Pâtes classiques", "Carbonara", "Bolognaise(désactivé)", "Desserts", "Crème brûlée", "Total jour — Cuisine",
+      "Bar — boissons vendues", "Limonade et autre", "Coca", "Total jour — Bar",
     ]);
     expect(conteneur.querySelectorAll('input[type="number"]')).toHaveLength(0);
     expect(conteneur.querySelector("table[data-tableur]")).not.toBeNull();
@@ -68,12 +68,15 @@ describe("grille des ventes", () => {
     expect(cellulesCarbo.at(-1)!.textContent).toBe("12");
     const creme = [...rangees().find((r) => r.textContent?.startsWith("Crème brûlée"))!.querySelectorAll("td")];
     expect(creme.at(-1)!.textContent).toBe("—");
-    const pied = [...conteneur.querySelectorAll("tfoot td")].map((t) => t.textContent);
-    expect(pied).toEqual(["Total jour", "5", "12", "0", "—", "—", "—", "17"]);
+    // Jamais plats + boissons : un total par espace.
+    const total = (e: string) => [...conteneur.querySelectorAll(`tr[data-total="${e}"] td`)].map((t) => t.textContent);
+    expect(total("CUISINE")).toEqual(["Total jour — Cuisine", "—", "12", "0", "—", "—", "—", "12"]);
+    expect(total("BAR")).toEqual(["Total jour — Bar", "5", "—", "—", "—", "—", "—", "5"]);
+    expect(conteneur.querySelector("tfoot")).toBeNull();
   });
 
   it("un jour de période clôturée est en lecture seule, les autres restent saisissables", () => {
-    const coca = casesDe("Coca Cola");
+    const coca = casesDe("Coca");
     expect(coca[0]!.disabled).toBe(true);
     expect(coca[0]!.value).toBe("5"); // la valeur reste lisible
     expect(coca.slice(1).every((c) => !c.disabled)).toBe(true);

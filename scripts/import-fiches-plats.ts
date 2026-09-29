@@ -1186,6 +1186,8 @@ export type ClientEcriture = {
     deleteMany(args: unknown): Promise<{ count: number }>;
   };
   ingredientFiche: { findMany(args: unknown): Promise<{ ficheId: string; sousFicheId: string | null }[]> };
+  /** Ventes journalières (lecture) : une fiche qui porte des ventes n'est jamais supprimée. */
+  venteJournaliere: { findMany(args: unknown): Promise<{ ficheId: string }[]> };
   articleStock: { findMany(args: unknown): Promise<ArticleEnBase[]> };
   $transaction<T>(fn: (tx: TxEcriture) => Promise<T>, options?: unknown): Promise<T>;
 };
@@ -1370,6 +1372,8 @@ export type RapportEcriture = {
 type ClientSuppression = {
   ficheTechnique: { deleteMany(args: unknown): Promise<{ count: number }> };
   ingredientFiche: { findMany(args: unknown): Promise<{ ficheId: string; sousFicheId: string | null }[]> };
+  /** Ventes journalières (lecture) : une fiche qui porte des ventes n'est jamais supprimée. */
+  venteJournaliere: { findMany(args: unknown): Promise<{ ficheId: string }[]> };
 };
 
 /**
@@ -1387,6 +1391,22 @@ async function supprimerEnOrdreDeDependance(
   aSupprimer: { id: string; nom: string }[],
   supprimees: string[],
 ): Promise<{ ok: true } | { ok: false; protegees: string[]; message: string }> {
+  // Une fiche qui porte des VENTES (Conso. journalière → Ventes) n'est jamais supprimée : la
+  // suppression échouerait en cours de route (clé étrangère RESTRICT) après avoir détruit d'autres
+  // fiches. Refus AVANT toute suppression, en clair.
+  const vendues = await prisma.venteJournaliere.findMany({ where: { ficheId: { in: aSupprimer.map((f) => f.id) } }, select: { ficheId: true } });
+  if (vendues.length > 0) {
+    const ids = new Set(vendues.map((v) => v.ficheId));
+    const noms = aSupprimer.filter((f) => ids.has(f.id)).map((f) => f.nom);
+    return {
+      ok: false,
+      protegees: noms,
+      message:
+        `ABANDON : ${noms.length} fiche(s) à remplacer portent des ventes enregistrées (${noms.map((n) => `« ${n} »`).join(", ")}). ` +
+        "Les supprimer effacerait ces ventes du rapport journalier. Rien n'a été écrit ni supprimé. " +
+        "Retire ces fiches du classeur, ou complète-les à la main depuis l'écran Fiches techniques.",
+    };
+  }
   let restants = aSupprimer.map((f) => ({ id: f.id, nom: f.nom }));
   const idsLot = new Set(restants.map((f) => f.id));
   while (restants.length > 0) {
@@ -2372,6 +2392,8 @@ export type ClientFichesSeules = {
     deleteMany(args: unknown): Promise<{ count: number }>;
   };
   ingredientFiche: { findMany(args: unknown): Promise<{ ficheId: string; sousFicheId: string | null }[]> };
+  /** Ventes journalières (lecture) : une fiche qui porte des ventes n'est jamais supprimée. */
+  venteJournaliere: { findMany(args: unknown): Promise<{ ficheId: string }[]> };
   /** LECTURE SEULE — volontairement dépourvu de `create` / `update` / `upsert` / `deleteMany`. */
   articleStock: { findMany(args: unknown): Promise<ArticleCatalogue[]> };
   $transaction<T>(fn: (tx: TxFichesSeules) => Promise<T>, options?: unknown): Promise<T>;

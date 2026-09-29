@@ -123,6 +123,7 @@ function clientVerrouille(): ClientFichesSeules {
       deleteMany: (args: unknown) => prisma.ficheTechnique.deleteMany(args as never),
     },
     ingredientFiche: { findMany: (args: unknown) => prisma.ingredientFiche.findMany(args as never) },
+    venteJournaliere: { findMany: (args: unknown) => prisma.venteJournaliere.findMany(args as never) },
     articleStock: articleStockLectureSeule,
     $transaction: (fn: (tx: TxAutorisee) => Promise<unknown>, options?: unknown) =>
       prisma.$transaction((tx) => fn(gardeTransaction(tx)), options as never),
@@ -471,6 +472,7 @@ function clientVerrouilleCreation(): ClientFichesSeulesCreation {
       deleteMany: (args: unknown) => prisma.ficheTechnique.deleteMany(args as never),
     },
     ingredientFiche: { findMany: (args: unknown) => prisma.ingredientFiche.findMany(args as never) },
+    venteJournaliere: { findMany: (args: unknown) => prisma.venteJournaliere.findMany(args as never) },
     articleStock: articleStockCreationSeule,
     $transaction: (fn: (tx: TxAutorisee) => Promise<unknown>, options?: unknown) =>
       prisma.$transaction((tx) => fn(gardeTransaction(tx)), options as never),

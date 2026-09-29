@@ -18,13 +18,15 @@ const texteSignal = (s: SignalementLivraison, avecDate: boolean) =>
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 import { exigerPageStock } from "@/lib/garde-page";
 
-type SP = { espace?: string; semaine?: string };
+type SP = { espace?: string; semaine?: string; desactives?: string };
 
 export default async function RestaurantPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const espace = sp.espace === "BAR" ? "BAR" : "CUISINE";
+  // « Afficher les désactivés » (Direction) : les articles désactivés reviennent, grisés, sans saisie.
+  const afficherDesactives = estDirection && sp.desactives === "1";
   const base = sp.semaine ? new Date(sp.semaine) : new Date();
   const lundi = lundiDe(base);
   const jours: Jour[] = joursSemaine(base);
@@ -34,7 +36,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   const aujourdhui = jourKinshasaISO();
   const [articles, livraisons, catalogue, entrees] = await Promise.all([
     prisma.articleResto.findMany({
-      where: { espace, actif: true },
+      where: { espace, ...(afficherDesactives ? {} : { actif: true }) },
       orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
       include: {
         comptages: { where: { date: { gte: debut, lte: fin } } },
@@ -56,7 +58,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   const theorique = stockRestaurantTheorique(entrees, aujourdhui).parArticle;
   // Livraisons de la semaine qui n'alimentent pas le restaurant : signalées, jamais réparties.
   const nonRattachees = stockRestaurantTheorique(entrees, jours[6].iso).nonRattachees.filter((l) => l.date >= jours[0].iso);
-  const propositions = proposerRattachements(articles, catalogue);
+  const propositions = proposerRattachements(articles.filter((a) => a.actif), catalogue);
 
   // Regroupe les livraisons par jour.
   const livParJour = new Map<string, { designation: string; quantite: number }[]>();
@@ -79,7 +81,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     }
     const t = theorique.get(a.id);
     return {
-      id: a.id, categorie: a.categorie, designation: a.designation, unite: a.unite,
+      id: a.id, actif: a.actif, categorie: a.categorie, designation: a.designation, unite: a.unite,
       base: a.stockBaseJournalier !== null ? Number(a.stockBaseJournalier).toString() : "",
       comptages,
       articleStockId: a.articleStockId,
@@ -97,7 +99,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
 
   const semLien = (offset: number) => {
     const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + offset * 7);
-    return `/stock/restaurant?espace=${espace}&semaine=${d.toISOString().slice(0, 10)}`;
+    return `/stock/restaurant?espace=${espace}&semaine=${d.toISOString().slice(0, 10)}${afficherDesactives ? "&desactives=1" : ""}`;
   };
   const exportQs = `espace=${espace}&semaine=${jours[0].iso}`;
 
@@ -122,6 +124,12 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
         <a href={semLien(-1)} className="rounded-md border px-3 py-1 hover:bg-accent">← Semaine préc.</a>
         <span className="font-medium">Semaine du {jours[0].num} au {jours[6].num}</span>
         <a href={semLien(1)} className="rounded-md border px-3 py-1 hover:bg-accent">Semaine suiv. →</a>
+        {estDirection && (
+          <a href={`/stock/restaurant?espace=${espace}&semaine=${jours[0].iso}${afficherDesactives ? "" : "&desactives=1"}`}
+            className={`rounded-full border px-3 py-1 ${afficherDesactives ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>
+            {afficherDesactives ? "Masquer les désactivés" : "Afficher les désactivés"}
+          </a>
+        )}
       </div>
 
       {livParJour.size > 0 && (
@@ -137,7 +145,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
         </div>
       )}
 
-      <p className="text-sm text-muted-foreground">Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? "" : " Seule la Direction peut supprimer un article."}</p>
+      <p className="text-sm text-muted-foreground">Tableur éditable : modifiez catégorie, désignation, unité et stock de base, et saisissez la quantité comptée pour chaque jour. « Stock de base » = niveau cible par jour.{estDirection ? " Un article désactivé disparaît des saisies et garde son historique." : " Seule la Direction peut désactiver ou supprimer un article."}</p>
 
       <BandeauLivraisons nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]} articles={entrees.articles} />
 
