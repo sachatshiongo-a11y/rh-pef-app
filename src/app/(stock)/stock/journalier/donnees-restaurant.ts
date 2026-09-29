@@ -23,7 +23,7 @@ export async function chargerDonneesRestaurant(lundi: Date, domaine: Domaine) {
   const where: Prisma.MouvementStockWhereInput = { type: "SORTIE", date: { gte: lundi, lt: fin }, ...(domaine ? { article: { domaine } } : {}) };
   const [sorties, entrees] = await Promise.all([
     prisma.mouvementStock.findMany({ where, select: { articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true } } } }),
-    chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]! }),
+    chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]!, inclureDesactives: true }),
   ]);
   return {
     jours,

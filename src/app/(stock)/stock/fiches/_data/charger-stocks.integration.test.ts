@@ -50,7 +50,8 @@ describe("chargerStocksDesFiches", () => {
     // Crème : rattachée, sans ligne Stock.
     const c1 = await resto("Crème", "cl", creme.id);
     await compter(c1.id, "2026-09-22", "50");
-    // Non rattaché, et rattaché mais inactif : ignorés.
+    // Non rattaché : ignoré. Rattaché mais DÉSACTIVÉ avec 100 kg comptés : jamais ignoré en silence
+    // (règle du 2026-09-29) — l'article du catalogue passe « À vérifier », pas « dépôt seul ».
     const libre = await resto("Farine", "kg", null);
     await compter(libre.id, "2026-09-23", "100");
     const inactif = await resto("Sel (ancien)", "kg", sel.id, false);
@@ -70,11 +71,12 @@ describe("chargerStocksDesFiches", () => {
 
     expect(stocks[farine.id]).toEqual({ depot: "4", restaurant: { etat: "OK", quantite: "3.5", dateComptage: "2026-09-21", recu: null }, dernierMouvement: "2026-09-20" });
     expect(stocks[creme.id]).toEqual({ depot: null, restaurant: { etat: "OK", quantite: "0.5", dateComptage: "2026-09-22", recu: null }, dernierMouvement: null });
-    expect(stocks[sel.id]).toEqual({ depot: "1.5", restaurant: null, dernierMouvement: null });
+    expect(stocks[sel.id]).toEqual({ depot: "1.5", restaurant: { etat: "DESACTIVE_AVEC_STOCK", articleResto: "Sel (ancien)", dateComptage: "2026-09-23" }, dernierMouvement: null });
     // UNE requête groupée pour tous les articles (dernier mouvement), UNE pour les livraisons au
     // restaurant — jamais une requête par article.
+    // (+ UNE pour les livraisons reçues depuis le comptage des articles DÉSACTIVÉS avec du stock.)
     expect(groupBy).toHaveBeenCalledTimes(1);
-    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany).toHaveBeenCalledTimes(2);
     groupBy.mockRestore(); findMany.mockRestore();
   }, 60_000);
 

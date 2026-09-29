@@ -4,6 +4,7 @@ import { exigerEspaceStock } from "@/lib/garde-route";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import { joursSemaine } from "../semaine";
 import { lignesStockResto } from "../export-data";
+import { articlesRestoDeLaPeriode, designationResto } from "@/lib/stock-restaurant-charger";
 
 /** Stock restaurant (Cuisine ou Bar) en PDF paysage : grille hebdo groupée par catégorie. */
 export async function GET(req: Request) {
@@ -15,13 +16,15 @@ export async function GET(req: Request) {
   const jours = joursSemaine(sp.get("semaine") ? new Date(sp.get("semaine")!) : new Date());
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 
+  // Semaine affichée : les actifs, et les désactivés qui y ont un comptage ou une livraison —
+  // listés avec la mention « (désactivé) », jamais effacés de l'historique.
   const articles = await prisma.articleResto.findMany({
-    where: { espace, actif: true },
+    where: { AND: [{ espace }, articlesRestoDeLaPeriode(jours[0].iso, jours[6].iso)] },
     orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
     include: { comptages: { where: { date: { gte: debut, lte: fin } } } },
   });
 
-  const { lignes, sectionRows } = lignesStockResto(articles, jours);
+  const { lignes, sectionRows } = lignesStockResto(articles.map((a) => ({ ...a, designation: designationResto(a) })), jours);
   const colonnes: Colonne[] = [
     { header: "Désignation", width: "22%" },
     { header: "Unité", width: "8%" },

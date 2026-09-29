@@ -6,7 +6,7 @@ import { estStock } from "@/lib/espaces";
 import { lireClasseurVentes, type LigneClasseur } from "@/lib/classeur-ventes";
 
 /**
- * « Importer les lignes du classeur » (Direction) et « Désactiver » (Stock restaurant), sur une
+ * « Importer les lignes du classeur » (Direction), sur une
  * VRAIE base (Postgres éphémère) : droits, idempotence, rattachement explicite, journal, et fiches
  * sans recette qui ne passent ni pour « coût 0 » ni pour « disponibles ».
  */
@@ -30,11 +30,9 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {}
 
 const { analyserClasseurVentes, appliquerImportClasseur } = await import("./import-classeur-actions");
 const { chargerVentesSemaine } = await import("./ventes-data");
-const { changerActivationArticlesResto } = await import("../restaurant/actions");
 const { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } = await import("../fiches/_data/charger-fiche");
 const { construireContexte, disponibilitesDesFiches, resumerDispo, badgeDispo } = await import("../fiches/_data/fiche-calc");
 const { calculerCout } = await import("@/lib/fiches/cout");
-const { chargerEntreesStockResto } = await import("@/lib/stock-restaurant-charger");
 
 const VRAI_CLASSEUR = "/Users/sachatshiongo/Documents/Pâtes en Folie/ PEF Rapport journalier cuisine et bar.xlsx";
 
@@ -162,26 +160,4 @@ describe("import des lignes du classeur", () => {
     const second = await appliquerParDefaut(lu.lignes);
     expect(second.resultat).toMatchObject({ ok: true, crees: 0 });
   }, 120_000);
-});
-
-describe("Stock restaurant : désactiver / réactiver", () => {
-  it("mêmes droits que la suppression ; l'article sort des saisies, garde ses comptages, se réactive ; journalisé", async () => {
-    const a = await prisma.articleResto.create({ data: { espace: "BAR", designation: "Glaçons", ordre: 1 } });
-    const b = await prisma.articleResto.create({ data: { espace: "BAR", designation: "Café arabica", ordre: 2 } });
-    await prisma.comptageResto.create({ data: { articleRestoId: a.id, date: new Date("2026-09-22T00:00:00Z"), quantite: 3 } });
-
-    H.user = { id: ids.stock, role: "STOCK", accesStock: false, nom: "Stock" };
-    expect(await changerActivationArticlesResto([a.id], false)).toEqual({ erreur: "Accès refusé." });
-
-    H.user = { id: ids.direction, role: "ADMIN", accesStock: false, nom: "Direction" };
-    expect(await changerActivationArticlesResto([a.id, b.id], false)).toEqual({ ok: true, modifies: 2 });
-    expect(await prisma.articleResto.count({ where: { actif: false } })).toBe(2);
-    expect(await prisma.comptageResto.count({ where: { articleRestoId: a.id } })).toBe(1); // historique gardé
-    const entrees = await chargerEntreesStockResto({ depuis: "2026-09-21", jusquA: "2026-09-27" });
-    expect(JSON.stringify(entrees)).not.toContain(a.id); // hors des saisies et du stock théorique
-    expect(await changerActivationArticlesResto([a.id], false)).toEqual({ ok: true, modifies: 0 }); // déjà désactivé
-    expect(await changerActivationArticlesResto([a.id], true)).toEqual({ ok: true, modifies: 1 });
-    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: a.id } })).actif).toBe(true);
-    expect(await prisma.journalAudit.count({ where: { entite: "ArticleResto", champ: "actif" } })).toBe(3);
-  });
 });

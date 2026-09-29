@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
+import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 
 
 async function garde() {
@@ -18,6 +19,10 @@ async function garde() {
 /** Met à jour le comptage d'un article resto pour une date donnée (upsert ; vide = suppression). */
 export const majComptage = actionLisible(async (articleRestoId: string, dateISO: string, valeur: string) => {
   await garde();
+  // Un article désactivé ne se compte plus (sinon son stock reviendrait en douce) : refus lisible.
+  const article = await prisma.articleResto.findUnique({ where: { id: articleRestoId }, select: { actif: true, designation: true } });
+  if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
+  if (!article.actif) throw new Error(`« ${article.designation} » est désactivé : la Direction doit le réactiver avant tout comptage.`);
   const date = new Date(dateISO);
   const q = dec(valeur);
   if (q === null) {
@@ -81,12 +86,18 @@ export const supprimerArticleResto = actionLisible(async (id: string) => {
  * désactivé disparaît des saisies (comptage, fiches d'inventaire, stock théorique) mais garde tout
  * son historique (comptages) ; il se réactive à l'identique. Mêmes droits que la suppression.
  */
-export const changerActivationArticlesResto = actionLisible(async (ids: string[], actif: boolean) => {
+export const changerActivationArticlesResto = actionLisible(async (ids: string[], actif: boolean, confirmer = false) => {
   const user = await garde();
   requireRole(user, ["ADMIN"]); // Direction, comme la suppression
   if (!Array.isArray(ids) || ids.length === 0) throw new Error("Aucun article sélectionné.");
   const articles = await prisma.articleResto.findMany({ where: { id: { in: ids }, actif: !actif }, select: { id: true, designation: true } });
   if (articles.length === 0) return { ok: true as const, modifies: 0 };
+  // Désactiver un article qui a encore du stock compté le retirerait EN SILENCE de la disponibilité
+  // des plats : rien n'est écrit, la Direction confirme en connaissant le stock et la conséquence.
+  if (!actif && confirmer !== true) {
+    const restes = await stocksComptesResto({ id: { in: articles.map((a) => a.id) } });
+    if (restes.length > 0) return { ok: false as const, aConfirmer: true as const, message: messageDesactivation(restes) };
+  }
   await prisma.$transaction(async (tx) => {
     await tx.articleResto.updateMany({ where: { id: { in: articles.map((a) => a.id) } }, data: { actif } });
     await journaliserPlusieurs(tx, articles.map((a) => ({

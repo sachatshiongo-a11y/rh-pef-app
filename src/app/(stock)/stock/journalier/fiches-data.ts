@@ -2,7 +2,7 @@ import "server-only";
 
 import type { DomaineStock } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
+import { articlesRestoDeLaPeriode, chargerEntreesStockResto, designationResto } from "@/lib/stock-restaurant-charger";
 import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { ficheAchatRemplie } from "@/lib/pdf/fiche-achat-legumes";
 import { ficheCommandeJournaliere, ficheConsommationReelle, ficheRapportJournalier, type EspaceFiche, type Fiche, type LegumeCommande } from "@/lib/fiches-conso";
@@ -32,16 +32,22 @@ export async function chargerConsommationsReelles(lundi: Date, espaces: EspaceFi
   const jours = Array.from({ length: 7 }, (_, i) => { const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + i); return iso(d); });
   const [articles, entrees] = await Promise.all([
     // Même ordre que l'écran « Stock restaurant » (et sa fiche d'inventaire).
+    // Actifs, et désactivés qui ont un comptage ou une livraison dans la semaine (« (désactivé) »).
     prisma.articleResto.findMany({
-      where: { actif: true, espace: { in: espaces } },
+      where: { AND: [{ espace: { in: espaces } }, articlesRestoDeLaPeriode(jours[0]!, jours[6]!)] },
       orderBy: [{ categorie: "asc" }, { ordre: "asc" }, { designation: "asc" }],
-      select: { id: true, designation: true, unite: true, categorie: true, espace: true },
+      select: { id: true, designation: true, unite: true, categorie: true, espace: true, actif: true },
     }),
-    chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]! }),
+    chargerEntreesStockResto({ depuis: jours[0]!, jusquA: jours[6]!, inclureDesactives: true }),
   ]);
   return espaces.map((espace) =>
-    ficheConsommationReelle({ espace, jours, articles: articles.filter((a) => a.espace === espace), conso: (id, j) => consommationReelle(entrees, id, j) }),
+    ficheConsommationReelle({ espace, jours, articles: articles.filter((a) => a.espace === espace).map((a) => ({ ...a, designation: designationResto(a) })), conso: (id, j) => consommationReelle(entrees, id, j) }),
   );
+}
+
+/** Vrai dès qu'au moins un article est coché « Sur la fiche commande » (fiche calée sur le classeur). */
+export async function ficheCommandeCalee(): Promise<boolean> {
+  return (await prisma.articleStock.count({ where: { surFicheCommande: true } })) > 0;
 }
 
 /**
@@ -69,10 +75,13 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
   }
 
   const mouvementes = [...new Set([...cmd.keys(), ...liv.keys()])];
+  // Comme le classeur : les articles COCHÉS « Sur la fiche commande » — plus ceux qui ont une
+  // commande ou une livraison ce jour-là (une quantité enregistrée n'est jamais cachée). Tant
+  // qu'AUCUN article n'est coché (fiche pas encore calée sur le classeur), l'ancien contenu : tous
+  // les articles actifs — jamais une fiche presque vide. Le document ne le dit pas : l'écran, oui.
+  const calee = await ficheCommandeCalee();
   const articles = await prisma.articleStock.findMany({
-    // Comme le classeur : les articles COCHÉS « Sur la fiche commande » — plus ceux qui ont une
-    // commande ou une livraison ce jour-là (une quantité enregistrée n'est jamais cachée).
-    where: { domaine: { in: domaines }, OR: [{ actif: true, surFicheCommande: true }, { id: { in: mouvementes } }] },
+    where: { domaine: { in: domaines }, OR: [{ actif: true, ...(calee ? { surFicheCommande: true } : {}) }, { id: { in: mouvementes } }] },
     orderBy: [{ categorie: { nom: "asc" } }, { designation: "asc" }],
     select: {
       id: true, designation: true, nomCourt: true, unite: true, domaine: true, categorie: { select: { nom: true } },
@@ -113,7 +122,7 @@ export async function chargerCommandesJournalieres(date: string, espaces: Espace
         .sort((a, b) => rang(a.domaine) - rang(b.domaine))
         .map((a) => ({
           id: a.id, designation: a.designation, nomCourt: a.nomCourt, nomsRestaurant: a.articlesResto.map((r) => r.designation), unite: a.unite, categorie: a.categorie?.nom ?? null,
-          surFicheCommande: a.surFicheCommande, ordreCommande: a.ordreCommande, rubriqueCommande: a.rubriqueCommande,
+          surFicheCommande: calee ? a.surFicheCommande : undefined, ordreCommande: a.ordreCommande, rubriqueCommande: a.rubriqueCommande,
         })),
       commandes: cmd,
       livraisons: liv,

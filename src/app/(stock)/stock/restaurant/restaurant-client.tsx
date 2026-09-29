@@ -50,11 +50,17 @@ export function RestaurantGrille({
   // Rappels STABLES (les lignes sont mémoïsées : un nouveau rappel à chaque rendu les re-rendrait toutes).
   const basculer = useCallback((id: string) => setSelection((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }), []);
   const toutSelectionne = lignes.length > 0 && lignes.every((l) => selection.has(l.id));
-  const activer = useCallback((ids: string[], actif: boolean) => {
+  // Désactivation d'un article qui a encore du stock compté : le serveur n'écrit rien et renvoie
+  // une confirmation qui nomme ce stock et sa conséquence ; « Désactiver quand même » la confirme.
+  const [aConfirmer, setAConfirmer] = useState<{ ids: string[]; message: string } | null>(null);
+  const activer = useCallback((ids: string[], actif: boolean, confirmer = false) => {
     setErreur(null);
     start(async () => {
-      const r = await changerActivationArticlesResto(ids, actif);
-      if (estErreur(r)) setErreur(r.erreur); else setSelection(new Set());
+      const r = await changerActivationArticlesResto(ids, actif, confirmer);
+      if (estErreur(r)) { setErreur(r.erreur); return; }
+      if ("aConfirmer" in r && r.aConfirmer) { setAConfirmer({ ids, message: r.message ?? "" }); return; }
+      setAConfirmer(null);
+      setSelection(new Set());
     });
   }, []);
   const nbCol = jours.length + (estDirection ? 7 : 5);
@@ -95,6 +101,16 @@ export function RestaurantGrille({
           <input name="stockBaseJournalier" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock de base" className="rounded border border-input bg-background px-2 py-1" />
           <button disabled={isPending} className="rounded-md bg-primary px-3 py-1 font-medium text-primary-foreground disabled:opacity-50">Ajouter</button>
         </form>
+      )}
+
+      {aConfirmer && (
+        <div role="alertdialog" aria-label="Confirmer la désactivation" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p>{aConfirmer.message}</p>
+          <div className="flex flex-wrap gap-2">
+            <button disabled={isPending} onClick={() => activer(aConfirmer.ids, false, true)} className="rounded-md bg-amber-700 px-3 py-1 font-medium text-white hover:bg-amber-800 disabled:opacity-50">Désactiver quand même</button>
+            <button onClick={() => setAConfirmer(null)} className="rounded-md border px-3 py-1 hover:bg-accent">Annuler</button>
+          </div>
+        </div>
       )}
 
       {estDirection && selection.size > 0 && (
