@@ -94,6 +94,7 @@ const { default: ScanPage } = await import("./page");
 const { default: MotDePassePage } = await import("@/app/espace/mot-de-passe/page");
 const { changerMonMotDePasse } = await import("@/app/espace/actions");
 const { login } = await import("@/app/login/actions");
+const { LoginForm } = await import("@/app/login/login-form");
 
 /** L'adresse d'une redirection, telle quelle (non décodée). */
 async function destination(fn: () => Promise<unknown>): Promise<string> {
@@ -296,5 +297,29 @@ describe("journal du changement de mot de passe", () => {
     await destination(() => changerMonMotDePasse(formulaire("nouveau-secret")));
     expect(S.journal).toEqual([]);
     expect(S.motsDePasse).toEqual([]);
+  });
+});
+
+describe("connexion depuis un scan : pré-remplie par le téléphone, gros bouton", () => {
+  const formulaireConnexion = (retour: string | null) => renderToStaticMarkup(createElement(LoginForm, { retour }));
+
+  it("identifiant et mot de passe annoncés au gestionnaire de mots de passe", () => {
+    const html = formulaireConnexion("/scan?c=X");
+    expect(html).toMatch(/name="email"[^>]*autoComplete="username"|autoComplete="username"[^>]*name="email"/i);
+    expect(html).toMatch(/autoComplete="current-password"/i);
+    expect(html).toContain('name="retour" value="/scan?c=X"');
+  });
+
+  it("champs en 16 px et bouton pleine largeur quand on vient d'un scan", () => {
+    const html = formulaireConnexion("/scan?c=X");
+    expect(html).toContain("min-h-12 w-full py-3 text-base");
+    expect(html).toContain("Votre matricule");
+    expect(html).not.toMatch(/sm:text-sm/);
+  });
+
+  it("connexion ordinaire (Direction, bureau) : inchangée", () => {
+    const html = formulaireConnexion(null);
+    expect(html).not.toContain("min-h-12");
+    expect(html).not.toContain('name="retour"');
   });
 });
