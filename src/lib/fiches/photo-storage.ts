@@ -106,6 +106,20 @@ export async function supprimerPhoto(ids: IdentifiantsSupabase, chemin: string):
   }
 }
 
+/**
+ * Lit une photo du bucket PRIVÉ, côté serveur, avec la clé de service — pour l'embarquer dans un
+ * document (PDF de la fiche). Jamais d'URL publique ni signée : les octets ne quittent le serveur
+ * qu'à l'intérieur du document, derrière la garde de la route qui le produit.
+ * `null` si l'objet est introuvable ou illisible (la fiche s'imprime alors sans sa photo, en le disant).
+ */
+export async function lirePhoto(ids: IdentifiantsSupabase, chemin: string): Promise<Buffer | null> {
+  const res = await fetch(`${ids.base}/storage/v1/object/authenticated/${BUCKET_PHOTOS_FICHES}/${chemin.split("/").map(encodeURIComponent).join("/")}`, {
+    headers: { apikey: ids.key, Authorization: `Bearer ${ids.key}` },
+  });
+  if (!res.ok) return null;
+  return Buffer.from(await res.arrayBuffer());
+}
+
 /** URL privée telle qu'enregistrée en base — servie par /fichiers/[...chemin] (session obligatoire). */
 export function urlPriveeDe(chemin: string): string {
   return `/fichiers/${chemin}`;
