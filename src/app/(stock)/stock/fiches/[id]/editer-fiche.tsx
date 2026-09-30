@@ -105,6 +105,10 @@ export function EditerFiche({
     return !o || o.articleId !== l.articleId || o.sousFicheId !== l.sousFicheId || o.unite !== l.unite || o.quantite !== l.quantite;
   };
   const modifiees = lignes.filter(ligneModifiee);
+  // Le PDF est celui de la fiche ENREGISTRÉE : tant qu'une modification (entête ou ingrédient) n'est
+  // pas enregistrée, il ne montrerait pas ce que l'on voit à l'écran — les boutons PDF attendent.
+  const enteteModifiee = CHAMPS_ENTETE.some((k) => ent[k] !== vue[k]);
+  const nonEnregistre = modifiees.length > 0 || enteteModifiee || lignes.length !== vue.lignes.length;
 
   const run = (fn: () => Promise<unknown>, apres?: () => void) => {
     setErreur(null);
@@ -201,23 +205,10 @@ export function EditerFiche({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* PDF de la fiche ENREGISTRÉE (une modification en cours n'y figure qu'une fois enregistrée).
-              Aperçu dans la visionneuse maison, d'où l'on télécharge : jamais un lien qui ferait
-              quitter l'application installée. */}
-          <ApercuDocumentBouton
-            href={`/stock/fiches/pdf?ids=${encodeURIComponent(vue.id)}&prix=avec`}
-            titre={`Fiche technique — ${vue.nom}`}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            PDF
-          </ApercuDocumentBouton>
-          <ApercuDocumentBouton
-            href={`/stock/fiches/pdf?ids=${encodeURIComponent(vue.id)}&prix=sans`}
-            titre={`Fiche technique — ${vue.nom} (sans prix)`}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            PDF sans prix
-          </ApercuDocumentBouton>
+          {/* PDF de la fiche ENREGISTRÉE, en aperçu dans la visionneuse maison d'où l'on télécharge :
+              jamais un lien qui ferait quitter l'application installée. */}
+          <BoutonPdfFiche id={vue.id} nom={vue.nom} avecPrix nonEnregistre={nonEnregistre} />
+          <BoutonPdfFiche id={vue.id} nom={vue.nom} avecPrix={false} nonEnregistre={nonEnregistre} />
           <button onClick={dupliquer} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">⧉ Dupliquer</button>
           <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>
         </div>
@@ -479,6 +470,37 @@ export function EditerFiche({
 }
 
 // ─── Sous-composants ─────────────────────────────────────────────────────────
+
+/** Champs de l'entête comparés à la version enregistrée (la photo s'enregistre à part, tout de suite). */
+const CHAMPS_ENTETE = [
+  "nom", "categorie", "type", "nbPortions", "tauxTVA", "coefficientMargeCible", "prixVenteTTC",
+  "estSousRecette", "actif", "rendementQuantite", "rendementUnite", "recette",
+] as const satisfies readonly (keyof FicheVue)[];
+
+/**
+ * Bouton PDF de la fiche (chiffré ou sans prix). Modification en cours : bouton désactivé et
+ * annoté — le PDF montrerait la version enregistrée, pas celle de l'écran.
+ */
+function BoutonPdfFiche({ id, nom, avecPrix, nonEnregistre }: { id: string; nom: string; avecPrix: boolean; nonEnregistre: boolean }) {
+  const cls = "rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50";
+  const libelle = avecPrix ? "PDF" : "PDF sans prix";
+  if (nonEnregistre) {
+    return (
+      <button type="button" disabled className={cls} title="Enregistrez d'abord vos modifications : le PDF reprend la fiche enregistrée.">
+        {libelle} <span className="text-[11px] font-normal">(enregistrez d&apos;abord)</span>
+      </button>
+    );
+  }
+  return (
+    <ApercuDocumentBouton
+      href={`/stock/fiches/pdf?ids=${encodeURIComponent(id)}&prix=${avecPrix ? "avec" : "sans"}`}
+      titre={`Fiche technique — ${nom}${avecPrix ? "" : " (sans prix)"}`}
+      className={cls}
+    >
+      {libelle}
+    </ApercuDocumentBouton>
+  );
+}
 
 /**
  * Photo du plat : sert de référence de dressage pour la cuisine, en haut de la fiche — la même
