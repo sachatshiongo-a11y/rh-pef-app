@@ -36,8 +36,9 @@ const texteDe = (v: number | null) => (v === null ? "" : String(v));
 // par l'article, la désignation et le fournisseur (½ rem chacun) — la rangée garde son minimum de
 // 55 rem et tient sous le seuil de 56 rem, donc à 1280 px avec le menu latéral.
 const COLONNES = "@4xl:grid-cols-[minmax(8.5rem,1.6fr)_minmax(7.5rem,1.4fr)_4rem_6.5rem_4.5rem_5rem_7.5rem_minmax(6.5rem,1.2fr)_2rem]";
-// Carte : qté et PU cèdent ½ rem chacune au montant, qui porte désormais sa devise (44 px) à côté.
-const PISTES = "grid-cols-[3.5rem_1rem_4rem_minmax(0,1fr)_2.75rem]";
+// Carte : qté, « × » et PU cèdent 1¼ rem au montant, qui porte désormais sa devise (44 px) à côté :
+// « 1500000 » en gras tient à 375 px (relevé à l'écran).
+const PISTES = "grid-cols-[3.5rem_0.75rem_4rem_minmax(0,1fr)_2.75rem]";
 // `order` : l'ordre du DOM est celui du tableur (Tab) ; la carte réordonne à l'œil.
 const PLACE = {
   article: "order-1 col-span-3 @4xl:order-none @4xl:col-span-1",
@@ -52,6 +53,8 @@ const PLACE = {
 };
 // Cibles de 44 px sur la carte ; densité tableur (hauteur naturelle) sur la liste large.
 const champ = `${inp} h-11 w-full min-w-0 @4xl:h-auto`;
+// Montant : marges intérieures resserrées sur la carte (la devise le suit, collée à droite).
+const champMontant = champ.replace("px-2", "pl-1.5 pr-1 @4xl:px-2");
 
 // Lignes contrôlées : article du CATALOGUE (désignation/unité reprises) ou ÉCRITURE LIBRE
 // (nouvel article, créé automatiquement au catalogue dans le domaine choisi).
@@ -207,13 +210,14 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
           <span className="text-muted-foreground">Date de l&apos;achat</span>
           <input type="date" name="date" value={date} max={aujourdhui} required onChange={(e) => setDate(e.target.value)} className={inp} />
         </label>
-        <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+        {/* Largeur plancher (hors téléphone) : sinon la devise par défaut et le taux l'écrasent à 1280 px. */}
+        <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm sm:min-w-[16rem]">
           <span className="text-muted-foreground">Origine / libellé (optionnel)</span>
           <input name="origine" placeholder="Liste d'achat semaine…" className={inp} />
         </label>
         <div className="text-sm">
           {/* Défaut seulement : chaque ligne porte sa devise (bascule USD / FC à côté de son montant). Rien n'est envoyé d'ici. */}
-          <span id="devise-defaut" className="text-muted-foreground">Devise par défaut des nouvelles lignes</span>
+          <span id="devise-defaut" className="block text-muted-foreground">Devise par défaut des nouvelles lignes</span>
           <div role="group" aria-labelledby="devise-defaut" className="mt-1 inline-flex overflow-hidden rounded-md border">
             <button type="button" aria-pressed={deviseDefaut === "USD"} onClick={() => changerDeviseDefaut("USD")} className={`px-3 py-1.5 ${deviseDefaut === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>USD</button>
             <button type="button" aria-pressed={deviseDefaut === "CDF"} onClick={() => changerDeviseDefaut("CDF")} className={`px-3 py-1.5 ${deviseDefaut === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>CDF (FC)</button>
@@ -280,7 +284,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
                     <CelluleNombre ligne={String(i)} col={2} valeur={nombreOuNull(l.montant)} onEnregistrer={(v) => majLigne(i, { montant: texteDe(v) })}
                       onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} placeholder="Montant"
                       title={`Montant payé pour la ligne (${COURT[l.devise]})${l.devise === "CDF" && Number(l.montant) > 0 && taux > 0 ? ` ≈ ${formaterUSD(Number(l.montant) / taux)}` : ""}`}
-                      className={`${champ} rounded-r-none text-right font-semibold placeholder:font-normal @4xl:font-normal`} aria-label={`Montant ${COURT[l.devise]}, ligne ${i + 1}`} />
+                      className={`${champMontant} rounded-r-none text-right font-semibold placeholder:font-normal @4xl:font-normal`} aria-label={`Montant ${COURT[l.devise]}, ligne ${i + 1}`} />
                     <input type="hidden" name="devise" value={l.devise} />
                     <button type="button" data-devise-ligne={l.devise} onClick={() => basculerDevise(i)}
                       aria-label={`Devise de la ligne ${i + 1} : ${l.devise === "USD" ? "dollars (USD)" : "francs (FC)"} — changer en ${l.devise === "USD" ? "francs (FC)" : "dollars (USD)"}`}

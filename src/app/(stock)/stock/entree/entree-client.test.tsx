@@ -141,7 +141,7 @@ describe("Liste d'achat — téléphone : une carte compacte par ligne", () => {
     for (const l of lignes()) {
       expect(classes(l)).toMatch(/\brounded-lg\b/);
       expect(classes(l)).toMatch(/\bborder\b/);
-      expect(classes(l)).toContain("grid-cols-[3.5rem_1rem_4rem_minmax(0,1fr)_2.75rem]");
+      expect(classes(l)).toContain("grid-cols-[3.5rem_0.75rem_4rem_minmax(0,1fr)_2.75rem]");
     }
     const l = lignes()[0];
     const ordre = (nom: string) => Number(/\border-(\d+)\b/.exec(classes(cas(nom)))?.[1]);
