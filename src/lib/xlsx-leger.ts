@@ -13,9 +13,14 @@ export const TAILLE_MAX_CLASSEUR = 60 * 1024 * 1024;
 export const propre = (s: string) => s.replace(/\s+/g, " ").trim();
 export const cleTexte = (s: string) => normTexte(propre(s));
 
-/** Cellule lue : colonne (« B »), texte (null pour un nombre, une date, une case vide), gras, fond. */
-export type CelluleXlsx = { col: string; texte: string | null; gras: boolean; fond: number };
-export type LectureXlsx = { ok: true; feuilles: Map<string, CelluleXlsx[][]> } | { ok: false; erreur: string };
+/**
+ * Cellule lue : colonne (« B »), texte (null pour un nombre, une date, une case vide), gras, fond,
+ * et `nombre` : la valeur numérique d'une cellule nombre — y compris le RÉSULTAT d'une formule
+ * (valeur en cache du classeur), null sinon. Une date Excel est un nombre : à l'appelant de savoir.
+ */
+export type CelluleXlsx = { col: string; texte: string | null; gras: boolean; fond: number; nombre: number | null };
+/** `feuilles` : clé = nom NORMALISÉ ; `noms` : clé normalisée → nom tel qu'écrit sur l'onglet. */
+export type LectureXlsx = { ok: true; feuilles: Map<string, CelluleXlsx[][]>; noms: Map<string, string> } | { ok: false; erreur: string };
 
 export const ILLISIBLE = "Fichier illisible : un classeur Excel (.xlsx) est attendu.";
 
@@ -65,10 +70,11 @@ export async function lireFeuillesXlsx(donnees: ArrayBuffer | Uint8Array, garder
     if (a.Id && a.Target) cibles.set(a.Id, a.Target.startsWith("/") ? a.Target.slice(1) : `xl/${a.Target}`);
   }
   const chemins = new Map<string, string>(); // nom normalisé → chemin
+  const noms = new Map<string, string>(); // nom normalisé → nom de l'onglet
   for (const m of classeur.matchAll(/<sheet\b[^>]*>/g)) {
     const a = attributs(m[0]);
     const chemin = cibles.get(a["r:id"] ?? "");
-    if (a.name && chemin && garder(cleTexte(a.name))) chemins.set(cleTexte(a.name), chemin);
+    if (a.name && chemin && garder(cleTexte(a.name))) { chemins.set(cleTexte(a.name), chemin); noms.set(cleTexte(a.name), a.name); }
   }
 
   const partages = [...((await lireFichier(zip, "xl/sharedStrings.xml")) ?? "").matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => texteRiche(m[1]!));
@@ -92,24 +98,28 @@ export async function lireFeuillesXlsx(donnees: ArrayBuffer | Uint8Array, garder
       for (const c of (r[1] ?? "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const a = attributs(c[1]!);
         const contenu = c[2] ?? "";
-        const v = /<v>([\s\S]*?)<\/v>/.exec(contenu)?.[1];
+        const v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(contenu)?.[1]; // <v xml:space="preserve"> compris
         const texte = a.t === "s" ? (v !== undefined ? partages[Number(v)] ?? null : null)
           : a.t === "inlineStr" ? texteRiche(contenu)
           : a.t === "str" && v !== undefined ? decoder(v)
           : null; // nombre, date, vide : jamais une désignation
+        // Nombre : cellule sans type (ou « n »), valeur en cache comprise (formule). Jamais un booléen
+        // (« b »), une erreur (« e ») ni un texte.
+        const n = (a.t === undefined || a.t === "n") && v !== undefined && v.trim() !== "" ? Number(v) : NaN;
         const xf = xfs[Number(a.s ?? 0)] ?? {};
         cellules.push({
           col: lettres(a.r ?? ""),
           texte: texte !== null && propre(texte) ? propre(texte) : null,
           gras: policesGras[Number(xf.fontId ?? 0)] ?? false,
           fond: Number(xf.fillId ?? 0),
+          nombre: Number.isFinite(n) ? n : null,
         });
       }
       rangees.push(cellules);
     }
     feuilles.set(nom, rangees);
   }
-  return { ok: true, feuilles };
+  return { ok: true, feuilles, noms };
 }
 
 /** Colonne des désignations et index de la rangée d'en-tête (cellule qui commence par « Désignation »). */
