@@ -1,5 +1,6 @@
 // Garde-fou : plus AUCUNE liste déroulante <select> d'articles (ni de fournisseurs) dans l'espace
-// Stock — on choisit en TAPANT le nom (`ChoixRecherche`, demande de la Direction du 2026-09-30 :
+// Stock et dans les composants partagés (les <select> natifs quelle que soit la casse de la balise,
+// `createElement("select")`, et les <datalist>) — on choisit en TAPANT le nom (`ChoixRecherche`, demande de la Direction du 2026-09-30 :
 // « on doit pouvoir taper le nom de l'article pour le trouver dans les listes déroulantes »). Un
 // <select> natif oblige à défiler 1 000 articles.
 //
@@ -16,11 +17,12 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const RACINE = path.resolve(__dirname, "../../../..");
-const STOCK = path.join(RACINE, "src/app/(stock)");
+const RACINES_SCANNEES = [path.join(RACINE, "src/app/(stock)"), path.join(RACINE, "src/components")];
 
 /** Les <select> qui restent : des listes courtes et fermées, jamais un choix d'article ou de fournisseur. */
-const SELECTS_RECENSES: Record<string, { n: number; raison: string }> = {
-  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 1, raison: "domaine du nouvel article (Nourriture / Boisson / Autre)" },
+const NATIFS_RECENSES: Record<string, { n: number; raison: string }> = {
+  "src/app/(stock)/stock/entree/entree-client.tsx": { n: 2, raison: "domaine du nouvel article (Nourriture / Boisson / Autre) + <datalist> des fournisseurs : champ où l'on TAPE déjà (un nom nouveau crée le fournisseur)" },
+  "src/app/(stock)/stock/restaurant/restaurant-client.tsx": { n: 1, raison: "<datalist> des catégories du restaurant : champ où l'on tape déjà" },
   "src/app/(stock)/stock/reconciliation/page.tsx": { n: 1, raison: "filtre de domaine" },
   "src/app/(stock)/stock/journalier/import-classeur.tsx": { n: 1, raison: "« créer » ou « c'est telle fiche » parmi les 1 à 3 fiches proches déjà repérées" },
   "src/app/(stock)/stock/journalier/import-commande.tsx": { n: 1, raison: "6 propositions au plus (articles déjà rapprochés du classeur), pas le catalogue" },
@@ -43,7 +45,10 @@ const SELECTS_RECENSES: Record<string, { n: number; raison: string }> = {
 };
 
 /** Exceptions : <select> qui parlent d'articles, mais pour une poignée de propositions déjà faites. */
-const EXCEPTIONS_ARTICLES = new Set(["src/app/(stock)/stock/journalier/import-commande.tsx"]);
+const EXCEPTIONS_ARTICLES = new Set([
+  "src/app/(stock)/stock/journalier/import-commande.tsx",
+  "src/app/(stock)/stock/entree/entree-client.tsx", // <datalist> des fournisseurs : saisie libre avec suggestions, pas une liste à défiler
+]);
 
 // Un <select> qui parle d'un article, d'un fournisseur ou d'un légume.
 const PARLE_D_ARTICLES = /articleId|fournisseurId|\barticles?\.map|\bfournisseurs?\.map|\bLEGUMES\b|name="(legume|source)"/;
@@ -51,29 +56,40 @@ const PARLE_D_ARTICLES = /articleId|fournisseurId|\barticles?\.map|\bfournisseur
 function fichiers(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
     const p = path.join(dir, n);
-    return statSync(p).isDirectory() ? fichiers(p) : /\.tsx$/.test(n) && !/\.test\.tsx$/.test(n) ? [p] : [];
+    return statSync(p).isDirectory() ? fichiers(p) : /\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n) ? [p] : [];
   });
 }
 const rel = (p: string) => path.relative(RACINE, p).split(path.sep).join("/");
 /** Source sans commentaires (les mots « <select> » des commentaires ne comptent pas). */
 const sansCommentaires = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
-const blocsSelect = (src: string) => sansCommentaires(src).match(/<select[\s\S]*?<\/select>/g) ?? [];
+/**
+ * Éléments natifs de liste dans une source : <select> (balise en toute casse), `createElement("select")`,
+ * <datalist> — chacun avec son contenu, pour y chercher ce dont il parle.
+ */
+const blocsNatifs = (src: string) => {
+  const propre = sansCommentaires(src);
+  return [
+    ...(propre.match(/<select\b[\s\S]*?<\/select>/gi) ?? []),
+    ...(propre.match(/createElement\(\s*["'`]select["'`][\s\S]{0,400}/gi) ?? []),
+    ...(propre.match(/<datalist\b[\s\S]*?<\/datalist>/gi) ?? []),
+  ];
+};
 
-const tous = fichiers(STOCK).map(rel);
-const nbSelects = (f: string) => blocsSelect(readFileSync(path.join(RACINE, f), "utf8")).length;
+const tous = RACINES_SCANNEES.flatMap(fichiers).map(rel);
+const nbSelects = (f: string) => blocsNatifs(readFileSync(path.join(RACINE, f), "utf8")).length;
 
 describe("garde-fou : plus de liste déroulante d'articles ni de fournisseurs dans le Stock", () => {
-  it("chaque <select> du Stock est recensé (nombre exact), avec sa raison", () => {
+  it("chaque <select> / <datalist> du Stock et des composants est recensé (nombre exact), avec sa raison", () => {
     const relevé: Record<string, number> = {};
     for (const f of tous) { const n = nbSelects(f); if (n > 0) relevé[f] = n; }
-    const attendu = Object.fromEntries(Object.entries(SELECTS_RECENSES).map(([f, v]) => [f, v.n]));
+    const attendu = Object.fromEntries(Object.entries(NATIFS_RECENSES).map(([f, v]) => [f, v.n]));
     expect(relevé).toEqual(attendu);
   });
 
   it("aucun <select> ne propose des articles, des fournisseurs ou des légumes (sauf exceptions nommées)", () => {
     const fautifs: string[] = [];
     for (const f of tous) {
-      for (const bloc of blocsSelect(readFileSync(path.join(RACINE, f), "utf8"))) {
+      for (const bloc of blocsNatifs(readFileSync(path.join(RACINE, f), "utf8"))) {
         if (PARLE_D_ARTICLES.test(bloc) && !EXCEPTIONS_ARTICLES.has(f)) fautifs.push(`${f} : ${bloc.slice(0, 90).replace(/\s+/g, " ")}…`);
       }
     }
@@ -82,17 +98,22 @@ describe("garde-fou : plus de liste déroulante d'articles ni de fournisseurs da
 
   it("les exceptions nommées existent encore et ont encore un <select> d'articles (sinon les retirer)", () => {
     for (const f of EXCEPTIONS_ARTICLES) {
-      expect(f in SELECTS_RECENSES, f).toBe(true);
-      expect(blocsSelect(readFileSync(path.join(RACINE, f), "utf8")).some((b) => PARLE_D_ARTICLES.test(b)), f).toBe(true);
+      expect(f in NATIFS_RECENSES, f).toBe(true);
+      expect(blocsNatifs(readFileSync(path.join(RACINE, f), "utf8")).some((b) => PARLE_D_ARTICLES.test(b)), f).toBe(true);
     }
   });
 
   it("l'heuristique reconnaît un <select> d'articles, et seulement lui", () => {
     const article = '<select value={l.articleId}>{articles.map((a) => <option key={a.id}>{a.designation}</option>)}</select>';
     const motif = '<select name="motif"><option value="PERTE">Perte</option></select>';
-    expect(PARLE_D_ARTICLES.test(blocsSelect(article)[0]!)).toBe(true);
-    expect(PARLE_D_ARTICLES.test(blocsSelect(motif)[0]!)).toBe(false);
-    expect(blocsSelect("// <select>\n/* <select> */ <div/>")).toHaveLength(0);
+    expect(PARLE_D_ARTICLES.test(blocsNatifs(article)[0]!)).toBe(true);
+    expect(PARLE_D_ARTICLES.test(blocsNatifs(motif)[0]!)).toBe(false);
+    expect(blocsNatifs("// <select>\n/* <select> */ <div/>")).toHaveLength(0);
+    // Variantes qui ne doivent pas échapper : casse de la balise, createElement, datalist.
+    expect(blocsNatifs('<SELECT name="articleId"><option/></SELECT>')).toHaveLength(1);
+    expect(PARLE_D_ARTICLES.test(blocsNatifs('h("select", { name: "articleId" }, options)')[0] ?? "")).toBe(false); // seul createElement est reconnu…
+    expect(PARLE_D_ARTICLES.test(blocsNatifs('createElement("select", { name: "articleId" })')[0]!)).toBe(true);
+    expect(PARLE_D_ARTICLES.test(blocsNatifs("<datalist id=\"x\">{articles.map((a) => <option value={a.designation} />)}</datalist>")[0]!)).toBe(true);
   });
 
   it("le champ partagé existe et n'envoie jamais le texte tapé (aucun `name` sur le champ visible)", () => {

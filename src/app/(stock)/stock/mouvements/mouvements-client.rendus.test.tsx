@@ -7,8 +7,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+const { mouvementManuel } = vi.hoisted(() => ({ mouvementManuel: vi.fn(async (..._a: unknown[]) => undefined) }));
 vi.mock("./actions", () => ({
-  mouvementManuel: vi.fn(async () => undefined), supprimerMouvement: vi.fn(async () => undefined), supprimerMouvementsEnLot: vi.fn(async () => undefined),
+  mouvementManuel, supprimerMouvement: vi.fn(async () => undefined), supprimerMouvementsEnLot: vi.fn(async () => undefined),
   requalifierSorties: vi.fn(async () => ({ n: 0 })),
 }));
 
@@ -244,3 +245,20 @@ describe("mouvements — choisir l'article d'une sortie en tapant son nom", () =
     expect(ev.defaultPrevented).toBe(true);
   });
 });
+
+describe("mouvements — après l'envoi, les articles des lignes sont remis à zéro avec la quantité", () => {
+  it("le formulaire se vide : article (texte ET champ caché) revient à « — article — », comme le reste du formulaire", async () => {
+    monter();
+    await choisirArticle(0, "sel");
+    await choisirArticle(1, "vin");
+    await act(async () => { conteneur.querySelector("form")!.requestSubmit(); });
+    await vi.waitFor(() => expect(mouvementManuel).toHaveBeenCalledTimes(1));
+    expect((mouvementManuel.mock.calls[0]![0] as FormData).getAll("articleId")).toEqual(["sel", "vin", ""]); // l'envoi porte bien les deux articles
+    await vi.waitFor(() => {
+      expect(ligne(0).value).toBe("");
+      expect(valeurChoisie(ligne(0))).toBe("");
+      expect(valeurChoisie(ligne(1))).toBe("");
+    });
+  });
+});
+

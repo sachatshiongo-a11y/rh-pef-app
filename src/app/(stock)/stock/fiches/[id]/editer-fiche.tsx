@@ -370,7 +370,7 @@ export function EditerFiche({
         {/* Ajout d'une ligne */}
         <form action={ajouter} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
           <label className={champ}>Article ou sous-recette
-            <ChoixRecherche options={optionsSource} name="source" required value={nouvelle.source} vide="— choisir —" onChange={(v) => setNouvelle({ ...nouvelle, source: v })} className={`${inp} w-72 max-w-full text-foreground`} />
+            <ChoixRecherche options={optionsSource} name="source" required value={nouvelle.source} vide="— choisir —" onChange={(v) => setNouvelle({ ...nouvelle, source: v })} aria-label="Article ou sous-recette à ajouter" className={`${inp} w-72 max-w-full text-foreground`} />
           </label>
           <label className={champ}>Unité
             <input name="unite" required value={nouvelle.unite} onChange={(e) => setNouvelle({ ...nouvelle, unite: e.target.value })} placeholder="g, cl, pièce…" className={`${inp} w-28 text-foreground`} />

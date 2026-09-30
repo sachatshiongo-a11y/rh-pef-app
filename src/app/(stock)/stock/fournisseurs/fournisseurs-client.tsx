@@ -27,8 +27,13 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
 
   const tries = useMemo(() => [...fournisseurs].sort((a, b) => a.nom.localeCompare(b.nom, "fr")), [fournisseurs]);
   // Fusion : l'autre fournisseur choisi est retiré de la liste (il ne peut pas se fusionner avec lui-même).
-  const optionsSource = useMemo(() => optionsFournisseurs(tries.filter((f) => f.id !== cible)), [tries, cible]);
-  const optionsCible = useMemo(() => optionsFournisseurs(tries.filter((f) => f.id !== source)), [tries, source]);
+  // Chaque option porte de quoi distinguer deux noms proches : ville, téléphone, nombre d'articles.
+  const distinguables = useMemo(() => tries.map((f) => ({
+    id: f.id, nom: f.nom,
+    detail: [f.ville, f.telephone, f.nbArticles > 0 ? `${f.nbArticles} article${f.nbArticles > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · "),
+  })), [tries]);
+  const optionsSource = useMemo(() => optionsFournisseurs(distinguables.filter((f) => f.id !== cible)), [distinguables, cible]);
+  const optionsCible = useMemo(() => optionsFournisseurs(distinguables.filter((f) => f.id !== source)), [distinguables, source]);
   const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
     startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });

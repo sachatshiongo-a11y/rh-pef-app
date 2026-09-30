@@ -9,12 +9,15 @@
 //  - Liste FERMÉE : Entrée / Maj+Entrée passent au même champ de la ligne d'en-dessous / d'au-dessus
 //    (comme Entrée dans une case du tableur) ; Tab est celui du navigateur ; ↑ ↓ (ou Alt+↓) ouvrent
 //    la liste. Entrée n'envoie JAMAIS un formulaire.
-//  - Liste OUVERTE : ↑ ↓ parcourent, Entrée choisit, Échap ferme (sans rien changer), Tab choisit
-//    l'option en surbrillance quand on a tapé quelque chose (puis passe au champ suivant). Un clic ou
-//    un appui ailleurs ferme et rétablit le choix d'avant : une frappe sans choix ne change rien.
+//  - Liste OUVERTE : ↑ ↓ parcourent, Entrée choisit, Échap ferme (sans rien changer). Tab ne choisit
+//    que sans ambiguïté : après ↑ ↓, l'option surlignée ; après une frappe, le résultat UNIQUE ou celui
+//    dont le libellé est exactement ce qui est tapé ; texte effacé et champ non obligatoire, « aucun ».
+//    Sinon Tab ne choisit rien et le champ revient à son choix d'avant (Entrée reste le geste explicite).
+//    Un clic ou un appui ailleurs ferme et rétablit le choix d'avant : une frappe sans choix ne change rien.
 //  - Même VALEUR qu'un <select> : `value` + `onChange(id)` (contrôlé), ou `defaultValue` (libre) ;
 //    avec `name`, un champ caché porte l'id — « » pour « aucun ». Le champ visible n'a jamais de
-//    `name` : le texte tapé ne part jamais au serveur.
+//    `name` : le texte tapé ne part jamais au serveur. En mode libre, le champ suit la remise à zéro
+//    du formulaire (événement `reset`, que React 19 provoque après une action) : il retrouve `defaultValue`.
 //  - UNE liste partagée (`options`) : le composant ne la recopie pas ; son index normalisé est
 //    mémorisé par identité de tableau. `extras` = options propres à UNE ligne (« Créer… », « Ignorer »,
 //    proches), listées en tête. La liste rendue n'existe que tant qu'elle est ouverte, et au plus
@@ -30,6 +33,7 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { filtrerOptions, motsDe, optionParId, type OptionChoix } from "@/lib/recherche-options";
+import { normTexte } from "@/lib/texte";
 
 const LIMITE = 200;
 
@@ -85,6 +89,8 @@ export const ChoixRecherche = memo(function ChoixRecherche({
   const selectionAuClic = useRef(false);
   /** Un appui (souris ou doigt) est en cours DANS la liste : le champ peut perdre le focus sans que la liste se ferme (iOS). */
   const appuiDansListe = useRef(false);
+  /** ↑ ↓ ont déplacé la surbrillance depuis l'ouverture (sans frappe) : Tab choisit alors l'option surlignée. */
+  const aNavigue = useRef(false);
 
   const [interne, setInterne] = useState(defaultValue ?? "");
   const valeur = value ?? interne;
@@ -93,6 +99,10 @@ export const ChoixRecherche = memo(function ChoixRecherche({
   const [saisie, setSaisie] = useState<string | null>(null);
   const [actif, setActif] = useState(0);
   const [place, setPlace] = useState<Place | null>(null);
+  // Région « N résultats » lue par les lecteurs d'écran : montée en permanence (une région vivante
+  // annonce ce qui CHANGE, pas ce qui apparaît avec elle), hors du <label> éventuel (portail).
+  const [monte, setMonte] = useState(false);
+  useEffect(() => { setMonte(true); }, []);
 
   const optionChoisie = useMemo(
     () => (valeur === "" ? undefined : (extras && optionParId(extras, valeur)) || optionParId(options, valeur)),
@@ -112,7 +122,28 @@ export const ChoixRecherche = memo(function ChoixRecherche({
     return { affiches: tout.slice(0, LIMITE), reste: Math.max(0, tout.length - LIMITE) };
   }, [ouvert, saisie, options, extras, vide]);
 
+  const total = affiches.length + reste;
+  // Options consécutives d'un même groupe, dans l'ordre (les options sans groupe forment leur propre bloc).
+  const blocs = useMemo(() => {
+    const l: { groupe: string | undefined; items: { o: OptionChoix; i: number }[] }[] = [];
+    affiches.forEach((o, i) => {
+      const dernier = l[l.length - 1];
+      if (dernier && dernier.groupe === o.groupe) dernier.items.push({ o, i });
+      else l.push({ groupe: o.groupe, items: [{ o, i }] });
+    });
+    return l;
+  }, [affiches]);
+
   const fermer = useCallback(() => { setOuvert(false); setSaisie(null); }, []);
+  // Mode libre : la remise à zéro du formulaire (React 19 la provoque après une action) rend le choix
+  // initial, comme pour une liste déroulante native ; le champ caché suivrait, l'affichage aussi.
+  useEffect(() => {
+    const formulaire = champ.current?.form;
+    if (!formulaire || value !== undefined) return;
+    const raz = () => { setInterne(defaultValue ?? ""); fermer(); };
+    formulaire.addEventListener("reset", raz);
+    return () => formulaire.removeEventListener("reset", raz);
+  }, [value, defaultValue, fermer]);
   const choisir = (o: OptionChoix) => {
     if (o.id !== valeur) {
       setInterne(o.id);
@@ -124,6 +155,7 @@ export const ChoixRecherche = memo(function ChoixRecherche({
   // À l'ouverture : l'option choisie est en surbrillance (la première sinon, et toujours la première
   // quand l'ouverture vient d'une frappe).
   useEffect(() => {
+    aNavigue.current = false;
     if (ouvert) setActif(saisie === null ? Math.max(0, affiches.findIndex((o) => o.id === valeur)) : 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seulement à l'ouverture
   }, [ouvert]);
@@ -198,6 +230,16 @@ export const ChoixRecherche = memo(function ChoixRecherche({
     };
   }, [ouvert, fermer]);
 
+  /** Ce que Tab choisit, liste ouverte : voir l'en-tête du fichier. */
+  const choixAuTab = (): OptionChoix | null => {
+    if (saisie === null) return aNavigue.current ? affiches[actif] ?? null : null;
+    const tape = saisie.replace(/\s+/g, " ").trim();
+    if (tape === "") return vide !== undefined && !required ? { id: "", libelle: vide } : null;
+    const exacte = affiches.find((o) => o.id !== "" && normTexte(o.libelle).replace(/\s+/g, " ").trim() === normTexte(tape));
+    if (exacte) return exacte;
+    return affiches.length === 1 && reste === 0 ? affiches[0] : null;
+  };
+
   const surClavier = (e: KeyboardEvent<HTMLInputElement>) => {
     selectionAuClic.current = false;
     if (e.nativeEvent.isComposing) return;
@@ -207,7 +249,7 @@ export const ChoixRecherche = memo(function ChoixRecherche({
       case "ArrowUp":
         e.preventDefault();
         if (!ouvert) setOuvert(true);
-        else if (!e.altKey && n > 0) setActif((a) => (e.key === "ArrowDown" ? Math.min(a + 1, n - 1) : Math.max(a - 1, 0)));
+        else if (!e.altKey && n > 0) { aNavigue.current = true; setActif((a) => (e.key === "ArrowDown" ? Math.min(a + 1, n - 1) : Math.max(a - 1, 0))); }
         return;
       case "Enter":
         e.preventDefault(); // jamais d'envoi du formulaire par Entrée
@@ -221,11 +263,13 @@ export const ChoixRecherche = memo(function ChoixRecherche({
       case "Escape":
         if (ouvert) { e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopPropagation(); fermer(); } // ni fenêtre ni tiroir ne se ferme avec
         return;
-      case "Tab":
-        // Quelque chose a été tapé et la liste propose : on garde l'option en surbrillance.
-        if (ouvert && saisie !== null && saisie.trim() !== "" && affiches[actif]) choisir(affiches[actif]);
-        else if (ouvert) fermer();
+      case "Tab": {
+        if (!ouvert) return;
+        // Tab ne choisit que sans ambiguïté ; sinon la liste se ferme et le choix d'avant revient.
+        const cible = choixAuTab();
+        if (cible) choisir(cible); else fermer();
         return;
+      }
     }
   };
 
@@ -284,6 +328,12 @@ export const ChoixRecherche = memo(function ChoixRecherche({
         onBlur={surBlur}
       />
       {name && <input type="hidden" name={name} value={valeur} disabled={disabled} />}
+      {monte && createPortal(
+        <span role="status" className="sr-only" data-choix-etat="">
+          {ouvert ? (affiches.length === 0 ? "Aucun résultat" : `${total} résultat${total > 1 ? "s" : ""}`) : ""}
+        </span>,
+        document.body
+      )}
       {ouvert && typeof document !== "undefined" && createPortal(
         <>
           <div
@@ -297,15 +347,14 @@ export const ChoixRecherche = memo(function ChoixRecherche({
             onPointerDown={() => { appuiDansListe.current = true; }}
             className="z-[70] overflow-y-auto overscroll-contain rounded-md border bg-popover text-sm text-popover-foreground shadow-lg"
           >
-            {affiches.map((o, i) => (
-              <div key={`${o.id}|${i}`}>
-                {/* Titre quand le groupe change ; filet quand on sort d'un groupe vers des options sans groupe. */}
-                {i > 0 || o.groupe ? (o.groupe !== affiches[i - 1]?.groupe && (
-                  o.groupe
-                    ? <div role="presentation" className="bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{o.groupe}</div>
-                    : <div role="presentation" className="border-t" />
-                )) : null}
+            {/* Nombre de résultats, sous la frappe (il y a de quoi choisir, ou pas) */}
+            {saisie !== null && saisie.trim() !== "" && affiches.length > 0 && (
+              <div role="presentation" className="border-b px-2 py-1 text-xs text-muted-foreground">{total} résultat{total > 1 ? "s" : ""}</div>
+            )}
+            {blocs.map((b, k) => {
+              const options = b.items.map(({ o, i }) => (
                 <div
+                  key={`${o.id}|${i}`}
                   id={`${uid}-o${i}`}
                   role="option"
                   aria-selected={o.id === valeur}
@@ -318,8 +367,20 @@ export const ChoixRecherche = memo(function ChoixRecherche({
                   <span className="min-w-0 break-words">{o.libelle}</span>
                   {o.detail && <span className="shrink-0 text-xs text-muted-foreground">{o.detail}</span>}
                 </div>
-              </div>
-            ))}
+              ));
+              // Groupe nommé : un vrai groupe, annoncé par son titre. Options sans groupe : un filet les sépare du groupe d'avant.
+              return b.groupe ? (
+                <div key={`g${k}`} role="group" aria-labelledby={`${uid}-g${k}`}>
+                  <div id={`${uid}-g${k}`} className="bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{b.groupe}</div>
+                  {options}
+                </div>
+              ) : (
+                <div key={`g${k}`}>
+                  {k > 0 && <div role="presentation" className="border-t" />}
+                  {options}
+                </div>
+              );
+            })}
             {affiches.length === 0 && (
               <div role="presentation" className="px-2 py-2 text-muted-foreground">Aucun résultat{saisie?.trim() ? ` pour « ${saisie.trim()} »` : ""}.</div>
             )}
@@ -327,9 +388,6 @@ export const ChoixRecherche = memo(function ChoixRecherche({
               <div role="presentation" className="px-2 py-1.5 text-xs text-muted-foreground">… et {reste} autre{reste > 1 ? "s" : ""} : tapez pour préciser.</div>
             )}
           </div>
-          <span role="status" className="sr-only">
-            {affiches.length === 0 ? "Aucun résultat" : `${affiches.length + reste} résultat${affiches.length + reste > 1 ? "s" : ""}`}
-          </span>
         </>,
         document.body
       )}

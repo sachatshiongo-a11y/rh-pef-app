@@ -170,6 +170,80 @@ describe("clavier, liste ouverte", () => {
     expect(listeOuverte()).toBeNull();
   });
 
+  describe("Tab : ne choisit que sans ambiguïté", () => {
+    const AMBIGUES: OptionChoix[] = [{ id: "b1", libelle: "Bacardi blanc-1l" }, { id: "b2", libelle: "Bacardi blanc-1l XL" }, { id: "b3", libelle: "Bacardi Carta Oro" }];
+
+    it("plusieurs résultats et aucun libellé exact : rien n'est choisi, le champ revient à son choix d'avant", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, initial: "b3", onChange }));
+      await taperChoix(champ(), "bacardi");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(listeOuverte()).toBeNull();
+      expect(champ().value).toBe("Bacardi Carta Oro");
+    });
+
+    it("plusieurs résultats mais la saisie est exactement un libellé (accents et casse ignorés) : celui-là", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, onChange }));
+      await taperChoix(champ(), "BACARDI  blanc-1L");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("b1");
+    });
+
+    it("un seul résultat : choisi (c'est la seule réponse possible)", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, onChange }));
+      await taperChoix(champ(), "carta");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("b3");
+    });
+
+    it("texte EFFACÉ, champ non obligatoire : Tab choisit « aucun » (retire l'article)", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { initial: "a2", vide: "— libre —", onChange }));
+      await taperChoix(champ(), "");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("");
+      expect(valeurChoisie(champ())).toBe("");
+    });
+
+    it("texte effacé mais champ obligatoire (ou sans option « aucun ») : le choix d'avant revient", async () => {
+      const onChange = vi.fn();
+      monter(h("form", null, h(ChoixRecherche, { options: OPTIONS, name: "x", defaultValue: "a2", vide: "— choisir —", required: true, onChange, "aria-label": "Article" })));
+      await taperChoix(champ(), "");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).not.toHaveBeenCalled();
+      expect(champ().value).toBe("Crème fraîche 1L");
+      await taperChoix(champ(), ""); // sans `vide` non plus
+    });
+
+    it("après ↓ sans frappe : Tab choisit l'option surlignée, comme Entrée ; sans ↓, il ne change rien", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { initial: "a1", onChange }));
+      await ouvrirChoix(champ());
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).not.toHaveBeenCalled();
+      await ouvrirChoix(champ());
+      await toucheChoix(champ(), "ArrowDown"); // a1 → a2
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("a2");
+    });
+  });
+
+  it("affiche « N résultats » dans la liste pendant la frappe, et la région vivante existe avant l'ouverture", async () => {
+    monter(h(Demo, {}));
+    const region = () => document.querySelector<HTMLElement>('[role="status"][data-choix-etat]')!;
+    expect(region()).not.toBeNull();
+    expect(region().textContent).toBe("");
+    await taperChoix(champ(), "1l");
+    expect(listeOuverte()!.textContent).toContain("2 résultats");
+    expect(region().textContent).toBe("2 résultats");
+    await taperChoix(champ(), "farine");
+    expect(listeOuverte()!.textContent).toContain("1 résultat");
+    expect(listeOuverte()!.textContent).not.toContain("1 résultats");
+  });
+
   it("Entrée sur un résultat déjà choisi ne rappelle pas onChange", async () => {
     const onChange = vi.fn();
     monter(h(Demo, { initial: "a1", onChange }));
@@ -211,8 +285,14 @@ describe("option « aucun » et options propres à la ligne", () => {
     const extras: OptionChoix[] = [{ id: "p1", libelle: "Proche un", groupe: "Proches" }, { id: "creer", libelle: "Créer" }];
     monter(h(Demo, { extras }));
     await ouvrirChoix(champ());
-    const enfants = [...listeOuverte()!.children].map((c) => (c.children.length ? [...c.children].map((x) => x.getAttribute("role") + ":" + (x.textContent || (x.className.includes("border-t") ? "filet" : ""))).join(",") : ""));
-    expect(enfants.slice(0, 2)).toEqual(["presentation:Proches,option:Proche un", "presentation:filet,option:Créer"]);
+    const liste = listeOuverte()!;
+    // Un vrai groupe, nommé par son titre ; puis un filet, puis les options sans groupe.
+    const groupe = liste.querySelector('[role="group"]')!;
+    expect(document.getElementById(groupe.getAttribute("aria-labelledby")!)!.textContent).toBe("Proches");
+    expect([...groupe.querySelectorAll('[role="option"]')].map((o) => (o as HTMLElement).dataset.choixId)).toEqual(["p1"]);
+    const creer = optionsOuvertes().find((o) => o.dataset.choixId === "creer")!;
+    expect(creer.closest('[role="group"]')).toBeNull();
+    expect(creer.parentElement!.querySelector(".border-t")).not.toBeNull();
   });
 
   it("n'apparaît plus dès qu'on tape", async () => {
@@ -388,6 +468,26 @@ describe("formulaire", () => {
     await choisirOption(champ(), "a4");
     await act(async () => { conteneur.querySelector("form")!.requestSubmit(); });
     expect(onSubmit.mock.calls[0][0].get("articleId")).toBe("a4");
+  });
+
+  it("mode libre : la remise à zéro du formulaire (celle de React 19 après une action) rend le choix initial", async () => {
+    monter(h("form", null, h(ChoixRecherche, { options: OPTIONS, name: "articleId", defaultValue: "", vide: "— article —", "aria-label": "Article" })));
+    await choisirOption(champ(), "a3");
+    expect(valeurChoisie(champ())).toBe("a3");
+    await act(async () => { conteneur.querySelector("form")!.reset(); });
+    expect(valeurChoisie(champ())).toBe("");
+    expect(champ().value).toBe("");
+    expect([...new FormData(conteneur.querySelector("form")!).values()]).toEqual([""]);
+  });
+
+  it("mode libre : la remise à zéro rend le defaultValue (pas toujours vide) ; le mode contrôlé n'est pas touché", async () => {
+    monter(h("form", null,
+      h(ChoixRecherche, { options: OPTIONS, name: "libre", defaultValue: "a2", "aria-label": "Libre" }),
+      h(Demo, { initial: "a4" })));
+    await choisirOption(champChoix(conteneur, "Libre"), "a1");
+    await act(async () => { conteneur.querySelector("form")!.reset(); });
+    expect(valeurChoisie(champChoix(conteneur, "Libre"))).toBe("a2");
+    expect(champChoix(conteneur, "Article").value).toBe("Farine de blé"); // contrôlé : la valeur est celle du parent
   });
 
   it("required : le champ visible est invalide tant que rien n'est choisi", async () => {

@@ -47,7 +47,7 @@ beforeEach(() => {
 afterEach(() => { act(() => racine.unmount()); conteneur.remove(); document.body.innerHTML = ""; });
 
 const ligne = () => champChoix(conteneur, "Article ou sous-recette de la ligne");
-const ajout = () => conteneur.querySelector<HTMLInputElement>('input[role="combobox"][data-choix-recherche="source"]:not([aria-label])')!;
+const ajout = () => champChoix(conteneur, "Article ou sous-recette à ajouter");
 
 describe("fiche technique — choisir la source d'une ligne en tapant", () => {
   it("la ligne existante affiche son article ; aucun <select> de source ne subsiste", () => {

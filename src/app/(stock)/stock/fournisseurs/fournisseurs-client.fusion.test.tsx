@@ -16,8 +16,9 @@ const { FournisseursClient } = await import("./fournisseurs-client");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const F = (id: string, nom: string) => ({ id, nom, contactNom: "", telephone: "", ville: "", rccm: "", idNational: "", delaiPaiement: "", delaiLivraison: "", nbArticles: 0 });
-const FOURNISSEURS = [F("f1", "Marché central"), F("f2", "Grossiste Nord"), F("f3", "Marché de la Liberté")];
+const F = (id: string, nom: string, plus: Partial<{ telephone: string; ville: string; nbArticles: number }> = {}) =>
+  ({ id, nom, contactNom: "", telephone: "", ville: "", rccm: "", idNational: "", delaiPaiement: "", delaiLivraison: "", nbArticles: 0, ...plus });
+const FOURNISSEURS = [F("f1", "Marché central", { ville: "Kinshasa", nbArticles: 12 }), F("f2", "Grossiste Nord", { telephone: "+243 81 000 00 00", nbArticles: 1 }), F("f3", "Marché de la Liberté")];
 
 let conteneur: HTMLDivElement;
 let racine: Root;
@@ -50,5 +51,12 @@ describe("fusion de fournisseurs — choisir en tapant", () => {
     await choisirEnTapant(champChoix(conteneur, "Fournisseur à conserver"), "marche central");
     await act(async () => [...conteneur.querySelectorAll("button")].filter((b) => b.textContent === "Fusionner")[0]!.click());
     expect(appels.fusionner).toHaveBeenCalledWith("f2", "f1");
+  });
+
+  it("chaque option porte de quoi distinguer deux noms proches : ville, téléphone, nombre d'articles (ce qui existe)", async () => {
+    await ouvrirFusion();
+    await ouvrirChoix(champChoix(conteneur, "Fournisseur à conserver"));
+    const details = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((o) => [o.dataset.choixId, o.children[1]?.textContent ?? null]);
+    expect(details).toEqual([["", null], ["f2", "+243 81 000 00 00 · 1 article"], ["f1", "Kinshasa · 12 articles"], ["f3", null]]);
   });
 });

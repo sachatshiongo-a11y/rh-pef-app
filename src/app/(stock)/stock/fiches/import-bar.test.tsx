@@ -66,13 +66,10 @@ const select = (label: string) => conteneur.querySelector<HTMLSelectElement>(`se
 const combo = (label: string) => conteneur.querySelector<HTMLInputElement>(`input[role="combobox"][aria-label="${label}"]`)!;
 const valeur = (label: string) => combo(label).dataset.valeur;
 const choisir = (label: string, id: string) => choisirOption(combo(label), id);
-/** Titre du groupe sous lequel une option est listée (l'option et son titre éventuel partagent un même conteneur). */
+/** Titre du groupe (role="group" nommé par aria-labelledby) sous lequel une option est listée. */
 const groupeDe = (option: Element) => {
-  for (let w = option.parentElement; w; w = w.previousElementSibling as HTMLElement | null) {
-    const titre = [...w.children].find((c) => c.getAttribute("role") === "presentation" && c.textContent);
-    if (titre) return titre.textContent;
-  }
-  return null;
+  const g = option.closest('[role="group"]');
+  return g ? document.getElementById(g.getAttribute("aria-labelledby")!)?.textContent ?? null : null;
 };
 const choisirSelect = (s: HTMLSelectElement, v: string) => act(() => { s.value = v; s.dispatchEvent(new Event("change", { bubbles: true })); });
 const ligne = (nom: string) => [...conteneur.querySelectorAll("tbody tr")].find((tr) => tr.querySelector("td .font-medium")?.textContent === nom)!;

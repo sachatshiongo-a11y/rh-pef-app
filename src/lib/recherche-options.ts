@@ -111,7 +111,10 @@ export function optionsArticles(articles: readonly ArticleRecherchable[], opts: 
   }));
 }
 
-/** Options d'un choix de fournisseur (ou de toute liste « id + nom »). Même règle : à calculer une fois par écran. */
-export function optionsFournisseurs(fournisseurs: readonly { id: string; nom: string }[]): OptionChoix[] {
-  return fournisseurs.map((f) => ({ id: f.id, libelle: f.nom }));
+/**
+ * Options d'un choix de fournisseur (ou de toute liste « id + nom »). Même règle : à calculer une fois
+ * par écran. `detail` (ville, téléphone, nombre d'articles…) distingue deux fournisseurs aux noms proches.
+ */
+export function optionsFournisseurs(fournisseurs: readonly { id: string; nom: string; detail?: string }[]): OptionChoix[] {
+  return fournisseurs.map((f) => ({ id: f.id, libelle: f.nom, ...(f.detail ? { detail: f.detail } : {}) }));
 }
