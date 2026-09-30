@@ -99,7 +99,7 @@ describe("photos des fiches pour le PDF", () => {
     });
     // Le compteur redescend quand le décodage est fini (sharp est appelé après la lecture).
     const origine = sharp.prototype.toBuffer;
-    const espion = vi.spyOn(sharp.prototype, "toBuffer").mockImplementation(async function (this: sharp.Sharp, ...args: unknown[]) {
+    const espion = vi.spyOn(sharp.prototype, "toBuffer").mockImplementation(async function (this: ReturnType<typeof sharp>, ...args: unknown[]) {
       try { return await (origine as (...a: unknown[]) => Promise<Buffer>).apply(this, args); } finally { enCours--; }
     } as never);
     const fiches = Array.from({ length: 20 }, (_, i) => ({ id: `f${i}`, photoUrl: `/fichiers/fiches-techniques/f${i}.jpg` }));

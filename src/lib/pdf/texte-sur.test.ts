@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import React from "react";
-import * as fontkit from "fontkit";
+// @ts-expect-error -- fontkit (déjà utilisé par @react-pdf) n'embarque pas ses types ; seul openSync sert ici.
+import * as fontkitBrut from "fontkit";
 import { Document, Page, Text } from "@react-pdf/renderer";
 import { policesDeRepli } from "@/lib/test/pdf-lecture";
 import { renderPdfBuffer } from "./fonts";
@@ -19,10 +20,12 @@ const SONDES = [
   "×", "÷", "✓", "★", "⚠", "🍋", "🍹", " ", " ", "　", " ", " ", "​", "️", "ℓ", "℃", "ª", "º",
 ].join(" ");
 
+const fontkit = fontkitBrut as { openSync(chemin: string): { characterSet: number[] } };
+
 /** Couverture RÉELLE : caractères présents dans les trois fichiers Optima embarqués. */
 function couvertureReelle(): Set<number> {
   const dir = path.join(process.cwd(), "assets/fonts");
-  const polices = ["Optima-Regular.ttf", "Optima-Bold.ttf", "Optima-Italic.ttf"].map((f) => fontkit.openSync(path.join(dir, f)) as fontkit.Font);
+  const polices = ["Optima-Regular.ttf", "Optima-Bold.ttf", "Optima-Italic.ttf"].map((f) => fontkit.openSync(path.join(dir, f)));
   const [premiere, ...autres] = polices.map((p) => new Set(p.characterSet));
   return new Set([...premiere].filter((cp) => autres.every((s) => s.has(cp))));
 }
