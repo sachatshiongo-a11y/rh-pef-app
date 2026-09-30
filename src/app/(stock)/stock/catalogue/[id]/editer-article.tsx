@@ -46,9 +46,10 @@ const texteDe = (v: number | null) => (v === null ? "" : String(v));
  * N'envoie JAMAIS `quantite` : le stock ne se modifie que par un mouvement, l'inventaire (comptage)
  * ou la correction de stock négatif — jamais par ce formulaire.
  */
-export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[] }) {
+export function EditerArticle({ a, categories, fournisseurs, estDirection = true }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[]; estDirection?: boolean }) {
   const [ouvert, setOuvert] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null); // proposition envoyée (hors Direction)
   const [isPending, start] = useTransition();
   // Cases numériques : valeur tenue en state (texte), portée par un champ caché du même nom que
   // lit `modifierArticle` — comme les lignes de la Liste d'achat de légumes.
@@ -68,12 +69,19 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
     start(async () => {
       const r = await modifierArticle(a.id, fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
+      if (r && "message" in r) setInfo(r.message);
       setOuvert(false);
     });
   };
 
   if (!ouvert) {
-    return <button onClick={() => setOuvert(true)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Modifier</button>;
+    // Hors Direction : on PROPOSE une modification (la Direction la valide ou la refuse).
+    return (
+      <>
+        <button onClick={() => { setInfo(null); setOuvert(true); }} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{estDirection ? "Modifier" : "Proposer une modification"}</button>
+        {info && <p className="w-full rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{info}</p>}
+      </>
+    );
   }
 
   return (
@@ -137,8 +145,9 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
         </div>
       </ZoneTableur>
       <p className="mt-2 text-xs text-muted-foreground">Le stock ne se modifie pas ici : il évolue par les mouvements, l&apos;inventaire (comptage) ou la correction d&apos;un stock négatif.</p>
+      {!estDirection && <p className="mt-1 text-xs text-amber-800">Seuls les champs changés sont proposés ; l&apos;article ne change qu&apos;après validation de la Direction.</p>}
       <div className="mt-3 flex items-center gap-2">
-        <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : "Enregistrer"}</button>
+        <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : estDirection ? "Enregistrer" : "Envoyer à la Direction"}</button>
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Annuler</button>
       </div>
     </form>

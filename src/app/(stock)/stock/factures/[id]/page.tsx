@@ -9,6 +9,10 @@ import { EnregistrerPaiement } from "./enregistrer-paiement";
 import { LierBon } from "./lier-bon";
 import { exigerPageStock } from "@/lib/garde-page";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
+import { demandeSurCible } from "@/lib/validations-stock/apercu";
+import { cleFacture } from "@/lib/validations-stock/charge";
+import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
+import { DecisionDemande } from "../../a-valider/decision-demande";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -28,7 +32,10 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   });
   if (!facture) notFound();
 
-  const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+  const [config, demande] = await Promise.all([
+    prisma.config.findUnique({ where: { id: "singleton" } }),
+    demandeSurCible(cleFacture(facture.id)), // paiement en attente de la Direction ?
+  ]);
   const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
   const bc = facture.bonDeCommande;
@@ -74,11 +81,22 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           ? <Link href={`/stock/fournisseurs/${facture.fournisseurId}`} className="text-primary hover:underline">{nom}</Link>
           : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
-          {facture.statut !== "REGLEE" && <MarquerPayeeBtn id={facture.id} />}
-          <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} />
+          {/* Un paiement déjà demandé se DÉCIDE (bloc ci-dessous) : pas de second geste de paiement. */}
+          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} />}
+          {!demande && <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} estDirection={estDirection} />}
           <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
+
+      {demande && (
+        <section className="space-y-2 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+          <p className="text-sm font-semibold text-amber-900">Paiement demandé — en attente de la Direction</p>
+          <p className="text-xs text-amber-900/80">{demande.resume} · demandé par {demande.auteurNom} le {new Date(demande.creeLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}. Rien n&apos;est payé avant sa validation.</p>
+          <AlertesDemande a={demande} />
+          <DetailDemande a={demande} />
+          <DecisionDemande id={demande.id} estDirection={estDirection} estAuteur={demande.auteurId === user.id} dateProposee={demande.paiement?.date} />
+        </section>
+      )}
 
       <div className="grid grid-cols-2 gap-3 rounded-lg border p-4 text-sm sm:grid-cols-4">
         <Info label="N° facture" val={facture.numero ?? "—"} />

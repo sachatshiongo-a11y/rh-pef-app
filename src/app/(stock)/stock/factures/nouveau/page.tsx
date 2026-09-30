@@ -12,7 +12,7 @@ function delaiEnJours(s: string | null): number | null {
 }
 
 export default async function NouvelleFacturePage({ searchParams }: { searchParams: Promise<{ bc?: string }> }) {
-  await exigerPageStock();
+  const user = await exigerPageStock();
   const { bc } = await searchParams;
   const [articles, fournisseurs, bons] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true } }),
@@ -45,6 +45,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
           lignes: b.lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite.toString(), prix: l.prixUnitaireUSD.toString() })),
         }))}
         bcInitial={bc ?? null}
+        estDirection={user.role === "ADMIN"}
       />
     </div>
   );

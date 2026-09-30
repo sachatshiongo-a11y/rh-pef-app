@@ -10,7 +10,6 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
-import type { Prisma } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
 

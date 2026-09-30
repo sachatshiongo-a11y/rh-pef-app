@@ -9,6 +9,10 @@ import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte 
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { demandeSurCible } from "@/lib/validations-stock/apercu";
+import { cleArticle } from "@/lib/validations-stock/charge";
+import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
+import { DecisionDemande } from "../../a-valider/decision-demande";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -32,7 +36,7 @@ export default async function ArticleFichePage({
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
 
-  const [a, categories, fournisseurs] = await Promise.all([
+  const [a, categories, fournisseurs, proposition] = await Promise.all([
     prisma.articleStock.findUnique({
       where: { id },
       include: {
@@ -56,6 +60,7 @@ export default async function ArticleFichePage({
     // Pour le formulaire « Modifier » de la fiche — mêmes listes que l'Inventaire.
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
+    demandeSurCible(cleArticle(id)), // proposition de modification en attente de la Direction ?
   ]);
   if (!a) notFound();
 
@@ -139,6 +144,7 @@ export default async function ArticleFichePage({
             }}
             categories={categories}
             fournisseurs={fournisseurs}
+            estDirection={estDirection}
           />
           {estDirection && (
             <form action={supprimerArticle.bind(null, a.id)}>
@@ -153,6 +159,16 @@ export default async function ArticleFichePage({
         </div>
       </div>
       {sp.erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
+
+      {proposition && (
+        <section className="space-y-2 rounded-lg border border-amber-300 bg-amber-50/60 p-3">
+          <p className="text-sm font-semibold text-amber-900">Modification proposée — en attente de la Direction</p>
+          <p className="text-xs text-amber-900/80">Proposée par {proposition.auteurNom} le {new Date(proposition.creeLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}. L&apos;article garde ses valeurs actuelles tant qu&apos;elle n&apos;est pas validée.</p>
+          <AlertesDemande a={proposition} />
+          <DetailDemande a={proposition} />
+          <DecisionDemande id={proposition.id} estDirection={estDirection} estAuteur={proposition.auteurId === user.id} />
+        </section>
+      )}
 
       {/* Alerte visuelle : le dernier prix d'achat grimpe nettement au-dessus de la moyenne précédente. */}
       {hausse && (

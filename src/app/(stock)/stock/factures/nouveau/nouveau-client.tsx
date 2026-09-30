@@ -27,7 +27,7 @@ type Ligne = { articleId: string; designation: string; unite: string; quantite: 
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", quantite: "", prix: "" });
 
-export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null }) {
+export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, estDirection = true }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null; estDirection?: boolean }) {
   const bon0 = bons.find((b) => b.id === bcInitial) ?? null;
   const lignesDeBon = (b: Bon | null): Ligne[] =>
     b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: l.quantite, prix: l.prix })) : [vide(), vide(), vide()];
@@ -225,10 +225,13 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
           <span className="text-muted-foreground">Échéance (auto selon délai)</span>
           <input name="dateEcheance" type="date" value={echeance} onChange={(e) => setEcheance(e.target.value)} className={inp} />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Déjà réglé (USD)</span>
-          <input name="montantRegleUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
-        </label>
+        {/* Un montant déjà réglé est un paiement : Direction seulement (ailleurs, il se demande depuis la fiche). */}
+        {estDirection && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">Déjà réglé (USD)</span>
+            <input name="montantRegleUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
+          </label>
+        )}
       </div>
 
       <label className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3 text-sm">

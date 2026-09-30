@@ -12,7 +12,7 @@ import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
  * formulaire détaillé « + Paiement / Avoir ». La date est revalidée côté serveur (voir
  * `lireDatePaiement` / `appliquerReglement`) : ce composant ne fait que la proposer.
  */
-export function MarquerPayeeBtn({ id }: { id: string }) {
+export function MarquerPayeeBtn({ id, estDirection = true }: { id: string; estDirection?: boolean }) {
   const [ouvert, setOuvert] = useState(false);
   const [date, setDate] = useState(() => jourKinshasaISO());
   const [isPending, start] = useTransition();
@@ -30,7 +30,8 @@ export function MarquerPayeeBtn({ id }: { id: string }) {
   if (!ouvert) {
     return (
       <div className="flex items-center gap-2">
-        <BoutonValider onClick={() => setOuvert(true)}>Marquer payée</BoutonValider>
+        {/* Hors Direction, le geste DEMANDE le paiement (validé ensuite par la Direction). */}
+        <BoutonValider onClick={() => setOuvert(true)}>{estDirection ? "Marquer payée" : "Demander le paiement"}</BoutonValider>
         {erreur && <span className="text-xs text-destructive">{erreur}</span>}
       </div>
     );
@@ -41,7 +42,7 @@ export function MarquerPayeeBtn({ id }: { id: string }) {
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Date de paiement
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={jourKinshasaISO()} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
       </label>
-      <BoutonValider onClick={confirmer} disabled={isPending}>{isPending ? "…" : "Confirmer"}</BoutonValider>
+      <BoutonValider onClick={confirmer} disabled={isPending}>{isPending ? "…" : estDirection ? "Confirmer" : "Envoyer la demande"}</BoutonValider>
       <BoutonNeutre onClick={() => { setOuvert(false); setErreur(null); }}>Annuler</BoutonNeutre>
       {erreur && <span className="w-full text-xs text-destructive">{erreur}</span>}
     </div>
