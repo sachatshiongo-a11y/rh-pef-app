@@ -98,6 +98,17 @@ describe("« Marquer payée » par le responsable stock : une demande, rien de p
     expect(await etatArgent(g.id)).toMatchObject({ statut: "A_REGLER", paiements: [] });
   }, 60_000);
 
+  it("deux demandes SIMULTANÉES sur la même facture : une seule aboutit (verrou de la facture + clé des cibles)", async () => {
+    const f = await facture();
+    const res = await Promise.all([U.resp, U.autre].map(async (u) => {
+      const { demanderPaiement } = await import("@/lib/validations-stock/demandes");
+      return demanderPaiement({ id: u.id, nom: u.nom, role: "STOCK" }, { mode: "SOLDE", factureId: f.id, dateStr: "2026-09-10" }).then(() => "ok", (e: Error) => e.message);
+    }));
+    expect(res.filter((r) => r === "ok")).toHaveLength(1);
+    expect(res.find((r) => r !== "ok")).toMatch(/déjà en attente|vient d'être déposée/);
+    expect(await demandes()).toHaveLength(1);
+  }, 60_000);
+
   it("la Direction ne paie pas en direct une facture dont le paiement est demandé (pas de double règlement)", async () => {
     const f = await facture();
     en("resp"); await marquerPayee(f.id, "2026-09-10");

@@ -46,7 +46,10 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
       apres?.();
     });
   };
-  const datesDe = (liste: string[]) => Object.fromEntries(liste.filter((id) => dates[id]).map((id) => [id, dates[id]]));
+  // Date de paiement de chaque demande sélectionnée : celle que la Direction a corrigée, sinon la
+  // date proposée (une demande arrivée après l'ouverture de la page n'est pas dans `dates`).
+  const proposee = useMemo(() => new Map(demandes.filter((d) => d.paiement).map((d) => [d.id, d.paiement!.date])), [demandes]);
+  const datesDe = (liste: string[]) => Object.fromEntries(liste.flatMap((id) => { const v = dates[id] ?? proposee.get(id); return v ? [[id, v]] : []; }));
 
   if (demandes.length === 0) {
     return <p className="rounded-lg border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">{estDirection ? "Aucune demande en attente." : "Vous n'avez aucune demande en attente."}</p>;
@@ -108,7 +111,7 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
                     <div className="flex flex-wrap items-end gap-2">
                       {estDirection && d.paiement && (
                         <label className="flex flex-col gap-1 text-xs text-muted-foreground">Date de paiement
-                          <input type="date" value={dates[d.id] ?? ""} max={jourKinshasaISO()} onChange={(e) => setDates((x) => ({ ...x, [d.id]: e.target.value }))} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
+                          <input type="date" value={dates[d.id] ?? d.paiement.date} max={jourKinshasaISO()} onChange={(e) => setDates((x) => ({ ...x, [d.id]: e.target.value }))} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
                         </label>
                       )}
                       {estDirection && refusUn !== d.id && (
