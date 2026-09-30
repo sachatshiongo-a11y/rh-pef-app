@@ -135,20 +135,23 @@ export const MOTIF_LABEL: Record<MotifSansPrix, string> = {
   CYCLE: "Boucle : la recette se contient elle-même",
 };
 
-// `pct` et `coef` servent l'écran ET le PDF des fiches : `formaterNombre` (espaces ordinaires), jamais
-// `toLocaleString("fr-FR")`, dont l'espace fine insécable (U+202F) n'existe pas dans la police des PDF
-// — un taux de marge de 1 150 % d'un cocktail sortirait « barré ».
+// `pct` et `coef` servent l'écran ET le PDF des fiches. Jamais `toLocaleString("fr-FR")`, dont
+// l'espace fine insécable (U+202F) n'existe pas dans la police des PDF (un taux de marge de
+// 1 150 % d'un cocktail sortirait « barré ») : `formaterNombre`, puis l'espace INSÉCABLE ordinaire
+// (U+00A0) — l'écran ne coupe jamais « 1 150 % » en fin de ligne, et Optima possède ce caractère
+// (le PDF le ramène de toute façon à une espace simple, par `texteSurPdf`).
+const insecable = (s: string) => s.replace(/ /g, "\u00A0");
 
 /** Ratio (0,875) → « 87,5 % ». Ce n'est PAS un montant : ni `usd()` ni `arrondirCentime` ici. */
 export function pct(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  return `${formaterNombre(v * 100, { maximumFractionDigits: 1 })} %`;
+  return insecable(`${formaterNombre(v * 100, { maximumFractionDigits: 1 })} %`);
 }
 
 /** Coefficient (8) → « × 8 ». Ce n'est pas un montant non plus. */
 export function coef(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  return `× ${formaterNombre(v, { maximumFractionDigits: 2 })}`;
+  return insecable(`× ${formaterNombre(v, { maximumFractionDigits: 2 })}`);
 }
 
 /**

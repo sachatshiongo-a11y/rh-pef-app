@@ -153,11 +153,13 @@ describe("passerelle écran → moteur de disponibilité", () => {
 });
 
 describe("ratios lisibles (écran ET PDF des fiches)", () => {
-  it("séparateur de milliers ORDINAIRE : jamais l'espace fine insécable absente de la police des PDF", () => {
+  it("espace INSÉCABLE ordinaire (U+00A0), jamais l'espace fine insécable absente de la police des PDF", () => {
     // Cocktail à 116 $ pour 0,08 $ de coût : un taux de marge à six chiffres n'a rien d'exotique.
-    expect(pct(1249)).toBe("124 900 %");
-    expect(pct(0.875)).toBe("87,5 %");
-    expect(coef(1250.5)).toBe("× 1 250,5");
+    const nb = "\u00A0";
+    expect(pct(1249)).toBe(`124${nb}900${nb}%`);
+    expect(pct(0.875)).toBe(`87,5${nb}%`);
+    expect(coef(1250.5)).toBe(`×${nb}1${nb}250,5`);
+    for (const t of [pct(1249), coef(1250.5)]) expect(t).not.toMatch(/[\u202F ]/);
     expect(pct(null)).toBe("—");
     expect(coef(Number.NaN)).toBe("—");
   });
