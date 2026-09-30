@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { calculerCout } from "./cout";
 import {
   choixInitiaux, correspondanceFiche, lireClasseurBar, planifierImportBar, rattacherFiches, rattacherIngredients,
-  uniteConvertible, validerChoix, validerFichesLues, valeursCreation,
+  uniteConvertible, validerChoix, validerFichesLues, valeursCreation, formeArticle, memeArticle, scoreProche,
   type ArticleExistant, type ChoixImportBar, type FicheBarLue, type FicheExistanteBar,
 } from "./classeur-bar";
 
@@ -244,8 +244,8 @@ describe("rattachement des feuilles aux fiches", () => {
 
 // ─── Ingrédients, unités, création ───────────────────────────────────────────
 
-const A = (id: string, designation: string, unite: string | null, prix: number | null = 1, domaine: ArticleExistant["domaine"] = "BOISSON"): ArticleExistant =>
-  ({ id, designation, unite, prixUnitaireUSD: prix, domaine });
+const A = (id: string, designation: string, unite: string | null, prix: number | null = 1, domaine: ArticleExistant["domaine"] = "BOISSON", contenance: [string, string] | null = null): ArticleExistant =>
+  ({ id, designation, unite, prixUnitaireUSD: prix, domaine, contenance: contenance?.[0] ?? null, contenanceUnite: contenance?.[1] ?? null });
 
 describe("ingrédients", () => {
   const lue: FicheBarLue = {
@@ -262,11 +262,84 @@ describe("ingrédients", () => {
     const props = rattacherIngredients([lue], [A("r", "Rum Saint James blc 70cl", "Bouteille"), A("c1", "Citron", "Pièce"), A("c2", "CITRON", "kg"), A("m", "Feuilles de menthe", "botte")]);
     expect(props.map((p) => [p.libelle, p.articleId, p.doute])).toEqual([
       ["RUM SAINT JAMES BLC 70CL", "r", null],
-      ["citron", null, "2 articles du catalogue portent ce nom"],
+      ["citron", null, "2 articles du catalogue ont ce nom et cette contenance"],
       ["Feuille de menthe", null, null],
     ]);
     expect(props[1]!.suggestions.slice(0, 2)).toEqual(["c1", "c2"]);
     expect(props[2]!.suggestions).toContain("m"); // proche : montré, jamais choisi
+  });
+
+  /** Le catalogue de PRODUCTION du bar (relevé en lecture seule le 2026-09-30) : désignation, unité. */
+  const CATALOGUE_PROD: ArticleExistant[] = ([
+    ["Absolut Vodka-75cl", "Bouteille"], ["Bacardi blanc-1l", "Bouteille"], ["Bard Liq Triple Sec-70cl", "Bouteille"], ["Cointreau-70cl", "Bouteille"],
+    ["Campari-1L", "Bouteille(s)"], ["Aperol-1L", "Bouteille"], ["Hendrick S-700ml", "Bouteille"], ["Monin Coconut Fruit-1L", "Bouteille"],
+    ["Monin Blue Curacao Liqueur-70cl", "Bouteille"], ["Monin- Curaçao Bleu-70cl", "Bouteille"], ["Monin Mojito Mint Sirop-1L", "Bouteille"],
+    ["Monin Frappe Base Vanilla Powder 2KG", "Bouteille"], ["Monin Base Neutre Powder 2KG", "Bouteille"], ["Sirop de Sucre de canne-CANADOU-70cl", "Bouteille"],
+    ["Scheweppes Soda-30cl", "Bouteille"], ["Coca Cola-30cl", "Bouteille"], ["Red bull-25cl", "Bouteille"], ["Ceres Orange-1L", "Bouteille"],
+    ["Ceres-Cranberry 1L", "Bouteille"], ["Ceres-Mangue 1L", "Bouteille"], ["Ceres Fruit de la passion-1L", "Bouteille"], ["Jus d'Ananas-Ceres-1L", null],
+    ["Rhum Saint James Blc-70cl", "Bouteille"], ["Camino Blanc-75cl", "Bouteille"], ["Martini Rosso-75cl", "Bouteille"],
+    ["Piccini Prosecco Venetian Dress Extra Dry Blanc-75cl", "Bouteille"], ["Monin-Sirop de Grenadine-1L", "Bouteille"], ["Sirop de Grenadine-70cl", "Bouteille"],
+    ["Monin-Sirop de pop corn-70cl", "Bouteille"], ["Beefeater Gin", "Bouteille"], ["Cassis", "Bouteille"], ["Triple sec", "Bouteille"], ["Crème de Coco", "Bouteille"],
+    ["Lait de Coco", "cl"], ["ELLE & VIRE COOKING CREAM 1LTR", "L"], ["LAIT ELLE & VIRE ENTIER RED 1LTR", "L"], ["Sucre Brun", "kg"], ["Oeufs", "Unité"], ["Citron", "Kg"],
+  ] as [string, string | null][]).map(([d, u], i) => A(`p${i}`, d, u));
+  const nom = (id: string | null) => CATALOGUE_PROD.find((a) => a.id === id)?.designation ?? null;
+
+  it("VRAI classeur × VRAI catalogue : sûr = mêmes mots ET même contenance ; les abréviations remontent en tête des proches", async () => {
+    const r = await lireClasseurBar(fs.readFileSync(FIXTURE));
+    if (!r.ok) throw new Error(r.erreur);
+    const props = rattacherIngredients(r.fiches, CATALOGUE_PROD);
+    const p = (libelle: string) => props.find((x) => x.libelle === libelle)!;
+    // Correspondances SÛRES (mêmes mots, même contenance — ou aucune des deux côtés), un seul candidat.
+    expect(props.filter((x) => x.articleId).map((x) => `${x.libelle} → ${nom(x.articleId)}`)).toEqual([
+      "Lait de Coco → Lait de Coco",
+      "MONIN COCONUT FRUIT 1LTR → Monin Coconut Fruit-1L",
+      "MONIN MOJITO MINT SIROP 1LT → Monin Mojito Mint Sirop-1L",
+      "citron → Citron",
+      "ABSOLUT VODKA 75CL → Absolut Vodka-75cl",
+      "COINTREAU 70CL → Cointreau-70cl",
+      "BARD LIQ TRIPLE SEC 70CL → Bard Liq Triple Sec-70cl",
+      "Sucre Brun → Sucre Brun",
+      "CAMPARI 1L → Campari-1L",
+      "MARTINI ROSSO 75CL → Martini Rosso-75cl",
+      "ELLE & VIRE COOKING CREAM 1LTR → ELLE & VIRE COOKING CREAM 1LTR",
+      "LAIT ELLE & VIRE ENTIER RED 1LTR → LAIT ELLE & VIRE ENTIER RED 1LTR",
+      "MONIN FRAPPE BASE VANILLA POWDER 2KG → Monin Frappe Base Vanilla Powder 2KG",
+      "RED BULL 250 ML → Red bull-25cl",
+      "MONIN BASE NEUTRE POWDER 2KG → Monin Base Neutre Powder 2KG",
+      "Oeufs → Oeufs",
+      "APEROL 1LTR → Aperol-1L",
+      "PICCINI PROSECCO VENETIAN DRESS EXTRA DRY BLANC 75CL → Piccini Prosecco Venetian Dress Extra Dry Blanc-75cl",
+    ]);
+    // Les 6 paires de la Direction : jamais sûres (abréviation, contenance absente d'un côté),
+    // mais le bon article EN TÊTE des proches.
+    expect(nom(p("BACARDI BLC 1L").suggestions[0]!)).toBe("Bacardi blanc-1l");
+    expect(p("MONIN COCONUT FRUIT 1LTR").articleId).not.toBeNull(); // sûr : mêmes mots, 1 L des deux côtés
+    expect(p("MONIN BLUE CURACAO 70CL").suggestions.slice(0, 2).map(nom).sort()).toEqual(["Monin Blue Curacao Liqueur-70cl", "Monin- Curaçao Bleu-70cl"]);
+    expect(nom(p("RUM SAINT JAMES BLC 70CL").suggestions[0]!)).toBe("Rhum Saint James Blc-70cl");
+    expect(nom(p("Scheweppes Soda").suggestions[0]!)).toBe("Scheweppes Soda-30cl");
+    expect(nom(p("Jus d'Ananas-100").suggestions[0]!)).toBe("Jus d'Ananas-Ceres-1L");
+    for (const l of ["BACARDI BLC 1L", "MONIN BLUE CURACAO 70CL", "RUM SAINT JAMES BLC 70CL", "Scheweppes Soda", "Jus d'Ananas-100"]) expect([l, p(l).articleId]).toEqual([l, null]);
+  });
+
+  it("classement des proches : abréviation (BLC ↔ blanc, LIQ ↔ liqueur) et lettre d'écart (RUM ↔ rhum) comptent ; un seul mot commun ne suffit pas", () => {
+    const sc = (a: string, b: string) => scoreProche(formeArticle(a), formeArticle(b));
+    expect(sc("BACARDI BLC 1L", "Bacardi blanc-1l")).toBeGreaterThan(sc("BACARDI BLC 1L", "Bacardi Oro-1l"));
+    expect(sc("BARD LIQ TRIPLE SEC 70CL", "Bard Liqueur Triple Sec-70cl")).toBeGreaterThan(sc("BARD LIQ TRIPLE SEC 70CL", "Bard Lime Triple Sec-70cl"));
+    expect(sc("RUM SAINT JAMES 70CL", "Rhum Saint James-70cl")).toBeGreaterThan(sc("RUM SAINT JAMES 70CL", "Gin Saint James-70cl"));
+    expect(sc("MONIN SIROP CHOCO BLANC 70CL", "Rum Saint James blc 70cl")).toBe(0); // « blanc » + 70 cl : rien
+    expect(sc("Scheweppes Soda", "Scheweppes Soda-30cl")).toBe(1); // contenance d'un seul côté : ni bonus ni malus
+    expect(sc("Absolut Vodka 70cl", "Absolut Vodka-75cl")).toBe(0.75); // contenances différentes : malus
+  });
+
+  it("règle sûre : une contenance différente ou absente d'un seul côté n'est jamais le même article", () => {
+    const f = (a: string, b: string) => memeArticle(formeArticle(a), formeArticle(b));
+    expect(f("MONIN COCONUT FRUIT 1LTR", "Monin Coconut Fruit-1L")).toBe(true);
+    expect(f("VODKA ABSOLUT 750ML", "Vodka Absolut-75cl")).toBe(true);
+    expect(f("Jus d'Orange", "Jus Orange")).toBe(true); // mots vides et séparateurs
+    expect(f("Absolut Vodka 70cl", "Absolut Vodka-75cl")).toBe(false);
+    expect(f("Scheweppes Soda", "Scheweppes Soda-30cl")).toBe(false);
+    expect(f("BACARDI BLC 1L", "Bacardi blanc-1l")).toBe(false);
+    expect(f("Absolut Vodka", "Vodka Absolut")).toBe(false); // l'ordre des mots compte
   });
 
   it("valeurs de création : prix ramené au litre / au kilo ; prix nul ou absent = SANS prix, jamais 0", () => {
@@ -280,14 +353,18 @@ describe("ingrédients", () => {
   });
 
   it("uniteConvertible dit exactement ce que dit le moteur de coût", () => {
-    const cas: [string, string | null][] = [
-      ["cl", "l"], ["cl", "L"], ["cl", "Litres"], ["ml", "cl"], ["g", "kg"], ["g", "500 GR"], ["cl", "500 GR"],
-      ["unité", "Unité"], ["unité", "pièce"], ["cl", "Bouteille"], ["cl", "bouteille 75cl"], ["unité", "kg"], ["cl", ""], ["cl", null], ["", "cl"],
+    const cas: [string, string | null, string | null, string | null][] = [
+      ["cl", "l", null, null], ["cl", "L", null, null], ["cl", "Litres", null, null], ["ml", "cl", null, null], ["g", "kg", null, null],
+      ["g", "500 GR", null, null], ["cl", "500 GR", null, null], ["unité", "Unité", null, null], ["unité", "pièce", null, null],
+      ["cl", "Bouteille", null, null], ["cl", "bouteille 75cl", null, null], ["unité", "kg", null, null], ["cl", "", null, null], ["cl", null, null, null], ["", "cl", null, null],
+      // Contenance d'un article compté à l'unité.
+      ["cl", "Bouteille", "75", "cl"], ["ml", "Bouteille(s)", "1", "l"], ["g", "Bouteille", "2", "kg"], ["g", "Bouteille", "75", "cl"], ["cl", "Carton", "75", "cl"], ["cl", "", "1", "l"],
     ];
-    for (const [conso, achat] of cas) {
-      const r = calculerCout({ id: "f", nbPortions: 1, tauxTVA: 0.16, estSousRecette: false, ingredients: [{ unite: conso, quantite: 1, article: { prixUnitaireUSD: 1, unite: achat ?? "" } }] });
+    for (const [conso, achat, contenance, contenanceUnite] of cas) {
+      const article = { prixUnitaireUSD: 1, unite: achat ?? "", contenance, contenanceUnite };
+      const r = calculerCout({ id: "f", nbPortions: 1, tauxTVA: 0.16, estSousRecette: false, ingredients: [{ unite: conso, quantite: 1, article }] });
       const moteur = r.lignes[0]!.motif !== "UNITE_INCONVERTIBLE";
-      expect([conso, achat, uniteConvertible(conso, achat)]).toEqual([conso, achat, moteur]);
+      expect([conso, achat, contenance, uniteConvertible(conso, { unite: achat, contenance, contenanceUnite })]).toEqual([conso, achat, contenance, moteur]);
     }
   });
 });
@@ -321,14 +398,37 @@ describe("plan d'import (simulation = écriture)", () => {
 
   it("unité inconvertible pour l'article choisi = ligne BLOQUÉE, fiche non écrite", () => {
     const lues = [lue("M", "Mojito", [rhum])];
-    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:b", domaine: "BOISSON" } } };
-    const [p] = plan(lues, choix, [A("b", "Rhum blanc", "Bouteille", 18)], [F("f", "Mojito", "Cocktail")]);
-    expect(p).toMatchObject({ statut: "BLOQUEE", raisons: ["Rhum blanc : unité inconvertible : cl → Bouteille"] });
+    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:k", domaine: "BOISSON" } }, contenances: {} };
+    const [p] = plan(lues, choix, [A("k", "Rhum blanc", "kg", 18)], [F("f", "Mojito", "Cocktail")]);
+    expect(p).toMatchObject({ statut: "BLOQUEE", raisons: ["Rhum blanc : unité inconvertible : cl → kg"] });
+  });
+
+  it("bouteille sans contenance : bloquée tant qu'elle manque ; saisie → prête, à écrire sur l'article ; jamais par-dessus une contenance connue", () => {
+    const lues = [lue("M", "Mojito", [rhum])];
+    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:b", domaine: "BOISSON" } }, contenances: {} };
+    const fiches = [F("f", "Mojito", "Cocktail")];
+    const bouteille = A("b", "Rhum blanc", "Bouteille", 18);
+    expect(plan(lues, choix, [bouteille], fiches)[0]).toMatchObject({ statut: "BLOQUEE", raisons: ["Rhum blanc : contenance de « Rhum blanc » à renseigner (1 Bouteille = combien ?)"] });
+    choix.contenances.b = { quantite: "0", unite: "cl", uniteStock: null };
+    expect(plan(lues, choix, [bouteille], fiches)[0]!.statut).toBe("BLOQUEE"); // 0 n'est pas une contenance
+    choix.contenances.b = { quantite: "70", unite: "cl", uniteStock: null };
+    const [p] = plan(lues, choix, [bouteille], fiches);
+    expect(p!.statut).toBe("PRETE");
+    expect(p!.lignes[0]!.article).toEqual({ id: "b", designation: "Rhum blanc", unite: "Bouteille", contenanceAEcrire: { quantite: "70", unite: "cl", uniteStock: null } });
+    // Contenance déjà au catalogue : elle fait foi, la saisie est ignorée, rien à écrire.
+    const connue = A("b", "Rhum blanc", "Bouteille", 18, "BOISSON", ["1", "l"]);
+    expect(plan(lues, choix, [connue], fiches)[0]!.lignes[0]!.article!.contenanceAEcrire).toBeNull();
+    // Article sans unité : l'unité de stock se choisit avec la contenance.
+    const sansUnite = A("b", "Jus d'Ananas-Ceres-1L", null, 2);
+    choix.contenances.b = { quantite: "1", unite: "l", uniteStock: null };
+    expect(plan(lues, choix, [sansUnite], fiches)[0]!.statut).toBe("BLOQUEE");
+    choix.contenances.b = { quantite: "1", unite: "l", uniteStock: "Brique" };
+    expect(plan(lues, choix, [sansUnite], fiches)[0]!.lignes[0]!.article).toMatchObject({ unite: "Brique", contenanceAEcrire: { quantite: "1", unite: "l", uniteStock: "Brique" } });
   });
 
   it("fiche déjà remplie : laissée telle quelle sans la case « Remplacer »", () => {
     const lues = [lue("M", "Mojito", [rhum])];
-    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } } };
+    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } }, contenances: {} };
     const articles = [A("r", "Rhum blanc", "L", 20)];
     const fiches = [F("f", "Mojito", "Cocktail", { nbIngredients: 3 })];
     expect(plan(lues, choix, articles, fiches)[0]!.statut).toBe("DEJA_REMPLIE");
@@ -338,10 +438,10 @@ describe("plan d'import (simulation = écriture)", () => {
 
   it("« Créer » réutilise la fiche et l'article du même nom : relancer ne duplique rien", () => {
     const lues = [lue("M", "Mojito", [rhum])];
-    const choix: ChoixImportBar = { fiches: { M: { cible: "creer", categorie: "Cocktails", remplacer: false } }, ingredients: { "rhum blanc": { cible: "creer", domaine: "BOISSON" } } };
+    const choix: ChoixImportBar = { fiches: { M: { cible: "creer", categorie: "Cocktails", remplacer: false } }, ingredients: { "rhum blanc": { cible: "creer", domaine: "BOISSON" } }, contenances: {} };
     const neuf = plan(lues, choix, [], [])[0]!;
     expect(neuf.cible).toEqual({ id: null, nom: "Mojito", categorie: "Cocktails", nbIngredients: 0, recetteVide: true, prixVenteTTC: 12.35 });
-    expect(neuf.lignes[0]!.article).toEqual({ id: null, designation: "Rhum blanc", unite: "l" });
+    expect(neuf.lignes[0]!.article).toEqual({ id: null, designation: "Rhum blanc", unite: "l", contenanceAEcrire: null });
     const relance = plan(lues, choix, [A("r", "RHUM BLANC", "l", 20)], [F("f", "mojito", "Cocktail", { nbIngredients: 1 })])[0]!;
     expect(relance).toMatchObject({ statut: "DEJA_REMPLIE", cible: { id: "f" } });
     expect(relance.lignes[0]!.article!.id).toBe("r");
@@ -349,14 +449,14 @@ describe("plan d'import (simulation = écriture)", () => {
 
   it("« Créer » face à une fiche INACTIVE du même nom : bloqué, jamais réutilisée en silence", () => {
     const lues = [lue("M", "Mojito", [rhum])];
-    const choix: ChoixImportBar = { fiches: { M: { cible: "creer", categorie: "Cocktail", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } } };
+    const choix: ChoixImportBar = { fiches: { M: { cible: "creer", categorie: "Cocktail", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } }, contenances: {} };
     const [p] = plan(lues, choix, [A("r", "Rhum blanc", "l")], [F("f", "Mojito", "Cocktail", { actif: false })]);
     expect(p).toMatchObject({ statut: "BLOQUEE", raisons: [expect.stringContaining("fiche INACTIVE")] });
   });
 
   it("quantité à plus de 3 décimales (la base en garde 3) : bloquée, jamais arrondie en silence", () => {
     const lues = [lue("M", "Mojito", [{ ...rhum, quantite: 0.0004 }])];
-    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } } };
+    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } }, contenances: {} };
     const [p] = plan(lues, choix, [A("r", "Rhum blanc", "l")], [F("f", "Mojito", "Cocktail")]);
     expect(p).toMatchObject({ statut: "BLOQUEE", raisons: ["Rhum blanc : quantité 0.0004 : plus de 3 décimales, à arrondir dans le classeur"] });
   });
@@ -364,7 +464,7 @@ describe("plan d'import (simulation = écriture)", () => {
   it("deux feuilles vers la même fiche : aucune n'est écrite", () => {
     const lues = [lue("A", "Mojito", [rhum]), lue("B", "Mojito bis", [rhum])];
     const c = { cible: "fiche:f", categorie: "", remplacer: false };
-    const plans = plan(lues, { fiches: { A: c, B: c }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } } }, [A("r", "Rhum blanc", "l")], [F("f", "Mojito", "Cocktail")]);
+    const plans = plan(lues, { fiches: { A: c, B: c }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } }, contenances: {} }, [A("r", "Rhum blanc", "l")], [F("f", "Mojito", "Cocktail")]);
     expect(plans.map((p) => p.statut)).toEqual(["BLOQUEE", "BLOQUEE"]);
     expect(plans[0]!.raisons).toContain("vise la même fiche que « B »");
   });

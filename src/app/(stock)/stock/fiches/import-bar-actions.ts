@@ -31,7 +31,7 @@ type Lecteur = Pick<Prisma.TransactionClient, "articleStock" | "ficheTechnique">
 
 async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fiches: FicheExistanteBar[] }> {
   const [articles, fiches] = await Promise.all([
-    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true, domaine: true }, orderBy: { designation: "asc" } }),
+    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
     db.ficheTechnique.findMany({
       where: { type: "BAR", estSousRecette: false },
       select: { id: true, nom: true, categorie: true, type: true, estSousRecette: true, actif: true, recette: true, prixVenteTTC: true, _count: { select: { ingredients: true } } },
@@ -39,7 +39,10 @@ async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fic
     }),
   ]);
   return {
-    articles: articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, prixUnitaireUSD: a.prixUnitaireUSD === null ? null : Number(a.prixUnitaireUSD), domaine: a.domaine })),
+    articles: articles.map((a) => ({
+      id: a.id, designation: a.designation, unite: a.unite, prixUnitaireUSD: a.prixUnitaireUSD === null ? null : Number(a.prixUnitaireUSD), domaine: a.domaine,
+      contenance: a.contenance === null ? null : a.contenance.toString(), contenanceUnite: a.contenanceUnite,
+    })),
     fiches: fiches.map((f) => ({
       id: f.id, nom: f.nom, categorie: f.categorie, type: f.type, estSousRecette: f.estSousRecette, actif: f.actif,
       nbIngredients: f._count.ingredients, recetteVide: !f.recette?.trim(), prixVenteTTC: f.prixVenteTTC === null ? null : Number(f.prixVenteTTC),
@@ -73,6 +76,8 @@ export type BilanImportBar = {
   ignorees: string[];
   nonEcrites: { feuille: string; raisons: string[] }[];
   articlesCrees: string[];
+  /** Contenances écrites sur des articles du catalogue (« Absolut Vodka-75cl : 75 cl »). */
+  contenancesEcrites: string[];
   lignesIgnorees: { fiche: string; libelle: string }[];
   /** Fiches dont la recette (texte) existante a été gardée. */
   recettesConservees: string[];
@@ -95,7 +100,7 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
   const choix = validerChoix(brutChoix, lues);
   const parFeuille = new Map(lues.map((l) => [l.feuille, l]));
 
-  const bilan: BilanImportBar = { ok: true, remplies: [], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: [], lignesIgnorees: [], recettesConservees: [] };
+  const bilan: BilanImportBar = { ok: true, remplies: [], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: [], contenancesEcrites: [], lignesIgnorees: [], recettesConservees: [] };
   await prisma.$transaction(async (tx) => {
     const { articles, fiches } = await lireBase(tx);
     const propositions = rattacherIngredients(lues, articles);
@@ -125,6 +130,27 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
         idArticle.set(l.cle, a.id);
         bilan.articlesCrees.push(valeurs.designation);
         journal.push({ entite: "ArticleStock", entiteId: a.id, champ: "creation", nouvelleValeur: `import des fiches du bar : ${valeurs.designation} (${valeurs.unite}, ${valeurs.prixUnitaireUSD ?? "sans prix"})`, userId: user.id });
+      }
+    }
+
+    // 1 bis. Contenances confirmées, écrites sur les articles des fiches ÉCRITES — jamais par-dessus
+    // une contenance déjà renseignée (le plan relu dans cette transaction ne la redemande pas, et
+    // l'écriture est conditionnée à « contenance IS NULL » : deux imports concurrents ne s'écrasent pas).
+    const contenancesFaites = new Set<string>();
+    for (const p of prets) {
+      for (const l of p.lignes) {
+        const a = l.article;
+        if (l.statut !== "OK" || !a?.id || !a.contenanceAEcrire || contenancesFaites.has(a.id)) continue;
+        const c = a.contenanceAEcrire;
+        const { count } = await tx.articleStock.updateMany({
+          where: { id: a.id, contenance: null },
+          data: { contenance: new Decimal(c.quantite).toDecimalPlaces(3).toString(), contenanceUnite: c.unite, ...(c.uniteStock ? { unite: c.uniteStock } : {}) },
+        });
+        if (count !== 1) throw new Error(`« ${a.designation} » : sa contenance vient d'être renseignée par ailleurs. Relancez l'import.`);
+        contenancesFaites.add(a.id);
+        const texte = `${c.quantite} ${c.unite}${c.uniteStock ? ` (unité de stock : ${c.uniteStock})` : ""}`;
+        bilan.contenancesEcrites.push(`${a.designation} : ${texte}`);
+        journal.push({ entite: "ArticleStock", entiteId: a.id, champ: "contenance", nouvelleValeur: `import des fiches du bar : ${texte}`, userId: user.id });
       }
     }
 

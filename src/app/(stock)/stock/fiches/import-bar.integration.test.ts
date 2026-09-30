@@ -4,7 +4,7 @@ import path from "node:path";
 import type { PrismaClient, Role } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 import { estStock } from "@/lib/espaces";
-import { lireClasseurBar, type ChoixImportBar, type FicheBarLue } from "@/lib/fiches/classeur-bar";
+import { choixInitiaux, lireClasseurBar, type ChoixImportBar, type FicheBarLue } from "@/lib/fiches/classeur-bar";
 
 /**
  * « Importer les fiches du bar (classeur Excel) » (Direction) sur une VRAIE base (Postgres
@@ -12,10 +12,26 @@ import { lireClasseurBar, type ChoixImportBar, type FicheBarLue } from "@/lib/fi
  * écriture, application, idempotence, refus de remplacer sans la case, unité inconvertible bloquée,
  * et coût recalculé par le moteur identique à celui du classeur.
  */
-const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient, user: { id: "", role: "ADMIN" as Role, accesStock: false, nom: "Direction" } }));
+const H = vi.hoisted(() => ({
+  client: undefined as unknown as PrismaClient,
+  user: { id: "", role: "ADMIN" as Role, accesStock: false, nom: "Direction" },
+  /** Simule un autre import qui renseigne une contenance ENTRE la lecture et l'écriture de la transaction. */
+  concurrent: null as null | ((tx: PrismaClient) => Promise<void>),
+}));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, p) => {
+      if (p === "$transaction" && H.concurrent) {
+        const faire = H.concurrent;
+        return (fn: (tx: unknown) => Promise<unknown>, o: unknown) => H.client.$transaction(async (tx) => {
+          const articleStock = new Proxy(tx.articleStock, {
+            get: (t, q) => q === "updateMany"
+              ? async (args: unknown) => { await faire(tx as unknown as PrismaClient); return (t.updateMany as (a: unknown) => unknown)(args); }
+              : (t as unknown as Record<string | symbol, unknown>)[q],
+          });
+          return fn(new Proxy(tx, { get: (t, q) => (q === "articleStock" ? articleStock : (t as unknown as Record<string | symbol, unknown>)[q]) }));
+        }, o as never);
+      }
       const v = (H.client as unknown as Record<string | symbol, unknown>)[p];
       return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(H.client) : v;
     },
@@ -61,6 +77,7 @@ const FICHES: [string, string][] = [
 
 beforeEach(async () => {
   H.user = { id: ids.direction, role: "ADMIN", accesStock: false, nom: "Direction" };
+  H.concurrent = null;
   await prisma.ingredientFiche.deleteMany();
   await prisma.ficheTechnique.deleteMany();
   await prisma.articleStock.deleteMany();
@@ -72,6 +89,7 @@ beforeEach(async () => {
   await prisma.articleStock.create({ data: { designation: "ABSOLUT VODKA 75CL", domaine: "BOISSON", unite: "Bouteille", prixUnitaireUSD: 9 } });
 });
 
+const journalDe = (js: { champ: string }[]) => js.map((j) => j.champ);
 const comptes = async () => ({
   fiches: await prisma.ficheTechnique.count(), ingredients: await prisma.ingredientFiche.count(),
   articles: await prisma.articleStock.count(), journal: await prisma.journalAudit.count(),
@@ -88,11 +106,12 @@ async function analyser() {
  * Choix « de la Direction » : correspondances sûres acceptées ; toute autre feuille CRÉÉE ; tout
  * ingrédient non reconnu CRÉÉ — sauf ce que `sauf` précise.
  */
-async function choixToutCreer(sauf: Partial<{ fiches: ChoixImportBar["fiches"]; ingredients: ChoixImportBar["ingredients"] }> = {}): Promise<ChoixImportBar> {
+async function choixToutCreer(sauf: Partial<ChoixImportBar> = {}): Promise<ChoixImportBar> {
   const a = await analyser();
   return {
     fiches: { ...Object.fromEntries(a.fiches.map((p) => [p.feuille, { cible: p.ficheId ? `fiche:${p.ficheId}` : "creer", categorie: p.categorieProposee, remplacer: false }])), ...sauf.fiches },
     ingredients: { ...Object.fromEntries(a.ingredients.map((p) => [p.cle, { cible: p.articleId ? `art:${p.articleId}` : "creer", domaine: "BOISSON" as const }])), ...sauf.ingredients },
+    contenances: { ...sauf.contenances },
   };
 }
 
@@ -246,15 +265,11 @@ describe("import des fiches du bar", () => {
     expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id: neg.id } })).recette).toBe("Recette du barman.\n\nNon repris du classeur : HENDRICKS GIN 700ML (3 cl).");
   }, 60_000);
 
-  it("unité inconvertible pour l'article choisi : fiche BLOQUÉE, annoncée, jamais écrite", async () => {
-    const a = await analyser();
-    const vodka = a.ingredients.find((p) => p.libelle === "ABSOLUT VODKA 75CL")!;
-    expect(vodka.articleId).not.toBeNull(); // reconnue… mais en « Bouteille »
-    const choix = await choixToutCreer();
-    const r = await appliquerImportBar(lues, choix);
+  it("bouteille sans contenance : fiches BLOQUÉES, annoncées, jamais écrites ; rien de créé pour elles", async () => {
+    const r = await appliquerImportBar(lues, await choixToutCreer());
     if (!("ok" in r)) throw new Error(r.erreur);
     expect(r.nonEcrites.map((n) => n.feuille)).toEqual(["Sex on the beach cocktail", "Cosmopolitan", "Espresso Martini", "Pop Cola cocktail"]);
-    expect(r.nonEcrites[1]!.raisons).toEqual(["ABSOLUT VODKA 75CL : unité inconvertible : cl → Bouteille"]);
+    expect(r.nonEcrites[1]!.raisons).toEqual(["ABSOLUT VODKA 75CL : contenance de « ABSOLUT VODKA 75CL » à renseigner (1 Bouteille = combien ?)"]);
     const cosmo = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Cosmopolitain" }, include: { _count: { select: { ingredients: true } } } });
     expect(cosmo._count.ingredients).toBe(0);
     expect(await prisma.ficheTechnique.count({ where: { nom: "Espresso Martini" } })).toBe(0); // pas créée non plus
@@ -262,13 +277,67 @@ describe("import des fiches du bar", () => {
     // Martini) ; « Espresso », employé aussi par le Spanish latte (écrit), l'est.
     expect(await prisma.articleStock.count({ where: { designation: "Patrón XO Café" } })).toBe(0);
     expect(await prisma.articleStock.count({ where: { designation: "Espresso" } })).toBe(1);
+    expect((await prisma.articleStock.findFirstOrThrow({ where: { designation: "ABSOLUT VODKA 75CL" } })).contenance).toBeNull();
+  }, 60_000);
 
-    // Toutes les fiches bloquées ou ignorées : refus en clair, rien n'est écrit.
-    await prisma.ingredientFiche.deleteMany(); await prisma.ficheTechnique.deleteMany({ where: { nom: { notIn: FICHES.map((f) => f[0]) } } });
+  it("contenance lue dans le nom, confirmée : écrite sur l'article DANS la transaction ; le coût de la bouteille se répartit au cl", async () => {
+    const a = await analyser();
+    const vodka = a.articles.find((x) => x.designation === "ABSOLUT VODKA 75CL")!;
+    // Même pré-remplissage que l'écran (choixInitiaux) : 75 cl, lu dans le nom.
+    const { contenances } = choixInitiaux(a.fiches, a.ingredients, a.articles);
+    expect(contenances[vodka.id]).toEqual({ quantite: "75", unite: "cl", uniteStock: null });
+    const r = await appliquerImportBar(lues, await choixToutCreer({ contenances }));
+    if (!("ok" in r)) throw new Error(r.erreur);
+    expect(r.nonEcrites).toEqual([]);
+    expect(r.contenancesEcrites).toEqual(["ABSOLUT VODKA 75CL : 75 cl"]);
+    const art = await prisma.articleStock.findFirstOrThrow({ where: { id: vodka.id } });
+    expect([art.unite, art.contenance?.toString(), art.contenanceUnite, art.prixUnitaireUSD?.toString()]).toEqual(["Bouteille", "75", "cl", "9"]);
+
+    // Cosmopolitain : 4 cl de vodka à 9 $ la bouteille de 75 cl = 0,48 $, par le moteur.
+    const vues = await chargerFichesVues();
+    const ctx = construireContexte(vues, new Map((await chargerArticlesDesFiches()).map((x) => [x.id, x])));
+    const cosmo = vues.find((v) => v.nom === "Cosmopolitain")!;
+    const cout = calculerCout(ctx.fiches.get(cosmo.id)!, ctx);
+    const i = cosmo.lignes.findIndex((l) => l.articleId === vodka.id);
+    expect(cout.lignes[i]!.cout!.toString()).toBe("0.48");
+    expect(journalDe(await prisma.journalAudit.findMany({ where: { entiteId: vodka.id } }))).toEqual(["contenance"]);
+  }, 60_000);
+
+  it("une contenance déjà renseignée n'est JAMAIS écrasée : elle fait foi, la saisie est ignorée", async () => {
+    const vodka = await prisma.articleStock.findFirstOrThrow({ where: { designation: "ABSOLUT VODKA 75CL" } });
+    await prisma.articleStock.update({ where: { id: vodka.id }, data: { contenance: 70, contenanceUnite: "cl" } }); // saisie du catalogue
+    const r = await appliquerImportBar(lues, await choixToutCreer({ contenances: { [vodka.id]: { quantite: "75", unite: "cl", uniteStock: null } } }));
+    if (!("ok" in r)) throw new Error(r.erreur);
+    expect(r.contenancesEcrites).toEqual([]);
+    expect((await prisma.articleStock.findUniqueOrThrow({ where: { id: vodka.id } })).contenance?.toString()).toBe("70");
+  }, 60_000);
+
+  it("contenance renseignée par ailleurs PENDANT l'import : refus, tout est annulé, rien n'est écrasé", async () => {
+    const a = await analyser();
+    const vodka = a.articles.find((x) => x.designation === "ABSOLUT VODKA 75CL")!;
     const avant = await comptes();
-    const seulCosmo = await appliquerImportBar(lues, { ...choix, fiches: Object.fromEntries(Object.entries(choix.fiches).map(([k, c]) => [k, k === "Cosmopolitan" ? c : { ...c, cible: "ignorer" }])) });
-    expect(seulCosmo).toEqual({ erreur: expect.stringContaining("Aucune fiche prête") });
+    H.concurrent = async (tx) => { await tx.articleStock.update({ where: { id: vodka.id }, data: { contenance: 70, contenanceUnite: "cl" } }); };
+    const r = await appliquerImportBar(lues, await choixToutCreer({ contenances: { [vodka.id]: { quantite: "75", unite: "cl", uniteStock: null } } }));
+    expect(r).toEqual({ erreur: "« ABSOLUT VODKA 75CL » : sa contenance vient d'être renseignée par ailleurs. Relancez l'import." });
+    H.concurrent = null;
     expect(await comptes()).toEqual(avant);
+    expect((await prisma.articleStock.findUniqueOrThrow({ where: { id: vodka.id } })).contenance).toBeNull(); // annulé avec le reste
+  }, 60_000);
+
+  it("unité réellement inconvertible (citron compté à l'unité, catalogue au kilo) : bloquée ; contenance illisible : refus en clair", async () => {
+    await prisma.articleStock.create({ data: { designation: "Citron", domaine: "NOURRITURE", unite: "Kg", prixUnitaireUSD: 2 } });
+    const a = await analyser();
+    expect(a.ingredients.find((p) => p.libelle === "citron")!.articleId).not.toBeNull(); // même nom : sûr…
+    const vodka = a.articles.find((x) => x.designation === "ABSOLUT VODKA 75CL")!;
+    const r = await appliquerImportBar(lues, await choixToutCreer({ contenances: { [vodka.id]: { quantite: "75", unite: "cl", uniteStock: null } } }));
+    if (!("ok" in r)) throw new Error(r.erreur);
+    expect(r.nonEcrites.map((n) => [n.feuille, n.raisons])).toEqual([ // … mais inconvertible
+      ["Virgin Mojito", ["citron : unité inconvertible : unité → Kg"]],
+      ["Mojito", ["citron : unité inconvertible : unité → Kg"]],
+      ["Caïpirinha", ["citron : unité inconvertible : unité → Kg"]],
+    ]);
+    expect(await appliquerImportBar(lues, await choixToutCreer({ contenances: { [vodka.id]: { quantite: "75", unite: "bouteille", uniteStock: null } } })))
+      .toEqual({ erreur: "Contenance illisible." });
   }, 60_000);
 
   it("charges illisibles refusées en clair (jamais levées)", async () => {

@@ -25,6 +25,9 @@ export type ArticleOption = {
   unite: string;
   prixUnitaireUSD: string | null;
   actif: boolean;
+  /** Contenance d'une unité comptée à l'unité (bouteille de 75 cl) : texte pleine précision, null = inconnue. */
+  contenance?: string | null;
+  contenanceUnite?: string | null;
 };
 
 /** Une ligne d'ingrédient telle qu'elle s'affiche et s'édite. */
@@ -84,7 +87,7 @@ export function versFicheCalc(
       quantite: l.quantite,
       // Un article référencé mais absent du catalogue reste `null` : le moteur l'annonce
       // (SANS_SOURCE) au lieu de le valoriser à zéro.
-      article: art ? { prixUnitaireUSD: art.prixUnitaireUSD, unite: art.unite } : null,
+      article: art ? { prixUnitaireUSD: art.prixUnitaireUSD, unite: art.unite, contenance: art.contenance ?? null, contenanceUnite: art.contenanceUnite ?? null } : null,
       sousFicheId: l.sousFicheId,
     };
   });

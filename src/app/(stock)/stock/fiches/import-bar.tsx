@@ -7,8 +7,10 @@ import { estErreur } from "@/lib/action-lisible";
 import { CLASSES_NEUTRE } from "@/components/action-buttons";
 import { formaterNombre, formaterUSD } from "@/lib/montant";
 import { normTexte } from "@/lib/texte";
+import { UNITES_CONTENANCE, uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 import {
-  choixInitiaux, planifierImportBar, uniteConvertible,
+  choixInitiaux, contenanceProposee, contenanceRequise, contenanceValideChoisie, planifierImportBar, uniteConvertible, UNITES_STOCK_COMPTAGE,
+  type ContenanceChoisie,
   type ArticleExistant, type ChoixFiche, type ChoixImportBar, type ChoixIngredient, type FicheBarLue,
   type FicheExistanteBar, type FeuilleNonLue, type FichePlan, type PropositionFiche, type PropositionIngredient, type StatutFiche,
 } from "@/lib/fiches/classeur-bar";
@@ -16,6 +18,8 @@ import { analyserFichesBar, appliquerImportBar, type BilanImportBar } from "./im
 
 /** Taille maximale du fichier déposé (le classeur du bar fait 20 Mo, photos comprises). */
 const TAILLE_MAX = 60 * 1024 * 1024;
+
+const CHOIX_VIDE: ChoixImportBar = { fiches: {}, ingredients: {}, contenances: {} };
 
 type Analyse = { fiches: PropositionFiche[]; ingredients: PropositionIngredient[]; articles: ArticleExistant[]; fichesBar: FicheExistanteBar[] };
 
@@ -49,11 +53,11 @@ export function ImportFichesBar() {
   const [lues, setLues] = useState<FicheBarLue[] | null>(null);
   const [autres, setAutres] = useState<FeuilleNonLue[]>([]);
   const [analyse, setAnalyse] = useState<Analyse | null>(null);
-  const [choix, setChoix] = useState<ChoixImportBar>({ fiches: {}, ingredients: {} });
+  const [choix, setChoix] = useState<ChoixImportBar>(CHOIX_VIDE);
   const [bilan, setBilan] = useState<BilanImportBar | null>(null);
   const [envoi, start] = useTransition();
 
-  const reinitialiser = () => { setLues(null); setAutres([]); setAnalyse(null); setChoix({ fiches: {}, ingredients: {} }); };
+  const reinitialiser = () => { setLues(null); setAutres([]); setAnalyse(null); setChoix(CHOIX_VIDE); };
 
   const lireFichier = async (f: File | undefined) => {
     setErreur(null); setBilan(null); reinitialiser();
@@ -75,7 +79,7 @@ export function ImportFichesBar() {
       if (estErreur(r)) { setErreur(r.erreur); return; }
       setLues(lu.fiches); setAutres(lu.autres);
       setAnalyse(r);
-      setChoix(choixInitiaux(r.fiches, r.ingredients));
+      setChoix(choixInitiaux(r.fiches, r.ingredients, r.articles));
     } catch {
       setErreur("Le serveur n'a pas pu comparer le classeur aux fiches (connexion ?). Réessayez.");
     } finally {
@@ -90,16 +94,30 @@ export function ImportFichesBar() {
   const compte = (s: StatutFiche) => plans.filter((p) => p.statut === s).length;
   const prets = plans.filter((p) => p.statut === "PRETE");
   const articlesACreer = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article && !l.article.id).map((l) => l.cle))).size;
+  const contenancesAEcrire = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire).map((l) => l.article!.id))).size;
 
   const changerFiche = useCallback((feuille: string, c: Partial<ChoixFiche>) =>
     setChoix((s) => ({ ...s, fiches: { ...s.fiches, [feuille]: { ...s.fiches[feuille]!, ...c } } })), []);
-  const changerIngredient = useCallback((cle: string, c: Partial<ChoixIngredient>) =>
-    setChoix((s) => ({ ...s, ingredients: { ...s.ingredients, [cle]: { ...s.ingredients[cle]!, ...c } } })), []);
+  const parIdArticle = useMemo(() => new Map((analyse?.articles ?? []).map((a) => [a.id, a])), [analyse]);
+  /** Choisir un article compté à l'unité sans contenance pré-remplit celle LUE dans son nom (visible, modifiable). */
+  const changerIngredient = useCallback((cle: string, c: Partial<ChoixIngredient>, uniteConso: string | null) =>
+    setChoix((s) => {
+      const a = c.cible?.startsWith("art:") ? parIdArticle.get(c.cible.slice(4)) : undefined;
+      const contenances = a && !s.contenances[a.id] && contenanceRequise(a, uniteConso)
+        ? { ...s.contenances, [a.id]: (({ lue: _l, ...x }) => x)(contenanceProposee(a)) }
+        : s.contenances;
+      return { ...s, contenances, ingredients: { ...s.ingredients, [cle]: { ...s.ingredients[cle]!, ...c } } };
+    }), [parIdArticle]);
+  const changerContenance = useCallback((articleId: string, c: Partial<ContenanceChoisie>) =>
+    setChoix((s) => ({ ...s, contenances: { ...s.contenances, [articleId]: { ...(s.contenances[articleId] ?? { quantite: "", unite: "cl", uniteStock: null }), ...c } } })), []);
 
   /** Action groupée : remet TOUTES les correspondances sûres (fiches et ingrédients) ; ne touche à rien d'autre. */
   const accepterSures = () => {
     if (!analyse) return;
+    const initiaux = choixInitiaux(analyse.fiches, analyse.ingredients, analyse.articles);
     setChoix((s) => ({
+      // Les contenances déjà saisies sont gardées ; celles des articles sûrs manquantes, pré-remplies.
+      contenances: { ...initiaux.contenances, ...s.contenances },
       // Une cible qui change décoche « Remplacer » : la case vaut pour UNE fiche, choisie à la main.
       fiches: { ...s.fiches, ...Object.fromEntries(analyse.fiches.filter((p) => p.ficheId).map((p) => {
         const c = s.fiches[p.feuille]!;
@@ -117,7 +135,8 @@ export function ImportFichesBar() {
     if (!confirm(
       `Écrire ${prets.length} fiche(s) du bar ?\n\n` +
       `· ${prets.length - creees} fiche(s) existante(s) remplie(s)${remplacees ? `, dont ${remplacees} dont la recette actuelle sera REMPLACÉE` : ""}\n` +
-      `· ${creees} fiche(s) créée(s)\n· ${articlesACreer} article(s) créé(s) au catalogue\n\n` +
+      `· ${creees} fiche(s) créée(s)\n· ${articlesACreer} article(s) créé(s) au catalogue\n` +
+      `· ${contenancesAEcrire} contenance(s) écrite(s) sur des articles du catalogue\n\n` +
       "Les fiches « à décider », « bloquées » ou « déjà remplies » ne sont pas touchées. Le prix de vente des fiches existantes ne change pas.",
     )) return;
     setErreur(null);
@@ -208,7 +227,9 @@ export function ImportFichesBar() {
                 </thead>
                 <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1.5 [&>tr>td]:align-top">
                   {analyse.ingredients.map((p) => (
-                    <LigneIngredient key={p.cle} proposition={p} choix={choix.ingredients[p.cle]!} articles={analyse.articles} onChange={changerIngredient} />
+                    <LigneIngredient key={p.cle} proposition={p} choix={choix.ingredients[p.cle]!} articles={analyse.articles} onChange={changerIngredient}
+                      contenance={choix.ingredients[p.cle]!.cible.startsWith("art:") ? choix.contenances[choix.ingredients[p.cle]!.cible.slice(4)] : undefined}
+                      onContenance={changerContenance} />
                   ))}
                 </tbody>
               </table>
@@ -313,9 +334,12 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
 
 // ─── Un ingrédient (un libellé distinct) ─────────────────────────────────────
 
-const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, articles, onChange }: {
+const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, articles, onChange, contenance, onContenance }: {
   proposition: PropositionIngredient; choix: ChoixIngredient; articles: ArticleExistant[];
-  onChange: (cle: string, c: Partial<ChoixIngredient>) => void;
+  onChange: (cle: string, c: Partial<ChoixIngredient>, uniteConso: string | null) => void;
+  /** Contenance saisie pour l'article choisi (s'il en faut une). */
+  contenance: ContenanceChoisie | undefined;
+  onContenance: (articleId: string, c: Partial<ContenanceChoisie>) => void;
 }) {
   const [recherche, setRecherche] = useState<string | null>(null);
   const parId = useMemo(() => new Map(articles.map((a) => [a.id, a])), [articles]);
@@ -327,7 +351,16 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
     return (n ? articles.filter((a) => normTexte(a.designation).includes(n)) : articles).slice(0, 20);
   }, [recherche, articles]);
   const suggestions = p.suggestions.map((id) => parId.get(id)).filter((a): a is ArticleExistant => !!a);
-  const uniteCible = choisi ? choisi.unite : choix.cible === "creer" ? p.creation?.unite ?? null : undefined;
+  const uniteConso = p.unites[0] ?? null;
+  const requise = choisi ? contenanceRequise(choisi, uniteConso) : false;
+  const lueDansNom = choisi ? contenanceProposee(choisi) : null;
+  // Article tel que la conversion le verra : sa contenance en base, sinon celle saisie ici.
+  const effectif: UniteArticle | null = choisi
+    ? requise
+      ? { unite: choisi.unite || contenance?.uniteStock || null, contenance: contenanceValideChoisie(contenance, choisi) ? contenance.quantite.replace(",", ".") : null, contenanceUnite: contenance?.unite ?? null }
+      : choisi
+    : choix.cible === "creer" && p.creation ? { unite: p.creation.unite } : null;
+  const libelleCible = (a: UniteArticle) => `${a.unite || "article sans unité"}${a.contenance ? ` de ${formaterNombre(Number(a.contenance))} ${a.contenanceUnite}` : ""}`;
 
   return (
     <tr className={choix.cible === "ignorer" ? "text-muted-foreground" : ""}>
@@ -338,7 +371,7 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
         </div>
       </td>
       <td className="min-w-72">
-        <select value={choix.cible} onChange={(e) => { if (e.target.value === "chercher") setRecherche(""); else onChange(p.cle, { cible: e.target.value }); }}
+        <select value={choix.cible} onChange={(e) => { if (e.target.value === "chercher") setRecherche(""); else onChange(p.cle, { cible: e.target.value }, uniteConso); }}
           className={`${inp} w-full max-w-xs ${choix.cible === "" ? "border-amber-400" : ""}`} aria-label={`Article pour ${p.libelle}`}>
           <option value="">— à décider —</option>
           {choisi && !suggestions.some((a) => a.id === choisi.id) && <option value={`art:${choisi.id}`}>{choisi.designation} ({choisi.unite || "unité ?"})</option>}
@@ -358,12 +391,38 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             <Link href={`/stock/catalogue/${choisi.id}`} className="text-primary hover:underline">{choisi.designation}</Link>
             {" · "}{choisi.prixUnitaireUSD !== null ? `${formaterNombre(choisi.prixUnitaireUSD, { maximumFractionDigits: 4 })} $/${choisi.unite || "?"}` : "sans prix (coût « — »)"}
+            {choisi.contenance ? ` · contenance ${formaterNombre(Number(choisi.contenance))} ${choisi.contenanceUnite}` : ""}
           </p>
+        )}
+        {choisi && requise && (
+          <div className={`mt-1 flex flex-wrap items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${contenanceValideChoisie(contenance, choisi) ? "border-amber-300 bg-amber-50" : "border-red-300 bg-red-50"}`}>
+            {uniteManquante(choisi.unite) && (
+              <>
+                Unité de stock
+                <select value={contenance?.uniteStock ?? ""} onChange={(e) => onContenance(choisi.id, { uniteStock: e.target.value || null })} className={inp} aria-label={`Unité de stock de ${choisi.designation}`}>
+                  <option value="">—</option>
+                  {UNITES_STOCK_COMPTAGE.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </>
+            )}
+            1 {choisi.unite || contenance?.uniteStock || "unité"} =
+            <input value={contenance?.quantite ?? ""} inputMode="decimal" onChange={(e) => onContenance(choisi.id, { quantite: e.target.value })}
+              className={`${inp} w-16`} aria-label={`Contenance de ${choisi.designation}`} />
+            <select value={contenance?.unite ?? "cl"} onChange={(e) => onContenance(choisi.id, { unite: e.target.value })} className={inp} aria-label={`Unité de contenance de ${choisi.designation}`}>
+              {UNITES_CONTENANCE.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <span className="text-muted-foreground">
+              {lueDansNom?.lue && contenance?.quantite === lueDansNom.quantite && contenance.unite === lueDansNom.unite
+                ? `${formaterNombre(Number(lueDansNom.quantite))} ${lueDansNom.unite}, lu dans le nom — à vérifier`
+                : lueDansNom?.lue ? "saisie à la main" : "illisible dans le nom : à saisir"}
+              {" · sera écrite sur l'article"}
+            </span>
+          </div>
         )}
         {choix.cible === "creer" && p.creation && (
           <label className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
             {p.creation.prixUnitaireUSD !== null ? `${formaterNombre(Number(p.creation.prixUnitaireUSD), { maximumFractionDigits: 4 })} $/${p.creation.unite}` : "sans prix (coût « — »)"} · domaine
-            <select value={choix.domaine} onChange={(e) => onChange(p.cle, { domaine: e.target.value as ChoixIngredient["domaine"] })} className={inp} aria-label={`Domaine de l'article ${p.libelle}`}>
+            <select value={choix.domaine} onChange={(e) => onChange(p.cle, { domaine: e.target.value as ChoixIngredient["domaine"] }, uniteConso)} className={inp} aria-label={`Domaine de l'article ${p.libelle}`}>
               {DOMAINES.map((d) => <option key={d.valeur} value={d.valeur}>{d.libelle}</option>)}
             </select>
           </label>
@@ -374,7 +433,7 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
             <ul className="max-h-48 overflow-auto rounded border bg-card text-xs">
               {resultats.map((a) => (
                 <li key={a.id}>
-                  <button type="button" onClick={() => { onChange(p.cle, { cible: `art:${a.id}` }); setRecherche(null); }} className="w-full px-2 py-1 text-left hover:bg-accent">
+                  <button type="button" onClick={() => { onChange(p.cle, { cible: `art:${a.id}` }, uniteConso); setRecherche(null); }} className="w-full px-2 py-1 text-left hover:bg-accent">
                     {a.designation} <span className="text-muted-foreground">({a.unite || "unité ?"})</span>
                   </button>
                 </li>
@@ -388,9 +447,10 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
       <td className="min-w-40 text-[11px]">
         {p.unites.length === 0 && <span className="text-red-800">unité vide au classeur</span>}
         {p.unites.map((u) => {
-          if (uniteCible === undefined || choix.cible === "ignorer") return <div key={u}>{u}</div>;
-          const ok = uniteCible !== null && uniteConvertible(u, uniteCible);
-          return <div key={u} className={ok ? "text-emerald-800" : "font-medium text-red-800"}>{u} → {uniteCible || "article sans unité"}{ok ? "" : " : inconvertible"}</div>;
+          if (effectif === null || choix.cible === "ignorer") return <div key={u}>{u}</div>;
+          if (requise && !contenanceValideChoisie(contenance, choisi!)) return <div key={u} className="font-medium text-red-800">{u} → {choisi!.unite || "?"} : contenance à renseigner</div>;
+          const ok = uniteConvertible(u, effectif);
+          return <div key={u} className={ok ? "text-emerald-800" : "font-medium text-red-800"}>{u} → {libelleCible(effectif)}{ok ? "" : " : inconvertible"}</div>;
         })}
       </td>
     </tr>
@@ -408,6 +468,7 @@ function CompteRendu({ bilan: b }: { bilan: BilanImportBar }) {
         {liste("Fiches remplies", b.remplies)}
         {liste("Fiches créées", b.creees)}
         {liste("Articles créés au catalogue", b.articlesCrees)}
+        {liste("Contenances écrites sur le catalogue", b.contenancesEcrites)}
         {liste("Déjà remplies, laissées telles quelles", b.dejaRemplies)}
         {liste("Recette identique, rien réécrit", b.identiques)}
         {liste("Texte de recette existant conservé", b.recettesConservees)}

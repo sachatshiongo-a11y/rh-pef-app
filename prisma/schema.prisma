@@ -1415,7 +1415,13 @@ model ArticleStock {
   prixOrigineCDF  Decimal?        @db.Decimal(16, 2) // provenance : préserve l'info d'origine
   tauxImportCDF   Decimal?        @db.Decimal(10, 2)
   codeBarres      String?
-  poidsPaquet     Decimal?        @db.Decimal(10, 3)
+  poidsPaquet     Decimal?        @db.Decimal(10, 3) // historique, jamais lu : voir `contenance`
+  // Contenance d'UNE unité de stock quand l'article se compte à l'unité (Bouteille, Pièce…) :
+  // « Absolut Vodka-75cl » = 75 cl. Sert à ramener une consommation de fiche (5 cl) à l'unité de
+  // stock (1/15 de bouteille) — coût et disponibilité (src/lib/fiches/conversion.ts,
+  // facteurVersArticle). Null = inconnue : la conversion reste impossible, jamais supposée.
+  contenance      Decimal?        @db.Decimal(12, 3)
+  contenanceUnite String? // ml, cl, l, g, kg
   actif           Boolean         @default(true)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

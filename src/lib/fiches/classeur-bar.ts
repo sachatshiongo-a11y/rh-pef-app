@@ -1,5 +1,8 @@
 import Decimal from "decimal.js";
-import { facteur, normaliserUnite, poidsEmballage, uniteManquante } from "@/lib/fiches/conversion";
+import {
+  contenanceCanonique, contenanceDansNom, estUniteComptage, facteur, facteurVersArticle, normaliserUnite, uniteManquante,
+  UNITES_CONTENANCE, type UniteArticle,
+} from "@/lib/fiches/conversion";
 import { rubriqueComparable } from "@/lib/fiches/famille-boisson";
 import { distance, ressemblance } from "@/lib/classeur-ventes";
 import { cleTexte, lireFeuillesXlsx, propre, type CelluleXlsx } from "@/lib/xlsx-leger";
@@ -319,6 +322,9 @@ export type ArticleExistant = {
   unite: string | null;
   prixUnitaireUSD: number | null;
   domaine: "NOURRITURE" | "BOISSON" | "AUTRE";
+  /** Contenance d'une unité comptée à l'unité (texte pleine précision), null = inconnue. */
+  contenance: string | null;
+  contenanceUnite: string | null;
 };
 
 export type ValeursCreation = { designation: string; unite: string; prixUnitaireUSD: string | null; prixClasseur: number | null; uniteClasseur: string };
@@ -329,10 +335,10 @@ export type PropositionIngredient = {
   /** Unités de consommation lues (normalisées), et feuilles qui l'emploient. */
   unites: string[];
   feuilles: string[];
-  /** Article proposé d'office : même désignation normalisée, UN SEUL au catalogue. */
+  /** Article proposé d'office : mêmes mots ET même contenance, UN SEUL au catalogue. */
   articleId: string | null;
   doute: string | null;
-  /** Articles à montrer en tête de liste : JAMAIS choisis d'office. */
+  /** Articles à montrer en tête de liste, du plus ressemblant au moins : JAMAIS choisis d'office. */
   suggestions: string[];
   /** Ce que « Créer l'article » écrirait ; null si le classeur ne donne pas d'unité. */
   creation: ValeursCreation | null;
@@ -360,15 +366,78 @@ export function valeursCreation(libelle: string, unite: string, prix: number | n
   };
 }
 
-/** Retire les contenances (« 70CL », « 1 L », « 2KG ») : « Cointreau 70cl » ne ressemble pas à « Rhum 70cl ». */
-const sansContenance = (s: string) => s.replace(/\b\d+(?:[.,]\d+)?\s*(?:cl|ml|l|lt|ltr|litres?|kg|g|gr)\b/gi, " ");
+// ─── Forme comparable d'un nom d'article ─────────────────────────────────────
+
+/** Mots vides d'une désignation (« Jus d'Ananas », « Sirop de Grenadine »). */
+const MOTS_VIDES_ARTICLE = new Set(["d", "de", "du", "des", "l", "la", "le", "les", "et", "a", "au", "aux", "en"]);
+/** Toute mention de contenance, retirée des mots (elle est comparée à part, sous forme canonique). */
+const CONTENANCE_DANS_TEXTE = /(^|[^a-z0-9])\d+(?:[.,]\d+)?\s*(?:ml|cl|ltr|lt|litres?|l|kg|gr|g)(?![a-z])/gi;
+
+export type FormeArticle = { mots: string[]; contenance: string | null };
+
+/**
+ * Forme comparable d'un nom : mots sans accents, casse ni séparateurs (« - », « ' », espaces),
+ * sans mots vides ni mention de contenance ; la contenance à part, canonique (1L = 1LTR = 100cl =
+ * 1000ML ; 70CL = 700ML). « MONIN COCONUT FRUIT 1LTR » et « Monin Coconut Fruit-1L » ont la même forme.
+ */
+export function formeArticle(nom: string): FormeArticle {
+  const sansAccents = nom.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return {
+    mots: motsBoisson(sansAccents.replace(CONTENANCE_DANS_TEXTE, "$1 ")).filter((m) => !MOTS_VIDES_ARTICLE.has(m)),
+    contenance: contenanceCanonique(contenanceDansNom(nom)),
+  };
+}
+
+/** Correspondance SÛRE d'un libellé du classeur avec un article : mêmes mots ET même contenance (connue des deux côtés, ou absente des deux). */
+export function memeArticle(a: FormeArticle, b: FormeArticle): boolean {
+  return a.mots.length > 0 && a.mots.join(" ") === b.mots.join(" ") && a.contenance === b.contenance;
+}
+
+/** « blc » abrège « blanc », « liq » abrège « liqueur » : même initiale, lettres dans l'ordre, plus court. */
+function abrege(court: string, long: string): boolean {
+  if (court.length < 2 || court.length >= long.length || court[0] !== long[0] || /\d/.test(court + long)) return false;
+  let i = 0;
+  for (const c of long) if (c === court[i]) i++;
+  return i === court.length;
+}
+
+/**
+ * Ressemblance d'un libellé du classeur avec un article, pour CLASSER les « proches » (jamais pour
+ * décider) : chaque mot du classeur vaut 1 s'il est dans l'article, 0,8 s'il en est une abréviation
+ * (BLC ↔ blanc, LIQ ↔ liqueur), 0,7 à une lettre près (RUM ↔ rhum, BLUE ↔ bleu) ; total rapporté au
+ * plus long des deux ; en dessous de 0,4 (moins de deux mots sur cinq), 0 : une contenance ou un
+ * mot commun (« Monin », « blanc ») ne rapproche rien à lui seul. Au-dessus, +0,25 si les
+ * contenances sont égales, −0,25 si elles diffèrent.
+ */
+export function scoreProche(a: FormeArticle, b: FormeArticle): number {
+  if (a.mots.length === 0 || b.mots.length === 0) return 0;
+  const libres = [...b.mots];
+  let total = 0;
+  for (const m of a.mots) {
+    let meilleur = 0, k = -1;
+    libres.forEach((x, i) => {
+      const v = x === m ? 1 : abrege(m, x) || abrege(x, m) ? 0.8
+        : !/\d/.test(m + x) && Math.min(m.length, x.length) >= 3 && distance(m, x) === 1 ? 0.7 : 0;
+      if (v > meilleur) { meilleur = v; k = i; }
+    });
+    if (k >= 0) { total += meilleur; libres.splice(k, 1); }
+  }
+  const mots = total / Math.max(a.mots.length, b.mots.length);
+  if (mots < SEUIL_PROCHE_ARTICLE) return 0;
+  const bonus = a.contenance && b.contenance ? (a.contenance === b.contenance ? 0.25 : -0.25) : 0;
+  return mots + bonus;
+}
+
+/** Au-delà, un article est montré parmi les « proches » (8 au plus, du plus ressemblant au moins). */
+export const SEUIL_PROCHE_ARTICLE = 0.4;
 
 /**
  * Propose un article pour chaque libellé distinct du classeur (un même libellé n'est demandé
- * qu'UNE fois, quelle que soit le nombre de fiches qui l'emploient). Correspondance sûre = même
- * désignation normalisée (accents, casse, espaces) et un SEUL article actif ainsi nommé. Aucune
- * tolérance d'orthographe ici : pour les spiritueux, « Absolut 70 cl » et « Absolut 75 cl » sont
- * des articles distincts (décision de la Direction) — une lettre près n'est jamais le même article.
+ * qu'UNE fois, quel que soit le nombre de fiches qui l'emploient). Correspondance SÛRE = mêmes
+ * mots ET même contenance (`memeArticle`) et un SEUL article actif ainsi fait. Une abréviation
+ * (« BACARDI BLC 1L » / « Bacardi blanc-1l ») ou une lettre d'écart n'est JAMAIS sûre : pour les
+ * spiritueux, deux orthographes voisines sont souvent deux articles (décision de la Direction) —
+ * elles font seulement remonter l'article en tête des « proches ».
  */
 export function rattacherIngredients(lues: FicheBarLue[], articles: ArticleExistant[]): PropositionIngredient[] {
   const parCle = new Map<string, { libelle: string; unites: Set<string>; feuilles: Set<string>; premiere: LigneBarLue }>();
@@ -382,13 +451,15 @@ export function rattacherIngredients(lues: FicheBarLue[], articles: ArticleExist
       parCle.set(k, e);
     }
   }
+  const formes = articles.map((a) => ({ a, f: formeArticle(a.designation) }));
   return [...parCle].map(([cle, e]) => {
-    const memes = articles.filter((a) => cleIngredient(a.designation) === cle);
-    const proches = articles
-      .filter((a) => cleIngredient(a.designation) !== cle)
-      .map((a) => ({ a, s: ressemblance(sansContenance(e.libelle), sansContenance(a.designation)).score }))
-      .filter((x) => x.s >= 0.5)
-      .sort((x, y) => y.s - x.s)
+    const forme = formeArticle(e.libelle);
+    const memes = formes.filter((x) => memeArticle(forme, x.f)).map((x) => x.a);
+    const proches = formes
+      .filter((x) => !memes.includes(x.a))
+      .map((x) => ({ a: x.a, s: scoreProche(forme, x.f) }))
+      .filter((x) => x.s >= SEUIL_PROCHE_ARTICLE)
+      .sort((x, y) => y.s - x.s || x.a.designation.localeCompare(y.a.designation, "fr"))
       .slice(0, 8);
     const unite = e.premiere.unite && !uniteManquante(e.premiere.unite) ? e.premiere.unite : [...e.unites][0];
     return {
@@ -397,7 +468,7 @@ export function rattacherIngredients(lues: FicheBarLue[], articles: ArticleExist
       unites: [...e.unites],
       feuilles: [...e.feuilles],
       articleId: memes.length === 1 ? memes[0]!.id : null,
-      doute: memes.length > 1 ? `${memes.length} articles du catalogue portent ce nom` : null,
+      doute: memes.length > 1 ? `${memes.length} articles du catalogue ont ce nom et cette contenance` : null,
       suggestions: [...(memes.length > 1 ? memes.map((a) => a.id) : []), ...proches.map((x) => x.a.id)],
       creation: unite ? valeursCreation(e.libelle, unite, e.premiere.unite === unite ? e.premiere.coutUnitaire : null) : null,
     };
@@ -405,16 +476,55 @@ export function rattacherIngredients(lues: FicheBarLue[], articles: ArticleExist
 }
 
 /**
- * L'unité de consommation se convertit-elle vers l'unité d'achat de l'article ? Reproduit la règle
- * du moteur de coût (`prixParUniteDeConsommation`, src/lib/fiches/cout.ts, non modifié) :
- * conversion directe, sinon unité-emballage (« 500 GR ») ramenée au kilo. Un test d'accord
- * (classeur-bar.test.ts) confronte les deux sur les unités du classeur.
+ * L'unité de consommation se ramène-t-elle à l'unité de stock de l'article ? Par la porte UNIQUE
+ * du moteur (`facteurVersArticle`, src/lib/fiches/conversion.ts) : directe, contenance d'un
+ * article compté à l'unité, puis emballage. Un test d'accord confronte le moteur de coût.
  */
-export function uniteConvertible(uniteConso: string, uniteArticle: string | null): boolean {
-  if (uniteArticle === null || uniteManquante(uniteArticle) || uniteManquante(uniteConso)) return false;
-  if (facteur(uniteConso, uniteArticle) !== null) return true;
-  const poids = poidsEmballage(uniteArticle);
-  return poids !== null && poids.greaterThan(0) && facteur(uniteConso, "kg") !== null;
+export function uniteConvertible(uniteConso: string, article: UniteArticle): boolean {
+  if (uniteManquante(uniteConso)) return false;
+  return facteurVersArticle(uniteConso, article) !== null;
+}
+
+// ─── Contenance à renseigner (article compté à l'unité, sans contenance) ─────
+
+/** Unités de stock proposées quand l'article du catalogue n'en a AUCUNE (« Jus d'Ananas-Ceres-1L »). */
+export const UNITES_STOCK_COMPTAGE = ["Bouteille", "Canette", "Brique", "Pièce", "Unité", "Boîte", "Paquet", "Flacon", "Pot", "Sachet"] as const;
+
+/** Contenance saisie (ou confirmée) par la Direction pour UN article, dans l'import. */
+export type ContenanceChoisie = { quantite: string; unite: string; /** unité de stock, seulement si l'article n'en a pas */ uniteStock: string | null };
+
+/**
+ * L'article a-t-il besoin d'une contenance pour cette consommation ? Oui s'il se compte à l'unité
+ * (ou n'a pas d'unité du tout), n'a pas de contenance, et que la consommation ne s'y convertit
+ * pas déjà directement (« Bouteille » consommée en « Bouteille »).
+ */
+export function contenanceRequise(article: ArticleExistant, uniteConso: string | null): boolean {
+  if (article.contenance !== null) return false;
+  const u = article.unite ?? "";
+  if (!uniteManquante(u) && !estUniteComptage(u)) return false;
+  if (uniteConso && !uniteManquante(u) && facteur(uniteConso, u) !== null) return false;
+  return true;
+}
+
+/** Proposition pré-remplie : la contenance LUE dans la désignation (« -70cl »), sinon vide (à taper). */
+export function contenanceProposee(article: ArticleExistant): ContenanceChoisie & { lue: boolean } {
+  const c = contenanceDansNom(article.designation);
+  return {
+    quantite: c ? c.quantite.toString() : "",
+    unite: c ? c.unite : "cl",
+    uniteStock: uniteManquante(article.unite) ? "Bouteille" : null,
+    lue: c !== null,
+  };
+}
+
+/** Une contenance choisie est-elle utilisable ? (nombre > 0, unité de contenance, unité de stock si requise). */
+export function contenanceValideChoisie(c: ContenanceChoisie | undefined, article: ArticleExistant): c is ContenanceChoisie {
+  if (!c) return false;
+  const q = Number(String(c.quantite).replace(",", "."));
+  if (!Number.isFinite(q) || q <= 0 || q > 100000) return false;
+  if (!(UNITES_CONTENANCE as readonly string[]).includes(c.unite)) return false;
+  if (uniteManquante(article.unite) && !(UNITES_STOCK_COMPTAGE as readonly string[]).includes(c.uniteStock ?? "")) return false;
+  return true;
 }
 
 // ─── Plan (PUR : la simulation affichée ET l'écriture) ───────────────────────
@@ -426,7 +536,15 @@ export type CibleIngredient = string;
 
 export type ChoixFiche = { cible: CibleFiche; categorie: string; remplacer: boolean };
 export type ChoixIngredient = { cible: CibleIngredient; domaine: "NOURRITURE" | "BOISSON" | "AUTRE" };
-export type ChoixImportBar = { fiches: Record<string, ChoixFiche>; ingredients: Record<string, ChoixIngredient> };
+export type ChoixImportBar = {
+  fiches: Record<string, ChoixFiche>;
+  ingredients: Record<string, ChoixIngredient>;
+  /**
+   * Contenances saisies ou confirmées, PAR ARTICLE du catalogue (id) : deux libellés qui visent la
+   * même bouteille partagent la même contenance. Ne sert que si l'article n'en a pas encore.
+   */
+  contenances: Record<string, ContenanceChoisie>;
+};
 
 export type StatutLigne = "OK" | "IGNOREE" | "A_DECIDER" | "BLOQUEE";
 export type LignePlan = {
@@ -436,8 +554,12 @@ export type LignePlan = {
   unite: string | null;
   statut: StatutLigne;
   motif: string | null;
-  /** Article visé : existant (id) ou à créer (id null). */
-  article: { id: string | null; designation: string; unite: string } | null;
+  /**
+   * Article visé : existant (id) ou à créer (id null). `contenanceAEcrire` : contenance (et unité
+   * de stock si l'article n'en avait pas) que l'import écrira sur l'article — jamais sur un
+   * article qui a déjà une contenance.
+   */
+  article: { id: string | null; designation: string; unite: string; contenanceAEcrire: ContenanceChoisie | null } | null;
 };
 
 export type StatutFiche = "A_DECIDER" | "IGNOREE" | "BLOQUEE" | "DEJA_REMPLIE" | "PRETE";
@@ -487,8 +609,7 @@ export function planifierImportBar(
   propositions: PropositionIngredient[],
 ): FichePlan[] {
   const parId = new Map(articles.map((a) => [a.id, a]));
-  const articleParCle = new Map<string, ArticleExistant[]>();
-  for (const a of articles) articleParCle.set(cleIngredient(a.designation), [...(articleParCle.get(cleIngredient(a.designation)) ?? []), a]);
+  const formes = articles.map((a) => ({ a, f: formeArticle(a.designation) }));
   const propParCle = new Map(propositions.map((p) => [p.cle, p]));
   const ficheParId = new Map(fiches.map((f) => [f.id, f]));
   const bar = fiches.filter((f) => f.type === "BAR" && !f.estSousRecette);
@@ -526,20 +647,41 @@ export function planifierImportBar(
       const b: LignePlan = { libelle: ln.libelle, cle, quantite: ln.quantite, unite, statut: "OK", motif: null, article: null };
       if (ci.cible === "ignorer") return { ...b, statut: "IGNOREE", motif: "ignorée à la demande" };
       if (ci.cible === "") return { ...b, statut: "A_DECIDER", motif: "choisir l'article" };
-      let article: LignePlan["article"];
+      let article: LignePlan["article"] = null;
+      let existant: ArticleExistant | null = null;
       if (ci.cible.startsWith("art:")) {
-        const a = parId.get(ci.cible.slice(4));
-        if (!a) return { ...b, statut: "BLOQUEE", motif: "l'article choisi n'existe plus" };
-        article = { id: a.id, designation: a.designation, unite: a.unite ?? "" };
+        existant = parId.get(ci.cible.slice(4)) ?? null;
+        if (!existant) return { ...b, statut: "BLOQUEE", motif: "l'article choisi n'existe plus" };
       } else if (ci.cible === "creer") {
-        const memes = articleParCle.get(cle) ?? [];
+        // « Créer » réutilise l'article qui a DÉJÀ ce nom et cette contenance (relancer ne double rien).
+        const forme = formeArticle(ln.libelle);
+        const memes = formes.filter((x) => memeArticle(forme, x.f)).map((x) => x.a);
         if (memes.length > 1) return { ...b, statut: "BLOQUEE", motif: "plusieurs articles portent déjà ce nom : choisir lequel" };
         const creation = propParCle.get(cle)?.creation ?? null;
-        if (memes.length === 1) article = { id: memes[0]!.id, designation: memes[0]!.designation, unite: memes[0]!.unite ?? "" };
-        else if (creation) article = { id: null, designation: creation.designation, unite: creation.unite };
+        if (memes.length === 1) existant = memes[0]!;
+        else if (creation) article = { id: null, designation: creation.designation, unite: creation.unite, contenanceAEcrire: null };
         else return { ...b, statut: "BLOQUEE", motif: "le classeur ne donne pas d'unité : impossible de créer l'article" };
       } else {
         return { ...b, statut: "BLOQUEE", motif: "choix d'article illisible" };
+      }
+      // Article existant compté à l'unité sans contenance : la contenance saisie (ou lue dans son
+      // nom et confirmée) sera écrite sur l'article ; tant qu'elle manque, la ligne est bloquée.
+      let effectif: UniteArticle | null = null;
+      if (existant) {
+        const aEcrire = contenanceRequise(existant, unite) ? choix.contenances?.[existant.id] : undefined;
+        article = { id: existant.id, designation: existant.designation, unite: existant.unite ?? "", contenanceAEcrire: null };
+        if (contenanceRequise(existant, unite)) {
+          if (!contenanceValideChoisie(aEcrire, existant)) {
+            return { ...b, article, statut: "BLOQUEE", motif: `contenance de « ${existant.designation} » à renseigner (${uniteManquante(existant.unite) ? "article sans unité" : `1 ${existant.unite} = combien ?`})` };
+          }
+          const c = { quantite: String(aEcrire.quantite).replace(",", "."), unite: aEcrire.unite, uniteStock: uniteManquante(existant.unite) ? aEcrire.uniteStock : null };
+          article = { ...article, unite: existant.unite || c.uniteStock!, contenanceAEcrire: c };
+          effectif = { unite: article.unite, contenance: c.quantite, contenanceUnite: c.unite };
+        } else {
+          effectif = { unite: existant.unite, contenance: existant.contenance, contenanceUnite: existant.contenanceUnite };
+        }
+      } else {
+        effectif = { unite: article!.unite };
       }
       if (!unite) return { ...b, article, statut: "BLOQUEE", motif: "unité vide au classeur" };
       if (ln.quantite === null || !(ln.quantite > 0)) return { ...b, article, statut: "BLOQUEE", motif: "quantité absente ou nulle au classeur" };
@@ -548,8 +690,8 @@ export function planifierImportBar(
       if (Math.round(ln.quantite * 1000) / 1000 !== ln.quantite) {
         return { ...b, article, statut: "BLOQUEE", motif: `quantité ${ln.quantite} : plus de 3 décimales, à arrondir dans le classeur` };
       }
-      if (!uniteConvertible(unite, article.unite || null)) {
-        return { ...b, article, statut: "BLOQUEE", motif: `unité inconvertible : ${unite} → ${article.unite || "article sans unité"}` };
+      if (!uniteConvertible(unite, effectif)) {
+        return { ...b, article, statut: "BLOQUEE", motif: `unité inconvertible : ${unite} → ${article!.unite || "article sans unité"}` };
       }
       return { ...b, article };
     });
@@ -670,17 +812,46 @@ export function validerChoix(brut: unknown, lues: FicheBarLue[]): ChoixImportBar
     const domaine = DOMAINES.find((d) => d === c?.domaine) ?? "BOISSON";
     ingredients[cle] = { cible, domaine };
   }
-  return { fiches, ingredients };
+  const contenances: Record<string, ContenanceChoisie> = {};
+  const brutes = (b as { contenances?: unknown }).contenances;
+  if (brutes !== undefined && (typeof brutes !== "object" || brutes === null)) throw new Error("Contenances illisibles.");
+  const entrees = Object.entries((brutes ?? {}) as Record<string, Record<string, unknown>>);
+  if (entrees.length > 500) throw new Error("Contenances illisibles.");
+  for (const [id, c] of entrees) {
+    const quantite = typeof c?.quantite === "string" ? c.quantite.trim() : "";
+    const unite = typeof c?.unite === "string" ? c.unite : "";
+    const uniteStock = c?.uniteStock === null || c?.uniteStock === undefined ? null : c.uniteStock;
+    if (!/^[\w-]{1,64}$/.test(id) || quantite.length > 20 || !(UNITES_CONTENANCE as readonly string[]).includes(unite)
+      || (uniteStock !== null && !(UNITES_STOCK_COMPTAGE as readonly unknown[]).includes(uniteStock))) {
+      throw new Error("Contenance illisible.");
+    }
+    contenances[id] = { quantite, unite, uniteStock: uniteStock as string | null };
+  }
+  return { fiches, ingredients, contenances };
 }
 
 /** Domaine proposé pour un article créé : volume → Boisson, sinon Nourriture (modifiable). */
 export const domainePropose = (unite: string | null | undefined): ChoixIngredient["domaine"] =>
   unite && facteur(unite, "l") !== null ? "BOISSON" : "NOURRITURE";
 
-/** Choix de départ : les correspondances SÛRES acceptées, tout le reste « à décider ». */
-export function choixInitiaux(fiches: PropositionFiche[], ingredients: PropositionIngredient[]): ChoixImportBar {
+/**
+ * Choix de départ : les correspondances SÛRES acceptées, tout le reste « à décider ». Pour un
+ * article sûr compté à l'unité sans contenance, la contenance LUE dans son nom est pré-remplie
+ * (visible et modifiable à l'écran) ; illisible, elle reste vide et la ligne bloquée.
+ */
+export function choixInitiaux(fiches: PropositionFiche[], ingredients: PropositionIngredient[], articles: ArticleExistant[] = []): ChoixImportBar {
+  const parId = new Map(articles.map((a) => [a.id, a]));
+  const contenances: Record<string, ContenanceChoisie> = {};
+  for (const p of ingredients) {
+    const a = p.articleId ? parId.get(p.articleId) : undefined;
+    if (a && !contenances[a.id] && contenanceRequise(a, p.unites[0] ?? null)) {
+      const { lue: _lue, ...c } = contenanceProposee(a);
+      contenances[a.id] = c;
+    }
+  }
   return {
     fiches: Object.fromEntries(fiches.map((p) => [p.feuille, { cible: p.ficheId ? `fiche:${p.ficheId}` : "", categorie: p.categorieProposee, remplacer: false }])),
     ingredients: Object.fromEntries(ingredients.map((p) => [p.cle, { cible: p.articleId ? `art:${p.articleId}` : "", domaine: domainePropose(p.creation?.uniteClasseur) }])),
+    contenances,
   };
 }

@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { facteur, poidsEmballage } from "@/lib/fiches/conversion";
+import { facteurVersArticle, type UniteArticle } from "@/lib/fiches/conversion";
 import { uniteRendementIncoherente } from "@/lib/fiches/cout";
 
 // Disponibilité des plats selon le stock : fonction PURE (ni Prisma, ni React), sœur du moteur de
@@ -32,7 +32,11 @@ const UN = new D(1);
 
 // ─── Entrées (dénormalisées par l'appelant) ──────────────────────────────────
 
-export type ArticleDispo = { id: string; designation: string; unite: string };
+export type ArticleDispo = {
+  id: string; designation: string; unite: string;
+  /** Contenance d'une unité comptée à l'unité (bouteille de 75 cl) — cf. `facteurVersArticle`. */
+  contenance?: Decimal.Value | null; contenanceUnite?: string | null;
+};
 
 export type IngredientDispo = {
   /** Libellé affiché dans les raisons (« Crème fraîche »). */
@@ -221,26 +225,20 @@ function versD(valeur: Decimal.Value | null | undefined): Dec | null {
 }
 
 /**
- * Convertit une quantité vers l'unité de l'article, par la MÊME règle que le coût : `facteur()`,
- * puis, pour une unité-emballage (« 500 GR »), le poids du paquet. `null` = conversion impossible —
- * jamais un facteur supposé.
+ * Convertit une quantité vers l'unité de l'article, par la MÊME règle que le coût (la porte unique
+ * `facteurVersArticle` : directe, contenance d'un article compté à l'unité, puis poids d'une
+ * unité-emballage « 500 GR »). `null` = conversion impossible — jamais un facteur supposé.
  */
-function versUniteArticle(q: Fraction, uniteSource: string, uniteArticle: string): Fraction | null {
-  const f = facteur(uniteSource, uniteArticle);
-  if (f !== null) return fois(q, fr(new D(f)));
-  const poids = poidsEmballage(uniteArticle);
-  if (poids !== null && poids.greaterThan(0)) {
-    const versKg = facteur(uniteSource, "kg");
-    if (versKg !== null) return fois(q, fr(new D(versKg), new D(poids)));
-  }
-  return null;
+function versUniteArticle(q: Fraction, uniteSource: string, article: UniteArticle): Fraction | null {
+  const f = facteurVersArticle(uniteSource, article);
+  return f === null ? null : fois(q, fr(new D(f.num), new D(f.den)));
 }
 
 /** Quantité convertie vers l'unité d'un article, en texte pleine précision ; `null` si impossible. */
-export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: string, uniteArticle: string): string | null {
+export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: string, uniteArticle: string | UniteArticle): string | null {
   const q = versD(quantite);
   if (q === null) return null;
-  const r = versUniteArticle(fr(q), uniteSource, uniteArticle);
+  const r = versUniteArticle(fr(q), uniteSource, typeof uniteArticle === "string" ? { unite: uniteArticle } : uniteArticle);
   return r === null ? null : r.num.div(r.den).toString();
 }
 
@@ -250,10 +248,10 @@ export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: 
  * article ci-dessus (même `facteur()`, mêmes emballages) : une livraison convertie puis reconvertie
  * retombe sur la quantité sortie du dépôt, sans double compte. `null` = conversion impossible.
  */
-export function convertirDepuisUniteArticle(quantite: Decimal.Value, uniteArticle: string, uniteResto: string): string | null {
+export function convertirDepuisUniteArticle(quantite: Decimal.Value, uniteArticle: string | UniteArticle, uniteResto: string): string | null {
   const q = versD(quantite);
   if (q === null) return null;
-  const unRestoEnArticle = versUniteArticle(fr(UN), uniteResto, uniteArticle);
+  const unRestoEnArticle = versUniteArticle(fr(UN), uniteResto, typeof uniteArticle === "string" ? { unite: uniteArticle } : uniteArticle);
   if (unRestoEnArticle === null || unRestoEnArticle.num.isZero()) return null;
   return q.times(unRestoEnArticle.den).div(unRestoEnArticle.num).toString();
 }
@@ -282,7 +280,7 @@ function eclater(ing: IngredientDispo, mult: Fraction, chemin: string, enCours: 
   if (ing.articleId) {
     const article = ctx.articles.get(ing.articleId);
     if (!article) return aVerifier("SANS_SOURCE");
-    const besoin = versUniteArticle(quantite, ing.unite, article.unite);
+    const besoin = versUniteArticle(quantite, ing.unite, article);
     if (besoin === null) return aVerifier("UNITE_NON_CONVERTIBLE");
     return { besoins: [{ articleId: article.id, besoin }], raisons: [] };
   }

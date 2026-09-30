@@ -17,14 +17,15 @@ const F = (id: string, nom: string, categorie: string, nbIngredients = 0): Fiche
   ({ id, nom, categorie, type: "BAR", estSousRecette: false, actif: true, nbIngredients, recetteVide: true, prixVenteTTC: 15 });
 const FICHES = [F("pc", "Pina Colada", "Cocktail"), F("pm", "Pina Colada", "Mocktail"), F("mo", "Mojito", "Cocktail", 2), F("kir", "Kir Royal", "Apéritif"), F("gt", "Gin Tonic", "Cocktail", 3)];
 const ARTICLES: ArticleExistant[] = [
-  { id: "rum", designation: "Rum Saint James blc 70cl", unite: "L", prixUnitaireUSD: 17.8571, domaine: "BOISSON" },
-  { id: "bac", designation: "Bacardi blanc", unite: "Bouteille", prixUnitaireUSD: 15, domaine: "BOISSON" },
+  { id: "rum", designation: "Rum Saint James blc 70cl", unite: "L", prixUnitaireUSD: 17.8571, domaine: "BOISSON", contenance: null, contenanceUnite: null },
+  { id: "bac", designation: "Bacardi blanc-1l", unite: "Bouteille", prixUnitaireUSD: 15, domaine: "BOISSON", contenance: null, contenanceUnite: null },
+  { id: "cit", designation: "Citron", unite: "Kg", prixUnitaireUSD: 2, domaine: "NOURRITURE", contenance: null, contenanceUnite: null },
 ];
 
 const appels = vi.hoisted(() => ({
   analyserFichesBar: vi.fn(),
   appliquerImportBar: vi.fn<(lues: unknown, choix: unknown) => Promise<unknown>>(async () => ({
-    ok: true as const, remplies: ["Pina Colada"], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: ["Lait de Coco"], lignesIgnorees: [], recettesConservees: [],
+    ok: true as const, remplies: ["Pina Colada"], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: ["Lait de Coco"], contenancesEcrites: [], lignesIgnorees: [], recettesConservees: [],
   })),
 }));
 vi.mock("./import-bar-actions", () => appels);
@@ -85,7 +86,7 @@ describe("Importer les fiches du bar — simulation", () => {
     expect(select("Article pour Lait de Coco").value).toBe("");
     // Le Mojito a déjà une recette : la case « Remplacer » est proposée, décochée.
     expect(ligne("Mojito").textContent).toContain("Remplacer la recette existante (2 ingrédient(s))");
-    expect(conteneur.textContent).toContain("29 feuille(s) · 0 prête(s) · 29 à décider");
+    expect(conteneur.textContent).toContain("29 feuille(s) · 0 prête(s) · 28 à décider · 1 bloquée(s)");
     expect(bouton("Appliquer").disabled).toBe(true);
     expect(conteneur.textContent).toContain("« Liste des fournisseurs » (pas une fiche technique");
   });
@@ -99,11 +100,28 @@ describe("Importer les fiches du bar — simulation", () => {
     expect(ligne("Lait de Coco").textContent).toContain("cl → l"); // « Créer » : article au litre
     expect(bouton("Appliquer").textContent).toBe("Appliquer (2 fiches)");
 
+    // Bouteille sans contenance : « 1 l, lu dans le nom », pré-rempli, visible, modifiable.
     choisir(select("Article pour BACARDI BLC 1L"), "art:bac");
+    const qte = conteneur.querySelector<HTMLInputElement>('input[aria-label="Contenance de Bacardi blanc-1l"]')!;
+    expect(qte.value).toBe("1");
+    expect(select("Unité de contenance de Bacardi blanc-1l").value).toBe("l");
+    expect(ligne("BACARDI BLC 1L").textContent).toContain("1 l, lu dans le nom — à vérifier · sera écrite sur l'article");
+    expect(ligne("BACARDI BLC 1L").textContent).toContain("cl → Bouteille de 1 l");
+    expect(ligne("Piña colada").textContent).toContain("prête");
+    // Effacée : la ligne est bloquée tant qu'elle manque.
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => { setter.call(qte, ""); qte.dispatchEvent(new Event("input", { bubbles: true })); });
     expect(ligne("Piña colada").textContent).toContain("bloquée");
-    expect(ligne("Piña colada").textContent).toContain("BACARDI BLC 1L : unité inconvertible : cl → Bouteille");
-    expect(ligne("BACARDI BLC 1L").textContent).toContain("cl → Bouteille : inconvertible");
+    expect(ligne("Piña colada").textContent).toContain("BACARDI BLC 1L : contenance de « Bacardi blanc-1l » à renseigner (1 Bouteille = combien ?)");
+    expect(ligne("BACARDI BLC 1L").textContent).toContain("contenance à renseigner");
     expect(bouton("Appliquer").textContent).toBe("Appliquer (1 fiche)"); // reste la Virgin Piña Colada, sans rhum
+  });
+
+  it("unité réellement inconvertible (citron à l'unité, catalogue au kilo) : bloquée et dite", async () => {
+    await deposer();
+    expect(select("Article pour citron").value).toBe("art:cit"); // même nom : sûr…
+    expect(ligne("citron").textContent).toContain("unité → Kg : inconvertible"); // … mais inconvertible
+    expect(ligne("Mojito").textContent).toContain("citron : unité inconvertible : unité → Kg");
   });
 
   it("« Accepter les correspondances sûres » remet les choix sûrs ; « Appliquer » envoie lues + choix après confirmation", async () => {

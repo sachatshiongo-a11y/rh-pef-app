@@ -78,9 +78,14 @@ const SELECT_ARTICLE = {
   unite: true,
   prixUnitaireUSD: true,
   actif: true,
+  contenance: true,
+  contenanceUnite: true,
 } satisfies Prisma.ArticleStockSelect;
 
-type ArticleBrut = { id: string; designation: string; unite: string | null; prixUnitaireUSD: { toString(): string } | null; actif: boolean };
+type ArticleBrut = {
+  id: string; designation: string; unite: string | null; prixUnitaireUSD: { toString(): string } | null; actif: boolean;
+  contenance: { toString(): string } | null; contenanceUnite: string | null;
+};
 
 const versOption = (a: ArticleBrut): ArticleOption => ({
   id: a.id,
@@ -88,6 +93,8 @@ const versOption = (a: ArticleBrut): ArticleOption => ({
   unite: s(a.unite),
   prixUnitaireUSD: a.prixUnitaireUSD === null ? null : a.prixUnitaireUSD.toString(),
   actif: a.actif,
+  contenance: a.contenance === null ? null : a.contenance.toString(),
+  contenanceUnite: a.contenanceUnite,
 });
 
 /**

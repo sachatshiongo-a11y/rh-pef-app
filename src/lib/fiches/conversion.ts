@@ -114,3 +114,120 @@ export function poidsEmballage(unite: string): Decimal | null {
   const uniteMasse = match[2] === "kg" ? "kg" : "g";
   return quantite.times(facteur(uniteMasse, "kg")!);
 }
+
+// ─── Unité de STOCK d'un article (contenance comprise) ───────────────────────
+//
+// SEULE porte d'entrée pour ramener une quantité (consommée par une fiche, comptée au restaurant)
+// à l'unité de stock d'un ARTICLE du catalogue : coût (cout.ts), disponibilité et stock du
+// restaurant (disponibilite.ts), contrôle de l'import des fiches du bar (classeur-bar.ts). Un
+// garde-fou de source (conversion-porte-unique.test.ts) interdit d'appeler `facteur()` ou
+// `poidsEmballage()` sur l'unité d'un article ailleurs qu'ici.
+
+/**
+ * Unités de COMPTAGE d'un article (on stocke des bouteilles, des pièces…), pluriels et « (s) »
+ * compris. « Carton » n'en est volontairement PAS : un carton contient des bouteilles, pas un
+ * volume — sa contenance serait ambiguë.
+ */
+const COMPTAGE_STOCK = new Set(["bouteille", "piece", "unite", "boite", "paquet", "sachet", "canette", "brique", "flacon", "pot"]);
+
+/** Vrai si l'article se compte à l'unité (« Bouteille », « Bouteille(s) », « Pièces »…). */
+export function estUniteComptage(unite: string | null | undefined): boolean {
+  const u = normaliserUnite(unite ?? "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/\(s\)$/, "").replace(/s$/, "");
+  return COMPTAGE_STOCK.has(u);
+}
+
+/** Unités admises pour une contenance : une grandeur convertible (volume ou masse). */
+export const UNITES_CONTENANCE = ["ml", "cl", "l", "g", "kg"] as const;
+export type UniteContenance = (typeof UNITES_CONTENANCE)[number];
+
+/** Article réduit à ce qui décide d'une conversion vers son unité de stock. */
+export type UniteArticle = {
+  unite: string | null;
+  /** Contenance d'UNE unité de stock (75 pour « 75 cl ») ; null/absente = inconnue. */
+  contenance?: Decimal.Value | null;
+  contenanceUnite?: string | null;
+};
+
+/** Facteur exact en fraction : quantité × num ÷ den = quantité dans l'unité de stock. */
+export type FacteurArticle = { num: Decimal; den: Decimal };
+
+function contenanceValide(a: UniteArticle): { q: Decimal; unite: string } | null {
+  if (a.contenance === null || a.contenance === undefined || a.contenance === "" || !a.contenanceUnite) return null;
+  try {
+    const q = new Decimal(a.contenance);
+    return q.isFinite() && q.greaterThan(0) ? { q, unite: a.contenanceUnite } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Facteur pour ramener une quantité exprimée en `uniteConso` à l'unité de STOCK de l'article, dans
+ * cet ordre :
+ *  1. conversion directe (`facteur`) — « g » vers « kg », « Bouteille » vers « Bouteille » ;
+ *  2. article compté à l'unité (Bouteille, Pièce…) dont la CONTENANCE est de la même grandeur que
+ *     la consommation : facteur(uniteConso → contenanceUnite) ÷ contenance. 5 cl d'une bouteille
+ *     de 1 L = 5 × (1/100) ÷ 1 = 0,05 bouteille ;
+ *  3. unité-emballage (« 500 GR ») : poids du paquet, ramené au kilo (comportement historique).
+ * `null` = conversion impossible, jamais un facteur supposé : une contenance inconnue n'est pas 1.
+ * Résultat en fraction (num ÷ den) pour que coût et disponibilité restent exacts.
+ */
+export function facteurVersArticle(uniteConso: string, article: UniteArticle): FacteurArticle | null {
+  const unite = article.unite ?? "";
+  const direct = facteur(uniteConso, unite);
+  if (direct !== null) return { num: direct, den: new Decimal(1) };
+
+  const contenance = contenanceValide(article);
+  if (contenance && estUniteComptage(unite)) {
+    const f = facteur(uniteConso, contenance.unite);
+    if (f !== null) return { num: f, den: contenance.q };
+  }
+
+  const poids = poidsEmballage(unite);
+  if (poids !== null && poids.greaterThan(0)) {
+    const versKg = facteur(uniteConso, "kg");
+    if (versKg !== null) return { num: versKg, den: poids };
+  }
+  return null;
+}
+
+// ─── Contenance lue dans une désignation ─────────────────────────────────────
+
+const CONTENANCE_REGEX = /(\d+(?:[.,]\d+)?)\s*(ml|cl|ltr|lt|litres?|l|kg|gr|g)(?![a-z])/gi;
+const UNITE_LUE: Record<string, UniteContenance> = { ml: "ml", cl: "cl", l: "l", lt: "l", ltr: "l", litre: "l", litres: "l", kg: "kg", g: "g", gr: "g" };
+
+/**
+ * Contenance écrite dans un nom d'article : « Absolut Vodka-75cl » → 75 cl, « Campari-1L » → 1 l,
+ * « MONIN COCONUT FRUIT 1LTR » → 1 l, « Hendrick S-700ml » → 700 ml, « Monin … Powder 2KG » →
+ * 2 kg. La DERNIÈRE mention l'emporte (« 12 X 1KG » → 1 kg, le contenu d'une unité). Un nombre sans
+ * unité (« Jus d'Ananas-100 », « Sirop …-70 ») ne se lit pas : null, jamais une unité supposée.
+ */
+export function contenanceDansNom(nom: string): { quantite: Decimal; unite: UniteContenance } | null {
+  const texte = nom.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  let derniere: RegExpExecArray | null = null;
+  for (const m of texte.matchAll(CONTENANCE_REGEX)) {
+    // Le nombre ne doit pas être collé à une lettre qui le précède (« V8 », « B52cl »).
+    const avant = texte[(m.index ?? 0) - 1];
+    if (avant && /[a-z0-9]/i.test(avant)) continue;
+    derniere = m as RegExpExecArray;
+  }
+  if (!derniere) return null;
+  const quantite = new Decimal(derniere[1]!.replace(",", "."));
+  if (!quantite.greaterThan(0)) return null;
+  return { quantite, unite: UNITE_LUE[derniere[2]!.toLowerCase()]! };
+}
+
+/**
+ * Contenance ramenée à l'unité de base de sa grandeur (« v:700 » pour 70 cl, « m:2000 » pour
+ * 2 kg), pour comparer deux écritures : 1L = 1LTR = 100cl = 1000ML ; 70CL = 700ML.
+ */
+export function contenanceCanonique(c: { quantite: Decimal.Value; unite: string } | null): string | null {
+  if (!c) return null;
+  const q = new Decimal(c.quantite);
+  const ml = facteur(c.unite, "ml");
+  if (ml !== null) return `v:${q.times(ml).toString()}`;
+  const g = facteur(c.unite, "g");
+  return g !== null ? `m:${q.times(g).toString()}` : null;
+}

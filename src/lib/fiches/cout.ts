@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { facteur, normaliserUnite, poidsEmballage } from "@/lib/fiches/conversion";
+import { facteur, facteurVersArticle, normaliserUnite } from "@/lib/fiches/conversion";
 
 // Moteur de coût de revient des fiches techniques : PUR (aucun accès Prisma, aucune base,
 // aucun React). Il consomme des données déjà dénormalisées et ne fait que du calcul.
@@ -19,6 +19,12 @@ export type ArticleCalc = {
   prixUnitaireUSD: Decimal.Value | null;
   /** Unité d'achat, TEXTE LIBRE saisi à la main (« kg », « L », « pièce », « 500 GR »…). */
   unite: string;
+  /**
+   * Contenance d'UNE unité d'achat comptée à l'unité (« Bouteille » de 75 cl) : permet de valoriser
+   * une consommation en cl. Absente/null = inconnue : la ligne reste « unité inconvertible ».
+   */
+  contenance?: Decimal.Value | null;
+  contenanceUnite?: string | null;
   /**
    * Nombre d'unités par carton. Volontairement INUTILISÉ ici : le prix de vérité est le prix
    * à l'unité (spec §12.5), on ne re-dérive jamais un prix depuis le carton. Le champ n'est
@@ -175,16 +181,12 @@ function prixParUniteDeConsommation(
   // passer un plat non documenté pour le plus rentable du catalogue.
   if (prixAchat.lessThanOrEqualTo(0)) return { motif: "PRIX_NUL" };
 
-  const direct = facteur(uniteConsommee, article.unite);
-  if (direct !== null) return { prix: prixAchat.times(direct) };
-
-  // Unité-emballage (« 500 GR », « 1 KG ») : le prix est celui du paquet, l'unité en porte le
-  // poids. On ramène au kilo, puis on convertit l'unité de consommation vers le kilo.
-  const poids = poidsEmballage(article.unite);
-  if (poids !== null && poids.greaterThan(0)) {
-    const versKg = facteur(uniteConsommee, "kg");
-    if (versKg !== null) return { prix: prixAchat.div(poids).times(versKg) };
-  }
+  // Conversion vers l'unité d'achat par la porte UNIQUE (`facteurVersArticle`) : directe, puis
+  // contenance d'un article compté à l'unité (bouteille de 1 L à 14 $, 5 cl = 0,70 $), puis
+  // unité-emballage (« 500 GR »). Ordre des opérations inchangé (prix ÷ den × num) : pour la
+  // conversion directe et l'emballage, le calcul est celui d'avant, à la décimale près.
+  const f = facteurVersArticle(uniteConsommee, article);
+  if (f !== null) return { prix: f.den.equals(1) ? prixAchat.times(f.num) : prixAchat.div(f.den).times(f.num) };
 
   // Unité inconnue ou incompatible : on ne suppose JAMAIS un facteur.
   return { motif: "UNITE_INCONVERTIBLE" };
