@@ -177,6 +177,19 @@ describe("Fiches techniques — les actions groupées ne portent que sur l'ongle
     expect(appels.supprimerFiches.mock.calls[0][0].slice().sort()).toEqual(ids);
   });
 
+  it("PDF de la sélection : chiffré ou sans prix, les mêmes fiches que l'Excel, dans l'onglet", () => {
+    rendre({ rows: ROWS, vue: "boissons" });
+    toutSelectionner();
+    const lien = (texte: string) => new URL([...conteneur.querySelectorAll("a")].find((a) => a.textContent?.startsWith(texte))!.href, "http://x");
+    for (const [texte, prix] of [["PDF (", "avec"], ["PDF sans prix (", "sans"]] as const) {
+      const u = lien(texte);
+      expect(u.pathname).toBe("/stock/fiches/pdf");
+      expect(u.searchParams.get("prix")).toBe(prix);
+      expect(u.searchParams.get("vue")).toBe("boissons");
+      expect(u.searchParams.get("ids")!.split(",").sort()).toEqual(["b-bordeaux", "b-eau", "b-mojito", "b-rhum", "b-virgin"]);
+    }
+  });
+
   it("changer d'onglet vide la sélection : rien de Boissons ne part avec une action dans Plats", async () => {
     rendre({ rows: ROWS, vue: "boissons" });
     toutSelectionner();
@@ -187,6 +200,20 @@ describe("Fiches techniques — les actions groupées ne portent que sur l'ongle
     toutSelectionner();
     await act(async () => { bouton("Dupliquer").click(); });
     expect(appels.dupliquerFiches.mock.calls[0][0].slice().sort()).toEqual(["p-bolo", "p-sauce", "p-vide"]);
+  });
+});
+
+describe("Fiches techniques — menu « Exporter » de l'onglet", () => {
+  it("PDF chiffré, PDF sans prix et Excel de l'onglet affiché", () => {
+    for (const vue of ["plats", "boissons"] as const) {
+      rendre({ rows: ROWS, vue });
+      clic([...conteneur.querySelectorAll("button")].find((b) => b.textContent === "Exporter ▾")!);
+      const liens = new Map([...document.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href")]));
+      expect(liens.get("PDF"), vue).toBe(`/stock/fiches/pdf?vue=${vue}&prix=avec`);
+      expect(liens.get("PDF sans prix"), vue).toBe(`/stock/fiches/pdf?vue=${vue}&prix=sans`);
+      expect(liens.get("Excel"), vue).toBe(`/stock/fiches/export?vue=${vue}`);
+      clic([...conteneur.querySelectorAll("button")].find((b) => b.textContent === "Exporter ▾")!); // referme
+    }
   });
 });
 

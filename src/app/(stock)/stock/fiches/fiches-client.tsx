@@ -183,6 +183,19 @@ export function FichesClient({ fiches, etatInitial, vue = "plats" }: { fiches: F
           >
             ⭳ Exporter ({sel.size})
           </TelechargerLien>
+          {/* PDF de la sélection, une fiche par page, dans l'ordre de l'écran — chiffré ou sans prix. */}
+          <TelechargerLien
+            href={`/stock/fiches/pdf?vue=${vue}&prix=avec&ids=${ids.join(",")}`}
+            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            PDF ({sel.size})
+          </TelechargerLien>
+          <TelechargerLien
+            href={`/stock/fiches/pdf?vue=${vue}&prix=sans&ids=${ids.join(",")}`}
+            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            PDF sans prix ({sel.size})
+          </TelechargerLien>
           <button
             disabled={isPending}
             onClick={() => run(() => dupliquerFiches(ids))}

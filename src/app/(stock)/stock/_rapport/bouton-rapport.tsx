@@ -13,7 +13,8 @@ type T = { value: string; label: string };
 // son écran (dans l'application installée, un lien vers un PDF enferme — voir telecharger-lien.tsx).
 // `pdfPage` : le « PDF » est une PAGE d'impression de l'application (/…/imprimer, avec sa coquille et
 // son bouton « Imprimer / Enregistrer en PDF »), pas un fichier : on y va dans la même fenêtre.
-export function BoutonRapport({ types, pdfHref, excelHref, pdfPage }: { types?: T[]; pdfHref?: string; excelHref?: string; pdfPage?: boolean }) {
+// `pdfSansPrixHref` : seconde version du PDF, sans aucun montant (fiches techniques affichées au poste).
+export function BoutonRapport({ types, pdfHref, pdfSansPrixHref, excelHref, pdfPage }: { types?: T[]; pdfHref?: string; pdfSansPrixHref?: string; excelHref?: string; pdfPage?: boolean }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   // Position calculée à l'ouverture et CLAMPÉE au viewport : le panneau reste toujours
@@ -63,6 +64,7 @@ export function BoutonRapport({ types, pdfHref, excelHref, pdfPage }: { types?: 
                     {pdfHref && (pdfPage
                       ? <Link href={pdfHref} className={dl} onClick={() => setOpen(false)}>PDF</Link>
                       : <TelechargerLien href={pdfHref} className={dl} onClick={() => setOpen(false)}>PDF</TelechargerLien>)}
+                    {pdfSansPrixHref && <TelechargerLien href={pdfSansPrixHref} className={dl} onClick={() => setOpen(false)}>PDF sans prix</TelechargerLien>}
                     {excelHref && <TelechargerLien href={excelHref} className={dl} onClick={() => setOpen(false)}>Excel</TelechargerLien>}
                   </div>
                 </div>

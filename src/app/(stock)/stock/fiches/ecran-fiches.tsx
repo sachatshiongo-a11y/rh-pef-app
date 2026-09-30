@@ -31,7 +31,13 @@ export function EcranFiches({ rows, vue, etatInitial, importBar }: { rows: Fiche
           <span className="text-sm text-muted-foreground" data-compteur-onglet>
             {fiches.length} fiche(s){partielles > 0 && ` · ${partielles} au coût partiel`}{sansRecette > 0 && ` · ${sansRecette} recette(s) à compléter`}
           </span>
-          <BoutonRapport excelHref={`/stock/fiches/export?vue=${vue}`} />
+          {/* PDF : une fiche par page, chiffrée ou « sans prix » (affichée au poste) — mêmes fiches,
+              même ordre que l'Excel. */}
+          <BoutonRapport
+            pdfHref={`/stock/fiches/pdf?vue=${vue}&prix=avec`}
+            pdfSansPrixHref={`/stock/fiches/pdf?vue=${vue}&prix=sans`}
+            excelHref={`/stock/fiches/export?vue=${vue}`}
+          />
         </div>
       </div>
 

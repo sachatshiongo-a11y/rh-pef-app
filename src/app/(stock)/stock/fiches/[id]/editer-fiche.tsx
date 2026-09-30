@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { VignettePlat } from "@/components/vignette-plat";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { estErreur } from "@/lib/action-lisible";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
 import {
@@ -14,7 +15,7 @@ import {
 import { usd, qte } from "@/lib/stock";
 import { ongletFiche } from "@/lib/fiches/famille-boisson";
 import {
-  MOTIF_LABEL, coef, pct, versFicheCalc, versFicheDispo, resumerDispo,
+  MOTIF_LABEL, coef, pct, etiquettePrix as etiquette, noteCoutIncomplet, versFicheCalc, versFicheDispo, resumerDispo,
   type ArticleOption, type FicheVue, type LigneFiche,
 } from "../_data/fiche-calc";
 import { BlocDisponibilite, CellulePortions, CelluleStock } from "./disponibilite-fiche";
@@ -96,7 +97,7 @@ export function EditerFiche({
   // Troisième cause d'incomplétude, distincte des deux autres : la fiche n'a AUCUN ingrédient.
   // Son coût n'est pas 0, il est inconnu — et aucun ingrédient n'est là pour être nommé.
   const aucunIngredient = lignes.length === 0;
-  const noteCout = !resultat.incomplet ? null : aucunIngredient ? "sur coût inconnu" : "sur coût partiel";
+  const noteCout = noteCoutIncomplet(resultat.incomplet, lignes.length);
 
   const initiales = new Map(vue.lignes.map((l) => [l.id, l]));
   const ligneModifiee = (l: LigneFiche) => {
@@ -199,7 +200,24 @@ export function EditerFiche({
             {[ent.categorie || "Sans catégorie", ent.estSousRecette ? "Sous-recette" : "Plat vendu", `${lignes.length} ingrédient(s)`].join(" · ")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* PDF de la fiche ENREGISTRÉE (une modification en cours n'y figure qu'une fois enregistrée).
+              Aperçu dans la visionneuse maison, d'où l'on télécharge : jamais un lien qui ferait
+              quitter l'application installée. */}
+          <ApercuDocumentBouton
+            href={`/stock/fiches/pdf?ids=${encodeURIComponent(vue.id)}&prix=avec`}
+            titre={`Fiche technique — ${vue.nom}`}
+            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            PDF
+          </ApercuDocumentBouton>
+          <ApercuDocumentBouton
+            href={`/stock/fiches/pdf?ids=${encodeURIComponent(vue.id)}&prix=sans`}
+            titre={`Fiche technique — ${vue.nom} (sans prix)`}
+            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+          >
+            PDF sans prix
+          </ApercuDocumentBouton>
           <button onClick={dupliquer} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">⧉ Dupliquer</button>
           <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>
         </div>
@@ -458,18 +476,6 @@ export function EditerFiche({
       )}
     </div>
   );
-}
-
-/**
- * Étiquette d'un indicateur de prix : dit son ORIGINE (conseillé depuis le coefficient cible, ou
- * dérivé d'un prix décidé) et sa COMPLÉTUDE (`note` : « sur coût partiel », « sur coût inconnu »,
- * ou rien). Deux questions différentes, deux mentions — c'est ce qui empêche de lire un prix
- * arrêté là où il n'y a qu'une cible. La note est passée par l'appelant : lui seul sait laquelle
- * des trois causes d'incomplétude s'applique.
- */
-function etiquette(base: string, conseille: boolean, note: string | null): string {
-  const notes = [conseille ? "conseillé" : null, note].filter(Boolean);
-  return notes.length ? `${base} (${notes.join(", ")})` : base;
 }
 
 // ─── Sous-composants ─────────────────────────────────────────────────────────
