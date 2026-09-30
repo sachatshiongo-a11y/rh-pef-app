@@ -11,6 +11,7 @@ import { WeeklyBreakdownTable } from "../heures-supp/weekly-breakdown-table";
 import { exigerPageRH } from "@/lib/garde-page";
 import { POINTAGE_VALABLE } from "@/lib/pointage-annulation";
 import { PAUSE_PAR_DEFAUT_MIN } from "@/lib/pointage-qr";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 // Chaque code = couleur + libellé + icône (jamais la couleur seule — D).
 const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
@@ -179,13 +180,13 @@ export default async function PresencesPage() {
             heures sont payées double.
           </p>
         </div>
-        <a
+        <TelechargerLien
           href="/presences/export"
           className="whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
           title="Un seul classeur : Présences, Heures par jour, Détail hebdomadaire"
         >
           Exporter Excel
-        </a>
+        </TelechargerLien>
       </div>
 
       {peutModifier && <ImportPointage />}

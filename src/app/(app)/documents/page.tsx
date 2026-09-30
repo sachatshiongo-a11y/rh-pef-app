@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { COULEUR_STATUT, LIBELLE_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import type { PaymentStatus } from "@prisma/client";
 import { normTexte } from "@/lib/texte";
@@ -269,7 +270,7 @@ export default async function DocumentsPage({
         )}
         <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">Filtrer</button>
         {onglet === "attestations" && (
-          <a href={qsExport} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Exporter (Excel)</a>
+          <TelechargerLien href={qsExport} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Exporter (Excel)</TelechargerLien>
         )}
         {(annee || mois || statut || q || sp.type) && (
           <Link href={`/documents?onglet=${onglet}`} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
@@ -319,7 +320,7 @@ export default async function DocumentsPage({
               {signatureContrat(c)}
               <ContratViewerButton href={`/employes/${c.employee.id}/contrat/${c.id}`} titre={`Contrat — ${c.type} · ${c.poste}`} libelle="Aperçu" className="text-primary underline" />
               <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
-              {c.documentUrl && <a href={c.documentUrl} target="_blank" className="text-muted-foreground underline">Pièce jointe</a>}
+              {c.documentUrl && <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.employee.nom}`} libelle="Pièce jointe" className="text-muted-foreground underline" />}
             </div>
           </div>
         ))}
@@ -332,7 +333,7 @@ export default async function DocumentsPage({
             <div className="mt-1 text-sm font-medium">{d.nom}</div>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>{d.dateExpiration ? `Expire le ${fr(d.dateExpiration)}` : "—"}</span>
-              {d.fichierUrl && <a href={d.fichierUrl} target="_blank" className="text-primary underline">Ouvrir</a>}
+              {d.fichierUrl && <ApercuDocumentBouton href={d.fichierUrl} titre={`${d.nom} — ${d.employee.nom}`} libelle="Ouvrir" className="text-primary underline" />}
             </div>
           </div>
         ))}
@@ -444,7 +445,7 @@ export default async function DocumentsPage({
                         <TelechargerLien href={`/employes/${c.employee.id}/contrat/${c.id}?dl=1`} className="text-primary underline">Télécharger</TelechargerLien>
                       </div>
                     </td>
-                    <td className="px-3 py-2">{c.documentUrl ? <a href={c.documentUrl} target="_blank" className="text-primary underline">Ouvrir</a> : "—"}</td>
+                    <td className="px-3 py-2">{c.documentUrl ? <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
                 ))}
                 <Vide n={contrats.length} cols={8} />
@@ -462,7 +463,7 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{d.nom}</td>
                     <td className="px-3 py-2">{d.type}</td>
                     <td className="px-3 py-2">{fr(d.dateExpiration)}</td>
-                    <td className="px-3 py-2">{d.fichierUrl ? <a href={d.fichierUrl} target="_blank" className="text-primary underline">Ouvrir</a> : "—"}</td>
+                    <td className="px-3 py-2">{d.fichierUrl ? <ApercuDocumentBouton href={d.fichierUrl} titre={`${d.nom} — ${d.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
                 ))}
                 <Vide n={documents.length} cols={5} />

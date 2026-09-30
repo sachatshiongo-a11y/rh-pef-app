@@ -18,6 +18,7 @@ import { FinContratForm } from "./fin-contrat-form";
 import { ChampsNouveauContrat } from "./champs-nouveau-contrat";
 import { DelivrerAttestation } from "./delivrer-attestation";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
@@ -340,9 +341,9 @@ export function DossierEmploye({
                   </p>
                 )}
                 {fichePosteFichierUrl && (
-                  <a href={fichePosteFichierUrl} target="_blank" className="mt-2 inline-block text-xs text-primary underline">
+                  <ApercuDocumentBouton href={fichePosteFichierUrl} titre={`Fiche de poste — ${c.poste}`} className="mt-2 inline-block text-xs text-primary underline">
                     Ouvrir la fiche de poste (fichier) →
-                  </a>
+                  </ApercuDocumentBouton>
                 )}
               </div>
             </BlocContrat>
@@ -414,7 +415,7 @@ export function DossierEmploye({
                 />
               )}
               {c.documentUrl && (
-                <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Ouvrir la pièce jointe →</a>
+                <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.poste}`} libelle="Ouvrir la pièce jointe →" className="text-sm text-primary underline" />
               )}
               {/* Figeage par la Direction : indispensable si l'espace salarié (acceptation) est désactivé. */}
               {peutModifier && !c.pdfAccepteUrl && (
@@ -585,7 +586,7 @@ export function DossierEmploye({
                   {c.accepteLe && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Accepté le {jourKinshasa(c.accepteLe)}</span>}
                   {peutModifier && classementsContrats[c.id]?.expireNonMarque && <BoutonMarquerExpire ids={[c.id]} />}
                   {c.documentUrl && (
-                    <a href={c.documentUrl} target="_blank" className="text-sm text-primary underline">Pièce jointe →</a>
+                    <ApercuDocumentBouton href={c.documentUrl} titre={`Pièce jointe — Contrat ${c.type} · ${c.poste}`} libelle="Pièce jointe →" className="text-sm text-primary underline" />
                   )}
                   {estAdmin && (
                     <form action={attacherFichierContrat.bind(null, employeeId, c.id)} className="flex flex-wrap items-center gap-2">
@@ -936,11 +937,11 @@ export function DossierEmploye({
             {documents.map((doc) => {
               const expire = doc.dateExpiration && new Date(doc.dateExpiration) <= dans30j;
               return (
-                <a
+                <ApercuDocumentBouton
                   key={doc.id}
                   href={doc.fichierUrl}
-                  target="_blank"
-                  className="group flex gap-3 rounded-xl border bg-card p-3 transition hover:border-primary hover:shadow-sm"
+                  titre={doc.nom}
+                  className="group flex w-full gap-3 rounded-xl border bg-card p-3 text-left transition hover:border-primary hover:shadow-sm"
                 >
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -960,7 +961,7 @@ export function DossierEmploye({
                       )}
                     </p>
                   </div>
-                </a>
+                </ApercuDocumentBouton>
               );
             })}
           </div>

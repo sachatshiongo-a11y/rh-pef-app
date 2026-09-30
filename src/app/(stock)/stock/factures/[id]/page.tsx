@@ -8,6 +8,7 @@ import { JoindreDocument } from "./joindre-document";
 import { EnregistrerPaiement } from "./enregistrer-paiement";
 import { LierBon } from "./lier-bon";
 import { exigerPageStock } from "@/lib/garde-page";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -97,7 +98,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
       <section className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 p-3">
         <span className="text-sm font-medium">Document d’origine</span>
         {facture.documentUrl
-          ? <a href={facture.documentUrl} target="_blank" rel="noopener noreferrer" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">📄 Voir le document</a>
+          ? <ApercuDocumentBouton href={facture.documentUrl} titre={`Facture ${facture.numero ? `N° ${facture.numero}` : "sans numéro"}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">📄 Voir le document</ApercuDocumentBouton>
           : <span className="text-sm text-muted-foreground">Aucun document joint.</span>}
         {estDirection && <JoindreDocument id={facture.id} aDeja={!!facture.documentUrl} />}
       </section>

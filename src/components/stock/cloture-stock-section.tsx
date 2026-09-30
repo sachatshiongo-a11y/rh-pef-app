@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { cloturerMoisStock, rouvrirMoisStock } from "@/app/(stock)/stock/parametres/actions";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 // Section « Clôture mensuelle du stock » — EXTRAITE de (stock)/stock/parametres pour être partagée :
 // l'onglet Paramètres est UNIQUE (demande user 2026-07-20). Elle vit désormais dans la page
@@ -34,8 +35,8 @@ export async function ClotureStockSection() {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <span className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">Inventaire + mouvements</span>
-                <a href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=pdf`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</a>
-                <a href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=excel`} download className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</a>
+                <TelechargerLien href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=pdf`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">PDF</TelechargerLien>
+                <TelechargerLien href={`/stock/cloture/inventaire?mois=${m.annee}-${m.mois}&format=excel`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Excel</TelechargerLien>
               </span>
               {m.cloture ? (
                 <form action={rouvrirMoisStock.bind(null, m.annee, m.mois)}>

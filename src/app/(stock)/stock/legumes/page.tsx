@@ -7,6 +7,7 @@ import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 import { exigerPageStock } from "@/lib/garde-page";
+import { TelechargerLien, TelechargerFormulaire } from "@/components/telecharger-lien";
 
 const cdf = (n: number) => n.toLocaleString("fr-FR");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -64,15 +65,15 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MenuFichePdf libelle="Fiche d'achat (PDF)">
-            <a href="/stock/legumes/fiche" download className={classeLienFiche}>Fiche vierge</a>
-            {/* Fiche remplie : formulaire GET, le PDF se télécharge sans quitter la page. */}
-            <form action="/stock/legumes/fiche" method="get" className="space-y-1.5 rounded-lg border p-2.5">
+            <TelechargerLien href="/stock/legumes/fiche" className={classeLienFiche}>Fiche vierge</TelechargerLien>
+            {/* Fiche remplie : formulaire GET, le PDF est récupéré en arrière-plan (l'écran ne bouge pas). */}
+            <TelechargerFormulaire action="/stock/legumes/fiche" className="space-y-1.5 rounded-lg border p-2.5">
               <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                 Remplie avec les achats du
                 <input type="date" name="date" required defaultValue={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)} className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-foreground" />
               </label>
               <button type="submit" className={`${classeLienFiche} w-full`}>Fiche remplie</button>
-            </form>
+            </TelechargerFormulaire>
           </MenuFichePdf>
           <BoutonRapport types={[{ value: "LEGUMES", label: "Légumes" }]} />
         </div>

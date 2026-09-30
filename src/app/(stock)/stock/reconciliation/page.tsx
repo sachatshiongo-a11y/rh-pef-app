@@ -4,6 +4,7 @@ import { ReconciliationForm } from "./reconciliation-client";
 import { ImportInventaireClient } from "../imports/import-client";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 type SP = { domaine?: string };
 
@@ -38,9 +39,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <a href={ficheHref("NOURRITURE")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</a>
-          <a href={ficheHref("BOISSON")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</a>
-          <a href={ficheHref("AUTRE")} download className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</a>
+          <TelechargerLien href={ficheHref("NOURRITURE")} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Nourriture</TelechargerLien>
+          <TelechargerLien href={ficheHref("BOISSON")} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Boissons</TelechargerLien>
+          <TelechargerLien href={ficheHref("AUTRE")} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Fiche Autre</TelechargerLien>
         </div>
       </div>
 

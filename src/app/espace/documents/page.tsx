@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { chargerSalarie } from "../garde";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { envoyerMonCertificat } from "../actions";
 import { Icone } from "@/components/icones";
 import { BulletinViewerButton } from "@/app/(app)/employes/[id]/bulletin-viewer";
@@ -119,7 +120,7 @@ export default async function EspaceDocuments({ searchParams }: { searchParams: 
                   <p className="text-sm font-medium">{d.nom}</p>
                   <p className="text-xs text-muted-foreground">{libelleTypeDocument(d.type)}{d.dateExpiration ? ` · expire le ${fr(d.dateExpiration)}` : ""}</p>
                 </div>
-                {d.fichierUrl && <a href={d.fichierUrl} target="_blank" className="text-sm text-primary underline">Ouvrir</a>}
+                {d.fichierUrl && <ApercuDocumentBouton href={d.fichierUrl} titre={d.nom} libelle="Ouvrir" className="text-sm text-primary underline" />}
               </li>
             ))}
           </ul>

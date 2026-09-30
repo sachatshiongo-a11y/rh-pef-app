@@ -5,6 +5,7 @@ import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/sto
 import { grouperParMois } from "@/lib/dates-fr";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { exigerPageStock } from "@/lib/garde-page";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 const jfr = (d: Date | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 
@@ -131,7 +132,7 @@ async function Rapports() {
                     <span className="font-medium">{TYPE_RAPPORT_LABEL[r.type] ?? r.type}</span>
                     <span className="ml-2 text-xs text-muted-foreground">{r.mode === "detail" ? "Détaillé" : "Chiffré"} · {r.format.toUpperCase()} · {periode(r)} · généré le {jfr(r.createdAt)}</span>
                   </span>
-                  <a href={url} download target="_blank" rel="noopener" className="shrink-0 rounded border px-2.5 py-1 text-xs font-medium hover:bg-accent">Télécharger</a>
+                  <TelechargerLien href={url} className="shrink-0 rounded border px-2.5 py-1 text-xs font-medium hover:bg-accent">Télécharger</TelechargerLien>
                 </li>
               );
             })}

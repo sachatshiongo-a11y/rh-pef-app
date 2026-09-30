@@ -10,6 +10,7 @@ import { BasculeVueSemaine, SelecteurJour } from "@/components/selecteur-jour";
 import { rangJourParDefaut } from "@/lib/jour-mobile";
 import type { ArticleRestoSR, LivraisonSR, SignalementLivraison } from "@/lib/stock-restaurant";
 import type { OptionCatalogue } from "./choix-article";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 /**
  * Écran Stock restaurant (haut de page + grille), sans accès aux données : la page les lit et les
@@ -54,8 +55,8 @@ export function RestaurantEcran({
   const fichesEtExport = (
     <>
       <MenuFichePdf libelle="Fiche d'inventaire (PDF)">
-        <a href={`/stock/restaurant/fiche-inventaire?espace=${espace}`} download className={classeLienFiche}>Fiche {espace === "BAR" ? "Bar" : "Cuisine"}</a>
-        <a href="/stock/restaurant/fiche-inventaire?espace=TOUS" download className={classeLienFiche}>Cuisine et Bar</a>
+        <TelechargerLien href={`/stock/restaurant/fiche-inventaire?espace=${espace}`} className={classeLienFiche}>Fiche {espace === "BAR" ? "Bar" : "Cuisine"}</TelechargerLien>
+        <TelechargerLien href="/stock/restaurant/fiche-inventaire?espace=TOUS" className={classeLienFiche}>Cuisine et Bar</TelechargerLien>
       </MenuFichePdf>
       <BoutonRapport pdfHref={`/stock/restaurant/pdf?${exportQs}`} excelHref={`/stock/restaurant/excel?${exportQs}`} />
     </>

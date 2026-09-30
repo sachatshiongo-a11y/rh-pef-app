@@ -33,7 +33,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
   };
   const dlParams = new URLSearchParams({ ...(q ? { q } : {}), ...(domaine ? { domaine } : {}) });
   const qs = dlParams.toString() ? `?${dlParams}` : "";
-  const exporter = <BoutonRapport pdfHref={`/stock/catalogue/pdf${qs}`} pdfDownload excelHref={`/stock/catalogue/export${qs}`} />;
+  const exporter = <BoutonRapport pdfHref={`/stock/catalogue/pdf${qs}`} excelHref={`/stock/catalogue/export${qs}`} />;
 
   return (
     <div className="space-y-3 lg:space-y-4">

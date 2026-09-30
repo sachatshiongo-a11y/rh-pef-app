@@ -293,18 +293,10 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                       </button>
                     ))}
                   </div>
-                  {/* Sortie de secours, DANS L'EN-TÊTE — donc au-dessus de la visionneuse et
-                      indépendante d'elle : elle fonctionne que le dessin réussisse ou non. (Le
-                      cadre blanc de l'`<iframe>` sur iOS, que ce lien compensait jadis, n'existe
-                      plus : les pages sont dessinées, cf. visionneuse-document.tsx.) */}
-                  <a
-                    href={src}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent"
-                  >
-                    Nouvel onglet
-                  </a>
+                  {/* Le seul geste de sortie du fichier est « Télécharger » : il RÉCUPÈRE le document sans
+                      jamais faire naviguer l'application. Il n'y a plus de lien « Nouvel onglet » : dans
+                      l'application installée il n'y a pas d'onglet, le lien emmenait la fenêtre entière
+                      vers le PDF, sans bouton retour (2026-09-30). */}
                   <TelechargerLien href={`${src}&dl=1`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
                     Télécharger
                   </TelechargerLien>
@@ -319,7 +311,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 key={`grand-${src}`}
                 src={src}
                 titre={`Bulletin — ${sel.nom}`}
-                actions={["Télécharger", "Nouvel onglet"]}
+                actions={["Télécharger"]}
                 onFermer={() => setAgrandi(false)}
                 panneauRef={panneauRef}
                 className="rounded-b-lg"
