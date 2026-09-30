@@ -14,11 +14,12 @@ export function useBulkSelection() {
   };
 }
 
-/** Barre collante « Tout sélectionner · N sélectionné(s) · [actions] ». N'affiche les actions
+/** Barre collante « Tout sélectionner · N sélectionné(s) · [actions] » : sous l'en-tête de la coquille sur
+ *  téléphone (`colle-sous-entete`). N'affiche les actions
  *  qu'à la sélection → aucune surcharge visuelle quand rien n'est coché. */
 export function BulkBar({ count, total, onAll, children }: { count: number; total: number; onAll: (on: boolean) => void; children?: React.ReactNode }) {
   return (
-    <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
+    <div className="sticky colle-sous-entete z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
       <label className="flex items-center gap-2 text-sm font-medium">
         <input
           type="checkbox"

@@ -116,9 +116,9 @@ export function RestaurantGrille({
         </div>
       )}
 
-      {/* Téléphone : la barre se colle SOUS la barre du haut de la coquille (même hauteur : marge de sécurité + 2,7 rem), sinon elle la recouvre. */}
+      {/* Téléphone : la barre se colle SOUS la barre du haut de la coquille (`colle-sous-entete`), sinon elle la recouvre. */}
       {estDirection && selection.size > 0 && (
-        <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-sm max-lg:top-[calc(max(0.5rem,env(safe-area-inset-top))+2.7rem)]">
+        <div className="sticky colle-sous-entete z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-sm">
           <span className="font-medium">{selection.size} article(s) sélectionné(s)</span>
           <button disabled={isPending} onClick={() => activer([...selection], false)} className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">Désactiver la sélection</button>
           <button disabled={isPending} onClick={() => activer([...selection], true)} className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">Réactiver la sélection</button>

@@ -92,7 +92,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
         <div className="@container">
           <div ref={racine} data-tableur="" data-tableur-tab="natif" className="space-y-2 @4xl:space-y-0">
             {/* En-têtes de colonnes : UNE fois, liste large seulement (la carte étiquette ses champs par leur texte indicatif). */}
-            <div className={`sticky top-0 z-10 hidden gap-1.5 rounded-md bg-muted px-0 py-1.5 text-xs font-medium text-muted-foreground @4xl:grid ${COLONNES}`}>
+            <div className={`sticky colle-sous-entete z-10 hidden gap-1.5 rounded-md bg-muted px-0 py-1.5 text-xs font-medium text-muted-foreground @4xl:grid ${COLONNES}`}>
               <span className="pl-2">Légume</span>
               <span className="pl-2">Unité</span>
               <span className="pr-2 text-right">Quantité</span>
