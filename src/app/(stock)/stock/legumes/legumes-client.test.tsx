@@ -8,13 +8,15 @@
 // Ce que ce fichier ne voit pas : les pixels. Happy-dom n'applique pas les requêtes de conteneur
 // (`@4xl:`) : on vérifie les classes posées ; la mise en page réelle se contrôle à l'œil.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 const { creer } = vi.hoisted(() => ({ creer: vi.fn(async () => undefined) }));
 vi.mock("./actions", () => ({ creerAchatsLegumes: creer, supprimerAchatLegume: vi.fn() }));
 
-import { AchatLegumesForm } from "./legumes-client";
+import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -251,5 +253,34 @@ describe("Achat de légumes frais — l'envoi est inchangé", () => {
       expect(ev.defaultPrevented).toBe(true);
     }
     expect(creer).not.toHaveBeenCalled();
+  });
+});
+
+describe("Historique des achats de légumes — suppression réservée à la Direction", () => {
+  const rendre = (estDirection?: boolean) => {
+    const c = document.createElement("div");
+    document.body.appendChild(c);
+    const r = createRoot(c);
+    act(() => r.render(h(SupprimerAchatBtn, { id: "a1", legume: "Ail", ...(estDirection === undefined ? {} : { estDirection }) })));
+    return { c, fin: () => { act(() => r.unmount()); c.remove(); } };
+  };
+
+  it("sans Direction : aucun ✕ (par défaut aussi)", () => {
+    for (const d of [false, undefined]) {
+      const { c, fin } = rendre(d);
+      expect(c.querySelector("button")).toBeNull();
+      fin();
+    }
+  });
+
+  it("avec Direction : le ✕ est présent", () => {
+    const { c, fin } = rendre(true);
+    expect(c.querySelector('button[aria-label="Supprimer l\'achat Ail"]')?.textContent).toBe("✕");
+    fin();
+  });
+
+  it("la page passe estDirection au bouton de chaque ligne", () => {
+    const src = readFileSync(path.join(__dirname, "page.tsx"), "utf8");
+    expect(src).toMatch(/<SupprimerAchatBtn [^>]*estDirection=\{estDirection\}/);
   });
 });

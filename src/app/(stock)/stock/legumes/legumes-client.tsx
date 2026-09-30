@@ -140,9 +140,10 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
   );
 }
 
-/** Retire une ligne de l'historique des achats de légumes (Direction). */
-export function SupprimerAchatBtn({ id, legume }: { id: string; legume?: string }) {
+/** Retire une ligne de l'historique des achats de légumes : réservé à la Direction (le serveur exige ADMIN). */
+export function SupprimerAchatBtn({ id, legume, estDirection = false }: { id: string; legume?: string; estDirection?: boolean }) {
   const [isPending, start] = useTransition();
+  if (!estDirection) return null;
   return (
     <button
       type="button"

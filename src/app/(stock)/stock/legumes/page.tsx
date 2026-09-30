@@ -111,7 +111,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
                         <span>{Number(l.quantite)} {l.unite ?? ""}</span>
                         <span className="text-muted-foreground">{l.montantCDF ? `${cdf(Number(l.montantCDF))} CDF` : "—"}</span>
                         <span className="hidden sm:inline">{l.montantUSD ? usd(l.montantUSD) : "—"}</span>
-                        <SupprimerAchatBtn id={l.id} legume={l.legume} />
+                        <SupprimerAchatBtn id={l.id} legume={l.legume} estDirection={estDirection} />
                       </span>
                     </li>
                   ))}
