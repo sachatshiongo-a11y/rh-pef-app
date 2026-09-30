@@ -118,6 +118,32 @@ describe("fiche technique chiffrée", () => {
     expect(t).toContain("c'est un plancher");
   }, 60_000);
 
+  it("sous-recette partielle : ligne « ≥ », chemin « Sauce › Safran », sous-recette sans bloc prix", async () => {
+    const sauce = fiche({
+      id: "sauce", nom: "Sauce safranée", categorie: "Bases", estSousRecette: true, rendementQuantite: "1000", rendementUnite: "g",
+      lignes: [ligne(1, "p0", "g", "300"), ligne(2, "safran", "g", "1")],
+    });
+    const plat = fiche({ id: "plat", nom: "Tagliatelles safranées", categorie: "Pâtes", prixVenteTTC: "18", lignes: [ligne(1, "p1", "g", "150"), ligne(2, null, "g", "200", "sauce")] });
+    const vues = [sauce, plat];
+    const ctx = { ...CTX, contexte: construireContexte(vues, mapArticles), noms: new Map(vues.map((v) => [v.id, { nom: v.nom }])) };
+    const r = calculerCout(ctx.contexte.fiches.get("plat")!, ctx.contexte);
+    expect(r.lignes[1].partiel).toBe(true);
+    expect(r.ingredientsSansPrix).toEqual(["Sauce safranée › Safran"]);
+    const pdf = await renderPdfBuffer(FichesTechniquesDocument({ fiches: vues.map((v) => versFichePdf(v, ctx, { avecPrix: true, photo: null })), editeLe: "30/09/2026" }));
+    const pages = await pagesDuPdf(pdf);
+    const [pSauce, pPlat] = [pages[0].plat, pages[1].plat];
+    // Le plat : ligne de sous-recette minorée, chemin nommé, total minoré — chiffres du moteur.
+    expect(pPlat).toContain(`sous-recette ≥ ${formaterUSD(arrondirCentime(r.lignes[1].cout!))}`);
+    expect(pPlat).toContain("Sauce safranée › Safran");
+    expect(pPlat).toContain(`≥ ${formaterUSD(arrondirCentime(r.coutTotal))} (coût partiel)`);
+    // La sous-recette : rendement, coût partiel, et PAS de bloc prix (elle n'a pas de prix de vente).
+    expect(pSauce).toContain("Plat · Bases · Sous-recette");
+    expect(pSauce).toContain("Rendement : 1 000 g");
+    expect(pSauce).toContain("non valorisé : Aucun prix d'achat au catalogue");
+    expect(pSauce).not.toContain("PRIX DE VENTE ET MARGE");
+    expect(policesDeRepli(pdf)).toEqual([]);
+  }, 60_000);
+
   it("fiche sans ingrédient : coût inconnu, « — », jamais 0,00 $", async () => {
     const t = await texte(await rendre([VIDE], true));
     expect(t).toContain("— (coût inconnu)");
@@ -247,6 +273,29 @@ describe("mise en page", () => {
       }
     }
   }, 120_000);
+});
+
+describe("technique de préparation d'un seul tenant", () => {
+  it("un paragraphe de 8 000 caractères passe en entier sur plusieurs pages, jamais tronqué", async () => {
+    // Relecture : titre et première ligne étaient insécables ENSEMBLE — une technique collée d'un
+    // seul bloc (sans retour à la ligne) plus haute que la page était coupée en silence.
+    const mots = Array.from({ length: 1000 }, (_, i) => `m${String(i).padStart(4, "0")}`);
+    const paragraphe = mots.join(" ") + " FIN-DE-TECHNIQUE";
+    expect(paragraphe.length).toBeGreaterThan(6000);
+    const pave = fiche({ id: "pave", nom: "Pavé", lignes: [ligne(1, "p0", "g", "100")], recette: `${paragraphe}${" plus".repeat(Math.max(0, (8000 - paragraphe.length) / 5))}` });
+    expect(pave.recette.length).toBeGreaterThanOrEqual(7995);
+    const ctx = { ...CTX, contexte: construireContexte([pave], mapArticles), noms: new Map([["pave", { nom: "Pavé" }]]) };
+    for (const avecPrix of [true, false]) {
+      const pdf = await renderPdfBuffer(FichesTechniquesDocument({ fiches: [versFichePdf(pave, ctx, { avecPrix, photo: null })], editeLe: "30/09/2026" }));
+      const pages = await pagesDuPdf(pdf);
+      expect(pages.length, `avecPrix=${avecPrix}`).toBeGreaterThanOrEqual(2);
+      const t = pages.map((p) => p.plat).join(" ");
+      const trouves = t.match(/m\d{4}/g) ?? [];
+      expect(trouves, `avecPrix=${avecPrix}`).toEqual(mots);
+      expect(t).toContain("FIN-DE-TECHNIQUE");
+      expect((t.match(/\bplus\b/g) ?? []).length).toBe((pave.recette.match(/\bplus\b/g) ?? []).length);
+    }
+  }, 60_000);
 });
 
 describe("photo de la fiche", () => {

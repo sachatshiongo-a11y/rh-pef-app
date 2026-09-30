@@ -197,17 +197,14 @@ function PageFiche({ fiche, editeLe }: { fiche: FichePdf; editeLe: string }) {
         </View>
       )}
 
-      <View style={s.bloc}>
-        {/* Le titre part avec la PREMIÈRE ligne de la technique (insécables ensemble) ; la suite, de
-            longueur libre, se découpe entre les pages ligne à ligne. */}
-        <View wrap={false}>
-          <TitreBloc>Technique de préparation</TitreBloc>
-          {fiche.recette.length === 0
-            ? <Text style={s.vide}>Aucune technique de préparation saisie sur cette fiche.</Text>
-            : <Text style={s.recette}>{texteSurPdf(fiche.recette[0])}</Text>}
-        </View>
-        {fiche.recette.slice(1).map((l, i) => (l.trim() ? <Text key={i} style={s.recette}>{texteSurPdf(l)}</Text> : <View key={i} style={s.recetteVide} />))}
-      </View>
+      {/* Technique : titre et lignes posés DIRECTEMENT dans la page, pas dans un bloc. react-pdf
+          n'honore `minPresenceAhead` que pour un élément qui a des frères AVANT lui (sinon « casser
+          n'améliore rien ») : premier enfant d'un bloc, le titre restait seul en bas de page. Aucun
+          `wrap={false}` : un paragraphe de longueur libre se découpe entre les pages, jamais tronqué. */}
+      <TitreBloc apres={40}>Technique de préparation</TitreBloc>
+      {fiche.recette.length === 0
+        ? <Text style={s.vide}>Aucune technique de préparation saisie sur cette fiche.</Text>
+        : fiche.recette.map((l, i) => (l.trim() ? <Text key={i} style={s.recette}>{texteSurPdf(l)}</Text> : <View key={i} style={s.recetteVide} />))}
 
       {/* Pied court (sans les coordonnées bancaires de la société) : document de travail interne. */}
       <PdfFooter coordonnees={false} docLabel={`Fiche technique · ${nom} · ${variante.toLowerCase()} · éditée le ${editeLe}`} />
