@@ -218,6 +218,56 @@ describe("clavier, liste ouverte", () => {
       await taperChoix(champ(), ""); // sans `vide` non plus
     });
 
+    it("après ↓ même APRÈS une frappe, Tab choisit l'option SURLIGNÉE : « bacardi » ↓ ↓ Tab → la 3e", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, onChange }));
+      await taperChoix(champ(), "bacardi");
+      await toucheChoix(champ(), "ArrowDown");
+      await toucheChoix(champ(), "ArrowDown");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("b3");
+    });
+
+    it("libellé exact (b1) puis ↓ (b2) puis Tab → b2, pas l'exact", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, onChange }));
+      await taperChoix(champ(), "Bacardi blanc-1l");
+      await toucheChoix(champ(), "ArrowDown");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("b2");
+    });
+
+    it("texte effacé puis ↓ (1re option réelle) puis Tab → cette option, pas « aucun »", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, initial: "b3", vide: "— libre —", onChange }));
+      await taperChoix(champ(), ""); // liste complète : « — libre — », b1, b2, b3
+      await toucheChoix(champ(), "ArrowDown");
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("b1");
+    });
+
+    it("↓ puis une NOUVELLE frappe puis Tab → la règle de frappe, pas l'ancienne surbrillance", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: AMBIGUES, onChange }));
+      await taperChoix(champ(), "bacardi");
+      await toucheChoix(champ(), "ArrowDown");
+      await toucheChoix(champ(), "ArrowDown"); // b3 surligné
+      await taperChoix(champ(), "bacard"); // nouvelle frappe : plusieurs résultats, rien d'exact
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).not.toHaveBeenCalled();
+      await taperChoix(champ(), "carta"); // un seul résultat
+      await toucheChoix(champ(), "Tab");
+      expect(onChange).toHaveBeenCalledWith("b3");
+    });
+
+    it("un résultat unique qui est « aucun » ne vide jamais par Tab", async () => {
+      const onChange = vi.fn();
+      monter(h(Demo, { options: [], initial: "x", vide: "— libre —", onChange }));
+      await taperChoix(champ(), "");
+      await toucheChoix(champ(), "Tab"); // texte effacé + non obligatoire : « aucun » explicite, voulu
+      expect(onChange).toHaveBeenCalledWith("");
+    });
+
     it("après ↓ sans frappe : Tab choisit l'option surlignée, comme Entrée ; sans ↓, il ne change rien", async () => {
       const onChange = vi.fn();
       monter(h(Demo, { initial: "a1", onChange }));
@@ -488,6 +538,18 @@ describe("formulaire", () => {
     await act(async () => { conteneur.querySelector("form")!.reset(); });
     expect(valeurChoisie(champChoix(conteneur, "Libre"))).toBe("a2");
     expect(champChoix(conteneur, "Article").value).toBe("Farine de blé"); // contrôlé : la valeur est celle du parent
+  });
+
+  it("la remise à zéro informe le parent (onChange) quand la valeur change, et seulement alors", async () => {
+    const onChange = vi.fn();
+    monter(h("form", null, h(ChoixRecherche, { options: OPTIONS, name: "x", defaultValue: "", vide: "— article —", onChange, "aria-label": "Article" })));
+    await act(async () => { conteneur.querySelector("form")!.reset(); });
+    expect(onChange).not.toHaveBeenCalled(); // déjà à la valeur initiale
+    await choisirOption(champ(), "a2");
+    onChange.mockClear();
+    await act(async () => { conteneur.querySelector("form")!.reset(); });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("");
   });
 
   it("required : le champ visible est invalide tant que rien n'est choisi", async () => {

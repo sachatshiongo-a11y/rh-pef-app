@@ -10,7 +10,8 @@
 //    (comme Entrée dans une case du tableur) ; Tab est celui du navigateur ; ↑ ↓ (ou Alt+↓) ouvrent
 //    la liste. Entrée n'envoie JAMAIS un formulaire.
 //  - Liste OUVERTE : ↑ ↓ parcourent, Entrée choisit, Échap ferme (sans rien changer). Tab ne choisit
-//    que sans ambiguïté : après ↑ ↓, l'option surlignée ; après une frappe, le résultat UNIQUE ou celui
+//    que sans ambiguïté : après ↑ ↓ (même après une frappe), l'option surlignée — une nouvelle frappe
+//    remet ce geste à zéro ; sinon, après une frappe, le résultat UNIQUE ou celui
 //    dont le libellé est exactement ce qui est tapé ; texte effacé et champ non obligatoire, « aucun ».
 //    Sinon Tab ne choisit rien et le champ revient à son choix d'avant (Entrée reste le geste explicite).
 //    Un clic ou un appui ailleurs ferme et rétablit le choix d'avant : une frappe sans choix ne change rien.
@@ -94,6 +95,10 @@ export const ChoixRecherche = memo(function ChoixRecherche({
 
   const [interne, setInterne] = useState(defaultValue ?? "");
   const valeur = value ?? interne;
+  // Dernières valeur et rappel, lisibles depuis l'écoute de `reset` sans la ré-enregistrer à chaque rendu.
+  const valeurCourante = useRef(valeur);
+  const surChangement = useRef(onChange);
+  useEffect(() => { valeurCourante.current = valeur; surChangement.current = onChange; });
   const [ouvert, setOuvert] = useState(false);
   /** Frappe en cours ; null = on montre le libellé du choix. */
   const [saisie, setSaisie] = useState<string | null>(null);
@@ -140,7 +145,12 @@ export const ChoixRecherche = memo(function ChoixRecherche({
   useEffect(() => {
     const formulaire = champ.current?.form;
     if (!formulaire || value !== undefined) return;
-    const raz = () => { setInterne(defaultValue ?? ""); fermer(); };
+    const raz = () => {
+      const initiale = defaultValue ?? "";
+      setInterne(initiale);
+      fermer();
+      if (initiale !== valeurCourante.current) surChangement.current?.(initiale); // le parent (état par ligne…) en est informé
+    };
     formulaire.addEventListener("reset", raz);
     return () => formulaire.removeEventListener("reset", raz);
   }, [value, defaultValue, fermer]);
@@ -232,12 +242,14 @@ export const ChoixRecherche = memo(function ChoixRecherche({
 
   /** Ce que Tab choisit, liste ouverte : voir l'en-tête du fichier. */
   const choixAuTab = (): OptionChoix | null => {
-    if (saisie === null) return aNavigue.current ? affiches[actif] ?? null : null;
+    // ↑ ↓ ont déplacé la surbrillance (une frappe ensuite remet ce geste à zéro) : c'est elle qui compte.
+    if (aNavigue.current) return affiches[actif] ?? null;
+    if (saisie === null) return null;
     const tape = saisie.replace(/\s+/g, " ").trim();
     if (tape === "") return vide !== undefined && !required ? { id: "", libelle: vide } : null;
     const exacte = affiches.find((o) => o.id !== "" && normTexte(o.libelle).replace(/\s+/g, " ").trim() === normTexte(tape));
     if (exacte) return exacte;
-    return affiches.length === 1 && reste === 0 ? affiches[0] : null;
+    return affiches.length === 1 && reste === 0 && affiches[0].id !== "" ? affiches[0] : null; // jamais « aucun » par ce chemin
   };
 
   const surClavier = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -276,6 +288,7 @@ export const ChoixRecherche = memo(function ChoixRecherche({
   const surSaisie = (v: string) => {
     // Première frappe sur le libellé affiché (la sélection a pu sauter) : on ne garde que ce qui est tapé en plus.
     const brut = saisie === null && texte !== "" && v.length > texte.length && v.startsWith(texte) ? v.slice(texte.length) : v;
+    aNavigue.current = false;
     setSaisie(brut);
     setActif(0);
     setOuvert(true);
