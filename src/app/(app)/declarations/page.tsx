@@ -3,6 +3,7 @@ import { calculerDeclarationsMois } from "@/lib/declarations";
 import { marquerDeclarationForm } from "./actions";
 import type { StatutDeclaration } from "@prisma/client";
 import { exigerPageRH } from "@/lib/garde-page";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -97,21 +98,20 @@ export default async function DeclarationsPage({
             </form>
           )}
           {bordereau && (
-            <a
+            <TelechargerLien
               href={`/declarations/export?mois=${mois}&annee=${annee}`}
-              target="_blank"
               className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             >
               Bordereau (PDF)
-            </a>
+            </TelechargerLien>
           )}
           {bordereau && (
-            <a
+            <TelechargerLien
               href="/declarations/export-excel"
               className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
             >
               Cotisations (Excel)
-            </a>
+            </TelechargerLien>
           )}
         </div>
       </div>

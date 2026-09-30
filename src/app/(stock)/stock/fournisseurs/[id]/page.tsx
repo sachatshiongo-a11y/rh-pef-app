@@ -7,6 +7,7 @@ import { EditerFournisseur } from "./editer-fournisseur";
 import { formaterMontant, formaterUSD } from "@/lib/montant";
 import { jjmmaaaa } from "@/lib/achats-liste";
 import { exigerPageStock } from "@/lib/garde-page";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const s = (v: string | null) => v ?? "";
@@ -109,7 +110,7 @@ export default async function FournisseurDetailPage({ params }: { params: Promis
                   <div className="text-xs text-muted-foreground">{d(b.date)} · {b._count.lignes} ligne(s)</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  {b.documentUrl && <a href={b.documentUrl} target="_blank" rel="noopener" className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent">PDF</a>}
+                  {b.documentUrl && <ApercuDocumentBouton href={b.documentUrl} titre={`Bon de commande ${b.numero} (PDF d'origine)`} libelle="PDF" className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent" />}
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_BC_CLASSE[b.statut]}`}>{STATUT_BC_LABEL[b.statut]}</span>
                   <span className="font-semibold tabular-nums">{usd(b.totalUSD)}</span>
                 </div>

@@ -17,11 +17,13 @@ describe("menu des fiches de consommation", () => {
   it("rapport (ventes) et consommation réelle de la semaine affichée (PDF, Excel) ; commande du jour proposé, filtre de l'écran repris", () => {
     const div = rendre("BOISSON");
     expect(div.querySelector("summary")!.textContent).toContain("Fiches (PDF / Excel)");
+    // Aucune ancre `download` (ignorée en application installée : la fenêtre naviguerait vers le PDF) :
+    // chaque lien est un `TelechargerLien` — même adresse, fichier récupéré en arrière-plan.
     expect([...div.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href"), a.hasAttribute("download")])).toEqual([
-      ["PDF", "/stock/journalier/fiche?type=rapport&semaine=2026-09-21&domaine=BOISSON&format=pdf", true],
-      ["Excel", "/stock/journalier/fiche?type=rapport&semaine=2026-09-21&domaine=BOISSON&format=excel", true],
-      ["PDF", "/stock/journalier/fiche?type=consommation&semaine=2026-09-21&domaine=BOISSON&format=pdf", true],
-      ["Excel", "/stock/journalier/fiche?type=consommation&semaine=2026-09-21&domaine=BOISSON&format=excel", true],
+      ["PDF", "/stock/journalier/fiche?type=rapport&semaine=2026-09-21&domaine=BOISSON&format=pdf", false],
+      ["Excel", "/stock/journalier/fiche?type=rapport&semaine=2026-09-21&domaine=BOISSON&format=excel", false],
+      ["PDF", "/stock/journalier/fiche?type=consommation&semaine=2026-09-21&domaine=BOISSON&format=pdf", false],
+      ["Excel", "/stock/journalier/fiche?type=consommation&semaine=2026-09-21&domaine=BOISSON&format=excel", false],
     ]);
     // Le rapport journalier liste les ventes ; la consommation réelle garde son propre nom.
     const titres = [...div.querySelectorAll("p.font-medium")].map((p) => p.textContent);
@@ -80,10 +82,10 @@ describe("menu de l'onglet Commande", () => {
   it("toute la semaine (fiche du modèle) puis tableau brut de la semaine, PDF et Excel, filtre repris", () => {
     const div = rendreCommande("BOISSON");
     expect([...div.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href"), a.hasAttribute("download")])).toEqual([
-      ["PDF", "/stock/journalier/fiche?type=commande&tout=1&semaine=2026-09-28&domaine=BOISSON&format=pdf", true],
-      ["Excel", "/stock/journalier/fiche?type=commande&tout=1&semaine=2026-09-28&domaine=BOISSON&format=excel", true],
-      ["PDF", "/stock/journalier/pdf?vue=commande&semaine=2026-09-28&domaine=BOISSON", true],
-      ["Excel", "/stock/journalier/excel?vue=commande&semaine=2026-09-28&domaine=BOISSON", true],
+      ["PDF", "/stock/journalier/fiche?type=commande&tout=1&semaine=2026-09-28&domaine=BOISSON&format=pdf", false],
+      ["Excel", "/stock/journalier/fiche?type=commande&tout=1&semaine=2026-09-28&domaine=BOISSON&format=excel", false],
+      ["PDF", "/stock/journalier/pdf?vue=commande&semaine=2026-09-28&domaine=BOISSON", false],
+      ["Excel", "/stock/journalier/excel?vue=commande&semaine=2026-09-28&domaine=BOISSON", false],
     ]);
   });
 

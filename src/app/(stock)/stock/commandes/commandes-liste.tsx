@@ -10,6 +10,8 @@ import { validerBonsEnLot, supprimerBonsEnLot } from "./actions";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { BoutonValider, BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
+import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 
 export type BCRow = {
   id: string; numero: string; fournisseurId: string | null; fournisseurNom: string | null;
@@ -23,8 +25,8 @@ export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]
   const brouillons = ids.filter((id) => commandes.some((c) => c.id === id && c.statut === "BROUILLON"));
   const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) { setErreur(r.erreur); return; } clear(); }); };
   const pdfLien = (c: BCRow) => c.documentUrl
-    ? <a href={c.documentUrl} target="_blank" rel="noopener" className="text-primary underline">PDF</a>
-    : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? <a href={`/stock/commandes/${c.id}/pdf`} download className="text-primary underline">PDF</a> : null;
+    ? <ApercuDocumentBouton href={c.documentUrl} titre={`Bon de commande ${c.numero} (PDF d'origine)`} libelle="PDF" className="text-primary underline" />
+    : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? <TelechargerLien href={`/stock/commandes/${c.id}/pdf`} className="text-primary underline">PDF</TelechargerLien> : null;
 
   return (
     <div className="space-y-2">

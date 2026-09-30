@@ -7,6 +7,7 @@ import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 
 export type FactureRow = {
   id: string;
@@ -124,7 +125,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
               {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
               <div className="ml-auto flex items-center gap-2">
                 {f.documentUrl && (
-                  <a href={f.documentUrl} target="_blank" rel="noopener noreferrer" title="PDF de la facture" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF</a>
+                  <ApercuDocumentBouton href={f.documentUrl} titre={`Facture ${f.nom}${f.numero ? ` · N° ${f.numero}` : ""}`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF</ApercuDocumentBouton>
                 )}
                 <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
                 {f.statut !== "REGLEE" && (
