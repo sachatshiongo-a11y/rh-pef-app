@@ -63,13 +63,22 @@ export async function snapshotActuel() {
  * sinon l'état actuel (mois non clôturé, ou clôturé avant l'enrichissement de l'instantané).
  */
 export async function inventaireDuMois(annee: number, mois: number): Promise<Inventaire> {
+  return (await inventaireFige(annee, mois)) ?? inventaireActuel();
+}
+
+/**
+ * L'instantané figé à la clôture du mois, ou null (mois non clôturé, ou clôturé avant
+ * l'enrichissement de l'instantané). Jamais de repli sur l'état actuel : c'est à l'appelant de dire
+ * qu'il montre « aujourd'hui » (accueil Stock d'un mois passé).
+ */
+export async function inventaireFige(annee: number, mois: number): Promise<Inventaire | null> {
   const cloture = await prisma.clotureStock.findUnique({ where: { annee_mois: { annee, mois } } });
   const snap = cloture?.snapshot as { valeurTotaleUSD?: number; lignes?: LigneInventaire[] } | null | undefined;
   // On n'utilise l'instantané que s'il porte le format enrichi (présence d'articleId).
   if (snap?.lignes && snap.lignes.length > 0 && "articleId" in snap.lignes[0]) {
     return { fige: true, valeurTotaleUSD: r2(snap.valeurTotaleUSD ?? snap.lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0)), lignes: snap.lignes };
   }
-  return inventaireActuel();
+  return null;
 }
 
 /** Tri par le chiffre du code article (croissant) ; les codes non numériques passent après, par ordre alpha. */

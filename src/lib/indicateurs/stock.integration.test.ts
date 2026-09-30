@@ -58,7 +58,7 @@ afterAll(async () => { await fermer?.(); });
 describe("accueil Stock — mêmes chiffres avant et après l'extraction", () => {
   it("cartes d'indicateurs et articles au seuil", async () => {
     const { default: StockDashboard } = await import("@/app/(stock)/stock/page");
-    const t = texte(renderToStaticMarkup(await StockDashboard()));
+    const t = texte(renderToStaticMarkup(await StockDashboard({ searchParams: Promise.resolve({}) })));
     expect(t).toContain("Alertes urgentes 1");
     expect(t).toContain("À réapprovisionner 1");
     expect(t).toContain("Valeur du stock 37,00 $");
@@ -81,6 +81,18 @@ describe("indicateursStock — fonction partagée", () => {
     expect(i.legumesMois).toEqual({ montant: null, nb: 0 });
     expect(i.facturesSemaine).toEqual({ montant: null, nb: 0 });
     expect(i.consoMois).toEqual({ montant: 0, nb: 0 });
+  }, 60_000);
+
+  it("option `mois` : seuls légumes et consommation changent de mois ; le mois courant rend les chiffres d'avant", async () => {
+    const { indicateursStock } = await import("./stock");
+    const { moisDe } = await import("@/lib/dates-fr");
+    const sans = await indicateursStock(new Date());
+    expect(await indicateursStock(new Date(), { mois: moisDe(new Date()) })).toEqual(sans);
+    const avant = await indicateursStock(new Date(), { mois: "2020-01" });
+    expect(avant.legumesMois).toEqual({ montant: null, nb: 0 });
+    expect(avant.consoMois).toEqual({ montant: 0, nb: 0 });
+    // Les instantanés restent ceux d'aujourd'hui.
+    expect({ ...avant, legumesMois: null, consoMois: null }).toEqual({ ...sans, legumesMois: null, consoMois: null });
   }, 60_000);
 
   it("5 articles en alerte par défaut, urgents d'abord, avec l'identifiant pour le lien vers la fiche", async () => {

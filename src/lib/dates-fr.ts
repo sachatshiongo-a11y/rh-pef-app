@@ -14,6 +14,19 @@ export function moisAdjacent(moisValue: string, delta: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Mois civil (UTC) de `d` au format "AAAA-MM" — la valeur d'un input type="month". */
+export function moisDe(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Lit `?mois=AAAA-MM` : valeur normalisée "AAAA-MM" si le mois est valide (01 à 12), sinon le
+ *  mois civil (UTC) de `maintenant`. Un mois futur est accepté (même règle que l'Exploitation). */
+export function moisDuParametre(param: string | undefined, maintenant: Date): string {
+  const m = typeof param === "string" ? /^(\d{4})-(\d{1,2})$/.exec(param) : null;
+  if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) return `${m[1]}-${m[2].padStart(2, "0")}`;
+  return moisDe(maintenant);
+}
+
 /** Lundi (UTC) de la semaine contenant `d`. */
 export function lundiDe(d: Date): Date {
   const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
