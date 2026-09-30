@@ -112,9 +112,13 @@ export async function supprimerPhoto(ids: IdentifiantsSupabase, chemin: string):
  * qu'à l'intérieur du document, derrière la garde de la route qui le produit.
  * `null` si l'objet est introuvable ou illisible (la fiche s'imprime alors sans sa photo, en le disant).
  */
-export async function lirePhoto(ids: IdentifiantsSupabase, chemin: string): Promise<Buffer | null> {
+export async function lirePhoto(ids: IdentifiantsSupabase, chemin: string, { delaiMs = 8000 }: { delaiMs?: number } = {}): Promise<Buffer | null> {
+  // Délai borné (réseau de Kinshasa, stockage qui ne répond plus) : la lecture échoue — l'appelant
+  // annonce la photo « illisible » — au lieu de bloquer le PDF entier. Le délai couvre aussi la
+  // lecture du corps de la réponse.
   const res = await fetch(`${ids.base}/storage/v1/object/authenticated/${BUCKET_PHOTOS_FICHES}/${chemin.split("/").map(encodeURIComponent).join("/")}`, {
     headers: { apikey: ids.key, Authorization: `Bearer ${ids.key}` },
+    signal: AbortSignal.timeout(delaiMs),
   });
   if (!res.ok) return null;
   return Buffer.from(await res.arrayBuffer());

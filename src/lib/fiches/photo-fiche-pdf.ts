@@ -12,16 +12,21 @@ import type { PhotoPdf } from "@/lib/pdf/fiche-technique";
 //
 // Le moteur PDF ne sait dessiner que du JPEG et du PNG ; les photos du classeur du bar et celles
 // prises au téléphone peuvent être en WEBP, et peser plusieurs centaines de Ko. Chaque photo est donc
-// ré-encodée en JPEG, orientée selon l'EXIF, bornée à 900 px : un PDF de 40 cocktails reste léger.
+// ré-encodée en JPEG, orientée selon l'EXIF, bornée à 600 px (le cadre fait 180 × 135 pt : ~240 ppp
+// à l'impression) : mesuré sur 60 fiches à photo de 300 Ko, le PDF passe de 8,6 Mo (900 px) à 3,6 Mo.
+//
+// MÉMOIRE : PEF tourne sur une instance de 512 Mo. Au plus `EN_PARALLELE` photos sont lues et
+// décodées à la fois (file d'attente : un emplacement libéré prend la photo suivante) ; seules les
+// versions réduites (quelques dizaines de Ko) restent en mémoire jusqu'au rendu, jamais les
+// originaux décodés de tout l'onglet.
 
-
-const COTE_MAX_PX = 900;
-const EN_PARALLELE = 6;
+const COTE_MAX_PX = 600;
+export const EN_PARALLELE = 3;
 
 async function versJpeg(octets: Buffer): Promise<Buffer | null> {
   if (!detecterTypeImage(octets)) return null;
   try {
-    return await sharp(octets).rotate().resize(COTE_MAX_PX, COTE_MAX_PX, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+    return await sharp(octets).rotate().resize(COTE_MAX_PX, COTE_MAX_PX, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer();
   } catch {
     return null;
   }
@@ -32,7 +37,10 @@ async function versJpeg(octets: Buffer): Promise<Buffer | null> {
  * d'entrée ; une photo introuvable, hors du dossier des fiches ou indécodable vaut `"illisible"` —
  * jamais une erreur qui empêcherait d'imprimer la fiche.
  */
-export async function chargerPhotosPdf(fiches: { id: string; photoUrl: string | null }[]): Promise<Map<string, PhotoPdf>> {
+export async function chargerPhotosPdf(
+  fiches: { id: string; photoUrl: string | null }[],
+  { delaiMs }: { delaiMs?: number } = {},
+): Promise<Map<string, PhotoPdf>> {
   const avecPhoto = fiches.filter((f) => f.photoUrl);
   const photos = new Map<string, PhotoPdf>();
   if (avecPhoto.length === 0) return photos;
@@ -50,7 +58,7 @@ export async function chargerPhotosPdf(fiches: { id: string; photoUrl: string | 
     // bucket (contrats, bulletins…) ne finit jamais imprimée dans une fiche technique.
     if (!ids || !chemin || !chemin.startsWith(`${PREFIXE_PHOTOS_FICHES}/`) || chemin.includes("..")) return "illisible";
     try {
-      const octets = await lirePhoto(ids, chemin);
+      const octets = await lirePhoto(ids, chemin, { delaiMs });
       const jpeg = octets ? await versJpeg(octets) : null;
       return jpeg ? { data: jpeg, format: "jpg" } : "illisible";
     } catch {
@@ -58,10 +66,13 @@ export async function chargerPhotosPdf(fiches: { id: string; photoUrl: string | 
     }
   };
 
-  for (let i = 0; i < avecPhoto.length; i += EN_PARALLELE) {
-    const lot = avecPhoto.slice(i, i + EN_PARALLELE);
-    const lues = await Promise.all(lot.map(lire));
-    lot.forEach((f, k) => photos.set(f.id, lues[k]));
-  }
+  let suivante = 0;
+  const ouvrier = async () => {
+    while (suivante < avecPhoto.length) {
+      const f = avecPhoto[suivante++];
+      photos.set(f.id, await lire(f));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(EN_PARALLELE, avecPhoto.length) }, ouvrier));
   return photos;
 }
