@@ -79,6 +79,21 @@ describe("garde-fou des tableurs", () => {
     expect(suspects.filter((f) => !(f in FORMULAIRES_HORS_PERIMETRE))).toEqual([]);
   });
 
+  it("chaque tableur recensé a une racine de grille (data-tableur ou <table>) : sinon Entrée et les flèches ne trouvent pas la grille", () => {
+    // Défaut du 2026-09-30 : la grille des légumes frais (en <div>) n'avait pas de racine
+    // `data-tableur` ; la case partagée cherche `[data-tableur]` puis `table` pour se déplacer.
+    // Exceptions JUSTIFIÉES : un formulaire d'UNE seule fiche n'a pas de lignes à parcourir.
+    const SANS_GRILLE: Record<string, string> = {
+      "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": "formulaire « Modifier » d'un seul article : quatre cases indépendantes, aucune ligne à parcourir",
+    };
+    for (const f of Object.keys(SANS_GRILLE)) expect(f in TABLEURS, `${f} n'est plus recensé : retirer l'exception`).toBe(true);
+    const sansRacine = Object.keys(TABLEURS).filter((f) => !(f in SANS_GRILLE)).filter((f) => {
+      const src = readFileSync(path.join(RACINE, f), "utf8");
+      return !/data-tableur=/.test(src) && !/<table[\s>]/.test(src);
+    });
+    expect(sansRacine).toEqual([]);
+  });
+
   it("toute grille marquée data-tableur est recensée", () => {
     const marquees = fichiers(SRC).map(rel)
       .filter((f) => !f.startsWith("src/components/tableur/"))

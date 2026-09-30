@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useState, useTransition } from "react";
 import { creerAchatsLegumes, supprimerAchatLegume } from "./actions";
 import { LEGUMES } from "./legumes-data";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
+import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 
@@ -24,6 +25,13 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
   const [lignes, setLignes] = useState<Ligne[]>([vide(), vide(), vide()]);
   const [cle, setCle] = useState(0);
   const reinitialiser = () => { setMsg(null); setLignes([vide(), vide(), vide()]); setCle((c) => c + 1); };
+
+  // Grille en <div> raccordée à la navigation commune des tableurs (`data-tableur` sur la racine) :
+  // Entrée descend à la même colonne de la ligne suivante, et sur la dernière ligne en ajoute une,
+  // comme « + Ligne » — sans jamais envoyer le formulaire. Sans cette racine, Entrée et les flèches
+  // ne trouvaient pas la grille (défaut relevé le 2026-09-30).
+  const ajouterLigne = useCallback(() => setLignes((ls) => [...ls, vide()]), []);
+  const { racine, onEntreeDerniereLigne } = useLigneSuivante<HTMLDivElement>(lignes.length, ajouterLigne);
 
   const maj = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
   const choisir = (i: number, nom: string) => {
@@ -53,7 +61,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
 
       {/* Une seule mise en page responsive : empilée sur mobile, en ligne sur ordinateur. */}
       <ZoneTableur>
-      <div className="space-y-2">
+      <div ref={racine} data-tableur="" data-tableur-tab="natif" className="space-y-2">
         <div className="hidden gap-2 px-1 text-xs text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_5rem_6rem_7rem_4rem]">
           <span>Légume</span><span>Unité</span><span className="text-right">Quantité</span><span className="text-right">Montant CDF</span><span className="text-right">≈ USD</span>
         </div>
@@ -69,12 +77,12 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
             <input name="unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} placeholder="Unité" className={`${inp} min-w-0`} />
             <div className="min-w-0">
               <input type="hidden" name="quantite" value={l.quantite} />
-              <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })}
+              <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })} onEntreeDerniereLigne={onEntreeDerniereLigne}
                 min={0} quantite placeholder="Quantité" className={`${inp} w-full min-w-0 text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
             </div>
             <div className="min-w-0">
               <input type="hidden" name="montantCDF" value={l.montantCDF} />
-              <CelluleNombre ligne={String(i)} col={1} valeur={nombreOuNull(l.montantCDF)} onEnregistrer={(v) => maj(i, { montantCDF: texteDe(v) })}
+              <CelluleNombre ligne={String(i)} col={1} valeur={nombreOuNull(l.montantCDF)} onEnregistrer={(v) => maj(i, { montantCDF: texteDe(v) })} onEntreeDerniereLigne={onEntreeDerniereLigne}
                 min={0} placeholder="Montant CDF" className={`${inp} w-full min-w-0 text-right`} aria-label={`Montant CDF, ligne ${i + 1}`} />
             </div>
             <span className="self-center text-right text-xs text-muted-foreground">≈ {taux && Number(l.montantCDF) ? (Number(l.montantCDF) / taux).toFixed(2) : "0.00"} $</span>
@@ -84,7 +92,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
       </ZoneTableur>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" onClick={() => setLignes((ls) => [...ls, vide()])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
+        <button type="button" onClick={ajouterLigne} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
         <div className="text-right text-sm">
           <span className="text-muted-foreground">Total : </span>
           <span className="font-semibold">{totalCDF.toLocaleString("fr-FR")} CDF</span>
