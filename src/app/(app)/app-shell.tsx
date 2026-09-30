@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -11,6 +10,7 @@ import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
 import { BarreDuBas, RESERVE_BARRE_DU_BAS } from "@/components/barre-du-bas";
+import { Tiroir, VoileTiroir, useTiroir } from "@/components/tiroir-mobile";
 import { choisirBarreDuBas, entreesVisibles } from "@/lib/navigation-espaces";
 import { BARRE_DU_BAS, NAV_GROUPS, lienActif } from "./navigation";
 
@@ -35,9 +35,9 @@ export function AppShell({
   notif: NotifData;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const fermer = () => setOpen(false);
   const pathname = usePathname();
+  // Tiroir : ouverture, verrou de la page derrière, fermeture à la navigation — voir tiroir-mobile.
+  const { ouvert: open, ouvrir, fermer } = useTiroir();
   // État actif du menu et de la barre du bas (règle dans ./navigation) : accueil = exact, sinon préfixe.
   const actif = (href: string) => lienActif(href, pathname);
 
@@ -46,28 +46,12 @@ export function AppShell({
 
   return (
     <>
-      {/* Voile sombre derrière le tiroir (mobile). Rendu HORS du conteneur `overflow-hidden`
-          ci-dessous : certains navigateurs mobiles (Safari iOS) recadrent un descendant
-          `position: fixed` aux bornes d'un ancêtre `overflow: hidden`, ce qui donnait un
-          voile qui ne couvrait pas tout l'écran. En sortant du conteneur, `inset-0` se
-          positionne bien par rapport au viewport entier. */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
-          onClick={fermer}
-          aria-hidden
-        />
-      )}
+      {/* Voile sombre derrière le tiroir (mobile), hors du conteneur `overflow-hidden` ci-dessous. */}
+      <VoileTiroir ouvert={open} onFermer={fermer} />
 
       <div className={`flex h-dvh overflow-hidden ${RESERVE_BARRE_DU_BAS}`}>
         {/* Barre latérale : tiroir coulissant sur mobile, fixe sur grand écran */}
-        <aside
-          id="menu-rh"
-          aria-label="Menu"
-          className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
-            open ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
+        <Tiroir id="menu-rh" ouvert={open} className="w-64 lg:bg-muted/30">
           <div className="mb-4 flex items-start justify-between px-2">
             <div>
               <Image
@@ -105,7 +89,7 @@ export function AppShell({
             </div>
           </form>
 
-          <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
+          <nav className="flex flex-1 flex-col gap-4 lg:overflow-y-auto">
             {NAV_GROUPS.map((groupe) => {
               const items = entreesVisibles(groupe.items, userRole);
               if (items.length === 0) return null;
@@ -171,7 +155,7 @@ export function AppShell({
               </button>
             </form>
           </div>
-        </aside>
+        </Tiroir>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           {/* En-tête mobile : retour + titre + cloche — collant, sous l'encoche (safe-area). Le menu
@@ -208,7 +192,7 @@ export function AppShell({
         entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges)}
         estActif={actif}
         menuOuvert={open}
-        onMenu={() => setOpen(true)}
+        onMenu={ouvrir}
         menuId="menu-rh"
       />
     </>
