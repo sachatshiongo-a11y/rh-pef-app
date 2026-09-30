@@ -9,6 +9,7 @@ import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
 import { BarreDuBas, RESERVE_BARRE_DU_BAS } from "@/components/barre-du-bas";
+import { ENTETE_COLLANT, HAUTEUR_ENTETE } from "@/components/entete-mobile";
 import { Tiroir, VoileTiroir, useTiroir } from "@/components/tiroir-mobile";
 import { choisirBarreDuBas, entreesVisibles } from "@/lib/navigation-espaces";
 import { BARRE_DU_BAS, NAV_GROUPS, lienActif } from "./navigation";
@@ -42,7 +43,7 @@ export function StockShell({
       {/* Voile hors du conteneur `overflow-hidden` ci-dessous (Safari iOS y recadre un fixe). */}
       <VoileTiroir ouvert={open} onFermer={fermer} />
 
-      <div className={`flex h-dvh overflow-hidden ${RESERVE_BARRE_DU_BAS}`}>
+      <div className={`flex h-dvh overflow-hidden ${RESERVE_BARRE_DU_BAS} ${HAUTEUR_ENTETE}`}>
         <Tiroir id="menu-stock" ouvert={open} className="w-64 lg:bg-muted/30">
           <div className="mb-4 flex items-start justify-between px-2">
             <div>
@@ -112,7 +113,7 @@ export function StockShell({
         </Tiroir>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-          <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
+          <header className={`${ENTETE_COLLANT} flex px-4 lg:hidden`}>
             <BoutonRetour />
             <span className="truncate font-medium">Stock &amp; Achats</span>
             <div className="ml-auto flex items-center gap-2">

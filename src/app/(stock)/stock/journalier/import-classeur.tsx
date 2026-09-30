@@ -119,7 +119,7 @@ export function ImportClasseur() {
       {propositions && (
         <>
           {/* Barre d'actions groupées, collée en haut pendant le défilement. */}
-          <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-sm">
+          <div className="sticky colle-sous-entete z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-sm">
             <span className="font-medium">{coches.length} ligne(s) cochée(s) · {nbCreer} à créer</span>
             <button onClick={() => toutCocher(true)} className="rounded border px-2 py-1 hover:bg-accent">Tout cocher</button>
             <button onClick={() => toutCocher(false)} className="rounded border px-2 py-1 hover:bg-accent">Tout décocher</button>

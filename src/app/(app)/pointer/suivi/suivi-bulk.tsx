@@ -88,7 +88,7 @@ export function SuiviBulk({ lignes }: { lignes: LigneSuivi[] }) {
       )}
 
       {n > 0 && (
-        <div className="sticky top-0 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
+        <div className="sticky colle-sous-entete z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
           <span className="text-sm font-medium">{n} sélectionné(s) :</span>
           <BoutonValider onClick={valider} disabled={isPending}>
             Marquer vérifié
