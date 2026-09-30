@@ -119,7 +119,7 @@ describe("Stock restaurant sur téléphone — le comptage du jour", () => {
     act(() => { liste().querySelector<HTMLInputElement>('input[aria-label="Sélectionner Sel"]')!.click(); });
     expect(conteneur.textContent).toContain("1 article(s) sélectionné(s)");
     const barre = [...conteneur.querySelectorAll("div")].find((d) => d.textContent?.startsWith("1 article(s) sélectionné(s)"))!;
-    expect(barre.className).toContain("max-lg:top-[calc("); // sous la barre du haut, pas dessus
+    expect(barre.className.split(/\s+/)).toContain("colle-sous-entete"); // sous la barre du haut, pas dessus
     await act(async () => { [...conteneur.querySelectorAll("button")].find((b) => b.textContent === "Désactiver la sélection")!.click(); });
     expect(m.changerActivationArticlesResto).toHaveBeenCalledWith(["sel"], false, false);
     // La même sélection est cochée dans le tableau de la semaine.

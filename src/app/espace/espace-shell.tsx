@@ -8,6 +8,7 @@ import { Avatar } from "@/components/avatar";
 import { PushToggle } from "@/app/(app)/push-toggle";
 import { ClocheSalarie } from "./cloche-salarie";
 import { BarreDuBas } from "@/components/barre-du-bas";
+import { ENTETE_COLLANT, HAUTEUR_ENTETE_ESPACE } from "@/components/entete-mobile";
 import { Tiroir, VoileTiroir, useTiroir } from "@/components/tiroir-mobile";
 import { logout } from "@/app/login/actions";
 import type { NotificationItem } from "@/lib/notifications";
@@ -67,7 +68,7 @@ export function EspaceShell({
   };
 
   return (
-    <div className="flex min-h-[100dvh]">
+    <div className={`flex min-h-[100dvh] ${HAUTEUR_ENTETE_ESPACE}`}>
       {navigation && (
         <>
           {/* Tiroir mobile : voile + panneau */}
@@ -127,7 +128,7 @@ export function EspaceShell({
       {/* Contenu */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Barre supérieure : logo (téléphone) + notifications. Le menu est dans la barre du bas. */}
-        <header className="sticky top-0 z-20 flex min-h-14 items-center gap-2 border-b bg-background px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 sm:px-5">
+        <header className={`${ENTETE_COLLANT} flex px-3 sm:px-5`}>
           <Link href="/espace" aria-label="Accueil de mon espace" className={navigation ? "lg:hidden" : ""}>
             <Image src="/logo-pates-en-folie.png" alt="Pâtes en Folie" width={110} height={38} className="h-7 w-auto" />
           </Link>

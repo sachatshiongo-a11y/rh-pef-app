@@ -270,6 +270,18 @@ textarea,
   }
 }
 
+/* Barre COLLANTE d'une page (barre d'actions groupées, sous-onglets, en-tête de colonnes qui défile
+   avec la page) : se colle en haut de la zone qui défile — sur téléphone (sous `lg`), juste SOUS
+   l'en-tête de la coquille, dont la hauteur est la variable `--hauteur-entete` (posée par la coquille,
+   cf. components/entete-mobile.ts ; repli 0px hors coquille). Ordinateur : `top: 0`, comme avant.
+   À employer avec `sticky` — jamais `sticky top-0` (le garde-fou du dépôt le refuse). */
+@utility colle-sous-entete {
+  top: 0;
+  @media (width < 64rem) {
+    top: var(--hauteur-entete, 0px);
+  }
+}
+
 /* Sur mobile, les champs de saisie < 16px déclenchent un zoom automatique iOS (effet saccadé) :
    on force 16px pour les champs où l'on tape. */
 @media (max-width: 640px) {

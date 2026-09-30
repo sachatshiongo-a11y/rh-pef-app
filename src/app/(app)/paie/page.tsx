@@ -354,7 +354,7 @@ export default async function PaiePage({
       {/* Sous-onglets — COLLANTS (restent visibles au défilement) et COULISSANTS horizontalement
           sur mobile. Sur mobile ils se calent juste sous l'en-tête de l'app ; sur ordinateur en
           haut de la zone de contenu. */}
-      <div className="sticky top-[calc(env(safe-area-inset-top)_+_52px)] z-10 -mx-4 mb-5 flex gap-2 overflow-x-auto border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:top-0 lg:mx-0 lg:px-0">
+      <div className="sticky colle-sous-entete z-10 -mx-4 mb-5 flex gap-2 overflow-x-auto border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:px-0">
         {sousOnglets.map((o) => (
           <Link
             key={o.cle}
