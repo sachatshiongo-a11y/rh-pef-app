@@ -4,7 +4,7 @@ import path from "node:path";
 import { genererCodeAffiche } from "@/lib/pointage-code";
 import { urlAffiche } from "@/lib/pointage-qr";
 import { qrLuSurLaPage } from "@/lib/test/qr-pdf";
-import { genererAffichePdf, COTE_QR_PT } from "./affiche-pointage";
+import { genererAffichePdf, COTE_QR_PT, CONSIGNES_AFFICHE } from "./affiche-pointage";
 
 /**
  * L'affiche de pointage, relue sur le PDF PRODUIT : son texte, l'absence de toute police de repli
@@ -68,12 +68,17 @@ beforeAll(async () => {
 }, 60_000);
 
 describe("affiche de pointage (PDF A4)", () => {
-  it("porte le titre et les trois consignes", async () => {
+  it("porte le titre et DEUX consignes : scanner suffit, le pointage s'enregistre tout seul", async () => {
     const t = await texteDu(pdf);
     expect(t).toContain("Pointage");
-    expect(t).toContain("Ouvrez l'application");
-    expect(t).toContain("Appuyez sur Pointer");
-    expect(t).toContain("Visez ce code");
+    expect(CONSIGNES_AFFICHE).toHaveLength(2);
+    expect(t).toContain("1 Scannez ce code avec l'appareil photo de votre téléphone");
+    expect(t).toContain("2 Votre pointage s'enregistre tout seul");
+    expect(t).toContain("La première fois : connectez-vous avec votre matricule");
+    // Plus d'étape intermédiaire (décision de la Direction du 2026-09-29).
+    expect(t).not.toMatch(/Appuyez sur Pointer|Pointer maintenant|Ouvrez l'application/);
+    // Ni espace fine insécable, ni « ⚠ », ni flèche : Optima ne les a pas.
+    for (const c of CONSIGNES_AFFICHE) expect(`${c.texte}${c.precision ?? ""}`).not.toMatch(/[\u202F\u26A0\u2192]/);
     // Le code est un secret de la Direction : il n'est lisible que dans le QR, jamais en clair.
     expect(t).not.toContain(new URL(URL_AFFICHE).searchParams.get("c")!);
   }, 60_000);

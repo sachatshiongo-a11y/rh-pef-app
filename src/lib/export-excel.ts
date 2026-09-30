@@ -37,7 +37,16 @@ export type FeuilleExcel = {
   colonnesMontantFormat?: number[];
   /** Lignes (indices dans `lignes`) en gras : sous-totaux et totaux écrits dans les données. */
   lignesGras?: number[];
+  /** Colonnes figées à gauche (libellés) en plus des lignes d'en-tête : un tableau de douze mois
+   *  défile vers la droite sans perdre le nom du poste. */
+  figerColonnes?: number;
+  /** Format Excel d'une cellule NUMÉRIQUE précise (ex. « 0,0 % » pour un ratio), prioritaire sur
+   *  `colonnesMontantFormat` : quand une même colonne porte des ratios et des montants. */
+  formatCellule?: (rowIdx: number, colIdx: number) => string | undefined;
 };
+
+/** Format Excel des ratios : une décimale, en pourcentage (0,264 → 26,4 %). La cellule reste un nombre. */
+export const FORMAT_POURCENT_EXCEL = "0.0 %";
 
 /** Format Excel des montants : milliers, 2 décimales, négatif = parenthèses rouges. */
 export const FORMAT_MONTANT_EXCEL = "#,##0.00;[Red](#,##0.00)";
@@ -112,7 +121,7 @@ export async function classeurExcel(opts: {
     // Gèle tout ce qui précède les données, ligne de colonnes COMPRISE. Calculé sur la ligne réelle,
     // jamais compté à la main : l'ancien « HAUT_LOGO + 5 » valait 8 alors que la ligne de colonnes
     // arrive en ligne 9 dans le fichier produit — elle défilait avec les données.
-    ws.views = [{ state: "frozen", ySplit: rowEntete.number }];
+    ws.views = [{ state: "frozen", ySplit: rowEntete.number, ...(f.figerColonnes ? { xSplit: f.figerColonnes } : {}) }];
     const debutData = rowEntete.number + 1;
     for (const l of f.lignes) ws.addRow(l);
     const rVide = f.lignes.length === 0 && f.messageVide ? ws.addRow([f.messageVide]) : null;
@@ -201,6 +210,17 @@ export async function classeurExcel(opts: {
         for (const ci of f.colonnesMontantFormat) {
           const cell = ws.getRow(r).getCell(ci + 1);
           if (typeof cell.value === "number") cell.numFmt = FORMAT_MONTANT_EXCEL;
+        }
+      }
+    }
+
+    // Formats cellule par cellule (ratios en % dans une colonne de montants…).
+    if (f.formatCellule) {
+      for (let idx = 0; idx < f.lignes.length; idx++) {
+        for (let ci = 0; ci < f.entete.length; ci++) {
+          const fmt = f.formatCellule(idx, ci);
+          const cell = ws.getRow(debutData + idx).getCell(ci + 1);
+          if (fmt && typeof cell.value === "number") cell.numFmt = fmt;
         }
       }
     }

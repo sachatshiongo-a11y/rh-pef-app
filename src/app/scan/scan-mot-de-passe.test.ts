@@ -250,7 +250,7 @@ describe("espace salarié fermé : un message clair, sans redirection", () => {
     const html = await rendu(scan("X"));
     expect(html).toContain("mot de passe temporaire");
     expect(html).toContain("espace salarié est fermé");
-    expect(html).not.toContain("Pointer maintenant");
+    expect(html).not.toContain("Pointage en cours"); // le scanner (qui pointerait) n'est pas monté
     expect(S.scans).toEqual([]);
   });
 

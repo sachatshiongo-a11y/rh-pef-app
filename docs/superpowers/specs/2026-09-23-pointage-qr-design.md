@@ -161,12 +161,20 @@ précision relevée dans le Suivi pendant la première semaine.
 
 ---
 
-## 11. Décision de la Direction du 2026-09-29 — « scanner = pointer » (état : EN ATTENTE)
+## 11. Décision de la Direction du 2026-09-29 — « scanner = pointer » (état : CONFIRMÉE, livrée sur `feat/pointage-automatique`)
 
 > « Le fait de scanner le QR code doit commencer le pointage, il ne faut pas d'étape
 > intermédiaire. » — remplace l'appui obligatoire sur « Pointer maintenant » (§2).
+>
+> Confirmation explicite de Sacha (Direction), le 2026-09-29, à la question « Confirmez-vous que
+> scanner l'affiche doit enregistrer le pointage tout seul, sans bouton “Pointer maintenant” ? » :
+> **« Oui, pointage automatique »**. Même jour : **pause par défaut 30 min** ; mot de passe
+> (6 caractères minimum) inchangé.
 
-### Ce qui est livré (branche `fix/scan-apres-mot-de-passe`)
+Ce paragraphe remplace, pour le parcours du salarié, les points 4 à 7 du §2 et la confirmation
+« double scan » à 5 minutes.
+
+### 11.1 Ce qui a été livré avant (branche `fix/scan-apres-mot-de-passe`)
 - **Le scan survit au mot de passe temporaire** : `/scan?c=…` → `/espace/mot-de-passe?retour=…`
   → retour au scan. Retour validé par la liste blanche de `lib/retour-connexion.ts` (`/scan?…`
   seul) ; espace salarié fermé → message sur `/scan`, sans redirection.
@@ -176,30 +184,88 @@ précision relevée dans le Suivi pendant la première semaine.
   posés par le serveur, rafraîchis par le proxy à chaque navigation ; aucun délai d'inactivité
   dans le code). Seuls les réglages du tableau de bord Supabase peuvent la limiter (§11.3).
 
-### Ce qui n'est PAS livré — à confirmer par Sacha
-Le pointage **sans geste** sur `/scan?c=…`, et le remplacement de la confirmation « double scan »
-(5 min) par la règle « scan répété = rien de nouveau » (10 min), ont été **bloqués par la garde de
-permissions de l'agent** (classés « affaiblissement d'une protection ») : ils demandent l'accord
-explicite de Sacha. Tant qu'il manque, « Pointer maintenant » reste obligatoire sur `/scan?c=…`, et
-l'affiche garde ses consignes actuelles (la nouvelle formulation promettrait un pointage « tout
-seul » que l'application ne fait pas).
-
-Conception prête pour la reprise :
-1. **Envoi sans geste** : depuis le script de la page, après chargement, jamais depuis la requête
-   GET (un aperçu de lien ou un préchargement n'exécute pas le script : rien n'est pointé).
-   Position demandée en parallèle, plafond 8 s ; sans position → enregistré « à vérifier ».
-2. **Scan répété** : moins de 10 min après le scan d'arrivée → rien d'écrit, l'arrivée est
-   réaffichée ; après un départ, tout rescan réaffiche CE départ (règle existante).
-3. **« Annuler ce pointage »** (5 min, propriétaire seul). `ScanPointage` n'est jamais réécrit, et
-   `Pointage` ne peut pas être supprimé (la cascade effacerait ses scans). Sans migration,
-   l'annulation est une **entrée du journal d'audit** sur le scan ; le moteur et chaque lecteur de
-   `Pointage` (pointage du jour, Suivi, compteur de la semaine, grille Présences) ignorent les scans
-   annulés, et une arrivée annulée est refaite au scan suivant, sur la même ligne. Une colonne
-   `annuleLe` sur `ScanPointage` (migration) serait plus propre : à arbitrer.
-4. **Pause** : le départ est enregistré au scan ; la pause reste une étape après, facultative.
-   Sans pause, la journée reste ouverte (« départ scanné, pause non saisie » au Suivi) et la
-   Direction la clôt. Clore automatiquement avec une pause par défaut changerait des heures
-   payées : **décision d'argent**, non prise.
+### 11.2 Le pointage automatique (branche `feat/pointage-automatique`)
+1. **Envoi sans geste** — depuis le SCRIPT de la page, après son chargement, jamais depuis la
+   requête GET : un aperçu de lien ou un préchargement n'exécute pas le script, rien n'est pointé
+   (test : `app/scan/scan-get.integration.test.ts`, rendu serveur complet contre une vraie base →
+   0 scan). Vaut pour `/scan?c=…` (appareil photo) comme pour le scanner intégré, dès que le code
+   est décodé. Le code est retiré de l'adresse après lecture (un onglet restauré ne rejoue rien).
+   La position est demandée en parallèle, **plafond 8 s** ; sans position, le pointage part quand
+   même, « À vérifier : position non transmise » (loin ou trop floue : « … hors du restaurant »).
+   Résultat en grand : « Arrivée enregistrée à 8 h 02 » / « Départ enregistré à 17 h 05 », à
+   l'heure du serveur (mention « Heure du serveur, pas celle du téléphone »).
+2. **Scan répété** — moins de **10 min** après le dernier pointage valable (arrivée OU départ) de
+   la même personne : rien n'est écrit, le pointage déjà fait est réaffiché (« Arrivée déjà
+   enregistrée à … — ce nouveau scan n'a rien changé »). Au-delà de 10 min après le départ :
+   « Votre journée est déjà complète ». Remplace la confirmation « double scan » à 5 min.
+3. **« Annuler ce pointage »** — **5 min**, le salarié lui-même seulement (même refus pour « d'un
+   collègue » et « inexistant »), journalisé. **Forme retenue : colonnes `annuleLe` et
+   `annuleParId` sur `ScanPointage`** (migration `20260929150000_pointage_annulation_pause_defaut`,
+   purement additive, colonnes nullables). L'historique n'est jamais supprimé : un scan annulé reste
+   en base, ignoré par le moteur et par chaque lecteur (`SCAN_VALABLE` / `POINTAGE_VALABLE` dans
+   `lib/pointage-annulation.ts` : pointage du jour « Pointer », Suivi, compteur de la semaine,
+   grille Présences & heures, « Marquer vérifié »).
+   - Arrivée annulée : le pointage « n'existe plus » pour les écrans ; le scan suivant **refait
+     l'arrivée** sur la même ligne (nouvelle heure). Refusée si un départ la suit.
+   - Départ annulé : la journée est **rouverte**, et Présences + Heures reviennent à leur état
+     d'AVANT la clôture (relu au journal d'audit de la clôture, jamais effacé à l'aveugle). Refusé
+     si la Direction a corrigé la journée entre-temps.
+4. **Pause par défaut 30 min** — le départ scanné **clôt la journée tout de suite** (heure de fin =
+   instant du scan), avec une pause de 30 min marquée **« par défaut »** (`Pointage.pauseParDefaut`,
+   même migration, faux pour toutes les lignes existantes). Le salarié peut saisir sa pause
+   ensuite (facultatif, le jour même) : c'est alors **la sienne** qui compte, heures refaites. Une
+   journée déjà close n'est jamais rechangée ; une journée **corrigée par la Direction** (heures ou
+   code retouchés dans Présences & heures) n'est plus touchée ni par la pause saisie ni par
+   l'annulation. Visible partout comme telle : « pause par défaut 30 min (non déduite) » (écran de scan,
+   « Pointer », Suivi, Présences & heures — « p* » dans la case, en toutes lettres dans
+   l'infobulle et sur mobile). Chaque clôture est journalisée (entité « Pointage », champ
+   « cloture » : état des présences avant / après).
+   - **Décision d'argent de la Direction (Sacha, 2026-09-29, réponse explicite)** : « La paie ne
+     doit pas être affectée. » Règle retenue parmi les deux proposées : **la pause par défaut
+     n'est pas déduite.**
+     - Elle reste AFFICHÉE : « pause par défaut 30 min (non déduite) » (écran de scan, « Pointer »,
+       Suivi, Présences & heures — « p* » dans la case, libellé complet dans l'infobulle, sur
+       mobile et dans la légende). Elle ne retire AUCUNE heure : heures payées = départ − arrivée.
+     - Une pause SAISIE par le salarié (étape facultative, après le départ) se déduit comme avant ;
+       elle remplace la pause par défaut (`pauseParDefaut` passe à faux). Le champ reste
+       pré-rempli à 30 min : l'enregistrer déduit donc 30 min (l'écran le dit).
+     - Rien d'autre ne bouge : taux (heures planifiées), créneaux, heures supp. hors cet effet,
+       mois passés, import IVMS (sa propre pause, décision de 2026-07, inchangée). Aucune journée
+       close avec la pause par défaut n'existe en production (lot non déployé au moment de la
+       décision) : rien à reprendre.
+     - **Forme retenue** (la plus sûre) : `Pointage.pauseMinutes` = minutes DÉDUITES, donc **0**
+       pour la pause par défaut, portée par `pauseParDefaut = true` ; la durée affichée vient de
+       `PAUSE_PAR_DEFAUT_MIN`. Un lecteur qui calculerait « départ − arrivée − pauseMinutes » sans
+       lire le drapeau tomberait donc juste. Et toutes les heures d'un pointage passent par UNE
+       fonction, `heuresPayables` (`lib/pointage-jour.ts`), qui ignore `pauseMinutes` sous le
+       drapeau (une ligne à 30 + vrai reste payée sans déduction) : clôture → `OvertimeEntry`,
+       pause saisie, contrôle « journée corrigée », « Pointer » (calcul côté serveur), Suivi.
+       Aucune migration.
+     - Tests : `pointage-jour.test.ts` ; `pointage-scan.integration.test.ts` (OvertimeEntry sans
+       déduction, 45 min déduites, défaut puis 30 min saisies, annulation) ;
+       `pointage-pause-paie.integration.test.ts` (**preuve d'argent** : trois salariés identiques
+       pointant les mêmes heures — pause par défaut, pause saisie 0, pause saisie 30 — sur le vrai
+       moteur `calculerLignesPaie` : la ligne de paie de la pause par défaut est ÉGALE, rubrique
+       par rubrique, à celle de la journée sans pause) ; Présences (`temps-grid.pause.rendus.test.tsx`)
+       et Suivi (`lignes-suivi.test.ts`) ; garde-fou `pointage-heures.garde-fou.test.ts` (aucun
+       fichier ne retire `pauseMinutes` hors de `heuresPayables`).
+   - *Analyse d'avant la décision (2026-09-29, conservée pour mémoire)* — back-office : aucun effet
+     (salaire mensuel fixe, les heures n'entrent pas dans l'argent). Brigade : la quantité payée vient des
+     heures POINTÉES (taux t = S / heures planifiées du mois, base = t × heures normales faites) ;
+     les créneaux du planning ne retirent aucune pause. Chaque jour clos avec la pause par défaut
+     compte donc 0,5 h de moins que la durée du créneau : −0,5 × t par jour hors heures supp.
+     (≈ −4 % du salaire pour des créneaux de 12 h), et en semaine à heures supp., 0,5 h d'HS en
+     moins (tranche +60 % d'abord). C'est le même effet qu'une pause de 30 min saisie (l'ancien
+     écran proposait déjà 30 min pré-remplies). Par rapport à une journée laissée ouverte (rien
+     écrit : la journée planifiée n'était pas payée du tout), la clôture automatique paie la
+     journée. **Question pour la Direction** : faut-il retirer aussi 30 min des créneaux du
+     planning (durée explicite), pour qu'une journée complète reste payée S ? → **Tranché
+     autrement** : la pause par défaut n'est pas déduite (ci-dessus) ; les créneaux ne bougent pas.
+   - Un départ scanné avant la mise en service, jamais clos, est clos au rescan suivant avec la
+     pause par défaut (ou avec la pause saisie).
+5. **Affiche** — deux étapes : « 1 Scannez ce code avec l'appareil photo de votre téléphone » ;
+   « 2 Votre pointage s'enregistre tout seul » (« La première fois : connectez-vous avec votre
+   matricule »).
 
 ### 11.3 Réglages Supabase à vérifier (tableau de bord, NON modifiés)
 Authentication → Sessions : « Time-box user sessions » et « Inactivity timeout » (vides = aucune

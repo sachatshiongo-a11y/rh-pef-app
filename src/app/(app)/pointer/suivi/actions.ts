@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
 import { journaliser } from "@/lib/audit";
+import { SCAN_VALABLE } from "@/lib/pointage-annulation";
 
 /**
  * Marque « vérifiés » les scans A_VERIFIER non vérifiés des pointages donnés. Ne touche NI les
@@ -27,7 +28,8 @@ export const marquerVerifies = actionLisible(async (pointageIds: string[]): Prom
   const maintenant = new Date();
   const scansVerifies = await prisma.$transaction(async (tx) => {
     const aVerifier = await tx.scanPointage.findMany({
-      where: { pointageId: { in: ids }, verdict: "A_VERIFIER", verifieLe: null },
+      // Un scan annulé par le salarié n'est plus à vérifier : il ne compte plus.
+      where: { pointageId: { in: ids }, verdict: "A_VERIFIER", verifieLe: null, ...SCAN_VALABLE },
       select: { id: true },
     });
     if (aVerifier.length === 0) return 0;

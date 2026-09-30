@@ -156,6 +156,7 @@ model User {
   attestationsDemandees Attestation[] @relation("AttestationDemandeePar")
   attestationsDelivrees Attestation[] @relation("AttestationDelivreePar")
   scansVerifies      ScanPointage[]     @relation("ScanVerifiePar")
+  scansAnnules       ScanPointage[]     @relation("ScanAnnulePar")
 
   @@schema("public")
 }
@@ -878,7 +879,12 @@ model Pointage {
   date         DateTime       @db.Date
   heureDebut   DateTime // arrivée (horodatée par l'app)
   heureFin     DateTime? // départ ; null = pointage en cours
-  pauseMinutes Int            @default(0) // pause saisie par l'employé
+  pauseMinutes Int            @default(0) // pause saisie par l'employé = minutes DÉDUITES des heures payées
+  /// Vrai quand la journée est close avec la pause PAR DÉFAUT (30 min, `PAUSE_PAR_DEFAUT_MIN`) posée au
+  /// départ scanné sans pause saisie (décision de la Direction du 2026-09-29) ; faux dès que le salarié
+  /// saisit la sienne. Décision d'argent du même jour : cette pause s'affiche mais n'est PAS déduite —
+  /// `pauseMinutes` vaut alors 0. Les heures se lisent UNIQUEMENT via `heuresPayables` (lib/pointage-jour).
+  pauseParDefaut Boolean      @default(false)
   source       SourcePointage @default(APP)
   creeParId    String? // compte ayant saisi (l'employé lui-même, ou la Direction en manuel)
   createdAt    DateTime       @default(now())
@@ -911,6 +917,11 @@ model ScanPointage {
   verifieParId String?
   verifiePar   User?       @relation("ScanVerifiePar", fields: [verifieParId], references: [id], onDelete: SetNull)
   verifieLe    DateTime?
+  /// « Annuler ce pointage » (5 min, le salarié lui-même) : le scan RESTE en base, ignoré par le
+  /// moteur et par tous les écrans qui lisent les pointages. Jamais effacé, jamais réécrit.
+  annuleLe     DateTime?
+  annuleParId  String?
+  annulePar    User?       @relation("ScanAnnulePar", fields: [annuleParId], references: [id], onDelete: SetNull)
   createdAt   DateTime     @default(now())
 
   @@index([pointageId])

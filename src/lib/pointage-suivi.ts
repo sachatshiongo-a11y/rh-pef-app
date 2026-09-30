@@ -18,6 +18,7 @@ import type { PrismaClient } from "@prisma/client";
 import { lundiDe } from "@/lib/dates-fr";
 import { dateDuJourKinshasa } from "@/lib/pointage-jour";
 import { resumePointagesSemaine } from "@/lib/pointage-qr";
+import { POINTAGE_VALABLE, SCAN_VALABLE } from "@/lib/pointage-annulation";
 
 /**
  * Bornes lundi 00:00 → dimanche 00:00 (heure de Kinshasa, stockées comme `Pointage.date` : minuit
@@ -40,8 +41,10 @@ export function bornesSemaineKinshasa(maintenant: Date = new Date()): { debut: D
 export async function resumeSemaineCourante(client: PrismaClient, maintenant: Date = new Date()) {
   const { debut, fin } = bornesSemaineKinshasa(maintenant);
   const pointages = await client.pointage.findMany({
-    where: { date: { gte: debut, lte: fin }, scans: { some: {} } },
-    select: { scans: { select: { verdict: true } } },
+    // Un scan annulé (« Annuler ce pointage ») ne compte pas ; un pointage dont l'arrivée est
+    // annulée n'existe pas (rien n'est effacé en base : cf. lib/pointage-annulation).
+    where: { AND: [{ date: { gte: debut, lte: fin }, scans: { some: SCAN_VALABLE } }, POINTAGE_VALABLE] },
+    select: { scans: { where: SCAN_VALABLE, select: { verdict: true } } },
   });
   return resumePointagesSemaine(pointages.map((p) => ({ verdicts: p.scans.map((s) => s.verdict) })));
 }

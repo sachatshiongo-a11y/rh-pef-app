@@ -75,8 +75,8 @@ export async function changerMonMotDePasse(formData: FormData) {
         userId: user.id,
       });
     });
-    // Retour au scan de l'affiche s'il a amené ici (le salarié y retrouve « Pointer maintenant »,
-    // rien n'est pointé sans son geste). Sinon — EMPLOYE : son espace, comme avant ; les autres ont
+    // Retour au scan de l'affiche s'il a amené ici : la page de scan, une fois chargée dans le
+    // navigateur, enregistre son pointage (décision de la Direction du 2026-09-29). Sinon — EMPLOYE : son espace, comme avant ; les autres ont
     // plusieurs espaces : le sélecteur les oriente.
     redirect(retour ?? (user.role === "EMPLOYE" ? "/espace" : "/entree"));
   });
