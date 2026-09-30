@@ -20,6 +20,35 @@ import { avertissementsListeAchat, type LigneAVerifier } from "@/lib/achats-list
 export type ResultatListeAchat = { crees: string[]; fournisseursCrees: string[]; avertissements: string[] };
 
 
+const DEVISES = ["USD", "CDF"] as const;
+type Devise = (typeof DEVISES)[number];
+const estDevise = (v: string): v is Devise => (DEVISES as readonly string[]).includes(v);
+
+/**
+ * Devise de CHAQUE ligne (décision Direction 2026-09-30 : USD ou FC ligne par ligne).
+ *
+ * Le formulaire envoie un champ `devise` PAR LIGNE, dans l'ordre des lignes, comme `articleId`,
+ * `quantite`… Un formulaire d'avant (onglet resté ouvert pendant le déploiement) n'envoyait qu'UN
+ * `devise`, pour toute la liste : il s'applique alors à chaque ligne, comme avant. Un seul champ
+ * pour une seule ligne revient au même dans les deux cas. Absent : USD (défaut d'avant).
+ *
+ * Revalidé ici : seules USD et CDF passent ; toute autre valeur, ou un nombre de devises qui ne
+ * correspond pas aux lignes, est refusé — on ne devine jamais la devise d'un montant.
+ */
+function lireDevisesParLigne(formData: FormData, nbLignes: number): Devise[] {
+  const brutes = formData.getAll("devise").map((v) => String(v).trim());
+  const inconnue = brutes.findIndex((v) => !estDevise(v));
+  if (inconnue >= 0) {
+    const ligne = brutes.length === nbLignes && nbLignes > 1 ? ` (ligne ${inconnue + 1})` : "";
+    throw new Error(`Devise inconnue${ligne} : « ${brutes[inconnue]} ». Seules USD et FC (CDF) sont acceptées ; rien n'a été enregistré.`);
+  }
+  const valides = brutes as Devise[];
+  if (valides.length === 0) return Array(nbLignes).fill("USD");
+  if (valides.length === nbLignes) return valides;
+  if (valides.length === 1) return Array(nbLignes).fill(valides[0]); // ancien formulaire : devise unique
+  throw new Error("Formulaire incohérent (une devise par ligne attendue) : rechargez la page et saisissez à nouveau ; rien n'a été enregistré.");
+}
+
 /**
  * Liste d'achat → inventaire : chaque ligne (article + quantité) crée un MouvementStock d'ENTRÉE
  * et incrémente le stock de l'article. Une ligne peut viser un article du CATALOGUE ou être en
@@ -32,6 +61,9 @@ export type ResultatListeAchat = { crees: string[]; fournisseursCrees: string[];
  *    période de stock clôturée — le mouvement reçoit cette date ;
  *  - FOURNISSEUR facultatif PAR LIGNE : choisi dans la liste (id), ou tapé — un nom connu est
  *    rapproché (`cleAlnum`), un nom nouveau crée le fournisseur à la volée. Ni caisse ni validation.
+ *
+ * Décision Direction 2026-09-30 : DEVISE PAR LIGNE (USD ou CDF) — chaque mouvement porte la devise
+ * et le taux de SA ligne (`lireDevisesParLigne`).
  */
 export const entreeListeAchat = actionLisible(async (formData: FormData): Promise<ResultatListeAchat> => {
   const user = await verifySession();
@@ -48,16 +80,8 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const montants = formData.getAll("montant").map(dec); // montant payé par ligne (facultatif)
   const fournIds = formData.getAll("fournisseurId").map((v) => String(v).trim());
   const fournNoms = formData.getAll("fournisseurNom").map((v) => String(v).trim());
-  const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
+  const devises = lireDevisesParLigne(formData, ids.length);
   const origine = String(formData.get("origine") ?? "").trim() || ORIGINE_LISTE_ACHAT;
-
-  // Taux CDF/USD partagé avec la RH (Config) — utilisé pour convertir un achat en francs.
-  let taux: number | null = null;
-  if (devise === "CDF") {
-    const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-    taux = config ? Number(config.tauxChangeCDF) : null;
-    if (!taux) throw new Error("Taux de change CDF/USD non défini (Config).");
-  }
 
   const lignes = ids
     .map((articleId, i) => ({
@@ -67,6 +91,7 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
       domaine: ["NOURRITURE", "BOISSON", "AUTRE"].includes(domaines[i]) ? (domaines[i] as "NOURRITURE" | "BOISSON" | "AUTRE") : "NOURRITURE",
       quantite: qtes[i] ?? 0,
       montant: montants[i] ?? 0,
+      devise: devises[i],
       fournId: fournIds[i] ?? "",
       fournNom: fournNoms[i] ?? "",
       rang: i + 1,
@@ -74,6 +99,23 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
     .filter((l) => (l.articleId || l.designation) && l.quantite > 0);
 
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article du catalogue ou désignation libre, + quantité).");
+
+  // Taux CDF/USD partagé avec la RH (Config) — lu SEULEMENT si une ligne payée en francs doit être
+  // convertie. Sans taux, ces lignes sont nommées et rien n'est écrit : jamais un montant en francs
+  // compté comme des dollars, ni une ligne perdue en silence.
+  let taux: number | null = null;
+  const enFrancs = lignes.filter((l) => l.devise === "CDF" && l.montant > 0);
+  if (enFrancs.length > 0) {
+    const config = await prisma.config.findUnique({ where: { id: "singleton" } });
+    const lu = config ? Number(config.tauxChangeCDF) : NaN;
+    taux = Number.isFinite(lu) && lu > 0 ? lu : null;
+    if (taux === null) {
+      const rangs = enFrancs.map((l) => l.rang);
+      throw new Error(
+        `${rangs.length > 1 ? `Lignes ${rangs.join(", ")} payées` : `Ligne ${rangs[0]} payée`} en francs (FC) : le taux de change CDF/USD n'est pas défini (Paramètres), la conversion en dollars est impossible. Rien n'a été enregistré — passez ${rangs.length > 1 ? "ces lignes" : "la ligne"} en USD ou faites définir le taux.`
+      );
+    }
+  }
 
   // Rapprochement des lignes LIBRES par désignation exacte — on ne crée pas un doublon
   // d'un article déjà au catalogue.
@@ -122,7 +164,7 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
       let articleId = l.articleId || null;
       const fournisseurId = await resoudreFournisseur(l);
       const aMontant = l.montant > 0;
-      const montantUSD = aMontant ? (devise === "CDF" ? l.montant / (taux as number) : l.montant) : null;
+      const montantUSD = aMontant ? (l.devise === "CDF" ? l.montant / (taux as number) : l.montant) : null;
 
       if (!articleId) {
         articleId = parNom.get(cleAlnum(l.designation)) ?? null;
@@ -143,9 +185,9 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
       await tx.mouvementStock.create({
         data: {
           articleId, type: "ENTREE", quantite: l.quantite, date, origine, fournisseurId, creeParId: user.id,
-          devise: aMontant ? devise : null,
+          devise: aMontant ? l.devise : null,
           montantOrigine: aMontant ? l.montant : null,
-          tauxChangeUtilise: aMontant && devise === "CDF" ? taux : null,
+          tauxChangeUtilise: aMontant && l.devise === "CDF" ? taux : null,
           montantUSD,
         },
       });

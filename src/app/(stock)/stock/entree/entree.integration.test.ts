@@ -298,3 +298,125 @@ describe("double saisie — avertissement NON bloquant", () => {
     expect(memeJour.avertissements).toEqual([]);
   });
 });
+
+describe("devise PAR LIGNE (décision Direction 2026-09-30)", () => {
+  // Envoi du formulaire actuel : un champ `devise` par ligne, dans l'ordre des lignes (pas de devise globale).
+  const fdParLigne = (lignes: (Ligne & { devise: string })[], date = "2026-09-24") => {
+    const f = new FormData();
+    f.set("date", date);
+    for (const l of lignes) {
+      f.append("articleId", l.articleId ?? "");
+      f.append("designation", l.designation ?? "");
+      f.append("unite", l.unite ?? "");
+      f.append("domaine", l.domaine ?? "NOURRITURE");
+      f.append("quantite", String(l.quantite));
+      f.append("montant", String(l.montant ?? 0));
+      f.append("devise", l.devise);
+      f.append("fournisseurId", l.fournisseurId ?? "");
+      f.append("fournisseurNom", l.fournisseurNom ?? "");
+    }
+    return f;
+  };
+  const mvt = (articleId: string) => prisma.mouvementStock.findFirstOrThrow({ where: { articleId } });
+  const sansTaux = async <T,>(f: () => Promise<T>) => {
+    await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 0 } });
+    try { return await f(); } finally { await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2800 } }); }
+  };
+
+  it("envoi MIXTE : ligne 1 en USD, ligne 2 en CDF → chaque mouvement porte SA devise et SON taux ; USD de la ligne CDF = montant ÷ taux", async () => {
+    const a1 = await article("Tomates cerises");
+    const a2 = await article("Mangues");
+    ok(await entreeListeAchat(fdParLigne([
+      { articleId: a1.id, quantite: 3, montant: 30, devise: "USD" },
+      { articleId: a2.id, quantite: 5, montant: 28000, devise: "CDF" },
+    ])));
+    const m1 = await mvt(a1.id);
+    expect([m1.devise, Number(m1.montantOrigine), m1.tauxChangeUtilise, Number(m1.montantUSD)]).toEqual(["USD", 30, null, 30]);
+    const m2 = await mvt(a2.id);
+    expect([m2.devise, Number(m2.montantOrigine), Number(m2.tauxChangeUtilise), Number(m2.montantUSD)]).toEqual(["CDF", 28000, 2800, 10]);
+    // Le stock et le prix du catalogue ne changent pas de règle.
+    expect(Number((await prisma.stock.findUniqueOrThrow({ where: { articleId: a2.id } })).quantite)).toBe(5);
+  });
+
+  it("ligne LIBRE en CDF : le nouvel article reçoit le PU converti en USD (règle inchangée, devise de SA ligne)", async () => {
+    ok(await entreeListeAchat(fdParLigne([
+      { designation: "Piment oiseau", unite: "sachet", quantite: 4, montant: 11200, devise: "CDF" },
+      { designation: "Gingembre frais", unite: "kg", quantite: 2, montant: 9, devise: "USD" },
+    ])));
+    const piment = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Piment oiseau" } });
+    expect(Number(piment.prixUnitaireUSD)).toBe(1); // 11 200 FC ÷ 2 800 ÷ 4
+    const gingembre = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Gingembre frais" } });
+    expect(Number(gingembre.prixUnitaireUSD)).toBe(4.5);
+  });
+
+  it("une ligne en CDF SANS taux défini : refus lisible qui nomme la ligne, RIEN n'est écrit (même la ligne USD)", async () => {
+    const a1 = await article("Citrons verts");
+    const a2 = await article("Oranges");
+    const a3 = await article("Pamplemousses");
+    const r = await sansTaux(() => entreeListeAchat(fdParLigne([
+      { articleId: a1.id, quantite: 2, montant: 6, devise: "USD" },
+      { articleId: a2.id, quantite: 3, montant: 9000, devise: "CDF" },
+      { articleId: a3.id, quantite: 1, montant: 4000, devise: "CDF" },
+    ])));
+    expect(r).toEqual({ erreur: "Lignes 2, 3 payées en francs (FC) : le taux de change CDF/USD n'est pas défini (Paramètres), la conversion en dollars est impossible. Rien n'a été enregistré — passez ces lignes en USD ou faites définir le taux." });
+    expect(await prisma.mouvementStock.count({ where: { articleId: { in: [a1.id, a2.id, a3.id] } } })).toBe(0);
+    expect(await prisma.stock.count({ where: { articleId: { in: [a1.id, a2.id, a3.id] } } })).toBe(0);
+    const seule = await sansTaux(() => entreeListeAchat(fdParLigne([{ articleId: a2.id, quantite: 3, montant: 9000, devise: "CDF" }])));
+    expect(seule).toEqual({ erreur: "Ligne 1 payée en francs (FC) : le taux de change CDF/USD n'est pas défini (Paramètres), la conversion en dollars est impossible. Rien n'a été enregistré — passez la ligne en USD ou faites définir le taux." });
+  });
+
+  it("sans taux, une liste TOUTE en USD passe : le taux n'est lu que pour une ligne en francs à convertir", async () => {
+    const a = await article("Bananes plantain");
+    const b = await article("Noix de coco");
+    ok(await sansTaux(() => entreeListeAchat(fdParLigne([
+      { articleId: a.id, quantite: 2, montant: 5, devise: "USD" },
+      { articleId: b.id, quantite: 1, devise: "CDF" }, // en francs mais SANS montant : rien à convertir
+    ]))));
+    expect(Number((await mvt(a.id)).montantUSD)).toBe(5);
+    const mb = await mvt(b.id);
+    expect([mb.devise, mb.montantUSD, mb.tauxChangeUtilise]).toEqual([null, null, null]); // comme avant : pas de montant, pas de devise
+  });
+
+  it("ANCIEN envoi (une seule devise globale, onglet ouvert pendant le déploiement) : elle vaut pour toutes les lignes, comme avant", async () => {
+    const a1 = await article("Aubergines");
+    const a2 = await article("Courgettes");
+    ok(await entreeListeAchat(fd([{ articleId: a1.id, quantite: 2, montant: 5600 }, { articleId: a2.id, quantite: 1, montant: 14000 }], { devise: "CDF", date: "2026-09-24" })));
+    const m1 = await mvt(a1.id);
+    const m2 = await mvt(a2.id);
+    expect([m1.devise, Number(m1.tauxChangeUtilise), Number(m1.montantUSD)]).toEqual(["CDF", 2800, 2]);
+    expect([m2.devise, Number(m2.tauxChangeUtilise), Number(m2.montantUSD)]).toEqual(["CDF", 2800, 5]);
+    // Et en USD global (le défaut d'avant) : rien ne change non plus.
+    const a3 = await article("Poivrons");
+    ok(await entreeListeAchat(fd([{ articleId: a3.id, quantite: 1, montant: 7 }])));
+    const m3 = await mvt(a3.id);
+    expect([m3.devise, m3.tauxChangeUtilise, Number(m3.montantUSD)]).toEqual(["USD", null, 7]);
+  });
+
+  it("devise autre que USD ou CDF (par ligne ou globale) : refusée, rien n'est écrit", async () => {
+    const a1 = await article("Céleri");
+    const a2 = await article("Fenouil");
+    const r = await entreeListeAchat(fdParLigne([
+      { articleId: a1.id, quantite: 1, montant: 3, devise: "USD" },
+      { articleId: a2.id, quantite: 1, montant: 3, devise: "EUR" },
+    ]));
+    expect(r).toEqual({ erreur: "Devise inconnue (ligne 2) : « EUR ». Seules USD et FC (CDF) sont acceptées ; rien n'a été enregistré." });
+    const g = await entreeListeAchat(fd([{ articleId: a1.id, quantite: 1, montant: 3 }, { articleId: a2.id, quantite: 1, montant: 3 }], { devise: "usd" as "USD" }));
+    expect(g).toEqual({ erreur: "Devise inconnue : « usd ». Seules USD et FC (CDF) sont acceptées ; rien n'a été enregistré." });
+    expect(await prisma.mouvementStock.count({ where: { articleId: { in: [a1.id, a2.id] } } })).toBe(0);
+  });
+
+  it("autant de devises que de lignes, ou une seule : un autre nombre est refusé (on ne devine jamais la devise d'un montant)", async () => {
+    const a = await article("Radis");
+    const f = fdParLigne([
+      { articleId: a.id, quantite: 1, montant: 3, devise: "USD" },
+      { articleId: a.id, quantite: 1, montant: 3, devise: "CDF" },
+      { articleId: a.id, quantite: 1, montant: 3, devise: "USD" },
+    ]);
+    const deux = f.getAll("devise").slice(0, 2);
+    f.delete("devise");
+    for (const d of deux) f.append("devise", d);
+    const r = await entreeListeAchat(f);
+    expect(r).toEqual({ erreur: "Formulaire incohérent (une devise par ligne attendue) : rechargez la page et saisissez à nouveau ; rien n'a été enregistré." });
+    expect(await prisma.mouvementStock.count({ where: { articleId: a.id } })).toBe(0);
+  });
+});
