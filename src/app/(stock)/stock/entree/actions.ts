@@ -200,6 +200,11 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   });
 
   await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} entrées`, champ: "entree (liste d'achat)", nouvelleValeur: origine, userId: user.id });
+  // Un article créé à la volée hors Direction reste permis (la Liste d'achat ne doit jamais bloquer
+  // un achat), mais il est SIGNALÉ sur la cloche de l'espace Stock.
+  if (crees.length > 0 && user.role !== "ADMIN") {
+    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `${crees.length > 1 ? `${crees.length} nouveaux articles créés` : "Nouvel article créé"} par ${user.nom} (Liste d'achat) : ${crees.map((d) => `« ${d} »`).join(", ")}`.slice(0, 480), lien: "/stock/catalogue", refId: "article-cree:liste-achat" } });
+  }
   revalidatePath("/stock/entree");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/fournisseurs", "layout");

@@ -13,8 +13,9 @@ import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
-import { lireDatePaiement } from "@/lib/date-paiement";
-import { Prisma } from "@prisma/client";
+import { reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
+import { demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
+import { texteDecimal } from "@/lib/validations-stock/charge";
 
 
 async function televerserFacturePdf(file: File, fournisseurNom: string): Promise<string> {
@@ -184,12 +185,6 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
 
 const AUJ = () => new Date().toISOString().slice(0, 10);
 
-function statutDe(reste: number, echeanceISO: string | null): "REGLEE" | "A_REGLER" | "ECHUE_NON_REGLEE" {
-  if (reste <= 0.001) return "REGLEE";
-  if (echeanceISO && echeanceISO < AUJ()) return "ECHUE_NON_REGLEE";
-  return "A_REGLER";
-}
-
 async function garde() {
   const user = await verifySession();
   requireModule(user, "stock");
@@ -248,6 +243,11 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const dateStr = String(formData.get("date") ?? "").trim() || null;
   const echeanceStr = String(formData.get("dateEcheance") ?? "").trim() || null;
   const montantRegleUSD = dec(formData.get("montantRegleUSD"));
+  // Un montant déjà réglé à la création EST un paiement : hors Direction, il passe par une demande
+  // (fiche de la facture → « Marquer payée » ou « + Paiement »), jamais par ce raccourci.
+  if (montantRegleUSD > 0 && !estDirection(user)) {
+    throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
+  }
   const reste = Math.max(0, montantUSD - montantRegleUSD);
   const d = new Date(dateStr ?? echeanceStr ?? AUJ());
   const numero = String(formData.get("numero") ?? "").trim() || null;
@@ -375,72 +375,54 @@ export const supprimerFacture = actionLisible(async (id: string) => {
   revalidatePath("/stock");
 });
 
-/**
- * CŒUR UNIQUE des règlements : applique un paiement/avoir sur une facture (trace datée,
- * cumul réglé/reste, statut recalculé). Utilisé par « + Paiement / Avoir » ET « Marquer payée »
- * — un seul chemin de code, plus de logique dupliquée qui divergerait.
- */
-async function appliquerReglement(userId: string, id: string, p: {
-  montant: number; montantCDF?: number | null; taux?: number | null;
-  dateStr?: string; mode?: string | null; note?: string | null; type?: "PAIEMENT" | "AVOIR";
-}) {
-  const type = p.type ?? "PAIEMENT";
-  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
-  // Règle unique de la date de paiement (src/lib/date-paiement.ts) : absente ⇒ aujourd'hui à
-  // Kinshasa, refuse une date future ou antérieure à la date de LA FACTURE — validée ici, côté
-  // serveur, quel que soit le chemin (formulaire détaillé, unité, lot).
-  const dateStr = lireDatePaiement(p.dateStr, f.date, new Date());
-  const reste = Number(f.resteAPayerUSD);
-  if (p.montant <= 0) throw new Error("Le montant doit être supérieur à 0.");
-  if (p.montant > reste + 0.009) throw new Error(`Le ${type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${p.montant.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
+/** Réponse d'un geste de règlement fait par un compte qui n'est pas la Direction : rien n'est payé. */
+export type DemandeEnvoyee = { demande: true; message: string };
+const MESSAGE_DEMANDE = "Paiement demandé : il sera enregistré quand la Direction l'aura validé.";
 
-  const nouveauRegle = Number(f.montantRegleUSD) + p.montant;
-  const nouveauReste = Math.max(0, Number(f.montantUSD) - nouveauRegle);
-  const solde = nouveauReste <= 0.001;
-  const echeanceISO = f.dateEcheance ? new Date(f.dateEcheance).toISOString().slice(0, 10) : null;
-
-  await prisma.$transaction([
-    prisma.paiement.create({ data: { factureId: id, type, date: new Date(dateStr), montantUSD: p.montant, montantCDF: p.montantCDF ?? null, tauxChangeUtilise: p.taux ?? null, modePaiement: p.mode ?? f.modePaiement, note: p.note ?? null, creeParId: userId } }),
-    prisma.factureFournisseur.update({
-      where: { id },
-      data: {
-        montantRegleUSD: nouveauRegle,
-        resteAPayerUSD: nouveauReste,
-        statut: statutDe(nouveauReste, echeanceISO),
-        ...(solde ? { datePaiement: new Date(dateStr) } : {}),
-      },
-    }),
-  ]);
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: type === "AVOIR" ? "avoir" : "paiement", nouvelleValeur: `${p.montant.toFixed(2)} $${p.montantCDF ? ` (${p.montantCDF.toLocaleString("fr-FR")} FC)` : ""} (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId });
+function rafraichirFactures(ids: string[]) {
   revalidatePath("/stock/factures");
-  revalidatePath(`/stock/factures/${id}`);
+  for (const id of ids) revalidatePath(`/stock/factures/${id}`);
+  revalidatePath("/stock/a-valider");
+  revalidatePath("/stock");
 }
 
 /**
  * Marque une facture comme réglée : un paiement du reste à payer, daté au choix (défaut :
- * aujourd'hui à Kinshasa — voir `appliquerReglement`/`lireDatePaiement`).
+ * aujourd'hui à Kinshasa — voir `reglerFactureTx`/`lireDatePaiement`).
+ * Hors Direction : rien n'est payé, une DEMANDE est adressée à la Direction (demandes.ts).
  */
-export const marquerPayee = actionLisible(async (id: string, dateStr?: string) => {
+export const marquerPayee = actionLisible(async (id: string, dateStr?: string): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
-  const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id }, select: { resteAPayerUSD: true } });
-  const reste = Number(f.resteAPayerUSD);
-  if (reste <= 0.001) return; // déjà soldée
-  await appliquerReglement(user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
+  if (!estDirection(user)) {
+    await demanderPaiement(user, { mode: "SOLDE", factureId: id, dateStr });
+    rafraichirFactures([id]);
+    return { demande: true, message: MESSAGE_DEMANDE };
+  }
+  const reg = await prisma.$transaction(async (tx) => {
+    await exigerAucunPaiementDemande(tx, [id]);
+    const f = await verrouillerFacture(tx, id);
+    const reste = Number(f.resteAPayerUSD);
+    if (reste <= 0.001) return null; // déjà soldée
+    return reglerFactureTx(tx, user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
+  });
+  rafraichirFactures([id]);
+  if (reg) await notifierReglements([reg]);
 });
 
 /** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit). */
-export const enregistrerPaiement = actionLisible(async (id: string, formData: FormData) => {
+export const enregistrerPaiement = actionLisible(async (id: string, formData: FormData): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
   const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
   const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
   const saisi = dec(formData.get("montant"));
   if (saisi <= 0) throw new Error("Le montant doit être supérieur à 0.");
-  const dateStr = String(formData.get("date") ?? "").trim() || undefined; // validé/défaulté dans appliquerReglement
+  const dateStr = String(formData.get("date") ?? "").trim() || undefined; // validé/défaulté dans reglerFactureTx
   const mode = String(formData.get("modePaiement") ?? "").trim() || null;
   const note = String(formData.get("note") ?? "").trim() || null;
   if (type === "AVOIR" && !note) throw new Error("Indiquez le motif de l'avoir (ex. retour marchandise).");
 
-  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement.
+  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement (pour
+  // une demande : figés au jour de la demande, affichés à la Direction).
   let montant = saisi, montantCDF: number | null = null, taux: number | null = null;
   if (devise === "CDF") {
     const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -450,7 +432,20 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
     montant = Math.round((saisi / taux) * 100) / 100;
   }
 
-  await appliquerReglement(user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
+  if (!estDirection(user)) {
+    await demanderPaiement(user, {
+      mode: "REGLEMENT", factureId: id, dateStr,
+      reglement: { type, montantUSD: texteDecimal(montant), montantCDF: montantCDF === null ? null : texteDecimal(montantCDF), taux: taux === null ? null : texteDecimal(taux), modePaiement: mode, note },
+    });
+    rafraichirFactures([id]);
+    return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura validé." : MESSAGE_DEMANDE };
+  }
+  const reg = await prisma.$transaction(async (tx) => {
+    await exigerAucunPaiementDemande(tx, [id]);
+    return reglerFactureTx(tx, user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
+  });
+  rafraichirFactures([id]);
+  await notifierReglements([reg]);
 });
 
 /**
@@ -459,62 +454,35 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
  * ENCORE À RÉGLER À CE MOMENT a une date de facture postérieure à la date choisie, le lot ENTIER
  * est refusé — nommant la fautive — plutôt que d'en régler une partie en silence.
  *
- * Tout se passe dans UNE transaction interactive, avec `SELECT … FOR UPDATE` : lire puis valider
- * les factures AVANT `$transaction` (comme avant) laissait une fenêtre où un règlement concurrent
- * sur l'une d'elles (unité, avoir, autre lot) passait entre les deux — les clauses `WHERE`
- * l'écartaient alors en silence à l'écriture, et l'appelant n'avait aucun moyen de savoir que le
- * lot n'était pas passé en entier. Le verrou bloque le concurrent jusqu'à la fin de CETTE
- * transaction, et la lecture qui compte est celle faite SOUS le verrou, pas celle d'avant. Renvoie
- * le nombre réellement réglé (`reglees`) à côté du nombre demandé (`demandees`) : l'écart se dit
- * à l'écran plutôt que de vider la sélection en silence.
+ * Tout se passe dans UNE transaction interactive, avec `SELECT … FOR UPDATE` (voir `reglerLotTx`) :
+ * un règlement concurrent attend la fin de CETTE transaction, et la lecture qui compte est celle
+ * faite SOUS le verrou. Renvoie le nombre réellement réglé (`reglees`) à côté du nombre demandé
+ * (`demandees`) : l'écart se dit à l'écran plutôt que de vider la sélection en silence.
+ * Hors Direction : rien n'est payé, UNE demande (tout ou rien) est adressée à la Direction ;
+ * `demandePaiement` = nombre de factures qu'elle porte.
  */
-export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string): Promise<{ reglees: number; demandees: number }> => {
+export type ResultatLot = { reglees: number; demandees: number; demandePaiement?: number };
+export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string): Promise<ResultatLot> => {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return { reglees: 0, demandees: 0 };
 
-  const maintenant = new Date();
+  if (!estDirection(user)) {
+    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr });
+    rafraichirFactures([]);
+    return { reglees: 0, demandees: uniq.length, demandePaiement: r.nbFactures };
+  }
 
-  const reglees = await prisma.$transaction(async (tx) => {
-    // Verrouille les lignes du lot encore à régler : un règlement concurrent sur l'une d'elles
-    // attend la fin de cette transaction plutôt que de créer une situation incohérente ; ce qui
-    // n'est déjà plus « à régler » ici est simplement exclu du décompte, jamais supposé réglé.
-    const facs = await tx.$queryRaw<{ id: string; date: Date | null; fournisseurNom: string; numero: string | null }[]>`
-      SELECT "id", "date", "fournisseurNom", "numero"
-      FROM "stock"."FactureFournisseur"
-      WHERE "id" IN (${Prisma.join(uniq)}) AND "statut" <> 'REGLEE' AND "resteAPayerUSD" > 0
-      FOR UPDATE`;
-    if (facs.length === 0) return 0;
-
-    for (const f of facs) {
-      try {
-        lireDatePaiement(dateStr, f.date, maintenant);
-      } catch (e) {
-        const nom = f.numero ? `${f.fournisseurNom} (n° ${f.numero})` : f.fournisseurNom;
-        throw new Error(`${nom} : ${e instanceof Error ? e.message : "date de paiement invalide"}`);
-      }
-    }
-    const date = new Date(lireDatePaiement(dateStr, null, maintenant));
-    const facIds = facs.map((f) => f.id);
-
-    await tx.$executeRaw`
-      INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "modePaiement", "note", "creeParId")
-      SELECT gen_random_uuid(), "id", ${date}, "resteAPayerUSD", "modePaiement", 'Marquée payée (lot)', ${user.id}
-      FROM "stock"."FactureFournisseur"
-      WHERE "id" IN (${Prisma.join(facIds)})`;
-    await tx.$executeRaw`
-      UPDATE "stock"."FactureFournisseur"
-      SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = ${date}
-      WHERE "id" IN (${Prisma.join(facIds)})`;
-    return facIds.length;
+  const regs = await prisma.$transaction(async (tx) => {
+    await exigerAucunPaiementDemande(tx, uniq);
+    return reglerLotTx(tx, user.id, uniq, dateStr, "Marquée payée (lot)");
   });
 
-  if (reglees > 0) {
-    await journaliser(prisma, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${reglees} facture(s) réglée(s)`, userId: user.id });
-    revalidatePath("/stock/factures");
-    revalidatePath("/stock");
+  if (regs.length > 0) {
+    rafraichirFactures([]);
+    await notifierReglements(regs);
   }
-  return { reglees, demandees: uniq.length };
+  return { reglees: regs.length, demandees: uniq.length };
 });
 
 /** Supprime plusieurs factures d'un coup (Direction) — reprend le stock entré par chacune. */
