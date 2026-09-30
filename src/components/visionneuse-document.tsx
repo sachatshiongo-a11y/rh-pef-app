@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as PointerEventReact, type RefObject } from "react";
+import { verdictReponseDocument } from "@/components/telecharger-lien";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DESSINER LE DOCUMENT, PLUTÔT QUE LE CONFIER AU NAVIGATEUR (Sacha, 2026-09-22 :
@@ -425,6 +426,17 @@ export async function recupererDocument(
   const minuteur = setTimeout(() => controleur.abort(), delaiMs);
   try {
     const reponse = await fetch(src, { credentials: "same-origin", signal: controleur.signal });
+    // Une redirection vers NOTRE origine est la page de connexion (session expirée) : `fetch` l'a
+    // suivie et `ok` est vrai. Sans ce contrôle, cette page HTML serait donnée à pdf.js comme un
+    // document. (Une redirection vers l'URL signée du stockage — `/fichiers/…` — est légitime.)
+    const verdict = verdictReponseDocument({
+      redirected: reponse.redirected === true,
+      ok: reponse.ok,
+      status: reponse.status,
+      url: reponse.url,
+      origine: typeof window !== "undefined" ? window.location.origin : undefined,
+    });
+    if (verdict === "session-expiree") throw new Error("Session expirée");
     if (!reponse.ok) throw new Error(`HTTP ${reponse.status}`);
     const mime = reponse.headers.get("Content-Type");
     // Le délai couvre AUSSI la lecture du corps : un flux qui s'arrête au milieu n'y échappe pas.
