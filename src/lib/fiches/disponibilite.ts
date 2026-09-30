@@ -235,10 +235,10 @@ function versUniteArticle(q: Fraction, uniteSource: string, article: UniteArticl
 }
 
 /** Quantité convertie vers l'unité d'un article, en texte pleine précision ; `null` si impossible. */
-export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: string, uniteArticle: string | UniteArticle): string | null {
+export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: string, article: UniteArticle): string | null {
   const q = versD(quantite);
   if (q === null) return null;
-  const r = versUniteArticle(fr(q), uniteSource, typeof uniteArticle === "string" ? { unite: uniteArticle } : uniteArticle);
+  const r = versUniteArticle(fr(q), uniteSource, article);
   return r === null ? null : r.num.div(r.den).toString();
 }
 
@@ -248,10 +248,10 @@ export function convertirVersUniteArticle(quantite: Decimal.Value, uniteSource: 
  * article ci-dessus (même `facteur()`, mêmes emballages) : une livraison convertie puis reconvertie
  * retombe sur la quantité sortie du dépôt, sans double compte. `null` = conversion impossible.
  */
-export function convertirDepuisUniteArticle(quantite: Decimal.Value, uniteArticle: string | UniteArticle, uniteResto: string): string | null {
+export function convertirDepuisUniteArticle(quantite: Decimal.Value, article: UniteArticle, uniteResto: string): string | null {
   const q = versD(quantite);
   if (q === null) return null;
-  const unRestoEnArticle = versUniteArticle(fr(UN), uniteResto, typeof uniteArticle === "string" ? { unite: uniteArticle } : uniteArticle);
+  const unRestoEnArticle = versUniteArticle(fr(UN), uniteResto, article);
   if (unRestoEnArticle === null || unRestoEnArticle.num.isZero()) return null;
   return q.times(unRestoEnArticle.den).div(unRestoEnArticle.num).toString();
 }

@@ -47,7 +47,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
   const [articles, avant] = await Promise.all([
     prisma.articleResto.findMany({
       where: filtre,
-      select: { id: true, designation: true, espace: true, unite: true, actif: true, articleStockId: true, articleStock: { select: { unite: true } } },
+      select: { id: true, designation: true, espace: true, unite: true, actif: true, articleStockId: true, articleStock: { select: { unite: true, contenance: true, contenanceUnite: true } } },
     }),
     prisma.comptageResto.groupBy({
       by: ["articleRestoId"],
@@ -74,7 +74,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
     }),
     prisma.mouvementStock.findMany({
       where: { type: "SORTIE", categorieSortie: MOTIF_LIVRAISON_RESTAURANT, date: dateLivraison },
-      select: { id: true, articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true, unite: true, domaine: true } } },
+      select: { id: true, articleId: true, date: true, quantite: true, categorieSortie: true, article: { select: { designation: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } } },
     }),
   ]);
 
@@ -83,11 +83,13 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
     articles: articles.map((a) => ({
       id: a.id, designation: a.designation, espace: a.espace, unite: a.unite, articleStockId: a.articleStockId,
       uniteCatalogue: a.articleStock?.unite ?? null,
+      contenanceCatalogue: a.articleStock?.contenance?.toString() ?? null, contenanceUniteCatalogue: a.articleStock?.contenanceUnite ?? null,
       ...(a.actif ? {} : { inactif: true }),
     })),
     comptages: comptages.map((c) => ({ articleRestoId: c.articleRestoId, date: iso(c.date), quantite: c.quantite.toString() })),
     livraisons: livraisons.map((l) => ({
       id: l.id, articleStockId: l.articleId, designation: l.article.designation, uniteCatalogue: l.article.unite,
+      contenanceCatalogue: l.article.contenance?.toString() ?? null, contenanceUniteCatalogue: l.article.contenanceUnite,
       date: iso(l.date), quantite: l.quantite.toString(), categorieSortie: l.categorieSortie, domaine: l.article.domaine,
     })),
   };

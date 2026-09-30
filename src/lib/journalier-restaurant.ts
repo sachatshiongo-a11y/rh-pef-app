@@ -2,7 +2,7 @@ import Decimal from "decimal.js";
 import { convertirVersUniteArticle } from "@/lib/fiches/disponibilite";
 import { formaterNombre } from "@/lib/montant";
 import type { Colonne } from "@/lib/pdf/tableau";
-import { consommationReelle, MOTIF_LIVRAISON_RESTAURANT, type ConsommationReelle, type EntreesStockResto } from "@/lib/stock-restaurant";
+import { articleCatalogue, consommationReelle, MOTIF_LIVRAISON_RESTAURANT, type ConsommationReelle, type EntreesStockResto } from "@/lib/stock-restaurant";
 
 // Conso. journalière (onglets Consommation et Comparaison) : fonctions PURES partagées par l'écran
 // et ses exports PDF / Excel. Rien n'est écrit ; « — » pour l'inconnu, jamais 0.
@@ -64,7 +64,7 @@ export function consommationParArticleCatalogue(e: EntreesStockResto, jours: str
       for (const r of restos) {
         const c = consommationReelle(e, r.id, j);
         if (c.etat !== "CONNUE") return null;
-        const converti = convertirVersUniteArticle(c.quantite, r.unite ?? "", r.uniteCatalogue ?? "");
+        const converti = convertirVersUniteArticle(c.quantite, r.unite ?? "", articleCatalogue(r));
         if (converti === null) return null;
         total = total.plus(converti);
       }

@@ -44,18 +44,18 @@ describe("propositions — unités du restaurant et du catalogue", () => {
   });
 
   it("conversion impossible : « unités incompatibles » (masse contre volume, comptages différents)", () => {
-    expect(alerteUnite("bouteille", "l")).toBe("UNITES_INCOMPATIBLES");
-    expect(alerteUnite("kg", "l")).toBe("UNITES_INCOMPATIBLES");
-    expect(alerteUnite("pièce", "paquet")).toBe("UNITES_INCOMPATIBLES");
+    expect(alerteUnite("bouteille", { unite: "l" })).toBe("UNITES_INCOMPATIBLES");
+    expect(alerteUnite("kg", { unite: "l" })).toBe("UNITES_INCOMPATIBLES");
+    expect(alerteUnite("pièce", { unite: "paquet" })).toBe("UNITES_INCOMPATIBLES");
     const [p] = proposerRattachements([resto("r1", "Vin", null, "bouteille")], [cat("a1", "Vin", true, "l")]);
     expect(p).toMatchObject({ uniteResto: "bouteille", uniteCatalogue: "l", alerteUnite: "UNITES_INCOMPATIBLES" });
   });
 
   it("l'une des deux unités vide (ou blanche) — ou les deux : « unité manquante », toujours proposée", () => {
-    expect(alerteUnite(null, "kg")).toBe("UNITE_MANQUANTE");
-    expect(alerteUnite("kg", "  ")).toBe("UNITE_MANQUANTE");
-    expect(alerteUnite("", "")).toBe("UNITE_MANQUANTE");
-    expect(alerteUnite(null, null)).toBe("UNITE_MANQUANTE");
+    expect(alerteUnite(null, { unite: "kg" })).toBe("UNITE_MANQUANTE");
+    expect(alerteUnite("kg", { unite: "  " })).toBe("UNITE_MANQUANTE");
+    expect(alerteUnite("", { unite: "" })).toBe("UNITE_MANQUANTE");
+    expect(alerteUnite(null, { unite: null })).toBe("UNITE_MANQUANTE");
     expect(proposerRattachements([resto("r1", "Sel", null, null)], [cat("a1", "Sel", true, null)])).toHaveLength(1);
   });
 });

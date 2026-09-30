@@ -68,13 +68,13 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "SORTIES") }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "ENTREES") }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } }),
     // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
     prisma.articleResto.findMany({ where: { actif: true, articleStockId: { not: null } }, select: { id: true, designation: true, espace: true, unite: true, articleStockId: true } }),
   ]);
   const conseilsLivraison: Record<string, ConseilLivraison> = {};
   for (const a of articles) {
-    const c = conseilLivraison(etatRattachementLivraison(a.id, a.unite, restos, a.domaine), a.id, restos);
+    const c = conseilLivraison(etatRattachementLivraison(a.id, { unite: a.unite, contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite }, restos, a.domaine), a.id, restos);
     if (c) conseilsLivraison[a.id] = c;
   }
   const nbTotal = nbSortiesFiltre + nbEntreesFiltre;

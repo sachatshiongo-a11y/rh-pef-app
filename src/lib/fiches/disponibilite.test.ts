@@ -327,15 +327,15 @@ describe("calculerDisponibilite — sous-recettes", () => {
 // voir `src/lib/stock-restaurant.test.ts`, « part du restaurant dans la disponibilité des plats ».
 describe("conversions vers l'unité de l'article", () => {
   it("convertirVersUniteArticle : null quand l'unité est inconnue", () => {
-    expect(convertirVersUniteArticle("250", "g", "kg")).toBe("0.25");
-    expect(convertirVersUniteArticle("1", "bouteille", "l")).toBeNull();
+    expect(convertirVersUniteArticle("250", "g", { unite: "kg" })).toBe("0.25");
+    expect(convertirVersUniteArticle("1", "bouteille", { unite: "l" })).toBeNull();
   });
 
   it("convertirDepuisUniteArticle : inverse exact (catalogue → restaurant), emballages compris", () => {
-    expect(convertirDepuisUniteArticle("3", "kg", "g")).toBe("3000");
-    expect(convertirDepuisUniteArticle("4", "500 GR", "kg")).toBe("2");
-    expect(convertirDepuisUniteArticle("1", "l", "bouteille")).toBeNull();
-    expect(convertirDepuisUniteArticle("1", "", "")).toBeNull();
+    expect(convertirDepuisUniteArticle("3", { unite: "kg" }, "g")).toBe("3000");
+    expect(convertirDepuisUniteArticle("4", { unite: "500 GR" }, "kg")).toBe("2");
+    expect(convertirDepuisUniteArticle("1", { unite: "l" }, "bouteille")).toBeNull();
+    expect(convertirDepuisUniteArticle("1", { unite: "" }, "")).toBeNull();
   });
 });
 

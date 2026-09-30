@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 import { convertirDepuisUniteArticle, convertirVersUniteArticle, type StockRestaurant } from "@/lib/fiches/disponibilite";
-import { uniteManquante } from "@/lib/fiches/conversion";
+import { uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 
 // Stock et consommation du RESTAURANT, dérivés à l'affichage (spec 2026-09-28, « Livraisons du dépôt
 // au restaurant »). Fonctions PURES : ni Prisma, ni React, aucune exception.
@@ -30,6 +30,8 @@ export const MOTIF_LIVRAISON_RESTAURANT = "LIVRAISON_RESTAURANT";
 export type ArticleRestoSR = {
   id: string; designation: string; espace: "CUISINE" | "BAR"; unite: string | null; articleStockId: string | null;
   uniteCatalogue?: string | null;
+  /** Contenance de l'article rattaché (bouteille de 75 cl) : un comptage en cl s'y convertit. */
+  contenanceCatalogue?: string | null; contenanceUniteCatalogue?: string | null;
   /** Désactivé depuis (chargé seulement pour une période passée où il a un comptage ou une livraison). */
   inactif?: boolean;
 };
@@ -38,6 +40,7 @@ export type ComptageSR = { articleRestoId: string; date: string; quantite: strin
 /** Sortie du dépôt, dans l'unité de l'article du catalogue. */
 export type LivraisonSR = {
   id: string; articleStockId: string; designation: string; uniteCatalogue: string | null;
+  contenanceCatalogue?: string | null; contenanceUniteCatalogue?: string | null;
   date: string; quantite: string; categorieSortie: string | null;
   /** Domaine de l'article du catalogue : dit l'espace (Cuisine / Bar) quand il est rattaché aux deux. */
   domaine?: string | null;
@@ -47,6 +50,14 @@ export type LivraisonSR = {
  * Espace du restaurant d'un domaine du catalogue (« Cuisine (nourriture) », « Bar (boissons) »).
  * Tout autre domaine (AUTRE…) ne désigne aucun espace.
  */
+/**
+ * L'article du CATALOGUE tel que la conversion le voit (unité ET contenance) : c'est lui, jamais une
+ * simple chaîne d'unité, qui passe à `convertirVersUniteArticle` / `convertirDepuisUniteArticle`.
+ */
+export function articleCatalogue(x: { uniteCatalogue?: string | null; contenanceCatalogue?: string | null; contenanceUniteCatalogue?: string | null }): UniteArticle {
+  return { unite: x.uniteCatalogue ?? null, contenance: x.contenanceCatalogue ?? null, contenanceUnite: x.contenanceUniteCatalogue ?? null };
+}
+
 export function espaceDuDomaine(domaine: string | null | undefined): "CUISINE" | "BAR" | null {
   return domaine === "NOURRITURE" ? "CUISINE" : domaine === "BOISSON" ? "BAR" : null;
 }
@@ -127,7 +138,7 @@ export type EtatLivraison = EtatRattachement["etat"];
  * Jamais un choix au hasard.
  */
 export function etatRattachementLivraison(
-  articleStockId: string, uniteCatalogue: string | null, articles: ArticleRestoSR[], domaine?: string | null,
+  articleStockId: string, catalogue: UniteArticle, articles: ArticleRestoSR[], domaine?: string | null,
 ): EtatRattachement {
   const candidats = articles.filter((a) => a.articleStockId === articleStockId);
   if (candidats.length === 0) return { etat: "NON_RATTACHE" };
@@ -139,8 +150,8 @@ export function etatRattachementLivraison(
     r = dansEspace[0]!;
   }
   if (uniteManquante(r.unite)) return { etat: "UNITE_RESTO_MANQUANTE", articleRestoId: r.id };
-  if (uniteManquante(uniteCatalogue)) return { etat: "UNITE_CATALOGUE_MANQUANTE", articleRestoId: r.id };
-  if (convertirDepuisUniteArticle(1, uniteCatalogue ?? "", r.unite ?? "") === null) return { etat: "UNITE_INCOMPATIBLE", articleRestoId: r.id };
+  if (uniteManquante(catalogue.unite)) return { etat: "UNITE_CATALOGUE_MANQUANTE", articleRestoId: r.id };
+  if (convertirDepuisUniteArticle(1, catalogue, r.unite ?? "") === null) return { etat: "UNITE_INCOMPATIBLE", articleRestoId: r.id };
   return { etat: "OK", articleRestoId: r.id };
 }
 
@@ -189,7 +200,7 @@ function indexer(e: EntreesStockResto): Index {
 
   for (const l of e.livraisons) {
     if (l.categorieSortie !== MOTIF_LIVRAISON_RESTAURANT) continue;
-    const r = etatRattachementLivraison(l.articleStockId, l.uniteCatalogue, e.articles, l.domaine);
+    const r = etatRattachementLivraison(l.articleStockId, articleCatalogue(l), e.articles, l.domaine);
     const signal = (motif: SignalementLivraison["motif"], articleRestoId: string, candidats?: string[]): SignalementLivraison => ({
       motif, livraisonId: l.id, date: l.date, designation: l.designation, quantite: l.quantite, uniteCatalogue: l.uniteCatalogue,
       articleStockId: l.articleStockId, articleRestoId, ...(candidats ? { candidats } : {}),
@@ -200,7 +211,7 @@ function indexer(e: EntreesStockResto): Index {
       const candidats = r.articleRestoIds.map((id) => noms.get(id)!);
       for (const id of r.articleRestoIds) pousser(idx.signalees, id, signal("A_REPARTIR", id, candidats));
     } else {
-      const quantiteResto = convertirDepuisUniteArticle(l.quantite, l.uniteCatalogue ?? "", unites.get(r.articleRestoId) ?? "")!;
+      const quantiteResto = convertirDepuisUniteArticle(l.quantite, articleCatalogue(l), unites.get(r.articleRestoId) ?? "")!;
       pousser(idx.recues, r.articleRestoId, { livraisonId: l.id, date: l.date, quantiteCatalogue: l.quantite, quantiteResto });
     }
   }
@@ -339,7 +350,7 @@ export function stockRestaurantPourDisponibilite(e: EntreesStockResto, jour: str
     const deja = res.get(cat);
     if (gravite(deja) === 2) continue;
     if (s.signalements.some((x) => x.motif === "A_REPARTIR")) { res.set(cat, { etat: "A_REPARTIR", articleResto: a.designation }); continue; }
-    const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", a.uniteCatalogue ?? "");
+    const compte = s.dernierComptage === null ? "0" : convertirVersUniteArticle(s.dernierComptage.quantite, a.unite ?? "", articleCatalogue(a));
     if (compte === null || s.signalements.some((x) => x.motif !== "A_REPARTIR")) {
       res.set(cat, { etat: "UNITE_NON_CONVERTIBLE", articleResto: a.designation });
       continue;

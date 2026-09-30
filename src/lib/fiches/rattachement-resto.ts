@@ -7,10 +7,14 @@
 // nom (deux candidats = aucune proposition).
 
 import { convertirVersUniteArticle } from "./disponibilite";
-import { uniteManquante } from "./conversion";
+import { uniteManquante, type UniteArticle } from "./conversion";
 
 export type RestoPourProposition = { id: string; designation: string; articleStockId: string | null; unite: string | null };
-export type CataloguePourProposition = { id: string; designation: string; actif: boolean; unite: string | null };
+export type CataloguePourProposition = {
+  id: string; designation: string; actif: boolean; unite: string | null;
+  /** Contenance (bouteille de 75 cl) : un comptage en cl s'y convertit. */
+  contenance?: { toString(): string } | string | null; contenanceUnite?: string | null;
+};
 
 /**
  * Unités d'une proposition : le comptage du restaurant se convertit vers l'unité du catalogue
@@ -35,9 +39,9 @@ export type Proposition = {
 };
 
 /** « unité manquante » si l'une des deux est vide ; « unités incompatibles » si la conversion est impossible. */
-export function alerteUnite(uniteResto: string | null, uniteCatalogue: string | null): AlerteUnite | null {
-  if (uniteManquante(uniteResto) || uniteManquante(uniteCatalogue)) return "UNITE_MANQUANTE";
-  return convertirVersUniteArticle(1, uniteResto!, uniteCatalogue!) === null ? "UNITES_INCOMPATIBLES" : null;
+export function alerteUnite(uniteResto: string | null, catalogue: UniteArticle): AlerteUnite | null {
+  if (uniteManquante(uniteResto) || uniteManquante(catalogue.unite)) return "UNITE_MANQUANTE";
+  return convertirVersUniteArticle(1, uniteResto!, catalogue) === null ? "UNITES_INCOMPATIBLES" : null;
 }
 
 /** Clé de comparaison : minuscules, sans aucun espace (NFC pour qu'un « é » composé égale un « é » précomposé). */
@@ -60,7 +64,7 @@ export function proposerRattachements(restos: RestoPourProposition[], catalogue:
     const a = candidats[0]!;
     propositions.push({
       articleRestoId: r.id, designationResto: r.designation, articleStockId: a.id, designationCatalogue: a.designation,
-      uniteResto: r.unite, uniteCatalogue: a.unite, alerteUnite: alerteUnite(r.unite, a.unite),
+      uniteResto: r.unite, uniteCatalogue: a.unite, alerteUnite: alerteUnite(r.unite, { unite: a.unite, contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite ?? null }),
     });
   }
   return propositions;

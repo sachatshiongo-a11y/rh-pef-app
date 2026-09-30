@@ -99,7 +99,7 @@ describe("contenance dans le coût et la disponibilité", () => {
     const abs = { unite: "Bouteille", contenance: "75", contenanceUnite: "cl" };
     expect(convertirVersUniteArticle("150", "cl", abs)).toBe("2");
     expect(convertirDepuisUniteArticle("2", abs, "cl")).toBe("150");
-    expect(convertirVersUniteArticle("150", "cl", "Bouteille")).toBeNull(); // unité seule : rien supposé
+    expect(convertirVersUniteArticle("150", "cl", { unite: "Bouteille" })).toBeNull(); // unité seule : rien supposé
   });
 });
 
