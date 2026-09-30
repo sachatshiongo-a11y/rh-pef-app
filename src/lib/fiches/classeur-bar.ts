@@ -119,6 +119,8 @@ function lireFeuille(feuille: string, rangees: Rangee[]): FicheBarLue | FeuilleN
     }
     if (section === "tableau" && enTete) {
       if (LIBELLES.total(k)) { section = null; continue; }
+      // Ligne « Total » absente ou renommée : la technique clôt le tableau, elle n'y entre jamais.
+      if (LIBELLES.technique(k)) { section = "technique"; continue; }
       const article = cellule(rangee, enTete.article)?.texte ?? null;
       if (!article) continue; // formule sans article, quantité orpheline : pas une ligne
       const u = enTete.unite ? cellule(rangee, enTete.unite) : undefined;
@@ -507,6 +509,9 @@ export function planifierImportBar(
       const categorie = propre(c.categorie) || propre(l.type ?? "");
       if (!categorie) return { ...base, statut: "BLOQUEE", raisons: ["préciser la rubrique de la fiche à créer"] };
       const deja = bar.find((f) => cleFicheCreee(f.nom, f.categorie) === cleFicheCreee(l.nom, categorie));
+      if (deja && !deja.actif) {
+        return { ...base, statut: "BLOQUEE", raisons: [`une fiche INACTIVE porte déjà ce nom (« ${deja.nom} », ${deja.categorie ?? "sans rubrique"}) : la choisir dans la liste, ou la réactiver`] };
+      }
       cible = deja
         ? { id: deja.id, nom: deja.nom, categorie: deja.categorie, nbIngredients: deja.nbIngredients, recetteVide: deja.recetteVide, prixVenteTTC: deja.prixVenteTTC }
         : { id: null, nom: propre(l.nom), categorie, nbIngredients: 0, recetteVide: true, prixVenteTTC: l.prixTTC !== null && l.prixTTC > 0 ? Math.round(l.prixTTC * 100) / 100 : null };
@@ -538,6 +543,11 @@ export function planifierImportBar(
       }
       if (!unite) return { ...b, article, statut: "BLOQUEE", motif: "unité vide au classeur" };
       if (ln.quantite === null || !(ln.quantite > 0)) return { ...b, article, statut: "BLOQUEE", motif: "quantité absente ou nulle au classeur" };
+      // La base garde 3 décimales : une quantité qui s'y arrondirait à 0 (coût nul) ou autrement
+      // (coût faussé sans le dire) est bloquée, jamais arrondie en silence.
+      if (Math.round(ln.quantite * 1000) / 1000 !== ln.quantite) {
+        return { ...b, article, statut: "BLOQUEE", motif: `quantité ${ln.quantite} : plus de 3 décimales, à arrondir dans le classeur` };
+      }
       if (!uniteConvertible(unite, article.unite || null)) {
         return { ...b, article, statut: "BLOQUEE", motif: `unité inconvertible : ${unite} → ${article.unite || "article sans unité"}` };
       }

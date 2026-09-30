@@ -15,7 +15,7 @@ import {
 
 const F = (id: string, nom: string, categorie: string, nbIngredients = 0): FicheExistanteBar =>
   ({ id, nom, categorie, type: "BAR", estSousRecette: false, actif: true, nbIngredients, recetteVide: true, prixVenteTTC: 15 });
-const FICHES = [F("pc", "Pina Colada", "Cocktail"), F("pm", "Pina Colada", "Mocktail"), F("mo", "Mojito", "Cocktail", 2), F("kir", "Kir Royal", "Apéritif")];
+const FICHES = [F("pc", "Pina Colada", "Cocktail"), F("pm", "Pina Colada", "Mocktail"), F("mo", "Mojito", "Cocktail", 2), F("kir", "Kir Royal", "Apéritif"), F("gt", "Gin Tonic", "Cocktail", 3)];
 const ARTICLES: ArticleExistant[] = [
   { id: "rum", designation: "Rum Saint James blc 70cl", unite: "L", prixUnitaireUSD: 17.8571, domaine: "BOISSON" },
   { id: "bac", designation: "Bacardi blanc", unite: "Bouteille", prixUnitaireUSD: 15, domaine: "BOISSON" },
@@ -114,6 +114,15 @@ describe("Importer les fiches du bar — simulation", () => {
     expect(select("Fiche visée par Piña colada").value).toBe("fiche:pc");
     expect(select("Article pour RUM SAINT JAMES BLC 70CL").value).toBe("art:rum");
     expect(select("Fiche visée par Kir Royal").value).toBe(""); // l'action groupée ne décide rien d'autre
+    // « Remplacer » coché pour la fiche Gin Tonic, puis l'action groupée remet le Mojito sur sa
+    // correspondance sûre : la case, qui valait pour Gin Tonic, est décochée.
+    choisir(select("Fiche visée par Mojito"), "fiche:gt");
+    const caseMojito = () => ligne("Mojito").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    await act(async () => { caseMojito().click(); });
+    expect(caseMojito().checked).toBe(true);
+    await act(async () => { bouton("Accepter les correspondances sûres").click(); });
+    expect(select("Fiche visée par Mojito").value).toBe("fiche:mo");
+    expect(caseMojito().checked).toBe(false);
 
     for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
     const confirmer = vi.fn<(message: string) => boolean>(() => true);

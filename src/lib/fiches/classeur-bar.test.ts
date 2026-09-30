@@ -82,6 +82,20 @@ describe("lecture d'une fiche du bar (mise en page construite)", () => {
     }
   });
 
+  it("ligne « Total » absente : la technique clôt le tableau, elle n'y entre jamais", async () => {
+    const sansTotal = feuilleType("Cocktail", "Mojito").filter((r) => r[0] !== "Total prix de revient HT");
+    const r = await lireClasseurBar(await classeur({ M: sansTotal }));
+    if (!r.ok) throw new Error(r.erreur);
+    expect(r.fiches[0]!.lignes.map((l) => l.libelle)).toEqual(["Rhum blanc", "citron"]);
+    expect(r.fiches[0]!.technique).toEqual(["Versez le rhum.", "Servez frais."]);
+  });
+
+  it("deux onglets de même nom normalisé : aucun n'écrase l'autre", async () => {
+    const r = await lireClasseurBar(await classeur({ "Pina colada": feuilleType("Cocktail", "Pina colada"), "Piña colada": feuilleType("Mocktail", "Piña colada") }));
+    if (!r.ok) throw new Error(r.erreur);
+    expect(r.fiches.map((f) => [f.feuille, f.type])).toEqual([["Pina colada", "Cocktail"], ["Piña colada", "Mocktail"]]);
+  });
+
   it("un classeur sans aucune fiche technique est refusé en clair", async () => {
     const r = await lireClasseurBar(await classeur({ Feuil1: [["Designation/Date", "Lundi"]] }));
     expect(r).toEqual({ ok: false, erreur: expect.stringContaining("pas un classeur de fiches techniques du bar") });
@@ -331,6 +345,20 @@ describe("plan d'import (simulation = écriture)", () => {
     const relance = plan(lues, choix, [A("r", "RHUM BLANC", "l", 20)], [F("f", "mojito", "Cocktail", { nbIngredients: 1 })])[0]!;
     expect(relance).toMatchObject({ statut: "DEJA_REMPLIE", cible: { id: "f" } });
     expect(relance.lignes[0]!.article!.id).toBe("r");
+  });
+
+  it("« Créer » face à une fiche INACTIVE du même nom : bloqué, jamais réutilisée en silence", () => {
+    const lues = [lue("M", "Mojito", [rhum])];
+    const choix: ChoixImportBar = { fiches: { M: { cible: "creer", categorie: "Cocktail", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } } };
+    const [p] = plan(lues, choix, [A("r", "Rhum blanc", "l")], [F("f", "Mojito", "Cocktail", { actif: false })]);
+    expect(p).toMatchObject({ statut: "BLOQUEE", raisons: [expect.stringContaining("fiche INACTIVE")] });
+  });
+
+  it("quantité à plus de 3 décimales (la base en garde 3) : bloquée, jamais arrondie en silence", () => {
+    const lues = [lue("M", "Mojito", [{ ...rhum, quantite: 0.0004 }])];
+    const choix: ChoixImportBar = { fiches: { M: { cible: "fiche:f", categorie: "", remplacer: false } }, ingredients: { "rhum blanc": { cible: "art:r", domaine: "BOISSON" } } };
+    const [p] = plan(lues, choix, [A("r", "Rhum blanc", "l")], [F("f", "Mojito", "Cocktail")]);
+    expect(p).toMatchObject({ statut: "BLOQUEE", raisons: ["Rhum blanc : quantité 0.0004 : plus de 3 décimales, à arrondir dans le classeur"] });
   });
 
   it("deux feuilles vers la même fiche : aucune n'est écrite", () => {

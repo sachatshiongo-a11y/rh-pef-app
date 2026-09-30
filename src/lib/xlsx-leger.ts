@@ -74,7 +74,12 @@ export async function lireFeuillesXlsx(donnees: ArrayBuffer | Uint8Array, garder
   for (const m of classeur.matchAll(/<sheet\b[^>]*>/g)) {
     const a = attributs(m[0]);
     const chemin = cibles.get(a["r:id"] ?? "");
-    if (a.name && chemin && garder(cleTexte(a.name))) { chemins.set(cleTexte(a.name), chemin); noms.set(cleTexte(a.name), a.name); }
+    if (!a.name || !chemin || !garder(cleTexte(a.name))) continue;
+    // Deux onglets de même nom normalisé (« Pina colada » / « Piña colada ») : le second reçoit
+    // un suffixe au lieu d'écraser le premier en silence.
+    let cle = cleTexte(a.name);
+    for (let n = 2; chemins.has(cle); n++) cle = `${cleTexte(a.name)} (${n})`;
+    chemins.set(cle, chemin); noms.set(cle, a.name);
   }
 
   const partages = [...((await lireFichier(zip, "xl/sharedStrings.xml")) ?? "").matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => texteRiche(m[1]!));

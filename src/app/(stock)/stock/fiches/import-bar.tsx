@@ -4,6 +4,7 @@ import Link from "next/link";
 import { memo, useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { estErreur } from "@/lib/action-lisible";
+import { CLASSES_NEUTRE } from "@/components/action-buttons";
 import { formaterNombre, formaterUSD } from "@/lib/montant";
 import { normTexte } from "@/lib/texte";
 import {
@@ -59,9 +60,16 @@ export function ImportFichesBar() {
     if (!f) return;
     if (f.size > TAILLE_MAX) { setErreur("Fichier trop lourd (plus de 60 Mo) : ce n'est pas le classeur attendu."); return; }
     setLecture(true);
+    let lu: Awaited<ReturnType<typeof import("@/lib/fiches/classeur-bar").lireClasseurBar>>;
     try {
       const { lireClasseurBar } = await import("@/lib/fiches/classeur-bar");
-      const lu = await lireClasseurBar(await f.arrayBuffer());
+      lu = await lireClasseurBar(await f.arrayBuffer());
+    } catch {
+      setErreur("Fichier illisible : un classeur Excel (.xlsx) est attendu.");
+      setLecture(false);
+      return;
+    }
+    try {
       if (!lu.ok) { setErreur(lu.erreur); return; }
       const r = await analyserFichesBar(lu.fiches);
       if (estErreur(r)) { setErreur(r.erreur); return; }
@@ -69,7 +77,7 @@ export function ImportFichesBar() {
       setAnalyse(r);
       setChoix(choixInitiaux(r.fiches, r.ingredients));
     } catch {
-      setErreur("Fichier illisible : un classeur Excel (.xlsx) est attendu.");
+      setErreur("Le serveur n'a pas pu comparer le classeur aux fiches (connexion ?). Réessayez.");
     } finally {
       setLecture(false);
     }
@@ -92,7 +100,12 @@ export function ImportFichesBar() {
   const accepterSures = () => {
     if (!analyse) return;
     setChoix((s) => ({
-      fiches: { ...s.fiches, ...Object.fromEntries(analyse.fiches.filter((p) => p.ficheId).map((p) => [p.feuille, { ...s.fiches[p.feuille]!, cible: `fiche:${p.ficheId}` }])) },
+      // Une cible qui change décoche « Remplacer » : la case vaut pour UNE fiche, choisie à la main.
+      fiches: { ...s.fiches, ...Object.fromEntries(analyse.fiches.filter((p) => p.ficheId).map((p) => {
+        const c = s.fiches[p.feuille]!;
+        const cible = `fiche:${p.ficheId}`;
+        return [p.feuille, { ...c, cible, remplacer: c.cible === cible ? c.remplacer : false }];
+      })) },
       ingredients: { ...s.ingredients, ...Object.fromEntries(analyse.ingredients.filter((p) => p.articleId).map((p) => [p.cle, { ...s.ingredients[p.cle]!, cible: `art:${p.articleId}` }])) },
     }));
   };
@@ -137,7 +150,7 @@ export function ImportFichesBar() {
         Seules les correspondances sûres sont acceptées d&apos;office ; le reste se décide ici. Une fiche qui a déjà une recette n&apos;est remplacée que si vous cochez « Remplacer ». Le prix de vente d&apos;une fiche existante ne change pas.
       </p>
       <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={lecture || envoi}
-        onChange={(e) => lireFichier(e.target.files?.[0])} className="block w-full max-w-md text-sm" aria-label="Classeur des fiches techniques du bar" />
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; lireFichier(f); }} className="block w-full max-w-md text-sm" aria-label="Classeur des fiches techniques du bar" />
       {lecture && <p className="text-sm text-muted-foreground">Lecture du classeur…</p>}
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
@@ -152,7 +165,7 @@ export function ImportFichesBar() {
               {compte("DEJA_REMPLIE") > 0 && <> · {compte("DEJA_REMPLIE")} déjà remplie(s)</>}
               {compte("IGNOREE") > 0 && <> · {compte("IGNOREE")} ignorée(s)</>}
             </span>
-            <button onClick={accepterSures} className="rounded border px-2 py-1 hover:bg-accent">Accepter les correspondances sûres</button>
+            <button onClick={accepterSures} className={CLASSES_NEUTRE}>Accepter les correspondances sûres</button>
             <button onClick={appliquer} disabled={envoi || prets.length === 0} className="ml-auto rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50">
               {envoi ? "Écriture…" : `Appliquer (${prets.length} fiche${prets.length > 1 ? "s" : ""})`}
             </button>
@@ -334,7 +347,8 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
               {suggestions.map((a) => <option key={a.id} value={`art:${a.id}`}>{a.designation} ({a.unite || "unité ?"})</option>)}
             </optgroup>
           )}
-          {p.creation && <option value="creer">Créer l&apos;article « {p.creation.designation} » ({p.creation.unite})</option>}
+          {/* « Créer » seulement si aucun article ne porte déjà ce nom (sinon il serait réutilisé). */}
+          {p.creation && !p.articleId && !p.doute && <option value="creer">Créer l&apos;article « {p.creation.designation} » ({p.creation.unite})</option>}
           <option value="ignorer">Ignorer la ligne</option>
           <option value="chercher">Chercher un autre article du catalogue…</option>
         </select>

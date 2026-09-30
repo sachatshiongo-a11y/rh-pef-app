@@ -153,8 +153,19 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
         if (signature(avant.map((a) => ({ ...a, quantite: a.quantite.toString() }))) === signature(lignes)) { bilan.identiques.push(cible.nom); continue; }
         await tx.ingredientFiche.deleteMany({ where: { ficheId: cible.id } });
       }
-      const recette = cible.recetteVide || p.remplacer ? { recette: p.recette } : {};
-      if (!cible.recetteVide && !p.remplacer) bilan.recettesConservees.push(cible.nom);
+      // Texte de recette : écrit s'il n'y en a pas, ou si « Remplacer » est coché — jamais effacé
+      // par une feuille qui n'en a pas. Un texte existant conservé reçoit tout de même la note
+      // des ingrédients non repris : la fiche ne doit pas paraître complète.
+      let recette: { recette?: string } = {};
+      if (p.recette !== null && (cible.recetteVide || p.remplacer)) recette = { recette: p.recette };
+      else if (!cible.recetteVide) {
+        if (!p.remplacer) bilan.recettesConservees.push(cible.nom);
+        const note = noteNonRepris(p);
+        if (note) {
+          const actuelle = (await tx.ficheTechnique.findUniqueOrThrow({ where: { id: cible.id }, select: { recette: true } })).recette ?? "";
+          if (!actuelle.includes(note)) recette = { recette: `${actuelle.trimEnd()}\n\n${note}` };
+        }
+      }
       await tx.ficheTechnique.update({ where: { id: cible.id }, data: { nbPortions: p.nbPortions!, ...recette, ingredients: { create: lignes } } });
       bilan.remplies.push(cible.nom);
       journal.push({
@@ -171,6 +182,11 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
   revalidatePath("/stock/catalogue");
   return bilan;
 });
+
+/** « Non repris du classeur : … » de la recette du classeur, s'il y a des lignes ignorées. */
+function noteNonRepris(p: FichePlan): string | null {
+  return p.recette?.split("\n\n").find((b) => b.startsWith("Non repris du classeur")) ?? null;
+}
 
 function lignesAEcrire(p: FichePlan, idArticle: Map<string, string>) {
   return p.lignes

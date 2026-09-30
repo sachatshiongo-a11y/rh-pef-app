@@ -219,6 +219,33 @@ describe("import des fiches du bar", () => {
     expect(encore).toMatchObject({ remplies: [], identiques: ["Mojito"], articlesCrees: [] });
   }, 60_000);
 
+  it("« Remplacer » avec une feuille sans technique n'efface pas le texte de recette ; le texte gardé reçoit la note des lignes ignorées", async () => {
+    const neg = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Negroni" } });
+    const rhum = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Rum Saint James blc 70cl" } });
+    await prisma.ingredientFiche.create({ data: { ficheId: neg.id, articleId: rhum.id, unite: "cl", quantite: 4 } });
+    // « Pop Cola » (mocktail) n'a ni verre, ni mode, ni technique au classeur : on la vise sur le Negroni.
+    const vise = (feuille: string, remplacer: boolean) => choixToutCreer({
+      fiches: Object.fromEntries(lues.map((l) => [l.feuille, { cible: l.feuille === feuille ? `fiche:${neg.id}` : "ignorer", categorie: "", remplacer }])),
+    });
+    const r = await appliquerImportBar(lues, await vise("Pop Cola mocktail", true));
+    if (!("ok" in r)) throw new Error(r.erreur);
+    expect(r.remplies).toEqual(["Negroni"]);
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id: neg.id } })).recette).toBe("Recette du barman.");
+
+    // Texte existant conservé (sans « Remplacer ») + une ligne ignorée : la note s'y ajoute, une fois.
+    await prisma.ingredientFiche.deleteMany({ where: { ficheId: neg.id } });
+    const choix = await vise("Negroni", false);
+    const gin = (await analyser()).ingredients.find((p) => p.libelle === "HENDRICKS GIN 700ML")!;
+    choix.ingredients[gin.cle] = { cible: "ignorer", domaine: "BOISSON" };
+    for (let i = 0; i < 2; i++) {
+      await prisma.ingredientFiche.deleteMany({ where: { ficheId: neg.id } });
+      const r2 = await appliquerImportBar(lues, choix);
+      if (!("ok" in r2)) throw new Error(r2.erreur);
+      expect(r2.recettesConservees).toEqual(["Negroni"]);
+    }
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id: neg.id } })).recette).toBe("Recette du barman.\n\nNon repris du classeur : HENDRICKS GIN 700ML (3 cl).");
+  }, 60_000);
+
   it("unité inconvertible pour l'article choisi : fiche BLOQUÉE, annoncée, jamais écrite", async () => {
     const a = await analyser();
     const vodka = a.ingredients.find((p) => p.libelle === "ABSOLUT VODKA 75CL")!;
