@@ -20,7 +20,7 @@ function Demo() {
   const { ouvert, ouvrir, fermer } = useTiroir();
   return h("div", null,
     h(VoileTiroir, { ouvert, onFermer: fermer }),
-    h(Tiroir, { id: "menu-demo", ouvert, className: "w-64" }, h("a", { href: "/x", onClick: fermer }, "Lien")),
+    h(Tiroir, { id: "menu-demo", ouvert, className: "w-64", children: h("a", { href: "/x", onClick: fermer }, "Lien") }),
     h("button", { id: "menu", onClick: ouvrir }, "Menu"));
 }
 
