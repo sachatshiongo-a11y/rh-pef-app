@@ -43,6 +43,18 @@ export type FeuilleExcel = {
   /** Format Excel d'une cellule NUMÉRIQUE précise (ex. « 0,0 % » pour un ratio), prioritaire sur
    *  `colonnesMontantFormat` : quand une même colonne porte des ratios et des montants. */
   formatCellule?: (rowIdx: number, colIdx: number) => string | undefined;
+  /**
+   * Deuxième niveau d'en-tête : une ligne AU-DESSUS de la ligne de colonnes, où chaque groupe
+   * (`debut` = indice de la première colonne, `nb` colonnes) porte un libellé fusionné (un jour, par
+   * exemple). Les groupes voisins alternent de fond ; le volet figé descend sous les DEUX lignes.
+   */
+  groupesEntete?: { libelle: string; debut: number; nb: number }[];
+  /** Fond ARGB d'une cellule de donnée (jours alternés, écarts) ; prioritaire sur `couleurLigne`, avant les sections. */
+  fondCellule?: (rowIdx: number, colIdx: number) => string | undefined;
+  /** Colonnes qui commencent un groupe : filet gauche marqué, de l'en-tête à la dernière ligne de données. */
+  filetGaucheCols?: number[];
+  /** Colonnes alignées à droite (valeurs écrites en texte : Excel les alignerait à gauche). */
+  alignerADroite?: number[];
 };
 
 /** Format Excel des ratios : une décimale, en pourcentage (0,264 → 26,4 %). La cellule reste un nombre. */
@@ -117,6 +129,17 @@ export async function classeurExcel(opts: {
     const rPeriode = ws.addRow([`Période : ${periode}`]);
     const rEdit = ws.addRow([`Édité le : ${editeLe}`]);
     ws.addRow([]);
+    const rowGroupes = f.groupesEntete ? ws.addRow([]) : null;
+    if (rowGroupes && f.groupesEntete) {
+      f.groupesEntete.forEach((g, gi) => {
+        const cell = rowGroupes.getCell(g.debut + 1);
+        cell.value = g.libelle;
+        if (g.nb > 1) ws.mergeCells(rowGroupes.number, g.debut + 1, rowGroupes.number, g.debut + g.nb);
+        cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
+        cell.alignment = { horizontal: "center" };
+        for (let k = 0; k < g.nb; k++) rowGroupes.getCell(g.debut + 1 + k).fill = { type: "pattern", pattern: "solid", fgColor: { argb: gi % 2 === 0 ? OR_BORDURE : OR_CLAIR } };
+      });
+    }
     const rowEntete = ws.addRow(f.entete);
     // Gèle tout ce qui précède les données, ligne de colonnes COMPRISE. Calculé sur la ligne réelle,
     // jamais compté à la main : l'ancien « HAUT_LOGO + 5 » valait 8 alors que la ligne de colonnes
@@ -161,6 +184,11 @@ export async function classeurExcel(opts: {
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_CLAIR } };
       cell.border = { bottom: { style: "thin", color: { argb: OR_BORDURE } } };
     });
+    for (const ci of f.alignerADroite ?? []) rowEntete.getCell(ci + 1).alignment = { horizontal: "right" };
+    f.groupesEntete?.forEach((g, gi) => {
+      if (gi % 2 !== 0) return;
+      for (let k = 0; k < g.nb; k++) rowEntete.getCell(g.debut + 1 + k).fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_BORDURE } };
+    });
 
     // Écarts / variations plus visibles : vert (↑) / rouge (↓), en gras.
     if (f.variationCol != null) {
@@ -178,6 +206,17 @@ export async function classeurExcel(opts: {
         const argb = f.couleurLigne(idx);
         if (!argb) continue;
         ws.getRow(debutData + idx).eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } }; });
+      }
+    }
+
+    // Fond par cellule (jours alternés, écarts) — avant les sections (qui priment).
+    if (f.fondCellule) {
+      for (let idx = 0; idx < f.lignes.length; idx++) {
+        const row = ws.getRow(debutData + idx);
+        for (let ci = 0; ci < f.entete.length; ci++) {
+          const argb = f.fondCellule(idx, ci);
+          if (argb) row.getCell(ci + 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+        }
       }
     }
 
@@ -200,6 +239,20 @@ export async function classeurExcel(opts: {
         const cell = ws.getRow(rn).getCell(1);
         cell.font = { name: OPTIMA, size: 10, bold: true, color: { argb: BRUN } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: OR_SECTION } };
+      }
+    }
+
+    // Valeurs à droite et filets gauches des groupes (jours) : sur les lignes de données, pas sur les titres de section fusionnés.
+    if (f.alignerADroite?.length || f.filetGaucheCols?.length) {
+      const sections = new Set(f.sectionRows ?? []);
+      for (let idx = 0; idx < f.lignes.length; idx++) {
+        if (sections.has(idx)) continue;
+        const row = ws.getRow(debutData + idx);
+        for (const ci of f.alignerADroite ?? []) row.getCell(ci + 1).alignment = { horizontal: "right" };
+        for (const ci of f.filetGaucheCols ?? []) row.getCell(ci + 1).border = { ...row.getCell(ci + 1).border, left: { style: "medium", color: { argb: OR_BORDURE } } };
+      }
+      for (const ci of f.filetGaucheCols ?? []) {
+        for (const r of [rowGroupes, rowEntete]) if (r) r.getCell(ci + 1).border = { ...r.getCell(ci + 1).border, left: { style: "medium", color: { argb: OR_BORDURE } } };
       }
     }
 

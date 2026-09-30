@@ -90,6 +90,37 @@ export function ecartJour(livre: number, consomme: string | null): EcartJour | n
   return null;
 }
 
+/** Nombre signé pour un écart : « +1,5 » / « -2 » (trait d'union ordinaire : le « − » manque à Optima). */
+function texteSigne(d: Decimal): string | null {
+  const arrondi = new D(d.toFixed(3));
+  if (arrondi.isZero()) return null;
+  return `${arrondi.isNegative() ? "-" : "+"}${formaterNombre(arrondi.abs().toNumber(), { maximumFractionDigits: 3 })}`;
+}
+
+/**
+ * Écart signé du CONSOMMÉ par rapport au livré, pour doubler la couleur d'un signe (« -1 » : une
+ * unité livrée n'a pas été consommée ; « +1,5 » : consommé en plus de ce qui a été livré).
+ * Lit exactement la même règle que `ecartJour` : null quand il n'y a pas d'écart ou pas de comptage.
+ */
+export function ecartConsoLivre(livre: number, consomme: string | null): string | null {
+  if (ecartJour(livre, consomme) === null) return null;
+  return texteSigne(new D(consomme!).minus(new D(livre)));
+}
+
+/** Livré ≠ commandé (l'un des deux au moins est renseigné) : la règle de l'orange de la Comparaison. */
+export const livreDiffereDuCommande = (cmd: number, liv: number) => cmd !== liv && (cmd > 0 || liv > 0);
+
+/** Écart signé du LIVRÉ par rapport au commandé (« +2 » : livré en plus) ; null s'il n'y a pas d'écart. */
+export function ecartLivreCommande(cmd: number, liv: number): string | null {
+  if (!livreDiffereDuCommande(cmd, liv)) return null;
+  return texteSigne(new D(liv).minus(new D(cmd)));
+}
+
+/** Vrai si la ligne a au moins un écart dans la semaine (livré ≠ commandé, livré non consommé, consommé en trop). */
+export function aUnEcart(l: LigneComparaison): boolean {
+  return l.cmd.some((c, i) => livreDiffereDuCommande(c, l.liv[i] ?? 0)) || l.ecarts.some((e) => e !== null);
+}
+
 // ─── Export (PDF / Excel) de l'onglet Consommation ───────────────────────────
 
 export type RoleCol = "cmd" | "liv" | "conso" | null;
@@ -210,23 +241,47 @@ export function lignesComparaison(p: {
 
 const texteQte = (v: string | null) => (v === null ? "—" : formaterNombre(Number(v), { maximumFractionDigits: 3 }));
 
+/** Un écart signé d'une cellule d'export : le texte (« +2 », « -1,5 ») et, pour le consommé, sa nature. */
+export type EcartExport = { signe: string; nature: "LIVRE_DIFFERE" | EcartJour };
+
+/** Colonnes d'un jour dans l'export : commandé, livré, consommé (les valeurs ne changent pas, seul l'en-tête est court). */
+export const ENTETES_JOUR = ["Cmd", "Livré", "Conso"] as const;
+
 /**
  * Export (PDF / Excel) de la comparaison : par jour, commandé / livré / consommé ; puis les totaux.
  * Le total consommé n'existe que si chaque jour est connu. `ecarts` : cellules « r:c » du consommé
- * en écart avec le livré (à colorer).
+ * en écart avec le livré (à colorer). `ecartsCL` : cellules commandé et livré d'un jour où le livré
+ * diffère du commandé. `signes` : l'écart signé de ces cellules (« +2 », « -1 »), à écrire à côté de
+ * la valeur pour ne pas dépendre de la seule couleur. `lignes` ne porte que les valeurs, sans signe.
  */
 export function lignesExportComparaison(lignesComp: LigneComparaison[], labels: string[]): {
   lignes: string[][]; sectionRows: number[]; entete: string[]; colRole: RoleCol[]; ecarts: Set<string>; colonnes: Colonne[];
+  ecartsCL: Set<string>; signes: Map<string, EcartExport>;
+  /** En-têtes courts (« Cmd / Livré / Conso »), à lire sous les groupes (un par jour + « Total »). */
+  enteteCourt: string[]; groupes: { libelle: string; debut: number; nb: number }[];
 } {
   const lignes: string[][] = [];
   const sectionRows: number[] = [];
   const ecarts = new Set<string>();
+  const ecartsCL = new Set<string>();
+  const signes = new Map<string, EcartExport>();
   let categorie: string | null = null;
   for (const l of lignesComp) {
     if (l.categorie !== categorie) { sectionRows.push(lignes.length); lignes.push([l.categorie]); categorie = l.categorie; }
     const cells = [l.designation];
     labels.forEach((_, i) => {
-      if (l.ecarts[i]) ecarts.add(`${lignes.length}:${cells.length + 2}`);
+      const r = lignes.length, c = cells.length;
+      const ecartL = ecartLivreCommande(l.cmd[i]!, l.liv[i]!);
+      if (livreDiffereDuCommande(l.cmd[i]!, l.liv[i]!)) {
+        ecartsCL.add(`${r}:${c}`); ecartsCL.add(`${r}:${c + 1}`);
+        if (ecartL) signes.set(`${r}:${c + 1}`, { signe: ecartL, nature: "LIVRE_DIFFERE" });
+      }
+      const ecart = l.ecarts[i] ?? null;
+      if (ecart) {
+        ecarts.add(`${r}:${c + 2}`);
+        const signe = ecartConsoLivre(l.liv[i]!, l.conso[i] ?? null);
+        if (signe) signes.set(`${r}:${c + 2}`, { signe, nature: ecart });
+      }
       cells.push(nbExport(l.cmd[i]!), nbExport(l.liv[i]!), texteQte(l.conso[i] ?? null));
     });
     const totalConsomme = l.conso.every((v) => v !== null) ? l.conso.reduce((t, v) => t.plus(v!), new D(0)).toString() : null;
@@ -235,42 +290,40 @@ export function lignesExportComparaison(lignesComp: LigneComparaison[], labels: 
   }
   const entete = ["Article", ...labels.flatMap((l) => [`${l} Cmd`, `${l} Liv`, `${l} Conso`]), "Total Cmd", "Total Liv", "Total Conso"];
   const colRole: RoleCol[] = [null, ...[...labels, "total"].flatMap(() => ["cmd", "liv", "conso"] as RoleCol[])];
-  const colW = `${84 / ((labels.length + 1) * 3)}%`;
+  const colW = `${83 / ((labels.length + 1) * 3)}%`;
   const colonnes: Colonne[] = [
-    { header: "Article", width: "16%" },
-    ...[...labels, "Tot."].flatMap((l) => [
-      { header: `${l} C`, width: colW, align: "right" as const },
-      { header: `${l} L`, width: colW, align: "right" as const },
-      { header: `${l} Cs`, width: colW, align: "right" as const },
-    ]),
+    { header: "Article", width: "17%" },
+    ...[...labels, "Total"].flatMap(() => ENTETES_JOUR.map((h) => ({ header: h, width: colW, align: "right" as const }))),
   ];
-  return { lignes, sectionRows, entete, colRole, ecarts, colonnes };
+  const enteteCourt = ["Article", ...[...labels, "Total"].flatMap(() => [...ENTETES_JOUR])];
+  const groupes = [...labels, "Total"].map((libelle, i) => ({ libelle, debut: 1 + i * 3, nb: 3 }));
+  return { lignes, sectionRows, entete, colRole, ecarts, colonnes, ecartsCL, signes, enteteCourt, groupes };
 }
 
 /**
  * PDF de la comparaison : 25 colonnes ne tiennent pas lisiblement sur une page (constaté au rendu :
  * « 1 180,125 » se coupait sur deux lignes). Deux parties, chacune sur sa page paysage : lundi à jeudi,
- * puis vendredi à dimanche et les totaux. `indices` : colonnes de l'export reprises dans la partie.
+ * puis vendredi à dimanche et les totaux. `indices` : colonnes de l'export reprises dans la partie ;
+ * `groupes` : les jours (et « Total ») qui coiffent chacun leurs trois colonnes.
  */
-export function partiesPdfComparaison(labels: string[]): { titre: string; indices: number[]; colonnes: Colonne[] }[] {
+export function partiesPdfComparaison(labels: string[]): { titre: string; indices: number[]; colonnes: Colonne[]; groupes: { libelle: string; nb: number }[] }[] {
   const coupe = Math.ceil(labels.length / 2 + 0.5); // 7 jours : 4 + 3 (+ totaux)
   const groupes = [
     // « à » et non « → » : la flèche n'existe pas dans Optima, la police des PDF (elle sortait en « ’ »).
     { titre: `${labels[0]} à ${labels[coupe - 1]}`, jours: labels.slice(0, coupe).map((l, i) => ({ l, i })) },
-    { titre: `${labels[coupe]} à ${labels[labels.length - 1]}, et totaux de la semaine`, jours: [...labels.slice(coupe).map((l, i) => ({ l, i: coupe + i })), { l: "Tot.", i: labels.length }] },
+    { titre: `${labels[coupe]} à ${labels[labels.length - 1]}, et totaux de la semaine`, jours: [...labels.slice(coupe).map((l, i) => ({ l, i: coupe + i })), { l: "Total", i: labels.length }] },
   ];
   return groupes.map((g) => {
-    const largeur = `${84 / (g.jours.length * 3)}%`;
+    // Le consommé porte l'écart signé sous sa valeur : une colonne une fois et demie plus large.
+    const unite = 83 / (g.jours.length * 3.5);
+    const largeurs = [`${unite}%`, `${unite}%`, `${unite * 1.5}%`];
     return {
       titre: g.titre,
       indices: [0, ...g.jours.flatMap(({ i }) => [1 + i * 3, 2 + i * 3, 3 + i * 3])],
+      groupes: g.jours.map(({ l }) => ({ libelle: l, nb: 3 })),
       colonnes: [
-        { header: "Article", width: "16%" },
-        ...g.jours.flatMap(({ l }) => [
-          { header: `${l} C`, width: largeur, align: "right" as const },
-          { header: `${l} L`, width: largeur, align: "right" as const },
-          { header: `${l} Cs`, width: largeur, align: "right" as const },
-        ]),
+        { header: "Article", width: "17%" },
+        ...g.jours.flatMap(() => ENTETES_JOUR.map((h, k) => ({ header: h, width: largeurs[k]!, align: "right" as const }))),
       ],
     };
   });

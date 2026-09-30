@@ -4,7 +4,7 @@ import { lundiDe } from "@/lib/dates-fr";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
 import {
-  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, type RoleCol,
+  consommationParArticleCatalogue, lignesComparaison, lignesExportComparaison, lignesExportConso, nbExport, partiesPdfComparaison, type EcartExport, type RoleCol,
 } from "@/lib/journalier-restaurant";
 import { chargerDonneesRestaurant } from "./donnees-restaurant";
 
@@ -23,7 +23,14 @@ export type ExportJournalier = {
   /** Cellules « r:c » du consommé en écart avec le livré (comparaison). */
   ecarts?: Set<string>;
   /** PDF en plusieurs parties (comparaison : trop de colonnes pour une page) — `indices` dans `colonnes`. */
-  partiesPdf?: { titre: string; indices: number[]; colonnes: Colonne[] }[];
+  partiesPdf?: { titre: string; indices: number[]; colonnes: Colonne[]; groupes: { libelle: string; nb: number }[] }[];
+  /** Cellules « r:c » commandé / livré d'un jour où le livré diffère du commandé (comparaison). */
+  ecartsCL?: Set<string>;
+  /** Écart signé (« +2 », « -1 ») des cellules en écart, à écrire à côté de la valeur (comparaison). */
+  signes?: Map<string, EcartExport>;
+  /** Comparaison : en-têtes courts sous des groupes (un par jour) — le classeur écrit deux niveaux d'en-tête. */
+  enteteCourt?: string[];
+  groupesEntete?: { libelle: string; debut: number; nb: number }[];
 };
 
 /** Rôle (couleur) d'une cellule d'export : celui de la ligne s'il est posé, sinon celui de la colonne. */
@@ -127,10 +134,11 @@ export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJour
       ? [...new Set([...LEGUMES.map((l) => l.nom), ...achatLeg.keys()])].map((nom) => ({ nom, cmd: cmdLeg.get(nom) ?? Array(7).fill(0), liv: achatLeg.get(nom) ?? Array(7).fill(0) }))
       : [],
   });
-  const { lignes, sectionRows, entete, colRole, ecarts, colonnes } = lignesExportComparaison(lignesComp, labels);
+  const { lignes, sectionRows, entete, colRole, ecarts, colonnes, ecartsCL, signes, enteteCourt, groupes } = lignesExportComparaison(lignesComp, labels);
 
   return {
     titre: "Comparaison commandé / livré / consommé", sousTitre, fichierBase: `Comparaison${suffixe}_${iso(lundi)}`,
     entete, colonnes, lignes, sectionRows, colRole, ecarts, partiesPdf: partiesPdfComparaison(labels),
+    ecartsCL, signes, enteteCourt, groupesEntete: groupes,
   };
 }
