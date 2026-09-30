@@ -7,6 +7,9 @@ import { normTexte } from "@/lib/texte";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
+import { useJourAffiche } from "@/components/selecteur-jour";
+import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
+import { CASE_JOUR, LigneJour, RubriqueJour, TitreJour } from "@/components/liste-jour";
 
 export type CmdArticle = { id: string; designation: string; categorie: string };
 export type CmdJour = { iso: string; label: string };
@@ -19,6 +22,8 @@ const REPOS_AVANT_RAFRAICHISSEMENT_MS = 3000;
 /**
  * Saisie des commandes de livraison au restaurant : quantité par article et par jour, groupée par
  * catégorie, avec recherche d'article. Tableur « comme Excel » (cases partagées `CelluleNombre`).
+ * Téléphone : la liste d'UN jour (celui du sélecteur du haut de page) au lieu des sept colonnes ; le
+ * tableau de la semaine reste en « Vue semaine ». Même enregistreur, mêmes valeurs, mêmes lignes.
  *
  * Performance (mesurée, cf. commande-grid.rendus.test.tsx) : une frappe ne re-rend rien ; une case
  * validée ne re-rend que sa ligne ; un rafraîchissement serveur aux valeurs inchangées ne re-rend
@@ -86,9 +91,12 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
 
   return (
     <div className="space-y-2">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
-      <p className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</p>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" aria-label="Rechercher un article" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm max-lg:min-h-11 max-lg:max-w-none" />
+      <p className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {articles.length} article(s)</p>
       <ZoneTableur>
+      <VueJourOuSemaine
+        jour={<ListeCommandeJour visibles={visibles} total={articles.length} jours={jours} valeur={valeur} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />}
+        semaine={
       <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
         <table data-tableur="" className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
@@ -102,7 +110,7 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
             {visibles.map((a, i) => (
               <Fragment key={a.id}>
                 {(i === 0 || visibles[i - 1].categorie !== a.categorie) && (
-                  <tr><td colSpan={jours.length + 2} className="sticky left-0 !bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{a.categorie}</td></tr>
+                  <tr><td colSpan={jours.length + 2} className="sticky left-0 !bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900 max-lg:normal-case max-lg:tracking-normal">{a.categorie}</td></tr>
                 )}
                 <LigneCommande a={a} jours={jours} valeurs={jours.map((j) => valeur(a.id, j.iso))} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />
               </Fragment>
@@ -120,6 +128,8 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
           )}
         </table>
       </div>
+        }
+      />
       </ZoneTableur>
       {enCours > 0 && <p className="text-xs text-muted-foreground">Enregistrement…</p>}
     </div>
@@ -154,3 +164,54 @@ const LigneCommande = memo(function LigneCommande({ a, jours, valeurs, peutModif
     </tr>
   );
 }, memesProps);
+
+/**
+ * Téléphone : la commande d'UN jour — nom de l'article à gauche, case de saisie à droite (44 px).
+ * Mêmes articles filtrés, même `valeur`, même `onEnregistrer` que le tableau ; la racine
+ * `data-tableur` est propre à cette liste, Entrée y descend donc à l'article suivant.
+ */
+function ListeCommandeJour({ visibles, total, jours, valeur, peutModifier, onEnregistrer }: {
+  visibles: CmdArticle[]; total: number; jours: CmdJour[];
+  valeur: (id: string, iso: string) => number | null;
+  peutModifier: boolean;
+  onEnregistrer: (v: number | null, c: ContexteCase) => Promise<void>;
+}) {
+  const [rang] = useJourAffiche(jours.map((j) => j.iso));
+  const jour = jours[rang]!;
+  const totalJour = visibles.reduce((t, a) => t + (valeur(a.id, jour.iso) ?? 0), 0);
+  return (
+    <div data-tableur="" data-vue-liste="commande" className="space-y-1">
+      <TitreJour iso={jour.iso} resume={<>{totalJour > 0 ? <>Total du jour : <span className="font-semibold text-foreground">{qte(totalJour)}</span></> : "Rien commandé"} · {visibles.length} / {total} article(s)</>} />
+      {visibles.map((a, i) => (
+        <Fragment key={a.id}>
+          {(i === 0 || visibles[i - 1].categorie !== a.categorie) && <RubriqueJour>{a.categorie}</RubriqueJour>}
+          {/* Clé = le jour : changer de jour remonte les cases (une erreur ou un envoi du jour d'avant ne suit pas) ; une frappe en attente est enregistrée à la date d'origine. */}
+          <LigneCommandeJour key={jour.iso} a={a} jour={jour} valeur={valeur(a.id, jour.iso)} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />
+        </Fragment>
+      ))}
+      {visibles.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">Aucun article pour cette recherche.</p>}
+    </div>
+  );
+}
+
+type PropsLigneJour = {
+  a: CmdArticle; jour: CmdJour; valeur: number | null; peutModifier: boolean;
+  onEnregistrer: (v: number | null, c: ContexteCase) => Promise<void>;
+};
+const memesPropsJour = (p: PropsLigneJour, n: PropsLigneJour) =>
+  p.a.id === n.a.id && p.a.designation === n.a.designation && p.a.categorie === n.a.categorie &&
+  p.jour.iso === n.jour.iso && p.jour.label === n.jour.label &&
+  p.valeur === n.valeur && p.peutModifier === n.peutModifier && p.onEnregistrer === n.onEnregistrer;
+
+// La case a `col={0}` : dans cette liste il n'y a qu'une colonne, la navigation (Entrée) descend d'un article.
+const LigneCommandeJour = memo(function LigneCommandeJour({ a, jour, valeur, peutModifier, onEnregistrer }: PropsLigneJour) {
+  return (
+    <LigneJour
+      nom={a.designation}
+      droite={
+        <CelluleNombre ligne={a.id} col={0} donnee={jour.iso} groupe={a.categorie} valeur={valeur} onEnregistrer={onEnregistrer} min={0} quantite
+          disabled={!peutModifier} placeholder="—" className={CASE_JOUR} aria-label={`${a.designation} — ${jour.label}`} />
+      }
+    />
+  );
+}, memesPropsJour);

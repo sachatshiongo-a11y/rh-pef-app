@@ -2,26 +2,26 @@ import Link from "next/link";
 import { Fragment } from "react";
 import Decimal from "decimal.js";
 import { qte } from "@/lib/stock";
-import { formaterNombre } from "@/lib/montant";
-import { LIBELLE_ECART, type EcartJour, type LigneComparaison } from "@/lib/journalier-restaurant";
+import { LIBELLE_ECART, type LigneComparaison } from "@/lib/journalier-restaurant";
+import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
+import { ComparaisonJour } from "./comparaison-jour";
+import { FOND_ECART, qteConso } from "./comparaison-format";
 
 // Onglet « Comparaison » : commandé (C), livré au restaurant (L) et consommé au restaurant (Cs),
 // jour par jour, avec les écarts. Composant de présentation (aucun état) : rendu côté serveur.
+// Téléphone : la liste d'UN jour (`ComparaisonJour`) ; le tableau de la semaine reste en « Vue semaine ».
 
 type Jour = { iso: string; label: string };
 
-const FOND_ECART: Record<EcartJour, string> = {
-  LIVRE_NON_CONSOMME: "bg-sky-100",
-  CONSOMME_PLUS_QUE_LIVRE: "bg-violet-100",
-};
-
-const qteConso = (v: string | null) => (v === null ? "—" : formaterNombre(Number(v), { maximumFractionDigits: 3 }));
 /** Total consommé : seulement si chaque jour est connu, sinon « — » (jamais un total partiel). */
 const totalConso = (vs: (string | null)[]) => (vs.some((v) => v === null) ? null : vs.reduce((t, v) => t.plus(v!), new Decimal(0)).toString());
 
 export function TableComparaison({ jours, lignes, sansMotif }: { jours: Jour[]; lignes: LigneComparaison[]; sansMotif: number }) {
   const colSpan = jours.length * 3 + 4;
   return (
+    <VueJourOuSemaine
+      jour={<ComparaisonJour jours={jours} lignes={lignes} sansMotif={sansMotif} />}
+      semaine={
     <div className="space-y-2">
       <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
@@ -92,5 +92,7 @@ export function TableComparaison({ jours, lignes, sansMotif }: { jours: Jour[]; 
         </table>
       </div>
     </div>
+      }
+    />
   );
 }
