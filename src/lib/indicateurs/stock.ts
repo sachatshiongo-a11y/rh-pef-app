@@ -30,15 +30,23 @@ const somme = (agg: { _sum: Record<string, unknown>; _count: number }, champ: st
   return { montant: v === null || v === undefined ? null : Number(v), nb: agg._count };
 };
 
-export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: number } = {}): Promise<IndicateursStock> {
+/**
+ * `aujourdhui` : date des indicateurs INSTANTANÉS (stock, alertes, factures dues, semaine en cours).
+ * `options.mois` ("AAAA-MM") : mois des indicateurs PAR PÉRIODE (légumes, consommation) ; par défaut
+ * le mois de `aujourdhui` — l'appel sans option rend exactement les chiffres d'avant.
+ */
+export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: number; mois?: string } = {}): Promise<IndicateursStock> {
   const nbAlertes = options.nbAlertes ?? 5;
   // Bornes de dates en UTC (cohérent avec le stockage @db.Date) — mêmes calculs que l'accueil Stock.
   const jjUTC = new Date(Date.UTC(aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth(), aujourdhui.getUTCDate()));
   const dow = jjUTC.getUTCDay(); // 0 = dimanche
   const lundi = new Date(jjUTC); lundi.setUTCDate(jjUTC.getUTCDate() - (dow === 0 ? 6 : dow - 1));
   const dimanche = new Date(lundi); dimanche.setUTCDate(lundi.getUTCDate() + 6);
-  const debutMois = new Date(Date.UTC(aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth(), 1));
-  const debutMoisSuivant = new Date(Date.UTC(aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth() + 1, 1));
+  const [anneeP, mois0P] = options.mois
+    ? [Number(options.mois.slice(0, 4)), Number(options.mois.slice(5, 7)) - 1]
+    : [aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth()];
+  const debutMois = new Date(Date.UTC(anneeP, mois0P, 1));
+  const debutMoisSuivant = new Date(Date.UTC(anneeP, mois0P + 1, 1));
 
   const [stocks, facturesDues, facturesSemaine, facturesEchues, legumesMois, consoMois] = await Promise.all([
     prisma.stock.findMany({ include: { article: { select: { designation: true, prixUnitaireUSD: true } } } }),
@@ -47,7 +55,7 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true }, _count: true }),
     // Factures échues non réglées.
     prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
-    // Achats de légumes frais du mois en cours.
+    // Achats de légumes frais du mois (en cours, ou celui de `options.mois`).
     prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
     // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue).
     prisma.$queryRaw<{ total: number; n: number }[]>`
