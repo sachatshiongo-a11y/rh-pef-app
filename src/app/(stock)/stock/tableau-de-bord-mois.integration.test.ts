@@ -127,9 +127,14 @@ describe("accueil Stock — mois courant inchangé", () => {
     const html = await rendreHtml();
     // Les cartes « Entrées de stock » (autre chantier, même demande) : un seul bloc, repéré par
     // `data-cartes-entrees-stock`, posé juste après les cartes du mois et avant les listes.
-    const { reste, retire } = retirerElement(html, "data-cartes-entrees-stock");
+    const { reste: sansCartes, retire } = retirerElement(html, "data-cartes-entrees-stock");
     expect(texte(retire)).toContain("Entrées de stock");
-    expect(reste).not.toContain("data-cartes-entrees-stock");
+    expect(sansCartes).not.toContain("data-cartes-entrees-stock");
+    // Le bloc « Plats (disponibilité selon le stock) » (demande du 2026-09-30) : repéré de même (un
+    // rendu statique ne montre que le repli de son Suspense ; le contenu est testé plus bas) ; le
+    // reste de la page n'a pas bougé.
+    const { reste, retire: blocPlats } = retirerElement(sansCartes, "data-bloc-disponibilite-plats");
+    expect(texte(blocPlats)).toContain("Plats : chargement…");
     const t = texte(reste);
     expect(t).toContain(" Le mois · septembre 2026 Mois Afficher");
     // Tout le reste : le texte d'avant, à l'identique et dans le même ordre.
@@ -236,5 +241,88 @@ describe("accueil Stock — les liens gardent le mois", () => {
     expect(html).toContain('href="/stock/mouvements"');
     expect(html).toContain('href="/stock/commandes"');
     expect(html).toContain('href="/stock/factures"');
+  }, 60_000);
+});
+
+describe("accueil Stock — Plats (disponibilité selon le stock)", () => {
+  beforeAll(async () => {
+    // Farine : mouvementée les 28 et 29/09 (stock qui fait foi, 10 kg). Beurre : 0 kg, jamais mouvementé.
+    const farine = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Farine" } });
+    const beurre = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Beurre" } });
+    const fiche = (nom: string, articleId: string, type: "PLAT" | "BAR" = "PLAT") =>
+      prisma.ficheTechnique.create({ data: { nom, type, ingredients: { create: [{ articleId, unite: "kg", quantite: "0.1", ordre: 1 }] } } });
+    await fiche("Pâtes fraîches", farine.id);
+    await fiche("Gratin au beurre", beurre.id);
+    await fiche("Mojito", farine.id, "BAR");
+    await prisma.ficheTechnique.create({ data: { nom: "Tartine de pain de campagne" } }); // sans recette
+  }, 60_000);
+
+  // Le bloc chargé, rendu seul (le rendu statique de la page n'en montre que le repli).
+  const blocCharge = async (periode?: string) => {
+    const { BlocDisponibilitePlatsCharge } = await import("./_tableau-de-bord/bloc-disponibilite-plats");
+    return renderToStaticMarkup(await BlocDisponibilitePlatsCharge({ periode }));
+  };
+
+  it("mêmes chiffres que l'Exploitation : le décompte vient de la fonction partagée, pas d'un second calcul", async () => {
+    const { chargerDisponibilitePlats } = await import("./fiches/_data/disponibilite-plats");
+    const { plats, bar } = await chargerDisponibilitePlats();
+    // Sanity du jeu de données : un plat dispo, un plat non dispo, une recette à compléter, une fiche Bar.
+    expect(plats.etats.DISPONIBLE).toBe(1);
+    expect(plats.etats.RUPTURE + plats.etats.A_VERIFIER).toBe(1);
+    expect(plats.recettesACompleter).toBe(1);
+    expect(bar.nbVendues).toBe(1);
+    const t = texte(await blocCharge());
+    expect(t).toContain(`Plats en rupture ${plats.etats.RUPTURE} Plats à vérifier ${plats.etats.A_VERIFIER} Plats disponibles 1 Recettes à compléter 1`);
+    expect(t).toContain(`Fiches Bar (à part des plats) ${bar.etats.DISPONIBLE} dispo. · ${bar.etats.RUPTURE} rupture · ${bar.etats.A_VERIFIER} à vérifier`);
+  }, 60_000);
+
+  it("chaque ligne mène à la liste des fiches filtrée ; le mois courant ne porte pas d'étiquette", async () => {
+    const h = await blocCharge();
+    expect(h).toContain('href="/stock/fiches?etat=RUPTURE"');
+    expect(h).toContain('href="/stock/fiches?etat=A_VERIFIER"');
+    expect(h).toContain('href="/stock/fiches?etat=DISPONIBLE"');
+    expect(h).toContain('href="/stock/fiches?vue=boissons"');
+    expect(h).toContain('href="/stock/fiches"'); // « Tout voir » et « Recettes à compléter »
+    expect(h).not.toContain("data-periode");
+  }, 60_000);
+
+  // Props que la page donne au bloc (l'arbre React, sans le rendre : un rendu statique ne résout pas Suspense).
+  const propsDuBloc = async (sp: { mois?: string }) => {
+    const { default: StockDashboard } = await import("./page");
+    const { BlocDisponibilitePlats } = await import("./_tableau-de-bord/bloc-disponibilite-plats");
+    const trouves: { voit: boolean; periode?: string }[] = [];
+    const parcourir = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(parcourir); return; }
+      if (!n || typeof n !== "object" || !("props" in n)) return;
+      const el = n as { type: unknown; props: { children?: unknown; voit?: boolean; periode?: string } };
+      if (el.type === BlocDisponibilitePlats) trouves.push({ voit: el.props.voit as boolean, periode: el.props.periode });
+      parcourir(el.props.children);
+    };
+    parcourir(await StockDashboard({ searchParams: Promise.resolve(sp) }));
+    return trouves;
+  };
+
+  it("mois passé : la page donne « aujourd'hui » au bloc (et rien au mois courant) ; les chiffres, eux, ne dépendent pas du mois", async () => {
+    expect(await propsDuBloc({})).toEqual([{ voit: true, periode: undefined }]);
+    expect(await propsDuBloc({ mois: "2026-08" })).toEqual([{ voit: true, periode: "aujourd'hui" }]);
+    const courant = texte(await blocCharge());
+    const passe = texte(await blocCharge("aujourd'hui"));
+    expect(passe).toContain("Plats (disponibilité selon le stock) · aujourd'hui Tout voir");
+    expect(passe.replace(" · aujourd'hui", "")).toBe(courant);
+  }, 60_000);
+
+  it("rôles : Direction et Stock le voient, un salarié avec accès stock aussi (même garde que Fiches techniques) ; sans droit, rien n'est lu ni affiché", async () => {
+    const { voitDisponibilitePlats, BlocDisponibilitePlats } = await import("./_tableau-de-bord/bloc-disponibilite-plats");
+    expect(voitDisponibilitePlats({ role: "ADMIN" })).toBe(true);
+    expect(voitDisponibilitePlats({ role: "STOCK" })).toBe(true);
+    expect(voitDisponibilitePlats({ role: "EMPLOYE", accesStock: true })).toBe(true);
+    expect(voitDisponibilitePlats({ role: "EMPLOYE", accesStock: false })).toBe(false);
+    expect(voitDisponibilitePlats({ role: "COMPTA" })).toBe(false);
+    expect(voitDisponibilitePlats({ role: "MANAGER" })).toBe(false);
+    expect(BlocDisponibilitePlats({ voit: false })).toBeNull();
+    // Rôle STOCK : la page rend le bloc.
+    const avant = A.user.role;
+    A.user.role = "STOCK";
+    try { expect(await rendreHtml()).toContain("data-bloc-disponibilite-plats"); } finally { A.user.role = avant; }
   }, 60_000);
 });
