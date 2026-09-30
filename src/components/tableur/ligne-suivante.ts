@@ -7,10 +7,11 @@ import { useCallback, useEffect, useRef } from "react";
  * et place le curseur dans la même colonne de la nouvelle ligne, comme Excel.
  *
  * Convention : la `ligne` des cases est l'INDEX de la ligne (« 0 », « 1 »…). `racine` se pose sur
- * le <table> ; `onEntreeDerniereLigne` se passe à chaque `CelluleNombre` des lignes.
+ * le <table> (ou, pour une grille en <div>, sur sa racine `data-tableur` : `useLigneSuivante<HTMLDivElement>`) ;
+ * `onEntreeDerniereLigne` se passe à chaque `CelluleNombre` des lignes.
  */
-export function useLigneSuivante(nbLignes: number, ajouter: () => void) {
-  const racine = useRef<HTMLTableElement>(null);
+export function useLigneSuivante<T extends HTMLElement = HTMLTableElement>(nbLignes: number, ajouter: () => void) {
+  const racine = useRef<T>(null);
   const colonneVisee = useRef<number | null>(null);
 
   // La nouvelle ligne n'existe qu'après le rendu : on la vise quand le nombre de lignes a changé.

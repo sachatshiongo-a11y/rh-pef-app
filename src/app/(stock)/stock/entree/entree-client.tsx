@@ -1,14 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { entreeListeAchat, verifierDoublonsListe } from "./actions";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
 import { cleAlnum } from "@/lib/texte";
+import { CelluleNombre } from "@/components/tableur/cellule-nombre";
+import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
+import { ZoneTableur } from "@/components/tableur/messages";
+import { lireSaisieNombre } from "@/lib/nombre";
+import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 
 type Art = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null };
 type Fourn = { id: string; nom: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
+/** Texte de ligne → valeur de case ; valeur de case → texte à POINT (ce que produisait l'ancien champ
+ *  number) : les calculs (quantité × PU) et ce qui part au serveur (champs cachés quantite / montant)
+ *  sont inchangés, virgule tapée ou non. */
+const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
+const texteDe = (v: number | null) => (v === null ? "" : String(v));
+
+// Mise en page d'UNE SEULE arborescence, deux présentations (jamais deux jeux de champs : le
+// formulaire enverrait chaque ligne en double). Elle suit la largeur de la LISTE (requête de
+// conteneur), pas celle de l'écran : le menu latéral en retire 256 px sur ordinateur.
+//  - Liste large (≥ 56 rem) : tableur, UNE rangée par ligne sous un en-tête de colonnes unique.
+//  - Sinon (téléphone, tablette) : une carte compacte par ligne, sur 5 pistes :
+//      article (3) · montant · ✕            — rangée 1
+//      qté × PU · unité · ⋯ (détails)       — rangée 2
+//      désignation + domaine (ligne libre), puis fournisseur (détails ouverts) — au besoin
+const COLONNES = "@4xl:grid-cols-[minmax(9rem,1.6fr)_minmax(8rem,1.4fr)_4rem_6.5rem_4.5rem_5rem_6rem_minmax(7rem,1.2fr)_2rem]";
+const PISTES = "grid-cols-[4rem_1rem_4.5rem_minmax(0,1fr)_2.75rem]";
+// `order` : l'ordre du DOM est celui du tableur (Tab) ; la carte réordonne à l'œil.
+const PLACE = {
+  article: "order-1 col-span-3 @4xl:order-none @4xl:col-span-1",
+  designation: "order-9 col-span-3 @4xl:order-none @4xl:col-span-1",
+  unite: "order-7 @4xl:order-none",
+  domaine: "order-10 col-span-2 @4xl:order-none @4xl:col-span-1",
+  qte: "order-4 @4xl:order-none",
+  pu: "order-6 @4xl:order-none",
+  montant: "order-2 @4xl:order-none",
+  fournisseur: "order-11 col-span-5 @4xl:order-none @4xl:col-span-1",
+  retirer: "order-3 @4xl:order-none",
+};
+// Cibles de 44 px sur la carte ; densité tableur (hauteur naturelle) sur la liste large.
+const champ = `${inp} h-11 w-full min-w-0 @4xl:h-auto`;
 
 export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDirection = false }: { articles: Art[]; fournisseurs: Fourn[]; aujourdhui: string; taux: number; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
@@ -18,8 +53,9 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // Le prix unitaire (facultatif) répercute quantité × PU sur le montant.
   // Fournisseur FACULTATIF par ligne : liste avec recherche (suggestions des fournisseurs connus) ;
   // un nom nouveau crée le fournisseur à l'enregistrement.
-  type Ligne = { articleId: string; designation: string; unite: string; domaine: string; qte: string; pu: string; montant: string; fournNom: string };
-  const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", domaine: "NOURRITURE", qte: "", pu: "", montant: "", fournNom: "" });
+  // `detail` : carte ouverte sur téléphone (fournisseur) — présentation seulement, jamais envoyé.
+  type Ligne = { articleId: string; designation: string; unite: string; domaine: string; qte: string; pu: string; montant: string; fournNom: string; detail: boolean };
+  const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", domaine: "NOURRITURE", qte: "", pu: "", montant: "", fournNom: "", detail: false });
   const [lignes, setLignes] = useState<Ligne[]>([vide(), vide(), vide(), vide()]);
   const [devise, setDevise] = useState<"USD" | "CDF">("USD");
   // Date de l'achat : aujourd'hui (Kinshasa) par défaut ; jamais dans le futur (contrôlé au serveur).
@@ -96,6 +132,9 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
     );
   };
 
+  const ajouterLigne = useCallback(() => setLignes((ls) => [...ls, vide()]), []);
+  const { racine, onEntreeDerniereLigne } = useLigneSuivante<HTMLDivElement>(lignes.length, ajouterLigne);
+
   const submit = (fd: FormData) => {
     setMsg(null);
     setAvertissementsEnregistres([]);
@@ -114,7 +153,8 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   };
 
   return (
-    <form key={cle} action={submit} className="space-y-3">
+    // Entrée n'envoie jamais l'entrée en stock : seul un clic sur « Valider » l'enregistre.
+    <form key={cle} action={submit} onKeyDown={empecherEnvoiParEntree} className="space-y-3">
       {msg && (
         <p className={`rounded-md border px-3 py-2 text-sm ${msg.ok ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-destructive/40 bg-destructive/10 text-destructive"}`}>
           {msg.texte}
@@ -141,49 +181,74 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         {devise === "CDF" && <span className="pb-1.5 text-xs text-muted-foreground">Taux : 1 USD = {taux.toLocaleString("fr-FR")} FC (converti automatiquement)</span>}
       </div>
 
-      <div className="space-y-2">
-        {/* En-têtes de colonnes : grand écran uniquement (ailleurs, chaque champ est étiqueté par son placeholder ;
-            la ligne se range en carte de 3 colonnes au téléphone, de 6 sur tablette et petit ordinateur). */}
-        <div className="hidden items-center gap-2 text-xs text-muted-foreground 2xl:flex">
-          <span className="flex-1">Article (catalogue)</span>
-          <span className="w-40">Désignation (libre si nouveau)</span>
-          <span className="w-20">Unité</span>
-          <span className="w-28">Domaine</span>
-          <span className="w-20">Qté</span>
-          <span className="w-24">P.U. ({devise})</span>
-          <span className="w-28">Montant ({devise})</span>
-          <span className="w-40">Fournisseur (facultatif)</span>
-          <span className="w-7" />
-        </div>
-        {lignes.map((l, i) => {
-          const libre = !l.articleId;
-          return (
-            <div key={i} className="grid grid-cols-3 gap-2 rounded-lg border p-2 md:grid-cols-6 2xl:flex 2xl:items-center 2xl:rounded-none 2xl:border-0 2xl:p-0">
-              <select name="articleId" value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} className={`${inp} col-span-3 min-w-0 2xl:flex-1`}>
-                <option value="">— libre —</option>
-                {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-              </select>
-              <input name="designation" placeholder="Désignation" value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${inp} col-span-3 min-w-0 ${!libre ? "text-muted-foreground" : ""} 2xl:w-40`} />
-              <input name="unite" placeholder="Kg…" value={l.unite} onChange={(e) => majLigne(i, { unite: e.target.value })} readOnly={!libre} className={`${inp} min-w-0 ${!libre ? "text-muted-foreground" : ""} 2xl:w-20`} />
-              {/* Domaine du NOUVEL article (création automatique au catalogue) — figé si article existant. */}
-              <select name="domaine" value={l.domaine} onChange={(e) => majLigne(i, { domaine: e.target.value })} disabled={!libre} className={`${inp} col-span-2 min-w-0 disabled:opacity-60 2xl:w-28`}>
-                <option value="NOURRITURE">Nourriture</option>
-                <option value="BOISSON">Boisson</option>
-                <option value="AUTRE">Autre</option>
-              </select>
-              {!libre && <input type="hidden" name="domaine" value={l.domaine} />}
-              <input name="quantite" type="number" step="0.001" min="0" placeholder="Qté" value={l.qte} onChange={(e) => majLigne(i, { qte: e.target.value })} className={`${inp} min-w-0 2xl:w-20`} />
-              {/* Prix unitaire FACULTATIF : jamais envoyé au serveur, il sert à remplir le montant. */}
-              <input type="number" step="0.01" min="0" placeholder={`PU ${devise}`} title="Prix unitaire (facultatif) — remplit le montant : quantité × PU" value={l.pu} onChange={(e) => majLigne(i, { pu: e.target.value })} className={`${inp} min-w-0 2xl:w-24`} />
-              <input name="montant" type="number" step="0.01" min="0" placeholder={`Montant ${devise}`} value={l.montant} onChange={(e) => majLigne(i, { montant: e.target.value })} className={`${inp} min-w-0 2xl:w-28`} />
-              {/* Fournisseur DE CETTE LIGNE : suggestions des fournisseurs connus ; un nom nouveau est créé. */}
-              <input name="fournisseurNom" list="fournisseurs-connus" autoComplete="off" placeholder="Fournisseur" aria-label={`Fournisseur de la ligne ${i + 1}`} value={l.fournNom} onChange={(e) => majLigne(i, { fournNom: e.target.value })} className={`${inp} col-span-2 min-w-0 2xl:w-40`} />
-              <input type="hidden" name="fournisseurId" value={idFourn(l.fournNom)} />
-              <button type="button" onClick={() => setLignes((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : ls.map((x, j) => (j === i ? vide() : x))))} aria-label="Retirer la ligne" title="Retirer la ligne" className="rounded-md border px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive 2xl:w-7">✕</button>
+      {/* Tableur : Entrée descend à la même colonne (et ajoute une ligne en bas) sans envoyer le formulaire ;
+          Tab reste celui du navigateur, pour passer aussi par l'article, l'unité, le fournisseur… */}
+      <ZoneTableur>
+        <div className="@container">
+          <div ref={racine} data-tableur="" data-tableur-tab="natif" className="space-y-2 @4xl:space-y-0">
+            {/* En-têtes de colonnes : UNE fois, liste large seulement (la carte étiquette ses champs par leur texte indicatif). */}
+            <div className={`sticky top-0 z-10 hidden gap-1.5 rounded-md bg-muted px-0 py-1.5 text-xs font-medium text-muted-foreground @4xl:grid ${COLONNES}`}>
+              <span className="pl-2">Article (catalogue)</span>
+              <span className="pl-2">Désignation (libre si nouveau)</span>
+              <span className="pl-2">Unité</span>
+              <span className="pl-2">Domaine</span>
+              <span className="pr-2 text-right">Qté</span>
+              <span className="pr-2 text-right">PU {devise}</span>
+              <span className="pr-2 text-right">Montant {devise}</span>
+              <span className="pl-2">Fournisseur (facultatif)</span>
+              <span className="sr-only">Retirer</span>
             </div>
-          );
-        })}
-      </div>
+            {lignes.map((l, i) => {
+              const libre = !l.articleId;
+              // Téléphone : la désignation et le domaine ne s'affichent que s'il faut les saisir (ligne libre : pour
+              // un article du catalogue, ils ne font que recopier l'article) ; le fournisseur, seulement carte
+              // ouverte. Sur la liste large : tout.
+              const montreDesignation = libre ? "" : "hidden @4xl:block";
+              const montreDomaine = montreDesignation;
+              const montreFournisseur = l.detail ? "" : "hidden @4xl:block";
+              return (
+                <div key={i} data-ligne-achat className={`grid gap-1.5 rounded-lg border p-2 ${PISTES} ${COLONNES} @4xl:items-center @4xl:rounded-none @4xl:border-0 @4xl:border-t @4xl:p-0 @4xl:py-0.5`}>
+                  <select name="articleId" value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} aria-label={`Article, ligne ${i + 1}`} className={`${champ} ${PLACE.article}`}>
+                    <option value="">— libre —</option>
+                    {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
+                  </select>
+                  <input name="designation" placeholder="Désignation" aria-label={`Désignation, ligne ${i + 1}`} value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${champ} ${PLACE.designation} ${montreDesignation} ${!libre ? "text-muted-foreground" : ""}`} />
+                  <input name="unite" placeholder="Kg…" aria-label={`Unité, ligne ${i + 1}`} value={l.unite} onChange={(e) => majLigne(i, { unite: e.target.value })} readOnly={!libre} className={`${champ} ${PLACE.unite} ${!libre ? "text-muted-foreground" : ""}`} />
+                  {/* Domaine du NOUVEL article (création automatique au catalogue) — figé si article existant. */}
+                  <select name="domaine" value={l.domaine} onChange={(e) => majLigne(i, { domaine: e.target.value })} disabled={!libre} aria-label={`Domaine, ligne ${i + 1}`} className={`${champ} ${PLACE.domaine} ${montreDomaine} disabled:opacity-60`}>
+                    <option value="NOURRITURE">Nourriture</option>
+                    <option value="BOISSON">Boisson</option>
+                    <option value="AUTRE">Autre</option>
+                  </select>
+                  {!libre && <input type="hidden" name="domaine" value={l.domaine} />}
+                  {/* Quantité, PU, montant : cases du tableur (sans flèches, Entrée descend). Ce qui part au serveur
+                      est le champ caché à point ; le PU, FACULTATIF, n'est jamais envoyé — il sert à remplir le montant. */}
+                  <input type="hidden" name="quantite" value={l.qte} />
+                  <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.qte)} onEnregistrer={(v) => majLigne(i, { qte: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} quantite placeholder="Qté" className={`${champ} ${PLACE.qte} text-right`} aria-label={`Quantité, ligne ${i + 1}`} />
+                  <span aria-hidden className="order-5 text-center text-muted-foreground @4xl:hidden">×</span>
+                  <CelluleNombre ligne={String(i)} col={1} valeur={nombreOuNull(l.pu)} onEnregistrer={(v) => majLigne(i, { pu: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} placeholder="PU" title="Prix unitaire (facultatif) — remplit le montant : quantité × PU"
+                    className={`${champ} ${PLACE.pu} text-right`} aria-label={`Prix unitaire ${devise}, ligne ${i + 1}`} />
+                  <input type="hidden" name="montant" value={l.montant} />
+                  <CelluleNombre ligne={String(i)} col={2} valeur={nombreOuNull(l.montant)} onEnregistrer={(v) => majLigne(i, { montant: texteDe(v) })}
+                    onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} placeholder="Montant" title={`Montant payé pour la ligne (${devise})`}
+                    className={`${champ} ${PLACE.montant} text-right font-semibold placeholder:font-normal @4xl:font-normal`} aria-label={`Montant ${devise}, ligne ${i + 1}`} />
+                  {/* Fournisseur DE CETTE LIGNE : suggestions des fournisseurs connus ; un nom nouveau est créé. */}
+                  <input name="fournisseurNom" list="fournisseurs-connus" autoComplete="off" placeholder="Fournisseur" aria-label={`Fournisseur de la ligne ${i + 1}`} value={l.fournNom} onChange={(e) => majLigne(i, { fournNom: e.target.value })} className={`${champ} ${PLACE.fournisseur} ${montreFournisseur}`} />
+                  <input type="hidden" name="fournisseurId" value={idFourn(l.fournNom)} />
+                  {/* Téléphone seulement : déplie le fournisseur de la carte. */}
+                  <button type="button" onClick={() => majLigne(i, { detail: !l.detail })} aria-expanded={l.detail}
+                    aria-label={`Fournisseur et détails, ligne ${i + 1}${l.fournNom.trim() ? ` (${l.fournNom.trim()})` : ""}`}
+                    className={`order-8 flex h-11 w-11 items-center justify-center rounded-md border text-base @4xl:hidden ${l.fournNom.trim() ? "border-primary text-primary" : "text-muted-foreground"} ${l.detail ? "bg-accent" : ""}`}>⋯</button>
+                  <button type="button" onClick={() => setLignes((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : ls.map((x, j) => (j === i ? vide() : x))))} aria-label={`Retirer la ligne ${i + 1}`} title="Retirer la ligne"
+                    className={`${PLACE.retirer} flex h-11 w-11 items-center justify-center rounded-md border text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive @4xl:h-8 @4xl:w-8`}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </ZoneTableur>
 
       <datalist id="fournisseurs-connus">
         {fournisseurs.map((f) => <option key={f.id} value={f.nom} />)}
@@ -204,7 +269,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
       ))}
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => setLignes((ls) => [...ls, vide()])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
+        <button type="button" onClick={ajouterLigne} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
         <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
           {isPending ? "Enregistrement…" : "Valider l'entrée en stock"}
         </button>
