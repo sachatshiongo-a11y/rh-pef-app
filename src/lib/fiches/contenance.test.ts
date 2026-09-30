@@ -26,6 +26,8 @@ describe("contenance lue dans le nom d'un article", () => {
     // Écritures du classeur.
     ["MONIN COCONUT FRUIT 1LTR", "1 l"], ["MONIN MOJITO MINT SIROP 1LT", "1 l"], ["VODKA ABSOLUT 750ML", "750 ml"], ["RED BULL 250 ML", "250 ml"],
     ["Jus d'Ananas-100", null], ["Sirop de Sucre de canne-70", null], ["20 PENNE RIGATE LM CHEF 12 X 1KG", "1 kg"], ["Pastis 51", null], ["V8cl", null],
+    // Un nombre collé à un séparateur n'est pas une contenance : « .7L » n'est pas 7 l, « 1/2 L » pas 2 l.
+    ["Vodka .7L", null], ["Vin 1/2 L", null], ["Vodka 0.7L", "0.7 l"], ["Vin 1,5L", "1.5 l"], ["Jus 33cl,1L", "33 cl"],
   ];
   it.each(cas)("« %s » → %s", (nom, attendu) => {
     const c = contenanceDansNom(nom);
@@ -113,8 +115,10 @@ describe("contenance saisie au catalogue", () => {
     expect(() => lireContenanceSaisie("", "cl")).toThrow(/nombre ET une unité/);
     expect(() => lireContenanceSaisie("75", "bouteille")).toThrow(/nombre ET une unité/);
     expect(() => lireContenanceSaisie("0", "cl")).toThrow(/supérieur à 0/);
-    expect(() => lireContenanceSaisie("-5", "cl")).toThrow(/supérieur à 0/);
+    expect(() => lireContenanceSaisie("-5", "cl")).toThrow(/illisible/);
     expect(() => lireContenanceSaisie("abc", "cl")).toThrow(/illisible/);
     expect(() => lireContenanceSaisie("0.0005", "l")).toThrow(/3 décimales/);
+    // Notations que Decimal accepterait : refusées, jamais interprétées.
+    for (const n of ["1e5", "0x10", "Infinity", "7.", ".7", "1 000", "+5"]) expect(() => lireContenanceSaisie(n, "cl")).toThrow(/illisible/);
   });
 });

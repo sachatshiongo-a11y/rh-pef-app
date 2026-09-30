@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { calculerCout } from "./cout";
 import {
   choixInitiaux, correspondanceFiche, lireClasseurBar, planifierImportBar, rattacherFiches, rattacherIngredients,
-  uniteConvertible, validerChoix, validerFichesLues, valeursCreation, formeArticle, memeArticle, scoreProche,
+  uniteConvertible, validerChoix, validerFichesLues, valeursCreation, formeArticle, memeArticle, scoreProche, contenanceRequise, articleVise, contenanceProposee, erreurContenanceChoisie,
   type ArticleExistant, type ChoixImportBar, type FicheBarLue, type FicheExistanteBar,
 } from "./classeur-bar";
 
@@ -331,6 +331,33 @@ describe("ingrédients", () => {
     expect(sc("Absolut Vodka 70cl", "Absolut Vodka-75cl")).toBe(0.75); // contenances différentes : malus
   });
 
+  it("contenance : exigée dès qu'UNE des unités du libellé ne se convertit pas ; « Créer » vise l'article du même nom", () => {
+    const b = A("b", "Monin Coconut Fruit-1L", "Bouteille");
+    expect(contenanceRequise(b, ["Bouteille"])).toBe(false);
+    expect(contenanceRequise(b, ["Bouteille", "cl"])).toBe(true);
+    expect(contenanceRequise(b, "cl")).toBe(true);
+    expect(contenanceRequise(A("k", "Sucre", "kg"), ["g"])).toBe(false); // pas compté à l'unité
+    expect(contenanceRequise(A("s", "Jus-1L", null), ["cl"])).toBe(true); // sans unité
+    expect(articleVise("MONIN COCONUT FRUIT 1LTR", "creer", [b])).toBe(b);
+    expect(articleVise("MONIN COCONUT FRUIT 70CL", "creer", [b])).toBeNull();
+    expect(articleVise("x", "art:b", [b])).toBe(b);
+    expect(articleVise("x", "ignorer", [b])).toBeNull();
+  });
+
+  it("article SANS unité : l'unité de stock n'est jamais supposée ; une seule règle de validation (celle du catalogue)", () => {
+    const jus = A("j", "Jus d'Ananas-Ceres-1L", null, 2.86);
+    expect(contenanceProposee(jus)).toEqual({ quantite: "1", unite: "l", uniteStock: null, lue: true });
+    expect(erreurContenanceChoisie({ quantite: "1", unite: "l", uniteStock: null }, jus)).toBe("article sans unité : choisir son unité de stock (son prix de 2.86 $ est « par ? »)");
+    expect(erreurContenanceChoisie({ quantite: "1", unite: "l", uniteStock: "Brique" }, jus)).toBeNull();
+    const bouteille = A("b", "Rhum", "Bouteille");
+    expect(erreurContenanceChoisie({ quantite: "1e5", unite: "cl", uniteStock: null }, bouteille)).toBe("Contenance : nombre illisible.");
+    expect(erreurContenanceChoisie({ quantite: "0x10", unite: "cl", uniteStock: null }, bouteille)).toBe("Contenance : nombre illisible.");
+    expect(erreurContenanceChoisie({ quantite: "0,0004", unite: "l", uniteStock: null }, bouteille)).toBe("Contenance : 3 décimales au plus.");
+    expect(erreurContenanceChoisie({ quantite: "0", unite: "cl", uniteStock: null }, bouteille)).toBe("Contenance : un nombre supérieur à 0 est attendu.");
+    expect(erreurContenanceChoisie({ quantite: "70", unite: "bouteille", uniteStock: null }, bouteille)).toMatch(/nombre ET une unité/);
+    expect(erreurContenanceChoisie({ quantite: "0,75", unite: "l", uniteStock: null }, bouteille)).toBeNull();
+  });
+
   it("règle sûre : une contenance différente ou absente d'un seul côté n'est jamais le même article", () => {
     const f = (a: string, b: string) => memeArticle(formeArticle(a), formeArticle(b));
     expect(f("MONIN COCONUT FRUIT 1LTR", "Monin Coconut Fruit-1L")).toBe(true);
@@ -340,6 +367,9 @@ describe("ingrédients", () => {
     expect(f("Scheweppes Soda", "Scheweppes Soda-30cl")).toBe(false);
     expect(f("BACARDI BLC 1L", "Bacardi blanc-1l")).toBe(false);
     expect(f("Absolut Vodka", "Vodka Absolut")).toBe(false); // l'ordre des mots compte
+    // Un nombre collé à un séparateur n'est pas une contenance : il reste dans les mots.
+    expect(f("Vodka .7L", "Vodka")).toBe(false);
+    expect(f("Vin 1/2 L", "Vin 1")).toBe(false);
   });
 
   it("valeurs de création : prix ramené au litre / au kilo ; prix nul ou absent = SANS prix, jamais 0", () => {
@@ -418,6 +448,11 @@ describe("plan d'import (simulation = écriture)", () => {
     // Contenance déjà au catalogue : elle fait foi, la saisie est ignorée, rien à écrire.
     const connue = A("b", "Rhum blanc", "Bouteille", 18, "BOISSON", ["1", "l"]);
     expect(plan(lues, choix, [connue], fiches)[0]!.lignes[0]!.article!.contenanceAEcrire).toBeNull();
+    // Contenance à la virgule : écrite sous la forme canonique de la règle unique.
+    choix.contenances.b = { quantite: "0,7", unite: "l", uniteStock: null };
+    expect(plan(lues, choix, [bouteille], fiches)[0]!.lignes[0]!.article!.contenanceAEcrire).toEqual({ quantite: "0.7", unite: "l", uniteStock: null });
+    choix.contenances.b = { quantite: "1e2", unite: "cl", uniteStock: null };
+    expect(plan(lues, choix, [bouteille], fiches)[0]).toMatchObject({ statut: "BLOQUEE", raisons: ["Rhum blanc : contenance de « Rhum blanc » à renseigner (Contenance : nombre illisible.)"] });
     // Article sans unité : l'unité de stock se choisit avec la contenance.
     const sansUnite = A("b", "Jus d'Ananas-Ceres-1L", null, 2);
     choix.contenances.b = { quantite: "1", unite: "l", uniteStock: null };

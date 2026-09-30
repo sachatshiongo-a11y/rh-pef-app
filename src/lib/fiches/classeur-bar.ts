@@ -1,6 +1,6 @@
 import Decimal from "decimal.js";
 import {
-  contenanceCanonique, contenanceDansNom, estUniteComptage, facteur, facteurVersArticle, normaliserUnite, uniteManquante,
+  contenanceCanonique, contenanceDansNom, estUniteComptage, facteur, facteurVersArticle, lireContenanceSaisie, normaliserUnite, uniteManquante,
   UNITES_CONTENANCE, type UniteArticle,
 } from "@/lib/fiches/conversion";
 import { rubriqueComparable } from "@/lib/fiches/famille-boisson";
@@ -373,7 +373,7 @@ export function valeursCreation(libelle: string, unite: string, prix: number | n
 /** Mots vides d'une désignation (« Jus d'Ananas », « Sirop de Grenadine »). */
 const MOTS_VIDES_ARTICLE = new Set(["d", "de", "du", "des", "l", "la", "le", "les", "et", "a", "au", "aux", "en"]);
 /** Toute mention de contenance, retirée des mots (elle est comparée à part, sous forme canonique). */
-const CONTENANCE_DANS_TEXTE = /(^|[^a-z0-9])\d+(?:[.,]\d+)?\s*(?:ml|cl|ltr|lt|litres?|l|kg|gr|g)(?![a-z])/gi;
+const CONTENANCE_DANS_TEXTE = /(^|[^a-z0-9./,])\d+(?:[.,]\d+)?\s*(?:ml|cl|ltr|lt|litres?|l|kg|gr|g)(?![a-z])/gi;
 
 export type FormeArticle = { mots: string[]; contenance: string | null };
 
@@ -500,12 +500,27 @@ export type ContenanceChoisie = { quantite: string; unite: string; /** unité de
  * (ou n'a pas d'unité du tout), n'a pas de contenance, et que la consommation ne s'y convertit
  * pas déjà directement (« Bouteille » consommée en « Bouteille »).
  */
-export function contenanceRequise(article: ArticleExistant, uniteConso: string | null): boolean {
+export function contenanceRequise(article: ArticleExistant, unitesConso: string | null | readonly (string | null)[]): boolean {
   if (article.contenance !== null) return false;
   const u = article.unite ?? "";
   if (!uniteManquante(u) && !estUniteComptage(u)) return false;
-  if (uniteConso && !uniteManquante(u) && facteur(uniteConso, u) !== null) return false;
+  // Un libellé peut être consommé en plusieurs unités (« Bouteille » ici, « cl » là) : il en faut
+  // une dès qu'UNE d'elles ne se convertit pas directement.
+  const unites = (Array.isArray(unitesConso) ? unitesConso : [unitesConso]).filter((x): x is string => !!x && !uniteManquante(x));
+  if (!uniteManquante(u) && unites.length > 0 && unites.every((x) => facteur(x, u) !== null)) return false;
   return true;
+}
+
+/**
+ * Article du catalogue que vise un choix d'ingrédient : « art:<id> », ou « Créer » qui RÉUTILISE
+ * l'article portant déjà ce nom et cette contenance (un seul) — la même règle que le plan.
+ */
+export function articleVise(libelle: string, cible: string, articles: ArticleExistant[]): ArticleExistant | null {
+  if (cible.startsWith("art:")) return articles.find((a) => a.id === cible.slice(4)) ?? null;
+  if (cible !== "creer") return null;
+  const f = formeArticle(libelle);
+  const memes = articles.filter((a) => memeArticle(f, formeArticle(a.designation)));
+  return memes.length === 1 ? memes[0]! : null;
 }
 
 /** Proposition pré-remplie : la contenance LUE dans la désignation (« -70cl »), sinon vide (à taper). */
@@ -514,19 +529,35 @@ export function contenanceProposee(article: ArticleExistant): ContenanceChoisie 
   return {
     quantite: c ? c.quantite.toString() : "",
     unite: c ? c.unite : "cl",
-    uniteStock: uniteManquante(article.unite) ? "Bouteille" : null,
+    // Article SANS unité : l'unité de stock n'est JAMAIS supposée (son prix est « 2,86 $ par ? ») —
+    // la Direction la choisit, la ligne reste bloquée d'ici là.
+    uniteStock: null,
     lue: c !== null,
   };
 }
 
-/** Une contenance choisie est-elle utilisable ? (nombre > 0, unité de contenance, unité de stock si requise). */
+/**
+ * Pourquoi une contenance choisie n'est pas utilisable (null : elle l'est). UNE règle, celle du
+ * catalogue (`lireContenanceSaisie` : nombre décimal > 0, 3 décimales au plus, unité de
+ * contenance) — jamais l'erreur SQL du CHECK ni un arrondi silencieux — plus l'unité de stock,
+ * exigée quand l'article du catalogue n'en a pas.
+ */
+export function erreurContenanceChoisie(c: ContenanceChoisie | undefined, article: ArticleExistant): string | null {
+  if (!c || (!String(c.quantite).trim() && !uniteManquante(article.unite))) return `1 ${article.unite} = combien ?`;
+  if (uniteManquante(article.unite) && !(UNITES_STOCK_COMPTAGE as readonly string[]).includes(c.uniteStock ?? "")) {
+    return `article sans unité : choisir son unité de stock (son prix ${article.prixUnitaireUSD === null ? "est inconnu" : `de ${article.prixUnitaireUSD} $ est « par ? »`})`;
+  }
+  try {
+    const lu = lireContenanceSaisie(c.quantite, c.unite);
+    return lu.contenance === null ? `1 ${article.unite || c.uniteStock} = combien ?` : null;
+  } catch (e) {
+    return e instanceof Error ? e.message : "contenance illisible";
+  }
+}
+
+/** Une contenance choisie est-elle utilisable ? (cf. `erreurContenanceChoisie`) */
 export function contenanceValideChoisie(c: ContenanceChoisie | undefined, article: ArticleExistant): c is ContenanceChoisie {
-  if (!c) return false;
-  const q = Number(String(c.quantite).replace(",", "."));
-  if (!Number.isFinite(q) || q <= 0 || q > 100000) return false;
-  if (!(UNITES_CONTENANCE as readonly string[]).includes(c.unite)) return false;
-  if (uniteManquante(article.unite) && !(UNITES_STOCK_COMPTAGE as readonly string[]).includes(c.uniteStock ?? "")) return false;
-  return true;
+  return erreurContenanceChoisie(c, article) === null;
 }
 
 // ─── Plan (PUR : la simulation affichée ET l'écriture) ───────────────────────
@@ -673,10 +704,12 @@ export function planifierImportBar(
         const aEcrire = contenanceRequise(existant, unite) ? choix.contenances?.[existant.id] : undefined;
         article = { id: existant.id, designation: existant.designation, unite: existant.unite ?? "", contenanceAEcrire: null };
         if (contenanceRequise(existant, unite)) {
-          if (!contenanceValideChoisie(aEcrire, existant)) {
-            return { ...b, article, statut: "BLOQUEE", motif: `contenance de « ${existant.designation} » à renseigner (${uniteManquante(existant.unite) ? "article sans unité" : `1 ${existant.unite} = combien ?`})` };
+          const erreur = erreurContenanceChoisie(aEcrire, existant);
+          if (erreur !== null || !aEcrire) {
+            return { ...b, article, statut: "BLOQUEE", motif: `contenance de « ${existant.designation} » à renseigner (${erreur})` };
           }
-          const c = { quantite: String(aEcrire.quantite).replace(",", "."), unite: aEcrire.unite, uniteStock: uniteManquante(existant.unite) ? aEcrire.uniteStock : null };
+          // Forme canonique de la règle unique (« 0,75 » → « 0.75 ») : c'est elle qui sera écrite.
+          const c = { quantite: lireContenanceSaisie(aEcrire.quantite, aEcrire.unite).contenance!, unite: aEcrire.unite, uniteStock: uniteManquante(existant.unite) ? aEcrire.uniteStock : null };
           article = { ...article, unite: existant.unite || c.uniteStock!, contenanceAEcrire: c };
           effectif = { unite: article.unite, contenance: c.quantite, contenanceUnite: c.unite };
         } else {
@@ -846,7 +879,7 @@ export function choixInitiaux(fiches: PropositionFiche[], ingredients: Propositi
   const contenances: Record<string, ContenanceChoisie> = {};
   for (const p of ingredients) {
     const a = p.articleId ? parId.get(p.articleId) : undefined;
-    if (a && !contenances[a.id] && contenanceRequise(a, p.unites[0] ?? null)) {
+    if (a && !contenances[a.id] && contenanceRequise(a, p.unites)) {
       const c = contenanceProposee(a);
       contenances[a.id] = { quantite: c.quantite, unite: c.unite, uniteStock: c.uniteStock };
     }
@@ -868,7 +901,14 @@ export function choixInitiaux(fiches: PropositionFiche[], ingredients: Propositi
 // et annoncée « partagée ». Plusieurs images sur une feuille : aucune n'est choisie d'office.
 
 export type TypePhoto = "image/png" | "image/jpeg" | "image/webp";
-export type PhotoFeuille = { feuille: string; chemin: string; type: TypePhoto; octets: Uint8Array; partageeAvec: string[] };
+export type PhotoFeuille = {
+  feuille: string; chemin: string; type: TypePhoto; octets: Uint8Array; partageeAvec: string[];
+  /**
+   * Moins de trois feuilles portent des images : le logo d'en-tête (reconnu parce qu'il est sur
+   * PLUS de deux feuilles) ne peut pas être distingué d'une photo. Proposée, jamais cochée d'office.
+   */
+  incertaine: boolean;
+};
 export type LecturePhotos = { photos: Map<string, PhotoFeuille>; ecartees: { feuille: string; raison: string }[] };
 
 const TYPES_PHOTO: Record<string, TypePhoto> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
@@ -924,6 +964,9 @@ export async function lirePhotosClasseur(donnees: ArrayBuffer | Uint8Array, feui
   const porteurs = new Map<string, string[]>();
   for (const [f, ms] of images) for (const m of ms) porteurs.set(m, [...(porteurs.get(m) ?? []), f]);
 
+  // Critère SÛR du logo : présent sur plus de deux feuilles. Avec moins de trois feuilles illustrées,
+  // il n'existe pas : tout ce qui reste est « incertain » (la position dans la feuille ne l'est pas).
+  const incertaine = [...images.values()].filter((ms) => ms.length > 0).length < 3;
   const res: LecturePhotos = { photos: new Map(), ecartees: [] };
   for (const feuille of feuilles) {
     const candidates = (images.get(feuille) ?? []).filter((m) => (porteurs.get(m)?.length ?? 0) <= 2);
@@ -934,7 +977,7 @@ export async function lirePhotosClasseur(donnees: ArrayBuffer | Uint8Array, feui
     if (!type) { res.ecartees.push({ feuille, raison: `format « ${chemin.split(".").pop()} » non pris en charge (PNG, JPG ou WEBP)` }); continue; }
     const octets = await zip.file(chemin)?.async("uint8array");
     if (!octets) continue;
-    res.photos.set(feuille, { feuille, chemin, type, octets, partageeAvec: porteurs.get(chemin)!.filter((f) => f !== feuille) });
+    res.photos.set(feuille, { feuille, chemin, type, octets, partageeAvec: porteurs.get(chemin)!.filter((f) => f !== feuille), incertaine });
   }
   return res;
 }

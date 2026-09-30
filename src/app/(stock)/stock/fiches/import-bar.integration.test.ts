@@ -320,6 +320,31 @@ describe("import des fiches du bar", () => {
     expect(journalDe(await prisma.journalAudit.findMany({ where: { entiteId: vodka.id } }))).toEqual(["contenance"]);
   }, 60_000);
 
+  it("article SANS unité : l'unité de stock choisie est écrite avec la contenance ; sans elle, les fiches restent bloquées", async () => {
+    const jus = await prisma.articleStock.create({ data: { designation: "Jus d'Ananas-Ceres-1L", domaine: "BOISSON", prixUnitaireUSD: 2.86 } });
+    const a = await analyser();
+    const cle = a.ingredients.find((p) => p.libelle === "Jus d'Ananas-100")!.cle;
+    const vodka = a.articles.find((x) => x.designation === "ABSOLUT VODKA 75CL")!;
+    const base = { ingredients: { [cle]: { cible: `art:${jus.id}`, domaine: "BOISSON" as const } } };
+    const sans = await appliquerImportBar(lues, await choixToutCreer({ ...base, contenances: { [vodka.id]: { quantite: "75", unite: "cl", uniteStock: null }, [jus.id]: { quantite: "1", unite: "l", uniteStock: null } } }));
+    if (!("ok" in sans)) throw new Error(sans.erreur);
+    expect(sans.nonEcrites.map((n) => n.feuille)).toContain("Pinacolada cocktail");
+    expect((await prisma.articleStock.findUniqueOrThrow({ where: { id: jus.id } })).unite).toBeNull();
+
+    await prisma.ingredientFiche.deleteMany();
+    const avec = await appliquerImportBar(lues, await choixToutCreer({ ...base, contenances: { [jus.id]: { quantite: "1", unite: "l", uniteStock: "Brique" } } }));
+    if (!("ok" in avec)) throw new Error(avec.erreur);
+    expect(avec.contenancesEcrites).toContain("Jus d'Ananas-Ceres-1L : 1 l (unité de stock : Brique)");
+    const lu = await prisma.articleStock.findUniqueOrThrow({ where: { id: jus.id } });
+    expect([lu.unite, lu.contenance?.toString(), lu.contenanceUnite]).toEqual(["Brique", "1", "l"]);
+    // 12 cl d'une brique de 1 L à 2,86 $ = 0,3432 $ : le chiffre du classeur.
+    const vues = await chargerFichesVues();
+    const ctx = construireContexte(vues, new Map((await chargerArticlesDesFiches()).map((x) => [x.id, x])));
+    const pina = vues.find((v) => v.nom === "Pina Colada" && v.categorie === "Cocktail")!;
+    const i = pina.lignes.findIndex((l) => l.articleId === jus.id);
+    expect(calculerCout(ctx.fiches.get(pina.id)!, ctx).lignes[i]!.cout!.toString()).toBe("0.3432");
+  }, 60_000);
+
   it("une contenance déjà renseignée n'est JAMAIS écrasée : elle fait foi, la saisie est ignorée", async () => {
     const vodka = await prisma.articleStock.findFirstOrThrow({ where: { designation: "ABSOLUT VODKA 75CL" } });
     await prisma.articleStock.update({ where: { id: vodka.id }, data: { contenance: 70, contenanceUnite: "cl" } }); // saisie du catalogue

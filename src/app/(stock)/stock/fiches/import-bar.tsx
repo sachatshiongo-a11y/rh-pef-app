@@ -9,7 +9,7 @@ import { formaterNombre, formaterUSD } from "@/lib/montant";
 import { normTexte } from "@/lib/texte";
 import { UNITES_CONTENANCE, uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 import {
-  choixInitiaux, contenanceProposee, contenanceRequise, contenanceValideChoisie, planifierImportBar, uniteConvertible, UNITES_STOCK_COMPTAGE,
+  articleVise, choixInitiaux, contenanceProposee, erreurContenanceChoisie, contenanceRequise, contenanceValideChoisie, planifierImportBar, uniteConvertible, UNITES_STOCK_COMPTAGE,
   type ContenanceChoisie, type LecturePhotos,
   type ArticleExistant, type ChoixFiche, type ChoixImportBar, type ChoixIngredient, type FicheBarLue,
   type FicheExistanteBar, type FeuilleNonLue, type FichePlan, type PropositionFiche, type PropositionIngredient, type StatutFiche,
@@ -118,11 +118,14 @@ export function ImportFichesBar() {
   const photoCochee = (feuille: string) => {
     const p = photos?.photos.get(feuille);
     if (!p || cibleAPhoto(feuille)) return false;
-    return photosCochees[feuille] ?? p.partageeAvec.length === 0;
+    return photosCochees[feuille] ?? (p.partageeAvec.length === 0 && !p.incertaine);
   };
   const changerPhoto = useCallback((feuille: string, oui: boolean) => setPhotosCochees((s) => ({ ...s, [feuille]: oui })), []);
   const prets = plans.filter((p) => p.statut === "PRETE");
   const articlesACreer = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article && !l.article.id).map((l) => l.cle))).size;
+  /** Articles du catalogue SANS unité à qui l'import en donne une : nommés dans la confirmation. */
+  const unitesPosees = [...new Map(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire?.uniteStock)
+    .map((l) => [l.article!.id!, `${l.article!.designation} → ${l.article!.contenanceAEcrire!.uniteStock}`] as const))).values()];
   const photosAEnvoyer = prets.filter((p) => photoCochee(p.feuille)).length;
   const contenancesAEcrire = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire).map((l) => l.article!.id))).size;
 
@@ -130,14 +133,19 @@ export function ImportFichesBar() {
     setChoix((s) => ({ ...s, fiches: { ...s.fiches, [feuille]: { ...s.fiches[feuille]!, ...c } } })), []);
   const parIdArticle = useMemo(() => new Map((analyse?.articles ?? []).map((a) => [a.id, a])), [analyse]);
   /** Choisir un article compté à l'unité sans contenance pré-remplit celle LUE dans son nom (visible, modifiable). */
-  const changerIngredient = useCallback((cle: string, c: Partial<ChoixIngredient>, uniteConso: string | null) =>
+  const changerIngredient = useCallback((cle: string, c: Partial<ChoixIngredient>, p: { libelle: string; unites: string[] }) =>
     setChoix((s) => {
-      const a = c.cible?.startsWith("art:") ? parIdArticle.get(c.cible.slice(4)) : undefined;
-      const contenances = a && !s.contenances[a.id] && contenanceRequise(a, uniteConso)
+      const a = c.cible ? articleVise(p.libelle, c.cible, [...parIdArticle.values()]) : null;
+      const contenances = a && !s.contenances[a.id] && contenanceRequise(a, p.unites)
         ? { ...s.contenances, [a.id]: (({ quantite, unite, uniteStock }) => ({ quantite, unite, uniteStock }))(contenanceProposee(a)) }
         : s.contenances;
       return { ...s, contenances, ingredients: { ...s.ingredients, [cle]: { ...s.ingredients[cle]!, ...c } } };
     }), [parIdArticle]);
+  // Article visé par chaque libellé (le choisi, ou celui que « Créer » réutilise) : sa contenance saisie.
+  const idVise = useMemo(() => new Map((analyse?.ingredients ?? []).map((p) => {
+    const cible = choix.ingredients[p.cle]?.cible ?? "";
+    return [p.cle, cible.startsWith("art:") ? cible.slice(4) : cible === "creer" ? articleVise(p.libelle, cible, analyse!.articles)?.id ?? null : null];
+  })), [analyse, choix.ingredients]);
   const changerContenance = useCallback((articleId: string, c: Partial<ContenanceChoisie>) =>
     setChoix((s) => ({ ...s, contenances: { ...s.contenances, [articleId]: { ...(s.contenances[articleId] ?? { quantite: "", unite: "cl", uniteStock: null }), ...c } } })), []);
 
@@ -167,6 +175,7 @@ export function ImportFichesBar() {
       `· ${prets.length - creees} fiche(s) existante(s) remplie(s)${remplacees ? `, dont ${remplacees} dont la recette actuelle sera REMPLACÉE` : ""}\n` +
       `· ${creees} fiche(s) créée(s)\n· ${articlesACreer} article(s) créé(s) au catalogue\n` +
       `· ${contenancesAEcrire} contenance(s) écrite(s) sur des articles du catalogue\n` +
+      (unitesPosees.length ? `· unité de stock POSÉE sur des articles qui n'en avaient pas : ${unitesPosees.join(" ; ")}\n` : "") +
       `· ${photosAEnvoyer} photo(s) envoyée(s), une à une, aux fiches qui n'en ont pas\n\n` +
       "Les fiches « à décider », « bloquées » ou « déjà remplies » ne sont pas touchées. Le prix de vente des fiches existantes ne change pas.",
     )) return;
@@ -261,7 +270,7 @@ export function ImportFichesBar() {
                   {lues.map((l, i) => (
                     <LigneFiche key={l.feuille} lue={l} proposition={analyse.fiches[i]!} plan={plans[i]!} choix={choix.fiches[l.feuille]!}
                       fichesBar={analyse.fichesBar} onChange={changerFiche}
-                      photo={photos?.photos.get(l.feuille) ? { url: vignettes.get(l.feuille) ?? null, partageeAvec: photos.photos.get(l.feuille)!.partageeAvec, cochee: photoCochee(l.feuille), dejaUne: cibleAPhoto(l.feuille) } : null}
+                      photo={photos?.photos.get(l.feuille) ? { url: vignettes.get(l.feuille) ?? null, partageeAvec: photos.photos.get(l.feuille)!.partageeAvec, incertaine: photos.photos.get(l.feuille)!.incertaine, cochee: photoCochee(l.feuille), dejaUne: cibleAPhoto(l.feuille) } : null}
                       onPhoto={changerPhoto} />
                   ))}
                 </tbody>
@@ -285,7 +294,7 @@ export function ImportFichesBar() {
                 <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1.5 [&>tr>td]:align-top">
                   {analyse.ingredients.map((p) => (
                     <LigneIngredient key={p.cle} proposition={p} choix={choix.ingredients[p.cle]!} articles={analyse.articles} onChange={changerIngredient}
-                      contenance={choix.ingredients[p.cle]!.cible.startsWith("art:") ? choix.contenances[choix.ingredients[p.cle]!.cible.slice(4)] : undefined}
+                      contenance={idVise.get(p.cle) ? choix.contenances[idVise.get(p.cle)!] : undefined}
                       onContenance={changerContenance} />
                   ))}
                 </tbody>
@@ -306,7 +315,7 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
   lue: FicheBarLue; proposition: PropositionFiche; plan: FichePlan; choix: ChoixFiche; fichesBar: FicheExistanteBar[];
   onChange: (feuille: string, c: Partial<ChoixFiche>) => void;
   /** Photo de la feuille (null : aucune, ou le seul logo partagé). */
-  photo: { url: string | null; partageeAvec: string[]; cochee: boolean; dejaUne: boolean } | null;
+  photo: { url: string | null; partageeAvec: string[]; incertaine: boolean; cochee: boolean; dejaUne: boolean } | null;
   onPhoto: (feuille: string, oui: boolean) => void;
 }) {
   const parRubrique = useMemo(() => {
@@ -338,6 +347,7 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
               <span>
                 {photo.dejaUne ? "la fiche a déjà une photo : gardée" : "importer la photo"}
                 {photo.partageeAvec.length > 0 && <span className="block text-amber-800">partagée avec « {photo.partageeAvec.join(" », « ")} » : à cocher si c&apos;est bien elle</span>}
+                {photo.incertaine && photo.partageeAvec.length === 0 && <span className="block text-amber-800">classeur trop court pour reconnaître le logo d&apos;en-tête : à cocher si c&apos;est bien la photo</span>}
               </span>
             </label>
           </div>
@@ -412,7 +422,7 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
 
 const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, articles, onChange, contenance, onContenance }: {
   proposition: PropositionIngredient; choix: ChoixIngredient; articles: ArticleExistant[];
-  onChange: (cle: string, c: Partial<ChoixIngredient>, uniteConso: string | null) => void;
+  onChange: (cle: string, c: Partial<ChoixIngredient>, p: { libelle: string; unites: string[] }) => void;
   /** Contenance saisie pour l'article choisi (s'il en faut une). */
   contenance: ContenanceChoisie | undefined;
   onContenance: (articleId: string, c: Partial<ContenanceChoisie>) => void;
@@ -427,14 +437,16 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
     return (n ? articles.filter((a) => normTexte(a.designation).includes(n)) : articles).slice(0, 20);
   }, [recherche, articles]);
   const suggestions = p.suggestions.map((id) => parId.get(id)).filter((a): a is ArticleExistant => !!a);
-  const uniteConso = p.unites[0] ?? null;
-  const requise = choisi ? contenanceRequise(choisi, uniteConso) : false;
-  const lueDansNom = choisi ? contenanceProposee(choisi) : null;
+  // Article visé : le choisi, ou celui que « Créer » réutilisera (même nom, même contenance).
+  const vise = useMemo(() => articleVise(p.libelle, choix.cible, articles), [p.libelle, choix.cible, articles]);
+  const reutilise = choix.cible === "creer" && vise !== null;
+  const requise = vise ? contenanceRequise(vise, p.unites) : false;
+  const lueDansNom = vise ? contenanceProposee(vise) : null;
   // Article tel que la conversion le verra : sa contenance en base, sinon celle saisie ici.
-  const effectif: UniteArticle | null = choisi
+  const effectif: UniteArticle | null = vise
     ? requise
-      ? { unite: choisi.unite || contenance?.uniteStock || null, contenance: contenanceValideChoisie(contenance, choisi) ? contenance.quantite.replace(",", ".") : null, contenanceUnite: contenance?.unite ?? null }
-      : choisi
+      ? { unite: vise.unite || contenance?.uniteStock || null, contenance: contenanceValideChoisie(contenance, vise) ? contenance.quantite.replace(",", ".") : null, contenanceUnite: contenance?.unite ?? null }
+      : vise
     : choix.cible === "creer" && p.creation ? { unite: p.creation.unite } : null;
   const libelleCible = (a: UniteArticle) => `${a.unite || "article sans unité"}${a.contenance ? ` de ${formaterNombre(Number(a.contenance))} ${a.contenanceUnite}` : ""}`;
 
@@ -447,7 +459,7 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
         </div>
       </td>
       <td className="min-w-72">
-        <select value={choix.cible} onChange={(e) => { if (e.target.value === "chercher") setRecherche(""); else onChange(p.cle, { cible: e.target.value }, uniteConso); }}
+        <select value={choix.cible} onChange={(e) => { if (e.target.value === "chercher") setRecherche(""); else onChange(p.cle, { cible: e.target.value }, p); }}
           className={`${inp} w-full max-w-xs ${choix.cible === "" ? "border-amber-400" : ""}`} aria-label={`Article pour ${p.libelle}`}>
           <option value="">— à décider —</option>
           {choisi && !suggestions.some((a) => a.id === choisi.id) && <option value={`art:${choisi.id}`}>{choisi.designation} ({choisi.unite || "unité ?"})</option>}
@@ -463,28 +475,30 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
         </select>
         {sure && <p className="mt-0.5 text-[11px] text-emerald-800">correspondance sûre (même désignation)</p>}
         {!p.articleId && p.doute && <p className="mt-0.5 text-[11px] text-amber-800">{p.doute}</p>}
-        {choisi && (
+        {vise && (
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            <Link href={`/stock/catalogue/${choisi.id}`} className="text-primary hover:underline">{choisi.designation}</Link>
-            {" · "}{choisi.prixUnitaireUSD !== null ? `${formaterNombre(choisi.prixUnitaireUSD, { maximumFractionDigits: 4 })} $/${choisi.unite || "?"}` : "sans prix (coût « — »)"}
-            {choisi.contenance ? ` · contenance ${formaterNombre(Number(choisi.contenance))} ${choisi.contenanceUnite}` : ""}
+            {reutilise && <span className="block text-amber-800">« Créer » : un article porte déjà ce nom et cette contenance, il sera réutilisé</span>}
+            <Link href={`/stock/catalogue/${vise.id}`} className="text-primary hover:underline">{vise.designation}</Link>
+            {" · "}{vise.prixUnitaireUSD !== null ? `${formaterNombre(vise.prixUnitaireUSD, { maximumFractionDigits: 4 })} $/${vise.unite || "?"}` : "sans prix (coût « — »)"}
+            {vise.contenance ? ` · contenance ${formaterNombre(Number(vise.contenance))} ${vise.contenanceUnite}` : ""}
           </p>
         )}
-        {choisi && requise && (
-          <div className={`mt-1 flex flex-wrap items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${contenanceValideChoisie(contenance, choisi) ? "border-amber-300 bg-amber-50" : "border-red-300 bg-red-50"}`}>
-            {uniteManquante(choisi.unite) && (
+        {vise && requise && (
+          <div className={`mt-1 flex flex-wrap items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${contenanceValideChoisie(contenance, vise) ? "border-amber-300 bg-amber-50" : "border-red-300 bg-red-50"}`}>
+            {uniteManquante(vise.unite) && (
               <>
                 Unité de stock
-                <select value={contenance?.uniteStock ?? ""} onChange={(e) => onContenance(choisi.id, { uniteStock: e.target.value || null })} className={inp} aria-label={`Unité de stock de ${choisi.designation}`}>
-                  <option value="">—</option>
+                <select value={contenance?.uniteStock ?? ""} onChange={(e) => onContenance(vise.id, { uniteStock: e.target.value || null })} className={inp} aria-label={`Unité de stock de ${vise.designation}`}>
+                  <option value="">— à choisir —</option>
                   {UNITES_STOCK_COMPTAGE.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
+                <span className="text-red-800">prix actuel : {vise.prixUnitaireUSD !== null ? `${formaterNombre(vise.prixUnitaireUSD, { maximumFractionDigits: 4 })} $ par ?` : "— par ?"}</span>
               </>
             )}
-            1 {choisi.unite || contenance?.uniteStock || "unité"} =
-            <input value={contenance?.quantite ?? ""} inputMode="decimal" onChange={(e) => onContenance(choisi.id, { quantite: e.target.value })}
-              className={`${inp} w-16`} aria-label={`Contenance de ${choisi.designation}`} />
-            <select value={contenance?.unite ?? "cl"} onChange={(e) => onContenance(choisi.id, { unite: e.target.value })} className={inp} aria-label={`Unité de contenance de ${choisi.designation}`}>
+            1 {vise.unite || contenance?.uniteStock || "unité"} =
+            <input value={contenance?.quantite ?? ""} inputMode="decimal" onChange={(e) => onContenance(vise.id, { quantite: e.target.value })}
+              className={`${inp} w-16`} aria-label={`Contenance de ${vise.designation}`} />
+            <select value={contenance?.unite ?? "cl"} onChange={(e) => onContenance(vise.id, { unite: e.target.value })} className={inp} aria-label={`Unité de contenance de ${vise.designation}`}>
               {UNITES_CONTENANCE.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
             <span className="text-muted-foreground">
@@ -493,12 +507,13 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
                 : lueDansNom?.lue ? "saisie à la main" : "illisible dans le nom : à saisir"}
               {" · sera écrite sur l'article"}
             </span>
+            {erreurContenanceChoisie(contenance, vise) && <span className="block w-full text-red-800">{erreurContenanceChoisie(contenance, vise)}</span>}
           </div>
         )}
         {choix.cible === "creer" && p.creation && (
           <label className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
             {p.creation.prixUnitaireUSD !== null ? `${formaterNombre(Number(p.creation.prixUnitaireUSD), { maximumFractionDigits: 4 })} $/${p.creation.unite}` : "sans prix (coût « — »)"} · domaine
-            <select value={choix.domaine} onChange={(e) => onChange(p.cle, { domaine: e.target.value as ChoixIngredient["domaine"] }, uniteConso)} className={inp} aria-label={`Domaine de l'article ${p.libelle}`}>
+            <select value={choix.domaine} onChange={(e) => onChange(p.cle, { domaine: e.target.value as ChoixIngredient["domaine"] }, p)} className={inp} aria-label={`Domaine de l'article ${p.libelle}`}>
               {DOMAINES.map((d) => <option key={d.valeur} value={d.valeur}>{d.libelle}</option>)}
             </select>
           </label>
@@ -509,7 +524,7 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
             <ul className="max-h-48 overflow-auto rounded border bg-card text-xs">
               {resultats.map((a) => (
                 <li key={a.id}>
-                  <button type="button" onClick={() => { onChange(p.cle, { cible: `art:${a.id}` }, uniteConso); setRecherche(null); }} className="w-full px-2 py-1 text-left hover:bg-accent">
+                  <button type="button" onClick={() => { onChange(p.cle, { cible: `art:${a.id}` }, p); setRecherche(null); }} className="w-full px-2 py-1 text-left hover:bg-accent">
                     {a.designation} <span className="text-muted-foreground">({a.unite || "unité ?"})</span>
                   </button>
                 </li>
@@ -524,7 +539,7 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
         {p.unites.length === 0 && <span className="text-red-800">unité vide au classeur</span>}
         {p.unites.map((u) => {
           if (effectif === null || choix.cible === "ignorer") return <div key={u}>{u}</div>;
-          if (requise && !contenanceValideChoisie(contenance, choisi!)) return <div key={u} className="font-medium text-red-800">{u} → {choisi!.unite || "?"} : contenance à renseigner</div>;
+          if (requise && !contenanceValideChoisie(contenance, vise!)) return <div key={u} className="font-medium text-red-800">{u} → {vise!.unite || "?"} : contenance à renseigner</div>;
           const ok = uniteConvertible(u, effectif);
           return <div key={u} className={ok ? "text-emerald-800" : "font-medium text-red-800"}>{u} → {libelleCible(effectif)}{ok ? "" : " : inconvertible"}</div>;
         })}

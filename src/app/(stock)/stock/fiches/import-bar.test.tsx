@@ -201,4 +201,47 @@ describe("Importer les fiches du bar — simulation", () => {
     expect(ficheId).toBe("pc");
     expect((fd.get("photo") as File).type).toBe("image/jpeg");
   });
+
+  it("article SANS unité : unité de stock jamais supposée (prix « par ? »), ligne bloquée jusqu'au choix, nommé dans la confirmation", async () => {
+    const jus: ArticleExistant = { id: "jus", designation: "Jus d'Ananas-Ceres-1L", unite: null, prixUnitaireUSD: 2.86, domaine: "BOISSON", contenance: null, contenanceUnite: null };
+    appels.analyserFichesBar.mockImplementationOnce(async (lues: FicheBarLue[]) => ({
+      ok: true as const, fiches: rattacherFiches(lues, FICHES), ingredients: rattacherIngredients(lues, [...ARTICLES, jus]), articles: [...ARTICLES, jus], fichesBar: FICHES,
+    }));
+    await deposer();
+    for (const l of ["Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
+    choisir(select("Article pour Jus d'Ananas-100"), "art:jus");
+    expect(select("Unité de stock de Jus d'Ananas-Ceres-1L").value).toBe(""); // jamais « Bouteille » d'office
+    expect(conteneur.querySelector<HTMLInputElement>('input[aria-label="Contenance de Jus d\'Ananas-Ceres-1L"]')!.value).toBe("1");
+    expect(ligne("Jus d'Ananas-100").textContent).toContain("prix actuel : 2,86 $ par ?");
+    expect(ligne("Piña colada").textContent).toContain("bloquée");
+    choisir(select("Unité de stock de Jus d'Ananas-Ceres-1L"), "Brique");
+    expect(ligne("Piña colada").textContent).toContain("prête");
+    const confirmer = vi.fn<(message: string) => boolean>(() => false);
+    vi.stubGlobal("confirm", confirmer);
+    await act(async () => { bouton("Appliquer (2 fiches)").click(); });
+    expect(confirmer.mock.calls[0]![0]).toContain("· unité de stock POSÉE sur des articles qui n'en avaient pas : Jus d'Ananas-Ceres-1L → Brique");
+  });
+
+  it("« Créer » qui réutilise un article existant sans contenance : le champ contenance s'affiche", async () => {
+    const coco: ArticleExistant = { id: "coco", designation: "Monin Coconut Fruit-1L", unite: "Bouteille", prixUnitaireUSD: 16, domaine: "BOISSON", contenance: null, contenanceUnite: null };
+    appels.analyserFichesBar.mockImplementationOnce(async (lues: FicheBarLue[]) => {
+      // Simulation d'une analyse antérieure à l'article : le libellé n'y était pas reconnu.
+      const ingredients = rattacherIngredients(lues, ARTICLES);
+      return { ok: true as const, fiches: rattacherFiches(lues, FICHES), ingredients, articles: [...ARTICLES, coco], fichesBar: FICHES };
+    });
+    await deposer();
+    choisir(select("Article pour MONIN COCONUT FRUIT 1LTR"), "creer");
+    expect(ligne("MONIN COCONUT FRUIT 1LTR").textContent).toContain("« Créer » : un article porte déjà ce nom et cette contenance, il sera réutilisé");
+    expect(conteneur.querySelector<HTMLInputElement>('input[aria-label="Contenance de Monin Coconut Fruit-1L"]')!.value).toBe("1");
+  });
+
+  it("classeur à une seule feuille illustrée : la photo (peut-être le logo) est proposée DÉCOCHÉE", async () => {
+    const z = await JSZip.loadAsync(OCTETS);
+    z.file("xl/worksheets/_rels/sheet1.xml.rels", `<Relationships><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`);
+    z.file("xl/drawings/_rels/drawing1.xml.rels", `<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/logo.png"/></Relationships>`);
+    z.file("xl/media/logo.png", new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    await deposer(await z.generateAsync({ type: "uint8array" }));
+    expect(conteneur.querySelector<HTMLInputElement>('input[aria-label="Importer la photo de Piña colada"]')!.checked).toBe(false);
+    expect(ligne("Piña colada").textContent).toContain("classeur trop court pour reconnaître le logo d'en-tête");
+  });
 });

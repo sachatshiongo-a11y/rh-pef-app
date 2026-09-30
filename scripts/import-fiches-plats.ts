@@ -492,6 +492,10 @@ export function lireListeArticles(wb: XLSX.WorkBook): { lignes: LigneArticle[]; 
 // dans la désignation par la Direction. Lu tel quel, uniquement pour EXPLIQUER un écart de prix.
 const CONDITIONNEMENT_REGEX = /(\d+)\s*[Xx]\s*(\d+(?:[.,]\d+)?)\s*(kg|g|gr)\b/i;
 
+// ⚠ CONTENANCE IGNORÉE (2026-09-30) : copie locale de la conversion d'unités, antérieure à la
+// porte unique `facteurVersArticle` (src/lib/fiches/conversion.ts). Elle ne connaît PAS la
+// contenance d'un article compté à l'unité (bouteille de 75 cl). Outil ponctuel d'import, hors
+// de l'application : ne pas s'en servir comme référence ; l'application convertit par la porte.
 /** Poids d'un paquet en grammes, lu dans l'unité (« 500 GR ») puis dans la désignation. */
 function poidsPaquetEnGrammes(a: LigneArticle): Decimal | null {
   const parUnite = a.unite === null ? null : poidsEmballage(a.unite);
@@ -535,6 +539,10 @@ export function detecterEcartsPrix(lignes: LigneArticle[]): EcartPrix[] {
   return ecarts;
 }
 
+// ⚠ CONTENANCE IGNORÉE (2026-09-30) : copie locale de la conversion d'unités, antérieure à la
+// porte unique `facteurVersArticle` (src/lib/fiches/conversion.ts). Elle ne connaît PAS la
+// contenance d'un article compté à l'unité (bouteille de 75 cl). Outil ponctuel d'import, hors
+// de l'application : ne pas s'en servir comme référence ; l'application convertit par la porte.
 /**
  * Prix ramené à l'unité de comparaison de sa grandeur (le kg pour une masse, le litre pour un
  * volume). `null` pour les unités de comptage (pièce, boîte, bouteille…) : deux « pièces » ne sont
@@ -830,6 +838,10 @@ export function analyserClasseur(wb: XLSX.WorkBook): ResultatParse {
   const nonRattaches = lignes.filter((l) => l.rattachement.type === "AUCUN");
   const quantitesAbsentes = lignes.filter((l) => l.ingredient.quantite === null);
 
+  // ⚠ CONTENANCE IGNORÉE (2026-09-30) : copie locale de la conversion d'unités, antérieure à la
+  // porte unique `facteurVersArticle` (src/lib/fiches/conversion.ts). Elle ne connaît PAS la
+  // contenance d'un article compté à l'unité (bouteille de 75 cl). Outil ponctuel d'import, hors
+  // de l'application : ne pas s'en servir comme référence ; l'application convertit par la porte.
   // 4. Unités qui ne se convertissent pas (`facteur` → null, et pas rattrapées par une
   //    unité-emballage type « 500 GR »). C'est ce qui chiffrera les lignes en « coût partiel ».
   const inconvertibles = new Map<string, UniteInconvertible>();
@@ -1966,6 +1978,10 @@ export function chargerCorrespondances(chemin: string = CHEMIN_CORRESPONDANCES):
   return validerCorrespondances(brut, chemin);
 }
 
+// ⚠ CONTENANCE IGNORÉE (2026-09-30) : copie locale de la conversion d'unités, antérieure à la
+// porte unique `facteurVersArticle` (src/lib/fiches/conversion.ts). Elle ne connaît PAS la
+// contenance d'un article compté à l'unité (bouteille de 75 cl). Outil ponctuel d'import, hors
+// de l'application : ne pas s'en servir comme référence ; l'application convertit par la porte.
 /**
  * L'unité de consommation de la recette se convertit-elle avec l'unité d'achat de l'article ?
  *

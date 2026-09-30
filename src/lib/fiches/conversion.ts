@@ -208,9 +208,10 @@ export function contenanceDansNom(nom: string): { quantite: Decimal; unite: Unit
   const texte = nom.normalize("NFD").replace(/[̀-ͯ]/g, "");
   let derniere: RegExpExecArray | null = null;
   for (const m of texte.matchAll(CONTENANCE_REGEX)) {
-    // Le nombre ne doit pas être collé à une lettre qui le précède (« V8 », « B52cl »).
+    // Le nombre ne doit pas être collé à ce qui le précède : une lettre (« V8 », « B52cl »), un
+    // chiffre, ou un séparateur de nombre (« .7L » n'est pas 7 l, « 1/2 L » n'est pas 2 l).
     const avant = texte[(m.index ?? 0) - 1];
-    if (avant && /[a-z0-9]/i.test(avant)) continue;
+    if (avant && /[a-z0-9./,]/i.test(avant)) continue;
     derniere = m as RegExpExecArray;
   }
   if (!derniere) return null;
@@ -243,8 +244,9 @@ export function lireContenanceSaisie(quantiteBrute: unknown, uniteBrute: unknown
   if (!q && !u) return { contenance: null, contenanceUnite: null };
   const unite = UNITES_CONTENANCE.find((x) => x === u);
   if (!q || !unite) throw new Error("Contenance : saisissez un nombre ET une unité (ml, cl, l, g, kg), ou videz les deux.");
-  let d: Decimal;
-  try { d = new Decimal(q); } catch { throw new Error("Contenance : nombre illisible."); }
+  // Chiffres décimaux seulement : ni « 1e5 », ni « 0x10 », ni « Infinity » (que Decimal accepterait).
+  if (!/^\d+(\.\d+)?$/.test(q)) throw new Error("Contenance : nombre illisible.");
+  const d = new Decimal(q);
   if (!d.isFinite() || !d.greaterThan(0) || d.greaterThan(100000)) throw new Error("Contenance : un nombre supérieur à 0 est attendu.");
   if (!d.toDecimalPlaces(3).equals(d)) throw new Error("Contenance : 3 décimales au plus.");
   return { contenance: d.toString(), contenanceUnite: unite };

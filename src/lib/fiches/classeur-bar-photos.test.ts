@@ -53,6 +53,13 @@ describe("photos des feuilles", () => {
     ]);
   });
 
+  it("moins de trois feuilles illustrées : le logo est indiscernable — photos « incertaines », jamais cochées d'office", async () => {
+    const une = await lirePhotosClasseur(await classeur({ "Seule": ["logo.png"] }), ["Seule"]);
+    expect(une.photos.get("Seule")).toMatchObject({ chemin: "xl/media/logo.png", incertaine: true, partageeAvec: [] });
+    const trois = await lirePhotosClasseur(await classeur({ A: ["logo.png", "a.jpg"], B: ["logo.png", "b.jpg"], C: ["logo.png", "c.jpg"] }), ["A", "B", "C"]);
+    expect([...trois.photos.values()].map((p) => [p.chemin, p.incertaine])).toEqual([["xl/media/a.jpg", false], ["xl/media/b.jpg", false], ["xl/media/c.jpg", false]]);
+  });
+
   it("un fichier illisible ne lève pas : aucune photo", async () => {
     expect(await lirePhotosClasseur(new Uint8Array([1, 2, 3]), ["x"])).toEqual({ photos: new Map(), ecartees: [] });
   });
