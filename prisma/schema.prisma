@@ -1794,6 +1794,67 @@ model LigneComptage {
   @@schema("stock")
 }
 
+// ─── Demandes soumises à la validation de la Direction (Stock) ───
+// Demande de Sacha (2026-09-30) : un compte qui n'est pas la Direction ne paie pas une facture, ne
+// réconcilie pas le stock et ne modifie pas un article directement — il DEMANDE, la Direction valide
+// (et l'effet est alors écrit par le MÊME chemin que son geste direct) ou refuse (motif).
+// Une table générique plutôt que des statuts sur chaque table : une seule file (« Demandes à
+// valider »), un seul jeu d'actions groupées, et aucune table existante n'apprend un état « en
+// attente » qui fuirait dans ses totaux (factures dues, archives de comptage, inventaire).
+// La charge (JSON) est typée par nature et relue par `src/lib/validations-stock/charge.ts`, qui la
+// refuse si elle ne correspond pas au type attendu — jamais lue « de confiance ».
+enum NatureDemandeStock {
+  PAIEMENT_FACTURE
+  RECONCILIATION
+  MODIF_ARTICLE
+
+  @@schema("stock")
+}
+
+enum StatutDemandeStock {
+  EN_ATTENTE
+  VALIDEE
+  REFUSEE
+  ANNULEE // retirée par son auteur avant décision
+
+  @@schema("stock")
+}
+
+model DemandeValidationStock {
+  id          String             @id @default(uuid())
+  nature      NatureDemandeStock
+  statut      StatutDemandeStock @default(EN_ATTENTE)
+  resume      String // libellé lisible figé (« Facture n° 12 de SENEVE — 120,00 $ »)
+  charge      Json // contenu typé par nature (voir charge.ts)
+  auteurId    String // User.id (pas de FK cross-schéma, comme creeParId)
+  auteurNom   String
+  decideurId  String?
+  decideurNom String?
+  decideLe    DateTime?
+  motifRefus  String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  cibles CibleDemandeStock[]
+
+  @@index([statut, nature, createdAt])
+  @@index([auteurId, statut])
+  @@schema("stock")
+}
+
+// Verrou « une seule demande en attente par cible » porté par la BASE : la clé (« FACTURE:<id> »,
+// « ARTICLE:<id> », « COMPTAGE:<articleId> ») est la clé primaire. Les lignes sont créées avec la
+// demande et supprimées dès qu'elle est décidée ou retirée : deux demandes simultanées sur la même
+// facture se heurtent à la contrainte d'unicité, pas à une lecture préalable qui pourrait se croiser.
+model CibleDemandeStock {
+  cle       String                 @id
+  demandeId String
+  demande   DemandeValidationStock @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+
+  @@index([demandeId])
+  @@schema("stock")
+}
+
 // ─── Journal des rapports générés ───
 model Rapport {
   id           String    @id @default(uuid())
