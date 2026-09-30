@@ -67,6 +67,21 @@ const champMontant = champ.replace("px-2", "pl-1.5 pr-1 @4xl:px-2");
 type Ligne = { articleId: string; designation: string; unite: string; domaine: string; qte: string; pu: string; montant: string; devise: Devise; puCatalogue: string | null; fournNom: string; detail: boolean };
 const vide = (devise: Devise): Ligne => ({ articleId: "", designation: "", unite: "", domaine: "NOURRITURE", qte: "", pu: "", montant: "", devise, puCatalogue: null, fournNom: "", detail: false });
 const quatreVides = (devise: Devise) => [vide(devise), vide(devise), vide(devise), vide(devise)];
+/** Montant automatique d'une ligne : quantité × PU (au centime), vide si l'un manque — la règle de `majLigne`. */
+const produit = (qte: string, pu: string) => {
+  const q = Number(qte.replace(",", "."));
+  const p = Number(pu.replace(",", "."));
+  return q > 0 && p > 0 ? String(Math.round(q * p * 100) / 100) : "";
+};
+/**
+ * Nouveau PU venu du CATALOGUE (bascule de devise, changement d'article). Le montant ne suit que
+ * s'il est encore le produit automatique de l'ancien qté × PU (ou vide) : un montant TAPÉ à la
+ * main n'est jamais touché — c'est celui du ticket.
+ */
+const avecPuCatalogue = (l: Ligne, pu: string, puCatalogue: string | null): Ligne => {
+  const montantAuto = l.montant === "" || l.montant === produit(l.qte, l.pu);
+  return { ...l, pu, puCatalogue, montant: montantAuto ? produit(l.qte, pu) : l.montant };
+};
 
 export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDirection = false }: { articles: Art[]; fournisseurs: Fourn[]; aujourdhui: string; taux: number; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
@@ -139,27 +154,41 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // du ticket, seule leur devise change (et un second appui revient exactement en arrière). Seul un
   // PU REPRIS DU CATALOGUE (en USD, pas tapé) est converti au taux du jour, pour ne jamais lire
   // « 1,7 FC » ; il repart du prix du catalogue au retour en USD (aucune dérive d'arrondi). Le
-  // montant suit alors la règle quantité × PU.
+  // montant ne le suit que s'il était encore automatique (qté × PU) : un montant tapé reste intact.
   const basculerDevise = (i: number) => {
     const l = lignes[i];
     const d: Devise = l.devise === "USD" ? "CDF" : "USD";
     const prix = l.puCatalogue !== null ? Number(l.puCatalogue) : NaN;
     if (taux > 0 && prix > 0) {
       const pu = d === "CDF" ? String(Math.round(prix * taux)) : l.puCatalogue!;
-      majLigne(i, { devise: d, pu, puCatalogue: l.puCatalogue });
+      setLignes((ls) => ls.map((x, j) => (j === i ? { ...avecPuCatalogue(x, pu, x.puCatalogue), devise: d } : x)));
     } else majLigne(i, { devise: d });
   };
 
+  // PU du catalogue pour un article, dans la devise DE LA LIGNE (même règle qu'une ligne neuve) :
+  // USD → le prix ; FC → converti au taux ; sinon rien (prix absent, ou FC sans taux).
+  const puDuCatalogue = (prix: string | null, devise: Devise): string | null => {
+    const p = prix !== null ? Number(prix) : NaN;
+    if (!(p > 0)) return null;
+    if (devise === "USD") return prix;
+    return taux > 0 ? String(Math.round(p * taux)) : null;
+  };
+
+  // Changement d'article : `puCatalogue` repart TOUJOURS du nouvel article (ou devient nul s'il n'a
+  // pas de prix) — jamais celui de l'ancien. Un PU tapé à la main reste s'il n'y a rien à reprendre ;
+  // un PU qui venait de l'ancien article s'efface avec lui.
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
     setLignes((ls) =>
-      ls.map((l, j) =>
-        j !== i
-          ? l
-          : a
-          ? { ...l, articleId, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, ...(l.devise === "USD" && a.prix ? { pu: a.prix, puCatalogue: a.prix } : {}) }
-          : { ...l, articleId: "", designation: "", unite: "" }
-      )
+      ls.map((l, j) => {
+        if (j !== i) return l;
+        const base = a
+          ? { ...l, articleId, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine }
+          : { ...l, articleId: "", designation: "", unite: "" };
+        const pu = a ? puDuCatalogue(a.prix, l.devise) : null;
+        if (pu !== null) return avecPuCatalogue(base, pu, a!.prix);
+        return l.puCatalogue !== null ? avecPuCatalogue(base, "", null) : { ...base, puCatalogue: null };
+      })
     );
   };
 
