@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { MOIS_FR } from "@/lib/dates-fr";
+import { MOIS_FR, MOIS_FR_MAJ } from "@/lib/dates-fr";
 import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 
 // Filtre de l'écran Stock → Mouvements (mois, produit, motif), UNE SEULE construction du `where`
@@ -56,6 +56,26 @@ export function lireFiltreMouvements(brut: { mois?: unknown; articleId?: unknown
   const articleId = typeof b.articleId === "string" && b.articleId.trim() ? b.articleId.trim() : null;
   const motif = typeof b.motif === "string" && Object.prototype.hasOwnProperty.call(FILTRES_MOTIF, b.motif) ? (b.motif as CleMotif) : null;
   return { mois, articleId, motif };
+}
+
+/**
+ * Options de la liste « mois » de l'écran Mouvements : les 12 derniers mois (« AAAA-M »), plus le
+ * mois filtré s'il n'y figure pas (lien d'une carte vers un mois plus ancien, ou futur) — sinon la
+ * liste ne peut pas le montrer sélectionné et un clic sur « Filtrer » l'élargit à « Tous les mois ».
+ * Du plus récent au plus ancien. PURE.
+ */
+export function optionsMoisMouvements(maintenant: Date, moisFiltre: string | undefined): { val: string; label: string }[] {
+  const option = (a: number, m0: number) => ({ val: `${a}-${m0 + 1}`, label: `${MOIS_FR_MAJ[m0]} ${a}`, rang: a * 12 + m0 });
+  const options = Array.from({ length: 12 }).map((_, i) => {
+    const d = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - i, 1));
+    return option(d.getUTCFullYear(), d.getUTCMonth());
+  });
+  const m = moisFiltre ? RE_MOIS.exec(moisFiltre) : null;
+  if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) {
+    const choisi = option(Number(m[1]), Number(m[2]) - 1);
+    if (!options.some((o) => o.val === choisi.val)) options.push(choisi);
+  }
+  return options.sort((a, b) => b.rang - a.rang).map(({ val, label }) => ({ val, label }));
 }
 
 /** Le `where` Prisma du filtre — celui de la page ET celui des actions « tout le filtre ». */

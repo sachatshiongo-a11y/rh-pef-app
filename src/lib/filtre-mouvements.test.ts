@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, FILTRES_MOTIF, type CleMotif } from "./filtre-mouvements";
+import { readFileSync } from "node:fs";
+import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, optionsMoisMouvements, FILTRES_MOTIF, type CleMotif } from "./filtre-mouvements";
 
 // Le filtre de l'écran Mouvements (mois, produit, motif) est construit par UNE fonction, partagée
 // par la page et par les actions « tout le filtre » : chaque combinaison est vérifiée ici, et
@@ -67,5 +68,30 @@ describe("libelleFiltre — le filtre nommé dans les confirmations", () => {
     [{ mois: "2026-7", articleId: "f", motif: "perte" }, "Farine", "juillet 2026, produit « Farine », motif Perte"],
   ] as const)("%j", (f, designation, attendu) => {
     expect(libelleFiltre(f, designation)).toBe(attendu);
+  });
+});
+
+describe("optionsMoisMouvements — la liste « mois » garde le mois filtré", () => {
+  it("12 derniers mois, du plus récent au plus ancien, libellés comme avant", () => {
+    const o = optionsMoisMouvements(MAINTENANT, "2026-9");
+    expect(o).toHaveLength(12);
+    expect(o[0]).toEqual({ val: "2026-9", label: "Septembre 2026" });
+    expect(o[11]).toEqual({ val: "2025-10", label: "Octobre 2025" });
+  });
+  it("mois filtré plus ancien (lien d'une carte) : ajouté, à sa place, pour rester sélectionné", () => {
+    const o = optionsMoisMouvements(MAINTENANT, "2024-3");
+    expect(o).toHaveLength(13);
+    expect(o[12]).toEqual({ val: "2024-3", label: "Mars 2024" });
+    // Même forme que la valeur lue par lireFiltreMouvements : la liste la sélectionne.
+    expect(o.map((x) => x.val)).toContain(lireFiltreMouvements({ mois: "2024-03" }, MAINTENANT).mois);
+  });
+  it("mois futur : ajouté en tête ; « tous », absent ou invalide : rien d'ajouté", () => {
+    expect(optionsMoisMouvements(MAINTENANT, "2026-11")[0]).toEqual({ val: "2026-11", label: "Novembre 2026" });
+    for (const m of [undefined, "tous", "2026-13", "n'importe quoi"]) expect(optionsMoisMouvements(MAINTENANT, m)).toHaveLength(12);
+  });
+  it("la page Mouvements s'en sert (plus de liste à 12 mois écrite à la main)", () => {
+    const src = readFileSync("src/app/(stock)/stock/mouvements/page.tsx", "utf8");
+    expect(src).toMatch(/const moisOptions = optionsMoisMouvements\(now, mois\);/);
+    expect(src).toMatch(/<select name="mois" defaultValue=\{mois \?\? "tous"\}/);
   });
 });

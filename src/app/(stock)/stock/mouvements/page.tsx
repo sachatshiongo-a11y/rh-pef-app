@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { MouvementForm, ColonneMouvements, BandeauPlafond, type MvtLite } from "./mouvements-client";
-import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, FILTRES_MOTIF, PLAFOND_AFFICHAGE } from "@/lib/filtre-mouvements";
-import { MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
+import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, optionsMoisMouvements, FILTRES_MOTIF, PLAFOND_AFFICHAGE } from "@/lib/filtre-mouvements";
 import { OngletsAchats } from "../_achats/onglets-achats";
 import { fournisseurDuMouvement } from "@/lib/achats-liste";
 import type { Prisma } from "@prisma/client";
@@ -87,11 +86,8 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   const entrees = mouvements.filter((m) => m.type !== "SORTIE").map(versLite);
   const sorties = mouvements.filter((m) => m.type === "SORTIE").map(versLite);
 
-  // 12 derniers mois pour le filtre.
-  const moisOptions = Array.from({ length: 12 }).map((_, i) => {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    return { val: `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`, label: `${MOIS_FR[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
-  });
+  // 12 derniers mois pour le filtre, plus le mois filtré s'il est plus ancien (lien d'une carte).
+  const moisOptions = optionsMoisMouvements(now, mois);
 
   return (
     <div className="space-y-4">
