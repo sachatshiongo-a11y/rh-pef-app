@@ -46,7 +46,7 @@ const RUBRIQUES_COCKTAIL = new Set(["cocktail", "mocktail"]);
  * retiré : « Cocktail maison » n'est PAS « Cocktail » — une rubrique nouvelle se range dans
  * « Boissons » tant que la Direction ne l'a pas renommée.
  */
-function rubriqueComparable(categorie: string | null | undefined): string {
+export function rubriqueComparable(categorie: string | null | undefined): string {
   return normTexte(String(categorie ?? ""))
     .trim()
     .split(/\s+/)
