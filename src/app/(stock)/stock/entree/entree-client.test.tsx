@@ -26,6 +26,7 @@ const ARTICLES = [
   { id: "a0", designation: "Farine T55", unite: "Kg", domaine: "NOURRITURE", prix: "1.00" },
   { id: "a2", designation: "Huile de palme", unite: "pièce", domaine: "NOURRITURE", prix: "1.70" },
   { id: "a16", designation: "Eau minérale 1,5 L", unite: "L", domaine: "BOISSON", prix: "6.60" },
+  { id: "a9", designation: "Sel gris", unite: "Kg", domaine: "NOURRITURE", prix: null },
 ];
 const FOURNISSEURS = [{ id: "f0", nom: "Maman Épiphanie" }, { id: "f1", nom: "Grossiste Kin" }];
 
@@ -363,6 +364,39 @@ describe("Liste d'achat — devise PAR LIGNE", () => {
     expect([cas("Prix unitaire FC, ligne 1").value, cas("Montant FC, ligne 1").value]).toEqual(["4760", "9520"]);
     act(() => deviseDe(0).click());
     expect([cas("Prix unitaire USD, ligne 1").value, cas("Montant USD, ligne 1").value]).toEqual(["1,7", "3,4"]);
+  });
+
+  it("un montant TAPÉ n'est jamais écrasé par la bascule, même quand le PU du catalogue est converti (double bascule)", async () => {
+    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a2"); // 1,70 $
+    await saisir(cas("Quantité, ligne 1"), "10");
+    act(() => deviseDe(0).click());
+    expect([cas("Prix unitaire FC, ligne 1").value, cas("Montant FC, ligne 1").value]).toEqual(["4760", "47600"]); // montant encore automatique : il suit
+    await saisir(cas("Montant FC, ligne 1"), "45000"); // le ticket dit 45 000 FC
+    act(() => deviseDe(0).click());
+    expect([cas("Prix unitaire USD, ligne 1").value, cas("Montant USD, ligne 1").value]).toEqual(["1,7", "45000"]);
+    act(() => deviseDe(0).click());
+    expect([cas("Prix unitaire FC, ligne 1").value, cas("Montant FC, ligne 1").value]).toEqual(["4760", "45000"]);
+  });
+
+  it("changement d'article : le PU du catalogue repart du NOUVEL article, dans la devise de la ligne — jamais de l'ancien", async () => {
+    // Ligne en FC : le PU du catalogue est repris converti ; la bascule retrouve le prix de CET article.
+    act(() => deviseDe(0).click());
+    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a2");
+    expect(cas("Prix unitaire FC, ligne 1").value).toBe("4760");
+    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a0"); // 1,00 $
+    expect(cas("Prix unitaire FC, ligne 1").value).toBe("2800");
+    act(() => deviseDe(0).click());
+    expect(cas("Prix unitaire USD, ligne 1").value).toBe("1");
+    // Article sans prix : le PU de l'ancien article s'efface, et la bascule n'en ressort aucun.
+    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a9");
+    expect(cas("Prix unitaire USD, ligne 1").value).toBe("");
+    act(() => deviseDe(0).click());
+    expect(cas("Prix unitaire FC, ligne 1").value).toBe("");
+    // Un PU TAPÉ reste quand le nouvel article n'a rien à proposer, et n'est jamais converti.
+    await saisir(cas("Prix unitaire FC, ligne 1"), "3000");
+    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a9");
+    act(() => deviseDe(0).click());
+    expect(cas("Prix unitaire USD, ligne 1").value).toBe("3000");
   });
 
   it("le défaut du haut vaut pour les NOUVELLES lignes (et les lignes encore vierges) ; une ligne saisie garde SA devise", async () => {
