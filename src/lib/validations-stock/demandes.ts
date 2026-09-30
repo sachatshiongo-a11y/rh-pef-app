@@ -23,7 +23,7 @@ import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { envoyerPush } from "@/lib/push";
 import { formaterUSD } from "@/lib/montant";
-import { lireDatePaiement } from "@/lib/date-paiement";
+import { jourKinshasaISO, lireDatePaiement } from "@/lib/date-paiement";
 import {
   CHAMPS_ARTICLE, NATURE_LIBELLE, type ChampArticle, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
   type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargePaiement, type NatureDemande, type ReglementDemande,
@@ -82,6 +82,15 @@ async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string
   return d;
 }
 
+/**
+ * Effets APRÈS la transaction (notifications, alertes, journal secondaire) : la décision est déjà
+ * écrite. Un échec ici (e-mail, push, base momentanément indisponible) est consigné, jamais relancé :
+ * sinon l'écran annoncerait « non traitée » une demande bel et bien validée.
+ */
+async function apresCommit(fn: () => Promise<unknown>) {
+  try { await fn(); } catch (e) { console.error("[validations-stock] effet après validation en échec :", e); }
+}
+
 /** Cloche + e-mail + push à la Direction (même patron que les bons de commande à valider). */
 async function notifierNouvelleDemande(d: { id: string; resume: string; auteurNom: string }) {
   await creerNotification({ domaine: "STOCK", type: "AUTRE", message: `À valider — ${d.resume} (${d.auteurNom})`.slice(0, 480), lien: "/stock/a-valider", refId: d.id });
@@ -104,7 +113,8 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
   if (ids.length === 0) throw new Error("Aucune facture sélectionnée.");
   const d = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(ids)}) FOR UPDATE`;
-    const facs = await tx.factureFournisseur.findMany({ where: { id: { in: ids } } });
+    // Ordre de la sélection (jamais l'ordre physique de la base) : le résumé se relit à l'identique.
+    const facs = (await tx.factureFournisseur.findMany({ where: { id: { in: ids } } })).sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
     const aRegler = facs.filter((f) => f.statut !== "REGLEE" && Number(f.resteAPayerUSD) > 0.001);
     if (aRegler.length === 0) throw new Error(ids.length > 1 ? "Aucune de ces factures n'est à régler." : "Cette facture est déjà réglée.");
     const maintenant = new Date();
@@ -195,12 +205,24 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
   const { comptes, domaine, origine } = saisie;
   if (comptes.length === 0) throw new Error("Saisissez au moins un comptage physique.");
   const ids = comptes.map((c) => c.articleId);
+  const doublon = ids.find((id, i) => ids.indexOf(id) !== i);
   const r = await prisma.$transaction(async (tx) => {
     const stocks = await verrouillerStocks(tx, ids);
     const articles = await tx.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true } });
     const theo = new Map(stocks.map((s) => [s.articleId, Number(s.quantite)]));
     const theoTexte = new Map(stocks.map((s) => [s.articleId, s.quantite.toString()]));
     const noms = new Map(articles.map((a) => [a.id, a.designation]));
+    // Un article compté deux fois : lequel des deux chiffres est le bon ? Refus, jamais un choix au hasard.
+    if (doublon) throw new Error(`« ${noms.get(doublon) ?? "Un article"} » est compté deux fois : gardez une seule ligne.`);
+    // Direction : un comptage direct sur un article dont une réconciliation attend sa décision rendrait
+    // cette demande inapplicable (« autre ajustement depuis ») sans qu'elle le sache — elle la tranche d'abord.
+    if (estDirection(user)) {
+      const prises = await tx.cibleDemandeStock.findMany({ where: { cle: { in: ids.map(cleComptage) } }, include: { demande: { select: { resume: true, auteurNom: true } } } });
+      if (prises.length > 0) {
+        const art = noms.get(prises[0].cle.slice(cleComptage("").length)) ?? "Un article";
+        throw new Error(`« ${art} » fait partie d'une réconciliation en attente de votre décision (« ${prises[0].demande.resume} », ${prises[0].demande.auteurNom}) : validez-la ou refusez-la d'abord dans « Demandes à valider ».`);
+      }
+    }
     const niveauxAvant = niveauxDe(stocks);
     const lignes = calculerLignes(comptes, theo, noms);
     exigerExplications(lignes);
@@ -237,7 +259,7 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
   return { applique: false, demandeId: r.demande.id, nbEcarts: r.nbEcarts, nbHorsTol: r.nbHorsTol };
 }
 
-async function executerComptageTx(tx: Tx, decideur: Acteur, d: { createdAt: Date }, c: ChargeComptage) {
+async function executerComptageTx(tx: Tx, decideur: Acteur, d: { createdAt: Date; auteurId: string }, c: ChargeComptage) {
   const ids = c.lignes.map((l) => l.articleId);
   const existants = new Set((await tx.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((a) => a.id));
   const disparus = c.lignes.filter((l) => !existants.has(l.articleId));
@@ -258,7 +280,9 @@ async function executerComptageTx(tx: Tx, decideur: Acteur, d: { createdAt: Date
   });
   if (conflits.length > 0) throw new ConflitDemande(`Le stock a bougé depuis le comptage — ${conflits.join(" ; ")}. Il faut recompter ces articles`);
   const niveauxAvant = niveauxDe(stocks);
-  const e = await ecrireComptageTx(tx, decideur.id, { domaine: c.domaine, origine: c.origine, lignes });
+  // L'archive dit la vérité du comptage : QUI a compté (le demandeur) et QUAND (jour de la demande).
+  // La validation par la Direction est au journal d'audit et sur la demande.
+  const e = await ecrireComptageTx(tx, d.auteurId, { domaine: c.domaine, origine: c.origine, lignes, date: new Date(`${jourKinshasaISO(d.createdAt)}T00:00:00.000Z`) });
   return { sessionId: e.session.id, nbEcarts: e.nbEcarts, nbHorsTol: e.nbHorsTol, articleIds: ids, niveauxAvant };
 }
 
@@ -316,10 +340,14 @@ export async function proposerModifications(auteur: Acteur, libelle: string, pat
     // Retouche d'une proposition du même auteur : fusion dans SA demande en attente.
     let fusionnee: string | null = null;
     const annulees: string[] = [];
+    const retouchees: { id: string; resume: string; auteurNom: string }[] = [];
     const restants = new Map(articles.map((a) => [a.id, a]));
     for (const demandeId of new Set(prises.filter((p) => restants.has(p.cle.slice(cleArticle("").length))).map((p) => p.demandeId))) {
       await tx.$queryRaw`SELECT "id" FROM "stock"."DemandeValidationStock" WHERE "id" = ${demandeId} FOR UPDATE`;
       const dem = await tx.demandeValidationStock.findUniqueOrThrow({ where: { id: demandeId } });
+      // La cible a été lue AVANT le verrou : la Direction a pu décider entre-temps. Une demande
+      // décidée ne se retouche jamais (sinon la retouche serait perdue, ou le statut réécrit).
+      if (dem.statut !== "EN_ATTENTE") throw new Error("Votre proposition vient d'être décidée par la Direction : rechargez la page, puis refaites la modification si elle est toujours utile.");
       const charge = lireCharge("MODIF_ARTICLE", dem.charge);
       const vides: string[] = [];
       for (const art of charge.articles) {
@@ -339,17 +367,22 @@ export async function proposerModifications(auteur: Acteur, libelle: string, pat
       }
       await journaliser(tx, { entite: "DemandeValidationStock", entiteId: demandeId, champ: "retouche", nouvelleValeur: charge.articles.length ? resumeArticles(charge.articles) : "plus rien à proposer (annulée)", userId: auteur.id });
       fusionnee = demandeId;
+      if (charge.articles.length > 0) retouchees.push({ id: demandeId, resume: resumeArticles(charge.articles), auteurNom: dem.auteurNom });
     }
     const nouveaux = [...restants.values()];
-    if (nouveaux.length === 0) return { rien: false as const, demandeId: fusionnee!, nbArticles: articles.length, fusionnee: true, nouvelle: null, annulees };
+    if (nouveaux.length === 0) return { rien: false as const, demandeId: fusionnee!, nbArticles: articles.length, fusionnee: true, nouvelle: null, annulees, retouchees };
     const charge: ChargeArticle = { v: 1, libelle, articles: nouveaux };
     const d = await creerDemandeTx(tx, { nature: "MODIF_ARTICLE", resume: resumeArticles(nouveaux), charge, cles: nouveaux.map((a) => cleArticle(a.id)), auteur });
-    return { rien: false as const, demandeId: d.id, nbArticles: articles.length, fusionnee: fusionnee !== null, nouvelle: d, annulees };
+    return { rien: false as const, demandeId: d.id, nbArticles: articles.length, fusionnee: fusionnee !== null, nouvelle: d, annulees, retouchees };
   }).catch(traduireConflitCible);
 
   if (r.rien) return { rien: true };
-  for (const id of r.annulees) await supprimerNotificationsPour(id);
-  if (r.nouvelle) await notifierNouvelleDemande(r.nouvelle);
+  await apresCommit(async () => {
+    for (const id of r.annulees) await supprimerNotificationsPour(id);
+    // Retouche : la cloche de la Direction montre le contenu À JOUR de la proposition.
+    for (const d of r.retouchees) { await supprimerNotificationsPour(d.id); await notifierNouvelleDemande(d); }
+    if (r.nouvelle) await notifierNouvelleDemande(r.nouvelle);
+  });
   return { rien: false, demandeId: r.demandeId, nbArticles: r.nbArticles, fusionnee: r.fusionnee };
 }
 
@@ -423,6 +456,7 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
   }, { timeout: 60000 });
 
   const { d } = r;
+  await apresCommit(async () => {
   await supprimerNotificationsPour(id);
   if (d.nature === "PAIEMENT_FACTURE") {
     await notifierReglements(r.reglements, d.auteurId);
@@ -433,6 +467,7 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
   } else {
     await notifierDemandeur(d, `Modification validée par la Direction — ${d.resume}`, lienCible(d.nature, d.charge));
   }
+  });
   return { id, nature: d.nature, resume: d.resume };
 }
 
@@ -448,8 +483,10 @@ export async function refuserDemande(decideur: Acteur, id: string, motif: string
     await journaliser(tx, { entite: "DemandeValidationStock", entiteId: id, champ: "statut", ancienneValeur: "EN_ATTENTE", nouvelleValeur: `REFUSEE — ${m}`, userId: decideur.id });
     return d;
   });
-  await supprimerNotificationsPour(id);
-  await notifierDemandeur(d, `Demande refusée par la Direction — ${d.resume} : ${m}`, lienCible(d.nature, d.charge));
+  await apresCommit(async () => {
+    await supprimerNotificationsPour(id);
+    await notifierDemandeur(d, `Demande refusée par la Direction — ${d.resume} : ${m}`, lienCible(d.nature, d.charge));
+  });
   return { id, nature: d.nature, resume: d.resume };
 }
 
@@ -462,7 +499,7 @@ export async function retirerDemande(auteur: Acteur, id: string) {
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });
     await journaliser(tx, { entite: "DemandeValidationStock", entiteId: id, champ: "statut", ancienneValeur: "EN_ATTENTE", nouvelleValeur: "ANNULEE (retirée par son auteur)", userId: auteur.id });
   });
-  await supprimerNotificationsPour(id);
+  await apresCommit(() => supprimerNotificationsPour(id));
 }
 
 export { NATURE_LIBELLE };

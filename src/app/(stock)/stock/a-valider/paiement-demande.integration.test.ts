@@ -253,6 +253,8 @@ describe("Refus, retrait, conflits, droits", () => {
     en("resp");
     const r = await creerFactureAvecLignes(fd({ fournisseurNom: "ETS SENEVE", ligne_designation: "Riz", ligne_quantite: "1", ligne_prix: "100", montantRegleUSD: "100" }));
     expect(r).toMatchObject({ erreur: expect.stringMatching(/validé par la Direction/) });
+    // Un montant réglé NÉGATIF (qui gonflerait le reste à payer) est refusé de même.
+    expect(await creerFactureAvecLignes(fd({ fournisseurNom: "ETS SENEVE", ligne_designation: "Riz", ligne_quantite: "1", ligne_prix: "100", montantRegleUSD: "-50" }))).toMatchObject({ erreur: expect.stringMatching(/validé par la Direction/) });
     expect(await prisma.factureFournisseur.count()).toBe(0);
   }, 60_000);
 

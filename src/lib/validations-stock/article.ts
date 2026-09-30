@@ -45,7 +45,27 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   if (formData.has("stockMinimum")) p.stockMinimum = decTexte(formData.get("stockMinimum")) ?? "0";
   if (formData.has("seuilUrgent")) p.seuilUrgent = decTexte(formData.get("seuilUrgent")) ?? "0";
   if (formData.has("quantite")) p.quantite = decTexte(formData.get("quantite")) ?? "0";
+  exigerBornes(p);
   return p;
+}
+
+/**
+ * Bornes des colonnes décimales (précision, échelle de la base) : une valeur hors bornes est refusée
+ * À LA SAISIE, avec un message lisible — jamais acceptée en proposition pour échouer à la validation
+ * sur une erreur Prisma brute (ni écrite par la Direction avec la même erreur).
+ */
+const PLAFONDS: Partial<Record<ChampArticle, { max: number; libelle: string }>> = {
+  prixUnitaireUSD: { max: 1e8, libelle: "Le prix unitaire" }, // Decimal(12,4)
+  uniteParCarton: { max: 1e8, libelle: "Le nombre d'unités par carton" }, // Decimal(10,2)
+  stockMinimum: { max: 1e11, libelle: "Le stock minimum" }, // Decimal(14,3)
+  seuilUrgent: { max: 1e11, libelle: "Le seuil urgent" },
+  quantite: { max: 1e11, libelle: "La quantité" },
+};
+function exigerBornes(p: PatchArticle) {
+  for (const [champ, b] of Object.entries(PLAFONDS) as [ChampArticle, { max: number; libelle: string }][]) {
+    const v = p[champ];
+    if (typeof v === "string" && Math.abs(Number(v)) >= b.max) throw new Error(`${b.libelle} est hors limites (${v.replace(".", ",")}) : vérifiez la saisie.`);
+  }
 }
 
 const champsDe = (patch: PatchArticle) => LISTE_CHAMPS_ARTICLE.filter((c) => c in patch);

@@ -182,6 +182,34 @@ describe("Validation = EXACTEMENT la modification directe de la Direction", () =
   }, 60_000);
 });
 
+describe("Courses et saisies hors bornes", () => {
+  it("retouche pendant que la Direction décide : refus lisible, la demande décidée n'est pas réécrite", async () => {
+    const riz = await article("Riz");
+    en("resp"); await C.modifierArticle(riz, fd({ prixUnitaireUSD: "3" }));
+    const [d] = await demandes();
+    let retouche: Promise<unknown> | null = null;
+    await prisma.$transaction(async (tx) => {
+      // La « Direction » tient la demande verrouillée et la décide…
+      await tx.$queryRaw`SELECT "id" FROM "stock"."DemandeValidationStock" WHERE "id" = ${d.id} FOR UPDATE`;
+      en("resp"); retouche = C.modifierArticle(riz, fd({ unite: "Kg" })); // …pendant que le responsable retouche.
+      await new Promise((r) => setTimeout(r, 400));
+      await tx.demandeValidationStock.update({ where: { id: d.id }, data: { statut: "VALIDEE" } });
+      await tx.cibleDemandeStock.deleteMany({ where: { demandeId: d.id } });
+    });
+    expect(await retouche).toMatchObject({ erreur: expect.stringMatching(/vient d'être décidée/) });
+    const relue = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } });
+    expect(relue.statut).toBe("VALIDEE");
+    expect((relue.charge as { articles: { changements: unknown[] }[] }).articles[0].changements).toHaveLength(1);
+  }, 60_000);
+
+  it("valeur hors des bornes de la base : refusée à la saisie (Direction comme proposition)", async () => {
+    const riz = await article("Riz");
+    en("resp"); expect(await C.modifierArticle(riz, fd({ prixUnitaireUSD: "1000000000" }))).toMatchObject({ erreur: expect.stringMatching(/prix unitaire est hors limites/) });
+    expect(await demandes()).toEqual([]);
+    en("dir"); expect(await C.modifierArticle(riz, fd({ stockMinimum: "999999999999" }))).toMatchObject({ erreur: expect.stringMatching(/stock minimum est hors limites/) });
+  }, 60_000);
+});
+
 describe("Droits et gestes hors flux", () => {
   it("le responsable ne valide pas ; fusion et correction des stocks négatifs réservées à la Direction", async () => {
     const [a, b] = [await article("A"), await article("B")];

@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
+import { jourKinshasaISO } from "@/lib/date-paiement";
 
 type Tx = Prisma.TransactionClient;
 
@@ -74,11 +75,12 @@ export type LigneAEcrire = LigneCalculee & { stockFinal: string };
  * écart, et le stock posé à `stockFinal`. Écritures GROUPÉES (createMany + un seul UPDATE…FROM
  * VALUES) : 3 requêtes par ligne dépassaient le délai d'une transaction en production (P2028).
  */
-export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Domaine | null; origine: string; lignes: LigneAEcrire[] }) {
+export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Domaine | null; origine: string; lignes: LigneAEcrire[]; date?: Date }) {
   const { lignes, origine, domaine } = p;
   const nbEcarts = lignes.filter(aUnEcart).length;
   const nbHorsTol = lignes.filter((l) => l.horsTol).length;
-  const s = await tx.sessionComptage.create({ data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: userId } });
+  // `date` : jour du COMPTAGE (réconciliation validée plus tard) ; absent = aujourd'hui, comme avant.
+  const s = await tx.sessionComptage.create({ data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: userId, ...(p.date ? { date: p.date } : {}) } });
   await tx.ligneComptage.createMany({
     data: lignes.map((l) => ({
       sessionId: s.id, articleId: l.articleId, designation: l.designation,
@@ -143,10 +145,16 @@ export type EtatValidationLigne =
   | { etat: "mouvemente"; actuel: Decimal; final: Decimal; entrees: Decimal; sorties: Decimal }
   | { etat: "conflit"; actuel: Decimal; raison: string };
 
-export function etatLigneAValider(l: { theorique: string; physique: string }, actuel: Decimal, depuis: { entrees: Decimal; sorties: Decimal; ajustements: number }): EtatValidationLigne {
+export type MouvementsDepuis = { entrees: Decimal; sorties: Decimal; ajustements: number; tardifs: number };
+
+export function etatLigneAValider(l: { theorique: string; physique: string }, actuel: Decimal, depuis: MouvementsDepuis): EtatValidationLigne {
   const t = new Decimal(l.theorique);
   const ecart = new Decimal(l.physique).minus(t);
   if (depuis.ajustements > 0) return { etat: "conflit", actuel, raison: "un autre comptage ou ajustement a été enregistré depuis" };
+  // Saisie TARDIVE : une entrée/sortie enregistrée après le comptage mais datée d'un jour antérieur
+  // (la consommation de vendredi saisie samedi). Le comptage l'a peut-être déjà constatée dans son
+  // écart : l'appliquer en plus compterait deux fois la même consommation.
+  if (depuis.tardifs > 0) return { etat: "conflit", actuel, raison: "une entrée ou sortie datée d'avant le comptage a été saisie depuis (déjà comptée ou non : impossible de trancher)" };
   const explique = depuis.entrees.minus(depuis.sorties);
   if (!actuel.minus(t).equals(explique)) return { etat: "conflit", actuel, raison: `le stock a changé sans mouvement qui l'explique (compté sur ${t.toString().replace(".", ",")}, aujourd'hui ${actuel.toString().replace(".", ",")})` };
   if (actuel.equals(t)) return { etat: "inchange", actuel, final: new Decimal(l.physique) };
@@ -155,9 +163,17 @@ export function etatLigneAValider(l: { theorique: string; physique: string }, ac
 
 /** Mouvements enregistrés APRÈS l'instant `depuis` sur ces articles, agrégés par article. */
 export async function mouvementsDepuis(client: Tx | typeof prisma, articleIds: string[], depuis: Date) {
-  const r = new Map<string, { entrees: Decimal; sorties: Decimal; ajustements: number }>();
-  for (const id of articleIds) r.set(id, { entrees: new Decimal(0), sorties: new Decimal(0), ajustements: 0 });
+  const r = new Map<string, MouvementsDepuis>();
+  for (const id of articleIds) r.set(id, { entrees: new Decimal(0), sorties: new Decimal(0), ajustements: 0, tardifs: 0 });
   if (articleIds.length === 0) return r;
+  // Jour civil du comptage à Kinshasa (UTC+1) : un mouvement daté d'un jour ANTÉRIEUR mais saisi après.
+  const jourComptage = new Date(`${jourKinshasaISO(depuis)}T00:00:00.000Z`);
+  const tardifs = await client.mouvementStock.groupBy({
+    by: ["articleId"],
+    where: { articleId: { in: articleIds }, createdAt: { gt: depuis }, date: { lt: jourComptage } },
+    _count: { _all: true },
+  });
+  for (const g of tardifs) r.get(g.articleId)!.tardifs = g._count._all;
   const lignes = await client.mouvementStock.groupBy({
     by: ["articleId", "type"],
     where: { articleId: { in: articleIds }, createdAt: { gt: depuis } },

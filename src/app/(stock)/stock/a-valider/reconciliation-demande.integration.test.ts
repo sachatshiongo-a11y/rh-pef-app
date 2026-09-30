@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
+import { jourKinshasaISO } from "@/lib/date-paiement";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : réconciliation du stock soumise à la
 // validation de la Direction. Vraies actions serveur (réconciliation, mouvements, a-valider).
@@ -127,7 +128,8 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const riz = await article("Riz", 10);
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]])); // écart −2 constaté
     const [d] = await demandes();
-    const mvt = (type: string, q: number) => { const f = new FormData(); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); return f; };
+    // Datés du jour à Kinshasa, comme les saisit l'écran (une sortie datée d'un jour antérieur serait une saisie tardive).
+    const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); return f; };
     await mouvementManuel(mvt("ENTREE", 5)); // 15
     await mouvementManuel(mvt("SORTIE", 1)); // 14
     expect(await stock(riz)).toBe(14);
@@ -150,13 +152,56 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
   }, 60_000);
 
-  it("conflit : un autre comptage a été appliqué depuis (Direction) → refus de ré-appliquer l'ancien écart", async () => {
+  it("conflit : un autre ajustement a été enregistré depuis → refus de ré-appliquer l'ancien écart", async () => {
     const riz = await article("Riz", 10);
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
     const [d] = await demandes();
-    en("dir"); await appliquerComptage(comptage([[riz, 9]])); // la Direction recompte elle-même : 9
+    // Ajustement écrit par un autre chemin (import d'inventaire…) après la demande.
+    await prisma.mouvementStock.create({ data: { articleId: riz, type: "AJUSTEMENT", quantite: 1, origine: "Import" } });
+    await prisma.stock.update({ where: { articleId: riz }, data: { quantite: 9 } });
+    en("dir");
     expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/autre comptage ou ajustement/) }] });
     expect(await stock(riz)).toBe(9);
+  }, 60_000);
+
+  it("la Direction ne compte pas en direct un article dont une réconciliation attend sa décision", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
+    en("dir");
+    expect(await appliquerComptage(comptage([[riz, 9]]))).toMatchObject({ erreur: expect.stringMatching(/« Riz » fait partie d'une réconciliation en attente/) });
+    expect(await stock(riz)).toBe(10);
+    expect(await prisma.sessionComptage.count()).toBe(0);
+  }, 60_000);
+
+  it("saisie TARDIVE : une sortie datée d'avant le comptage, saisie après → conflit (jamais la consommation comptée deux fois)", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await appliquerComptage(comptage([[riz, 8, "consommation de la veille non saisie"]]));
+    const [d] = await demandes();
+    const hier = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    const f = new FormData(); f.set("type", "SORTIE"); f.append("articleId", riz); f.append("quantite", "3"); f.set("categorieSortie", "LIVRAISON_RESTAURANT"); f.set("date", hier);
+    await mouvementManuel(f);
+    en("dir");
+    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/datée d'avant le comptage/) }] });
+    expect(await stock(riz)).toBe(7);
+  }, 60_000);
+
+  it("l'archive du comptage validé porte le compteur et le jour du comptage, pas ceux de la validation", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await appliquerComptage(comptage([[riz, 9]]));
+    const [d] = await demandes();
+    const ilYaCinqJours = new Date(Date.now() - 5 * 86_400_000);
+    await prisma.demandeValidationStock.update({ where: { id: d.id }, data: { createdAt: ilYaCinqJours } });
+    en("dir"); await validerDemandes([d.id]);
+    const s = await prisma.sessionComptage.findFirstOrThrow();
+    expect(s.creeParId).toBe(U.resp.id);
+    expect(s.date.toISOString().slice(0, 10)).toBe(new Date(ilYaCinqJours.getTime() + 3_600_000).toISOString().slice(0, 10));
+  }, 60_000);
+
+  it("un article compté deux fois dans le même comptage est refusé (quel chiffre croire ?)", async () => {
+    const riz = await article("Riz", 10);
+    en("dir");
+    expect(await appliquerComptage(comptage([[riz, 9], [riz, 9.5]]))).toMatchObject({ erreur: expect.stringMatching(/« Riz » est compté deux fois/) });
+    expect(await stock(riz)).toBe(10);
   }, 60_000);
 
   it("refus : le stock ne bouge pas, la cible est libérée", async () => {

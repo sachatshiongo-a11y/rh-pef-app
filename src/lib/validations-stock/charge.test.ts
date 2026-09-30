@@ -63,20 +63,22 @@ describe("fusionnerChangements — une retouche avant décision", () => {
 });
 
 describe("etatLigneAValider — l'écart constaté appliqué au stock actuel", () => {
-  const rien = { entrees: new Decimal(0), sorties: new Decimal(0), ajustements: 0 };
+  const rien = { entrees: new Decimal(0), sorties: new Decimal(0), ajustements: 0, tardifs: 0 };
   const l = { theorique: "10", physique: "8" };
   it("rien n'a bougé : la quantité comptée (écriture du geste direct)", () => {
     expect(etatLigneAValider(l, new Decimal(10), rien)).toMatchObject({ etat: "inchange", final: new Decimal(8) });
   });
   it("entrées/sorties enregistrées depuis : stock actuel + écart", () => {
-    const e = etatLigneAValider(l, new Decimal(14), { entrees: new Decimal(5), sorties: new Decimal(1), ajustements: 0 });
+    const e = etatLigneAValider(l, new Decimal(14), { entrees: new Decimal(5), sorties: new Decimal(1), ajustements: 0, tardifs: 0 });
     expect(e).toMatchObject({ etat: "mouvemente" });
     expect(e.etat === "mouvemente" && e.final.toString()).toBe("12");
   });
   it("changement inexpliqué ou autre ajustement : conflit (jamais d'écart compté deux fois)", () => {
     expect(etatLigneAValider(l, new Decimal(11), rien).etat).toBe("conflit");
-    expect(etatLigneAValider(l, new Decimal(14), { entrees: new Decimal(3), sorties: new Decimal(0), ajustements: 0 }).etat).toBe("conflit");
+    expect(etatLigneAValider(l, new Decimal(14), { entrees: new Decimal(3), sorties: new Decimal(0), ajustements: 0, tardifs: 0 }).etat).toBe("conflit");
     expect(etatLigneAValider(l, new Decimal(10), { ...rien, ajustements: 1 }).etat).toBe("conflit");
+    // Saisie tardive (sortie datée d'avant le comptage, saisie après) : même expliquée, conflit.
+    expect(etatLigneAValider(l, new Decimal(7), { ...rien, sorties: new Decimal(3), tardifs: 1 }).etat).toBe("conflit");
   });
 });
 

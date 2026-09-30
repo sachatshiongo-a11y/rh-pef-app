@@ -16,6 +16,7 @@ import { meilleurArticle } from "@/lib/article-match";
 import { reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
 import { demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
+import { Prisma } from "@prisma/client";
 
 
 async function televerserFacturePdf(file: File, fournisseurNom: string): Promise<string> {
@@ -245,7 +246,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const montantRegleUSD = dec(formData.get("montantRegleUSD"));
   // Un montant déjà réglé à la création EST un paiement : hors Direction, il passe par une demande
   // (fiche de la facture → « Marquer payée » ou « + Paiement »), jamais par ce raccourci.
-  if (montantRegleUSD > 0 && !estDirection(user)) {
+  if (montantRegleUSD !== 0 && !estDirection(user)) {
     throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
   const reste = Math.max(0, montantUSD - montantRegleUSD);
@@ -399,8 +400,9 @@ export const marquerPayee = actionLisible(async (id: string, dateStr?: string): 
     return { demande: true, message: MESSAGE_DEMANDE };
   }
   const reg = await prisma.$transaction(async (tx) => {
-    await exigerAucunPaiementDemande(tx, [id]);
+    // Verrou de la facture AVANT de lire les demandes : une demande déposée en même temps attend.
     const f = await verrouillerFacture(tx, id);
+    await exigerAucunPaiementDemande(tx, [id]);
     const reste = Number(f.resteAPayerUSD);
     if (reste <= 0.001) return null; // déjà soldée
     return reglerFactureTx(tx, user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
@@ -441,6 +443,7 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
     return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura validé." : MESSAGE_DEMANDE };
   }
   const reg = await prisma.$transaction(async (tx) => {
+    await verrouillerFacture(tx, id); // avant la lecture des demandes (voir marquerPayee)
     await exigerAucunPaiementDemande(tx, [id]);
     return reglerFactureTx(tx, user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
   });
@@ -474,6 +477,7 @@ export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: 
   }
 
   const regs = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(uniq)}) FOR UPDATE`; // avant la lecture des demandes
     await exigerAucunPaiementDemande(tx, uniq);
     return reglerLotTx(tx, user.id, uniq, dateStr, "Marquée payée (lot)");
   });

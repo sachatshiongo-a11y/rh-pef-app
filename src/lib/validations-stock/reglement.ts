@@ -91,6 +91,8 @@ export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr
     WHERE "id" IN (${Prisma.join(ids)}) AND "statut" <> 'REGLEE' AND "resteAPayerUSD" > 0
     FOR UPDATE`;
   if (facs.length === 0) return [];
+  // Ordre de la sélection, jamais l'ordre physique de la base (notification et journal stables).
+  facs.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
 
   for (const f of facs) {
     try {

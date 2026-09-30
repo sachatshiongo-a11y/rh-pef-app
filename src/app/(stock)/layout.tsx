@@ -16,7 +16,8 @@ export default async function StockLayout({ children }: { children: React.ReactN
     prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true, employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
     // Paiements, réconciliations et modifications d'articles en attente de la Direction.
-    prisma.demandeValidationStock.count({ where: { statut: "EN_ATTENTE" } }),
+    // Toutes pour la Direction ; les siennes pour un autre compte (celles qu'il voit sur la page).
+    prisma.demandeValidationStock.count({ where: { statut: "EN_ATTENTE", ...(user.role === "ADMIN" ? {} : { auteurId: user.id }) } }),
     chargerNotifications("STOCK"),
     // Comptage des articles urgents par domaine, agrégé en SQL — MÊME RÈGLE que niveauAlerte :
     // URGENT = rupture (quantité ≤ 0) uniquement si un seuil minimum est défini (sans seuil,

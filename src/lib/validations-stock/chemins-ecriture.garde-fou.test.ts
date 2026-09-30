@@ -77,6 +77,36 @@ describe("chemins d'écriture des articles et des stocks", () => {
   });
 });
 
+// ── Même principe pour l'ARGENT des factures fournisseurs : « payer = Direction ». ──────────────
+// Tout fichier qui écrit FactureFournisseur ou Paiement est classé ; un nouvel écran qui réglerait une
+// facture sans passer par reglement.ts (donc sans demande hors Direction) fait échouer ce test.
+const CLASSEMENT_ARGENT: Record<string, { sort: Sort; pourquoi: string }> = {
+  "app/(stock)/stock/factures/actions.ts": { sort: "PROPOSITION_HORS_DIRECTION", pourquoi: "Règlements : demande hors Direction (demandes.ts), cœur reglement.ts pour la Direction ; création sans montant réglé hors Direction ; suppressions Direction seule." },
+  "app/(stock)/stock/fournisseurs/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Fusion de fournisseurs : rattache les factures (ni montant ni statut), garde ADMIN." },
+  "lib/import-factures.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import du suivi des factures : imports/actions.ts (gardeDirection)." },
+  "lib/import-inventaire.ts": { sort: "DIRECTION_SEULE", pourquoi: "Annulation d'un import (supprime les factures importées) : imports/actions.ts (gardeDirection)." },
+  "lib/validations-stock/reglement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Cœur des règlements : geste direct de la Direction ou demande validée." },
+};
+const ECRIT_ARGENT_PRISMA = /\b(?:factureFournisseur|paiement)\.(?:update|updateMany|upsert|create|createMany|delete|deleteMany)\s*\(/;
+const ECRIT_ARGENT_SQL = /(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+"stock"\."(?:FactureFournisseur|Paiement)"/i;
+const ecrivainsArgent = () => fichiers(SRC).filter((p) => { const s = fs.readFileSync(p, "utf8"); return ECRIT_ARGENT_PRISMA.test(s) || ECRIT_ARGENT_SQL.test(s); }).map(rel).sort();
+
+describe("chemins d'écriture des factures et paiements", () => {
+  it("chaque fichier qui écrit FactureFournisseur/Paiement est classé", () => {
+    expect(ecrivainsArgent().filter((f) => !(f in CLASSEMENT_ARGENT))).toEqual([]);
+  });
+  it("aucun classement périmé", () => {
+    const trouves = new Set(ecrivainsArgent());
+    expect(Object.keys(CLASSEMENT_ARGENT).filter((f) => !trouves.has(f))).toEqual([]);
+  });
+  it("plancher anti-silence et détection des deux formes", () => {
+    expect(ecrivainsArgent().length).toBeGreaterThanOrEqual(5);
+    expect(ECRIT_ARGENT_PRISMA.test("tx.paiement.create({")).toBe(true);
+    expect(ECRIT_ARGENT_SQL.test('INSERT INTO "stock"."Paiement" ("id"')).toBe(true);
+    expect(ECRIT_ARGENT_PRISMA.test("prisma.paiement.findMany({")).toBe(false);
+  });
+});
+
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
   const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
