@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import sharp from "sharp";
-import { chargerPhotosPdf, EN_PARALLELE } from "./photo-fiche-pdf";
+import { chargerPhotosPdf, EN_PARALLELE, PIXELS_MAX } from "./photo-fiche-pdf";
 
 // Photos des fiches pour leur PDF : lues côté serveur dans le bucket PRIVÉ (clé de service, jamais
 // d'URL), ré-encodées en JPEG (le moteur PDF ne dessine pas le WEBP), et jamais bloquantes.
@@ -109,4 +109,17 @@ describe("photos des fiches pour le PDF", () => {
     expect([...photos.keys()].sort()).toEqual(fiches.map((f) => f.id).sort());
     expect([...photos.values()].every((p) => p !== "illisible")).toBe(true);
   });
+
+  it(`image géante (plus de ${PIXELS_MAX / 1e6} Mpx) : jamais décodée, « illisible » ; juste en dessous : acceptée`, async () => {
+    const png = (w: number, h: number) => sharp({ create: { width: w, height: h, channels: 3, background: "#ffffff" } }).png({ compressionLevel: 9 }).toBuffer();
+    const [geante, grande] = await Promise.all([png(8000, 5100), png(6000, 6000)]); // 40,8 Mpx / 36 Mpx
+    reponses["/fiches-techniques/geante.png"] = () => new Response(new Uint8Array(geante));
+    reponses["/fiches-techniques/grande.png"] = () => new Response(new Uint8Array(grande));
+    const photos = await chargerPhotosPdf([
+      { id: "geante", photoUrl: "/fichiers/fiches-techniques/geante.png" },
+      { id: "grande", photoUrl: "/fichiers/fiches-techniques/grande.png" },
+    ]);
+    expect(photos.get("geante")).toBe("illisible");
+    expect(photos.get("grande")).not.toBe("illisible");
+  }, 60_000);
 });

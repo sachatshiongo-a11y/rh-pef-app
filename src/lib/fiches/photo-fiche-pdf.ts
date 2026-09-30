@@ -22,11 +22,17 @@ import type { PhotoPdf } from "@/lib/pdf/fiche-technique";
 
 const COTE_MAX_PX = 600;
 export const EN_PARALLELE = 3;
+/**
+ * Au-delà, la photo n'est pas décodée (« illisible ») : 5 Mo de PNG peuvent cacher des dizaines de
+ * mégapixels, soit des centaines de Mo une fois décodés. 40 Mpx couvre largement un téléphone (12-48 Mpx
+ * en JPEG) sans mettre l'instance à genoux.
+ */
+export const PIXELS_MAX = 40_000_000;
 
 async function versJpeg(octets: Buffer): Promise<Buffer | null> {
   if (!detecterTypeImage(octets)) return null;
   try {
-    return await sharp(octets).rotate().resize(COTE_MAX_PX, COTE_MAX_PX, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer();
+    return await sharp(octets, { limitInputPixels: PIXELS_MAX }).rotate().resize(COTE_MAX_PX, COTE_MAX_PX, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer();
   } catch {
     return null;
   }
