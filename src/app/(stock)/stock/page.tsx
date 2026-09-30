@@ -8,6 +8,7 @@ import { inventaireFige } from "@/lib/cloture-inventaire";
 import { moisDe, moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
 import { SelecteurMois } from "@/components/selecteur-mois";
 import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/cartes-entrees-stock";
+import { BlocDisponibilitePlats, voitDisponibilitePlats } from "./_tableau-de-bord/bloc-disponibilite-plats";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -152,6 +153,9 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {/* Disponibilité des plats : le stock d'AUJOURD'HUI, pas celui du mois choisi (même calcul que l'Exploitation). */}
+        <BlocDisponibilitePlats voit={voitDisponibilitePlats(user)} periode={etiquette(AUJ)} />
+
         <Bloc titre={`Articles au seuil minimum (${nbUrgent + nbAppro})`} periode={etiquette(AUJ)} lien="/stock/catalogue">
           {auSeuil.length === 0 ? <Vide t="Aucun article sous le seuil." /> : (
             <ul className="divide-y text-sm">
