@@ -103,7 +103,7 @@ export function TableauDocument({
   titre: string;
   sousTitre: string;
   colonnes: Colonne[];
-  lignes: (string | number)[][];
+  lignes: Cellule[][];
   totalDerniereLigne?: boolean;
   sectionRows?: number[]; // indices de lignes-titres de section (catégorie) : pleine largeur, en gras
   couleurLigne?: (r: number) => string | undefined; // fond de ligne optionnel (ex. code couleur de statut)
@@ -132,7 +132,7 @@ export function TableauDocument({
   );
 }
 
-export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: (string | number)[][]; totalDerniereLigne?: boolean };
+export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: Cellule[][]; totalDerniereLigne?: boolean };
 
 /** Document PDF à PLUSIEURS tableaux sur une même page (ex. synthèse + détail jour par jour). */
 export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }) {

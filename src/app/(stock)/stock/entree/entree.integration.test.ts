@@ -420,3 +420,101 @@ describe("devise PAR LIGNE (décision Direction 2026-09-30)", () => {
     expect(await prisma.mouvementStock.count({ where: { articleId: a.id } })).toBe(0);
   });
 });
+
+describe("exports de la Liste d'achat — unité et prix unitaire (demande Direction 2026-09-30)", () => {
+  // Juin 2026 : fenêtre propre à ce bloc (aucun autre test n'y écrit).
+  const PERIODE = { debut: new Date("2026-06-01T00:00:00Z"), fin: new Date("2026-06-30T00:00:00Z") };
+  const URL_EXPORT = (format: "pdf" | "excel", mode = "detail") => `http://localhost/stock/rapports/export?type=ACHATS&mode=${mode}&format=${format}&debut=2026-06-01&fin=2026-06-30`;
+  const envoi = (lignes: { articleId: string; quantite: number; montant?: number; devise: "USD" | "CDF" }[]) => {
+    const f = new FormData();
+    f.set("date", "2026-06-10");
+    f.set("origine", "Courses de juin");
+    for (const l of lignes) {
+      for (const [k, v] of [["articleId", l.articleId], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", String(l.quantite)], ["montant", String(l.montant ?? 0)], ["devise", l.devise], ["fournisseurId", ""], ["fournisseurNom", ""]]) f.append(k, v);
+    }
+    return f;
+  };
+  let donnees: Awaited<ReturnType<typeof genererDonneesRapportDetail>>;
+  const col = (nom: string) => donnees.entete.indexOf(nom);
+  const ligneDe = (designation: string) => donnees.lignes.find((l) => l[1] === designation)!;
+
+  beforeAll(async () => {
+    const mk = (designation: string, unite: string | null, prix: number | null) => prisma.articleStock.create({ data: { designation, domaine: "NOURRITURE", unite, prixUnitaireUSD: prix } });
+    const [usdArt, fcArt, catArt, inconnu] = await Promise.all([mk("Export Farine", "kg", 1.2), mk("Export Piment", "sachet", null), mk("Export Huile", null, 1.7), mk("Export Sel", "L", null)]);
+    ok(await entreeListeAchat(envoi([
+      { articleId: usdArt.id, quantite: 4, montant: 10, devise: "USD" },
+      { articleId: fcArt.id, quantite: 4, montant: 28000, devise: "CDF" },
+      { articleId: catArt.id, quantite: 2, devise: "USD" }, // sans montant → prix du catalogue
+      { articleId: inconnu.id, quantite: 1, devise: "CDF" }, // sans montant ni prix catalogue → « — »
+    ])));
+    donnees = await genererDonneesRapportDetail("ACHATS", PERIODE.debut, PERIODE.fin);
+  });
+
+  it("colonnes présentes : Unité, Prix unitaire, Devise, Prix unitaire USD, Source du prix — Date et Article restent en tête", () => {
+    expect(donnees.entete).toEqual(["Date", "Article", "Unité", "Quantité", "Prix unitaire", "Devise", "Prix unitaire USD", "Source du prix", "Montant USD", "Origine"]);
+    expect(donnees.pdf!.entete).toEqual(["Date", "Article", "Unité", "Quantité", "Prix unitaire", "Montant USD", "Origine"]);
+  });
+
+  it("prix unitaire : ligne (montant ÷ quantité, devise saisie + équivalent USD), repli catalogue marqué, sinon « — » (jamais 0)", () => {
+    const vu = (d: string) => [ligneDe(d)[col("Unité")], ligneDe(d)[col("Prix unitaire")], ligneDe(d)[col("Devise")], ligneDe(d)[col("Prix unitaire USD")], ligneDe(d)[col("Source du prix")]];
+    expect(vu("Export Farine")).toEqual(["kg", 2.5, "USD", 2.5, "achat"]);
+    expect(vu("Export Piment")).toEqual(["sachet", 7000, "FC", 2.5, "achat"]);
+    expect(vu("Export Huile")).toEqual(["—", 1.7, "USD", 1.7, "catalogue"]);
+    expect(vu("Export Sel")).toEqual(["L", "—", "—", "—", "—"]);
+    // PDF : une cellule lisible par ligne.
+    const pdf = (d: string) => donnees.pdf!.lignes.find((l) => l[1] === d)![4];
+    expect([pdf("Export Farine"), pdf("Export Piment"), pdf("Export Huile"), pdf("Export Sel")]).toEqual([
+      "2,50 $", { texte: "7 000 FC", note: "≈ 2,50 $" }, { texte: "1,70 $", note: "catalogue" }, "—",
+    ]);
+  });
+
+  it("montants et totaux INCHANGÉS : même « Montant USD » par ligne que la base, même total que le rapport chiffré", async () => {
+    const ms = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: PERIODE.debut, lte: PERIODE.fin } }, include: { article: true } });
+    for (const m of ms) expect(ligneDe(m.article.designation)[col("Montant USD")], m.article.designation).toBe(m.montantUSD === null ? "" : Math.round(Number(m.montantUSD) * 100) / 100);
+    expect(donnees.sommables).toEqual([col("Montant USD")]);
+    const total = donnees.lignes.reduce((t, l) => t + (typeof l[col("Montant USD")] === "number" ? (l[col("Montant USD")] as number) : 0), 0);
+    expect(total).toBe(20);
+    const synthese = await genererDonneesRapport("ACHATS", PERIODE.debut, PERIODE.fin);
+    expect(synthese.lignes.find((l) => l[0] === "Juin 2026")![1]).toBe(20);
+    // Le PDF totalise la même colonne, au même montant.
+    expect(donnees.pdf!.sommables).toEqual([donnees.pdf!.entete.indexOf("Montant USD")]);
+  });
+
+  it("Excel : prix unitaire NOMBRE calculable, colonne de devise, total inchangé HORS de l'autofiltre", async () => {
+    const { GET } = await import("../rapports/export/route");
+    const rep = await GET(new Request(URL_EXPORT("excel")));
+    expect(rep.status).toBe(200);
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await rep.arrayBuffer()) as unknown as ArrayBuffer);
+    const ws = wb.worksheets[0];
+    let entete = 0;
+    ws.eachRow((r, n) => { if (r.getCell(1).value === "Date" && !entete) entete = n; });
+    const valeurs = (n: number) => (ws.getRow(n).values as unknown[]).slice(1);
+    expect(valeurs(entete)).toEqual(donnees.entete);
+    const rangee = (d: string) => { for (let n = entete + 1; n <= ws.rowCount; n++) if (ws.getRow(n).getCell(2).value === d) return valeurs(n); throw new Error(d); };
+    expect(rangee("Export Piment").slice(2, 9)).toEqual(["sachet", 4, 7000, "FC", 2.5, "achat", 10]);
+    expect(typeof rangee("Export Piment")[4]).toBe("number");
+    expect(rangee("Export Sel")[4]).toBe("—");
+    // Ligne « Total » : 20 $ dans « Montant USD », et HORS de la plage filtrée (un tri ne l'emporte pas).
+    const derniere = ws.getRow(ws.rowCount);
+    expect(derniere.getCell(1).value).toBe("Total");
+    expect(derniere.getCell(col("Montant USD") + 1).value).toBe(20);
+    // Relu du fichier, l'autofiltre est une plage « A8:J12 ».
+    const plage = /^[A-Z]+(\d+):[A-Z]+(\d+)$/.exec(String(ws.autoFilter));
+    expect(plage, String(ws.autoFilter)).not.toBeNull();
+    expect([Number(plage![1]), Number(plage![2])]).toEqual([entete, ws.rowCount - 1]);
+  });
+
+  it("PDF : colonnes Unité et Prix unitaire, FC avec ≈ USD, mention catalogue, « — », total inchangé, aucune police de repli", async () => {
+    const { GET } = await import("../rapports/export/route");
+    const rep = await GET(new Request(URL_EXPORT("pdf")));
+    expect(rep.status).toBe(200);
+    const pdf = Buffer.from(await rep.arrayBuffer());
+    if (process.env.SORTIE_PDF_ACHATS) (await import("node:fs")).writeFileSync(process.env.SORTIE_PDF_ACHATS, pdf);
+    const { pagesDuPdf, policesDeRepli } = await import("@/lib/test/pdf-lecture");
+    const texte = (await pagesDuPdf(pdf)).map((p) => p.plat).join(" ");
+    for (const t of ["UNITÉ", "PRIX UNITAIRE", "MONTANT USD", "7 000 FC", "≈ 2,50 $", "1,70 $ catalogue", "sachet", "Total", "20,00"]) expect(texte, t).toContain(t);
+    expect(policesDeRepli(pdf)).toEqual([]);
+  });
+});

@@ -1,7 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
-import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
+import { WHERE_ACHATS_LISTE, prixUnitaireAchat } from "@/lib/achats-liste";
+import { cellulePrixUnitairePdf, type CelluleRapport } from "@/lib/rapports-pdf";
 import { chargerExploitation, chargerEcrituresRapport, type LigneEcritureRapport } from "@/app/(exploitation)/exploitation/_data/charger-periode";
 import { chargerAnneeRapport } from "@/app/(exploitation)/exploitation/_data/charger-annee";
 import { construireRapportAnnuel, type DonneesRapportAnnuel } from "@/lib/exploitation/rapport-annuel";
@@ -37,6 +38,13 @@ export type DonneesRapport = {
   variationCol?: number; // colonne d'écart/variation à mettre en évidence (couleur)
   soustitre?: string; // sous-titre du 1er tableau (ex. « Synthèse par article »)
   table2?: TableSecondaire; // tableau secondaire (ex. achats jour par jour) — 2e feuille Excel / 2e tableau PDF
+  autofiltre?: boolean; // Excel : autofiltre sur l'en-tête, borné aux lignes de données (le total ne se trie pas avec elles)
+  /**
+   * Présentation PDF propre, quand elle diffère de l'Excel : l'Excel garde des NOMBRES calculables
+   * (une colonne par grandeur : prix, devise, équivalent USD…), le PDF les réunit en une cellule
+   * lisible (« 4 760 FC ≈ 1,70 $ »). Mêmes lignes, mêmes montants, même total.
+   */
+  pdf?: { entete: string[]; lignes: CelluleRapport[][]; largeurs: string[]; droite: number[]; sommables?: number[] };
 };
 
 /** Liste des clés mois (année, mois) entre deux bornes incluses. */
@@ -160,9 +168,32 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   }
 
   if (type === "ACHATS") {
-    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true } } } });
-    const lignes = rows.map((m) => [jj(m.date), m.article.designation, q3(m.quantite), m.montantUSD !== null ? arr(Number(m.montantUSD)) : "", m.origine ?? ""]);
-    return { titre, entete: ["Date", "Article", "Quantité", "Montant USD", "Origine"], lignes, largeurs: ["12%", "34%", "14%", "16%", "24%"], droite: [2, 3], sommables: [3] };
+    // Demande Direction 2026-09-30 : l'UNITÉ et le PRIX UNITAIRE de chaque ligne (voir `prixUnitaireAchat`).
+    // Le mouvement ne porte pas d'unité : c'est celle de l'article (« — » si elle manque). Les
+    // montants et leur total ne changent pas : même colonne « Montant USD », mêmes valeurs.
+    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true, unite: true, prixUnitaireUSD: true } } } });
+    const COURT = { USD: "USD", CDF: "FC" } as const;
+    const lignesPdf: CelluleRapport[][] = [];
+    const lignes = rows.map((m) => {
+      const unite = m.article.unite?.trim() || "—";
+      const montant = m.montantUSD !== null ? arr(Number(m.montantUSD)) : "";
+      const pu = prixUnitaireAchat({ quantite: m.quantite, devise: m.devise, montantOrigine: m.montantOrigine, montantUSD: m.montantUSD, tauxChangeUtilise: m.tauxChangeUtilise, prixCatalogueUSD: m.article.prixUnitaireUSD });
+      lignesPdf.push([jj(m.date), m.article.designation, unite, q3(m.quantite), cellulePrixUnitairePdf(pu), montant, m.origine ?? ""]);
+      return [
+        jj(m.date), m.article.designation, unite, q3(m.quantite),
+        pu ? pu.valeur : "—", pu ? COURT[pu.devise] : "—", pu?.equivalentUSD ?? "—", pu ? pu.source : "—",
+        montant, m.origine ?? "",
+      ];
+    });
+    return {
+      titre, autofiltre: true,
+      entete: ["Date", "Article", "Unité", "Quantité", "Prix unitaire", "Devise", "Prix unitaire USD", "Source du prix", "Montant USD", "Origine"],
+      lignes, largeurs: ["9%", "20%", "7%", "8%", "10%", "7%", "10%", "9%", "9%", "11%"], droite: [3, 4, 6, 8], sommables: [8],
+      pdf: {
+        entete: ["Date", "Article", "Unité", "Quantité", "Prix unitaire", "Montant USD", "Origine"],
+        lignes: lignesPdf, largeurs: ["11%", "24%", "10%", "9%", "17%", "12%", "17%"], droite: [3, 4, 5], sommables: [5],
+      },
+    };
   }
 
   if (type === "MOUVEMENTS") {
