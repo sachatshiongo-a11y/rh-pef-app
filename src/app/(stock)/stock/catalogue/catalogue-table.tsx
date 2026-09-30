@@ -63,25 +63,32 @@ const manqueDe = (a: ArticleRow, m: ManqueKey) =>
   m === "unite" ? !a.unite || !a.unite.trim() :
   m === "negatif" ? Number(a.quantite) < 0 : false;
 
+/** Pilule tactile de la rangée de filtres du téléphone (36 px de haut, jamais coupée sur deux lignes). */
+const PILULE_MOBILE = "inline-flex min-h-9 shrink-0 items-center whitespace-nowrap rounded-full border px-3 text-sm";
 const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 /** Tris proposés sur téléphone (même `tri` que les en-têtes de l'ordinateur) : valeur = « colonne:sens ». */
 const TRIS_MOBILE: readonly (readonly [string, string])[] = [
-  ["", "Tri : catégories"],
-  ["stock:1", "Tri : stock bas"],
-  ["stock:-1", "Tri : stock haut"],
-  ["alerte:1", "Tri : alertes"],
-  ["designation:1", "Tri : nom A-Z"],
+  ["", "↕ Catégories"],
+  ["stock:1", "↕ Stock bas"],
+  ["stock:-1", "↕ Stock haut"],
+  ["alerte:1", "↕ Alertes"],
+  ["designation:1", "↕ Nom A-Z"],
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte }: { articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte }) {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, actionsPlus }: {
+  articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte;
+  /** Téléphone : boutons de l'en-tête de page (Exporter…) rangés dans le menu « Plus » du bloc du haut. */
+  actionsPlus?: ReactNode;
+}) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
   const [ajout, setAjout] = useState(false);
+  const [plus, setPlus] = useState(false); // téléphone : menu « Plus » (À compléter, valeur du stock, ajout, export)
   const [q, setQ] = useState(initialQ ?? "");
   const dom: "TOUS" | Domaine = lockedDomaine ?? "TOUS"; // choisi par les pilules d'en-tête (?domaine=)
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
@@ -132,6 +139,16 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     };
   }, [articles, dom]);
 
+  // Puces « À compléter » (celles qui ont au moins un article) : le bandeau de l'ordinateur et le menu « Plus » du téléphone.
+  const manquants = ([
+    ["seuil", incomplets.seuil, "sans seuil (jamais d'alerte)"],
+    ["fournisseur", incomplets.fournisseur, "sans fournisseur"],
+    ["prix", incomplets.prix, "sans prix"],
+    ["unite", incomplets.unite, "sans unité"],
+    ["negatif", incomplets.negatif, "stock négatif"],
+  ] as const).filter(([, n]) => n > 0);
+  const totalManquants = manquants.reduce((t, [, n]) => t + n, 0);
+
   // Nombre d'articles dont le dernier prix d'achat a grimpé (sur le domaine courant).
   const compteHausse = useMemo(
     () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && a.haussePct != null).length,
@@ -168,12 +185,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const toutSel = (on: boolean) => setSel(on ? new Set(visibles.map((a) => a.id)) : new Set());
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 lg:space-y-3">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
 
-      {/* Bandeau réapprovisionnement : visible en permanence dès qu'un article est bas ; clic = filtre. */}
+      {/* Bandeau réapprovisionnement : visible en permanence dès qu'un article est bas ; clic = filtre. Sur téléphone, ces deux bandeaux (et « À compléter ») deviennent des pilules à compteur dans la rangée défilante plus bas : la même information, sans la place. */}
       {(compte.urgent > 0 || compte.appro > 0) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm max-lg:hidden">
           <span className="font-semibold text-amber-900">⚠ À réapprovisionner</span>
           {compte.urgent > 0 && (
             <button
@@ -197,7 +214,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
       {/* Hausse de prix : articles rachetés nettement plus cher que la moyenne précédente. Clic = filtre. */}
       {compteHausse > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 text-sm max-lg:hidden">
           <span className="font-semibold text-red-800">📈 Hausse de prix d&apos;achat</span>
           <button
             onClick={() => setHausseSeule((v) => !v)}
@@ -209,8 +226,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un article…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm max-lg:min-h-11 max-lg:min-w-0 max-lg:flex-[1.15]" />
+      <div className="flex items-center gap-2 lg:flex-wrap">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher…" aria-label="Rechercher un article" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm max-lg:min-h-11 max-lg:min-w-0 max-lg:flex-[1.15]" />
         {/* Téléphone : le tri des en-têtes de colonne n'existe pas — même état `tri` que l'ordinateur, choisi par une liste. */}
         <label className="flex min-w-0 flex-1 text-sm lg:hidden">
           <select
@@ -226,25 +243,86 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           </select>
         </label>
         {/* Le domaine se choisit via les pilules d'en-tête (Tous / Nourriture / Boissons / Autre). */}
-        <div className="flex gap-1.5 text-sm">
+        <div className="flex gap-1.5 text-sm max-lg:hidden">
           {ALERTES.map(([k, label]) => (
             <button key={k} onClick={() => setAlerte(k as "" | NiveauAlerte)} className={`rounded-full border px-3 py-1 ${alerte === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</button>
           ))}
         </div>
-        <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
+        <span className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {articles.length} article(s)</span>
+        {/* Téléphone : « Plus » range ce qui est secondaire (à compléter, valeur du stock, ajout, export). */}
+        <button
+          type="button"
+          onClick={() => setPlus((v) => !v)}
+          aria-expanded={plus}
+          aria-controls="inventaire-plus"
+          aria-label={totalManquants > 0 ? `Plus d'options — ${totalManquants} à compléter` : "Plus d'options"}
+          className={`relative inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md border px-3 text-sm font-medium lg:hidden ${plus ? "border-primary bg-primary/10" : ""}`}
+        >
+          Plus <span aria-hidden className="text-[10px]">{plus ? "▲" : "▼"}</span>
+          {totalManquants > 0 && <span aria-hidden className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-500" />}
+        </button>
       </div>
 
+      {/* Téléphone : UNE rangée de pilules qui défile de côté (au lieu de plusieurs lignes empilées).
+          Les compteurs reprennent les bandeaux « À réapprovisionner » et « Hausse de prix » ; chaque pilule filtre. */}
+      <div data-filtres-mobile="" role="group" aria-label="Filtres" className="-mx-4 flex gap-1.5 overflow-x-auto px-4 lg:hidden">
+        {ALERTES.map(([k, label]) => {
+          const n = k === "URGENT" ? compte.urgent : k === "APPRO" ? compte.appro : 0;
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setAlerte(k as "" | NiveauAlerte)}
+              aria-pressed={alerte === k}
+              className={`${PILULE_MOBILE} ${n > 0 ? `border-transparent ${ALERTE_CLASSE[k as NiveauAlerte]}` : ""} ${alerte === k ? "font-semibold ring-2 ring-inset ring-primary" : ""}`}
+            >
+              {label}{n > 0 && <span className="ml-1 font-semibold tabular-nums">{n}</span>}
+            </button>
+          );
+        })}
+        {compteHausse > 0 && (
+          <button type="button" onClick={() => setHausseSeule((v) => !v)} aria-pressed={hausseSeule} className={`${PILULE_MOBILE} border-transparent bg-red-100 text-red-800 ${hausseSeule ? "font-semibold ring-2 ring-inset ring-primary" : ""}`}>
+            📈 Hausse de prix<span className="ml-1 font-semibold tabular-nums">{compteHausse}</span>
+          </button>
+        )}
+        {manque && (
+          <button type="button" onClick={() => setManque("")} aria-label="Retirer le filtre « À compléter »" className={`${PILULE_MOBILE} border-primary bg-primary/10 font-medium`}>
+            À compléter : {manquants.find(([k]) => k === manque)?.[2] ?? manque} <span aria-hidden className="ml-1">✕</span>
+          </button>
+        )}
+      </div>
+
+      {plus && (
+        <div id="inventaire-plus" data-plus-mobile="" className="space-y-3 rounded-xl border bg-muted/30 p-3 text-sm lg:hidden">
+          <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}</span></span>
+            <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
+          </p>
+          {manquants.length > 0 && (
+            <div>
+              <p className="mb-1.5 font-medium text-muted-foreground">À compléter</p>
+              <div className="flex flex-wrap gap-1.5">
+                {manquants.map(([k, n, lbl]) => (
+                  <button key={k} type="button" onClick={() => { setManque(manque === k ? "" : k); setPlus(false); }} aria-pressed={manque === k}
+                    className={`${PILULE_MOBILE} ${manque === k ? "border-primary bg-primary/10 font-medium" : ""} ${k === "negatif" ? "text-red-700" : ""}`}>
+                    {n} {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => { setAjout((v) => !v); setPlus(false); }} className="min-h-11 rounded-md border bg-background px-3 font-medium hover:bg-accent">{ajout ? "Fermer l'ajout" : "+ Ajouter un article"}</button>
+            {actionsPlus}
+          </div>
+        </div>
+      )}
+
       {/* À compléter : champs manquants qui brident les alertes et la valorisation. Clic = filtre. */}
-      {(incomplets.prix + incomplets.fournisseur + incomplets.seuil + incomplets.unite + incomplets.negatif > 0) && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+      {totalManquants > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm max-lg:hidden">
           <span className="font-medium text-muted-foreground">À compléter :</span>
-          {([
-            ["seuil", incomplets.seuil, "sans seuil (jamais d'alerte)"],
-            ["fournisseur", incomplets.fournisseur, "sans fournisseur"],
-            ["prix", incomplets.prix, "sans prix"],
-            ["unite", incomplets.unite, "sans unité"],
-            ["negatif", incomplets.negatif, "stock négatif"],
-          ] as const).filter(([, n]) => n > 0).map(([k, n, lbl]) => (
+          {manquants.map(([k, n, lbl]) => (
             <button key={k} onClick={() => setManque(manque === k ? "" : k)}
               className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${manque === k ? "border-primary bg-primary/10" : "hover:bg-accent"} ${k === "negatif" ? "text-red-700" : ""}`}>
               {n} {lbl}
@@ -328,7 +406,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         );
       })()}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between max-lg:hidden">
         <button onClick={() => setAjout((v) => !v)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{ajout ? "Fermer" : "+ Ajouter un article"}</button>
       </div>
 

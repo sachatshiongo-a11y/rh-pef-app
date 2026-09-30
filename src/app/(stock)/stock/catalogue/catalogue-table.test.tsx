@@ -175,3 +175,90 @@ describe("ordinateur inchangé", () => {
     expect(lignes[0].querySelector('[aria-label="Stock minimum — Riz"]')).not.toBeNull();
   });
 });
+
+// ── Bloc du haut sur téléphone (demande de la Direction, 2026-09-29) : voir au moins sept articles
+// dès l'ouverture. Les bandeaux deviennent des pilules à compteur dans UNE rangée qui défile de côté ;
+// « À compléter », la valeur du stock, l'ajout et l'export passent dans « Plus ». Rien n'est perdu.
+// Ce que ces tests ne voient pas : la hauteur réelle (mesurée à 375 × 812 dans un navigateur : 7 rangées entières).
+describe("bloc du haut sur téléphone — compact, filtres toujours présents", () => {
+  const filtres = () => conteneur.querySelector<HTMLElement>("[data-filtres-mobile]")!;
+  const pilule = (t: string) => [...filtres().querySelectorAll("button")].find((b) => b.textContent!.startsWith(t))!;
+  const plus = () => conteneur.querySelector<HTMLButtonElement>('button[aria-controls="inventaire-plus"]')!;
+  const panneau = () => conteneur.querySelector<HTMLElement>("#inventaire-plus");
+  const sansSeuil = ARTICLES.filter((a) => !(Number(a.stockMinimum) > 0)).length;
+
+  it("une seule rangée de pilules, qui défile de côté, sans jamais se couper sur deux lignes", () => {
+    expect(filtres().className).toMatch(/overflow-x-auto/);
+    expect(filtres().className).toContain("lg:hidden");
+    expect(filtres().className).not.toContain("flex-wrap");
+    const boutons = [...filtres().querySelectorAll("button")];
+    expect(boutons.length).toBeGreaterThanOrEqual(4);
+    for (const b of boutons) expect(b.className, b.textContent!).toContain("shrink-0");
+  });
+
+  it("les bandeaux (réapprovisionnement, hausse de prix, à compléter) ne s'affichent plus sur téléphone : leurs compteurs sont dans les pilules", () => {
+    for (const texte of ["À réapprovisionner", "À compléter :"]) {
+      const bandeau = [...conteneur.querySelectorAll("div")].find((d) => d.className.includes("rounded-xl") && d.firstElementChild?.textContent?.includes(texte))!;
+      expect(bandeau, texte).toBeTruthy();
+      expect(bandeau.className, texte).toContain("max-lg:hidden");
+    }
+    expect(pilule("Urgent").textContent).toBe("Urgent1");
+    expect(pilule("À réappro.").textContent).toBe("À réappro.1");
+    expect(pilule("Toutes")).toBeTruthy();
+    expect(pilule("Satisfaisant")).toBeTruthy();
+  });
+
+  it("une pilule d'alerte filtre la liste des rangées, un second appui la retire", () => {
+    clic(pilule("Urgent"));
+    expect(noms()).toEqual(["rupture"]);
+    expect(pilule("Urgent").getAttribute("aria-pressed")).toBe("true");
+    clic(pilule("Toutes"));
+    expect(noms().length).toBe(ARTICLES.length);
+  });
+
+  it("recherche et tri restent sur la même ligne, avec « Plus » ; l'ordinateur garde ses pilules et son compteur", () => {
+    const ligne = plus().parentElement!;
+    expect(ligne.querySelector('input[aria-label="Rechercher un article"]')).not.toBeNull();
+    expect(ligne.querySelector('select[aria-label="Trier les articles"]')).not.toBeNull();
+    expect(ligne.className).not.toMatch(/(^|\s)flex-wrap/); // pas de retour à la ligne sur téléphone
+    const bureau = [...ligne.children].filter((e) => e.className.includes("max-lg:hidden"));
+    expect(bureau.some((e) => e.textContent!.includes("Satisfaisant"))).toBe(true);
+    expect(bureau.some((e) => e.textContent!.includes("/ 5 article(s)"))).toBe(true);
+    expect(plus().className).toContain("lg:hidden");
+  });
+
+  it("« Plus » est replié au départ, puis montre la valeur du stock, le compteur, À compléter, l'ajout et l'export", () => {
+    expect(panneau()).toBeNull();
+    expect(plus().getAttribute("aria-expanded")).toBe("false");
+    act(() => racine.render(h(CatalogueTable, { articles: ARTICLES, categories: [], fournisseurs: [], actionsPlus: h("button", { "data-export": "" }, "Exporter") })));
+    clic(plus());
+    expect(plus().getAttribute("aria-expanded")).toBe("true");
+    const p = panneau()!;
+    expect(p.className).toContain("lg:hidden");
+    expect(p.textContent).toContain("Valeur du stock");
+    expect(p.textContent).toContain("5 / 5 article(s)");
+    expect(p.textContent).toContain(`${sansSeuil} sans seuil`);
+    expect(p.textContent).toContain("+ Ajouter un article");
+    expect(p.querySelector("[data-export]")).not.toBeNull();
+  });
+
+  it("une puce « À compléter » filtre la liste, referme « Plus » et laisse une pilule pour retirer le filtre", () => {
+    clic(plus());
+    const puce = [...panneau()!.querySelectorAll("button")].find((b) => b.textContent!.includes("sans seuil"))!;
+    clic(puce);
+    expect(panneau()).toBeNull();
+    expect(noms().length).toBe(sansSeuil);
+    const retirer = filtres().querySelector<HTMLButtonElement>('button[aria-label^="Retirer le filtre"]')!;
+    expect(retirer.textContent).toContain("sans seuil");
+    clic(retirer);
+    expect(noms().length).toBe(ARTICLES.length);
+  });
+
+  it("« Ajouter un article » du menu « Plus » ouvre le formulaire de création", () => {
+    expect(conteneur.querySelector('input[name="designation"]')).toBeNull();
+    clic(plus());
+    clic([...panneau()!.querySelectorAll("button")].find((b) => b.textContent === "+ Ajouter un article")!);
+    expect(conteneur.querySelector('input[name="designation"]')).not.toBeNull();
+    expect(panneau()).toBeNull();
+  });
+});
