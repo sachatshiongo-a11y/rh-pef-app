@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -10,6 +9,7 @@ import { logout } from "@/app/login/actions";
 import { Icone } from "@/components/icones";
 import { BoutonRetour } from "@/components/bouton-retour";
 import { BarreDuBas, RESERVE_BARRE_DU_BAS } from "@/components/barre-du-bas";
+import { Tiroir, VoileTiroir, useTiroir } from "@/components/tiroir-mobile";
 import { choisirBarreDuBas, entreesVisibles } from "@/lib/navigation-espaces";
 import { BARRE_DU_BAS, NAV_GROUPS, lienActif } from "./navigation";
 
@@ -30,25 +30,20 @@ export function StockShell({
   notif: React.ComponentProps<typeof NotificationBell> | null;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const fermer = () => setOpen(false);
+  // Tiroir : ouverture, verrou de la page derrière, fermeture à la navigation — voir tiroir-mobile.
+  const { ouvert: open, ouvrir, fermer } = useTiroir();
   // État actif du menu et de la barre du bas : une seule règle, dans ./navigation.
   const actif = (href: string) => lienActif(href, pathname);
   const roleLabel = userRole === "ADMIN" ? "Direction" : "Responsable stock";
 
   return (
     <>
-      <div className={`flex h-dvh overflow-hidden ${RESERVE_BARRE_DU_BAS}`}>
-        {open && <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={fermer} aria-hidden />}
+      {/* Voile hors du conteneur `overflow-hidden` ci-dessous (Safari iOS y recadre un fixe). */}
+      <VoileTiroir ouvert={open} onFermer={fermer} />
 
-        <aside
-          id="menu-stock"
-          aria-label="Menu"
-          className={`fixed inset-y-0 left-0 z-50 flex w-64 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-muted/30 lg:shadow-none ${
-            open ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
+      <div className={`flex h-dvh overflow-hidden ${RESERVE_BARRE_DU_BAS}`}>
+        <Tiroir id="menu-stock" ouvert={open} className="w-64 lg:bg-muted/30">
           <div className="mb-4 flex items-start justify-between px-2">
             <div>
               <Image src="/logo-pates-en-folie.png" alt="Pâtes en Folie" width={160} height={55} priority className="h-auto w-full max-w-36" />
@@ -66,7 +61,7 @@ export function StockShell({
             </div>
           </form>
 
-          <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
+          <nav className="flex flex-1 flex-col gap-4 lg:overflow-y-auto">
             {NAV_GROUPS.map((groupe) => {
               const items = entreesVisibles(groupe.items, userRole);
               if (items.length === 0) return null;
@@ -114,7 +109,7 @@ export function StockShell({
               <button type="submit" className="mt-1 flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm lg:min-h-0 outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"><Icone nom="deconnexion" /> Déconnexion</button>
             </form>
           </div>
-        </aside>
+        </Tiroir>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <header className="sticky top-0 z-20 flex items-center gap-2 border-b bg-background px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] lg:hidden">
@@ -141,7 +136,7 @@ export function StockShell({
         entrees={choisirBarreDuBas(NAV_GROUPS, BARRE_DU_BAS, userRole, badges)}
         estActif={actif}
         menuOuvert={open}
-        onMenu={() => setOpen(true)}
+        onMenu={ouvrir}
         menuId="menu-stock"
       />
     </>

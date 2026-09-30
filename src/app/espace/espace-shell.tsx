@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -9,6 +8,7 @@ import { Avatar } from "@/components/avatar";
 import { PushToggle } from "@/app/(app)/push-toggle";
 import { ClocheSalarie } from "./cloche-salarie";
 import { BarreDuBas } from "@/components/barre-du-bas";
+import { Tiroir, VoileTiroir, useTiroir } from "@/components/tiroir-mobile";
 import { logout } from "@/app/login/actions";
 import type { NotificationItem } from "@/lib/notifications";
 import { ACCUEIL, BARRE_DU_BAS, GROUPES_ESPACE, lienActif, type LienEspace } from "./navigation";
@@ -44,8 +44,10 @@ export function EspaceShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [tiroir, setTiroir] = useState(false);
-  const fermer = () => setTiroir(false);
+  // Tiroir : ouverture, verrou de la page derrière, fermeture à la navigation — voir tiroir-mobile.
+  // Ici la PAGE elle-même défile (pas de conteneur `h-dvh`) : c'est l'espace le plus exposé au
+  // chaînage du défilement, le verrou y est indispensable.
+  const { ouvert: tiroir, ouvrir, fermer } = useTiroir();
 
   const lienMenu = (l: LienEspace) => {
     const actif = lienActif(l.href, pathname);
@@ -69,14 +71,8 @@ export function EspaceShell({
       {navigation && (
         <>
           {/* Tiroir mobile : voile + panneau */}
-          {tiroir && <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={fermer} />}
-          <aside
-            id="menu-espace"
-            aria-label="Menu"
-            className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85%] flex-col overflow-y-auto border-r bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-64 lg:max-w-none lg:translate-x-0 lg:shadow-none ${
-              tiroir ? "translate-x-0" : "-translate-x-full"
-            }`}
-          >
+          <VoileTiroir ouvert={tiroir} onFermer={fermer} />
+          <Tiroir id="menu-espace" ouvert={tiroir} className="w-72 lg:w-64">
             <div className="mb-5 flex items-center justify-between">
               <Image src="/logo-pates-en-folie.png" alt="Pâtes en Folie" width={132} height={45} priority className="h-8 w-auto" />
               <button onClick={fermer} aria-label="Fermer le menu" className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent lg:hidden">
@@ -124,7 +120,7 @@ export function EspaceShell({
                 </button>
               </form>
             </div>
-          </aside>
+          </Tiroir>
         </>
       )}
 
@@ -162,7 +158,7 @@ export function EspaceShell({
           entrees={BARRE_DU_BAS.map((l) => ({ href: l.href, icone: l.icone, court: l.court ?? l.label }))}
           estActif={(href) => lienActif(href, pathname)}
           menuOuvert={tiroir}
-          onMenu={() => setTiroir(true)}
+          onMenu={ouvrir}
           menuId="menu-espace"
         />
       )}

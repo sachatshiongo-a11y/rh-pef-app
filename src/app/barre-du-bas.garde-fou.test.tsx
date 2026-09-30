@@ -76,6 +76,42 @@ describe("barre du bas — chaque coquille utilise le composant commun", () => {
     expect(src).toContain(`id="${id}"`);
   });
 
+  // Défilement du tiroir en PWA iOS (2026-09-29) : UN SEUL mécanisme (`@/components/tiroir-mobile`) pour
+  // les quatre coquilles — sinon l'une d'elles redevient un tiroir qui laisse défiler la page derrière.
+  it.each(coquilles())("%s : tiroir, voile et verrou viennent du composant commun", (f) => {
+    const src = lire(f);
+    expect(src).toMatch(/import \{[^}]*\bTiroir\b[^}]*\} from "@\/components\/tiroir-mobile";/);
+    expect(src).toMatch(/useTiroir\(\)/);
+    expect(src).toMatch(/<VoileTiroir\b/);
+    expect(src).toMatch(/<Tiroir\b/);
+    expect(src, "panneau refabriqué à la main").not.toMatch(/<aside\b/);
+    expect(src, "voile refabriqué à la main").not.toMatch(/fixed inset-0[^"`]*bg-black/);
+    expect(src, "état d'ouverture tenu à la main (sans verrou de la page)").not.toMatch(/useState\(false\)/);
+  });
+
+  it.each(coquilles())("%s : le menu n'est pas un second défileur imbriqué sur téléphone", (f) => {
+    const src = lire(f);
+    for (const [, cl] of src.matchAll(/<nav\b[^>]*className="([^"]*)"/g)) {
+      expect(cl, "un <nav> qui défile dans le tiroir qui défile").not.toMatch(/(^|\s)overflow-y-auto/);
+    }
+  });
+
+  it("le tiroir commun : défile seul, sans chaînage, en dvh, sans flou ; le voile ne défile pas", () => {
+    const src = readFileSync(path.join(APP, "../components/tiroir-mobile.tsx"), "utf8");
+    expect(src).toContain("flex-col overflow-y-auto overscroll-contain");
+    expect(src).toContain("max-lg:h-dvh");
+    expect(src).toContain("touch-none");
+    expect(src).toContain("useLockBodyScroll");
+    expect(src).not.toMatch(FLOU);
+  });
+
+  it("le verrou fige le body en position fixe (overflow:hidden seul ne suffit pas sur iOS)", () => {
+    const src = readFileSync(path.join(APP, "../components/use-lock-body-scroll.ts"), "utf8");
+    expect(src).toContain('corps.style.position = "fixed"');
+    expect(src).toMatch(/corps\.style\.top = `-\$\{y\}px`/);
+    expect(src).toContain("window.scrollTo");
+  });
+
   it("le composant commun : fixé en bas, sans flou", () => {
     const src = readFileSync(path.join(APP, "../components/barre-du-bas.tsx"), "utf8");
     expect(src).toContain("fixed inset-x-0 bottom-0");
@@ -211,6 +247,12 @@ describe("barre du bas — montée dans chaque coquille", () => {
     expect(tiroir.className).not.toContain("-translate-x-full");
     expect(bouton.getAttribute("aria-expanded")).toBe("true");
 
+    // Ouvert, la page derrière est figée ; un appui sur le voile ferme et la libère.
+    expect(document.body.style.position).toBe("fixed");
+    const voile = conteneur.querySelector("[data-voile-tiroir]")!;
+    expect(voile, "voile absent").toBeTruthy();
+    expect(tiroir.className).toContain("overscroll-contain");
+
     // Le tiroir garde TOUTES les entrées de l'espace + le bloc du compte.
     const texte = tiroir.textContent!;
     for (const l of attendu.labels) expect(texte, l).toContain(l);
@@ -218,5 +260,10 @@ describe("barre du bas — montée dans chaque coquille", () => {
     expect(texte).toContain(attendu.sortie);
     // Plus de hamburger en haut : « Menu » le remplace.
     expect(conteneur.querySelector('[aria-label="Ouvrir le menu"]')).toBeNull();
+
+    act(() => (voile as HTMLElement).click());
+    expect(document.body.style.position).toBe("");
+    expect(conteneur.querySelector("[data-voile-tiroir]")).toBeNull();
+    expect(bouton.getAttribute("aria-expanded")).toBe("false");
   });
 });
