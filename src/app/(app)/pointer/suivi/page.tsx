@@ -1,24 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth";
-import { verdictDe } from "@/lib/pointage-scan";
-import { libelleMotif, scanAVerifier } from "@/lib/pointage-qr";
+import { POINTAGE_VALABLE, SCAN_VALABLE } from "@/lib/pointage-annulation";
 import { resumeSemaineCourante } from "@/lib/pointage-suivi";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { heureKinshasa } from "@/lib/heure-kinshasa";
-import { SuiviBulk, type LigneSuivi } from "./suivi-bulk";
-import type { SourcePointage } from "@prisma/client";
+import { SuiviBulk } from "./suivi-bulk";
+import { lignesSuivi } from "./lignes-suivi";
 import { exigerPageRH } from "@/lib/garde-page";
-
-// « QR », « manuel », « appli (ancien) » (brief) — IVMS n'arrive jamais sur ce modèle en pratique
-// (réservé à l'import de présences), mais un libellé neutre évite un badge vide si ça change.
-const LABEL_SOURCE: Record<SourcePointage, string> = {
-  QR: "QR",
-  MANUEL: "manuel",
-  APP: "appli (ancien)",
-  IVMS_RAPPORT: "IVMS",
-  IVMS_API: "IVMS",
-};
 
 export default async function SuiviPointagesPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const user = await exigerPageRH();
@@ -37,11 +25,14 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
       select: { id: true, nom: true, photoUrl: true, categorie: true },
     }),
+    // Un pointage dont l'arrivée a été annulée par le salarié n'existe pas ici ; un scan annulé ne
+    // compte pas (rien n'est effacé en base : cf. lib/pointage-annulation).
     prisma.pointage.findMany({
-      where: { date },
+      where: { AND: [{ date }, POINTAGE_VALABLE] },
       select: {
-        id: true, employeeId: true, heureDebut: true, heureFin: true, pauseMinutes: true, source: true,
+        id: true, employeeId: true, heureDebut: true, heureFin: true, pauseMinutes: true, pauseParDefaut: true, source: true,
         scans: {
+          where: SCAN_VALABLE,
           orderBy: { instant: "asc" },
           select: { id: true, moment: true, verdict: true, motif: true, distanceM: true, precisionM: true, verifieLe: true },
         },
@@ -51,46 +42,7 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
     // mesure glissante (§3 de la conception), indépendante du sélecteur de date ci-dessous.
     resumeSemaineCourante(prisma),
   ]);
-  const parEmp = new Map(pointages.map((p) => [p.employeeId, p]));
-
-  const lignesBrutes = employees.map((e) => {
-    const p = parEmp.get(e.id);
-    const heures = p?.heureFin
-      ? Math.max(0, (p.heureFin.getTime() - p.heureDebut.getTime()) / 3_600_000 - p.pauseMinutes / 60)
-      : null;
-    const statut: LigneSuivi["statut"] = !p ? "ABSENT" : p.heureFin ? "TERMINE" : "EN_COURS";
-
-    const scans = p?.scans ?? [];
-    // « À vérifier » se DÉRIVE des scans (un scan A_VERIFIER sans `verifieLe`) — jamais un booléen
-    // recopié sur Pointage, même règle que la signature électronique. `scanAVerifier` est la
-    // fonction pure testée dans `pointage-qr.test.ts` ; on ne la réécrit pas ici.
-    const badgeArriveeScan = scanAVerifier(scans, "ARRIVEE");
-    const badgeDepartScan = scanAVerifier(scans, "DEPART");
-    const departScanneSansPause = !p?.heureFin && scans.some((s) => s.moment === "DEPART");
-
-    const ligne: LigneSuivi = {
-      employeeId: e.id,
-      nom: e.nom,
-      photoUrl: e.photoUrl,
-      pointageId: p?.id ?? null,
-      arriveeLabel: p ? heureKinshasa(p.heureDebut) : "—",
-      departLabel: p?.heureFin ? heureKinshasa(p.heureFin) : departScanneSansPause ? "départ scanné, pause non saisie" : "—",
-      pauseLabel: p ? `${p.pauseMinutes} min` : "—",
-      heuresLabel: heures !== null ? `${heures.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h` : "—",
-      statut,
-      sourceLabel: p ? LABEL_SOURCE[p.source] : null,
-      badgeArrivee: badgeArriveeScan ? `À vérifier · ${libelleMotif(verdictDe(badgeArriveeScan))}` : null,
-      badgeDepart: badgeDepartScan ? `À vérifier · ${libelleMotif(verdictDe(badgeDepartScan))}` : null,
-      aVerifier: !!badgeArriveeScan || !!badgeDepartScan,
-    };
-    return { ligne, statut, heures };
-  });
-  const lignes: LigneSuivi[] = lignesBrutes.map((l) => l.ligne);
-
-  const nbTermine = lignesBrutes.filter((l) => l.statut === "TERMINE").length;
-  const nbEnCours = lignesBrutes.filter((l) => l.statut === "EN_COURS").length;
-  const nbAbsent = lignesBrutes.filter((l) => l.statut === "ABSENT").length;
-  const totalHeures = lignesBrutes.reduce((s, l) => s + (l.heures ?? 0), 0);
+  const { lignes, nbTermine, nbEnCours, nbAbsent, totalHeures } = lignesSuivi(employees, pointages);
 
   const autreJour = (delta: number) => {
     const d = new Date(`${jour}T12:00:00Z`);
@@ -148,7 +100,8 @@ export default async function SuiviPointagesPage({ searchParams }: { searchParam
       <SuiviBulk lignes={lignes} />
 
       <p className="mt-3 text-xs text-muted-foreground">
-        Les heures affichées sont nettes (départ − arrivée − pause) et sont déjà reportées dans les Présences et les Heures,
+        Les heures affichées sont celles payées (départ − arrivée − pause saisie par le salarié ; la pause par défaut de 30 min
+        n&apos;est pas déduite) et sont déjà reportées dans les Présences et les Heures,
         sauf un jour de congé approuvé (le congé prime).{" "}
         <Link href="/presences" className="text-primary underline">
           Pour saisir ou corriger des heures : Présences &amp; heures →

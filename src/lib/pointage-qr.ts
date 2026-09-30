@@ -3,6 +3,7 @@
 // d'affiche (node:crypto) vit à part, dans `pointage-code.ts`, jamais importé côté client.
 
 import { formaterNombre } from "@/lib/montant";
+import type { PauseDuJour } from "@/lib/pointage-jour";
 
 export type Coordonnees = { lat: number; lng: number };
 
@@ -27,8 +28,24 @@ export const PRECISION_REGLAGE_MAX_M = 100;
  */
 export const MESSAGE_POSITION_NON_REGLEE =
   "Réglez d'abord la position du restaurant : sans elle, chaque scan de l'affiche serait refusé.";
-/** Un second scan avant ce délai après l'arrivée déclenche la confirmation « double scan ». */
-export const DELAI_DOUBLE_SCAN_MS = 5 * 60_000;
+/**
+ * Scan répété (décision de la Direction du 2026-09-29) : un scan qui suit de moins de 10 minutes le
+ * dernier pointage (arrivée ou départ) de la même personne n'enregistre RIEN de nouveau — l'écran
+ * réaffiche le pointage déjà fait. Scanner l'affiche pointe désormais sans confirmation : sans
+ * cette règle, un double scan (le téléphone qui relit l'affiche, un onglet rouvert) ferait arrivée
+ * puis départ. Remplace la confirmation « double scan » à 5 minutes.
+ */
+export const DELAI_SCAN_REPETE_MS = 10 * 60_000;
+/** « Annuler ce pointage » : ouvert au salarié lui-même seulement, pendant ce délai après le scan. */
+export const DELAI_ANNULATION_MS = 5 * 60_000;
+/**
+ * Pause posée d'office quand le départ est pointé sans pause saisie (décision de la Direction du
+ * 2026-09-29) : la journée est close avec cette pause, marquée « par défaut ». Décision d'argent du
+ * même jour (« la paie ne doit pas être affectée ») : elle s'AFFICHE mais n'est PAS DÉDUITE des
+ * heures payées — `heuresPayables` (`pointage-jour.ts`). Le salarié peut saisir la sienne ensuite
+ * (facultatif) : c'est alors la sienne qui compte, et elle se déduit.
+ */
+export const PAUSE_PAR_DEFAUT_MIN = 30;
 
 /** Distance haversine entre deux points, en mètres. */
 export function distanceMetres(a: Coordonnees, b: Coordonnees): number {
@@ -148,3 +165,17 @@ export function resumePointagesSemaine(
   const pourcent = total === 0 ? 0 : Math.round((horsRestaurant / total) * 100);
   return { total, horsRestaurant, pourcent };
 }
+
+/**
+ * La pause d'une journée pointée, telle que l'affichent le scan, « Pointer », le Suivi et Présences &
+ * heures — un seul libellé partout : la pause posée d'office ne se confond jamais avec une pause
+ * saisie, et dit qu'elle n'est pas déduite (décision d'argent du 2026-09-29), pour que la Direction
+ * comprenne pourquoi les heures valent départ − arrivée. Sa durée affichée est TOUJOURS
+ * `PAUSE_PAR_DEFAUT_MIN` : en base, `pauseMinutes` ne porte que les minutes déduites (0 ici).
+ */
+export function libellePause(pause: PauseDuJour): string {
+  return pause.parDefaut ? LIBELLE_PAUSE_PAR_DEFAUT : `pause ${pause.minutesDeduites} min`;
+}
+
+/** « pause par défaut 30 min (non déduite) » — le libellé unique de la pause posée d'office. */
+export const LIBELLE_PAUSE_PAR_DEFAUT = `pause par défaut ${PAUSE_PAR_DEFAUT_MIN} min (non déduite)`;

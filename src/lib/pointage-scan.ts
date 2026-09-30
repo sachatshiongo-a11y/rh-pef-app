@@ -6,20 +6,62 @@ import "server-only";
 // scan loin du restaurant, ou sans position, est ENREGISTRÉ et marqué A_VERIFIER — l'outil
 // signale, la Direction tranche (cf. docs/superpowers/specs/2026-09-23-pointage-qr-design.md).
 //
-// Les heures renvoyées (`heure`, `arriveeA`, `heureFin`) sont des instants ISO 8601 : l'écran les
-// affiche en heure de Kinshasa.
+// Les heures renvoyées (`heure`, `arriveeA`, `departA`, `heureFin`) sont des instants ISO 8601 :
+// l'écran les affiche en heure de Kinshasa.
+//
+// Décision de la Direction du 2026-09-29 — « scanner = pointer », sans bouton de confirmation. Les
+// garde-fous qui remplacent le bouton vivent ICI, côté serveur :
+//   • scan répété : moins de 10 minutes après le dernier pointage (arrivée ou départ) de la même
+//     personne, RIEN de nouveau — on renvoie le pointage déjà fait (`repete: true`) ;
+//   • « Annuler ce pointage » : 5 minutes, le salarié lui-même (`pointage-annulation.ts`) ; un scan
+//     annulé ne compte plus, une arrivée annulée se refait au scan suivant ;
+//   • le départ CLÔT la journée tout de suite, avec la pause par défaut (30 min) si le salarié n'a
+//     pas saisi la sienne ; il peut la saisir ensuite (`saisirPauseScan`), tant que la Direction
+//     n'a pas corrigé la journée (`pointage-cloture.ts`).
+// Décision d'argent du même jour : la pause par défaut s'affiche mais n'est PAS déduite (heures =
+// départ − arrivée) ; une pause saisie l'est. Toutes les heures viennent de `heuresPayables`.
 
 import { Prisma, type PrismaClient, type ScanPointage } from "@prisma/client";
 import { codesEgaux } from "@/lib/pointage-code";
-import { dateDuJourKinshasa, heuresNettes } from "@/lib/pointage-jour";
-import { DELAI_DOUBLE_SCAN_MS, verdictPosition, type PositionScan, type VerdictPosition } from "@/lib/pointage-qr";
+import { dateDuJourKinshasa, heuresPayables, pauseDuJour, type PauseDuJour, type PausePointage } from "@/lib/pointage-jour";
+import {
+  DELAI_SCAN_REPETE_MS,
+  LIBELLE_PAUSE_PAR_DEFAUT,
+  verdictPosition,
+  type PositionScan,
+  type VerdictPosition,
+} from "@/lib/pointage-qr";
 import { appliquerAuxPresences, refusSiPaieValideeOuConge } from "@/lib/pointage-presences";
+import { annulableMs } from "@/lib/pointage-annulation";
+import { clore, journeeTouchee, lireCloture, pauseAEcrire } from "@/lib/pointage-cloture";
+import { journaliser } from "@/lib/audit";
 
+/** La pause retenue pour la journée (`pointage-jour.ts`) : `parDefaut` = posée d'office, non déduite. */
+export type { PauseDuJour };
+
+/**
+ * `repete` : ce scan n'a rien écrit, il réaffiche le pointage déjà fait. `annulableMs` : temps
+ * restant pour « Annuler ce pointage » (0 = plus possible), mesuré à l'heure du serveur.
+ * DEPART : la journée est CLOSE (horodatée au scan) ; `pauseModifiable` = le salarié peut encore
+ * remplacer la pause par défaut par la sienne.
+ */
 export type ResultatScan =
-  | { etat: "ARRIVEE"; heure: string; verdict: VerdictPosition }
-  | { etat: "DEPART_A_CONFIRMER"; scanId: string; heure: string; arriveeA: string; verdict: VerdictPosition }
-  | { etat: "DEPART_TROP_TOT"; arriveeA: string } // < 5 min après l'arrivée : rien n'est écrit
-  | { etat: "COMPLETE" };
+  | { etat: "ARRIVEE"; scanId: string; heure: string; verdict: VerdictPosition; repete: boolean; annulableMs: number }
+  | {
+      etat: "DEPART";
+      scanId: string;
+      heure: string;
+      arriveeA: string;
+      verdict: VerdictPosition;
+      repete: boolean;
+      annulableMs: number;
+      pause: PauseDuJour;
+      heures: number;
+      /** Faux quand un congé approuvé couvre ce jour : rien n'a été écrit aux présences. */
+      presencesEcrites: boolean;
+      pauseModifiable: boolean;
+    }
+  | { etat: "COMPLETE"; arriveeA: string; departA: string; pause: PauseDuJour };
 
 const AFFICHE_INVALIDE = "Cette affiche n'est plus valable, demandez la nouvelle à la Direction.";
 const ENTIER_MAX = 2_147_483_647; // colonnes Int (précision, distance)
@@ -83,7 +125,6 @@ export async function enregistrerScan(
     userId: string;
     code: string;
     position: PositionScan;
-    confirmerDepartRapide?: boolean;
     maintenant?: Date; // injection pour les tests UNIQUEMENT : en production, l'heure du serveur
   },
 ): Promise<ResultatScan> {
@@ -92,7 +133,7 @@ export async function enregistrerScan(
 
 async function scanner(
   client: PrismaClient,
-  p: { employeeId: string; userId: string; code: string; position: PositionScan; confirmerDepartRapide?: boolean },
+  p: { employeeId: string; userId: string; code: string; position: PositionScan },
   maintenant: Date,
   rejouable: boolean,
 ): Promise<ResultatScan> {
@@ -110,7 +151,8 @@ async function scanner(
 
   // 3. Le verdict de position. Sans position du restaurant, il n'y a rien à quoi comparer : c'est
   //    un réglage manquant de la Direction (l'affiche ne s'imprime pas sans lui), pas un défaut
-  //    du salarié.
+  //    du salarié. Sans position du TÉLÉPHONE (refusée, 8 s dépassées), le scan est enregistré
+  //    quand même, « à vérifier ».
   if (config.pointageLatitude === null || config.pointageLongitude === null)
     throw new Error("La position du restaurant n'est pas encore réglée : demandez à la Direction de la régler (Paramètres → Pointage).");
   const position = positionLisible(p.position);
@@ -133,100 +175,200 @@ async function scanner(
       });
     } catch (e) {
       // Deux scans d'arrivée au même instant : le perdant bute sur l'unicité (employé, jour).
-      // On rejoue UNE fois : il trouve alors l'arrivée du gagnant et suit la règle du second scan.
+      // On rejoue UNE fois : il trouve alors l'arrivée du gagnant — un scan répété, rien de plus.
       if (rejouable && estConflitUnique(e)) return scanner(client, p, maintenant, false);
       throw e;
     }
-    return { etat: "ARRIVEE", heure: maintenant.toISOString(), verdict: verdictDe(arrivee) };
+    return resultatArrivee(arrivee, false, maintenant);
   }
 
-  // 5. Journée complète.
-  if (pointage.heureFin) return { etat: "COMPLETE" };
-
-  const arriveeA = pointage.heureDebut.toISOString();
-  // 6-8. Le départ, sous verrou de la ligne du pointage : deux scans de départ simultanés ne
-  //      peuvent pas écrire deux scans DEPART.
+  // 5-9. Sous verrou de la ligne du pointage : deux scans simultanés (ou un scan et une
+  //      annulation) ne peuvent écrire ni deux départs, ni un départ ET une nouvelle arrivée.
   return client.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "public"."Pointage" WHERE "id" = ${pointage.id} FOR UPDATE`;
-    const ouvert = await tx.pointage.findUnique({ where: { id: pointage.id }, select: { heureFin: true } });
-    if (!ouvert || ouvert.heureFin) return { etat: "COMPLETE" } as const;
-
-    // 6. Un départ déjà scanné, en attente de sa pause → CE scan, aucune nouvelle ligne.
-    const deja = await tx.scanPointage.findFirst({
-      where: { pointageId: pointage.id, moment: "DEPART" },
-      orderBy: { instant: "asc" },
+    const courant = await tx.pointage.findUnique({
+      where: { id: pointage.id },
+      include: { scans: { orderBy: { instant: "asc" } } },
     });
-    if (deja) {
+    if (!courant) throw new Error("Ce pointage a été supprimé entre-temps : scannez de nouveau l'affiche.");
+
+    // Un scan annulé (« Annuler ce pointage ») ne compte plus.
+    const valables = courant.scans.filter((s) => !s.annuleLe);
+    const arrivees = valables.filter((s) => s.moment === "ARRIVEE");
+    const arrivee = arrivees.length > 0 ? arrivees[arrivees.length - 1] : null;
+    const depart = valables.find((s) => s.moment === "DEPART") ?? null;
+    const arriveeAnnulee = arrivee === null && courant.scans.some((s) => s.moment === "ARRIVEE");
+    const pause = pauseDuJour(courant);
+
+    // 5. Journée close : le départ qui l'a close est réaffiché s'il date de moins de 10 min (scan
+    //    répété), sinon « journée complète ». Rien n'est écrit.
+    if (courant.heureFin) {
+      if (
+        depart &&
+        depart.instant.getTime() === courant.heureFin.getTime() &&
+        maintenant.getTime() - depart.instant.getTime() < DELAI_SCAN_REPETE_MS
+      ) {
+        const cloture = await lireCloture(tx, courant.id);
+        return resultatDepart(courant, depart, { repete: true, presencesEcrites: cloture?.presencesEcrites ?? true }, maintenant);
+      }
       return {
-        etat: "DEPART_A_CONFIRMER",
-        scanId: deja.id,
-        heure: deja.instant.toISOString(),
-        arriveeA,
-        verdict: verdictDe(deja),
+        etat: "COMPLETE",
+        arriveeA: courant.heureDebut.toISOString(),
+        departA: courant.heureFin.toISOString(),
+        pause,
       } as const;
     }
 
-    // 7. Double scan par erreur (moins de 5 min après l'arrivée) : on demande confirmation.
-    if (maintenant.getTime() - pointage.heureDebut.getTime() < DELAI_DOUBLE_SCAN_MS && !p.confirmerDepartRapide)
-      return { etat: "DEPART_TROP_TOT", arriveeA } as const;
+    // 6. L'arrivée a été annulée : ce scan est la NOUVELLE arrivée. La ligne du pointage reste (la
+    //    supprimer effacerait ses scans) ; elle reprend l'heure de ce scan.
+    if (arriveeAnnulee) {
+      await tx.pointage.update({
+        where: { id: courant.id },
+        data: { heureDebut: maintenant, source: "QR", creeParId: p.userId },
+      });
+      const nouvelle = await tx.scanPointage.create({
+        data: { ...scan, pointageId: courant.id, employeeId: p.employeeId, moment: "ARRIVEE", instant: maintenant },
+      });
+      return resultatArrivee(nouvelle, false, maintenant);
+    }
 
-    // 8. Le départ : horodaté MAINTENANT, clos plus tard à cet instant quand la pause est saisie.
-    const depart = await tx.scanPointage.create({
-      data: { ...scan, pointageId: pointage.id, employeeId: p.employeeId, moment: "DEPART", instant: maintenant },
+    // 7. Un départ scanné AVANT la mise en service de la clôture automatique, jamais clos : on le
+    //    clôt maintenant, avec la pause par défaut — la même règle qu'un départ d'aujourd'hui.
+    if (depart) {
+      const r = await clore(tx, { pointage: courant, heureFin: depart.instant, pauseSaisie: null, userId: p.userId });
+      const clos = { ...courant, heureFin: depart.instant, ...r.pause };
+      return resultatDepart(clos, depart, { repete: false, presencesEcrites: r.presencesEcrites }, maintenant);
+    }
+
+    // 8. Scan répété : moins de 10 min après l'arrivée scannée → rien de nouveau, l'arrivée est
+    //    réaffichée. (Un pointage sans scan d'arrivée — ancien bouton « APP » — n'est pas concerné.)
+    if (arrivee && maintenant.getTime() - arrivee.instant.getTime() < DELAI_SCAN_REPETE_MS)
+      return resultatArrivee(arrivee, true, maintenant);
+
+    // 9. Le départ : horodaté MAINTENANT, et la journée close tout de suite avec la pause par
+    //    défaut. Le salarié peut saisir la sienne ensuite (facultatif).
+    const nouveau = await tx.scanPointage.create({
+      data: { ...scan, pointageId: courant.id, employeeId: p.employeeId, moment: "DEPART", instant: maintenant },
     });
-    return {
-      etat: "DEPART_A_CONFIRMER",
-      scanId: depart.id,
-      heure: maintenant.toISOString(),
-      arriveeA,
-      verdict: verdictDe(depart),
-    } as const;
+    const r = await clore(tx, { pointage: courant, heureFin: maintenant, pauseSaisie: null, userId: p.userId });
+    const clos = { ...courant, heureFin: maintenant, ...r.pause };
+    return resultatDepart(clos, nouveau, { repete: false, presencesEcrites: r.presencesEcrites }, maintenant);
   });
 }
 
-/** Un départ d'un autre jour ne se confirme plus : la Direction a pu corriger ces heures depuis. */
+function resultatArrivee(s: ScanPointage, repete: boolean, maintenant: Date): ResultatScan {
+  return {
+    etat: "ARRIVEE",
+    scanId: s.id,
+    heure: s.instant.toISOString(),
+    verdict: verdictDe(s),
+    repete,
+    annulableMs: annulableMs(s.instant, maintenant),
+  };
+}
+
+function resultatDepart(
+  pointage: PausePointage & { date: Date; heureDebut: Date; heureFin: Date | null },
+  s: ScanPointage,
+  o: { repete: boolean; presencesEcrites: boolean },
+  maintenant: Date,
+): ResultatScan {
+  const heureFin = pointage.heureFin ?? s.instant;
+  return {
+    etat: "DEPART",
+    scanId: s.id,
+    heure: s.instant.toISOString(),
+    arriveeA: pointage.heureDebut.toISOString(),
+    verdict: verdictDe(s),
+    repete: o.repete,
+    annulableMs: annulableMs(s.instant, maintenant),
+    pause: pauseDuJour(pointage),
+    heures: heuresPayables({ ...pointage, heureFin }),
+    presencesEcrites: o.presencesEcrites,
+    // La pause par défaut se remplace le jour même (Kinshasa) ; la Direction a pu corriger ensuite :
+    // le serveur le revérifie à la saisie (`saisirPauseScan`).
+    pauseModifiable: pointage.pauseParDefaut && pointage.date.getTime() === dateDuJourKinshasa(maintenant).getTime(),
+  };
+}
+
+/** Un départ annulé (« Annuler ce pointage ») ne reçoit plus de pause. */
+export const MESSAGE_DEPART_ANNULE = "Ce départ a été annulé : scannez de nouveau l'affiche pour pointer votre départ.";
+/** Un départ d'un autre jour ne se modifie plus : la Direction a pu corriger ces heures depuis. */
 export const MESSAGE_DEPART_AUTRE_JOUR =
-  "Ce départ a été scanné un autre jour : il ne peut plus être confirmé ici, la journée n'a pas été close. Pour les heures de ce jour, adressez-vous à la Direction.";
+  "Ce départ a été pointé un autre jour : sa pause ne peut plus être modifiée ici. Pour les heures de ce jour, adressez-vous à la Direction.";
+export const MESSAGE_PAUSE_DEJA_SAISIE =
+  "Votre pause est déjà enregistrée : pour la corriger, adressez-vous à la Direction.";
+export const MESSAGE_JOURNEE_CLOSE_AUTREMENT =
+  "Votre journée a été close autrement : pour la corriger, adressez-vous à la Direction.";
 
 /**
- * Clôt la journée : `heureFin` = l'instant du SCAN de départ (jamais l'heure de la confirmation),
- * pause bornée 0-600 min, heures nettes écrites aux présences — le tout dans une transaction.
+ * La pause SAISIE par le salarié après son départ (étape facultative) : elle remplace la pause par
+ * défaut (qui n'était pas déduite) et SE DÉDUIT des heures ; les heures aux présences suivent.
+ * `heureFin` reste l'instant du SCAN.
  *
- * Seulement LE JOUR MÊME (Kinshasa) : un identifiant de scan ancien (onglet resté ouvert, requête
- * rejouée) ne doit pas réécrire des heures que la Direction a corrigées entre-temps.
+ * Refusée (rien n'est réécrit) : un autre jour que celui du départ ; une pause déjà saisie ; une
+ * journée que la Direction a corrigée depuis (heures ou code retouchés dans Présences & heures) ;
+ * un départ annulé. Un départ scanné AVANT la clôture automatique, jamais clos, est clos ici avec
+ * la pause saisie.
  *
- * `presencesEcrites` : faux quand un congé a été approuvé pour ce jour entre l'arrivée et le départ.
- * Le départ est clos, mais rien n'est écrit aux présences ni aux heures (le congé prime) — l'écran
- * le dit, au lieu d'annoncer une journée enregistrée.
+ * `presencesEcrites` : faux quand un congé approuvé couvre ce jour — l'écran le dit.
  */
-export async function confirmerDepartScan(
+export async function saisirPauseScan(
   client: PrismaClient,
   p: {
     employeeId: string;
+    userId: string;
     scanId: string;
     pauseMinutes: number;
     maintenant?: Date; // injection pour les tests UNIQUEMENT : en production, l'heure du serveur
   },
-): Promise<{ heureFin: string; heures: number; presencesEcrites: boolean }> {
+): Promise<{ heureFin: string; heures: number; presencesEcrites: boolean; pauseMinutes: number }> {
   const pauseMinutes = Math.round(Math.max(0, Math.min(600, Number(p.pauseMinutes) || 0)));
-  const scan = await client.scanPointage.findUnique({ where: { id: p.scanId }, include: { pointage: true } });
+  const scan = await client.scanPointage.findUnique({ where: { id: String(p.scanId) }, include: { pointage: true } });
   // Même message pour « inexistant », « d'un collègue » et « pas un départ » : rien ne se devine.
   if (!scan || scan.employeeId !== p.employeeId || scan.pointage.employeeId !== p.employeeId || scan.moment !== "DEPART")
     throw new Error("Ce départ est introuvable.");
-  if (scan.pointage.heureFin) throw new Error("Votre départ est déjà confirmé.");
   if (scan.pointage.date.getTime() !== dateDuJourKinshasa(p.maintenant ?? new Date()).getTime())
     throw new Error(MESSAGE_DEPART_AUTRE_JOUR);
 
-  const heureFin = scan.instant;
-  const heures = heuresNettes(scan.pointage.heureDebut, heureFin, pauseMinutes);
-  const presencesEcrites = await client.$transaction(async (tx) => {
-    // `heureFin: null` dans le filtre : deux confirmations simultanées, une seule clôt.
-    const clos = await tx.pointage.updateMany({
-      where: { id: scan.pointageId, heureFin: null },
-      data: { heureFin, pauseMinutes },
+  return client.$transaction(async (tx) => {
+    // Sous le même verrou que le scan et l'annulation ; tout est relu APRÈS l'avoir pris.
+    await tx.$queryRaw`SELECT "id" FROM "public"."Pointage" WHERE "id" = ${scan.pointageId} FOR UPDATE`;
+    const [pointage, relu] = await Promise.all([
+      tx.pointage.findUniqueOrThrow({ where: { id: scan.pointageId } }),
+      tx.scanPointage.findUniqueOrThrow({ where: { id: scan.id }, select: { annuleLe: true } }),
+    ]);
+    if (relu.annuleLe) throw new Error(MESSAGE_DEPART_ANNULE);
+
+    if (!pointage.heureFin) {
+      const r = await clore(tx, { pointage, heureFin: scan.instant, pauseSaisie: pauseMinutes, userId: p.userId });
+      return { heureFin: scan.instant.toISOString(), heures: r.heures, presencesEcrites: r.presencesEcrites, pauseMinutes };
+    }
+
+    if (pointage.heureFin.getTime() !== scan.instant.getTime()) throw new Error(MESSAGE_JOURNEE_CLOSE_AUTREMENT);
+    if (!pointage.pauseParDefaut) throw new Error(MESSAGE_PAUSE_DEJA_SAISIE);
+    if (await journeeTouchee(tx, pointage)) throw new Error("La Direction a déjà corrigé cette journée : pour la modifier, adressez-vous à elle.");
+
+    const saisie = pauseAEcrire(pauseMinutes);
+    const heures = heuresPayables({ heureDebut: pointage.heureDebut, heureFin: pointage.heureFin, ...saisie });
+    const maj = await tx.pointage.updateMany({
+      where: { id: pointage.id, pauseParDefaut: true },
+      data: saisie,
     });
-    if (clos.count === 0) throw new Error("Votre départ est déjà confirmé.");
-    return appliquerAuxPresences(tx, p.employeeId, scan.pointage.date, heures);
+    if (maj.count === 0) throw new Error(MESSAGE_PAUSE_DEJA_SAISIE);
+    const cloture = await lireCloture(tx, pointage.id);
+    // Rien n'avait été écrit aux présences à la clôture (congé approuvé) : rien ne l'est ici non plus.
+    const presencesEcrites = cloture?.presencesEcrites
+      ? await appliquerAuxPresences(tx, pointage.employeeId, pointage.date, heures)
+      : false;
+    await journaliser(tx, {
+      entite: "Pointage",
+      entiteId: pointage.id,
+      champ: "pauseMinutes",
+      ancienneValeur: LIBELLE_PAUSE_PAR_DEFAUT,
+      nouvelleValeur: `${pauseMinutes} min (saisie par le salarié, déduite)`,
+      userId: p.userId,
+    });
+    return { heureFin: pointage.heureFin.toISOString(), heures, presencesEcrites, pauseMinutes };
   });
-  return { heureFin: heureFin.toISOString(), heures, presencesEcrites };
 }
