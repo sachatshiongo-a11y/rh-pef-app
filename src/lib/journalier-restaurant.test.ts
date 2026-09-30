@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  consommationParArticleCatalogue, consommationsSemaine, ecartJour, lignesComparaison, lignesExportComparaison, lignesExportConso, sortiesParMotif, texteConso,
+  aUnEcart, consommationParArticleCatalogue, consommationsSemaine, ecartConsoLivre, ecartJour, ecartLivreCommande, lignesComparaison, lignesExportComparaison, lignesExportConso, sortiesParMotif, texteConso,
   SECTION_CONSO, SECTION_LIVRE, SECTION_PERTES, SECTION_SANS_MOTIF,
 } from "./journalier-restaurant";
 import type { ArticleRestoSR, EntreesStockResto } from "./stock-restaurant";
@@ -164,5 +164,33 @@ describe("export de l'onglet Comparaison", () => {
     expect(r.entete).toEqual(["Article", "Lun 21 Cmd", "Lun 21 Liv", "Lun 21 Conso", "Mar 22 Cmd", "Mar 22 Liv", "Mar 22 Conso", "Mer 23 Cmd", "Mer 23 Liv", "Mer 23 Conso", "Total Cmd", "Total Liv", "Total Conso"]);
     expect(r.colRole.slice(0, 4)).toEqual([null, "cmd", "liv", "conso"]);
     expect([...r.ecarts].sort()).toEqual(["1:3", "1:6"]);
+  });
+});
+
+describe("écart signé de la comparaison (la couleur ne suffit pas)", () => {
+  it("consommé - livré : « -1 » livré non consommé, « +1,5 » consommé en plus, rien s'il n'y a pas d'écart ni de comptage", () => {
+    expect(ecartConsoLivre(2, "1")).toBe("-1");
+    expect(ecartConsoLivre(2, "3.5")).toBe("+1,5");
+    expect(ecartConsoLivre(1250, "1180.125")).toBe("-69,875");
+    expect(ecartConsoLivre(2, "2")).toBeNull();
+    expect(ecartConsoLivre(2, null)).toBeNull();
+    // Le signe suit exactement la règle de la couleur.
+    expect(ecartJour(2, "1")).toBe("LIVRE_NON_CONSOMME");
+    expect(ecartJour(2, "3.5")).toBe("CONSOMME_PLUS_QUE_LIVRE");
+  });
+
+  it("livré - commandé : « +2 » livré en plus, « -1 » livré en moins ; rien quand ils sont égaux ou tous deux vides", () => {
+    expect(ecartLivreCommande(3, 5)).toBe("+2");
+    expect(ecartLivreCommande(3, 2)).toBe("-1");
+    expect(ecartLivreCommande(0, 2)).toBe("+2");
+    expect(ecartLivreCommande(3, 3)).toBeNull();
+    expect(ecartLivreCommande(0, 0)).toBeNull();
+  });
+
+  it("aUnEcart : livré ≠ commandé, livré non consommé ou consommé en trop, un seul jour suffit", () => {
+    const base = { id: "a", designation: "A", categorie: "C", lien: true, cmd: [1, 0, 0], liv: [1, 0, 0], conso: ["1", null, null], ecarts: [null, null, null] };
+    expect(aUnEcart(base)).toBe(false);
+    expect(aUnEcart({ ...base, liv: [1, 0, 2] })).toBe(true);
+    expect(aUnEcart({ ...base, ecarts: [null, null, "LIVRE_NON_CONSOMME"] })).toBe(true);
   });
 });

@@ -1,6 +1,8 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { exigerEspaceStock } from "@/lib/garde-route";
-import { TableauDocument, TableauxParPartieDocument } from "@/lib/pdf/tableau";
+import { TableauDocument } from "@/lib/pdf/tableau";
+import { ComparaisonDocument } from "@/lib/pdf/comparaison";
+import { PIED_PDF_COMPARAISON, partiesDocumentComparaison } from "@/lib/journalier-comparaison-export";
 import { donneesJournalier, roleCellule } from "../export-data";
 
 // Vert = commande, rouge = livraison (codes couleur de la fiche), indigo = consommé au restaurant.
@@ -16,14 +18,11 @@ export async function GET(req: Request) {
 
   const pied = "Vert = commande · rouge = livraison · indigo = consommé au restaurant (comptages ; « — » : jour sans comptage) · orange = consommé ≠ livré.";
   const buffer = await renderPdfBuffer(
-    d.partiesPdf
-      ? TableauxParPartieDocument({
-          titre: d.titre, sousTitre: d.sousTitre, paysage: true, pied,
-          parties: d.partiesPdf.map((p) => ({
-            titre: p.titre, colonnes: p.colonnes, sectionRows: d.sectionRows,
-            lignes: d.lignes.map((l) => p.indices.map((i) => l[i] ?? "")),
-            couleurCellule: (r, c) => COULEUR[roleCellule(d, r, p.indices[c]!) ?? ""],
-          })),
+    d.partiesPdf && d.ecartsCL && d.signes
+      // Comparaison : deux niveaux d'en-tête, jours séparés, écarts signés (voir `lib/pdf/comparaison`).
+      ? ComparaisonDocument({
+          titre: d.titre, sousTitre: d.sousTitre, pied: PIED_PDF_COMPARAISON,
+          parties: partiesDocumentComparaison({ ...d, ecarts: d.ecarts!, ecartsCL: d.ecartsCL, signes: d.signes, lignes: d.lignes.map((l) => l.map(String)) }, d.partiesPdf),
         })
       : TableauDocument({
           titre: d.titre, sousTitre: d.sousTitre, colonnes: d.colonnes, lignes: d.lignes, sectionRows: d.sectionRows,
