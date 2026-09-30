@@ -32,6 +32,25 @@ const texte = (html: string) =>
   html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/[\s  ]+/g, " ");
 const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
 
+/** Retire du HTML l'élément (et tout son contenu) qui porte l'attribut `attr` ; il doit être unique. */
+function retirerElement(html: string, attr: string): { reste: string; retire: string } {
+  const i = html.indexOf(attr);
+  if (i < 0 || html.indexOf(attr, i + 1) >= 0) throw new Error(`${attr} : attendu une et une seule fois`);
+  const debut = html.lastIndexOf("<", i);
+  const balise = /^<([a-z0-9]+)/.exec(html.slice(debut))![1];
+  const re = new RegExp(`<${balise}[\\s>]|</${balise}>`, "g");
+  re.lastIndex = debut;
+  let profondeur = 0;
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    profondeur += m[0].startsWith("</") ? -1 : 1;
+    if (profondeur === 0) {
+      const fin = m.index + m[0].length;
+      return { reste: html.slice(0, debut) + html.slice(fin), retire: html.slice(debut, fin) };
+    }
+  }
+  throw new Error(`${attr} : élément non refermé`);
+}
+
 async function rendreHtml(sp: { mois?: string } = {}): Promise<string> {
   const { default: StockDashboard } = await import("./page");
   return renderToStaticMarkup(await StockDashboard({ searchParams: Promise.resolve(sp) }));
@@ -104,10 +123,20 @@ afterAll(async () => { vi.useRealTimers(); await fermer?.(); });
 const AVANT = " ST Bonjour Sacha Direction · mercredi 30 septembre 2026 · Stock & Achats Taux du jour 1 USD = 2 800 CDF Articles 3 Alertes urgentes 1 À réapprovisionner 1 Valeur du stock 37,00 $ Factures à payer 200,00 $ 2 facture(s) Commandes du mois 1 À régler cette semaine 120,00 $ 1 facture(s) Factures échues 80,00 $ 1 facture(s) Légumes frais du mois 15,50 $ 1 achat(s) Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisées Articles au seuil minimum (2) Tout voir Beurre 0 Sel 3 Derniers bons de commande Tout voir 001/PEF/SEPT/26 · — Validé 009/PEF/AOUT/26 · — Validé Dernières factures Tout voir Fourn. Sept · 120,00 $ À régler Fourn. Reglee · 500,00 $ Réglée Fourn. Aout · 60,00 $ Réglée Fourn. Echue · 80,00 $ Échue non réglée Dernières entrées & sorties Tout voir Farine · 29/09/2026 −2 Farine · 28/09/2026 −4 Sel · 18/08/2026 −1 Farine · 14/08/2026 −3 Farine · 03/08/2026 +20 Réconciliations récentes (ajustements) Tout voir Sel · 25/08/2026 2 Derniers comptages Tout voir 29/09/2026 · 2 article(s) 0 écart(s) 31/08/2026 · 3 article(s) 0 écart(s) Pertes récentes Tout voir Sel · 18/08/2026 −1 Sel humide août Articles les plus commandés Tout voir Aucune commande enregistrée. Fournisseurs les plus sollicités Tout voir Aucun bon de commande. 0 fournisseurs · 3 articles au catalogue. ";
 
 describe("accueil Stock — mois courant inchangé", () => {
-  it("sans ?mois= : exactement le texte d'avant, au titre du sélecteur près", async () => {
-    const t = texte(await rendreHtml());
+  it("sans ?mois= : exactement le texte d'avant, au titre du sélecteur et aux cartes « Entrées de stock » près", async () => {
+    const html = await rendreHtml();
+    // Les cartes « Entrées de stock » (autre chantier, même demande) : un seul bloc, repéré par
+    // `data-cartes-entrees-stock`, posé juste après les cartes du mois et avant les listes.
+    const { reste, retire } = retirerElement(html, "data-cartes-entrees-stock");
+    expect(texte(retire)).toContain("Entrées de stock");
+    expect(reste).not.toContain("data-cartes-entrees-stock");
+    const t = texte(reste);
     expect(t).toContain(" Le mois · septembre 2026 Mois Afficher");
+    // Tout le reste : le texte d'avant, à l'identique et dans le même ordre.
     expect(t.replace(" Le mois · septembre 2026 Mois Afficher", "")).toBe(AVANT);
+    const tt = texte(html);
+    expect(tt.indexOf("Entrées de stock")).toBeGreaterThan(tt.indexOf("Conso. du mois (sorties)"));
+    expect(tt.indexOf("Entrées de stock")).toBeLessThan(tt.indexOf("Articles au seuil minimum"));
   }, 60_000);
 
   it("?mois= du mois courant = adresse nue (même HTML), sans lien de retour ni étiquette « aujourd'hui »", async () => {

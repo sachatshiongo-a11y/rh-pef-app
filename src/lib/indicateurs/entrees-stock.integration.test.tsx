@@ -248,13 +248,13 @@ describe("tableau de bord Stock rendu sur la base", () => {
   it("les cartes y figurent, pour le mois du tableau de bord, avec les chiffres du calcul et des liens sur ce mois", async () => {
     const { default: StockDashboard } = await import("@/app/(stock)/stock/page");
     const n = new Date();
-    const [annee, mois] = [n.getFullYear(), n.getMonth() + 1]; // mois du tableau de bord (heure locale, comme la page)
+    const [annee, mois] = [n.getUTCFullYear(), n.getUTCMonth() + 1]; // mois courant du tableau de bord (UTC, comme la page)
     // Une entrée valorisée ce mois-ci, quel que soit le jour où le test tourne.
     const riz = (await prisma.articleStock.findFirstOrThrow({ where: { designation: "Riz" } })).id;
     const mv = await prisma.mouvementStock.create({ data: { articleId: riz, type: "ENTREE", quantite: 1, montantUSD: 12.34, date: new Date(Date.UTC(annee, mois - 1, 2)), origine: "Liste d'achat" } });
     try {
       const i = await chargerIndicateursEntrees(annee, mois);
-      const html = await rendreEnFlux(await StockDashboard());
+      const html = await rendreEnFlux(await StockDashboard({ searchParams: Promise.resolve({}) }));
       const t = texte(html);
       expect(t).toContain(`Entrées de stock · ${i.libellePeriode}`);
       expect(t).toContain(`Total des entrées de stock ${formaterUSD(i.total.montant)} ${i.total.nb} entrée(s)`);
@@ -263,7 +263,27 @@ describe("tableau de bord Stock rendu sur la base", () => {
       expect(html).toContain(`href="/stock/mouvements?mois=${i.cleMois}&amp;motif=achats"`);
       expect(html).toContain(`href="/stock/mouvements?mois=${i.cleMois}&amp;motif=factures"`);
       // Rendu synchrone (ancien test de l'accueil) : la page ne casse pas, les cartes attendent sous Suspense.
-      expect(texte(renderToStaticMarkup(await StockDashboard()))).toContain("Entrées de stock : chargement…");
+      expect(texte(renderToStaticMarkup(await StockDashboard({ searchParams: Promise.resolve({}) })))).toContain("Entrées de stock : chargement…");
+    } finally {
+      await prisma.mouvementStock.delete({ where: { id: mv.id } });
+    }
+  }, 60_000);
+
+  it("?mois= d'un mois passé : les cartes reflètent CE mois (chiffres et liens), pas le mois courant", async () => {
+    const { default: StockDashboard } = await import("@/app/(stock)/stock/page");
+    // Novembre 2025 : une seule entrée, valorisée 45,67 $, par la Liste d'achat.
+    const riz = (await prisma.articleStock.findFirstOrThrow({ where: { designation: "Riz" } })).id;
+    const mv = await prisma.mouvementStock.create({ data: { articleId: riz, type: "ENTREE", quantite: 1, montantUSD: 45.67, date: new Date(Date.UTC(2025, 10, 14)), origine: "Liste d'achat" } });
+    try {
+      const i = await chargerIndicateursEntrees(2025, 11);
+      expect(i.total).toMatchObject({ montant: 45.67, nb: 1 });
+      const html = await rendreEnFlux(await StockDashboard({ searchParams: Promise.resolve({ mois: "2025-11" }) }));
+      const t = texte(html);
+      expect(t).toContain(`Entrées de stock · ${i.libellePeriode}`);
+      expect(t).not.toContain("(mois en cours)");
+      expect(t).toContain(`Total des entrées de stock ${formaterUSD(45.67)} 1 entrée(s)`);
+      expect(t).toContain(`dont Liste d'achat ${formaterUSD(45.67)} 1 entrée(s)`);
+      expect(html).toContain(`href="/stock/mouvements?mois=${i.cleMois}&amp;motif=entrees"`);
     } finally {
       await prisma.mouvementStock.delete({ where: { id: mv.id } });
     }
@@ -273,7 +293,7 @@ describe("tableau de bord Stock rendu sur la base", () => {
     A.user.role = "STOCK";
     try {
       const { default: StockDashboard } = await import("@/app/(stock)/stock/page");
-      const t = texte(await rendreEnFlux(await StockDashboard()));
+      const t = texte(await rendreEnFlux(await StockDashboard({ searchParams: Promise.resolve({}) })));
       expect(t).toContain("Factures à payer");
       expect(t).toContain("Total des entrées de stock");
     } finally {

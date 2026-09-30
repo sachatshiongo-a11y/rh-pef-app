@@ -19,7 +19,7 @@ export { voitIndicateursEntrees } from "@/lib/indicateurs/entrees-stock";
 export function CartesEntreesStock({ annee, mois, voitMontants }: { annee: number; mois: number; voitMontants: boolean }) {
   if (!voitMontants) return null;
   return (
-    <Suspense fallback={<p className="text-xs text-muted-foreground">Entrées de stock : chargement…</p>}>
+    <Suspense fallback={<p className="text-xs text-muted-foreground" data-cartes-entrees-stock>Entrées de stock : chargement…</p>}>
       <CartesEntreesStockChargees annee={annee} mois={mois} />
     </Suspense>
   );
@@ -62,7 +62,7 @@ export function CartesEntreesStockVue({ donnees: d, moisEnCours }: { donnees: In
   ];
 
   return (
-    <section aria-label="Entrées de stock" className="space-y-2">
+    <section aria-label="Entrées de stock" className="space-y-2" data-cartes-entrees-stock>
       <p className="text-xs text-muted-foreground">
         <span className="font-medium text-foreground">Entrées de stock · {d.libellePeriode}</span>
         {moisEnCours ? " (mois en cours)" : ""}
