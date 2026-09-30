@@ -6,6 +6,9 @@ import { normTexte } from "@/lib/texte";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
+import { useJourAffiche } from "@/components/selecteur-jour";
+import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
+import { CASE_JOUR, LigneJour, RubriqueJour, TitreJour } from "@/components/liste-jour";
 import type { EspaceVente, LigneVente } from "@/lib/ventes-journalieres";
 import { saisirVente } from "./ventes-actions";
 import { rafraichirJournalier } from "./actions";
@@ -28,7 +31,8 @@ const texteTotal = (t: number | null) => (t === null ? "—" : formaterNombre(t)
  * rubrique, colonnes = jours. Un total par espace (jamais plats + boissons). Tableur « comme
  * Excel » (case partagée `CelluleNombre` : Entrée descend, collage d'un bloc Excel).
  * Case vide = pas de saisie (« — ») ; 0 saisi = 0 vendu, enregistré. Un jour de période clôturée
- * est en lecture seule.
+ * est en lecture seule. Téléphone : la liste d'UN jour (celui du sélecteur du haut de page) ; le
+ * tableau de la semaine reste en « Vue semaine ». Même enregistreur, mêmes valeurs, mêmes lignes.
  */
 export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
   lignes: LigneVente[];
@@ -90,10 +94,13 @@ export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
 
   return (
     <div className="space-y-2">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un plat, une boisson…" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
-      <p className="text-xs text-muted-foreground">{visibles.length} / {lignes.length} ligne(s)</p>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un plat, une boisson…" aria-label="Rechercher un plat ou une boisson" className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-1.5 text-sm max-lg:min-h-11 max-lg:max-w-none" />
+      <p className="text-xs text-muted-foreground max-lg:hidden">{visibles.length} / {lignes.length} ligne(s)</p>
       {tousFiges && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">Période de stock clôturée : les ventes de cette semaine sont en lecture seule.</p>}
       <ZoneTableur>
+        <VueJourOuSemaine
+          jour={<ListeVentesJour visibles={visibles} total={lignes.length} vide={lignes.length === 0} jours={jours} valeur={valeur} totalJour={totalJour} peutModifier={peutModifier} onEnregistrer={onEnregistrer} deuxEspaces={deuxEspaces} />}
+          semaine={
         <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
           <table data-tableur="" className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
             <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
@@ -120,7 +127,7 @@ export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
                       <tr><td colSpan={nbCol} className="sticky left-0 !bg-primary/10 !py-2 text-sm font-semibold">{TITRE_ESPACE[l.espace]}</td></tr>
                     )}
                     {nouvelleRubrique && (
-                      <tr><td colSpan={nbCol} className="sticky left-0 !bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900">{l.rubrique}</td></tr>
+                      <tr><td colSpan={nbCol} className="sticky left-0 !bg-amber-100 !py-1.5 text-xs font-bold uppercase tracking-wide text-amber-900 max-lg:normal-case max-lg:tracking-normal">{l.rubrique}</td></tr>
                     )}
                     <LigneVenteGrille l={l} jours={jours} valeurs={jours.map((j) => valeur(l.cle, j.iso))} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />
                     {/* Total PAR ESPACE : additionner des plats et des boissons ne dirait rien. */}
@@ -145,6 +152,8 @@ export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
             </tbody>
           </table>
         </div>
+          }
+        />
       </ZoneTableur>
       {enCours > 0 && <p className="text-xs text-muted-foreground">Enregistrement…</p>}
     </div>
@@ -182,3 +191,75 @@ const LigneVenteGrille = memo(function LigneVenteGrille({ l, jours, valeurs, peu
     </tr>
   );
 }, memesProps);
+
+/**
+ * Téléphone : les ventes d'UN jour — l'unité de vente à gauche, la case à droite (44 px), par rubrique,
+ * avec le total du jour PAR ESPACE (jamais plats + boissons). Mêmes lignes filtrées, même `valeur`,
+ * même `onEnregistrer` que le tableau. Un jour clôturé est en lecture seule.
+ */
+function ListeVentesJour({ visibles, total, vide, jours, valeur, totalJour, peutModifier, onEnregistrer, deuxEspaces }: {
+  visibles: LigneVente[]; total: number; vide: boolean; jours: JourVente[];
+  valeur: (cle: string, iso: string) => number | null;
+  totalJour: (iso: string, parmi: LigneVente[]) => number | null;
+  peutModifier: boolean;
+  onEnregistrer: (v: number | null, c: ContexteCase) => Promise<void>;
+  deuxEspaces: boolean;
+}) {
+  const [rang] = useJourAffiche(jours.map((j) => j.iso));
+  const jour = jours[rang]!;
+  return (
+    <div data-tableur="" data-vue-liste="ventes" className="space-y-1">
+      <TitreJour
+        iso={jour.iso}
+        extra={jour.fige ? <span className="ml-1.5 text-sm font-normal text-muted-foreground">(clôturé)</span> : undefined}
+        resume={`${visibles.length} / ${total} ligne(s)`}
+      />
+      {jour.fige && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">Jour clôturé : lecture seule.</p>}
+      {visibles.map((l, i) => {
+        const prec = visibles[i - 1];
+        const suiv = visibles[i + 1];
+        const nouvelEspace = deuxEspaces && (!prec || prec.espace !== l.espace);
+        const nouvelleRubrique = !prec || prec.espace !== l.espace || prec.rubrique !== l.rubrique;
+        const finEspace = !suiv || suiv.espace !== l.espace;
+        return (
+          <Fragment key={l.cle}>
+            {nouvelEspace && <RubriqueJour ton="primary">{TITRE_ESPACE[l.espace]}</RubriqueJour>}
+            {nouvelleRubrique && <RubriqueJour>{l.rubrique}</RubriqueJour>}
+            {/* Clé = le jour : changer de jour remonte les cases (une frappe en attente part à sa date d'origine). */}
+            <LigneVenteJour key={jour.iso} l={l} jour={jour} valeur={valeur(l.cle, jour.iso)} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />
+            {finEspace && (
+              <div className="flex min-h-11 items-center justify-between rounded-md bg-muted/60 px-3 text-sm font-semibold" data-total={l.espace}>
+                <span>{TOTAL_ESPACE[l.espace]}</span>
+                <span>{texteTotal(totalJour(jour.iso, visibles.filter((x) => x.espace === l.espace)))}</span>
+              </div>
+            )}
+          </Fragment>
+        );
+      })}
+      {visibles.length === 0 && (
+        <p className="px-3 py-6 text-center text-sm text-muted-foreground">{vide ? "Aucune unité de vente : importez les lignes du classeur, ou créez les fiches techniques (Plat vendu, Bar)." : "Aucune ligne pour cette recherche."}</p>
+      )}
+    </div>
+  );
+}
+
+type PropsLigneJour = {
+  l: LigneVente; jour: JourVente; valeur: number | null; peutModifier: boolean;
+  onEnregistrer: (v: number | null, c: ContexteCase) => Promise<void>;
+};
+const memesPropsJour = (p: PropsLigneJour, n: PropsLigneJour) =>
+  p.l.cle === n.l.cle && p.l.designation === n.l.designation && p.l.inactif === n.l.inactif && p.l.rubrique === n.l.rubrique &&
+  p.jour.iso === n.jour.iso && p.jour.label === n.jour.label && p.jour.fige === n.jour.fige &&
+  p.valeur === n.valeur && p.peutModifier === n.peutModifier && p.onEnregistrer === n.onEnregistrer;
+
+const LigneVenteJour = memo(function LigneVenteJour({ l, jour, valeur, peutModifier, onEnregistrer }: PropsLigneJour) {
+  return (
+    <LigneJour
+      nom={<>{l.designation}{l.inactif && <span className="ml-1.5 text-xs font-normal text-muted-foreground">(désactivé)</span>}</>}
+      droite={
+        <CelluleNombre ligne={l.cle} col={0} donnee={jour.iso} groupe={`${l.espace}:${l.rubrique}`} valeur={valeur} onEnregistrer={onEnregistrer} min={0} entier
+          disabled={!peutModifier || jour.fige} placeholder="—" className={CASE_JOUR} aria-label={`${l.designation} — ${jour.label}`} />
+      }
+    />
+  );
+}, memesPropsJour);

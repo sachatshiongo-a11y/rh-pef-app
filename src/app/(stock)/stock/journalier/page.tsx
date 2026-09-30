@@ -9,8 +9,10 @@ import { TableComparaison } from "./table-comparaison";
 import { consommationParArticleCatalogue, lignesComparaison } from "@/lib/journalier-restaurant";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasaISO } from "@/lib/date-paiement";
-import { MenuFicheCommande, MenuFichesConso } from "./menu-fiches-conso";
 import { VentesGrid } from "./ventes-grid";
+import { EnteteJournalier, lienJournalier } from "./entete-journalier";
+import { JourMobileProvider } from "@/components/jour-mobile";
+import { rangJourParDefaut } from "@/lib/jour-mobile";
 import { ImportClasseur } from "./import-classeur";
 import { ImportCommande } from "./import-commande";
 import { chargerVentesSemaine } from "./ventes-data";
@@ -32,72 +34,27 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const finSemaine = addDays(lundi, 7);
   const joursLabel = jours.map((d, i) => ({ iso: iso(d), label: `${JOURS[i]} ${d.getUTCDate()}` }));
-  const libelleSemaine = `Semaine du ${lundi.getUTCDate()}/${lundi.getUTCMonth() + 1} au ${addDays(lundi, 6).getUTCDate()}/${addDays(lundi, 6).getUTCMonth() + 1}`;
   // Jour proposé par les fiches « Commande journalière » : aujourd'hui s'il est dans la semaine affichée, sinon son lundi.
   const aujourdhui = jourKinshasaISO();
   const jourDefaut = aujourdhui >= iso(lundi) && aujourdhui < iso(finSemaine) ? aujourdhui : iso(lundi);
 
-  const lien = (params: Partial<SP>) => {
-    const p = new URLSearchParams();
-    p.set("vue", params.vue ?? vue);
-    p.set("semaine", params.semaine ?? iso(lundi));
-    const dom = params.domaine !== undefined ? params.domaine : domaine;
-    if (dom) p.set("domaine", dom);
-    return `/stock/journalier?${p}`;
-  };
-
-  const enTete = (
-    <div className="space-y-3">
-      <div>
-        <h1 className="text-xl font-semibold sm:text-2xl">Consommation journalière</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Suivi par jour : ce qui est <strong>commandé</strong> par le restaurant, ce qui lui est <strong>livré</strong> (sorties « Livraison restaurant ») et ce qu&apos;il <strong>consomme</strong> (comptages du restaurant). Enregistrez les livraisons datées depuis l&apos;onglet Mouvements.
-        </p>
-      </div>
-
-      {/* Sélecteur de vue — pleine largeur et gros onglets sur mobile (bien visible au doigt),
-          compact sur ordinateur. */}
-      <div className="flex w-full overflow-hidden rounded-lg border text-sm font-medium sm:w-fit">
-        {([["commande", "Commande"], ["conso", "Consommation"], ["comparaison", "Comparaison"], ["ventes", "Rapport journalier"]] as const).map(([v, label]) => (
-          <Link
-            key={v}
-            href={lien({ vue: v })}
-            className={`flex-1 border-l px-3 py-2.5 text-center first:border-l-0 sm:flex-none sm:py-1.5 ${vue === v ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-          >
-            {label}
-          </Link>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <div className="flex items-center gap-1">
-          <Link href={lien({ semaine: iso(addDays(lundi, -7)) })} className="rounded-md border px-2 py-1 hover:bg-accent">←</Link>
-          <span className="px-2 font-medium">{libelleSemaine}</span>
-          <Link href={lien({ semaine: iso(addDays(lundi, 7)) })} className="rounded-md border px-2 py-1 hover:bg-accent">→</Link>
-          <Link href={lien({ semaine: iso(new Date()) })} className="ml-1 rounded-md border px-2 py-1 hover:bg-accent">Cette semaine</Link>
-        </div>
-        <span className="text-muted-foreground">·</span>
-        <div className="flex gap-1.5">
-          {([["", "Tous"], ["NOURRITURE", "Cuisine (nourriture)"], ["BOISSON", "Bar (boissons)"]] as const).map(([k, label]) => (
-            <Link key={k} href={lien({ domaine: k })} className={`rounded-full border px-3 py-1 ${(domaine ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</Link>
-          ))}
-        </div>
-        {vue !== "ventes" && <span className="text-muted-foreground">·</span>}
-        {/* Onglet Commande : la fiche sur le modèle du classeur (le tableau brut y reste, en second). */}
-        {vue === "commande" && (
-          <MenuFicheCommande semaine={iso(lundi)} jours={joursLabel.map((j) => j.iso)} jourDefaut={jourDefaut} domaine={domaine} libelleSemaine={libelleSemaine} />
-        )}
-        {(vue === "conso" || vue === "comparaison") && <div className="flex items-center overflow-hidden rounded-md border">
-          <span className="px-2 py-1 text-xs text-muted-foreground">Exporter</span>
-          <a href={`/stock/journalier/pdf?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
-          <a href={`/stock/journalier/excel?vue=${vue}&semaine=${iso(lundi)}${domaine ? `&domaine=${domaine}` : ""}`} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
-        </div>}
-        {(vue === "conso" || vue === "ventes") && (
-          <MenuFichesConso semaine={iso(lundi)} domaine={domaine} libelleSemaine={libelleSemaine} jourDefaut={jourDefaut} />
-        )}
-      </div>
-    </div>
+  const isosSemaine = joursLabel.map((j) => j.iso);
+  // Un seul état « jour choisi » (téléphone) pour le haut de page et la liste du jour ; il repart du
+  // jour courant à chaque semaine affichée.
+  const cadre = (enTete: React.ReactNode, corps: React.ReactNode) => (
+    <JourMobileProvider key={iso(lundi)} defaultIdx={rangJourParDefaut(isosSemaine, aujourdhui)}>
+      <div className="space-y-4">{enTete}{corps}</div>
+    </JourMobileProvider>
   );
+  /** Haut de page : identique pour les quatre onglets (la note de l'onglet et l'import varient). */
+  const enTete = (aide?: React.ReactNode, opts: { joursSelecteur?: { iso: string }[]; importer?: React.ReactNode } = {}) => (
+    <EnteteJournalier
+      vue={vue} domaine={domaine} lundi={lundi} jourDefaut={jourDefaut} aujourdhui={aujourdhui}
+      joursSelecteur={opts.joursSelecteur ?? joursLabel} aide={aide} importer={opts.importer}
+    />
+  );
+  /** Note de l'onglet, sous le haut de page sur ordinateur (sur téléphone, elle est dans « Plus »). */
+  const noteDeLOnglet = (aide: React.ReactNode) => <p className="text-xs text-muted-foreground max-lg:hidden">{aide}</p>;
 
   // Légumes frais : achats du jour (AchatLegume) et commandes (CommandeLegumeResto). Cuisine only.
   const inclureLegumes = domaine !== "BOISSON";
@@ -128,14 +85,13 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
       inclureLegumes ? chargerLegumesAchats() : Promise.resolve(new Map<string, { jours: number[]; total: number }>()),
     ]);
     const legumes = [...legAchats.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([nom, r]) => ({ nom, ...r }));
-    return (
-      <div className="space-y-4">
-        {enTete}
-        <p className="text-xs text-muted-foreground">
-          Seules les sorties « Livraison restaurant » alimentent le restaurant ; les pertes restent au dépôt. La consommation réelle = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour : elle n&apos;existe que les jours comptés (« — » sinon).
-        </p>
+    const aide = <>Seules les sorties « Livraison restaurant » alimentent le restaurant ; les pertes restent au dépôt. La consommation réelle = stock de la veille (compté, sinon théorique) + reçu du dépôt − compté le jour : elle n&apos;existe que les jours comptés (« — » sinon).</>;
+    return cadre(
+      enTete(aide),
+      <>
+        {noteDeLOnglet(aide)}
         <TableConso jours={joursLabel} sorties={donnees.sorties} legumes={legumes} consoResto={donnees.consoResto} />
-      </div>
+      </>,
     );
   }
 
@@ -147,25 +103,28 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     const dimancheVendu = avecDimanche(v.jours, v.ventes);
     const dimanche = dimancheVendu || sp.dimanche === "1";
     const jours = joursLabel.slice(0, dimanche ? 7 : 6).map((j) => ({ ...j, fige: v.joursFiges.has(j.iso) }));
-    const lienDimanche = (afficher: boolean) => `${lien({})}${afficher ? "&dimanche=1" : ""}`;
-    return (
-      <div className="space-y-4">
-        {enTete}
-        <p className="text-xs text-muted-foreground">
-          Saisissez le <strong>nombre vendu</strong> par unité de vente, jour par jour : Cuisine = fiches techniques « Plat vendu », Bar = fiches techniques Bar (verre, cocktail, café…) — jamais les bouteilles du stock. Case vide = pas de saisie (« — ») ; 0 = rien vendu. Enregistrement automatique ; collage depuis Excel possible.
-          {" "}
-          {!dimancheVendu && (
-            <Link href={lienDimanche(!dimanche)} className="underline underline-offset-2 hover:text-foreground">{dimanche ? "Masquer le dimanche" : "Saisir aussi le dimanche"}</Link>
-          )}
-        </p>
-        {user.role === "ADMIN" && <ImportClasseur />}
+    const lienDimanche = (afficher: boolean) => `${lienJournalier({ vue, semaine: iso(lundi), domaine })}${afficher ? "&dimanche=1" : ""}`;
+    const aide = (
+      <>
+        Saisissez le <strong>nombre vendu</strong> par unité de vente, jour par jour : Cuisine = fiches techniques « Plat vendu », Bar = fiches techniques Bar (verre, cocktail, café…) — jamais les bouteilles du stock. Case vide = pas de saisie (« — ») ; 0 = rien vendu. Enregistrement automatique ; collage depuis Excel possible.
+        {" "}
+        {!dimancheVendu && (
+          <Link href={lienDimanche(!dimanche)} className="underline underline-offset-2 hover:text-foreground">{dimanche ? "Masquer le dimanche" : "Saisir aussi le dimanche"}</Link>
+        )}
+      </>
+    );
+    return cadre(
+      enTete(aide, { joursSelecteur: jours, importer: user.role === "ADMIN" ? <ImportClasseur /> : undefined }),
+      <>
+        {noteDeLOnglet(aide)}
+        {user.role === "ADMIN" && <div className="max-lg:hidden"><ImportClasseur /></div>}
         <VentesGrid
           lignes={espaces.flatMap((e) => v.lignes[e])}
           jours={jours}
           ventes={Object.fromEntries(v.ventes)}
           peutModifier
         />
-      </div>
+      </>,
     );
   }
 
@@ -189,19 +148,20 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   if (vue === "commande") {
     const [articles, commandes, cmdLeg, calee] = await Promise.all([chargerArticles(), chargerCommandes(), inclureLegumes ? chargerCommandesLegumes() : Promise.resolve<Record<string, number>>({}), ficheCommandeCalee()]);
     if (inclureLegumes) articles.push(...LEGUMES.map((l) => ({ id: `legume:${l.nom}`, designation: l.unite ? `${l.nom} (${l.unite})` : l.nom, categorie: "Légumes frais" })));
-    return (
-      <div className="space-y-4">
-        {enTete}
-        <p className="text-xs text-muted-foreground">Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</p>
+    const aide = <>Saisissez la quantité <strong>commandée</strong> par le restaurant, par article et par jour (les légumes frais sont en fin de liste). Enregistrement automatique.</>;
+    return cadre(
+      enTete(aide, { importer: user.role === "ADMIN" ? <ImportCommande /> : undefined }),
+      <>
+        {noteDeLOnglet(aide)}
         {/* Le document constate, le remède va sur l'écran : aucune note dans le PDF. */}
         {!calee && (
           <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Fiche commande pas encore calée sur votre classeur : lancez « Importer les lignes du classeur Commande journalière ».
           </p>
         )}
-        {user.role === "ADMIN" && <ImportCommande />}
+        {user.role === "ADMIN" && <div className="max-lg:hidden"><ImportCommande /></div>}
         <CommandeGrid articles={articles} jours={joursLabel} commandes={{ ...commandes, ...cmdLeg }} peutModifier />
-      </div>
+      </>,
     );
   }
 
@@ -223,10 +183,8 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
     inclureHorsCatalogue: !domaine, legumes,
   });
 
-  return (
-    <div className="space-y-4">
-      {enTete}
-      <TableComparaison jours={joursLabel} lignes={lignes} sansMotif={donnees.sorties.sansMotif.length} />
-    </div>
+  return cadre(
+    enTete(),
+    <TableComparaison jours={joursLabel} lignes={lignes} sansMotif={donnees.sorties.sansMotif.length} />,
   );
 }

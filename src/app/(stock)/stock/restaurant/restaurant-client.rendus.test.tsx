@@ -83,7 +83,10 @@ describe("grille du restaurant — reçu du dépôt et stock théorique", () => 
       theorique: { stock: "10", aucunComptage: false, signalements: ["12 pièce du 21/09 : à répartir", "12 pièce du 21/09 : à répartir"] },
     })]);
     expect(erreurs.mock.calls.filter((c) => String(c[0]).includes("same key"))).toEqual([]);
-    expect(conteneur.textContent!.split("12 pièce du 21/09 : à répartir").length - 1).toBe(2);
+    // Deux vues dans le DOM (liste du jour du téléphone, tableau de la semaine) : deux signalements chacune.
+    for (const vue of ["jour", "semaine"]) {
+      expect(conteneur.querySelector(`[data-vue="${vue}"]`)!.textContent!.split("12 pièce du 21/09 : à répartir").length - 1).toBe(2);
+    }
     erreurs.mockRestore();
   });
 });

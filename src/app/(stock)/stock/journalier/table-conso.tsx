@@ -4,10 +4,13 @@ import { qte } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
 import { texteConso, totalConso, SECTION_CONSO, SECTION_LIVRE, SECTION_PERTES, SECTION_SANS_MOTIF, type LigneConso, type LigneJours } from "@/lib/journalier-restaurant";
 import { ECART_NEGATIF, LIBELLE_CONSO_INCONNUE, type ConsommationReelle } from "@/lib/stock-restaurant";
+import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
+import { ConsoJour } from "./conso-jour";
 
 // Onglet « Consommation » de la Conso. journalière : ce qui sort du dépôt, SÉPARÉ par motif (livré au
 // restaurant, pertes, sans motif), les légumes frais, puis la consommation RÉELLE du restaurant
 // (comptages). Composant de présentation (aucun état) : rendu côté serveur.
+// Téléphone : la liste d'UN jour (`ConsoJour`) ; le tableau de la semaine reste en « Vue semaine ».
 
 type Jour = { iso: string; label: string };
 
@@ -72,6 +75,9 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
   const totauxLivres = jours.map((_, i) => sorties.livraisons.reduce((t, r) => t + r.jours[i]!, 0));
   const vide = sorties.livraisons.length + sorties.pertes.length + sorties.sansMotif.length + legumes.length + consoResto.length === 0;
   return (
+    <VueJourOuSemaine
+      jour={<ConsoJour jours={jours} sorties={sorties} legumes={legumes} consoResto={consoResto} />}
+      semaine={
     <div className="max-h-[70vh] overflow-auto rounded-lg border">
       <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
@@ -114,5 +120,7 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
         )}
       </table>
     </div>
+      }
+    />
   );
 }

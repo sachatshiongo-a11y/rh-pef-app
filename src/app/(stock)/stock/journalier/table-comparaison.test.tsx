@@ -27,7 +27,7 @@ describe("onglet Comparaison", () => {
     ]);
     expect(cellules(div, "Farine")).toEqual(["Farine", "3", "2", "1,5", "", "", "0,25", "3", "2", "1,75"]);
     expect(cellules(div, "Sel")).toEqual(["Sel", "1", "1", "—", "", "", "—", "1", "1", "—"]);
-    const ecarts = [...div.querySelectorAll("[data-ecart]")].map((td) => [td.getAttribute("data-ecart"), td.getAttribute("title")]);
+    const ecarts = [...div.querySelectorAll('[data-vue="semaine"] [data-ecart]')].map((td) => [td.getAttribute("data-ecart"), td.getAttribute("title")]);
     expect(ecarts).toEqual([["LIVRE_NON_CONSOMME", "livré non consommé"], ["CONSOMME_PLUS_QUE_LIVRE", "consommé plus que livré"]]);
   });
 
