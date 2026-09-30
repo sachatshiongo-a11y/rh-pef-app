@@ -9,13 +9,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import JSZip from "jszip";
 import {
   rattacherFiches, rattacherIngredients, type ArticleExistant, type ChoixImportBar, type FicheBarLue, type FicheExistanteBar,
 } from "@/lib/fiches/classeur-bar";
 
 const F = (id: string, nom: string, categorie: string, nbIngredients = 0): FicheExistanteBar =>
   ({ id, nom, categorie, type: "BAR", estSousRecette: false, actif: true, nbIngredients, recetteVide: true, prixVenteTTC: 15 });
-const FICHES = [F("pc", "Pina Colada", "Cocktail"), F("pm", "Pina Colada", "Mocktail"), F("mo", "Mojito", "Cocktail", 2), F("kir", "Kir Royal", "Apéritif"), F("gt", "Gin Tonic", "Cocktail", 3)];
+const FICHES = [F("pc", "Pina Colada", "Cocktail"), { ...F("pm", "Pina Colada", "Mocktail"), aPhoto: true }, F("mo", "Mojito", "Cocktail", 2), F("kir", "Kir Royal", "Apéritif"), F("gt", "Gin Tonic", "Cocktail", 3)];
 const ARTICLES: ArticleExistant[] = [
   { id: "rum", designation: "Rum Saint James blc 70cl", unite: "L", prixUnitaireUSD: 17.8571, domaine: "BOISSON", contenance: null, contenanceUnite: null },
   { id: "bac", designation: "Bacardi blanc-1l", unite: "Bouteille", prixUnitaireUSD: 15, domaine: "BOISSON", contenance: null, contenanceUnite: null },
@@ -26,7 +27,9 @@ const appels = vi.hoisted(() => ({
   analyserFichesBar: vi.fn(),
   appliquerImportBar: vi.fn<(lues: unknown, choix: unknown) => Promise<unknown>>(async () => ({
     ok: true as const, remplies: ["Pina Colada"], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: ["Lait de Coco"], contenancesEcrites: [], lignesIgnorees: [], recettesConservees: [],
+    fichesEcrites: [{ feuille: "Pinacolada cocktail", ficheId: "pc" }, { feuille: "PinaColada mocktail", ficheId: "pm" }],
   })),
+  envoyerPhotoFicheImport: vi.fn<(ficheId: string, fd: FormData) => Promise<unknown>>(async () => ({ ok: true as const, statut: "ENVOYEE" })),
 }));
 vi.mock("./import-bar-actions", () => appels);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => {}, refresh: () => {} }) }));
@@ -60,11 +63,23 @@ const select = (label: string) => conteneur.querySelector<HTMLSelectElement>(`se
 const choisir = (s: HTMLSelectElement, valeur: string) => act(() => { s.value = valeur; s.dispatchEvent(new Event("change", { bubbles: true })); });
 const ligne = (nom: string) => [...conteneur.querySelectorAll("tbody tr")].find((tr) => tr.querySelector("td .font-medium")?.textContent === nom)!;
 
-async function deposer() {
+/** La fixture + des photos : Piña colada (propre), Virgin Piña Colada (propre, fiche qui a déjà une photo), Mojito ↔ Virgin Mojito (partagée), un logo partout. */
+async function avecPhotos(): Promise<Uint8Array> {
+  const z = await JSZip.loadAsync(OCTETS);
+  const photos: Record<number, string[]> = { 1: ["pina.jpg"], 2: ["virgin.jpg"], 5: ["mojito.jpg"], 6: ["mojito.jpg"] };
+  for (const [n, ms] of Object.entries(photos)) {
+    z.file(`xl/worksheets/_rels/sheet${n}.xml.rels`, `<Relationships><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${n}.xml"/></Relationships>`);
+    z.file(`xl/drawings/_rels/drawing${n}.xml.rels`, `<Relationships>${["logo.png", ...ms].map((m, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${m}"/>`).join("")}</Relationships>`);
+  }
+  for (const m of ["logo.png", "pina.jpg", "virgin.jpg", "mojito.jpg"]) z.file(`xl/media/${m}`, new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3]));
+  return z.generateAsync({ type: "uint8array" });
+}
+
+async function deposer(octets: Uint8Array | Buffer = OCTETS) {
   act(() => racine.render(createElement(ImportFichesBar)));
   await act(async () => { bouton("Importer les fiches du bar").click(); });
   const input = conteneur.querySelector<HTMLInputElement>('input[type="file"]')!;
-  const fichier = new File([OCTETS], "Fiches techniques du bar.xlsx");
+  const fichier = new File([octets as BlobPart], "Fiches techniques du bar.xlsx");
   Object.defineProperty(input, "files", { value: [fichier] });
   await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
   await vi.waitFor(() => expect(conteneur.textContent).toContain("1. Fiches"));
@@ -162,5 +177,28 @@ describe("Importer les fiches du bar — simulation", () => {
     vi.stubGlobal("confirm", () => false);
     await act(async () => { bouton("Appliquer (2 fiches)").click(); });
     expect(appels.appliquerImportBar).not.toHaveBeenCalled();
+  });
+
+  it("photos : vignette, cochée si propre à la feuille, décochée si partagée, jamais sur une fiche qui en a une ; envoyées une par une après l'écriture", async () => {
+    await deposer(await avecPhotos());
+    const caseDe = (nom: string) => conteneur.querySelector<HTMLInputElement>(`input[aria-label="Importer la photo de ${nom}"]`)!;
+    expect(ligne("Piña colada").querySelector("img")).not.toBeNull();
+    expect(caseDe("Piña colada").checked).toBe(true);
+    expect([caseDe("Virgin Piña Colada").checked, caseDe("Virgin Piña Colada").disabled]).toEqual([false, true]);
+    expect(ligne("Virgin Piña Colada").textContent).toContain("la fiche a déjà une photo : gardée");
+    expect(caseDe("Mojito").checked).toBe(false);
+    expect(ligne("Mojito").textContent).toContain("partagée avec « Virgin Mojito »");
+    expect(ligne("Blue Hawaiian").querySelector('input[aria-label^="Importer la photo"]')).toBeNull(); // le logo seul : rien
+
+    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
+    const confirmer = vi.fn<(message: string) => boolean>(() => true);
+    vi.stubGlobal("confirm", confirmer);
+    await act(async () => { bouton("Appliquer (2 fiches)").click(); });
+    expect(confirmer.mock.calls[0]![0]).toContain("· 1 photo(s) envoyée(s), une à une");
+    await vi.waitFor(() => expect(conteneur.textContent).toContain("Photos importées (1) : Pinacolada cocktail"));
+    expect(appels.envoyerPhotoFicheImport).toHaveBeenCalledTimes(1); // pas la mocktail : sa fiche a déjà une photo
+    const [ficheId, fd] = appels.envoyerPhotoFicheImport.mock.calls[0]!;
+    expect(ficheId).toBe("pc");
+    expect((fd.get("photo") as File).type).toBe("image/jpeg");
   });
 });

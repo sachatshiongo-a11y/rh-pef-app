@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
 import { journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
+import { televerserPhotoFiche } from "@/lib/fiches/photo-fiche-serveur";
 import {
   planifierImportBar, rattacherFiches, rattacherIngredients, validerChoix, validerFichesLues,
   type ArticleExistant, type FicheBarLue, type FicheExistanteBar, type FichePlan,
@@ -34,7 +35,7 @@ async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fic
     db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
     db.ficheTechnique.findMany({
       where: { type: "BAR", estSousRecette: false },
-      select: { id: true, nom: true, categorie: true, type: true, estSousRecette: true, actif: true, recette: true, prixVenteTTC: true, _count: { select: { ingredients: true } } },
+      select: { id: true, nom: true, categorie: true, type: true, estSousRecette: true, actif: true, recette: true, prixVenteTTC: true, photoUrl: true, _count: { select: { ingredients: true } } },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
     }),
   ]);
@@ -46,6 +47,7 @@ async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fic
     fiches: fiches.map((f) => ({
       id: f.id, nom: f.nom, categorie: f.categorie, type: f.type, estSousRecette: f.estSousRecette, actif: f.actif,
       nbIngredients: f._count.ingredients, recetteVide: !f.recette?.trim(), prixVenteTTC: f.prixVenteTTC === null ? null : Number(f.prixVenteTTC),
+      aPhoto: !!f.photoUrl,
     })),
   };
 }
@@ -81,6 +83,8 @@ export type BilanImportBar = {
   lignesIgnorees: { fiche: string; libelle: string }[];
   /** Fiches dont la recette (texte) existante a été gardée. */
   recettesConservees: string[];
+  /** Fiche de chaque feuille écrite (ou identique) : là où la photo de la feuille peut aller. */
+  fichesEcrites: { feuille: string; ficheId: string }[];
 };
 
 const quantite3 = (q: number) => new Decimal(q).toDecimalPlaces(3).toString();
@@ -100,7 +104,7 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
   const choix = validerChoix(brutChoix, lues);
   const parFeuille = new Map(lues.map((l) => [l.feuille, l]));
 
-  const bilan: BilanImportBar = { ok: true, remplies: [], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: [], contenancesEcrites: [], lignesIgnorees: [], recettesConservees: [] };
+  const bilan: BilanImportBar = { ok: true, remplies: [], creees: [], identiques: [], dejaRemplies: [], ignorees: [], nonEcrites: [], articlesCrees: [], contenancesEcrites: [], lignesIgnorees: [], recettesConservees: [], fichesEcrites: [] };
   await prisma.$transaction(async (tx) => {
     const { articles, fiches } = await lireBase(tx);
     const propositions = rattacherIngredients(lues, articles);
@@ -171,12 +175,17 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
           select: { id: true },
         });
         bilan.creees.push(cible.nom);
+        bilan.fichesEcrites.push({ feuille: p.feuille, ficheId: f.id });
         journal.push({ entite: "FicheTechnique", entiteId: f.id, champ: "creation", nouvelleValeur: `import des fiches du bar (feuille « ${p.feuille} ») : ${cible.nom} (${cible.categorie}), ${lignes.length} ingrédient(s)`, userId: user.id });
         continue;
       }
       if (cible.nbIngredients > 0) {
         const avant = await tx.ingredientFiche.findMany({ where: { ficheId: cible.id }, orderBy: { ordre: "asc" }, select: { articleId: true, unite: true, quantite: true } });
-        if (signature(avant.map((a) => ({ ...a, quantite: a.quantite.toString() }))) === signature(lignes)) { bilan.identiques.push(cible.nom); continue; }
+        if (signature(avant.map((a) => ({ ...a, quantite: a.quantite.toString() }))) === signature(lignes)) {
+          bilan.identiques.push(cible.nom);
+          bilan.fichesEcrites.push({ feuille: p.feuille, ficheId: cible.id });
+          continue;
+        }
         await tx.ingredientFiche.deleteMany({ where: { ficheId: cible.id } });
       }
       // Texte de recette : écrit s'il n'y en a pas, ou si « Remplacer » est coché — jamais effacé
@@ -194,6 +203,7 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
       }
       await tx.ficheTechnique.update({ where: { id: cible.id }, data: { nbPortions: p.nbPortions!, ...recette, ingredients: { create: lignes } } });
       bilan.remplies.push(cible.nom);
+      bilan.fichesEcrites.push({ feuille: p.feuille, ficheId: cible.id });
       journal.push({
         entite: "FicheTechnique", entiteId: cible.id, champ: "ingredients_importes",
         ancienneValeur: cible.nbIngredients ? `${cible.nbIngredients} ingrédient(s)` : null,
@@ -213,6 +223,23 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
 function noteNonRepris(p: FichePlan): string | null {
   return p.recette?.split("\n\n").find((b) => b.startsWith("Non repris du classeur")) ?? null;
 }
+
+/**
+ * Photo d'une feuille du classeur vers la fiche que l'import vient d'écrire — UNE photo par appel
+ * (le classeur pèse 20 Mo : il ne transite jamais en entier ; chaque photo est réduite dans le
+ * navigateur avant l'envoi). Réservé à la Direction ; fiche Bar seulement ; JAMAIS par-dessus une
+ * photo existante (chaîne partagée `televerserPhotoFiche`, mode « si absente »).
+ */
+export const envoyerPhotoFicheImport = actionLisible(async (ficheId: string, formData: FormData) => {
+  const user = await direction();
+  if (typeof ficheId !== "string" || !/^[\w-]{1,64}$/.test(ficheId)) throw new Error("Fiche illisible.");
+  const fiche = await prisma.ficheTechnique.findUnique({ where: { id: ficheId }, select: { type: true, estSousRecette: true } });
+  if (!fiche || fiche.type !== "BAR" || fiche.estSousRecette) throw new Error("Fiche introuvable ou pas une fiche Bar.");
+  const r = await televerserPhotoFiche(ficheId, formData, { siAbsente: true, userId: user.id });
+  revalidatePath(`/stock/fiches/${ficheId}`);
+  revalidatePath("/stock/fiches");
+  return { ok: true as const, statut: r.statut };
+});
 
 function lignesAEcrire(p: FichePlan, idArticle: Map<string, string>) {
   return p.lignes

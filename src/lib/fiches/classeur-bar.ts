@@ -254,6 +254,8 @@ export type FicheExistanteBar = {
   nbIngredients: number;
   recetteVide: boolean;
   prixVenteTTC: number | null;
+  /** La fiche a déjà une photo : l'import n'en ajoute jamais par-dessus. */
+  aPhoto?: boolean;
 };
 
 export type PropositionFiche = {
@@ -845,8 +847,8 @@ export function choixInitiaux(fiches: PropositionFiche[], ingredients: Propositi
   for (const p of ingredients) {
     const a = p.articleId ? parId.get(p.articleId) : undefined;
     if (a && !contenances[a.id] && contenanceRequise(a, p.unites[0] ?? null)) {
-      const { lue: _lue, ...c } = contenanceProposee(a);
-      contenances[a.id] = c;
+      const c = contenanceProposee(a);
+      contenances[a.id] = { quantite: c.quantite, unite: c.unite, uniteStock: c.uniteStock };
     }
   }
   return {
@@ -854,4 +856,85 @@ export function choixInitiaux(fiches: PropositionFiche[], ingredients: Propositi
     ingredients: Object.fromEntries(ingredients.map((p) => [p.cle, { cible: p.articleId ? `art:${p.articleId}` : "", domaine: domainePropose(p.creation?.uniteClasseur) }])),
     contenances,
   };
+}
+
+// ─── Photos des feuilles (« pareil que les plats ») ──────────────────────────
+//
+// Chaîne de rattachement lue dans l'archive (même que scripts/import-photos-fiches.ts) :
+// workbook.xml (onglet → r:id) → workbook.xml.rels (→ feuille) → _rels de la feuille (→ dessin)
+// → _rels du dessin (→ images de xl/media). Une image portée par PLUS DE DEUX feuilles est un logo
+// d'en-tête (le classeur du bar en a un sur ses 30 feuilles) : jamais proposée. Une image portée
+// par exactement deux feuilles (Mojito / Virgin Mojito) est proposée à chacune, décochée d'office
+// et annoncée « partagée ». Plusieurs images sur une feuille : aucune n'est choisie d'office.
+
+export type TypePhoto = "image/png" | "image/jpeg" | "image/webp";
+export type PhotoFeuille = { feuille: string; chemin: string; type: TypePhoto; octets: Uint8Array; partageeAvec: string[] };
+export type LecturePhotos = { photos: Map<string, PhotoFeuille>; ecartees: { feuille: string; raison: string }[] };
+
+const TYPES_PHOTO: Record<string, TypePhoto> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+
+function resoudre(depuis: string, cible: string): string {
+  if (cible.startsWith("/")) return cible.slice(1);
+  const parts = depuis.split("/").slice(0, -1);
+  for (const p of cible.split("/")) {
+    if (p === "..") parts.pop();
+    else if (p !== ".") parts.push(p);
+  }
+  return parts.join("/");
+}
+const cibles = (rels: string, type: RegExp) =>
+  [...rels.matchAll(/<Relationship\b[^>]*>/g)].map((m) => m[0]).filter((r) => type.test(r)).map((r) => /Target="([^"]+)"/.exec(r)?.[1]).filter((x): x is string => !!x);
+
+/** Photos des feuilles nommées `feuilles` (noms d'onglet débarrassés de leurs espaces superflus). Ne lève jamais. */
+export async function lirePhotosClasseur(donnees: ArrayBuffer | Uint8Array, feuilles: string[]): Promise<LecturePhotos> {
+  const vide: LecturePhotos = { photos: new Map(), ecartees: [] };
+  let zip: import("jszip");
+  try {
+    const JSZip = (await import("jszip")).default;
+    zip = await JSZip.loadAsync(donnees);
+  } catch {
+    return vide;
+  }
+  const lire = async (chemin: string) => (await zip.file(chemin)?.async("string")) ?? null;
+  const classeur = await lire("xl/workbook.xml");
+  const liens = await lire("xl/_rels/workbook.xml.rels");
+  if (!classeur || !liens) return vide;
+  const idVersFeuille = new Map<string, string>();
+  for (const m of liens.matchAll(/<Relationship\b[^>]*>/g)) {
+    const id = /Id="([^"]+)"/.exec(m[0])?.[1]; const t = /Target="([^"]+)"/.exec(m[0])?.[1];
+    if (id && t) idVersFeuille.set(id, resoudre("xl/workbook.xml", t));
+  }
+  const images = new Map<string, string[]>(); // feuille → images
+  for (const m of classeur.matchAll(/<sheet\b[^>]*>/g)) {
+    const nom = /name="([^"]*)"/.exec(m[0])?.[1];
+    const id = /r:id="([^"]+)"/.exec(m[0])?.[1];
+    const chemin = id ? idVersFeuille.get(id) : undefined;
+    if (!nom || !chemin) continue;
+    const feuille = propre(nom.replace(/&amp;/g, "&").replace(/&apos;/g, "'").replace(/&quot;/g, '"'));
+    const relsFeuille = chemin.replace(/([^/]+)$/, "_rels/$1.rels");
+    const rf = await lire(relsFeuille);
+    const media: string[] = [];
+    for (const d of rf ? cibles(rf, /relationships\/drawing"/) : []) {
+      const dessin = resoudre(chemin, d);
+      const rd = await lire(dessin.replace(/([^/]+)$/, "_rels/$1.rels"));
+      for (const i of rd ? cibles(rd, /relationships\/image"/) : []) media.push(resoudre(dessin, i));
+    }
+    images.set(feuille, [...new Set(media)]);
+  }
+  const porteurs = new Map<string, string[]>();
+  for (const [f, ms] of images) for (const m of ms) porteurs.set(m, [...(porteurs.get(m) ?? []), f]);
+
+  const res: LecturePhotos = { photos: new Map(), ecartees: [] };
+  for (const feuille of feuilles) {
+    const candidates = (images.get(feuille) ?? []).filter((m) => (porteurs.get(m)?.length ?? 0) <= 2);
+    if (candidates.length === 0) continue;
+    if (candidates.length > 1) { res.ecartees.push({ feuille, raison: `${candidates.length} images sur la feuille : aucune choisie d'office` }); continue; }
+    const chemin = candidates[0]!;
+    const type = TYPES_PHOTO[chemin.split(".").pop()!.toLowerCase()];
+    if (!type) { res.ecartees.push({ feuille, raison: `format « ${chemin.split(".").pop()} » non pris en charge (PNG, JPG ou WEBP)` }); continue; }
+    const octets = await zip.file(chemin)?.async("uint8array");
+    if (!octets) continue;
+    res.photos.set(feuille, { feuille, chemin, type, octets, partageeAvec: porteurs.get(chemin)!.filter((f) => f !== feuille) });
+  }
+  return res;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useCallback, useMemo, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { estErreur } from "@/lib/action-lisible";
 import { CLASSES_NEUTRE } from "@/components/action-buttons";
@@ -10,11 +10,12 @@ import { normTexte } from "@/lib/texte";
 import { UNITES_CONTENANCE, uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 import {
   choixInitiaux, contenanceProposee, contenanceRequise, contenanceValideChoisie, planifierImportBar, uniteConvertible, UNITES_STOCK_COMPTAGE,
-  type ContenanceChoisie,
+  type ContenanceChoisie, type LecturePhotos,
   type ArticleExistant, type ChoixFiche, type ChoixImportBar, type ChoixIngredient, type FicheBarLue,
   type FicheExistanteBar, type FeuilleNonLue, type FichePlan, type PropositionFiche, type PropositionIngredient, type StatutFiche,
 } from "@/lib/fiches/classeur-bar";
-import { analyserFichesBar, appliquerImportBar, type BilanImportBar } from "./import-bar-actions";
+import { analyserFichesBar, appliquerImportBar, envoyerPhotoFicheImport, type BilanImportBar } from "./import-bar-actions";
+import { dejaLeger, reduireImage } from "./[id]/reduire-photo";
 
 /** Taille maximale du fichier déposé (le classeur du bar fait 20 Mo, photos comprises). */
 const TAILLE_MAX = 60 * 1024 * 1024;
@@ -57,17 +58,34 @@ export function ImportFichesBar() {
   const [bilan, setBilan] = useState<BilanImportBar | null>(null);
   const [envoi, start] = useTransition();
 
-  const reinitialiser = () => { setLues(null); setAutres([]); setAnalyse(null); setChoix(CHOIX_VIDE); };
+  const [photos, setPhotos] = useState<LecturePhotos | null>(null);
+  /** Photo à importer, par feuille : absent = choix par défaut (photo propre à la feuille, fiche sans photo). */
+  const [photosCochees, setPhotosCochees] = useState<Record<string, boolean>>({});
+  const [envoiPhotos, setEnvoiPhotos] = useState<{ fait: number; total: number } | null>(null);
+  const [bilanPhotos, setBilanPhotos] = useState<BilanPhotos | null>(null);
+  // Vignettes : URL locales des images du classeur, libérées quand la simulation change.
+  const vignettes = useMemo(() => {
+    const m = new Map<string, string>();
+    if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return m;
+    for (const [f, p] of photos?.photos ?? []) m.set(f, URL.createObjectURL(new Blob([p.octets as BlobPart], { type: p.type })));
+    return m;
+  }, [photos]);
+  useEffect(() => () => { for (const u of vignettes.values()) URL.revokeObjectURL?.(u); }, [vignettes]);
+
+  const reinitialiser = () => { setLues(null); setAutres([]); setAnalyse(null); setChoix(CHOIX_VIDE); setPhotosCochees({}); };
 
   const lireFichier = async (f: File | undefined) => {
-    setErreur(null); setBilan(null); reinitialiser();
+    setErreur(null); setBilan(null); setBilanPhotos(null); setPhotos(null); reinitialiser();
     if (!f) return;
     if (f.size > TAILLE_MAX) { setErreur("Fichier trop lourd (plus de 60 Mo) : ce n'est pas le classeur attendu."); return; }
     setLecture(true);
     let lu: Awaited<ReturnType<typeof import("@/lib/fiches/classeur-bar").lireClasseurBar>>;
     try {
-      const { lireClasseurBar } = await import("@/lib/fiches/classeur-bar");
-      lu = await lireClasseurBar(await f.arrayBuffer());
+      const { lireClasseurBar, lirePhotosClasseur } = await import("@/lib/fiches/classeur-bar");
+      const octets = await f.arrayBuffer();
+      lu = await lireClasseurBar(octets);
+      // Photos lues dans le navigateur : le classeur (20 Mo) ne part jamais au serveur.
+      setPhotos(lu.ok ? await lirePhotosClasseur(octets, lu.fiches.map((x) => x.feuille)) : null);
     } catch {
       setErreur("Fichier illisible : un classeur Excel (.xlsx) est attendu.");
       setLecture(false);
@@ -92,8 +110,20 @@ export function ImportFichesBar() {
     [lues, analyse, choix],
   );
   const compte = (s: StatutFiche) => plans.filter((p) => p.statut === s).length;
+  /** La fiche visée par la feuille a-t-elle déjà une photo ? (jamais remplacée par l'import) */
+  const cibleAPhoto = (feuille: string) => {
+    const c = plans.find((p) => p.feuille === feuille)?.cible;
+    return !!c?.id && !!analyse?.fichesBar.find((f) => f.id === c.id)?.aPhoto;
+  };
+  const photoCochee = (feuille: string) => {
+    const p = photos?.photos.get(feuille);
+    if (!p || cibleAPhoto(feuille)) return false;
+    return photosCochees[feuille] ?? p.partageeAvec.length === 0;
+  };
+  const changerPhoto = useCallback((feuille: string, oui: boolean) => setPhotosCochees((s) => ({ ...s, [feuille]: oui })), []);
   const prets = plans.filter((p) => p.statut === "PRETE");
   const articlesACreer = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article && !l.article.id).map((l) => l.cle))).size;
+  const photosAEnvoyer = prets.filter((p) => photoCochee(p.feuille)).length;
   const contenancesAEcrire = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire).map((l) => l.article!.id))).size;
 
   const changerFiche = useCallback((feuille: string, c: Partial<ChoixFiche>) =>
@@ -104,7 +134,7 @@ export function ImportFichesBar() {
     setChoix((s) => {
       const a = c.cible?.startsWith("art:") ? parIdArticle.get(c.cible.slice(4)) : undefined;
       const contenances = a && !s.contenances[a.id] && contenanceRequise(a, uniteConso)
-        ? { ...s.contenances, [a.id]: (({ lue: _l, ...x }) => x)(contenanceProposee(a)) }
+        ? { ...s.contenances, [a.id]: (({ quantite, unite, uniteStock }) => ({ quantite, unite, uniteStock }))(contenanceProposee(a)) }
         : s.contenances;
       return { ...s, contenances, ingredients: { ...s.ingredients, [cle]: { ...s.ingredients[cle]!, ...c } } };
     }), [parIdArticle]);
@@ -136,7 +166,8 @@ export function ImportFichesBar() {
       `Écrire ${prets.length} fiche(s) du bar ?\n\n` +
       `· ${prets.length - creees} fiche(s) existante(s) remplie(s)${remplacees ? `, dont ${remplacees} dont la recette actuelle sera REMPLACÉE` : ""}\n` +
       `· ${creees} fiche(s) créée(s)\n· ${articlesACreer} article(s) créé(s) au catalogue\n` +
-      `· ${contenancesAEcrire} contenance(s) écrite(s) sur des articles du catalogue\n\n` +
+      `· ${contenancesAEcrire} contenance(s) écrite(s) sur des articles du catalogue\n` +
+      `· ${photosAEnvoyer} photo(s) envoyée(s), une à une, aux fiches qui n'en ont pas\n\n` +
       "Les fiches « à décider », « bloquées » ou « déjà remplies » ne sont pas touchées. Le prix de vente des fiches existantes ne change pas.",
     )) return;
     setErreur(null);
@@ -144,7 +175,31 @@ export function ImportFichesBar() {
       const r = await appliquerImportBar(lues, choix);
       if (estErreur(r)) { setErreur(r.erreur); return; }
       setBilan(r);
+      // Photos : une par appel, seulement vers les fiches écrites, jamais par-dessus une photo existante.
+      const aEnvoyer = r.fichesEcrites.filter((x) => photos?.photos.has(x.feuille) && photoCochee(x.feuille));
+      const bp: BilanPhotos = { envoyees: [], gardees: [], echecs: [] };
+      setEnvoiPhotos({ fait: 0, total: aEnvoyer.length });
+      for (const [k, x] of aEnvoyer.entries()) {
+        const p = photos!.photos.get(x.feuille)!;
+        try {
+          let fichier = new File([p.octets as BlobPart], p.chemin.split("/").pop()!, { type: p.type });
+          if (!dejaLeger(fichier.size)) {
+            try { fichier = (await reduireImage(fichier)).fichier; } catch { /* navigateur sans réduction : le serveur tranche (5 Mo) */ }
+          }
+          const fd = new FormData();
+          fd.set("photo", fichier);
+          const e = await envoyerPhotoFicheImport(x.ficheId, fd);
+          if (estErreur(e)) bp.echecs.push(`${x.feuille} (${e.erreur})`);
+          else (e.statut === "ENVOYEE" ? bp.envoyees : bp.gardees).push(x.feuille);
+        } catch {
+          bp.echecs.push(`${x.feuille} (connexion interrompue)`);
+        }
+        setEnvoiPhotos({ fait: k + 1, total: aEnvoyer.length });
+      }
+      setEnvoiPhotos(null);
+      if (aEnvoyer.length) setBilanPhotos(bp);
       reinitialiser();
+      setPhotos(null);
       router.refresh();
     });
   };
@@ -153,7 +208,7 @@ export function ImportFichesBar() {
     return (
       <div className="space-y-2">
         <button onClick={() => setOuvert(true)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Importer les fiches du bar (classeur Excel)</button>
-        {bilan && <CompteRendu bilan={bilan} />}
+        {bilan && <CompteRendu bilan={bilan} photos={bilanPhotos} />}
       </div>
     );
   }
@@ -205,7 +260,9 @@ export function ImportFichesBar() {
                 <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1.5 [&>tr>td]:align-top">
                   {lues.map((l, i) => (
                     <LigneFiche key={l.feuille} lue={l} proposition={analyse.fiches[i]!} plan={plans[i]!} choix={choix.fiches[l.feuille]!}
-                      fichesBar={analyse.fichesBar} onChange={changerFiche} />
+                      fichesBar={analyse.fichesBar} onChange={changerFiche}
+                      photo={photos?.photos.get(l.feuille) ? { url: vignettes.get(l.feuille) ?? null, partageeAvec: photos.photos.get(l.feuille)!.partageeAvec, cochee: photoCochee(l.feuille), dejaUne: cibleAPhoto(l.feuille) } : null}
+                      onPhoto={changerPhoto} />
                   ))}
                 </tbody>
               </table>
@@ -237,16 +294,20 @@ export function ImportFichesBar() {
           </section>
         </>
       )}
-      {bilan && <CompteRendu bilan={bilan} />}
+      {envoiPhotos && <p className="text-sm text-muted-foreground">Envoi des photos… {envoiPhotos.fait}/{envoiPhotos.total}</p>}
+      {bilan && <CompteRendu bilan={bilan} photos={bilanPhotos} />}
     </div>
   );
 }
 
 // ─── Une feuille ─────────────────────────────────────────────────────────────
 
-const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fichesBar, onChange }: {
+const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fichesBar, onChange, photo, onPhoto }: {
   lue: FicheBarLue; proposition: PropositionFiche; plan: FichePlan; choix: ChoixFiche; fichesBar: FicheExistanteBar[];
   onChange: (feuille: string, c: Partial<ChoixFiche>) => void;
+  /** Photo de la feuille (null : aucune, ou le seul logo partagé). */
+  photo: { url: string | null; partageeAvec: string[]; cochee: boolean; dejaUne: boolean } | null;
+  onPhoto: (feuille: string, oui: boolean) => void;
 }) {
   const parRubrique = useMemo(() => {
     const m = new Map<string, FicheExistanteBar[]>();
@@ -266,6 +327,21 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
           {[lue.type ?? "type ?", `${lue.verres ?? "—"} verre(s)`, `prix TTC du classeur ${lue.prixTTC !== null ? formaterUSD(lue.prixTTC) : "—"}`].join(" · ")}
         </div>
         <div className="text-[11px] text-muted-foreground">feuille « {lue.feuille} »</div>
+        {photo && (
+          <div className="mt-1 flex items-start gap-2 text-[11px]">
+            {photo.url
+              // eslint-disable-next-line @next/next/no-img-element -- image locale (blob:) du classeur, jamais servie par Next
+              ? <img src={photo.url} alt={`Photo de ${lue.nom} (classeur)`} className="h-12 w-12 shrink-0 rounded object-cover" />
+              : <span className="h-12 w-12 shrink-0 rounded bg-muted" />}
+            <label className="flex items-start gap-1">
+              <input type="checkbox" checked={photo.cochee} disabled={photo.dejaUne || plan.statut === "IGNOREE"} onChange={(e) => onPhoto(lue.feuille, e.target.checked)} aria-label={`Importer la photo de ${lue.nom}`} />
+              <span>
+                {photo.dejaUne ? "la fiche a déjà une photo : gardée" : "importer la photo"}
+                {photo.partageeAvec.length > 0 && <span className="block text-amber-800">partagée avec « {photo.partageeAvec.join(" », « ")} » : à cocher si c&apos;est bien elle</span>}
+              </span>
+            </label>
+          </div>
+        )}
       </td>
       <td className="min-w-64">
         <select value={choix.cible} onChange={(e) => onChange(lue.feuille, { cible: e.target.value, remplacer: false })}
@@ -459,7 +535,9 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
 
 // ─── Compte-rendu ────────────────────────────────────────────────────────────
 
-function CompteRendu({ bilan: b }: { bilan: BilanImportBar }) {
+type BilanPhotos = { envoyees: string[]; gardees: string[]; echecs: string[] };
+
+function CompteRendu({ bilan: b, photos }: { bilan: BilanImportBar; photos: BilanPhotos | null }) {
   const liste = (titre: string, noms: string[]) => noms.length > 0 && <li><span className="font-medium">{titre} ({noms.length})</span> : {noms.join(", ")}</li>;
   return (
     <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
@@ -475,6 +553,9 @@ function CompteRendu({ bilan: b }: { bilan: BilanImportBar }) {
         {liste("Feuilles ignorées", b.ignorees)}
         {b.nonEcrites.length > 0 && <li><span className="font-medium">Non écrites ({b.nonEcrites.length})</span> : {b.nonEcrites.map((n) => `${n.feuille} (${n.raisons.join(" ; ")})`).join(" · ")}</li>}
         {b.lignesIgnorees.length > 0 && <li><span className="font-medium">Ingrédients ignorés ({b.lignesIgnorees.length})</span> : {b.lignesIgnorees.map((l) => `${l.libelle} (${l.fiche})`).join(", ")}</li>}
+        {photos && liste("Photos importées", photos.envoyees)}
+        {photos && liste("Photos non importées (la fiche en avait déjà une)", photos.gardees)}
+        {photos && photos.echecs.length > 0 && <li className="text-red-800"><span className="font-medium">Photos en échec ({photos.echecs.length})</span> : {photos.echecs.join(", ")} — à ajouter depuis la fiche</li>}
       </ul>
     </div>
   );

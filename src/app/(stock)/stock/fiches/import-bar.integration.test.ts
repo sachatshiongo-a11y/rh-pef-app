@@ -45,8 +45,25 @@ vi.mock("@/lib/auth", () => ({
   requireRole: (u: { role: Role }, roles: Role[]) => { if (!roles.includes(u.role)) throw new Error("Accès refusé."); },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
+// Stockage des photos DOUBLÉ (aucun appel réseau) : on compte les envois et les retraits.
+const S = vi.hoisted(() => ({
+  envoyerPhoto: vi.fn(async (..._a: [unknown, string, Buffer, string]) => {}),
+  supprimerPhoto: vi.fn(async (..._a: [unknown, string]) => {}),
+  verifierBucketPhotos: vi.fn(async (..._a: [unknown]) => {}),
+  avantEcriture: null as null | (() => Promise<void>),
+}));
+vi.mock("@/lib/fiches/photo-storage", async (importOriginal) => {
+  const reel = await importOriginal<typeof import("@/lib/fiches/photo-storage")>();
+  return {
+    ...reel,
+    identifiantsSupabase: () => ({ base: "https://exemple.test", key: "cle-de-test" }),
+    verifierBucketPhotos: S.verifierBucketPhotos,
+    envoyerPhoto: async (...a: [unknown, string, Buffer, string]) => { await S.envoyerPhoto(...a); if (S.avantEcriture) await S.avantEcriture(); },
+    supprimerPhoto: S.supprimerPhoto,
+  };
+});
 
-const { analyserFichesBar, appliquerImportBar } = await import("./import-bar-actions");
+const { analyserFichesBar, appliquerImportBar, envoyerPhotoFicheImport } = await import("./import-bar-actions");
 const { chargerFichesVues, chargerArticlesDesFiches } = await import("./_data/charger-fiche");
 const { construireContexte } = await import("./_data/fiche-calc");
 const { calculerCout } = await import("@/lib/fiches/cout");
@@ -338,6 +355,39 @@ describe("import des fiches du bar", () => {
     ]);
     expect(await appliquerImportBar(lues, await choixToutCreer({ contenances: { [vodka.id]: { quantite: "75", unite: "bouteille", uniteStock: null } } })))
       .toEqual({ erreur: "Contenance illisible." });
+  }, 60_000);
+
+  it("photos : une par appel, vers la fiche écrite ; jamais par-dessus une photo ; Direction et fiche Bar seulement", async () => {
+    const png = () => { const f = new FormData(); f.set("photo", new File([Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a4944415478da6300010000050001a5f645400000000049454e44ae426082", "hex")], "p.png", { type: "image/png" })); return f; };
+    S.envoyerPhoto.mockClear(); S.supprimerPhoto.mockClear();
+    const vodka = (await analyser()).ingredients.find((p) => p.libelle === "ABSOLUT VODKA 75CL")!;
+    const r = await appliquerImportBar(lues, await choixToutCreer({ ingredients: { [vodka.cle]: { cible: "ignorer", domaine: "BOISSON" } } }));
+    if (!("ok" in r)) throw new Error(r.erreur);
+    expect(r.fichesEcrites).toHaveLength(29); // la fiche de CHAQUE feuille écrite, pour sa photo
+    const pina = r.fichesEcrites.find((x) => x.feuille === "Pinacolada cocktail")!;
+    expect(pina.ficheId).toBe((await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Pina Colada", categorie: "Cocktail" } })).id);
+
+    expect(await envoyerPhotoFicheImport(pina.ficheId, png())).toEqual({ ok: true, statut: "ENVOYEE" });
+    const url = (await prisma.ficheTechnique.findUniqueOrThrow({ where: { id: pina.ficheId } })).photoUrl;
+    expect(url).toMatch(/^\/fichiers\/fiches-techniques\//);
+    // Relancer : la fiche a une photo → rien n'est envoyé, rien n'est remplacé.
+    expect(await envoyerPhotoFicheImport(pina.ficheId, png())).toEqual({ ok: true, statut: "DEJA_UNE_PHOTO" });
+    expect(S.envoyerPhoto).toHaveBeenCalledTimes(1);
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id: pina.ficheId } })).photoUrl).toBe(url);
+
+    // Une photo posée par ailleurs PENDANT l'envoi : la fiche garde la sienne, l'objet envoyé est retiré.
+    const mojito = r.fichesEcrites.find((x) => x.feuille === "Mojito")!;
+    S.avantEcriture = async () => { await prisma.ficheTechnique.update({ where: { id: mojito.ficheId }, data: { photoUrl: "/fichiers/fiches-techniques/autre.jpg" } }); };
+    expect(await envoyerPhotoFicheImport(mojito.ficheId, png())).toEqual({ ok: true, statut: "DEJA_UNE_PHOTO" });
+    S.avantEcriture = null;
+    expect(S.supprimerPhoto).toHaveBeenCalledTimes(1);
+    expect(S.supprimerPhoto.mock.calls[0]![1]).toMatch(new RegExp(`^fiches-techniques/${mojito.ficheId}-`));
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id: mojito.ficheId } })).photoUrl).toBe("/fichiers/fiches-techniques/autre.jpg");
+
+    const plat = await prisma.ficheTechnique.create({ data: { nom: "Bolognaise", type: "PLAT" } });
+    expect(await envoyerPhotoFicheImport(plat.id, png())).toEqual({ erreur: "Fiche introuvable ou pas une fiche Bar." });
+    H.user = { id: ids.stock, role: "STOCK", accesStock: false, nom: "Stock" };
+    expect(await envoyerPhotoFicheImport(pina.ficheId, png())).toEqual({ erreur: "Accès refusé." });
   }, 60_000);
 
   it("charges illisibles refusées en clair (jamais levées)", async () => {
