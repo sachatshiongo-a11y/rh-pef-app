@@ -29,7 +29,7 @@ export default async function FournisseursPage() {
         <h1 className="text-xl font-semibold sm:text-2xl">Fournisseurs</h1>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-muted-foreground">{rows.length} fournisseur(s)</span>
-          <BoutonRapport pdfHref="/stock/fournisseurs/imprimer" excelHref="/stock/fournisseurs/export" />
+          <BoutonRapport pdfHref="/stock/fournisseurs/imprimer" pdfPage excelHref="/stock/fournisseurs/export" />
         </div>
       </div>
       <FournisseursClient fournisseurs={rows} estDirection={user.role === "ADMIN"} />

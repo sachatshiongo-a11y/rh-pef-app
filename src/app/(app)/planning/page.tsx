@@ -22,6 +22,7 @@ import { EcartView } from "./ecart-view";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 import { exigerPageRH } from "@/lib/garde-page";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const WD = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -98,15 +99,15 @@ export default async function PlanningPage({
   const boutonsExport = (qs: string) => (
     <div className="flex items-center overflow-hidden rounded-md border text-sm">
       <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
-      <a href={`/planning/pdf${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">PDF</a>
-      <a href={`/planning/excel${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
+      <TelechargerLien href={`/planning/pdf${qs}`} className="border-l px-3 py-1.5 hover:bg-accent">PDF</TelechargerLien>
+      <TelechargerLien href={`/planning/excel${qs}`} className="border-l px-3 py-1.5 hover:bg-accent">Excel</TelechargerLien>
     </div>
   );
   // Vue Écart : un seul export (Excel), pas de PDF — cf. conception §5.
   const boutonExportEcart = (qs: string) => (
     <div className="flex items-center overflow-hidden rounded-md border text-sm">
       <span className="px-2 py-1.5 text-xs text-muted-foreground">Exporter</span>
-      <a href={`/planning/excel/ecart${qs}`} download className="border-l px-3 py-1.5 hover:bg-accent">Excel</a>
+      <TelechargerLien href={`/planning/excel/ecart${qs}`} className="border-l px-3 py-1.5 hover:bg-accent">Excel</TelechargerLien>
     </div>
   );
 

@@ -17,6 +17,7 @@ import { calculerBulletinLive } from "@/lib/bulletin-live";
 import { ApercuBulletinCard } from "./apercu-bulletin";
 import { AbsencesCard, HeuresTravailleesCard, referenceHeuresCarte } from "./fiche-cards";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { lundiDe } from "@/lib/dates-fr";
 import { dureeShift, libelleShift } from "../../planning/creneaux";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
@@ -887,7 +888,7 @@ export default async function FicheEmployePage({
               {fraisMedMoisCourant.map((f) => (
                 <span key={f.id} className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs text-sky-800">
                   {formatMoney(Number(f.montantUSD))}{f.motif ? ` · ${f.motif}` : ""}
-                  {f.certificatUrl && <a href={f.certificatUrl} target="_blank" className="underline">certificat</a>}
+                  {f.certificatUrl && <ApercuDocumentBouton href={f.certificatUrl} titre={`Certificat médical — ${employee.nom}`} libelle="certificat" className="underline" />}
                   {estAdmin && (
                     <form action={supprimerFraisMedical.bind(null, f.id)} className="inline">
                       <button className="text-sky-900/70 hover:text-sky-900" title="Supprimer">✕</button>

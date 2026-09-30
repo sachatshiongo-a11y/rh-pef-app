@@ -77,7 +77,7 @@ export default async function EmployesPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <BoutonRapport pdfHref={`${baseExport}/pdf${suffixeExport}`} pdfDownload excelHref={`${baseExport}/export${suffixeExport}`} />
+          <BoutonRapport pdfHref={`${baseExport}/pdf${suffixeExport}`} excelHref={`${baseExport}/export${suffixeExport}`} />
           {peutModifier && (
             <Link href="/employes/nouveau" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
               + Nouvel employé

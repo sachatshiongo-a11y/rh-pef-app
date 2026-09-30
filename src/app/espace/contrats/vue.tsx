@@ -1,6 +1,7 @@
 import { BoutonSigner, type ActionSignature } from "@/components/bouton-signer";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { libelleTypeContrat, jourMetier, type Classement } from "@/lib/contrats-classement";
 import type { EtatSignature } from "@/lib/signature";
 
@@ -33,7 +34,7 @@ const periode = (l: LigneContrat) =>
 
 function PieceJointe({ l }: { l: LigneContrat }) {
   return l.documentUrl ? (
-    <a href={l.documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground underline">pièce jointe</a>
+    <ApercuDocumentBouton href={l.documentUrl} titre={`Pièce jointe — ${libelleTypeContrat(l.type)} · ${l.poste}`} libelle="pièce jointe" className="text-xs text-muted-foreground underline" />
   ) : null;
 }
 const titre = (l: LigneContrat) => `${libelleTypeContrat(l.type)} · ${l.poste}`;

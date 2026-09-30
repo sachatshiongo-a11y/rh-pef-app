@@ -8,6 +8,7 @@ import { EditerArticle } from "./editer-article";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
 import { exigerPageStock } from "@/lib/garde-page";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -116,9 +117,9 @@ export default async function ArticleFichePage({
         </div>
         {/* Les boutons passent à la ligne sur téléphone : à 375 px, les trois côte à côte débordaient. */}
         <div className="flex flex-wrap items-center gap-2">
-          <a href={`/stock/catalogue/${a.id}/pdf`} target="_blank" rel="noopener" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+          <TelechargerLien href={`/stock/catalogue/${a.id}/pdf`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
             Exporter PDF
-          </a>
+          </TelechargerLien>
           <EditerArticle
             a={{
               id: a.id,

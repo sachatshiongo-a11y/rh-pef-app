@@ -8,6 +8,8 @@ import { ReceptionForm } from "./reception-client";
 import { LierFacture } from "./lier-facture";
 import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { exigerPageStock } from "@/lib/garde-page";
+import { TelechargerLien } from "@/components/telecharger-lien";
+import { ApercuDocumentBouton } from "@/components/apercu-document";
 
 export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await exigerPageStock();
@@ -70,9 +72,9 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
           ) : (
             <>
               {peutExporter && (
-                <a href={`/stock/commandes/${bc.id}/pdf`} download className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
+                <TelechargerLien href={`/stock/commandes/${bc.id}/pdf`} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
                   Télécharger le PDF
-                </a>
+                </TelechargerLien>
               )}
               {bc.statut === "VALIDE" && (
                 <form action={changerStatutBonCommande.bind(null, bc.id)}>
@@ -97,7 +99,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b bg-muted/30 px-5 py-3">
           <h2 className="text-lg font-semibold">Bon de commande N° {bc.numero}</h2>
           <div className="flex items-center gap-3 text-sm">
-            {bc.documentUrl && <a href={bc.documentUrl} target="_blank" rel="noopener" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF d&apos;origine</a>}
+            {bc.documentUrl && <ApercuDocumentBouton href={bc.documentUrl} titre={`Bon de commande N° ${bc.numero} (PDF d'origine)`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF d&apos;origine</ApercuDocumentBouton>}
             <span className="text-muted-foreground">Date : {new Date(bc.date).toLocaleDateString("fr-FR")}</span>
           </div>
         </div>

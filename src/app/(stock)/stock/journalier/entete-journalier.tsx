@@ -4,6 +4,7 @@ import { OngletsDefilants } from "@/components/onglets-defilants";
 import { BarreSemaineMobile } from "@/components/barre-semaine-mobile";
 import { BasculeVueSemaine, SelecteurJour } from "@/components/selecteur-jour";
 import { MenuFicheCommande, MenuFichesConso } from "./menu-fiches-conso";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 // Haut de page de la Conso. journalière : titre, onglets, semaine, filtre Cuisine / Bar et exports.
 // Ordinateur : les rangées d'origine. Téléphone : titre, onglets qui défilent de côté, semaine sur
@@ -87,8 +88,8 @@ export function EnteteJournalier({ vue, domaine, lundi, jourDefaut, aujourdhui, 
         )}
         {avecExportVue && <div className="flex items-center overflow-hidden rounded-md border">
           <span className="px-2 py-1 text-xs text-muted-foreground">Exporter</span>
-          <a href={exportVue("pdf")} download className="border-l px-2.5 py-1 hover:bg-accent">PDF</a>
-          <a href={exportVue("excel")} download className="border-l px-2.5 py-1 hover:bg-accent">Excel</a>
+          <TelechargerLien href={exportVue("pdf")} className="border-l px-2.5 py-1 hover:bg-accent">PDF</TelechargerLien>
+          <TelechargerLien href={exportVue("excel")} className="border-l px-2.5 py-1 hover:bg-accent">Excel</TelechargerLien>
         </div>}
         {(vue === "conso" || vue === "ventes") && (
           <MenuFichesConso semaine={semaine} domaine={domaine} libelleSemaine={libelleSemaine} jourDefaut={jourDefaut} />
@@ -119,8 +120,8 @@ export function EnteteJournalier({ vue, domaine, lundi, jourDefaut, aujourdhui, 
           {avecExportVue && (
             <div className="flex items-center overflow-hidden rounded-md border bg-background">
               <span className="px-2 text-xs text-muted-foreground">Exporter</span>
-              <a href={exportVue("pdf")} download className="flex min-h-11 items-center border-l px-3 hover:bg-accent">PDF</a>
-              <a href={exportVue("excel")} download className="flex min-h-11 items-center border-l px-3 hover:bg-accent">Excel</a>
+              <TelechargerLien href={exportVue("pdf")} className="flex min-h-11 items-center border-l px-3 hover:bg-accent">PDF</TelechargerLien>
+              <TelechargerLien href={exportVue("excel")} className="flex min-h-11 items-center border-l px-3 hover:bg-accent">Excel</TelechargerLien>
             </div>
           )}
           {(vue === "conso" || vue === "ventes") && (

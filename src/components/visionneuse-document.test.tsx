@@ -493,6 +493,27 @@ describe("5. les petits pièges qui cassent tout en silence", () => {
     await expect(recupererDocument("/paie/bulletin/abc", 500)).rejects.toThrow(/403/);
   });
 
+  it("une redirection vers NOTRE origine (la page de connexion) ne passe jamais pour un document", async () => {
+    // `fetch` suit la redirection du garde d'authentification : sans ce contrôle, la page de
+    // connexion (HTML, statut 200) serait donnée à pdf.js comme un bulletin.
+    vi.stubGlobal("window", { location: { origin: "https://gestion.example.cd" } });
+    vi.stubGlobal("fetch", async () => ({
+      ok: true, status: 200, redirected: true, url: "https://gestion.example.cd/login",
+      headers: new Headers({ "Content-Type": "text/html" }), blob: async () => new Blob(["<html>"]),
+    }));
+    await expect(recupererDocument("/paie/bulletin/abc", 500)).rejects.toThrow(/Session expirée/);
+  });
+
+  it("une redirection vers le STOCKAGE (/fichiers/… → URL signée) est bien un document", async () => {
+    vi.stubGlobal("window", { location: { origin: "https://gestion.example.cd" } });
+    vi.stubGlobal("fetch", async () => ({
+      ok: true, status: 200, redirected: true, url: "https://projet.supabase.co/storage/v1/object/sign/employes/x.pdf?token=t",
+      headers: new Headers({ "Content-Type": "application/pdf" }), blob: async () => new Blob(["%PDF-1.7"]),
+    }));
+    const { mime } = await recupererDocument("/fichiers/contrats/x.pdf", 500);
+    expect(mime).toBe("application/pdf");
+  });
+
   it("une réponse correcte rend le type RÉEL et les octets, en une seule requête", async () => {
     let appels = 0;
     vi.stubGlobal("fetch", async () => {

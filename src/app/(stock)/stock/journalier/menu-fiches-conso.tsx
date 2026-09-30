@@ -1,5 +1,6 @@
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
 import { dateLongue } from "@/lib/fiches-conso";
+import { TelechargerLien, TelechargerFormulaire } from "@/components/telecharger-lien";
 
 /**
  * Menu des FICHES de l'onglet Consommation, reproduites d'après les classeurs de la Direction :
@@ -17,20 +18,20 @@ export function MenuFichesConso({ semaine, jourDefaut, domaine, libelleSemaine }
         <p className="text-sm font-medium">Rapport journalier cuisine et bar</p>
         <p className="text-xs text-muted-foreground">Plats et boissons vendus · {libelleSemaine}</p>
         <div className="flex gap-2">
-          <a href={`${base("rapport")}&format=pdf`} download className={`${classeLienFiche} flex-1`}>PDF</a>
-          <a href={`${base("rapport")}&format=excel`} download className={`${classeLienFiche} flex-1`}>Excel</a>
+          <TelechargerLien href={`${base("rapport")}&format=pdf`} className={`${classeLienFiche} flex-1`}>PDF</TelechargerLien>
+          <TelechargerLien href={`${base("rapport")}&format=excel`} className={`${classeLienFiche} flex-1`}>Excel</TelechargerLien>
         </div>
       </div>
       <div className="space-y-1.5 rounded-lg border p-2.5">
         <p className="text-sm font-medium">Consommation réelle du restaurant</p>
         <p className="text-xs text-muted-foreground">Articles, d&apos;après les comptages · {libelleSemaine}</p>
         <div className="flex gap-2">
-          <a href={`${base("consommation")}&format=pdf`} download className={`${classeLienFiche} flex-1`}>PDF</a>
-          <a href={`${base("consommation")}&format=excel`} download className={`${classeLienFiche} flex-1`}>Excel</a>
+          <TelechargerLien href={`${base("consommation")}&format=pdf`} className={`${classeLienFiche} flex-1`}>PDF</TelechargerLien>
+          <TelechargerLien href={`${base("consommation")}&format=excel`} className={`${classeLienFiche} flex-1`}>Excel</TelechargerLien>
         </div>
       </div>
-      {/* Formulaire GET : le fichier se télécharge sans quitter la page. */}
-      <form action="/stock/journalier/fiche" method="get" className="space-y-1.5 rounded-lg border p-2.5">
+      {/* Formulaire GET : le fichier est récupéré en arrière-plan, l'écran ne bouge pas. */}
+      <TelechargerFormulaire action="/stock/journalier/fiche" className="space-y-1.5 rounded-lg border p-2.5">
         <p className="text-sm font-medium">Commande journalière</p>
         <input type="hidden" name="type" value="commande" />
         {domaine && <input type="hidden" name="domaine" value={domaine} />}
@@ -42,7 +43,7 @@ export function MenuFichesConso({ semaine, jourDefaut, domaine, libelleSemaine }
           <button type="submit" name="format" value="pdf" className={`${classeLienFiche} flex-1`}>PDF</button>
           <button type="submit" name="format" value="excel" className={`${classeLienFiche} flex-1`}>Excel</button>
         </div>
-      </form>
+      </TelechargerFormulaire>
     </MenuFichePdf>
   );
 }
@@ -64,8 +65,8 @@ export function MenuFicheCommande({ semaine, jours, jourDefaut, domaine, libelle
   const tableau = (format: "pdf" | "excel") => `/stock/journalier/${format}?vue=commande&semaine=${semaine}${dom}`;
   return (
     <MenuFichePdf libelle="Commande journalière (PDF / Excel)">
-      {/* Formulaire GET : le fichier se télécharge sans quitter la page. */}
-      <form action="/stock/journalier/fiche" method="get" className="space-y-1.5 rounded-lg border p-2.5">
+      {/* Formulaire GET : le fichier est récupéré en arrière-plan, l'écran ne bouge pas. */}
+      <TelechargerFormulaire action="/stock/journalier/fiche" className="space-y-1.5 rounded-lg border p-2.5">
         <p className="text-sm font-medium">Un jour</p>
         <p className="text-xs text-muted-foreground">Fiche cuisine puis fiche bar, sur le modèle du classeur</p>
         <input type="hidden" name="type" value="commande" />
@@ -80,21 +81,21 @@ export function MenuFicheCommande({ semaine, jours, jourDefaut, domaine, libelle
           <button type="submit" name="format" value="pdf" className={`${classeLienFiche} flex-1`}>PDF</button>
           <button type="submit" name="format" value="excel" className={`${classeLienFiche} flex-1`}>Excel</button>
         </div>
-      </form>
+      </TelechargerFormulaire>
       <div className="space-y-1.5 rounded-lg border p-2.5">
         <p className="text-sm font-medium">Toute la semaine</p>
         <p className="text-xs text-muted-foreground">Un seul fichier, jour par jour · {libelleSemaine}</p>
         <div className="flex gap-2">
-          <a href={toute("pdf")} download className={`${classeLienFiche} flex-1`}>PDF</a>
-          <a href={toute("excel")} download className={`${classeLienFiche} flex-1`}>Excel</a>
+          <TelechargerLien href={toute("pdf")} className={`${classeLienFiche} flex-1`}>PDF</TelechargerLien>
+          <TelechargerLien href={toute("excel")} className={`${classeLienFiche} flex-1`}>Excel</TelechargerLien>
         </div>
       </div>
       <div className="space-y-1.5 rounded-lg border border-dashed p-2.5">
         <p className="text-sm font-medium">Tableau de la semaine</p>
         <p className="text-xs text-muted-foreground">Saisie brute : tous les articles, les 7 jours et le total (hors modèle)</p>
         <div className="flex gap-2">
-          <a href={tableau("pdf")} download className={`${classeLienFiche} flex-1`}>PDF</a>
-          <a href={tableau("excel")} download className={`${classeLienFiche} flex-1`}>Excel</a>
+          <TelechargerLien href={tableau("pdf")} className={`${classeLienFiche} flex-1`}>PDF</TelechargerLien>
+          <TelechargerLien href={tableau("excel")} className={`${classeLienFiche} flex-1`}>Excel</TelechargerLien>
         </div>
       </div>
     </MenuFichePdf>

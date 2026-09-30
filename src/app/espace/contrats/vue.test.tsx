@@ -96,7 +96,10 @@ describe("pièce jointe du contrat", () => {
   it("le lien vers la pièce jointe déposée par la Direction est proposé, dans chaque rubrique", () => {
     for (const l of [aSigner, enVigueur, ancien]) {
       const html = rendu([{ ...l, documentUrl: "/fichiers/documents/scan-1.pdf" }]);
-      expect(html).toContain('href="/fichiers/documents/scan-1.pdf"');
+      // Un BOUTON qui ouvre l'aperçu (ApercuDocumentBouton), jamais un lien vers le fichier : dans
+      // l'application installée, une ancre vers un PDF fait naviguer la fenêtre entière, sans retour.
+      expect(html).not.toContain('href="/fichiers/documents/scan-1.pdf"');
+      expect(html).toMatch(/<button[^>]*>pièce jointe<\/button>/);
       expect(texte(html)).toContain("pièce jointe");
     }
     expect(rendu([aSigner])).not.toContain("pièce jointe");

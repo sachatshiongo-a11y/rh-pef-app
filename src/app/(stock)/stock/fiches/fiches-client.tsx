@@ -13,6 +13,7 @@ import type { EtatDispo } from "@/lib/fiches/disponibilite";
 import { familleBoisson, FAMILLES_BOISSON, type OngletFiches } from "@/lib/fiches/famille-boisson";
 import { pct, TYPE_LABEL, badgeDispo, CLASSE_RECETTE_A_COMPLETER, DISPO_CLASSE, type DispoRow } from "./_data/fiche-calc";
 import { creerFiche, supprimerFiches, dupliquerFiches } from "./actions";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 export type FicheRow = {
   id: string;
@@ -176,13 +177,12 @@ export function FichesClient({ fiches, etatInitial, vue = "plats" }: { fiches: F
 
       {fiches.length > 0 && (
         <BulkBar count={sel.size} total={visibles.length} onAll={(on) => setAll(visibles.map((f) => f.id), on)}>
-          <a
+          <TelechargerLien
             href={`/stock/fiches/export?vue=${vue}&ids=${ids.join(",")}`}
-            download
             className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             ⭳ Exporter ({sel.size})
-          </a>
+          </TelechargerLien>
           <button
             disabled={isPending}
             onClick={() => run(() => dupliquerFiches(ids))}

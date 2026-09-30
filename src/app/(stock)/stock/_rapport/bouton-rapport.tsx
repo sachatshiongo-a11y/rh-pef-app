@@ -1,12 +1,19 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
+import { TelechargerLien } from "@/components/telecharger-lien";
 
 type T = { value: string; label: string };
 
 // Menu « Exporter ▾ » unique : regroupe les exports immédiats de la vue (PDF/Excel) et les
 // rapports sur période (chiffré/détaillé), au lieu d'aligner 3-5 boutons dans chaque en-tête.
-export function BoutonRapport({ types, pdfHref, excelHref, pdfDownload }: { types?: T[]; pdfHref?: string; excelHref?: string; pdfDownload?: boolean }) {
+//
+// TOUT FICHIER passe par `TelechargerLien` : récupéré en arrière-plan, l'application ne quitte jamais
+// son écran (dans l'application installée, un lien vers un PDF enferme — voir telecharger-lien.tsx).
+// `pdfPage` : le « PDF » est une PAGE d'impression de l'application (/…/imprimer, avec sa coquille et
+// son bouton « Imprimer / Enregistrer en PDF »), pas un fichier : on y va dans la même fenêtre.
+export function BoutonRapport({ types, pdfHref, excelHref, pdfPage }: { types?: T[]; pdfHref?: string; excelHref?: string; pdfPage?: boolean }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   // Position calculée à l'ouverture et CLAMPÉE au viewport : le panneau reste toujours
@@ -53,10 +60,10 @@ export function BoutonRapport({ types, pdfHref, excelHref, pdfDownload }: { type
                 <div className="rounded-lg border p-2.5">
                   <div className="flex items-center gap-2">
                     <span className="w-16 shrink-0 text-xs text-muted-foreground">Cette vue</span>
-                    {pdfHref && (pdfDownload
-                      ? <a href={pdfHref} download className={dl} onClick={() => setOpen(false)}>PDF</a>
-                      : <a href={pdfHref} target="_blank" rel="noopener" className={dl} onClick={() => setOpen(false)}>PDF</a>)}
-                    {excelHref && <a href={excelHref} download className={dl} onClick={() => setOpen(false)}>Excel</a>}
+                    {pdfHref && (pdfPage
+                      ? <Link href={pdfHref} className={dl} onClick={() => setOpen(false)}>PDF</Link>
+                      : <TelechargerLien href={pdfHref} className={dl} onClick={() => setOpen(false)}>PDF</TelechargerLien>)}
+                    {excelHref && <TelechargerLien href={excelHref} className={dl} onClick={() => setOpen(false)}>Excel</TelechargerLien>}
                   </div>
                 </div>
               )}
@@ -74,13 +81,13 @@ export function BoutonRapport({ types, pdfHref, excelHref, pdfDownload }: { type
                       {types.length > 1 && <p className="mb-2 text-sm font-medium">{t.label}</p>}
                       <div className="mb-1.5 flex items-center gap-2">
                         <span className="w-16 shrink-0 text-xs text-muted-foreground">Chiffré</span>
-                        <a href={lien(t.value, "chiffre", "pdf")} download target="_blank" rel="noopener" className={dl}>PDF</a>
-                        <a href={lien(t.value, "chiffre", "excel")} download className={dl}>Excel</a>
+                        <TelechargerLien href={lien(t.value, "chiffre", "pdf")} className={dl}>PDF</TelechargerLien>
+                        <TelechargerLien href={lien(t.value, "chiffre", "excel")} className={dl}>Excel</TelechargerLien>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="w-16 shrink-0 text-xs text-muted-foreground">Détaillé</span>
-                        <a href={lien(t.value, "detail", "pdf")} download target="_blank" rel="noopener" className={dl}>PDF</a>
-                        <a href={lien(t.value, "detail", "excel")} download className={dl}>Excel</a>
+                        <TelechargerLien href={lien(t.value, "detail", "pdf")} className={dl}>PDF</TelechargerLien>
+                        <TelechargerLien href={lien(t.value, "detail", "excel")} className={dl}>Excel</TelechargerLien>
                       </div>
                     </div>
                   ))}
