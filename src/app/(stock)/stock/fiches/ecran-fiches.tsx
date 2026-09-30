@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
 import { ongletFiche, ONGLETS_FICHES, type OngletFiches } from "@/lib/fiches/famille-boisson";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
@@ -14,7 +15,7 @@ export const lienOngletFiches = (vue: OngletFiches) => `/stock/fiches?vue=${vue}
  * Le rangement vient de `ongletFiche` (type ; sous-recettes toujours avec les plats) : une
  * boisson n'est jamais transmise à la liste des plats, et inversement.
  */
-export function EcranFiches({ rows, vue, etatInitial }: { rows: FicheRow[]; vue: OngletFiches; etatInitial?: EtatDispo }) {
+export function EcranFiches({ rows, vue, etatInitial, importBar }: { rows: FicheRow[]; vue: OngletFiches; etatInitial?: EtatDispo; importBar?: ReactNode }) {
   const fiches = rows.filter((r) => ongletFiche(r) === vue);
   const nbParOnglet = (o: OngletFiches) => rows.filter((r) => ongletFiche(r) === o).length;
 
@@ -48,6 +49,10 @@ export function EcranFiches({ rows, vue, etatInitial }: { rows: FicheRow[]; vue:
           </Link>
         ))}
       </nav>
+
+      {/* « Importer les fiches du bar » (Direction seulement : l'appelant ne le passe qu'à elle) :
+          onglet Boissons uniquement, là où vivent les fiches qu'il remplit. */}
+      {vue === "boissons" && importBar}
 
       {/* Clé = onglet : changer d'onglet remonte la liste, donc vide la sélection et les filtres.
           Une action groupée ne peut ainsi jamais emporter des fiches de l'onglet qu'on a quitté. */}

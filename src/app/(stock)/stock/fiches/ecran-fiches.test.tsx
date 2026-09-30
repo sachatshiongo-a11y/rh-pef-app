@@ -189,3 +189,15 @@ describe("Fiches techniques — les actions groupées ne portent que sur l'ongle
     expect(appels.dupliquerFiches.mock.calls[0][0].slice().sort()).toEqual(["p-bolo", "p-sauce", "p-vide"]);
   });
 });
+
+describe("Fiches techniques — « Importer les fiches du bar »", () => {
+  it("n'apparaît que dans l'onglet Boissons, et seulement si l'appelant le passe (Direction)", () => {
+    const importBar = createElement("div", { "data-import-bar": "" }, "Importer les fiches du bar");
+    rendre({ rows: ROWS, vue: "boissons", importBar });
+    expect(conteneur.querySelector("[data-import-bar]")).not.toBeNull();
+    rendre({ rows: ROWS, vue: "plats", importBar });
+    expect(conteneur.querySelector("[data-import-bar]")).toBeNull();
+    rendre({ rows: ROWS, vue: "boissons" }); // un compte non-Direction : rien
+    expect(conteneur.querySelector("[data-import-bar]")).toBeNull();
+  });
+});

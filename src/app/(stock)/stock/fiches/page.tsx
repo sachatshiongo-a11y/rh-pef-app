@@ -4,6 +4,7 @@ import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } f
 import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_data/fiche-calc";
 import type { FicheRow } from "./fiches-client";
 import { EcranFiches } from "./ecran-fiches";
+import { ImportFichesBar } from "./import-bar";
 import { lireOngletFiches } from "@/lib/fiches/famille-boisson";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { exigerPageStock } from "@/lib/garde-page";
@@ -55,5 +56,6 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
     };
   });
 
-  return <EcranFiches rows={rows} vue={vue} etatInitial={etatInitial} />;
+  // Import du classeur des fiches du bar : réservé à la Direction (l'action serveur le refuse aussi).
+  return <EcranFiches rows={rows} vue={vue} etatInitial={etatInitial} importBar={user.role === "ADMIN" ? <ImportFichesBar /> : undefined} />;
 }
