@@ -95,8 +95,10 @@ describe("Comparaison sur téléphone", () => {
   it("trois valeurs par article (commandé, livré, consommé), la couleur d'écart, « — » si inconnu", () => {
     monter(rendu());
     const riz = jour().querySelector('[data-article="Riz"]')!;
-    const v = [...riz.querySelectorAll("span")].map((s) => s.textContent);
+    const v = [...riz.querySelectorAll("[data-valeur]")].map((s) => s.textContent);
     expect(v).toEqual(["4", "2", "0"]);
+    // L'écart est écrit (signe), pas seulement coloré : consommé 0 pour 2 livrés = « -2 ».
+    expect([...riz.querySelectorAll("[data-signe]")].map((s) => s.getAttribute("data-signe"))).toEqual(["-2", "-2"]);
     expect(riz.querySelector("[data-ecart]")!.getAttribute("data-ecart")).toBe("LIVRE_NON_CONSOMME");
     expect(riz.querySelector("[data-ecart]")!.className).toContain("bg-sky-100"); // même couleur que le tableau
     expect(jour().textContent).toContain("Commandé");
@@ -111,7 +113,7 @@ describe("Comparaison sur téléphone", () => {
     choisir("mardi");
     expect(jour().querySelector('[data-article="Riz"]')).toBeNull();
     const lait = jour().querySelector('[data-article="Lait"]')!;
-    expect([...lait.querySelectorAll("span")].map((s) => s.textContent)).toEqual(["3", "3", "1,5"]);
+    expect([...lait.querySelectorAll("[data-valeur]")].map((s) => s.textContent)).toEqual(["3", "3", "1,5"]);
   });
 
   it("consommé inconnu : « — », jamais 0 ; le lien vers la fiche du catalogue est conservé", () => {
@@ -121,7 +123,7 @@ describe("Comparaison sur téléphone", () => {
     const ligneSansConso = h(TableComparaison, { jours: JOURS, lignes: [{ ...CMP[0]!, conso: [null, null, null], ecarts: [null, null, null] }], sansMotif: 0 });
     act(() => racine.unmount()); conteneur.remove();
     monter(ligneSansConso);
-    expect([...jour().querySelector('[data-article="Riz"]')!.querySelectorAll("span")].map((s) => s.textContent)).toEqual(["4", "2", "—"]);
+    expect([...jour().querySelector('[data-article="Riz"]')!.querySelectorAll("[data-valeur]")].map((s) => s.textContent)).toEqual(["4", "2", "—"]);
   });
 
   it("l'anomalie « sorties sans motif » est annoncée, et le tableau de la semaine reste rendu", () => {

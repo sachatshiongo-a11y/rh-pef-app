@@ -144,7 +144,7 @@ const EXCEPTIONS: Record<string, number> = {
   "app/(stock)/stock/fournisseurs/[id]/page.tsx": 1,
   "app/(stock)/stock/imports/import-mouvements-client.tsx": 1,
   "app/(stock)/stock/journalier/commande-grid.tsx": 1,
-  "app/(stock)/stock/journalier/table-comparaison.tsx": 1,
+  "app/(stock)/stock/journalier/comparaison-semaine.tsx": 1,
   "app/(stock)/stock/journalier/table-conso.tsx": 1,
   "app/(stock)/stock/journalier/ventes-grid.tsx": 1,
   "app/(stock)/stock/reconciliation/reconciliation-client.tsx": 1,
