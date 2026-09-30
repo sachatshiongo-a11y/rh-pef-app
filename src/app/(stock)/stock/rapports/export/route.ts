@@ -35,7 +35,7 @@ export async function GET(req: Request) {
   await prisma.rapport.create({ data: { titre: data.titre, type, mode, format, periodeDebut: debut, periodeFin: fin, creeParId: user.id } });
 
   if (format === "excel") {
-    const feuilles: FeuilleExcel[] = [{ nom: (data.soustitre ?? data.titre).slice(0, 28), entete: data.entete, lignes: data.lignes, totauxCols: data.sommables, variationCol: data.variationCol }];
+    const feuilles: FeuilleExcel[] = [{ nom: (data.soustitre ?? data.titre).slice(0, 28), entete: data.entete, lignes: data.lignes, totauxCols: data.sommables, variationCol: data.variationCol, autofiltre: data.autofiltre }];
     if (data.table2) feuilles.push({ nom: data.table2.titre.slice(0, 28), entete: data.table2.entete, lignes: data.table2.lignes, totauxCols: data.table2.sommables });
     const buf = await classeurExcel({ titre: `Rapport — ${data.titre}`, periode, feuilles });
     return new Response(new Uint8Array(buf), {
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
   // PDF : un ou deux tableaux (synthèse + détail) selon le rapport.
   const buffer = data.table2
     ? await renderPdfBuffer(TablesDocument({ titre: `Rapport — ${data.titre}`, sousTitre: periode, tables: [versTableSpec(data, data.soustitre), versTableSpec(data.table2, data.table2.titre)] }))
-    : await renderPdfBuffer(TableauDocument({ ...versTableSpec(data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
+    : await renderPdfBuffer(TableauDocument({ ...versTableSpec(data.pdf ?? data), titre: `Rapport — ${data.titre}`, sousTitre: periode }));
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

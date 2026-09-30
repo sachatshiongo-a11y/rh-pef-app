@@ -97,3 +97,49 @@ export function sousOngletActif(pathname: string): string | null {
 
 /** L'entrée du menu Stock qui mène aux trois sous-onglets (elle s'ouvre sur Mouvements). */
 export const ENTREE_MENU_ACHATS = { href: SOUS_ONGLETS_ACHATS[0].href, label: "Achats & mouvements", icone: "panier" };
+
+/**
+ * Prix unitaire d'une ligne de la Liste d'achat, pour les EXPORTS (demande Direction 2026-09-30).
+ *
+ * - En priorité celui de l'ACHAT : montant ÷ quantité, dans la devise SAISIE de la ligne (USD ou
+ *   FC), avec son équivalent USD (montant USD figé ÷ quantité — le même chiffre que la colonne
+ *   « Montant USD », jamais recalculé au taux du jour). Une ligne ancienne sans devise ni montant
+ *   d'origine, mais avec un montant USD, se lit en USD.
+ * - Calcul impossible (quantité nulle, montant absent) : le prix du CATALOGUE de l'article (USD),
+ *   marqué `source: "catalogue"` pour qu'on ne le prenne jamais pour le prix payé.
+ * - Sinon : inconnu (`null`) — affiché « — », jamais 0.
+ *
+ * Aucun montant n'est modifié : ce prix se lit à côté du montant, il ne le remplace pas.
+ */
+export type PrixUnitaireAchat =
+  | { valeur: number; devise: "USD" | "CDF"; equivalentUSD: number | null; source: "achat" | "catalogue" }
+  | null;
+
+const quatreDecimales = (n: number) => Math.round(n * 10000) / 10000;
+const positif = (v: unknown): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+export function prixUnitaireAchat(l: {
+  quantite: unknown;
+  devise: "USD" | "CDF" | null;
+  montantOrigine: unknown;
+  montantUSD: unknown;
+  tauxChangeUtilise: unknown;
+  prixCatalogueUSD: unknown;
+}): PrixUnitaireAchat {
+  const q = positif(l.quantite);
+  const origine = positif(l.montantOrigine);
+  const usd = positif(l.montantUSD);
+  if (q !== null && origine !== null && l.devise) {
+    const taux = positif(l.tauxChangeUtilise);
+    const equivalent = l.devise === "USD" ? origine / q : usd !== null ? usd / q : taux !== null ? origine / taux / q : null;
+    return { valeur: quatreDecimales(origine / q), devise: l.devise, equivalentUSD: equivalent === null ? null : quatreDecimales(equivalent), source: "achat" };
+  }
+  if (q !== null && usd !== null) return { valeur: quatreDecimales(usd / q), devise: "USD", equivalentUSD: quatreDecimales(usd / q), source: "achat" };
+  const catalogue = positif(l.prixCatalogueUSD);
+  if (catalogue !== null) return { valeur: quatreDecimales(catalogue), devise: "USD", equivalentUSD: quatreDecimales(catalogue), source: "catalogue" };
+  return null;
+}
