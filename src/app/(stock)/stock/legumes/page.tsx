@@ -60,7 +60,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold sm:text-2xl">Achats de légumes frais</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Saisissez les achats du jour (montant en CDF converti en USD au taux courant). Journal daté, indépendant du stock de l&apos;onglet Inventaire.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Achats du marché : montant en CDF, converti en USD au taux courant. Journal daté, hors stock (l&apos;inventaire n&apos;est pas touché).</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MenuFichePdf libelle="Fiche d'achat (PDF)">
@@ -99,19 +99,23 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} achat(s)</span></span>
                   <span className="font-normal text-muted-foreground">{cdf(totCDF(g.lignes))} CDF · {usd(totUSD(g.lignes))}</span>
                 </summary>
-                <table className="w-full border-t text-sm">
-                  <tbody className="divide-y">
-                    {g.lignes.map((l) => (
-                      <tr key={l.id} className="even:bg-muted/10">
-                        <td className="px-3 py-1 font-medium">{l.legume}</td>
-                        <td className="px-3 py-1 text-right tabular-nums">{Number(l.quantite)} {l.unite ?? ""}</td>
-                        <td className="px-3 py-1 text-right tabular-nums text-muted-foreground">{l.montantCDF ? `${cdf(Number(l.montantCDF))} CDF` : "—"}</td>
-                        <td className="px-3 py-1 text-right tabular-nums">{l.montantUSD ? usd(l.montantUSD) : "—"}</td>
-                        <td className="px-3 py-1 text-right"><SupprimerAchatBtn id={l.id} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <ul className="divide-y border-t text-sm">
+                  {g.lignes.map((l) => (
+                    <li key={l.id} className="flex items-center justify-between gap-2 px-3 py-1">
+                      <span className="min-w-0 pr-2">
+                        <span className="block truncate font-medium">{l.legume}</span>
+                        {/* Téléphone : l'équivalent en USD passe sous le nom (sur ordinateur, il a sa colonne). */}
+                        {l.montantUSD ? <span className="block text-xs tabular-nums text-muted-foreground sm:hidden">≈ {usd(l.montantUSD)}</span> : null}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2 tabular-nums">
+                        <span>{Number(l.quantite)} {l.unite ?? ""}</span>
+                        <span className="text-muted-foreground">{l.montantCDF ? `${cdf(Number(l.montantCDF))} CDF` : "—"}</span>
+                        <span className="hidden sm:inline">{l.montantUSD ? usd(l.montantUSD) : "—"}</span>
+                        <SupprimerAchatBtn id={l.id} legume={l.legume} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </details>
             ))}
           </div>
