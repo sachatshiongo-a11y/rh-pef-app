@@ -181,6 +181,11 @@ describe("import des fiches du bar", () => {
       [5, "BACARDI BLC 1L", "cl", "5", "l", "15.5"],
     ]);
     expect(await prisma.articleStock.count({ where: { designation: "Jus d'Ananas-100" } })).toBe(1); // 6 fiches, 1 article
+    // Comme les articles créés d'office par la liste d'achat : aucune ligne Stock (Inventaire : 0 ;
+    // disponibilité : « pas de stock », jamais une rupture inventée).
+    const crees = await prisma.articleStock.findMany({ where: { designation: { in: r.articlesCrees } }, select: { id: true } });
+    expect(crees).toHaveLength(53);
+    expect(await prisma.stock.count({ where: { articleId: { in: crees.map((a) => a.id) } } })).toBe(0);
     const mojito = await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Mojito", categorie: "Cocktail" }, include: { ingredients: { include: { article: true } } } });
     expect(mojito.ingredients.find((i) => i.unite === "cl" && Number(i.quantite) === 8)!.article!.designation).toBe("Rum Saint James blc 70cl"); // l'existant, pas un doublon
     expect((await prisma.ficheTechnique.findFirstOrThrow({ where: { nom: "Negroni" } })).recette).toBe("Recette du barman."); // texte existant conservé

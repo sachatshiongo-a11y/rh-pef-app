@@ -120,7 +120,10 @@ export const appliquerImportBar = actionLisible(async (brut: FicheBarLue[], brut
     }
 
     const journal: EntreeJournal[] = [];
-    // 1. Articles à créer : seulement ceux qu'une fiche ÉCRITE emploie, une fois par libellé.
+    // 1. Articles à créer : seulement ceux qu'une fiche ÉCRITE emploie, une fois par libellé. Comme
+    //    les articles créés d'office par la liste d'achat (entree/actions.ts) : SANS ligne Stock —
+    //    l'Inventaire les montre à 0, la fiche article « — », la disponibilité « pas de stock »
+    //    (à vérifier), jamais une rupture inventée ; le premier mouvement crée la ligne.
     const idArticle = new Map<string, string>();
     for (const p of prets) {
       for (const l of p.lignes) {

@@ -127,7 +127,9 @@ export function ImportFichesBar() {
   const unitesPosees = [...new Map(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire?.uniteStock)
     .map((l) => [l.article!.id!, `${l.article!.designation} → ${l.article!.contenanceAEcrire!.uniteStock}`] as const))).values()];
   const photosAEnvoyer = prets.filter((p) => photoCochee(p.feuille)).length;
-  const contenancesAEcrire = new Set(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire).map((l) => l.article!.id))).size;
+  /** Contenances qui seront écrites au catalogue, article par article (valeur lue dans le nom ou saisie). */
+  const contenancesAEcrire = [...new Map(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire)
+    .map((l) => [l.article!.id!, `${l.article!.designation} → ${l.article!.contenanceAEcrire!.quantite.replace(".", ",")} ${l.article!.contenanceAEcrire!.unite}`] as const))).values()];
 
   const changerFiche = useCallback((feuille: string, c: Partial<ChoixFiche>) =>
     setChoix((s) => ({ ...s, fiches: { ...s.fiches, [feuille]: { ...s.fiches[feuille]!, ...c } } })), []);
@@ -169,12 +171,12 @@ export function ImportFichesBar() {
   const appliquer = () => {
     if (!lues || prets.length === 0) return;
     const creees = prets.filter((p) => p.cible?.id === null).length;
-    const remplacees = prets.filter((p) => (p.cible?.nbIngredients ?? 0) > 0).length;
+    const remplacees = prets.filter((p) => (p.cible?.nbIngredients ?? 0) > 0).map((p) => p.cible!.nom);
     if (!confirm(
       `Écrire ${prets.length} fiche(s) du bar ?\n\n` +
-      `· ${prets.length - creees} fiche(s) existante(s) remplie(s)${remplacees ? `, dont ${remplacees} dont la recette actuelle sera REMPLACÉE` : ""}\n` +
+      `· ${prets.length - creees} fiche(s) existante(s) remplie(s)${remplacees.length ? `, dont ${remplacees.length} REMPLACÉE(S) (${remplacees.join(", ")}) : TOUTES leurs lignes actuelles, sous-recettes comprises, et leur nombre de portions sont remplacés par ceux du classeur` : ""}\n` +
       `· ${creees} fiche(s) créée(s)\n· ${articlesACreer} article(s) créé(s) au catalogue\n` +
-      `· ${contenancesAEcrire} contenance(s) écrite(s) sur des articles du catalogue\n` +
+      (contenancesAEcrire.length ? `· ${contenancesAEcrire.length} contenance(s) écrite(s) au catalogue : ${contenancesAEcrire.join(" ; ")}\n` : "") +
       (unitesPosees.length ? `· unité de stock POSÉE sur des articles qui n'en avaient pas : ${unitesPosees.join(" ; ")}\n` : "") +
       `· ${photosAEnvoyer} photo(s) envoyée(s), une à une, aux fiches qui n'en ont pas\n\n` +
       "Les fiches « à décider », « bloquées » ou « déjà remplies » ne sont pas touchées. Le prix de vente des fiches existantes ne change pas.",

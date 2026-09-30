@@ -54,12 +54,22 @@ describe("chargerEntreesStockResto", () => {
     expect(espions.map((s) => s.mock.calls.length)).toEqual([1, 1, 1, 1]);
     espions.forEach((s) => s.mockRestore());
 
-    expect(e.articles).toEqual([{ id: r.id, designation: "Farine", espace: "CUISINE", unite: "g", articleStockId: farine.id, uniteCatalogue: "kg" }]);
+    expect(e.articles).toEqual([{ id: r.id, designation: "Farine", espace: "CUISINE", unite: "g", articleStockId: farine.id, uniteCatalogue: "kg", contenanceCatalogue: null, contenanceUniteCatalogue: null }]);
     expect(e.comptages.map((c) => [c.date, c.quantite]).sort()).toEqual([["2026-09-10", "2"], ["2026-09-22", "3"]]);
     expect(e.livraisons.map((l) => [l.designation, l.date, l.categorieSortie]).sort()).toEqual([
       ["Farine", "2026-09-12", "LIVRAISON_RESTAURANT"],
       ["Sel", "2026-09-23", "LIVRAISON_RESTAURANT"],
     ]);
+  }, 60_000);
+
+  it("la contenance de l'article du catalogue est chargée (articles rattachés ET livraisons) : un comptage en cl s'y convertit", async () => {
+    await prisma.mouvementStock.deleteMany(); await prisma.comptageResto.deleteMany(); await prisma.articleResto.deleteMany();
+    const vodka = await prisma.articleStock.create({ data: { designation: "Absolut Vodka-75cl", domaine: "BOISSON", unite: "Bouteille", contenance: 75, contenanceUnite: "cl" } });
+    await prisma.articleResto.create({ data: { espace: "BAR", designation: "Vodka", unite: "cl", articleStockId: vodka.id } });
+    await prisma.mouvementStock.create({ data: { articleId: vodka.id, type: "SORTIE", quantite: "1", date: new Date("2026-09-22"), categorieSortie: "LIVRAISON_RESTAURANT" } });
+    const e = await chargerEntreesStockResto({ depuis: "2026-09-21", jusquA: "2026-09-27" });
+    expect([e.articles[0]!.contenanceCatalogue, e.articles[0]!.contenanceUniteCatalogue]).toEqual(["75", "cl"]);
+    expect([e.livraisons[0]!.contenanceCatalogue, e.livraisons[0]!.contenanceUniteCatalogue]).toEqual(["75", "cl"]);
   }, 60_000);
 
   it("un article rattaché jamais compté : seules les livraisons de la période sont chargées (plus tout l'historique)", async () => {

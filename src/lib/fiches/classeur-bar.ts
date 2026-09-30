@@ -504,10 +504,14 @@ export function contenanceRequise(article: ArticleExistant, unitesConso: string 
   if (article.contenance !== null) return false;
   const u = article.unite ?? "";
   if (!uniteManquante(u) && !estUniteComptage(u)) return false;
-  // Un libellé peut être consommé en plusieurs unités (« Bouteille » ici, « cl » là) : il en faut
-  // une dès qu'UNE d'elles ne se convertit pas directement.
+  // Une contenance ne sert qu'à une consommation en VOLUME ou en MASSE (cl, g…) : « unité » ou
+  // « pièce » sur une Bouteille reste inconvertible, sans champ inutile. Un libellé peut être
+  // consommé en plusieurs unités (« Bouteille » ici, « cl » là) : il en faut une dès qu'UNE de ses
+  // grandeurs ne se convertit pas directement.
   const unites = (Array.isArray(unitesConso) ? unitesConso : [unitesConso]).filter((x): x is string => !!x && !uniteManquante(x));
-  if (!uniteManquante(u) && unites.length > 0 && unites.every((x) => facteur(x, u) !== null)) return false;
+  const grandeurs = unites.filter((x) => facteur(x, "ml") !== null || facteur(x, "g") !== null);
+  if (grandeurs.length === 0) return false;
+  if (!uniteManquante(u) && grandeurs.every((x) => facteur(x, u) !== null)) return false;
   return true;
 }
 

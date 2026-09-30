@@ -336,6 +336,11 @@ describe("ingrédients", () => {
     expect(contenanceRequise(b, ["Bouteille"])).toBe(false);
     expect(contenanceRequise(b, ["Bouteille", "cl"])).toBe(true);
     expect(contenanceRequise(b, "cl")).toBe(true);
+    // « unité » / « pièce » sur une Bouteille : une contenance n'y changerait rien — pas de champ.
+    expect(contenanceRequise(b, ["unité"])).toBe(false);
+    expect(contenanceRequise(b, ["Bouteille", "pièce"])).toBe(false);
+    expect(contenanceRequise(b, ["unité", "g"])).toBe(true);
+    expect(contenanceRequise(A("s", "Citron-sac", null), ["unité"])).toBe(false); // sans unité, consommé à l'unité : rien à demander
     expect(contenanceRequise(A("k", "Sucre", "kg"), ["g"])).toBe(false); // pas compté à l'unité
     expect(contenanceRequise(A("s", "Jus-1L", null), ["cl"])).toBe(true); // sans unité
     expect(articleVise("MONIN COCONUT FRUIT 1LTR", "creer", [b])).toBe(b);

@@ -220,6 +220,7 @@ describe("Importer les fiches du bar — simulation", () => {
     vi.stubGlobal("confirm", confirmer);
     await act(async () => { bouton("Appliquer (2 fiches)").click(); });
     expect(confirmer.mock.calls[0]![0]).toContain("· unité de stock POSÉE sur des articles qui n'en avaient pas : Jus d'Ananas-Ceres-1L → Brique");
+    expect(confirmer.mock.calls[0]![0]).toContain("· 1 contenance(s) écrite(s) au catalogue : Jus d'Ananas-Ceres-1L → 1 l");
   });
 
   it("« Créer » qui réutilise un article existant sans contenance : le champ contenance s'affiche", async () => {
@@ -243,5 +244,19 @@ describe("Importer les fiches du bar — simulation", () => {
     await deposer(await z.generateAsync({ type: "uint8array" }));
     expect(conteneur.querySelector<HTMLInputElement>('input[aria-label="Importer la photo de Piña colada"]')!.checked).toBe(false);
     expect(ligne("Piña colada").textContent).toContain("classeur trop court pour reconnaître le logo d'en-tête");
+  });
+
+  it("« Remplacer » : la confirmation dit que TOUTES les lignes (sous-recettes comprises) et les portions sont remplacées", async () => {
+    await deposer();
+    for (const l of ["Sirop de Sucre de canne-70", "Scheweppes Soda", "Feuille de menthe"]) choisir(select(`Article pour ${l}`), "creer");
+    choisir(select("Article pour citron"), "ignorer");
+    expect(ligne("Mojito").textContent).toContain("déjà remplie");
+    await act(async () => { ligne("Mojito").querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+    expect(ligne("Mojito").textContent).toContain("prête");
+    const confirmer = vi.fn<(message: string) => boolean>(() => false);
+    vi.stubGlobal("confirm", confirmer);
+    await act(async () => { bouton("Appliquer").click(); });
+    expect(confirmer.mock.calls[0]![0]).toContain("dont 1 REMPLACÉE(S) (Mojito) : TOUTES leurs lignes actuelles, sous-recettes comprises, et leur nombre de portions sont remplacés par ceux du classeur");
+    expect(appels.appliquerImportBar).not.toHaveBeenCalled();
   });
 });
