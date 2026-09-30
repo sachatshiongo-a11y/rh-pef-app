@@ -37,6 +37,21 @@ const FORMULAIRES_HORS_PERIMETRE: Record<string, string> = {
   "src/app/(app)/parametres/types-conges-admin.tsx": "un formulaire « Enregistrer » par type de congé",
 };
 
+/**
+ * Les LISTES DU JOUR du téléphone (demande de la Direction, 2026-09-30) : la saisie d'UN jour à la
+ * fois, dans le même fichier que la grille de la semaine dont elle partage lignes, enregistreur et
+ * valeurs. Une liste du jour DOIT : avoir sa propre racine `data-tableur` (Entrée descend d'un
+ * article à l'autre), passer par la case partagée (en plus de celle de la grille), remonter ses cases
+ * quand le jour change (`key={jour.iso}` : une erreur ou un envoi du jour d'avant ne suit pas, une
+ * frappe en attente part à sa date d'origine), être choisie par `VueJourOuSemaine` (jour sous `lg`,
+ * tableau dès `lg`, « Vue semaine » au choix) et lire le jour du sélecteur commun.
+ */
+const LISTES_JOUR: Record<string, string> = {
+  "src/app/(stock)/stock/journalier/commande-grid.tsx": "commande",
+  "src/app/(stock)/stock/journalier/ventes-grid.tsx": "ventes",
+  "src/app/(stock)/stock/restaurant/restaurant-client.tsx": "restaurant",
+};
+
 const TYPE_NUMBER = /type=["']number["']/;
 
 function fichiers(dir: string): string[] {
@@ -90,6 +105,31 @@ describe("garde-fou des tableurs", () => {
       expect(existsSync(path.join(RACINE, f)), f).toBe(true);
       expect(aUnChampNombreDansUneLigne(lire(f)), f).toBe(true);
     }
+  });
+
+  describe("listes du jour (téléphone)", () => {
+    it.each(Object.entries(LISTES_JOUR))("%s — liste « %s » : racine data-tableur propre, case partagée, cases remontées au changement de jour", (fichier, nom) => {
+      const source = lire(fichier);
+      expect(source, "racine de saisie propre à la liste du jour").toMatch(new RegExp(`data-tableur=""\\s+data-vue-liste="${nom}"`));
+      expect(source).not.toMatch(TYPE_NUMBER);
+      expect((source.match(/<CelluleNombre\b/g) ?? []).length, "une case pour la grille, une pour la liste du jour").toBeGreaterThanOrEqual(2);
+      expect(source).toContain("key={jour.iso}");
+      expect(source).toContain("<VueJourOuSemaine");
+      expect(source).toContain("useJourAffiche(");
+      expect(source).toContain("CASE_JOUR"); // 44 px, 16 px de texte
+    });
+
+    it("toute liste du jour à saisie numérique est recensée (nouvelle vue de saisie = case partagée + garde-fous)", () => {
+      const avecListe = fichiers(SRC).map(rel).filter((f) => {
+        const t = readFileSync(path.join(RACINE, f), "utf8");
+        return /data-vue-liste=/.test(t) && /<CelluleNombre\b/.test(t);
+      });
+      expect(avecListe.filter((f) => !(f in LISTES_JOUR))).toEqual([]);
+    });
+
+    it("les listes recensées existent encore et sont marquées data-vue-liste", () => {
+      for (const f of Object.keys(LISTES_JOUR)) expect(lire(f), f).toMatch(/data-vue-liste=/);
+    });
   });
 
   it("l'heuristique reconnaît un champ nombre dans une ligne, et seulement là", () => {
