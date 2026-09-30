@@ -3,7 +3,8 @@ import { classeurExcel } from "@/lib/export-excel";
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import { chargerFichesVues, chargerArticlesDesFiches } from "../_data/charger-fiche";
 import { construireContexte, TYPE_LABEL } from "../_data/fiche-calc";
-import { familleBoisson, lireOngletFiches, ongletFiche, FAMILLES_BOISSON } from "@/lib/fiches/famille-boisson";
+import { familleBoisson, FAMILLES_BOISSON } from "@/lib/fiches/famille-boisson";
+import { fichesAExporter } from "../_data/selection-export";
 
 // Export Excel des fiches techniques : celles de l'onglet affiché (`?vue=plats|boissons`), ou la
 // sélection de la barre d'actions groupées (`?ids=`, déjà limitée à l'onglet par l'écran).
@@ -15,21 +16,13 @@ export async function GET(req: Request) {
   const g = await exigerEspaceStock();
   if (!g.ok) return g.reponse;
 
-  const sp = new URL(req.url).searchParams;
-  const param = sp.get("ids");
-  const choisis = new Set((param ?? "").split(",").map((s) => s.trim()).filter(Boolean));
-  const vue = sp.has("vue") ? lireOngletFiches(sp.get("vue")) : null;
-  const boissons = vue === "boissons";
   const libelleFamille = new Map(FAMILLES_BOISSON.map((f) => [f.valeur, f.libelle]));
-  const rangFamille = new Map(FAMILLES_BOISSON.map((f, i) => [f.valeur, i]));
 
   const [vues, articles] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches()]);
   const contexte = construireContexte(vues, new Map(articles.map((a) => [a.id, a])));
-  const retenues = (choisis.size ? vues.filter((v) => choisis.has(v.id)) : vue ? vues.filter((v) => ongletFiche(v) === vue) : vues)
-    // Onglet Boissons : même ordre qu'à l'écran — les cocktails & mocktails d'abord (tri stable :
-    // l'ordre catégorie/nom du chargement est conservé à l'intérieur de chaque famille).
-    .slice()
-    .sort((a, b) => (boissons ? rangFamille.get(familleBoisson(a.categorie))! - rangFamille.get(familleBoisson(b.categorie))! : 0));
+  // Sélection et ordre : la même règle que le PDF des fiches (Boissons : cocktails & mocktails d'abord).
+  const { retenues, vue } = fichesAExporter(vues, new URL(req.url).searchParams);
+  const boissons = vue === "boissons";
 
   const lignes = retenues.map((v) => {
     const r = calculerCout(contexte.fiches.get(v.id)!, contexte);
