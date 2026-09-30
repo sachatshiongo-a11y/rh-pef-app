@@ -30,8 +30,9 @@ describe("lireFiltreMouvements — normalisation d'un filtre brut (URL ou argume
 describe("whereMouvements / whereColonne — chaque combinaison mois × produit × motif × colonne", () => {
   const MOIS = ["tous", "2026-9"] as const;
   const PRODUITS = [null, "farine"] as const;
-  const MOTIFS: (CleMotif | null)[] = [null, "livraison", "perte", "sans"];
-  const CAT: Record<CleMotif, string | null> = { livraison: "LIVRAISON_RESTAURANT", perte: "PERTE", sans: null };
+  type MotifSortie = Extract<CleMotif, "livraison" | "perte" | "sans">;
+  const MOTIFS: (MotifSortie | null)[] = [null, "livraison", "perte", "sans"];
+  const CAT: Record<MotifSortie, string | null> = { livraison: "LIVRAISON_RESTAURANT", perte: "PERTE", sans: null };
   const combinaisons = MOIS.flatMap((mois) => PRODUITS.flatMap((articleId) => MOTIFS.map((motif) => ({ mois, articleId, motif }))));
 
   it.each(combinaisons)("%j", (f) => {
@@ -43,6 +44,14 @@ describe("whereMouvements / whereColonne — chaque combinaison mois × produit 
     expect(whereColonne(f, "SORTIES")).toEqual({ AND: [attendu, { type: "SORTIE" }] });
     // Colonne Entrées : un AND, jamais un écrasement — un filtre de motif (type SORTIE) y donne l'ensemble vide.
     expect(whereColonne(f, "ENTREES")).toEqual({ AND: [attendu, { type: { not: "SORTIE" } }] });
+  });
+
+  it("motifs d'ENTRÉE (cartes « Entrées de stock ») : mois et produit s'ajoutent, la colonne Sorties est vide", () => {
+    for (const motif of ["entrees", "achats", "factures", "autres"] as const) {
+      const w = whereMouvements({ mois: "2026-9", articleId: "farine", motif });
+      expect(w).toEqual({ articleId: "farine", ...FILTRES_MOTIF[motif].where, date: SEPT });
+      expect(whereColonne({ mois: "2026-9", articleId: null, motif }, "SORTIES")).toEqual({ AND: [{ ...FILTRES_MOTIF[motif].where, date: SEPT }, { type: "SORTIE" }] });
+    }
   });
 
   it("décembre : la borne haute passe à l'année suivante", () => {

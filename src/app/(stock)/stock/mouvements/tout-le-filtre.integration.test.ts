@@ -81,8 +81,9 @@ const stocks = async () => Object.fromEntries((await prisma.stock.findMany()).ma
 describe("le filtre partagé, évalué sur une vraie base : chaque combinaison", () => {
   it("mois × produit × motif × colonne : le `where` compte exactement ce que la règle métier désigne", async () => {
     const tous = await prisma.mouvementStock.findMany();
-    const CAT: Record<CleMotif, string | null> = { livraison: "LIVRAISON_RESTAURANT", perte: "PERTE", sans: null };
-    for (const mois of ["tous", "2026-9", "2026-8"]) for (const articleId of [null, farine, sel]) for (const motif of [null, "livraison", "perte", "sans"] as (CleMotif | null)[]) {
+    type MotifSortie = Extract<CleMotif, "livraison" | "perte" | "sans">;
+    const CAT: Record<MotifSortie, string | null> = { livraison: "LIVRAISON_RESTAURANT", perte: "PERTE", sans: null };
+    for (const mois of ["tous", "2026-9", "2026-8"]) for (const articleId of [null, farine, sel]) for (const motif of [null, "livraison", "perte", "sans"] as (MotifSortie | null)[]) {
       const f: FiltreMouvements = { mois, articleId, motif };
       const garde = tous.filter((m) =>
         (mois === "tous" || `${m.date.getUTCFullYear()}-${m.date.getUTCMonth() + 1}` === mois)

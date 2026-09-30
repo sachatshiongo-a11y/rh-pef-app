@@ -4,6 +4,7 @@ import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { indicateursStock } from "@/lib/indicateurs/stock";
 import { exigerPageStock } from "@/lib/garde-page";
+import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/cartes-entrees-stock";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -77,6 +78,9 @@ export default async function StockDashboard() {
         <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
         <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées`} href={`/stock/mouvements?mois=${annee}-${mois}`} />
       </div>
+
+      {/* MOIS : brancher ici le mois choisi du tableau de bord */}
+      <CartesEntreesStock annee={annee} mois={mois} voitMontants={voitIndicateursEntrees(user)} />
 
       {/* Bons de commande à valider — Direction uniquement */}
       {estDirection && bcAValider.length > 0 && (
