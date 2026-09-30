@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 
 // Filtre de l'écran Stock → Mouvements (mois, produit, motif), UNE SEULE construction du `where`
 // pour la page qui affiche et pour les actions groupées « tout le filtre » qui écrivent
@@ -11,11 +12,24 @@ export const PLAFOND_AFFICHAGE = 600;
 /** Au-delà, une action « tout le filtre » refuse et invite à affiner (une transaction raisonnable). */
 export const BORNE_TOUT_LE_FILTRE = 5000;
 
-/** Filtre « motif » des sorties (requalification des sorties importées sans motif). */
+/**
+ * Filtre « motif » :
+ * - SORTIES : requalification des sorties importées sans motif ;
+ * - ENTRÉES (2026-09-30) : les catégories des cartes d'indicateurs « Entrées de stock »
+ *   (`lib/indicateurs/entrees-stock.ts`). Chaque carte compte EXACTEMENT l'ensemble que son lien
+ *   affiche : les deux lisent ce `where`. Les trois catégories (Liste d'achat, factures, autres)
+ *   partagent les entrées sans reste ni recouvrement : « autres » est le complément des deux
+ *   premières (une facture d'abord ; sinon la règle de la Liste d'achat, `WHERE_ACHATS_LISTE`).
+ *   Un AJUSTEMENT d'inventaire n'est pas une entrée : son sens n'est pas enregistré.
+ */
 export const FILTRES_MOTIF = {
   livraison: { label: "Sorties : Livraison restaurant", libelle: "motif Livraison restaurant", where: { type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT" } },
   perte: { label: "Sorties : Perte", libelle: "motif Perte", where: { type: "SORTIE", categorieSortie: "PERTE" } },
   sans: { label: "Sorties : sans motif", libelle: "sans motif", where: { type: "SORTIE", categorieSortie: null } },
+  entrees: { label: "Entrées : toutes (hors ajustements)", libelle: "toutes les entrées", where: { type: "ENTREE" } },
+  achats: { label: "Entrées : Liste d'achat", libelle: "entrées de la Liste d'achat", where: WHERE_ACHATS_LISTE },
+  factures: { label: "Entrées : factures fournisseurs", libelle: "entrées par facture fournisseur", where: { type: "ENTREE", factureId: { not: null } } },
+  autres: { label: "Entrées : autres (réceptions, manuelles, corrections, imports)", libelle: "autres entrées", where: { AND: [{ type: "ENTREE", factureId: null }, { NOT: WHERE_ACHATS_LISTE }] } },
 } as const satisfies Record<string, { label: string; libelle: string; where: Prisma.MouvementStockWhereInput }>;
 export type CleMotif = keyof typeof FILTRES_MOTIF;
 

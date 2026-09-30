@@ -7,6 +7,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { inventaireFige } from "@/lib/cloture-inventaire";
 import { moisDe, moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
 import { SelecteurMois } from "@/components/selecteur-mois";
+import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/cartes-entrees-stock";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -128,6 +129,9 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées`} href={lienMouvements} />
         </div>
       </section>
+
+      {/* Entrées de stock du MOIS CHOISI par le sélecteur (annee/mois ci-dessus). */}
+      <CartesEntreesStock annee={annee} mois={mois} voitMontants={voitIndicateursEntrees(user)} />
 
       {/* Bons de commande à valider — Direction uniquement */}
       {estDirection && bcAValider.length > 0 && (
