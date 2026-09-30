@@ -181,7 +181,23 @@ export function PdfSignatureBox({
   );
 }
 
-export function PdfFooter({ docLabel, ent = entreprise }: { docLabel?: string; ent?: typeof entreprise }) {
+/**
+ * Pied de page de marque. `coordonnees={false}` : seulement la ligne du document et la pagination,
+ * pour un document de TRAVAIL interne (fiche technique affichée au poste) — il n'a que faire des
+ * coordonnées bancaires de la société, et sa version « sans prix » ne doit porter aucun « $ ».
+ */
+export function PdfFooter({ docLabel, ent = entreprise, coordonnees = true }: { docLabel?: string; ent?: typeof entreprise; coordonnees?: boolean }) {
+  if (!coordonnees) {
+    return (
+      <View style={[styles.footer, { bottom: 20 }]} fixed>
+        <View style={styles.footerRule} />
+        <View style={styles.footerDocLine}>
+          <Text style={styles.footerDocLabel}>{docLabel ?? ""}</Text>
+          <Text style={styles.footerDocLabel} render={({ pageNumber, totalPages }) => `Page ${pageNumber} sur ${totalPages}`} />
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={styles.footer} fixed>
       {docLabel && (

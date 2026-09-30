@@ -9,6 +9,9 @@ import { formaterNombre, formaterUSD, formaterFC } from "@/lib/montant";
 import { renderPdfBuffer } from "./fonts";
 import { formatCDF, formatMontant } from "./theme";
 import { BonCommandeDocument } from "./bon-commande";
+import { FichesTechniquesDocument } from "./fiche-technique";
+import { construireContexte, type FicheVue } from "@/app/(stock)/stock/fiches/_data/fiche-calc";
+import { versFichePdf } from "@/app/(stock)/stock/fiches/_data/fiche-pdf";
 
 /**
  * Garde-fou GLYPHES MANQUANTS — défaut constaté sur le bon de commande 018/PEF/SO/AOÛT/26
@@ -198,4 +201,23 @@ describe("règle de formatage des nombres destinés aux PDF", () => {
       'utiliser formaterNombre() de @/lib/montant : toLocaleString("fr-FR") produit une espace fine insécable absente de la police Optima',
     ).toEqual([]);
   });
+});
+
+describe("fiche technique (stock/fiches/pdf)", () => {
+  // Cocktail vendu cher pour un coût de quelques centimes : coefficient et taux de marge à 4 chiffres
+  // (le séparateur de milliers qui sortait « barré »), plus un texte saisi hostile (flèche, pictogramme).
+  it("n'embarque qu'Optima, chiffrée comme sans prix", async () => {
+    const v: FicheVue = {
+      id: "f", nom: "Punch → maison", categorie: "Cocktail", type: "BAR", nbPortions: 1, tauxTVA: "0.16", prixVenteTTC: "1160",
+      coefficientMargeCible: "", estSousRecette: false, rendementQuantite: "", rendementUnite: "", actif: true, photoUrl: null,
+      recette: "Verre : Hurricane\nMode : Shaker → verre ⚠",
+      lignes: [{ id: "l", articleId: "a", sousFicheId: null, unite: "cl", quantite: "2", ordre: 1 }],
+    };
+    const articles = new Map([["a", { id: "a", designation: "Sirop", unite: "L", prixUnitaireUSD: "4", actif: true }]]);
+    const ctx = { contexte: construireContexte([v], articles), articles, noms: new Map([["f", { nom: v.nom }]]) };
+    for (const avecPrix of [true, false]) {
+      const pdf = await renderPdfBuffer(FichesTechniquesDocument({ fiches: [versFichePdf(v, ctx, { avecPrix, photo: null })], editeLe: "30/09/2026" }));
+      expect(policesDuPdf(pdf).filter((p) => !estEmbarquee(p)), `avecPrix=${avecPrix}`).toEqual([]);
+    }
+  }, 30000);
 });

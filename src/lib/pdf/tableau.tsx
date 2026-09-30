@@ -33,7 +33,7 @@ const styles = StyleSheet.create({
   titreTableau: { fontSize: 9, fontWeight: 700, color: pdfColors.brownDark, marginBottom: 3, textTransform: "uppercase" },
 });
 
-type CorpsProps = {
+export type CorpsProps = {
   colonnes: Colonne[];
   lignes: Cellule[][];
   totalDerniereLigne?: boolean;
@@ -46,7 +46,7 @@ type CorpsProps = {
  * Le tableau lui-même : ligne d'en-tête `fixed` (répétée en haut de chaque page que le tableau
  * occupe), lignes insécables, lignes-titres de section, dernière ligne de total optionnelle.
  */
-function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sectionRows, couleurLigne, couleurCellule }: CorpsProps) {
+export function CorpsTableau({ colonnes, lignes, totalDerniereLigne = false, sectionRows, couleurLigne, couleurCellule }: CorpsProps) {
   const sections = new Set(sectionRows ?? []);
   return (
     <View style={styles.wrap}>
