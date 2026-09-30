@@ -111,7 +111,7 @@ export default async function ArticleFichePage({
             <span>{DOMAINE_LABEL[a.domaine] ?? a.domaine}</span>
             <span>· {a.categorie?.nom ?? "à classer"}</span>
             {a.code && <span>· Code {a.code}</span>}
-            {a.unite && <span>· {a.unite}</span>}
+            {a.unite && <span>· {a.unite}{a.contenance !== null ? ` de ${a.contenance.toString().replace(".", ",")} ${a.contenanceUnite}` : ""}</span>}
             {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link></span>}
           </p>
         </div>
@@ -128,6 +128,8 @@ export default async function ArticleFichePage({
               designation: a.designation,
               nomCourt: a.nomCourt,
               unite: a.unite,
+              contenance: a.contenance !== null ? a.contenance.toString() : null,
+              contenanceUnite: a.contenanceUnite,
               uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
               prixUnitaireUSD: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
               categorieId: a.categorieId,

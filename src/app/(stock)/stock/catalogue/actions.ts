@@ -10,6 +10,7 @@ import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import type { Prisma } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
+import { lireContenanceSaisie } from "@/lib/fiches/conversion";
 
 
 async function garde() {
@@ -61,6 +62,9 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
   if (formData.has("prixUnitaireUSD")) data.prixUnitaireUSD = dec(formData.get("prixUnitaireUSD"));
   if (formData.has("uniteParCarton")) data.uniteParCarton = dec(formData.get("uniteParCarton"));
   if (formData.has("unite")) data.unite = String(formData.get("unite")).trim() || null;
+  // Contenance d'une unité comptée à l'unité (« Bouteille » de 75 cl) : sert au coût et à la
+  // disponibilité des fiches consommées en cl/g. Validée avant toute écriture.
+  if (formData.has("contenance") || formData.has("contenanceUnite")) Object.assign(data, lireContenanceSaisie(formData.get("contenance"), formData.get("contenanceUnite")));
   if (formData.has("categorieId")) {
     const c = String(formData.get("categorieId")).trim();
     data.categorie = c ? { connect: { id: c } } : { disconnect: true };

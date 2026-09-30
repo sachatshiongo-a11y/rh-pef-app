@@ -7,6 +7,7 @@ import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { contenanceDansNom, UNITES_CONTENANCE } from "@/lib/fiches/conversion";
 
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
@@ -18,6 +19,9 @@ export type ArticleEdit = {
   designation: string;
   nomCourt: string | null;
   unite: string | null;
+  /** Contenance d'une unité comptée à l'unité (« 75 » + « cl ») ; null = inconnue. */
+  contenance?: string | null;
+  contenanceUnite?: string | null;
   uniteParCarton: string | null;
   prixUnitaireUSD: string | null;
   categorieId: string | null;
@@ -50,6 +54,8 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
   // lit `modifierArticle` — comme les lignes de la Liste d'achat de légumes.
   const [prix, setPrix] = useState(a.prixUnitaireUSD ?? "");
   const [parCarton, setParCarton] = useState(a.uniteParCarton ?? "");
+  const [contenance, setContenance] = useState(a.contenance ?? "");
+  const lue = contenanceDansNom(a.designation);
   const [seuilMin, setSeuilMin] = useState(a.stockMinimum);
   const [seuilUrgent, setSeuilUrgent] = useState(a.seuilUrgent);
   // Catégories du domaine de l'article — PLUS sa catégorie actuelle si elle est d'un autre domaine
@@ -87,6 +93,19 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Unité
             <input name="unite" defaultValue={a.unite ?? ""} placeholder="Kg, Pièce…" className={inp} />
           </label>
+          <div className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+            <span>Contenance d&apos;une unité (bouteille, pièce…)</span>
+            <div className="flex gap-1">
+              <input type="hidden" name="contenance" value={contenance} />
+              <CelluleNombre ligne="article" col={4} valeur={nombreOuNull(contenance)} onEnregistrer={(v) => setContenance(texteDe(v))} min={0} quantite
+                placeholder={lue ? `lu dans le nom : ${lue.quantite.toString()}` : "ex. 75"} className={`${inp} text-right`} aria-label="Contenance" />
+              <select name="contenanceUnite" defaultValue={a.contenanceUnite ?? ""} className={`${inp} w-20`} aria-label="Unité de contenance">
+                <option value="">—</option>
+                {UNITES_CONTENANCE.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <span className="text-[11px]">Sert au coût des fiches consommées en cl ou en g{lue && !a.contenance ? ` — le nom indique ${lue.quantite.toString()} ${lue.unite}` : ""}.</span>
+          </div>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Unités / carton
             <input type="hidden" name="uniteParCarton" value={parCarton} />
             <CelluleNombre ligne="article" col={0} valeur={nombreOuNull(parCarton)} onEnregistrer={(v) => setParCarton(texteDe(v))} min={0} quantite placeholder="ex. 24" className={`${inp} text-right`} aria-label="Unités par carton" />

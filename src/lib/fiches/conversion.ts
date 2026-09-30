@@ -231,3 +231,21 @@ export function contenanceCanonique(c: { quantite: Decimal.Value; unite: string 
   const g = facteur(c.unite, "g");
   return g !== null ? `m:${q.times(g).toString()}` : null;
 }
+
+/**
+ * Contenance saisie au catalogue (formulaire d'article) : les deux champs vides = pas de
+ * contenance ; sinon un nombre > 0 (virgule admise, 3 décimales au plus — Decimal(12,3)) ET une
+ * unité de contenance. Lève un message lisible, jamais une valeur supposée.
+ */
+export function lireContenanceSaisie(quantiteBrute: unknown, uniteBrute: unknown): { contenance: string | null; contenanceUnite: UniteContenance | null } {
+  const q = String(quantiteBrute ?? "").trim().replace(",", ".");
+  const u = String(uniteBrute ?? "").trim();
+  if (!q && !u) return { contenance: null, contenanceUnite: null };
+  const unite = UNITES_CONTENANCE.find((x) => x === u);
+  if (!q || !unite) throw new Error("Contenance : saisissez un nombre ET une unité (ml, cl, l, g, kg), ou videz les deux.");
+  let d: Decimal;
+  try { d = new Decimal(q); } catch { throw new Error("Contenance : nombre illisible."); }
+  if (!d.isFinite() || !d.greaterThan(0) || d.greaterThan(100000)) throw new Error("Contenance : un nombre supérieur à 0 est attendu.");
+  if (!d.toDecimalPlaces(3).equals(d)) throw new Error("Contenance : 3 décimales au plus.");
+  return { contenance: d.toString(), contenanceUnite: unite };
+}

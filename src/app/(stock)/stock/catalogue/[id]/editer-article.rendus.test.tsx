@@ -164,4 +164,25 @@ describe("fiche article — bouton Modifier", () => {
     expect(conteneur.textContent).toContain("Code déjà utilisé par un autre article.");
     expect(conteneur.querySelector("form")).not.toBeNull();
   });
+
+  it("contenance : vide par défaut (le nom l'indique en aide) ; saisie envoyée avec son unité", async () => {
+    monter({ ...ARTICLE, designation: "Absolut Vodka-75cl", unite: "Bouteille" });
+    await cliquer(bouton("Modifier"));
+    const qte = champ<HTMLInputElement>('input[aria-label="Contenance"]');
+    expect(qte.placeholder).toBe("lu dans le nom : 75");
+    expect(conteneur.textContent).toContain("le nom indique 75 cl");
+    await cliquer(bouton("Enregistrer"));
+    let [, fd] = appels.modifier.mock.calls[0];
+    expect([fd.get("contenance"), fd.get("contenanceUnite")]).toEqual(["", ""]); // rien supposé
+    await cliquer(bouton("Modifier"));
+    await taperNombreEtValider(champ<HTMLInputElement>('input[aria-label="Contenance"]'), "75");
+    act(() => {
+      const select = champ<HTMLSelectElement>('select[name="contenanceUnite"]');
+      select.value = "cl";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await cliquer(bouton("Enregistrer"));
+    [, fd] = appels.modifier.mock.calls[1];
+    expect([fd.get("contenance"), fd.get("contenanceUnite")]).toEqual(["75", "cl"]);
+  });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "decimal.js";
-import { contenanceCanonique, contenanceDansNom, estUniteComptage, facteurVersArticle } from "./conversion";
+import { contenanceCanonique, contenanceDansNom, estUniteComptage, facteurVersArticle, lireContenanceSaisie } from "./conversion";
 import { calculerCout } from "./cout";
 import { calculerDisponibilite, convertirDepuisUniteArticle, convertirVersUniteArticle, type ContexteDispo } from "./disponibilite";
 
@@ -100,5 +100,21 @@ describe("contenance dans le coût et la disponibilité", () => {
     expect(convertirVersUniteArticle("150", "cl", abs)).toBe("2");
     expect(convertirDepuisUniteArticle("2", abs, "cl")).toBe("150");
     expect(convertirVersUniteArticle("150", "cl", "Bouteille")).toBeNull(); // unité seule : rien supposé
+  });
+});
+
+describe("contenance saisie au catalogue", () => {
+  it("les deux vides = aucune ; nombre (virgule admise) + unité ; sinon refus lisible", () => {
+    expect(lireContenanceSaisie("", "")).toEqual({ contenance: null, contenanceUnite: null });
+    expect(lireContenanceSaisie(null, null)).toEqual({ contenance: null, contenanceUnite: null });
+    expect(lireContenanceSaisie("75", "cl")).toEqual({ contenance: "75", contenanceUnite: "cl" });
+    expect(lireContenanceSaisie("0,75", "l")).toEqual({ contenance: "0.75", contenanceUnite: "l" });
+    expect(() => lireContenanceSaisie("75", "")).toThrow(/nombre ET une unité/);
+    expect(() => lireContenanceSaisie("", "cl")).toThrow(/nombre ET une unité/);
+    expect(() => lireContenanceSaisie("75", "bouteille")).toThrow(/nombre ET une unité/);
+    expect(() => lireContenanceSaisie("0", "cl")).toThrow(/supérieur à 0/);
+    expect(() => lireContenanceSaisie("-5", "cl")).toThrow(/supérieur à 0/);
+    expect(() => lireContenanceSaisie("abc", "cl")).toThrow(/illisible/);
+    expect(() => lireContenanceSaisie("0.0005", "l")).toThrow(/3 décimales/);
   });
 });
