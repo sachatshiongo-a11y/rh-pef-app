@@ -135,16 +135,41 @@ export const MOTIF_LABEL: Record<MotifSansPrix, string> = {
   CYCLE: "Boucle : la recette se contient elle-même",
 };
 
+// `pct` et `coef` servent l'écran ET le PDF des fiches : `formaterNombre` (espaces ordinaires), jamais
+// `toLocaleString("fr-FR")`, dont l'espace fine insécable (U+202F) n'existe pas dans la police des PDF
+// — un taux de marge de 1 150 % d'un cocktail sortirait « barré ».
+
 /** Ratio (0,875) → « 87,5 % ». Ce n'est PAS un montant : ni `usd()` ni `arrondirCentime` ici. */
 export function pct(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  return `${(v * 100).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} %`;
+  return `${formaterNombre(v * 100, { maximumFractionDigits: 1 })} %`;
 }
 
 /** Coefficient (8) → « × 8 ». Ce n'est pas un montant non plus. */
 export function coef(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
-  return `× ${v.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}`;
+  return `× ${formaterNombre(v, { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Étiquette d'un indicateur de prix : dit son ORIGINE (conseillé depuis le coefficient cible, ou
+ * dérivé d'un prix décidé) et sa COMPLÉTUDE (`note` : « sur coût partiel », « sur coût inconnu »,
+ * ou rien). Deux questions différentes, deux mentions — c'est ce qui empêche de lire un prix
+ * arrêté là où il n'y a qu'une cible. La note est passée par l'appelant (`noteCoutIncomplet`).
+ * Partagée par l'écran de la fiche et son PDF : même libellé aux deux endroits.
+ */
+export function etiquettePrix(base: string, conseille: boolean, note: string | null): string {
+  const notes = [conseille ? "conseillé" : null, note].filter(Boolean);
+  return notes.length ? `${base} (${notes.join(", ")})` : base;
+}
+
+/**
+ * Note des indicateurs de prix d'une fiche au coût incomplet. `incomplet` couvre trois causes :
+ * ingrédients non valorisés, fiche SANS ingrédient (coût inconnu, pas nul), portions
+ * inexploitables. Seule la fiche vide est « sur coût inconnu ».
+ */
+export function noteCoutIncomplet(incomplet: boolean, nbIngredients: number): string | null {
+  return !incomplet ? null : nbIngredients === 0 ? "sur coût inconnu" : "sur coût partiel";
 }
 
 export const TYPE_LABEL: Record<string, string> = { PLAT: "Plat", BAR: "Bar" };

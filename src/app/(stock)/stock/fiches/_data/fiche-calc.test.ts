@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { calculerCout } from "@/lib/fiches/cout";
-import { badgeDispo, construireContexte, disponibilitesDesFiches, resumerDispo, versFicheCalc, type ArticleOption, type FicheVue } from "./fiche-calc";
+import { badgeDispo, coef, pct, construireContexte, disponibilitesDesFiches, resumerDispo, versFicheCalc, type ArticleOption, type FicheVue } from "./fiche-calc";
 
 // Ces tests verrouillent la PASSERELLE entre l'écran et le moteur : ce que l'écran envoie doit
 // produire exactement les chiffres du moteur. Aucune formule n'est réimplémentée ici.
@@ -149,5 +149,16 @@ describe("passerelle écran → moteur de disponibilité", () => {
     const d = resumerDispo(disponibilitesDesFiches([v], [], {}, "2026-09-24").get("f1")!, v);
     expect(d.etat).toBe("A_VERIFIER");
     expect(d.raisons).toEqual(["Article supprimé du catalogue : ni article du stock ni sous-recette"]);
+  });
+});
+
+describe("ratios lisibles (écran ET PDF des fiches)", () => {
+  it("séparateur de milliers ORDINAIRE : jamais l'espace fine insécable absente de la police des PDF", () => {
+    // Cocktail à 116 $ pour 0,08 $ de coût : un taux de marge à six chiffres n'a rien d'exotique.
+    expect(pct(1249)).toBe("124 900 %");
+    expect(pct(0.875)).toBe("87,5 %");
+    expect(coef(1250.5)).toBe("× 1 250,5");
+    expect(pct(null)).toBe("—");
+    expect(coef(Number.NaN)).toBe("—");
   });
 });
