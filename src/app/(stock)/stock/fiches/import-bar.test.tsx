@@ -10,6 +10,7 @@ import path from "node:path";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import JSZip from "jszip";
+import { choisirEnTapant, choisirOption, libellesOuverts, listeOuverte, ouvrirChoix, taperChoix, toucheChoix } from "@/lib/test/choix-recherche";
 import {
   rattacherFiches, rattacherIngredients, type ArticleExistant, type ChoixImportBar, type FicheBarLue, type FicheExistanteBar,
 } from "@/lib/fiches/classeur-bar";
@@ -60,7 +61,20 @@ afterEach(() => {
 
 const bouton = (texte: string) => [...conteneur.querySelectorAll("button")].find((b) => b.textContent?.includes(texte)) as HTMLButtonElement;
 const select = (label: string) => conteneur.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
-const choisir = (s: HTMLSelectElement, valeur: string) => act(() => { s.value = valeur; s.dispatchEvent(new Event("change", { bubbles: true })); });
+// « Fiche visée par… » et « Article pour… » sont des champs où l'on tape (combobox), plus des <select> :
+// `valeur` lit ce qui est choisi (l'id, comme l'ancienne valeur du select), `choisir` clique l'option.
+const combo = (label: string) => conteneur.querySelector<HTMLInputElement>(`input[role="combobox"][aria-label="${label}"]`)!;
+const valeur = (label: string) => combo(label).dataset.valeur;
+const choisir = (label: string, id: string) => choisirOption(combo(label), id);
+/** Titre du groupe sous lequel une option est listée (l'option et son titre éventuel partagent un même conteneur). */
+const groupeDe = (option: Element) => {
+  for (let w = option.parentElement; w; w = w.previousElementSibling as HTMLElement | null) {
+    const titre = [...w.children].find((c) => c.getAttribute("role") === "presentation" && c.textContent);
+    if (titre) return titre.textContent;
+  }
+  return null;
+};
+const choisirSelect = (s: HTMLSelectElement, v: string) => act(() => { s.value = v; s.dispatchEvent(new Event("change", { bubbles: true })); });
 const ligne = (nom: string) => [...conteneur.querySelectorAll("tbody tr")].find((tr) => tr.querySelector("td .font-medium")?.textContent === nom)!;
 
 /** La fixture + des photos : Piña colada (propre), Virgin Piña Colada (propre, fiche qui a déjà une photo), Mojito ↔ Virgin Mojito (partagée), un logo partout. */
@@ -90,15 +104,18 @@ describe("Importer les fiches du bar — simulation", () => {
     await deposer();
     expect(appels.analyserFichesBar).toHaveBeenCalledTimes(1);
     expect(appels.appliquerImportBar).not.toHaveBeenCalled();
-    expect(select("Fiche visée par Piña colada").value).toBe("fiche:pc");
-    expect(select("Fiche visée par Virgin Piña Colada").value).toBe("fiche:pm");
-    expect(select("Fiche visée par Kir Royal").value).toBe(""); // Apéritif ≠ Cocktail : jamais d'office
+    expect(valeur("Fiche visée par Piña colada")).toBe("fiche:pc");
+    expect(valeur("Fiche visée par Virgin Piña Colada")).toBe("fiche:pm");
+    expect(valeur("Fiche visée par Kir Royal")).toBe(""); // Apéritif ≠ Cocktail : jamais d'office
     expect(ligne("Kir Royal").textContent).toContain("à décider");
     // « Proches » : jamais sur la seule contenance (« COINTREAU 70CL » ≠ « Rum … 70cl »).
-    expect([...select("Article pour COINTREAU 70CL").options].map((o) => o.textContent)).not.toContain("Rum Saint James blc 70cl (L)");
-    expect(select("Article pour RUM SAINT JAMES BLC 70CL").value).toBe("art:rum");
+    await ouvrirChoix(combo("Article pour COINTREAU 70CL"));
+    const rum = [...listeOuverte()!.querySelectorAll<HTMLElement>('[role="option"]')].find((o) => o.dataset.choixId === "art:rum")!;
+    expect(groupeDe(rum)).toBe("Catalogue"); // cherchable dans tout le catalogue, mais jamais proposé comme « proche »
+    await toucheChoix(combo("Article pour COINTREAU 70CL"), "Escape");
+    expect(valeur("Article pour RUM SAINT JAMES BLC 70CL")).toBe("art:rum");
     expect(ligne("RUM SAINT JAMES BLC 70CL").textContent).toContain("correspondance sûre");
-    expect(select("Article pour Lait de Coco").value).toBe("");
+    expect(valeur("Article pour Lait de Coco")).toBe("");
     // Le Mojito a déjà une recette : la case « Remplacer » est proposée, décochée.
     expect(ligne("Mojito").textContent).toContain("Remplacer la recette existante (2 ingrédient(s))");
     expect(conteneur.textContent).toContain("29 feuille(s) · 0 prête(s) · 28 à décider · 1 bloquée(s)");
@@ -109,14 +126,14 @@ describe("Importer les fiches du bar — simulation", () => {
   it("choisir des articles rend la fiche prête ; une unité inconvertible la bloque et le dit", async () => {
     await deposer();
     for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) {
-      choisir(select(`Article pour ${l}`), "creer");
+      await choisir(`Article pour ${l}`, "creer");
     }
     expect(ligne("Piña colada").textContent).toContain("prête");
     expect(ligne("Lait de Coco").textContent).toContain("cl → l"); // « Créer » : article au litre
     expect(bouton("Appliquer").textContent).toBe("Appliquer (2 fiches)");
 
     // Bouteille sans contenance : « 1 l, lu dans le nom », pré-rempli, visible, modifiable.
-    choisir(select("Article pour BACARDI BLC 1L"), "art:bac");
+    await choisir("Article pour BACARDI BLC 1L", "art:bac");
     const qte = conteneur.querySelector<HTMLInputElement>('input[aria-label="Contenance de Bacardi blanc-1l"]')!;
     expect(qte.value).toBe("1");
     expect(select("Unité de contenance de Bacardi blanc-1l").value).toBe("l");
@@ -134,30 +151,30 @@ describe("Importer les fiches du bar — simulation", () => {
 
   it("unité réellement inconvertible (citron à l'unité, catalogue au kilo) : bloquée et dite", async () => {
     await deposer();
-    expect(select("Article pour citron").value).toBe("art:cit"); // même nom : sûr…
+    expect(valeur("Article pour citron")).toBe("art:cit"); // même nom : sûr…
     expect(ligne("citron").textContent).toContain("unité → Kg : inconvertible"); // … mais inconvertible
     expect(ligne("Mojito").textContent).toContain("citron : unité inconvertible : unité → Kg");
   });
 
   it("« Accepter les correspondances sûres » remet les choix sûrs ; « Appliquer » envoie lues + choix après confirmation", async () => {
     await deposer();
-    choisir(select("Fiche visée par Piña colada"), "ignorer");
-    choisir(select("Article pour RUM SAINT JAMES BLC 70CL"), "ignorer");
+    await choisir("Fiche visée par Piña colada", "ignorer");
+    await choisir("Article pour RUM SAINT JAMES BLC 70CL", "ignorer");
     await act(async () => { bouton("Accepter les correspondances sûres").click(); });
-    expect(select("Fiche visée par Piña colada").value).toBe("fiche:pc");
-    expect(select("Article pour RUM SAINT JAMES BLC 70CL").value).toBe("art:rum");
-    expect(select("Fiche visée par Kir Royal").value).toBe(""); // l'action groupée ne décide rien d'autre
+    expect(valeur("Fiche visée par Piña colada")).toBe("fiche:pc");
+    expect(valeur("Article pour RUM SAINT JAMES BLC 70CL")).toBe("art:rum");
+    expect(valeur("Fiche visée par Kir Royal")).toBe(""); // l'action groupée ne décide rien d'autre
     // « Remplacer » coché pour la fiche Gin Tonic, puis l'action groupée remet le Mojito sur sa
     // correspondance sûre : la case, qui valait pour Gin Tonic, est décochée.
-    choisir(select("Fiche visée par Mojito"), "fiche:gt");
+    await choisir("Fiche visée par Mojito", "fiche:gt");
     const caseMojito = () => ligne("Mojito").querySelector<HTMLInputElement>('input[type="checkbox"]')!;
     await act(async () => { caseMojito().click(); });
     expect(caseMojito().checked).toBe(true);
     await act(async () => { bouton("Accepter les correspondances sûres").click(); });
-    expect(select("Fiche visée par Mojito").value).toBe("fiche:mo");
+    expect(valeur("Fiche visée par Mojito")).toBe("fiche:mo");
     expect(caseMojito().checked).toBe(false);
 
-    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
+    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) await choisir(`Article pour ${l}`, "creer");
     const confirmer = vi.fn<(message: string) => boolean>(() => true);
     vi.stubGlobal("confirm", confirmer);
     await act(async () => { bouton("Appliquer (2 fiches)").click(); });
@@ -173,7 +190,7 @@ describe("Importer les fiches du bar — simulation", () => {
 
   it("refus de confirmation : rien n'est envoyé", async () => {
     await deposer();
-    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
+    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) await choisir(`Article pour ${l}`, "creer");
     vi.stubGlobal("confirm", () => false);
     await act(async () => { bouton("Appliquer (2 fiches)").click(); });
     expect(appels.appliquerImportBar).not.toHaveBeenCalled();
@@ -190,7 +207,7 @@ describe("Importer les fiches du bar — simulation", () => {
     expect(ligne("Mojito").textContent).toContain("partagée avec « Virgin Mojito »");
     expect(ligne("Blue Hawaiian").querySelector('input[aria-label^="Importer la photo"]')).toBeNull(); // le logo seul : rien
 
-    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
+    for (const l of ["Jus d'Ananas-100", "Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) await choisir(`Article pour ${l}`, "creer");
     const confirmer = vi.fn<(message: string) => boolean>(() => true);
     vi.stubGlobal("confirm", confirmer);
     await act(async () => { bouton("Appliquer (2 fiches)").click(); });
@@ -208,13 +225,13 @@ describe("Importer les fiches du bar — simulation", () => {
       ok: true as const, fiches: rattacherFiches(lues, FICHES), ingredients: rattacherIngredients(lues, [...ARTICLES, jus]), articles: [...ARTICLES, jus], fichesBar: FICHES,
     }));
     await deposer();
-    for (const l of ["Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) choisir(select(`Article pour ${l}`), "creer");
-    choisir(select("Article pour Jus d'Ananas-100"), "art:jus");
+    for (const l of ["Lait de Coco", "Sirop de Sucre de canne-70", "MONIN COCONUT FRUIT 1LTR", "BACARDI BLC 1L"]) await choisir(`Article pour ${l}`, "creer");
+    await choisir("Article pour Jus d'Ananas-100", "art:jus");
     expect(select("Unité de stock de Jus d'Ananas-Ceres-1L").value).toBe(""); // jamais « Bouteille » d'office
     expect(conteneur.querySelector<HTMLInputElement>('input[aria-label="Contenance de Jus d\'Ananas-Ceres-1L"]')!.value).toBe("1");
     expect(ligne("Jus d'Ananas-100").textContent).toContain("prix actuel : 2,86 $ par ?");
     expect(ligne("Piña colada").textContent).toContain("bloquée");
-    choisir(select("Unité de stock de Jus d'Ananas-Ceres-1L"), "Brique");
+    choisirSelect(select("Unité de stock de Jus d'Ananas-Ceres-1L"), "Brique");
     expect(ligne("Piña colada").textContent).toContain("prête");
     const confirmer = vi.fn<(message: string) => boolean>(() => false);
     vi.stubGlobal("confirm", confirmer);
@@ -231,7 +248,7 @@ describe("Importer les fiches du bar — simulation", () => {
       return { ok: true as const, fiches: rattacherFiches(lues, FICHES), ingredients, articles: [...ARTICLES, coco], fichesBar: FICHES };
     });
     await deposer();
-    choisir(select("Article pour MONIN COCONUT FRUIT 1LTR"), "creer");
+    await choisir("Article pour MONIN COCONUT FRUIT 1LTR", "creer");
     expect(ligne("MONIN COCONUT FRUIT 1LTR").textContent).toContain("« Créer » : un article porte déjà ce nom et cette contenance, il sera réutilisé");
     expect(conteneur.querySelector<HTMLInputElement>('input[aria-label="Contenance de Monin Coconut Fruit-1L"]')!.value).toBe("1");
   });
@@ -248,8 +265,8 @@ describe("Importer les fiches du bar — simulation", () => {
 
   it("« Remplacer » : la confirmation dit que TOUTES les lignes (sous-recettes comprises) et les portions sont remplacées", async () => {
     await deposer();
-    for (const l of ["Sirop de Sucre de canne-70", "Scheweppes Soda", "Feuille de menthe"]) choisir(select(`Article pour ${l}`), "creer");
-    choisir(select("Article pour citron"), "ignorer");
+    for (const l of ["Sirop de Sucre de canne-70", "Scheweppes Soda", "Feuille de menthe"]) await choisir(`Article pour ${l}`, "creer");
+    await choisir("Article pour citron", "ignorer");
     expect(ligne("Mojito").textContent).toContain("déjà remplie");
     await act(async () => { ligne("Mojito").querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
     expect(ligne("Mojito").textContent).toContain("prête");
@@ -260,3 +277,33 @@ describe("Importer les fiches du bar — simulation", () => {
     expect(appels.appliquerImportBar).not.toHaveBeenCalled();
   });
 });
+
+describe("Importer les fiches du bar — choisir en tapant", () => {
+  it("un article du catalogue se trouve en tapant son nom (plus de « Chercher un autre article… »), mots dans le désordre", async () => {
+    await deposer();
+    expect(conteneur.textContent).not.toContain("Chercher un autre article");
+    await taperChoix(combo("Article pour Lait de Coco"), "1l bacardi");
+    expect(libellesOuverts()).toEqual(["Bacardi blanc-1l (Bouteille)"]);
+    await toucheChoix(combo("Article pour Lait de Coco"), "Enter");
+    expect(valeur("Article pour Lait de Coco")).toBe("art:bac");
+    expect(combo("Article pour Lait de Coco").value).toBe("Bacardi blanc-1l (Bouteille)");
+  });
+
+  it("une fiche existante se trouve en tapant son nom ; « Créer » et « Ignorer » restent proposés", async () => {
+    await deposer();
+    await choisirEnTapant(combo("Fiche visée par Kir Royal"), "kir");
+    expect(valeur("Fiche visée par Kir Royal")).toBe("fiche:kir");
+    await ouvrirChoix(combo("Fiche visée par Kir Royal"));
+    expect(libellesOuverts().slice(0, 3)).toContain("Créer la fiche « Kir Royal »");
+    expect(libellesOuverts()).toContain("Ignorer cette feuille");
+    await toucheChoix(combo("Fiche visée par Kir Royal"), "Escape");
+  });
+
+  it("les 29 feuilles et les ingrédients partagent UNE liste de fiches et UNE liste d'articles (une seule liste ouverte à la fois)", async () => {
+    await deposer();
+    await ouvrirChoix(combo("Article pour Lait de Coco"));
+    expect(document.querySelectorAll('[role="listbox"]')).toHaveLength(1);
+    expect(conteneur.querySelectorAll('select[aria-label^="Article pour"], select[aria-label^="Fiche visée par"]')).toHaveLength(0);
+  });
+});
+

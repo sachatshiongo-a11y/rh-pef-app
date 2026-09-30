@@ -71,8 +71,8 @@ describe("bon de commande — Entrée n'envoie jamais", () => {
     ["la désignation", designation],
     ["le délai de paiement", () => champ('input[name="delaiPaiement"]')],
     ["le mode de paiement", () => champ('input[name="modePaiement"]')],
-    ["le fournisseur (liste)", () => champ('select[name="fournisseurId"]')],
-    ["l'article (liste)", () => champ("tbody select")],
+    ["le fournisseur (liste)", () => champ('input[role="combobox"][aria-label="Fournisseur"]')],
+    ["l'article (liste)", () => champ('tbody input[role="combobox"]')],
   ];
   it.each(cas)("Entrée dans %s n'appelle pas l'action", async (_nom, el) => {
     monter(createElement(NouveauBonForm, { articles: [], fournisseurs: FOURNISSEURS }));
@@ -100,7 +100,7 @@ describe("facture — Entrée n'envoie jamais", () => {
   const cas: [string, () => HTMLElement][] = [
     ["la désignation", designation],
     ["la date", () => champ('input[name="date"]')],
-    ["le fournisseur (liste)", () => [...conteneur.querySelectorAll("select")].find((x) => x.textContent?.includes("— catalogue —"))!],
+    ["le fournisseur (liste)", () => champ('input[role="combobox"][aria-label="Fournisseur (catalogue)"]')],
     ["le nom du fournisseur", () => champ('input[name="fournisseurNom"]')],
     ["le n° de facture", () => champ('input[name="numero"]')],
   ];

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { creerFournisseur, fusionnerFournisseurs } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import { normTexte } from "@/lib/texte";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsFournisseurs } from "@/lib/recherche-options";
 
 export type FournRow = {
   id: string; nom: string; contactNom: string; telephone: string; ville: string;
@@ -24,6 +26,9 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
   const [q, setQ] = useState("");
 
   const tries = useMemo(() => [...fournisseurs].sort((a, b) => a.nom.localeCompare(b.nom, "fr")), [fournisseurs]);
+  // Fusion : l'autre fournisseur choisi est retiré de la liste (il ne peut pas se fusionner avec lui-même).
+  const optionsSource = useMemo(() => optionsFournisseurs(tries.filter((f) => f.id !== cible)), [tries, cible]);
+  const optionsCible = useMemo(() => optionsFournisseurs(tries.filter((f) => f.id !== source)), [tries, source]);
   const run = (fn: () => Promise<unknown>) => {
     setErreur(null);
     startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
@@ -68,17 +73,11 @@ export function FournisseursClient({ fournisseurs, estDirection }: { fournisseur
           <p className="mt-0.5 text-xs text-muted-foreground">Le fournisseur à fusionner est supprimé ; ses articles, bons de commande et factures passent sur celui à conserver, dont les coordonnées manquantes sont complétées.</p>
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <label className="flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">À fusionner (supprimé)
-              <select value={source} onChange={(e) => setSource(e.target.value)} className="w-56 rounded border border-input bg-background px-2 py-1.5 text-sm text-foreground">
-                <option value="">— choisir —</option>
-                {tries.map((f) => <option key={f.id} value={f.id} disabled={f.id === cible}>{f.nom}</option>)}
-              </select>
+              <ChoixRecherche options={optionsSource} value={source} vide="— choisir —" onChange={setSource} aria-label="Fournisseur à fusionner (supprimé)" className="w-56 rounded border border-input bg-background px-2 py-1.5 text-sm text-foreground" />
             </label>
             <span className="pb-2 text-muted-foreground">→</span>
             <label className="flex flex-col gap-0.5 text-[11px] font-medium text-muted-foreground">À conserver
-              <select value={cible} onChange={(e) => setCible(e.target.value)} className="w-56 rounded border border-input bg-background px-2 py-1.5 text-sm text-foreground">
-                <option value="">— choisir —</option>
-                {tries.map((f) => <option key={f.id} value={f.id} disabled={f.id === source}>{f.nom}</option>)}
-              </select>
+              <ChoixRecherche options={optionsCible} value={cible} vide="— choisir —" onChange={setCible} aria-label="Fournisseur à conserver" className="w-56 rounded border border-input bg-background px-2 py-1.5 text-sm text-foreground" />
             </label>
             <button onClick={fusionner} disabled={isPending || !source || !cible} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Fusionner</button>
           </div>

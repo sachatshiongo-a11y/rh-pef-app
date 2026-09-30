@@ -28,6 +28,9 @@ export type ArticleOption = {
   /** Contenance d'une unité comptée à l'unité (bouteille de 75 cl) : texte pleine précision, null = inconnue. */
   contenance?: string | null;
   contenanceUnite?: string | null;
+  /** Textes où chercher l'article en tapant (sélecteur de la fiche) : jamais utilisés par le calcul. */
+  nomCourt?: string | null;
+  code?: string | null;
 };
 
 /** Une ligne d'ingrédient telle qu'elle s'affiche et s'édite. */

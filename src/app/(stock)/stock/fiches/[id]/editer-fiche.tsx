@@ -6,7 +6,9 @@ import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from "r
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { VignettePlat } from "@/components/vignette-plat";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
+import { ChoixRecherche } from "@/components/choix-recherche";
 import { estErreur } from "@/lib/action-lisible";
+import { optionsArticles, type OptionChoix } from "@/lib/recherche-options";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
 import {
   calculerDisponibilite,
@@ -68,6 +70,8 @@ export function EditerFiche({
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
 
   const mapArticles = new Map(articles.map((a) => [a.id, a]));
+  // Une liste partagée par toutes les lignes et par le formulaire d'ajout (on y cherche en tapant).
+  const optionsSource = useMemo(() => construireOptionsSource(articles, autresFiches), [articles, autresFiches]);
   const mapNoms = new Map<string, { nom: string }>([
     [vue.id, { nom: ent.nom }],
     ...autresFiches.map((f) => [f.id, { nom: f.nom }] as [string, { nom: string }]),
@@ -346,8 +350,7 @@ export function EditerFiche({
                   cout={resultat.lignes[i]}
                   article={l.articleId ? mapArticles.get(l.articleId) : undefined}
                   sousFiche={l.sousFicheId ? autresFiches.find((f) => f.id === l.sousFicheId) : undefined}
-                  articles={articles}
-                  autresFiches={autresFiches}
+                  optionsSource={optionsSource}
                   modifiee={ligneModifiee(l)}
                   selectionnee={sel.has(l.id)}
                   onToggle={() => toggle(l.id)}
@@ -367,10 +370,7 @@ export function EditerFiche({
         {/* Ajout d'une ligne */}
         <form action={ajouter} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
           <label className={champ}>Article ou sous-recette
-            <select name="source" required value={nouvelle.source} onChange={(e) => setNouvelle({ ...nouvelle, source: e.target.value })} className={`${inp} w-72 text-foreground`}>
-              <option value="">— choisir —</option>
-              <OptionsSource articles={articles} autresFiches={autresFiches} />
-            </select>
+            <ChoixRecherche options={optionsSource} name="source" required value={nouvelle.source} vide="— choisir —" onChange={(v) => setNouvelle({ ...nouvelle, source: v })} className={`${inp} w-72 max-w-full text-foreground`} />
           </label>
           <label className={champ}>Unité
             <input name="unite" required value={nouvelle.unite} onChange={(e) => setNouvelle({ ...nouvelle, unite: e.target.value })} placeholder="g, cl, pièce…" className={`${inp} w-28 text-foreground`} />
@@ -566,15 +566,14 @@ function PhotoPlat({
 }
 
 function LigneIngredient({
-  ligne, cout, article, sousFiche, articles, autresFiches, modifiee, selectionnee, onToggle, onChange,
+  ligne, cout, article, sousFiche, optionsSource, modifiee, selectionnee, onToggle, onChange,
   dispoLigne, detailsArticles, limitante,
 }: {
   ligne: LigneFiche;
   cout: LigneCout | undefined;
   article: ArticleOption | undefined;
   sousFiche: AutreFiche | undefined;
-  articles: ArticleOption[];
-  autresFiches: AutreFiche[];
+  optionsSource: OptionChoix[];
   modifiee: boolean;
   selectionnee: boolean;
   onToggle: () => void;
@@ -590,10 +589,7 @@ function LigneIngredient({
         <input type="checkbox" checked={selectionnee} onChange={onToggle} aria-label="Sélectionner cet ingrédient" />
       </td>
       <td className="px-2 py-1.5">
-        <select value={valeurSource(ligne)} onChange={(e) => onChange(decoderSource(e.target.value))} className={`${inp} w-full min-w-56`}>
-          <option value="">— choisir —</option>
-          <OptionsSource articles={articles} autresFiches={autresFiches} />
-        </select>
+        <ChoixRecherche options={optionsSource} colonne="source" value={valeurSource(ligne)} vide="— choisir —" onChange={(v) => onChange(decoderSource(v))} aria-label="Article ou sous-recette de la ligne" className={`${inp} w-full min-w-56`} />
         {/* Harmonie : le nom d'un article mène à sa fiche catalogue, celui d'une sous-recette à sa
             fiche technique — comme les noms de fournisseurs mènent à leur fiche. */}
         {article && (
@@ -636,27 +632,18 @@ function LigneIngredient({
   );
 }
 
-/** Sélecteur unique : les deux sources dans deux groupes, le XOR est garanti par construction. */
-function OptionsSource({ articles, autresFiches }: { articles: ArticleOption[]; autresFiches: AutreFiche[] }) {
-  const sousRecettes = autresFiches.filter((f) => f.estSousRecette);
-  const autres = autresFiches.filter((f) => !f.estSousRecette);
-  return (
-    <>
-      {sousRecettes.length > 0 && (
-        <optgroup label="Sous-recettes">
-          {sousRecettes.map((f) => <option key={f.id} value={`fiche:${f.id}`}>{f.nom}</option>)}
-        </optgroup>
-      )}
-      <optgroup label="Articles du stock">
-        {articles.map((a) => <option key={a.id} value={`art:${a.id}`}>{a.designation}{a.actif ? "" : " (inactif)"}</option>)}
-      </optgroup>
-      {autres.length > 0 && (
-        <optgroup label="Autres fiches">
-          {autres.map((f) => <option key={f.id} value={`fiche:${f.id}`}>{f.nom}</option>)}
-        </optgroup>
-      )}
-    </>
-  );
+/**
+ * Choix unique de la source d'une ligne : les deux sources dans trois groupes, le XOR est garanti par
+ * construction (`art:` / `fiche:`). Calculée UNE fois pour la fiche et partagée par toutes les lignes ;
+ * on y cherche en tapant (désignation, nom court, code). Un article inactif reste proposé, marqué.
+ */
+function construireOptionsSource(articles: ArticleOption[], autresFiches: AutreFiche[]): OptionChoix[] {
+  const fiche = (f: AutreFiche, groupe: string): OptionChoix => ({ id: `fiche:${f.id}`, libelle: f.nom, groupe });
+  return [
+    ...autresFiches.filter((f) => f.estSousRecette).map((f) => fiche(f, "Sous-recettes")),
+    ...optionsArticles(articles, { marquerInactifs: true, prefixe: "art:", groupe: "Articles du stock" }),
+    ...autresFiches.filter((f) => !f.estSousRecette).map((f) => fiche(f, "Autres fiches")),
+  ];
 }
 
 /** Coût partiel : jamais un chiffre nu — on nomme les ingrédients en cause. */

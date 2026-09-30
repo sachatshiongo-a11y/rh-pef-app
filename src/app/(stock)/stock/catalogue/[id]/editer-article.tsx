@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { modifierArticle } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsFournisseurs } from "@/lib/recherche-options";
 import { contenanceDansNom, UNITES_CONTENANCE } from "@/lib/fiches/conversion";
 
 type Cat = { id: string; nom: string; domaine: string };
@@ -47,6 +49,7 @@ const texteDe = (v: number | null) => (v === null ? "" : String(v));
  * ou la correction de stock négatif — jamais par ce formulaire.
  */
 export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[] }) {
+  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const [ouvert, setOuvert] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [isPending, start] = useTransition();
@@ -121,10 +124,7 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
             </select>
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Fournisseur
-            <select name="fournisseurId" defaultValue={a.fournisseurId ?? ""} className={inp}>
-              <option value="">—</option>
-              {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-            </select>
+            <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue={a.fournisseurId ?? ""} vide="—" aria-label="Fournisseur" className={inp} />
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Stock minimum
             <input type="hidden" name="stockMinimum" value={seuilMin} />

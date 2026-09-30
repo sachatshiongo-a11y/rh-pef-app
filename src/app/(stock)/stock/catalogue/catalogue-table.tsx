@@ -10,6 +10,8 @@ import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 import { formaterNombre } from "@/lib/montant";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 
 /** Valeur d'une case numérique à partir du texte reçu du serveur (« 12.5 », « » → null). */
 const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
@@ -102,6 +104,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
   const fourNom = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f.nom])), [fournisseurs]);
+  // Une liste d'options pour TOUS les fournisseurs du tableau (lignes, cartes, action groupée, ajout) : on y cherche en tapant.
+  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
 
   // Clic sur un en-tête : croissant → décroissant → retour au groupement par catégorie.
   const trierPar = (col: TriCol) =>
@@ -357,10 +361,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           </select>
           <button disabled={isPending || !bulkCat} onClick={() => run(async () => { await categoriserEnMasse([...sel], bulkCat); setSel(new Set()); setBulkCat(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
           <span className="text-muted-foreground">· fournisseur :</span>
-          <select value={bulkFour} onChange={(e) => setBulkFour(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
-            <option value="">Choisir un fournisseur…</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche options={optionsFour} value={bulkFour} vide="Choisir un fournisseur…" onChange={setBulkFour} aria-label="Fournisseur de l'action groupée" className="w-52 rounded border border-input bg-background px-2 py-1 text-xs" />
           <button disabled={isPending || !bulkFour} onClick={() => run(async () => { await definirFournisseurEnMasse([...sel], bulkFour); setSel(new Set()); setBulkFour(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
           <span className="text-muted-foreground">· seuil min :</span>
           <input type="text" inputMode="decimal" autoComplete="off" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" aria-invalid={seuilEnMasse === null && bulkSeuil.trim() !== "" ? true : undefined} className="w-16 rounded border border-input bg-background px-2 py-1 text-xs aria-[invalid=true]:border-destructive" />
@@ -422,10 +423,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <option value="">— catégorie —</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
-          <select name="fournisseurId" defaultValue="" className={cellCls}>
-            <option value="">— fournisseur —</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue="" vide="— fournisseur —" aria-label="Fournisseur du nouvel article" className={cellCls} />
           <input name="code" placeholder="Code article (ex. 137)" className={cellCls} />
           <input name="unite" placeholder="Unité (Kg, Pièce…)" className={cellCls} />
           <input name="prixUnitaireUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Prix USD" className={cellCls} />
@@ -447,7 +445,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               </div>
             )}
             <CarteArticle
-              a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save}
+              a={a} categories={categories} optionsFour={optionsFour} selected={sel.has(a.id)} onToggle={toggle} onSave={save}
               ouvert={ouvert === a.id} onOuvrir={basculerOuvert}
               categorieNom={tri && a.categorieId ? catNom.get(a.categorieId) ?? null : null}
             />
@@ -487,7 +485,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                     </td>
                   </tr>
                 )}
-                <LigneArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
+                <LigneArticle a={a} categories={categories} optionsFour={optionsFour} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
               </Fragment>
             ))}
             {visibles.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
@@ -529,9 +527,9 @@ function ThTri({ col, tri, onTri, align, className, title, children }: {
 }
 
 const LigneArticle = memo(function LigneArticle({
-  a, categories, fournisseurs, selected, onToggle, onSave,
+  a, categories, optionsFour, selected, onToggle, onSave,
 }: {
-  a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
+  a: ArticleRow; categories: Cat[]; optionsFour: OptionChoix[];
   selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -566,10 +564,7 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td>
         <div className="flex items-center gap-1">
-          <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} min-w-28 flex-1`}>
-            <option value="">—</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${a.designation}`} className={`${cellCls} min-w-28 flex-1`} />
           {a.fournisseurId && (
             <Link href={`/stock/fournisseurs/${a.fournisseurId}`} title="Ouvrir la fiche fournisseur" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche fournisseur">↗</Link>
           )}
@@ -610,9 +605,9 @@ const TON_RANGEE = { rupture: "border-red-300 bg-red-50/60", bas: "border-amber-
  * enregistrement case par case qu'avant (au blur, `onSave` → `modifierArticle`).
  */
 export const CarteArticle = memo(function CarteArticle({
-  a, categories, fournisseurs, selected, onToggle, onSave, ouvert, onOuvrir, categorieNom,
+  a, categories, optionsFour, selected, onToggle, onSave, ouvert, onOuvrir, categorieNom,
 }: {
-  a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
+  a: ArticleRow; categories: Cat[]; optionsFour: OptionChoix[];
   selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
   ouvert: boolean; onOuvrir: (id: string) => void;
   /** Catégorie à rappeler sous le nom quand la liste n'est pas groupée par catégorie (liste triée). */
@@ -699,10 +694,7 @@ export const CarteArticle = memo(function CarteArticle({
                   <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="py-1 text-primary hover:underline">Voir la fiche ↗</Link>
                 )}
               </span>
-              <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} !py-1.5`}>
-                <option value="">—</option>
-                {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-              </select>
+              <ChoixRecherche options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${a.designation}`} className={`${cellCls} !py-1.5`} />
             </label>
             <label className={champLabel}>Code article
               <input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />

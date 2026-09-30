@@ -12,6 +12,8 @@ vi.mock("./actions", () => ({
   requalifierSorties: vi.fn(async () => ({ n: 0 })),
 }));
 
+import { champsParNom, choisirOption, libellesOuverts, taperChoix, toucheChoix, valeurChoisie } from "@/lib/test/choix-recherche";
+
 const { MouvementForm, ColonneMouvements, BandeauPlafond, AVERTISSEMENT_LIVRAISON } = await import("./mouvements-client");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,14 +46,16 @@ function choisir(select: HTMLSelectElement, valeur: string) {
   });
 }
 const motif = () => conteneur.querySelector<HTMLSelectElement>('select[name="categorieSortie"]')!;
-const ligne = (i: number) => conteneur.querySelectorAll<HTMLSelectElement>('select[name="articleId"]')[i]!;
+const ligne = (i: number) => champsParNom(conteneur, "articleId")[i]!;
+/** Choisir l'article d'une ligne comme on le fait à l'écran (ouvrir la liste, cliquer l'option). */
+const choisirArticle = (i: number, id: string) => choisirOption(ligne(i), id);
 const avertissement = () => conteneur.querySelector('[role="status"][data-avertissement="livraison"]');
 
 describe("mouvements — avertissement « Livraison restaurant »", () => {
-  it("article non rattaché : avertit, sans bloquer la validation", () => {
+  it("article non rattaché : avertit, sans bloquer la validation", async () => {
     monter();
     choisir(motif(), "LIVRAISON_RESTAURANT");
-    choisir(ligne(0), "sel");
+    await choisirArticle(0, "sel");
     expect(avertissement()?.textContent).toContain("Sel");
     expect(avertissement()?.textContent).toContain(AVERTISSEMENT_LIVRAISON);
     expect(AVERTISSEMENT_LIVRAISON).toBe("cette livraison n'alimentera pas le stock du restaurant");
@@ -60,12 +64,12 @@ describe("mouvements — avertissement « Livraison restaurant »", () => {
     expect(bouton("Valider la sortie").disabled).toBe(false);
   });
 
-  it("chaque cas a son message et son lien : à répartir, unités incompatibles, unité du restaurant non renseignée", () => {
+  it("chaque cas a son message et son lien : à répartir, unités incompatibles, unité du restaurant non renseignée", async () => {
     monter();
     choisir(motif(), "LIVRAISON_RESTAURANT");
-    choisir(ligne(0), "citron");
-    choisir(ligne(1), "vin");
-    choisir(ligne(2), "biere");
+    await choisirArticle(0, "citron");
+    await choisirArticle(1, "vin");
+    await choisirArticle(2, "biere");
     const liens = [...avertissement()!.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href")]);
     expect(liens).toEqual([
       ["à répartir : plusieurs articles du restaurant rattachés", "/stock/restaurant?espace=CUISINE"],
@@ -76,12 +80,12 @@ describe("mouvements — avertissement « Livraison restaurant »", () => {
     expect(avertissement()!.textContent).toContain("« Bière »");
   });
 
-  it("article bien rattaché, ou motif Perte : aucun avertissement", () => {
+  it("article bien rattaché, ou motif Perte : aucun avertissement", async () => {
     monter();
     choisir(motif(), "LIVRAISON_RESTAURANT");
-    choisir(ligne(0), "farine");
+    await choisirArticle(0, "farine");
     expect(avertissement()).toBeNull();
-    choisir(ligne(0), "sel");
+    await choisirArticle(0, "sel");
     expect(avertissement()).not.toBeNull();
     choisir(motif(), "PERTE");
     expect(avertissement()).toBeNull();
@@ -218,5 +222,25 @@ describe("sélectionner TOUT le filtre (décision du 2026-09-29)", () => {
     expect(conteneur.querySelector('[data-bandeau="plafond"]')?.textContent).toBe(
       "600 mouvements affichés sur 812 : les plus anciens ne sont pas à l'écran. Sélectionnez tout le filtre ou affinez par mois, produit ou motif.",
     );
+  });
+});
+
+describe("mouvements — choisir l'article d'une sortie en tapant son nom", () => {
+  it("« farine » + Entrée choisit l'article : même valeur envoyée (articleId), l'avertissement de livraison suit", async () => {
+    monter();
+    choisir(motif(), "LIVRAISON_RESTAURANT");
+    await taperChoix(ligne(0), "SEL");
+    expect(libellesOuverts()).toEqual(["Sel"]);
+    await toucheChoix(ligne(0), "Enter");
+    expect(valeurChoisie(ligne(0))).toBe("sel");
+    expect(new FormData(conteneur.querySelector("form")!).getAll("articleId")).toEqual(["sel", "", ""]);
+    expect(avertissement()?.textContent).toContain("Sel");
+  });
+
+  it("Entrée n'envoie pas le formulaire (aucune validation implicite de la sortie)", async () => {
+    monter();
+    await taperChoix(ligne(1), "vin");
+    const ev = await toucheChoix(ligne(1), "Enter");
+    expect(ev.defaultPrevented).toBe(true);
   });
 });

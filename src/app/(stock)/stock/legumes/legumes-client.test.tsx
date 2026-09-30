@@ -17,6 +17,7 @@ const { creer } = vi.hoisted(() => ({ creer: vi.fn(async () => undefined) }));
 vi.mock("./actions", () => ({ creerAchatsLegumes: creer, supprimerAchatLegume: vi.fn() }));
 
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
+import { champsParNom, choisirEnTapant, choisirOption, libellesOuverts, optionsOuvertes, ouvrirChoix, taperChoix, valeurChoisie } from "@/lib/test/choix-recherche";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,10 +53,6 @@ async function saisir(el: HTMLInputElement, texte: string) {
   act(() => el.focus());
   taper(el, texte);
   await act(async () => el.blur());
-}
-function choisir(el: HTMLSelectElement, valeur: string) {
-  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
-  act(() => { setter.call(el, valeur); el.dispatchEvent(new Event("change", { bubbles: true })); });
 }
 /** Ce que le navigateur enverrait : les champs nommés, dans l'ordre du document. */
 const donnees = (): [string, string][] =>
@@ -174,18 +171,29 @@ describe("Achat de légumes frais — cases de nombres du tableur", () => {
     }
   });
 
-  it("choisir un légume remplit l'unité (modifiable) ; « — légume — » la vide", () => {
-    const sel = conteneur.querySelector<HTMLSelectElement>("select[name=legume]")!;
+  it("choisir un légume remplit l'unité (modifiable) ; « — légume — » la vide", async () => {
+    const sel = champsParNom(conteneur, "legume")[0];
     const unite = cas("Unité, ligne 1");
-    choisir(sel, "Ail");
+    await choisirOption(sel, "Ail");
     expect(unite.value).toBe("Kg");
-    choisir(sel, "Ananas");
+    await choisirOption(sel, "Ananas");
     expect(unite.value).toBe("Pièce");
     taper(unite, "Caisse");
     expect(unite.value).toBe("Caisse");
-    choisir(sel, "");
+    await choisirOption(sel, "");
     expect(unite.value).toBe("");
-    expect(sel.options).toHaveLength(39); // « — légume — » + les 38 de la fiche
+    await ouvrirChoix(sel);
+    expect(optionsOuvertes()).toHaveLength(39); // « — légume — » + les 38 de la fiche
+  });
+
+  it("on trouve un légume en tapant son nom (sans accent ni majuscule) ; Entrée choisit, l'unité suit", async () => {
+    const sel = champsParNom(conteneur, "legume")[0];
+    await taperChoix(sel, "celeri");
+    expect(libellesOuverts()).toEqual(["Céléri"]);
+    await choisirEnTapant(sel, "epinard");
+    expect(valeurChoisie(sel)).toBe("Épinard");
+    expect(cas("Unité, ligne 1").value).toBe("Kg");
+    expect(donnees().filter(([n]) => n === "legume")[0][1]).toBe("Épinard");
   });
 });
 
@@ -221,11 +229,11 @@ describe("Achat de légumes frais — l'envoi est inchangé", () => {
     ["legume", ""], ["unite", ""], ["quantite", "1"], ["montantCDF", ""],
   ];
   async function scenario() {
-    const sels = () => conteneur.querySelectorAll<HTMLSelectElement>("select[name=legume]");
-    choisir(sels()[0], "Ail");
+    const sels = () => champsParNom(conteneur, "legume");
+    await choisirOption(sels()[0], "Ail");
     await saisir(cas("Quantité, ligne 1"), "2,5");
     await saisir(cas("Montant CDF, ligne 1"), "14 000");
-    choisir(sels()[1], "Ananas");
+    await choisirOption(sels()[1], "Ananas");
     taper(cas("Unité, ligne 2"), "Caisse");
     await saisir(cas("Quantité, ligne 2"), "3");
     await saisir(cas("Montant CDF, ligne 2"), "8400,5");
@@ -248,7 +256,7 @@ describe("Achat de légumes frais — l'envoi est inchangé", () => {
   });
 
   it("Entrée dans n'importe quel champ (légume, unité…) n'envoie jamais le formulaire", async () => {
-    for (const el of [conteneur.querySelector<HTMLElement>("select[name=legume]")!, cas("Unité, ligne 1")]) {
+    for (const el of [champsParNom(conteneur, "legume")[0], cas("Unité, ligne 1")]) {
       const ev = await entree(el);
       expect(ev.defaultPrevented).toBe(true);
     }
