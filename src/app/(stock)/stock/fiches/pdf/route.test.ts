@@ -11,6 +11,7 @@ const etat = vi.hoisted(() => ({
   editeLe: "",
   chargements: 0,
   photosDemandees: [] as string[],
+  vues: null as null | unknown[],
 }));
 
 vi.mock("@/lib/garde-route", () => ({ exigerEspaceStock: async () => etat.garde }));
@@ -40,7 +41,7 @@ const VUES = [
   vue("bordeaux", "Bordeaux", "Vin rouge", "BAR"),
 ];
 vi.mock("../_data/charger-fiche", () => ({
-  chargerFichesVues: async () => { etat.chargements++; return VUES; },
+  chargerFichesVues: async () => { etat.chargements++; return etat.vues ?? VUES; },
   chargerArticlesDesFiches: async () => [{ id: "a1", designation: "Farine", unite: "kg", prixUnitaireUSD: "2", actif: true }],
 }));
 
@@ -55,6 +56,7 @@ beforeEach(() => {
   etat.fiches = null;
   etat.chargements = 0;
   etat.photosDemandees = [];
+  etat.vues = null;
 });
 
 describe("PDF des fiches — droits", () => {
@@ -123,5 +125,27 @@ describe("PDF des fiches — photos", () => {
     const parNom = new Map(etat.fiches!.map((f) => [f.nom, f.photo]));
     expect(parNom.get("Mojito")).toEqual({ data: Buffer.from("mojito"), format: "jpg" });
     expect(parNom.get("Bordeaux")).toBeNull();
+  });
+});
+
+describe("PDF des fiches — plafond de 200 fiches (mémoire de l'instance)", () => {
+  it("sélection de plus de 200 fiches : 413 lisible, AVANT toute lecture en base", async () => {
+    const ids = Array.from({ length: 201 }, (_, i) => `x${i}`).join(",");
+    const { r } = await exporter(`?vue=plats&prix=avec&ids=${ids}`);
+    expect(r.status).toBe(413);
+    expect(await r.text()).toBe("Trop de fiches pour un seul PDF (201) : sélectionnez moins de 200 fiches.");
+    expect(etat.chargements).toBe(0);
+  });
+
+  it("onglet de plus de 200 fiches : 413, aucune photo lue ; 200 pile : accepté", async () => {
+    etat.vues = Array.from({ length: 201 }, (_, i) => vue(`p${i}`, `Plat ${i}`, "Plats", "PLAT", false, "/fichiers/fiches-techniques/p.jpg"));
+    const { r } = await exporter("?vue=plats&prix=sans");
+    expect(r.status).toBe(413);
+    expect(etat.photosDemandees).toEqual([]);
+    expect(etat.fiches).toBeNull();
+    etat.vues = (etat.vues as unknown[]).slice(0, 200);
+    const ok = await exporter("?vue=plats&prix=sans");
+    expect(ok.r.status).toBe(200);
+    expect(ok.noms).toHaveLength(200);
   });
 });

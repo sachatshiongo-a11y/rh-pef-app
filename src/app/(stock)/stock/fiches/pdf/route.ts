@@ -6,7 +6,7 @@ import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { chargerFichesVues, chargerArticlesDesFiches } from "../_data/charger-fiche";
 import { construireContexte } from "../_data/fiche-calc";
 import { versFichePdf } from "../_data/fiche-pdf";
-import { fichesAExporter } from "../_data/selection-export";
+import { fichesAExporter, MAX_FICHES_PDF, MESSAGE_TROP_DE_FICHES } from "../_data/selection-export";
 
 // PDF des fiches techniques, une fiche par page : les fiches de l'onglet affiché (`?vue=`), la
 // sélection des actions groupées ou une seule fiche (`?ids=`) — MÊME sélection et MÊME ordre que
@@ -25,12 +25,16 @@ export async function GET(req: Request) {
 
   const sp = new URL(req.url).searchParams;
   const avecPrix = sp.get("prix") === "avec";
+  const texte = (corps: string, status: number) => new Response(corps, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  // Sélection démesurée : refusée AVANT toute lecture en base.
+  const nbIds = (sp.get("ids") ?? "").split(",").filter((s) => s.trim()).length;
+  if (nbIds > MAX_FICHES_PDF) return texte(MESSAGE_TROP_DE_FICHES(nbIds), 413);
 
   const [vues, articles] = await Promise.all([chargerFichesVues(), chargerArticlesDesFiches()]);
   const { retenues, vue } = fichesAExporter(vues, sp);
-  if (retenues.length === 0) {
-    return new Response("Aucune fiche technique à exporter.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
-  }
+  if (retenues.length === 0) return texte("Aucune fiche technique à exporter.", 404);
+  // Onglet entier trop fourni : même refus, avant de lire la moindre photo.
+  if (retenues.length > MAX_FICHES_PDF) return texte(MESSAGE_TROP_DE_FICHES(retenues.length), 413);
 
   const mapArticles = new Map(articles.map((a) => [a.id, a]));
   const ctx = {

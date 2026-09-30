@@ -11,6 +11,15 @@ import { familleBoisson, lireOngletFiches, ongletFiche, FAMILLES_BOISSON, type O
 // les cocktails & mocktails d'abord, comme à l'écran (tri stable : l'ordre catégorie/nom est
 // conservé à l'intérieur de chaque famille).
 
+/**
+ * Au plus 200 fiches par PDF : la mise en page d'un PDF de 60 fiches avec photos coûte déjà
+ * 100 à 200 Mo de mémoire (mesuré), sur une instance qui en a 512. Au-delà, refus lisible (413).
+ */
+export const MAX_FICHES_PDF = 200;
+
+export const MESSAGE_TROP_DE_FICHES = (n: number) =>
+  `Trop de fiches pour un seul PDF (${n}) : sélectionnez moins de ${MAX_FICHES_PDF} fiches.`;
+
 type FicheRangeable = { id: string; categorie: string; type: string; estSousRecette: boolean };
 
 export function fichesAExporter<T extends FicheRangeable>(vues: T[], sp: URLSearchParams): { retenues: T[]; vue: OngletFiches | null } {

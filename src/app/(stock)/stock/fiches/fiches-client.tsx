@@ -14,6 +14,7 @@ import { familleBoisson, FAMILLES_BOISSON, type OngletFiches } from "@/lib/fiche
 import { pct, TYPE_LABEL, badgeDispo, CLASSE_RECETTE_A_COMPLETER, DISPO_CLASSE, type DispoRow } from "./_data/fiche-calc";
 import { creerFiche, supprimerFiches, dupliquerFiches } from "./actions";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { MAX_FICHES_PDF, MESSAGE_TROP_DE_FICHES } from "./_data/selection-export";
 
 export type FicheRow = {
   id: string;
@@ -183,19 +184,28 @@ export function FichesClient({ fiches, etatInitial, vue = "plats" }: { fiches: F
           >
             ⭳ Exporter ({sel.size})
           </TelechargerLien>
-          {/* PDF de la sélection, une fiche par page, dans l'ordre de l'écran — chiffré ou sans prix. */}
-          <TelechargerLien
-            href={`/stock/fiches/pdf?vue=${vue}&prix=avec&ids=${ids.join(",")}`}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            PDF ({sel.size})
-          </TelechargerLien>
-          <TelechargerLien
-            href={`/stock/fiches/pdf?vue=${vue}&prix=sans&ids=${ids.join(",")}`}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            PDF sans prix ({sel.size})
-          </TelechargerLien>
+          {/* PDF de la sélection, une fiche par page, dans l'ordre de l'écran — chiffré ou sans prix.
+              Au-delà de MAX_FICHES_PDF, pas d'adresse géante : le bouton le dit. */}
+          {sel.size > MAX_FICHES_PDF ? (
+            <button type="button" disabled className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60" title={MESSAGE_TROP_DE_FICHES(sel.size)}>
+              PDF : {MAX_FICHES_PDF} fiches au plus
+            </button>
+          ) : (
+            <>
+              <TelechargerLien
+                href={`/stock/fiches/pdf?vue=${vue}&prix=avec&ids=${ids.join(",")}`}
+                className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+              >
+                PDF ({sel.size})
+              </TelechargerLien>
+              <TelechargerLien
+                href={`/stock/fiches/pdf?vue=${vue}&prix=sans&ids=${ids.join(",")}`}
+                className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+              >
+                PDF sans prix ({sel.size})
+              </TelechargerLien>
+            </>
+          )}
           <button
             disabled={isPending}
             onClick={() => run(() => dupliquerFiches(ids))}

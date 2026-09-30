@@ -190,6 +190,16 @@ describe("Fiches techniques — les actions groupées ne portent que sur l'ongle
     }
   });
 
+  it("plus de 200 fiches sélectionnées : pas de lien PDF géant, le bouton annonce la limite", () => {
+    const beaucoup = Array.from({ length: 201 }, (_, i) => fiche({ id: `m${i}`, nom: `Plat ${i}`, categorie: "Plats", type: "PLAT" }));
+    rendre({ rows: beaucoup, vue: "plats" });
+    toutSelectionner();
+    expect([...conteneur.querySelectorAll("a")].some((a) => a.getAttribute("href")?.startsWith("/stock/fiches/pdf"))).toBe(false);
+    const b = [...conteneur.querySelectorAll("button")].find((x) => x.textContent === "PDF : 200 fiches au plus")!;
+    expect(b.disabled).toBe(true);
+    expect(b.title).toContain("sélectionnez moins de 200 fiches");
+  });
+
   it("changer d'onglet vide la sélection : rien de Boissons ne part avec une action dans Plats", async () => {
     rendre({ rows: ROWS, vue: "boissons" });
     toutSelectionner();
