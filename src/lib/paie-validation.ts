@@ -19,7 +19,26 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { calculerLignesPaie, type DonneesLignePaie } from "@/lib/paie-batch";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
-import { jetonLigne } from "@/lib/paie-jeton";
+import { ecartJeton, jetonDeLigneLue, SELECTION_JETON } from "@/lib/paie-jeton";
+
+/**
+ * Compare les jetons FOURNIS aux lignes lues : null si tout concorde ; sinon « TAUX » quand seul le
+ * taux de change diffère (mêmes dollars, autres francs), « MONTANTS » dès qu'un montant diffère.
+ */
+function verifierJetons(
+  lignes: { id: string; salNetUSD: unknown; salBrutUSD: unknown; netImposableUSD: unknown; payrollRun: { tauxChangeUtilise: unknown } }[],
+  jetons: Record<string, string | undefined> | undefined,
+): "TAUX" | "MONTANTS" | null {
+  let taux = false;
+  for (const l of lignes) {
+    const affiche = jetons?.[l.id];
+    if (affiche === undefined) continue;
+    const e = ecartJeton(affiche, jetonDeLigneLue(l));
+    if (e === "MONTANTS") return "MONTANTS";
+    if (e === "TAUX") taux = true;
+  }
+  return taux ? "TAUX" : null;
+}
 
 /** Délai des transactions de validation (une ligne, un lot, la clôture) : recalcul du mois compris. */
 export const DELAI_VALIDATION_PAIE = 120_000;
@@ -31,6 +50,14 @@ export const ATTENTE_VERROU_VALIDATION = "20s";
 
 export const MESSAGE_VALIDATION_OCCUPEE =
   "Le planning ou la paie est en cours de modification : réessayez la validation dans un instant.";
+
+/** Mêmes dollars, autres francs : le taux de change de la paie a changé depuis l'affichage. */
+export const MESSAGE_TAUX_CHANGE =
+  "Les montants en francs ont changé (taux de change modifié depuis l'affichage) : rechargez la page.";
+
+/** Valider sans les montants affichés (jeton obligatoire pour valider et payer, 2026-10-01). */
+export const MESSAGE_VALIDATION_SANS_JETON =
+  "Les montants affichés n'ont pas été transmis : rechargez la page Paie avant de valider.";
 
 export const MESSAGE_LIGNE_RECALCULEE =
   "La paie a été recalculée depuis l'affichage de cette page : rechargez la page Paie avant de valider.";
@@ -115,7 +142,7 @@ export async function verrouillerRunExclusif(tx: Prisma.TransactionClient, runId
 export async function controlerLignesAValider(
   tx: Prisma.TransactionClient,
   payrollLineIds: string[],
-  opts: { verrouRun?: "PARTAGE" | "EXCLUSIF"; jetons?: Record<string, string | undefined> } = {},
+  opts: { verrouRun?: "PARTAGE" | "EXCLUSIF"; jetons?: Record<string, string | undefined>; jetonObligatoire?: boolean } = {},
 ): Promise<Set<string>> {
   const ids = [...new Set(payrollLineIds)];
   if (ids.length === 0) return new Set();
@@ -148,19 +175,20 @@ export async function controlerLignesAValider(
       heuresTravaillees: true,
       heuresPayeesNonTravaillees: true,
       employee: { select: { nom: true } },
-      payrollRun: { select: { mois: true, annee: true } },
+      payrollRun: { select: { mois: true, annee: true, tauxChangeUtilise: true } },
     },
   });
   // Une ligne demandée qui n'existe plus a été remplacée par un recalcul (/paie : brouillon sans
   // historique) : l'écran qui la montrait est périmé. L'ignorer validerait moins de lignes que prévu.
   if (lignes.length < ids.length) throw new ValidationPaieRefuseeError(MESSAGE_LIGNE_RECALCULEE);
-  // Une ligne ROUVERTE garde son identifiant quand le recalcul la met à jour (paie-refresh.ts) : le
-  // jeton de l'écran (montants affichés) dit alors si elle a changé depuis l'affichage.
-  if (opts.jetons && lignes.some((l) => opts.jetons![l.id] !== undefined && opts.jetons![l.id] !== jetonLigne(l))) {
-    throw new ValidationPaieRefuseeError(MESSAGE_LIGNE_RECALCULEE);
-  }
-
   const aValider = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE");
+  // Jeton obligatoire (actions de l'écran, 2026-10-01) : une ligne validée sans les montants
+  // affichés n'a pas pu être lue. La clôture, elle, n'en prend pas : elle revérifie tout par le calcul.
+  if (opts.jetonObligatoire && aValider.some((l) => !opts.jetons?.[l.id])) throw new ValidationPaieRefuseeError(MESSAGE_VALIDATION_SANS_JETON);
+  // Une ligne ROUVERTE garde son identifiant quand le recalcul la met à jour (paie-refresh.ts) : le
+  // jeton de l'écran (montants affichés, taux compris) dit alors si elle a changé depuis l'affichage.
+  const ecart = verifierJetons(lignes, opts.jetons);
+  if (ecart) throw new ValidationPaieRefuseeError(ecart === "TAUX" ? MESSAGE_TAUX_CHANGE : MESSAGE_LIGNE_RECALCULEE);
 
   // 2. Recalcul : une fois par mois concerné.
   const parMois = new Map<string, typeof aValider>();
@@ -207,7 +235,8 @@ export const MESSAGE_PAIEMENT_SANS_JETON =
  * Verrouille (FOR UPDATE, dans l'ordre des id) les lignes à payer et renvoie celles qui peuvent
  * l'être : VALIDÉES, et dont le jeton (s'il est fourni) correspond aux montants en base. Un jeton
  * différent refuse TOUT le paiement (ValidationPaieRefuseeError, rien d'écrit). `jetonObligatoire`
- * (la RH) : une ligne validée payée sans jeton est refusée — elle n'a pas pu être lue à l'écran.
+ * (la Direction comme la RH depuis le 2026-10-01) : une ligne validée payée sans jeton est refusée —
+ * elle n'a pas pu être lue à l'écran. Un taux de change changé depuis l'affichage refuse aussi.
  *
  * Les lignes absentes (brouillon remplacé par un recalcul) ou non validées ne sont PAS payées : en
  * lot, elles sont ignorées comme avant (la machine à états les refuse) ; seul un paiement de ligne
@@ -231,13 +260,12 @@ export async function controlerLignesAPayer(
     FOR UPDATE`;
   const lignes = await tx.payrollLine.findMany({
     where: { id: { in: ids }, statutPaiement: "VALIDE" },
-    select: { id: true, salNetUSD: true, salBrutUSD: true, netImposableUSD: true },
+    select: { id: true, ...SELECTION_JETON },
   });
   const jetons = opts.jetons ?? {};
   if (opts.jetonObligatoire && lignes.some((l) => !jetons[l.id])) throw new ValidationPaieRefuseeError(MESSAGE_PAIEMENT_SANS_JETON);
-  if (lignes.some((l) => jetons[l.id] !== undefined && jetons[l.id] !== jetonLigne(l))) {
-    throw new ValidationPaieRefuseeError(MESSAGE_PAIEMENT_PERIME);
-  }
+  const ecart = verifierJetons(lignes, jetons);
+  if (ecart) throw new ValidationPaieRefuseeError(ecart === "TAUX" ? MESSAGE_TAUX_CHANGE : MESSAGE_PAIEMENT_PERIME);
   return new Set(lignes.map((l) => l.id));
 }
 

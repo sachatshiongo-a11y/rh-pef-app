@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { Client } from "pg";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
+import { jetonDe, jetonsDe } from "@/lib/test/paie-jeton";
 
 // Valider une ligne de paie revérifie son montant (revue finale du 2026-09-24, point 1) : verrou de
 // la ligne, recalcul du mois par le VRAI calcul, comparaison au centime. Un écart refuse TOUTE la
@@ -89,7 +90,7 @@ describe("valider une ligne revérifie son montant", () => {
     const l = await ligne(ids.ada);
     expect(l.sourceReference).toBe("PLANNING");
     expect(Number(l.salNetUSD)).toBeGreaterThan(0);
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     const apres = await ligne(ids.ada);
     expect(apres.statutPaiement).toBe("VALIDE");
     expect(apres.salNetUSD.toString()).toBe(l.salNetUSD.toString());
@@ -102,7 +103,7 @@ describe("valider une ligne revérifie son montant", () => {
     // Créneau du mercredi 16 effacé après le calcul : 9 h de moins dans la référence (les heures
     // faites ce jour-là restent), donc un autre taux et un autre net.
     await prisma.planningCreneau.delete({ where: { employeeId_date: { employeeId: ids.beatrice, date: d(16) } } });
-    await expect(changerStatutPaie(avant.id, fd({ versStatut: "VALIDE" }))).rejects.toThrow(
+    await expect(changerStatutPaie(avant.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, avant.id) }))).rejects.toThrow(
       redirection("La paie de Béatrice Mbuyi a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant de valider."),
     );
     const apres = await rienEcrit(ids.beatrice);
@@ -115,7 +116,7 @@ describe("valider une ligne revérifie son montant", () => {
   it("lot avec une ligne qui a changé : TOUT le lot est refusé, la ligne intacte n'est pas validée non plus", async () => {
     const clarisse = await ligne(ids.clarisse);
     const beatrice = await ligne(ids.beatrice);
-    expect(await changerStatutEnLot([clarisse.id, beatrice.id], "VALIDE")).toEqual({ erreur: messagePaieChangee(["Béatrice Mbuyi"]) });
+    expect(await changerStatutEnLot([clarisse.id, beatrice.id], "VALIDE", null, await jetonsDe(prisma, [clarisse.id, beatrice.id]))).toEqual({ erreur: messagePaieChangee(["Béatrice Mbuyi"]) });
     await rienEcrit(ids.clarisse);
     await rienEcrit(ids.beatrice);
   });
@@ -124,7 +125,7 @@ describe("valider une ligne revérifie son montant", () => {
     await prisma.prime.create({ data: { employeeId: ids.dieudonne, nom: "Prime de fin de mois", montantUSD: 40, mois: 9, annee: 2026 } });
     const l = await ligne(ids.dieudonne);
     expect(l.sourceReference).toBe("CONTRAT");
-    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }))).rejects.toThrow(redirection(messagePaieChangee(["Dieudonné Tshala"])));
+    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }))).rejects.toThrow(redirection(messagePaieChangee(["Dieudonné Tshala"])));
     await rienEcrit(ids.dieudonne);
   });
 
@@ -142,8 +143,8 @@ describe("valider une ligne revérifie son montant", () => {
     const perimee = (await ligne(ids.clarisse)).id;
     await rafraichirPaieDuMois({ creerRun: false }); // quelqu'un ouvre /paie : les lignes non figées sont recréées
     expect(await prisma.payrollLine.count({ where: { id: perimee } })).toBe(0);
-    expect(await changerStatutEnLot([perimee], "VALIDE")).toEqual({ erreur: MESSAGE_LIGNE_RECALCULEE });
-    await expect(changerStatutPaie(perimee, fd({ versStatut: "VALIDE" }))).rejects.toThrow(redirection(MESSAGE_LIGNE_RECALCULEE));
+    expect(await changerStatutEnLot([perimee], "VALIDE", null, await jetonsDe(prisma, [perimee]))).toEqual({ erreur: MESSAGE_LIGNE_RECALCULEE });
+    await expect(changerStatutPaie(perimee, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, perimee) }))).rejects.toThrow(redirection(MESSAGE_LIGNE_RECALCULEE));
   });
 
   it("concurrence : une écriture du planning en cours fait attendre la validation, qui voit ensuite le créneau effacé et refuse", async () => {
@@ -157,7 +158,7 @@ describe("valider une ligne revérifie son montant", () => {
       await externe.query(`SELECT "id" FROM "public"."PayrollLine" WHERE "id" = $1 FOR SHARE`, [l.id]);
       await externe.query(`DELETE FROM "public"."PlanningCreneau" WHERE "employeeId" = $1 AND "date" = $2`, [ids.clarisse, d(18)]);
       let fini = false;
-      validation = changerStatutPaie(l.id, fd({ versStatut: "VALIDE" })).then(() => null, (e: unknown) => e).finally(() => { fini = true; });
+      validation = changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) })).then(() => null, (e: unknown) => e).finally(() => { fini = true; });
       await new Promise((r) => setTimeout(r, 400));
       expect(fini).toBe(false); // elle attend le verrou de la ligne
       await externe.query("COMMIT");
@@ -174,7 +175,7 @@ describe("valider une ligne revérifie son montant", () => {
   it("après rechargement de la page Paie, le lot se valide", async () => {
     await rafraichirPaieDuMois({ creerRun: false });
     const lignes = await Promise.all([ids.beatrice, ids.clarisse, ids.dieudonne].map((e) => ligne(e)));
-    expect(await changerStatutEnLot(lignes.map((l) => l.id), "VALIDE")).toBe(3);
+    expect(await changerStatutEnLot(lignes.map((l) => l.id), "VALIDE", null, await jetonsDe(prisma, lignes.map((l) => l.id)))).toBe(3);
     for (const l of lignes) expect((await prisma.payrollLine.findUniqueOrThrow({ where: { id: l.id } })).statutPaiement).toBe("VALIDE");
   });
 
@@ -186,7 +187,7 @@ describe("valider une ligne revérifie son montant", () => {
     // Heures saisies après le calcul d'août : 9 h travaillées le lundi 3.
     await prisma.attendance.create({ data: { employeeId: ids.ada, date: d(3, 8), code: "P" } });
     await prisma.overtimeEntry.create({ data: { employeeId: ids.ada, date: d(3, 8), heuresTravaillees: 9 } });
-    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }))).rejects.toThrow(redirection(messagePaieChangee(["Ada Kalala"])));
+    await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }))).rejects.toThrow(redirection(messagePaieChangee(["Ada Kalala"])));
     await rienEcrit(ids.ada, 8);
     await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
   });
@@ -243,7 +244,7 @@ describe("recalcul de la paie (paie-refresh) : verrou de la run du mois", () => 
     const apres = await ligne(elodie);
     expect(Number(apres.heuresContractuelles)).toBe(Number(avant.heuresContractuelles) - 9);
     // Et la ligne enregistrée est exactement celle que la validation recalcule : elle passe.
-    await changerStatutPaie(apres.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(apres.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, apres.id) }));
     expect((await ligne(elodie)).statutPaiement).toBe("VALIDE");
   });
 });
@@ -262,7 +263,7 @@ describe("« À valider » recalcule à l'ouverture, comme /paie (même fonction
     const apres = await ligne(fanny);
     expect(apres.id).not.toBe(avant.id);
     expect(Number(apres.heuresContractuelles)).toBe(Number(avant.heuresContractuelles) - 9);
-    expect(await changerStatutEnLot([apres.id], "VALIDE")).toBe(1);
+    expect(await changerStatutEnLot([apres.id], "VALIDE", null, await jetonsDe(prisma, [apres.id]))).toBe(1);
   });
 
   it("aucune ligne ouverte : rien n'est recalculé, comme /paie (aucune ligne créée, lignes figées intactes)", async () => {

@@ -32,8 +32,8 @@ vi.mock("@/lib/push", () => ({ envoyerPush: P.push }));
 
 const { calculerPaieDuMois, changerStatutPaie, changerStatutEnLot, cloturerPaie, reinitialiserPaieDuMois } = await import("./actions");
 const { mettreAJourConfig } = await import("../parametres/actions");
-const { jetonLigne } = await import("@/lib/paie-jeton");
-const { MESSAGE_PAIEMENT_PERIME, MESSAGE_PAIEMENT_SANS_JETON, messageAttenteDirection } = await import("@/lib/paie-validation");
+const { jetonDeLigneLue: jetonLigne } = await import("@/lib/paie-jeton"); // le jeton de l'écran (taux de la paie compris)
+const { MESSAGE_PAIEMENT_PERIME, MESSAGE_PAIEMENT_SANS_JETON, MESSAGE_TAUX_CHANGE, MESSAGE_VALIDATION_SANS_JETON, messageAttenteDirection } = await import("@/lib/paie-validation");
 const { messageBulletinsAPayer, messageBulletinsPayes, messageClotureParRH, messagePaiementAnnule, refAPayer } = await import("@/lib/paie-notifications");
 const { totalVerseUSD } = await import("@/lib/paie-net");
 
@@ -53,7 +53,7 @@ const d = (n: number) => new Date(Date.UTC(2026, 8, n));
 const SAISI = new Date("2026-10-01T08:00:00Z");
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
 const redirection = (message: string) => `REDIRECT /paie?erreur=${encodeURIComponent(message)}`;
-const ligne = (employeeId: string) => prisma.payrollLine.findFirstOrThrow({ where: { employeeId, payrollRun: { mois: 9, annee: 2026 } } });
+const ligne = (employeeId: string) => prisma.payrollLine.findFirstOrThrow({ where: { employeeId, payrollRun: { mois: 9, annee: 2026 } }, include: { payrollRun: { select: { tauxChangeUtilise: true } } } });
 const statut = async (employeeId: string) => (await ligne(employeeId)).statutPaiement;
 const en = (role: Role) => { A.user = { ...A.user, id: comptes[role].id, nom: comptes[role].nom, role }; };
 const transitions = () => prisma.transitionPaie.count();
@@ -105,6 +105,17 @@ describe("valider : la Direction seule", () => {
     await expect(changerStatutPaie(a.id, fd({ versStatut: "VALIDE", jeton: jetonLigne(a) }))).rejects.toThrow(REFUS);
     expect(await changerStatutEnLot([a.id, b.id], "VALIDE", null, { [a.id]: jetonLigne(a), [b.id]: jetonLigne(b) })).toEqual({ erreur: REFUS });
     expect([await statut(ids.ada), await statut(ids.beatrice)]).toEqual(["PAS_VALIDE", "PAS_VALIDE"]);
+    expect(await transitions()).toBe(avant);
+  });
+
+  it("ADMIN : jeton obligatoire pour valider aussi (unité et lot) — rien d'écrit sans lui", async () => {
+    en("ADMIN");
+    const avant = await transitions();
+    const a = await ligne(ids.ada);
+    await expect(changerStatutPaie(a.id, fd({ versStatut: "VALIDE" }))).rejects.toThrow(redirection(MESSAGE_VALIDATION_SANS_JETON));
+    expect(await changerStatutEnLot([a.id], "VALIDE")).toEqual({ erreur: MESSAGE_VALIDATION_SANS_JETON });
+    expect(await changerStatutEnLot([a.id], "VALIDE", null, { [a.id]: "" })).toEqual({ erreur: MESSAGE_VALIDATION_SANS_JETON });
+    expect(await statut(ids.ada)).toBe("PAS_VALIDE");
     expect(await transitions()).toBe(avant);
   });
 
@@ -250,11 +261,15 @@ describe("payer : la Direction ET la RH, depuis « Validé » seulement", () => 
     expect(await statut(ids.dieudonne)).toBe("VALIDE");
   });
 
-  it("Direction : paie sans jeton ; personne n'est notifié ; le rappel « à payer » de la RH disparaît (plus rien à payer)", async () => {
+  it("Direction : jeton obligatoire aussi ; elle paie ; personne n'est notifié ; le rappel « à payer » de la RH disparaît", async () => {
     const avant = Object.fromEntries(await Promise.all(ROLES.map(async (r) => [r, (await notifsDe(r)).length] as const)));
     expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId))).toHaveLength(1);
     en("ADMIN");
-    expect(await changerStatutEnLot([(await ligne(ids.dieudonne)).id], "PAYE")).toBe(1);
+    const die = await ligne(ids.dieudonne);
+    await expect(changerStatutPaie(die.id, fd({ versStatut: "PAYE" }))).rejects.toThrow(redirection(MESSAGE_PAIEMENT_SANS_JETON));
+    expect(await changerStatutEnLot([die.id], "PAYE")).toEqual({ erreur: MESSAGE_PAIEMENT_SANS_JETON });
+    expect(await statut(ids.dieudonne)).toBe("VALIDE");
+    expect(await changerStatutEnLot([die.id], "PAYE", null, { [die.id]: jetonLigne(die) })).toBe(1);
     expect((await ligne(ids.dieudonne)).payeParId).toBe(comptes.ADMIN.id);
     expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId))).toEqual([]);
     for (const r of ROLES.filter((x) => x !== "MANAGER")) expect(await notifsDe(r), r).toHaveLength(avant[r]);
@@ -349,7 +364,7 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
     expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId } })).statut).toBe("BROUILLON");
     // La Direction revalide Fanny pour la suite.
     en("ADMIN");
-    await changerStatutPaie(fanny.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(fanny.id, fd({ versStatut: "VALIDE", jeton: jetonLigne(await ligne(ids.fanny)) }));
   });
 
   it("RH : paie entièrement validée (une ligne hors calcul laissée de côté) → fermée sans rien valider ; la Direction est notifiée une fois", async () => {
@@ -413,5 +428,62 @@ describe("changement de mois (Paramètres) : la Direction seule, distinct de la 
   it("ADMIN : autorisé (même mois réenregistré)", async () => {
     en("ADMIN");
     await expect(mettreAJourConfig(config("9"))).resolves.toBeUndefined();
+  });
+});
+
+describe("le taux de change fait partie des montants affichés (jeton)", () => {
+  const changerTaux = async (taux: number) => {
+    await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: taux } });
+    en("ADMIN");
+    await calculerPaieDuMois(); // reporte le taux du jour sur la paie du mois (paie-refresh.ts)
+  };
+
+  it("sans changement de taux, le jeton reste le même d'un recalcul à l'autre", async () => {
+    const avant = jetonLigne(await ligne(ids.fanny));
+    en("ADMIN");
+    await calculerPaieDuMois();
+    expect(jetonLigne(await ligne(ids.fanny))).toBe(avant);
+    expect(avant.split("|")).toHaveLength(4);
+  });
+
+  it("payer : taux changé depuis l'affichage → refusé, pour la RH comme pour la Direction (unité et lot), message « francs »", async () => {
+    const affichee = await ligne(ids.fanny); // VALIDÉE : ses dollars sont figés
+    const jetonAffiche = jetonLigne(affichee);
+    await changerTaux(2500);
+    const apres = await ligne(ids.fanny);
+    expect([apres.salNetUSD.toString(), apres.salBrutUSD.toString()]).toEqual([affichee.salNetUSD.toString(), affichee.salBrutUSD.toString()]);
+    expect(Number(apres.payrollRun.tauxChangeUtilise)).toBe(2500);
+    for (const role of ["MANAGER", "ADMIN"] as Role[]) {
+      en(role);
+      await expect(changerStatutPaie(affichee.id, fd({ versStatut: "PAYE", jeton: jetonAffiche }))).rejects.toThrow(redirection(MESSAGE_TAUX_CHANGE));
+      expect(await changerStatutEnLot([affichee.id], "PAYE", null, { [affichee.id]: jetonAffiche })).toEqual({ erreur: MESSAGE_TAUX_CHANGE });
+    }
+    expect(await statut(ids.fanny)).toBe("VALIDE");
+    expect(MESSAGE_TAUX_CHANGE).toContain("Les montants en francs ont changé");
+    // Page rechargée (nouveau taux sous les yeux) : la RH paie.
+    en("MANAGER");
+    expect(await changerStatutEnLot([apres.id], "PAYE", null, { [apres.id]: jetonLigne(apres) })).toBe(1);
+  });
+
+  it("valider (Direction, même jeton) : taux de la paie changé depuis l'affichage → refusé, rien d'écrit ; à jour → validé", async () => {
+    en("ADMIN");
+    const ada = await ligne(ids.ada);
+    await changerStatutPaie(ada.id, fd({ versStatut: "PAS_VALIDE" })); // rouverte : garde son identifiant
+    await calculerPaieDuMois(); // recalculée au taux du jour (2 500)
+    const affichee = await ligne(ids.ada);
+    expect(affichee.id).toBe(ada.id);
+    const jetonAffiche = jetonLigne(affichee);
+    // Le taux de la paie bouge, les dollars non (ce que ferait un recalcul si le taux ne touchait
+    // aucun montant en dollars ; ici l'IPR en francs en dépend, d'où l'écriture directe du taux).
+    await prisma.payrollRun.update({ where: { id: runId }, data: { tauxChangeUtilise: 2600 } });
+    const avant = await transitions();
+    await expect(changerStatutPaie(affichee.id, fd({ versStatut: "VALIDE", jeton: jetonAffiche }))).rejects.toThrow(redirection(MESSAGE_TAUX_CHANGE));
+    expect(await changerStatutEnLot([affichee.id], "VALIDE", null, { [affichee.id]: jetonAffiche })).toEqual({ erreur: MESSAGE_TAUX_CHANGE });
+    expect(await statut(ids.ada)).toBe("PAS_VALIDE");
+    expect(await transitions()).toBe(avant);
+    // Remis au taux du jour (celui avec lequel les dollars ont été calculés) puis page rechargée.
+    await prisma.payrollRun.update({ where: { id: runId }, data: { tauxChangeUtilise: 2500 } });
+    expect(await changerStatutPaie(affichee.id, fd({ versStatut: "VALIDE", jeton: jetonLigne(await ligne(ids.ada)) }))).toBeUndefined();
+    expect(await statut(ids.ada)).toBe("VALIDE");
   });
 });

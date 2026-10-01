@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
+import { jetonDe, jetonsDe } from "@/lib/test/paie-jeton";
 
 // L'HISTORIQUE DE PAIE NE DISPARAÎT JAMAIS (arbitrage Direction du 2026-10-01). Avant : le recalcul
 // supprimait puis recréait toutes les lignes non figées ; une ligne ROUVERTE par la Direction
@@ -27,7 +28,6 @@ vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error
 
 const { calculerPaieDuMois, changerStatutPaie, changerStatutEnLot, cloturerPaie } = await import("@/app/(app)/paie/actions");
 const { MESSAGE_LIGNE_RECALCULEE, messageNonCalcules } = await import("@/lib/paie-validation");
-const { jetonLigne } = await import("@/lib/paie-jeton");
 const { rafraichirPaieDuMois } = await import("@/lib/paie-refresh");
 const { calculerLignesPaie } = await import("@/lib/paie-batch");
 
@@ -81,7 +81,7 @@ describe("recalcul de la paie : une ligne rouverte garde tout son historique", (
     // La Direction valide (bulletin émis + transition), une attestation s'y rattache, puis elle rouvre.
     const l = await ligne(ids.ada);
     en("ADMIN");
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     const att = await prisma.attestation.create({ data: { employeeId: ids.ada, type: "SALAIRE", payrollLineId: l.id } });
     await changerStatutPaie(l.id, fd({ versStatut: "PAS_VALIDE" }));
     expect((await ligne(ids.ada)).statutPaiement).toBe("PAS_VALIDE");
@@ -131,19 +131,19 @@ describe("recalcul de la paie : une ligne rouverte garde tout son historique", (
 
   it("écran périmé : la ligne rouverte recalculée depuis l'affichage n'est PAS validée (jeton des montants affichés)", async () => {
     const l = await ligne(ids.ada);
-    const affiche = jetonLigne(l); // ce que la Direction lit
+    const affiche = await jetonDe(prisma, l.id); // ce que la Direction lit
     await prisma.prime.create({ data: { employeeId: ids.ada, nom: "Prime tardive", montantUSD: 40, mois: 9, annee: 2026 } });
     en("MANAGER");
     await rafraichirPaieDuMois({ creerRun: false }); // quelqu'un ouvre /paie : même ligne, nouveau montant
     const apres = await ligne(ids.ada);
     expect(apres.id).toBe(l.id);
-    expect(jetonLigne(apres)).not.toBe(affiche);
+    expect(await jetonDe(prisma, apres.id)).not.toBe(affiche);
     en("ADMIN");
     expect(await changerStatutEnLot([l.id], "VALIDE", null, { [l.id]: affiche })).toEqual({ erreur: MESSAGE_LIGNE_RECALCULEE });
     await expect(changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: affiche }))).rejects.toThrow(`REDIRECT /paie?erreur=${encodeURIComponent(MESSAGE_LIGNE_RECALCULEE)}`);
     expect((await ligne(ids.ada)).statutPaiement).toBe("PAS_VALIDE");
     // Rechargée : le jeton de l'écran est à jour, la validation passe… puis on rouvre pour la suite.
-    expect(await changerStatutEnLot([l.id], "VALIDE", null, { [l.id]: jetonLigne(apres) })).toBe(1);
+    expect(await changerStatutEnLot([l.id], "VALIDE", null, { [l.id]: await jetonDe(prisma, apres.id) })).toBe(1);
     await changerStatutPaie(l.id, fd({ versStatut: "PAS_VALIDE" }));
   });
 
@@ -157,7 +157,7 @@ describe("recalcul de la paie : une ligne rouverte garde tout son historique", (
     // Jamais validée, avec un message qui dit comment en sortir (jamais « rechargez » seul) ; la
     // clôture la laisse de côté (ligne hors calcul, 2026-10-01) au lieu de rester bloquée sur elle.
     en("ADMIN");
-    expect(await changerStatutEnLot([l.id], "VALIDE")).toEqual({ erreur: messageNonCalcules(["Ada Kalala"]) });
+    expect(await changerStatutEnLot([l.id], "VALIDE", null, await jetonsDe(prisma, [l.id]))).toEqual({ erreur: messageNonCalcules(["Ada Kalala"]) });
     await expect(cloturerPaie()).resolves.toBeUndefined();
     expect((await ligne(ids.ada)).statutPaiement).toBe("PAS_VALIDE");
     // Sortie annoncée : fiche réactivée → recalcul → validation possible.
@@ -165,6 +165,6 @@ describe("recalcul de la paie : une ligne rouverte garde tout son historique", (
     await rafraichirPaieDuMois({ creerRun: false });
     const remise = await ligne(ids.ada);
     expect(remise.id).toBe(l.id);
-    expect(await changerStatutEnLot([l.id], "VALIDE", null, { [l.id]: jetonLigne(remise) })).toBe(1);
+    expect(await changerStatutEnLot([l.id], "VALIDE", null, { [l.id]: await jetonDe(prisma, remise.id) })).toBe(1);
   });
 });

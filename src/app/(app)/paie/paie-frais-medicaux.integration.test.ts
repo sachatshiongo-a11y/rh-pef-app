@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
+import { jetonDe, jetonsDe } from "@/lib/test/paie-jeton";
 
 // Test d'INTÉGRATION — #1 (CRITIQUE, régression) : le solde « frais médicaux du mois » saisi sur
 // la fiche employé (Employee.fraisMedicauxMoisCourant) ne doit JAMAIS disparaître silencieusement
@@ -78,7 +79,7 @@ describe("#1 — frais médicaux jamais perdus au rafraîchissement d'un brouill
 
   it("validation du bulletin (PAS_VALIDE → VALIDE) : remis à zéro UNE SEULE FOIS, montant conservé sur la ligne figée", async () => {
     const avant = await ligneDuMois();
-    await changerStatutPaie(avant.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(avant.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, avant.id) }));
 
     const emp = await employe();
     expect(Number(emp.fraisMedicauxMoisCourant)).toBe(0); // remis à zéro à la validation, pas avant
@@ -101,19 +102,19 @@ describe("#1 — frais médicaux jamais perdus au rafraîchissement d'un brouill
 describe("« Valider » en lot n'annule jamais un paiement", () => {
   it("une ligne PAYÉE cochée par mégarde reste PAYÉE : ni bulletin refigé, ni frais médicaux touchés", async () => {
     const l = await ligneDuMois();
-    await changerStatutPaie(l.id, fd({ versStatut: "PAYE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "PAYE", jeton: await jetonDe(prisma, l.id) }));
     const payee = await ligneDuMois();
     expect(payee.statutPaiement).toBe("PAYE");
     const transitionsAvant = await prisma.transitionPaie.count({ where: { payrollLineId: l.id } });
 
-    expect(await changerStatutEnLot([l.id], "VALIDE")).toBe(0);
+    expect(await changerStatutEnLot([l.id], "VALIDE", null, await jetonsDe(prisma, [l.id]))).toBe(0);
 
     const apres = await ligneDuMois();
     expect(apres.statutPaiement).toBe("PAYE");
     expect(apres.datePaiement?.getTime()).toBe(payee.datePaiement?.getTime());
     expect(await prisma.transitionPaie.count({ where: { payrollLineId: l.id } })).toBe(transitionsAvant);
     // Ligne par ligne, annuler le paiement reste possible (réouverture tracée).
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     expect((await ligneDuMois()).statutPaiement).toBe("VALIDE");
   });
 });
@@ -145,7 +146,7 @@ describe("réouverture d'une ligne validée : les frais médicaux reviennent sur
   it("valider : fiche remise à zéro (tracé), ligne à 40 $", async () => {
     const l = await ligneAR();
     expect(Number(l.fraisMedicauxUSD)).toBe(40);
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     expect(await fiche()).toBe(0);
     expect(await journalFiche()).toEqual([["30", "0"]]);
   });
@@ -158,7 +159,7 @@ describe("réouverture d'une ligne validée : les frais médicaux reviennent sur
 
   it("revalider tout de suite (sans recalcul) : le contrôle du montant passe, la fiche retombe à zéro une fois", async () => {
     const l = await ligneAR();
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     expect((await ligneAR()).statutPaiement).toBe("VALIDE");
     expect(Number((await ligneAR()).fraisMedicauxUSD)).toBe(40);
     expect(await fiche()).toBe(0);
@@ -169,16 +170,16 @@ describe("réouverture d'une ligne validée : les frais médicaux reviennent sur
     await rafraichirPaieDuMois({ creerRun: false });
     const l = await ligneAR();
     expect(Number(l.fraisMedicauxUSD)).toBe(40); // ni 30 (perdus), ni 70 (doublés)
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     expect(await fiche()).toBe(0);
     expect(Number((await ligneAR()).fraisMedicauxUSD)).toBe(40);
   });
 
   it("annuler un paiement (PAYÉ → VALIDÉ) : la ligne reste figée, la fiche ne bouge pas", async () => {
-    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "PAYE" }));
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "PAYE", jeton: await jetonDe(prisma, (await ligneAR()).id) }));
     await prisma.employee.update({ where: { id }, data: { fraisMedicauxMoisCourant: 5 } }); // saisi depuis, pour un autre bulletin
     const avantJournal = await journalFiche();
-    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie((await ligneAR()).id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, (await ligneAR()).id) }));
     const l = await ligneAR();
     expect(l.statutPaiement).toBe("VALIDE");
     expect(Number(l.fraisMedicauxUSD)).toBe(40);

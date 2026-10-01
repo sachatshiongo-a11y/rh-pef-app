@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest, seedParametresLegaux } from "@/lib/test/db";
+import { jetonDe, jetonsDe } from "@/lib/test/paie-jeton";
 import { pagesDuPdf } from "@/lib/test/pdf-lecture";
 
 // Décisions de Sacha du 2026-10-01, rejouées avec les VRAIES actions et les VRAIES routes d'export :
@@ -98,7 +99,7 @@ afterAll(async () => { await fermer?.(); });
 describe("ligne rouverte d'un salarié sorti du calcul : en base, à part, comptée nulle part", () => {
   it("rouvrir puis désactiver la fiche : la ligne reste, mais sort des totaux, du livre, de la liasse, des déclarations, des compteurs", async () => {
     const l = await ligne(ids.ada);
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     await changerStatutPaie(l.id, fd({ versStatut: "PAS_VALIDE" }));
     // Avant la sortie, Ada compte : le livre la porte.
     expect(await texteExcel(await exportExcel.GET(requete("/paie/export")))).toContain("Ada Kalala");
@@ -201,7 +202,7 @@ describe("réinitialiser ne supprime jamais un bulletin déjà remis", () => {
 
     // Ada : validée (bulletin remis v2), signée par le salarié, rouverte.
     const l = await ligne(ids.ada);
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     await enregistrerSignature(prisma, { cible: "BULLETIN", cibleId: l.id, employeeId: ids.ada, traceUrl: null, mode: "ESPACE_SALARIE", presenteParId: null });
     await changerStatutPaie(l.id, fd({ versStatut: "PAS_VALIDE" }));
     const versions = await prisma.versionBulletin.count({ where: { payrollLineId: l.id } });
@@ -271,7 +272,7 @@ describe("mois courant clôturé : une ligne rouverte pour correction reste comp
     const changerDeMois = () => mettreAJourConfig(fd({ moisCourant: "10", anneeCourante: "2026", tauxChangeCDF: "2300", jourPaie: "30" }));
     expect(decodeURIComponent(await ignorerRedirection(changerDeMois()))).toMatch(/revalidez-les dans Paie avant de changer de mois/);
     expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(9);
-    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE", jeton: await jetonDe(prisma, l.id) }));
     expect((await ligne(ids.ada)).statutPaiement).toBe("VALIDE");
     expect(await ignorerRedirection(changerDeMois())).toBe("");
     expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(10);

@@ -58,12 +58,12 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     }),
     prisma.payrollLine.findMany({
       where: { statutPaiement: "PAS_VALIDE", ...filtreRun },
-      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } } },
+      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true } } },
       orderBy: { employee: { nom: "asc" } },
     }),
     prisma.payrollLine.findMany({
       where: { statutPaiement: "VALIDE", ...filtreRun },
-      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } } },
+      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true } } },
       orderBy: { employee: { nom: "asc" } },
     }),
     prisma.acompteSalaire.findMany({
@@ -130,7 +130,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     montant: money(salaireNetUSD(l)),
     statutPaiement: l.statutPaiement,
     avertissements: lireAvertissements(l.avertissementsPaie),
-    jeton: jetonLigne(l),
+    jeton: jetonLigne(l, l.payrollRun.tauxChangeUtilise), // taux de la paie compris
   });
   // Une ligne HORS CALCUL (ligne rouverte d'un salarié sorti du calcul) ne se valide pas : elle est
   // montrée à part sur l'écran Paie, pas ici (paie-hors-calcul.ts).

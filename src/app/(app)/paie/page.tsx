@@ -114,7 +114,7 @@ export default async function PaiePage({
         sourceReference: l.sourceReference,
         motifReference: l.motifReference,
         avertissements: lireAvertissements(l.avertissementsPaie),
-        jeton: jetonLigne(l),
+        jeton: jetonLigne(l, run.tauxChangeUtilise), // taux de la paie : celui des francs affichés
       }))
     : (apercu!.lignes).map((l) => ({
         id: `apercu-${l.employee.id}`,

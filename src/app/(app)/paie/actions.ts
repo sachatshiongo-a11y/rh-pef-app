@@ -257,15 +257,17 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
 
   // Valider revérifie le montant (verrou + recalcul du mois + comparaison au centime) : délai du
   // recalcul, refus renvoyé en message lisible, rien d'écrit. Payer revérifie les montants affichés
-  // (jeton, obligatoire pour la RH).
+  // (jeton, taux de change compris).
   let de: PaymentStatus | null = null;
   let refus: string | null = null;
   const maintenant = new Date(); // l'instant du paiement (et de sa notification)
   try {
     de = await prisma.$transaction(async (tx) => {
       if (versStatut === "PAS_VALIDE") await verrouillerLignesPaie(tx, [payrollLineId]); // attente bornée
-      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton } }) : undefined;
-      const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: user.role !== "ADMIN" }) : undefined;
+      // Jeton OBLIGATOIRE pour valider et payer, Direction comme RH (2026-10-01) : l'écran l'envoie
+      // toujours ; sans lui, personne n'a lu le montant. (Annuler un paiement n'en exige pas.)
+      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: true }) : undefined;
+      const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: true }) : undefined;
       return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees, payables, maintenant }, user);
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
@@ -318,8 +320,8 @@ export const changerStatutEnLot = actionLisible(async (
   // validée). Les lignes dont la transition n'est pas autorisée restent simplement ignorées (une
   // ligne NON VALIDÉE glissée dans un lot « Marquer payé » n'est jamais payée).
   // Valider revérifie les montants : UN recalcul par mois pour tout le lot, et une seule ligne
-  // changée refuse le lot entier (message lisible via `actionLisible`). Payer revérifie les
-  // montants affichés de chaque ligne validée (jeton, obligatoire pour la RH).
+  // changée refuse le lot entier (message lisible via `actionLisible`). Valider et payer exigent les
+  // montants affichés de chaque ligne concernée (jeton, taux de change compris).
   const modifiees: string[] = [];
   const maintenant = new Date(); // UN instant de paiement pour tout le lot
   try {
@@ -328,8 +330,8 @@ export const changerStatutEnLot = actionLisible(async (
       // Rouvrir : les lignes verrouillées dans l'ordre des id AVANT d'être lues (un paiement
       // concurrent est attendu, jamais écrasé). Valider et payer verrouillent dans leur contrôle.
       if (versStatut === "PAS_VALIDE") await verrouillerLignesPaie(tx, payrollLineIds);
-      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds, { jetons }) : undefined;
-      const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, payrollLineIds, { jetons, jetonObligatoire: user.role !== "ADMIN" }) : undefined;
+      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds, { jetons, jetonObligatoire: true }) : undefined;
+      const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, payrollLineIds, { jetons, jetonObligatoire: true }) : undefined;
       for (const id of payrollLineIds) {
         if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees, payables, maintenant }, user)) modifiees.push(id);
       }
