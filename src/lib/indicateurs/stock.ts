@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte } from "@/lib/stock";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 // Indicateurs du Stock partagés : UNE seule source de vérité pour l'accueil Stock et le tableau de
 // bord de l'Exploitation. Formules recopiées à l'identique de l'accueil Stock (un test de
@@ -38,13 +39,16 @@ const somme = (agg: { _sum: Record<string, unknown>; _count: number }, champ: st
 export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: number; mois?: string } = {}): Promise<IndicateursStock> {
   const nbAlertes = options.nbAlertes ?? 5;
   // Bornes de dates en UTC (cohérent avec le stockage @db.Date) — mêmes calculs que l'accueil Stock.
-  const jjUTC = new Date(Date.UTC(aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth(), aujourdhui.getUTCDate()));
+  // `aujourdhui` est un INSTANT : le jour (donc la semaine et le mois) se lit à Kinshasa, comme les
+  // dates des mouvements. Le serveur étant en UTC, le 1er du mois entre 00 h et 01 h il comptait
+  // encore le mois (et la semaine) précédent.
+  const jjUTC = jourCivilKinshasa(aujourdhui);
   const dow = jjUTC.getUTCDay(); // 0 = dimanche
   const lundi = new Date(jjUTC); lundi.setUTCDate(jjUTC.getUTCDate() - (dow === 0 ? 6 : dow - 1));
   const dimanche = new Date(lundi); dimanche.setUTCDate(lundi.getUTCDate() + 6);
   const [anneeP, mois0P] = options.mois
     ? [Number(options.mois.slice(0, 4)), Number(options.mois.slice(5, 7)) - 1]
-    : [aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth()];
+    : [jjUTC.getUTCFullYear(), jjUTC.getUTCMonth()];
   const debutMois = new Date(Date.UTC(anneeP, mois0P, 1));
   const debutMoisSuivant = new Date(Date.UTC(anneeP, mois0P + 1, 1));
 

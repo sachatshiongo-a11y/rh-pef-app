@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { lundiDe } from "@/lib/dates-fr";
+import { lundiDe, lundiCourantKinshasa } from "@/lib/dates-fr";
 import type { Colonne } from "@/lib/pdf/tableau";
 import { LEGUMES } from "../legumes/legumes-data";
 import {
@@ -45,7 +45,7 @@ export function roleCellule(d: ExportJournalier, r: number, c: number): RoleCol 
 export async function donneesJournalier(sp: URLSearchParams): Promise<ExportJournalier> {
   const domaine = sp.get("domaine") === "NOURRITURE" ? ("NOURRITURE" as const) : sp.get("domaine") === "BOISSON" ? ("BOISSON" as const) : undefined;
   const vue = sp.get("vue") === "commande" || sp.get("vue") === "comparaison" ? sp.get("vue")! : "conso";
-  const lundi = sp.get("semaine") ? lundiDe(new Date(sp.get("semaine")!)) : lundiDe(new Date());
+  const lundi = sp.get("semaine") ? lundiDe(new Date(sp.get("semaine")!)) : lundiCourantKinshasa();
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const fin = addDays(lundi, 7);
   const labels = jours.map((d, i) => `${JOURS[i]} ${d.getUTCDate()}`);

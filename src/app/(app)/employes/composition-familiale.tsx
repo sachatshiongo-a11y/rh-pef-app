@@ -1,6 +1,7 @@
 import type { MembreFamille } from "@prisma/client";
 import { compterFamille, ecartCompositionFamiliale } from "@/lib/famille";
 import { ajouterMembreFamille, supprimerMembreFamille } from "./actions";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 const inputCls = "rounded border border-input bg-background px-2 py-1 text-sm";
 
@@ -31,7 +32,7 @@ export function CompositionFamiliale({
   /** Direction seulement : retirer un membre (ou remplacer le conjoint) est une suppression. */
   peutRetirer?: boolean;
 }) {
-  const comptage = compterFamille(membres, new Date(), ageLimiteEnfant);
+  const comptage = compterFamille(membres, jourCivilKinshasa(new Date()), ageLimiteEnfant);
   const ecart = ecartCompositionFamiliale(enfantsCompteur, comptage);
 
   return (

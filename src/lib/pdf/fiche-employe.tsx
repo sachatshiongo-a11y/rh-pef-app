@@ -3,6 +3,7 @@ import type { Employee } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader } from "./layout";
 import { pdfColors } from "./theme";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
 
@@ -173,7 +174,7 @@ export function FicheEmployeDocument({
         </View>
 
         <Text style={{ fontSize: 7, color: pdfColors.textMuted, marginTop: 2 }}>
-          Fiche générée le {new Date().toLocaleDateString("fr-FR")}. Document interne confidentiel.
+          Fiche générée le {jourKinshasa(new Date())}. Document interne confidentiel.
         </Text>
 
         <PdfFooter docLabel={docLabel} />

@@ -11,6 +11,7 @@ import { ChangerMotif } from "./changer-motif";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 import { BORNE_TOUT_LE_FILTRE, type ColonneMouvements as Colonne, type FiltreMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -306,7 +307,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
         </div>
         <input type="hidden" name="type" value={type} />
         {type === "ENTREE" && <span className="text-xs text-muted-foreground">Entrées hors achat (ex. retour restaurant → dépôt). Les achats passent par la Liste d&apos;achat ou une facture.</span>}
-        <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} /></label>
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={jourCourantKinshasaISO()} className={inp} /></label>
         {type === "SORTIE" ? (
           <select name="categorieSortie" value={motif} onChange={(e) => setMotif(e.target.value as typeof motif)} className={inp}>
             <option value="">Autre sortie (inventaire, correction…)</option>

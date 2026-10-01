@@ -2,6 +2,7 @@ import { Suspense, type ReactNode } from "react";
 import { Indicateur, type TeinteIndicateur } from "@/components/indicateur";
 import { montantSigne } from "@/lib/montant";
 import { chargerIndicateursEntrees, type IndicateursEntrees, type SommeEntrees } from "@/lib/indicateurs/entrees-stock";
+import { moisCourantKinshasa } from "@/lib/heure-kinshasa";
 
 /** Le droit à passer en props (`voitMontants`), réexporté pour un seul import côté page. */
 export { voitIndicateursEntrees } from "@/lib/indicateurs/entrees-stock";
@@ -27,8 +28,7 @@ export function CartesEntreesStock({ annee, mois, voitMontants }: { annee: numbe
 
 async function CartesEntreesStockChargees({ annee, mois }: { annee: number; mois: number }) {
   const donnees = await chargerIndicateursEntrees(annee, mois);
-  const n = new Date();
-  return <CartesEntreesStockVue donnees={donnees} moisEnCours={n.getUTCFullYear() === annee && n.getUTCMonth() + 1 === mois} />;
+  return <CartesEntreesStockVue donnees={donnees} moisEnCours={moisCourantKinshasa() === `${annee}-${String(mois).padStart(2, "0")}`} />;
 }
 
 /**

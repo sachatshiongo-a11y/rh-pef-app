@@ -8,6 +8,7 @@ import { reconstituerBrutDepuisNet, type ParametresPaie } from "@/lib/payroll";
 import { salaireDeBaseUSD, salaireNetUSD, totalVerseUSD, brutHorsTransportUSD } from "@/lib/paie-net";
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
 import { formaterNombre, normaliserEspaces } from "@/lib/montant";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
 
@@ -259,7 +260,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
     month: "long",
     year: "numeric",
   });
-  const faitLe = new Date().toLocaleDateString("fr-FR");
+  const faitLe = jourKinshasa(new Date());
 
   // Le mode de paiement n'est une information certaine qu'une fois le salaire effectivement payé.
   // Tant que le bulletin n'est pas au statut « Payé », la mention reste vide (pas de « Espèces »

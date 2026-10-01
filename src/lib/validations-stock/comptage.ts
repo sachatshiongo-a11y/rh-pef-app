@@ -11,6 +11,7 @@ import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import { jourKinshasaISO } from "@/lib/date-paiement";
+import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 type Tx = Prisma.TransactionClient;
 
@@ -26,7 +27,7 @@ export function lireComptesSaisis(formData: FormData): { comptes: CompteSaisi[];
   const expl = formData.getAll("recon_explication").map((v) => String(v).trim());
   const domaineRaw = String(formData.get("domaine") ?? "").trim();
   const domaine = domaineRaw === "NOURRITURE" || domaineRaw === "BOISSON" || domaineRaw === "AUTRE" ? domaineRaw : null;
-  const origine = String(formData.get("origine") ?? "").trim() || `Comptage ${new Date().toLocaleDateString("fr-FR")}`;
+  const origine = String(formData.get("origine") ?? "").trim() || `Comptage ${jourKinshasa(new Date())}`;
   const comptes = ids
     .map((articleId, i) => ({ articleId, physique: phys[i], explication: expl[i] ?? "" }))
     .filter((c) => c.articleId && c.physique !== "" && Number.isFinite(num(c.physique)))
@@ -81,7 +82,7 @@ export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Dom
   const nbEcarts = lignes.filter(aUnEcart).length;
   const nbHorsTol = lignes.filter((l) => l.horsTol).length;
   // `date` : jour du COMPTAGE (réconciliation validée plus tard) ; absent = aujourd'hui, comme avant.
-  const s = await tx.sessionComptage.create({ data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: userId, ...(p.date ? { date: p.date } : {}) } });
+  const s = await tx.sessionComptage.create({ data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: userId, date: p.date ?? jourCivilKinshasa(new Date()) } }); // explicite : le défaut @default(now()) de la base est le jour UTC
   await tx.ligneComptage.createMany({
     data: lignes.map((l) => ({
       sessionId: s.id, articleId: l.articleId, designation: l.designation,
@@ -93,7 +94,7 @@ export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Dom
   const avecEcart = lignes.filter(aUnEcart);
   if (avecEcart.length > 0) {
     await tx.mouvementStock.createMany({
-      data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, creeParId: userId })),
+      data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, date: jourCivilKinshasa(new Date()), creeParId: userId })),
     });
   }
   const existants = new Set((await tx.stock.findMany({ where: { articleId: { in: lignes.map((l) => l.articleId) } }, select: { articleId: true } })).map((x) => x.articleId));
@@ -120,7 +121,7 @@ export function niveauxDe(stocks: { articleId: string; quantite: Prisma.Decimal;
 export async function apresComptage(p: { sessionId: string; nbHorsTol: number; articleIds: string[]; niveauxAvant: Map<string, NiveauAlerte> }) {
   if (p.nbHorsTol > 0) {
     const cibles = await prisma.user.findMany({ where: { role: { in: ["ADMIN", "STOCK"] }, actif: true }, select: { id: true } });
-    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Comptage du ${new Date().toLocaleDateString("fr-FR")} : ${p.nbHorsTol} écart(s) supérieur(s) à ${SEUIL_TOLERANCE_PCT} %.`, lien: `/stock/archives/${p.sessionId}`, refId: p.sessionId } });
+    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Comptage du ${jourKinshasa(new Date())} : ${p.nbHorsTol} écart(s) supérieur(s) à ${SEUIL_TOLERANCE_PCT} %.`, lien: `/stock/archives/${p.sessionId}`, refId: p.sessionId } });
     await envoyerPush(cibles.map((c) => c.id), { title: "Écart d'inventaire", body: `${p.nbHorsTol} écart(s) > ${SEUIL_TOLERANCE_PCT} % lors du comptage.`, url: `/stock/archives/${p.sessionId}`, tag: `comptage-${p.sessionId}` });
   }
   await notifierNouvellesAlertes(p.articleIds, p.niveauxAvant);

@@ -12,6 +12,7 @@ import type { TypeContrat } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { notifierContratASigner, etatSignatureContrat, notifierSiContratARevoir } from "@/lib/contrats-notification";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 function revalider(employeeId: string) {
   revalidatePath("/paie");
@@ -43,7 +44,7 @@ export async function transformerContrat(id: string, formData: FormData) {
     if (type === contrat.type) throw new Error(`Ce contrat est déjà un ${type}.`);
     if (type !== "CDI" && !dateFinStr) throw new Error(`Un ${type} doit avoir une date de fin.`);
 
-    const debut = dateDebutStr ? new Date(dateDebutStr) : new Date();
+    const debut = dateDebutStr ? new Date(dateDebutStr) : jourCivilKinshasa(new Date());
     const nouveau = await prisma.$transaction(async (tx) => {
       await tx.contrat.update({ where: { id }, data: { statut: "TRANSFORME" } });
       const cree = await tx.contrat.create({

@@ -7,6 +7,7 @@ import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
@@ -15,9 +16,9 @@ const JOUR_MS = 86400000;
 /** Jours restants avant l'échéance (négatif si dépassée) ; null si réglée ou sans échéance. */
 function joursAvant(echeance: Date | null, statut: string): number | null {
   if (statut === "REGLEE" || !echeance) return null;
-  const e = new Date(echeance), auj = new Date();
+  const e = new Date(echeance);
   const e0 = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
-  const a0 = Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth(), auj.getUTCDate());
+  const a0 = jourCivilKinshasa(new Date()).getTime(); // aujourd'hui à Kinshasa
   return Math.round((e0 - a0) / JOUR_MS);
 }
 
@@ -40,7 +41,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     prisma.config.findUnique({ where: { id: "singleton" }, select: { anneeCourante: true } }),
   ]);
   const anneesDispo = anneesRows.map((r) => r.annee);
-  const anneeDefaut = configAnnee?.anneeCourante ?? new Date().getFullYear();
+  const anneeDefaut = configAnnee?.anneeCourante ?? anneeCouranteKinshasa();
   const anneeSel: number | null =
     filtreImpayes || sp.annee === "toutes" ? null : Number(sp.annee) || anneeDefaut;
 
@@ -71,8 +72,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0, nbTotal: 0, nbReglees: 0, nbDues: 0, nbEchues: 0 };
 
   // Solde par fournisseur : agrégé en SQL, et seulement quand la vue « fournisseur » est affichée.
-  const anneeC = config?.anneeCourante ?? new Date().getFullYear();
-  const moisC = config?.moisCourant ?? new Date().getMonth() + 1;
+  const anneeC = config?.anneeCourante ?? anneeCouranteKinshasa();
+  const moisC = config?.moisCourant ?? numeroMoisCourantKinshasa();
   const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
   const cdfEq = (v: number) => (tauxCDF > 0 && v > 0 ? ` · ≈ ${Math.round(v * tauxCDF).toLocaleString("fr-FR")} CDF` : "");
   const parFournisseur = vue === "fournisseur"
@@ -100,8 +101,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
       orderBy: [{ dateEcheance: { sort: "asc", nulls: "last" } }],
       include: { fournisseur: { select: { nom: true } } },
     });
-    const auj = new Date();
-    const auj0 = Date.UTC(auj.getUTCFullYear(), auj.getUTCMonth(), auj.getUTCDate());
+    const auj0 = jourCivilKinshasa(new Date()).getTime(); // aujourd'hui à Kinshasa
     const idx = new Map<string, number>();
     for (const x of dues) {
       let cle: string, titre: string, retard = false;

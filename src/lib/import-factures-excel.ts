@@ -6,6 +6,7 @@ import ExcelJS from "exceljs";
 
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 import { normTexte } from "./texte";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 const norm = (s: unknown) => normTexte(String(s ?? "")).trim();
 const alnum = (s: unknown) => norm(s).replace(/[^a-z0-9]/g, "");
 
@@ -101,7 +102,7 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
       let statut: FactureImportee["statut"];
       if (statutTxt.includes("echu")) statut = "ECHUE_NON_REGLEE";
       else if (statutTxt.includes("regl")) statut = "REGLEE";
-      else statut = echeance && echeance < new Date() ? "ECHUE_NON_REGLEE" : "A_REGLER";
+      else statut = echeance && echeance < jourCivilKinshasa(new Date()) ? "ECHUE_NON_REGLEE" : "A_REGLER";
 
       if (regle == null && reste == null) { reste = statut === "REGLEE" ? 0 : montant; regle = montant - reste; }
       else if (reste == null) { reste = Math.max(0, montant - (regle ?? 0)); }

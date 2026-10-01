@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { MOIS_FR, MOIS_FR_MAJ } from "@/lib/dates-fr";
 import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 // Filtre de l'écran Stock → Mouvements (mois, produit, motif), UNE SEULE construction du `where`
 // pour la page qui affiche et pour les actions groupées « tout le filtre » qui écrivent
@@ -41,7 +42,11 @@ export type FiltreMouvements = { mois: string; articleId: string | null; motif: 
 export type ColonneMouvements = "ENTREES" | "SORTIES";
 
 const RE_MOIS = /^(\d{4})-(\d{1,2})$/;
-const moisDe = (d: Date) => `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`;
+/** Le mois courant de Kinshasa, « AAAA-M » (le mois par défaut vient de l'horloge, pas d'une date stockée). */
+export const moisCourantMouvements = (maintenant: Date) => {
+  const j = jourCivilKinshasa(maintenant);
+  return `${j.getUTCFullYear()}-${j.getUTCMonth() + 1}`;
+};
 
 /**
  * Lit un filtre brut (paramètres d'URL, ou argument reçu par une action serveur — donc non fiable)
@@ -52,7 +57,7 @@ export function lireFiltreMouvements(brut: { mois?: unknown; articleId?: unknown
   const m = typeof b.mois === "string" ? RE_MOIS.exec(b.mois) : null;
   const mois = b.mois === "tous" ? "tous"
     : m && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? `${Number(m[1])}-${Number(m[2])}`
-    : moisDe(maintenant);
+    : moisCourantMouvements(maintenant);
   const articleId = typeof b.articleId === "string" && b.articleId.trim() ? b.articleId.trim() : null;
   const motif = typeof b.motif === "string" && Object.prototype.hasOwnProperty.call(FILTRES_MOTIF, b.motif) ? (b.motif as CleMotif) : null;
   return { mois, articleId, motif };
@@ -66,8 +71,9 @@ export function lireFiltreMouvements(brut: { mois?: unknown; articleId?: unknown
  */
 export function optionsMoisMouvements(maintenant: Date, moisFiltre: string | undefined): { val: string; label: string }[] {
   const option = (a: number, m0: number) => ({ val: `${a}-${m0 + 1}`, label: `${MOIS_FR_MAJ[m0]} ${a}`, rang: a * 12 + m0 });
+  const aujourdhui = jourCivilKinshasa(maintenant);
   const options = Array.from({ length: 12 }).map((_, i) => {
-    const d = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - i, 1));
+    const d = new Date(Date.UTC(aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth() - i, 1));
     return option(d.getUTCFullYear(), d.getUTCMonth());
   });
   const m = moisFiltre ? RE_MOIS.exec(moisFiltre) : null;

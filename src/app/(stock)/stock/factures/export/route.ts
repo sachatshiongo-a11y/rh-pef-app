@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "");
 
@@ -29,7 +30,7 @@ export async function GET() {
 
   const buf = await classeurExcel({
     titre: "Factures fournisseurs",
-    periode: new Date().toLocaleDateString("fr-FR"),
+    periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: "Factures",
       entete: ["Fournisseur", "N° facture", "Date", "Échéance", "Date paiement", "Montant USD", "Réglé USD", "Reste USD", "Statut", "Mode de paiement"],
@@ -39,7 +40,7 @@ export async function GET() {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Factures_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Factures_${jourCourantKinshasaISO()}.xlsx"`,
     },
   });
 }

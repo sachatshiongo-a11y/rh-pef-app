@@ -7,6 +7,7 @@ import { FicheEmployeDocument } from "@/lib/pdf/fiche-employe";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { formaterNombre } from "@/lib/montant";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const usd = (n: number) =>
@@ -21,8 +22,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!employee) return new Response("Employé introuvable", { status: 404 });
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
+  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
   const finMois = new Date(Date.UTC(annee, mois, 0));
 

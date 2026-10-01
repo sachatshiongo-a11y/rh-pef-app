@@ -326,3 +326,32 @@ describe("accueil Stock — Plats (disponibilité selon le stock)", () => {
     try { expect(await rendreHtml()).toContain("data-bloc-disponibilite-plats"); } finally { A.user.role = avant; }
   }, 60_000);
 });
+
+describe("accueil Stock — le 1er du mois entre 00 h et 01 h à Kinshasa", () => {
+  it("le mois neuf est déjà le mois courant (carte consommation, sélecteur, date du jour) ; la veille à 23 h 30, rien ne change", async () => {
+    // Constaté le 2026-10-01 à 00 h 19 WAT : le serveur (UTC) était encore le 30 septembre.
+    const farine = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Farine" } });
+    const sortie = await prisma.mouvementStock.create({ data: { articleId: farine.id, type: "SORTIE", quantite: 1, montantUSD: 3, date: d("2026-10-01") } });
+    try {
+      vi.setSystemTime(new Date("2026-09-30T23:30:00Z")); // jeudi 1er octobre, 00 h 30 à Kinshasa
+      const html = await rendreHtml();
+      const t = texte(html);
+      expect(t).toContain("Le mois · octobre 2026");
+      expect(t).toMatch(/jeudi 1(er)? octobre 2026/);
+      expect(t).toContain("Conso. du mois (sorties) ≈ 3,00 $ 1 sortie(s) valorisées");
+      expect(html).not.toContain("data-retour-mois-courant");
+      expect(html).not.toContain("data-avertissement-instantane");
+      expect(await rendreHtml({ mois: "2026-10" })).toBe(html); // ?mois= du mois courant = adresse nue
+
+      // Contre-épreuve : le 30 septembre à 23 h 30 à Kinshasa (22 h 30 UTC) : septembre, comme à 10 h.
+      vi.setSystemTime(new Date("2026-09-30T22:30:00Z"));
+      const soir = texte(await rendreHtml());
+      expect(soir).toContain("Le mois · septembre 2026");
+      expect(soir).toContain("mercredi 30 septembre 2026");
+      expect(soir).toContain("Conso. du mois (sorties) ≈ 17,00 $ 2 sortie(s) valorisées");
+    } finally {
+      await prisma.mouvementStock.delete({ where: { id: sortie.id } });
+      vi.setSystemTime(new Date("2026-09-30T10:00:00Z"));
+    }
+  }, 60_000);
+});

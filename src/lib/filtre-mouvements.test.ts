@@ -9,6 +9,17 @@ import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, opt
 const MAINTENANT = new Date("2026-09-29T10:00:00Z");
 const SEPT = { gte: new Date("2026-09-01T00:00:00Z"), lt: new Date("2026-10-01T00:00:00Z") };
 
+describe("mois courant du filtre — celui de Kinshasa", () => {
+  it("le 1er octobre à 00 h 30 (23 h 30 UTC la veille) : octobre par défaut ; le 31 à 23 h 30 : octobre aussi", () => {
+    expect(lireFiltreMouvements({}, new Date("2026-09-30T23:30:00Z")).mois).toBe("2026-10");
+    expect(lireFiltreMouvements({}, new Date("2026-10-31T22:30:00Z")).mois).toBe("2026-10");
+  });
+  it("la liste des 12 derniers mois commence au mois courant de Kinshasa", () => {
+    expect(optionsMoisMouvements(new Date("2026-09-30T23:30:00Z"), undefined)[0]).toEqual({ val: "2026-10", label: "Octobre 2026" });
+    expect(optionsMoisMouvements(new Date("2026-10-31T22:30:00Z"), undefined)[0]).toEqual({ val: "2026-10", label: "Octobre 2026" });
+  });
+});
+
 describe("lireFiltreMouvements — normalisation d'un filtre brut (URL ou argument d'action, non fiable)", () => {
   it.each([
     [undefined, "2026-9"], ["", "2026-9"], ["n'importe quoi", "2026-9"], ["2026-13", "2026-9"], ["2026-0", "2026-9"],

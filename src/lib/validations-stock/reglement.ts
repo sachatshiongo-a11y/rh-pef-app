@@ -16,10 +16,11 @@ import { journaliser } from "@/lib/audit";
 import { lireDatePaiement } from "@/lib/date-paiement";
 import { envoyerPush } from "@/lib/push";
 import { formaterUSD } from "@/lib/montant";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 type Tx = Prisma.TransactionClient;
 
-const AUJ = () => new Date().toISOString().slice(0, 10);
+const AUJ = () => jourCourantKinshasaISO();
 
 /** Statut d'une facture d'après son reste à payer et son échéance. */
 export function statutDe(reste: number, echeanceISO: string | null): "REGLEE" | "A_REGLER" | "ECHUE_NON_REGLEE" {

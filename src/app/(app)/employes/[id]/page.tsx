@@ -34,7 +34,7 @@ import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
-import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { jourKinshasa, jourCivilKinshasa, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
@@ -96,8 +96,8 @@ export default async function FicheEmployePage({
     prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
   ]);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
+  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
 
   const pretsView = prets.map((p) => {
     const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);
@@ -339,7 +339,7 @@ export default async function FicheEmployePage({
       : Number(employee.transportMoisUSD);
   const transportMoisCDF = transportMoisUSD * parametres.tauxChangeCDF;
 
-  const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(annee, mois - 1, 1));
+  const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(Date.UTC(annee, mois - 1, 1)));
   // Solde de congé : LA source unique de l'espace salarié, à l'HORLOGE (règle maison : le mois RH
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
@@ -348,7 +348,9 @@ export default async function FicheEmployePage({
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
-  const maintenant = new Date();
+  // Échéances stockées à minuit UTC (jour civil) : on les compare au JOUR de Kinshasa — un contrat qui
+  // finit aujourd'hui court jusqu'au soir (avant : « expiré » dès minuit UTC).
+  const maintenant = jourCivilKinshasa(new Date());
   const dans30j = new Date(maintenant.getTime() + 30 * 86400000);
   for (const c of contrats) {
     if (c.dateFin && new Date(c.dateFin) >= maintenant && new Date(c.dateFin) <= dans30j) {

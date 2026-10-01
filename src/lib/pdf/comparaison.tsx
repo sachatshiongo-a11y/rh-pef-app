@@ -3,6 +3,7 @@ import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
 import type { Colonne } from "./tableau";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
 
@@ -137,7 +138,7 @@ function CorpsTableau({ p }: { p: PartieComparaison }) {
 
 /** Document PDF de la Comparaison : une page paysage par partie (jours, puis fin de semaine et totaux). */
 export function ComparaisonDocument({ titre, sousTitre, parties, pied }: { titre: string; sousTitre: string; parties: PartieComparaison[]; pied?: string }) {
-  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>
       {parties.map((p, pi) => (

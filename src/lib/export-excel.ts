@@ -2,6 +2,7 @@ import "server-only";
 import ExcelJS from "exceljs";
 import fs from "node:fs";
 import path from "node:path";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 const logoPath = path.join(process.cwd(), "public/logo-pates-en-folie.png");
 const OPTIMA = "Optima";
@@ -112,7 +113,7 @@ export async function classeurExcel(opts: {
   wb.creator = "Pâtes en Folie (TOLYA SARL)";
   wb.created = new Date();
 
-  const editeLe = new Date().toLocaleDateString("fr-FR");
+  const editeLe = jourKinshasa(new Date());
   const logoId = logoDuClasseur(wb);
 
   const HAUT_LOGO = 3; // lignes vides réservées à la hauteur du logo, au-dessus des titres
@@ -323,7 +324,7 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
   const wb = new ExcelJS.Workbook();
   wb.creator = "Pâtes en Folie (TOLYA SARL)";
   wb.created = new Date();
-  const editeLe = new Date().toLocaleDateString("fr-FR");
+  const editeLe = jourKinshasa(new Date());
   const logoId = logoDuClasseur(wb);
   const HAUT_LOGO = 3;
 

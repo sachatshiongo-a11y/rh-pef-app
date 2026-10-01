@@ -3,6 +3,7 @@ import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 // Codes couleur d'alerte (ARGB) pour le fond des lignes Excel.
 const ALERTE_ARGB: Record<NiveauAlerte, string> = { URGENT: "FFFBE0E0", APPRO: "FFFBF0D4", OK: "FFE9F6EE" };
@@ -55,7 +56,7 @@ export async function GET(req: Request) {
   const suffixeFichier = domaine ? `_${DOMAINE_LABEL[domaine]}` : "";
   const buf = await classeurExcel({
     titre: `Inventaire${suffixe} — Stock & Achats`,
-    periode: new Date().toLocaleDateString("fr-FR"),
+    periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: "Inventaire",
       entete: ["Code", "Désignation", "Stock", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Unité", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine"],
@@ -66,7 +67,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Inventaire${suffixeFichier}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Inventaire${suffixeFichier}_${jourCourantKinshasaISO()}.xlsx"`,
     },
   });
 }

@@ -16,6 +16,7 @@ import { verrouillerStocks } from "./comptage";
 import { dec } from "@/lib/nombre";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import type { NiveauAlerte } from "@/lib/stock";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 type Tx = Prisma.TransactionClient;
 
@@ -39,7 +40,7 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);
   const dateStr = String(formData.get("date") ?? "").trim();
-  const date = dateStr ? new Date(dateStr) : new Date();
+  const date = dateStr ? new Date(dateStr) : jourCivilKinshasa(new Date()); // jour civil de Kinshasa
   if (Number.isNaN(date.getTime())) throw new Error("Date du mouvement invalide.");
 
   let categorieSortie: MotifSortie = null;

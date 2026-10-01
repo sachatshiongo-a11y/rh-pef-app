@@ -8,6 +8,7 @@ import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 
@@ -44,7 +45,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const [fournisseurId, setFournisseurId] = useState(bon0?.fournisseurId ?? "");
   const [fournisseurNom, setFournisseurNom] = useState(bon0?.fournisseurNom ?? "");
   const [numero, setNumero] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(jourCourantKinshasaISO());
   const [echeance, setEcheance] = useState("");
   const [lignes, setLignes] = useState<Ligne[]>(lignesDeBon(bon0));
   const pdfRef = useRef<HTMLInputElement>(null);

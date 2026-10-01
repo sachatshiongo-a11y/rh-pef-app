@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { lundiDe } from "@/lib/dates-fr";
+import { lundiDe, lundiCourantKinshasa } from "@/lib/dates-fr";
 import { CommandeGrid, type CmdArticle } from "./commande-grid";
 import { LEGUMES } from "../legumes/legumes-data";
 import { TableConso } from "./table-conso";
@@ -30,7 +30,7 @@ export default async function JournalierPage({ searchParams }: { searchParams: P
   const sp = await searchParams;
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" ? sp.domaine : undefined;
   const vue = sp.vue === "commande" || sp.vue === "comparaison" || sp.vue === "ventes" ? sp.vue : "conso";
-  const lundi = sp.semaine ? lundiDe(new Date(sp.semaine)) : lundiDe(new Date());
+  const lundi = sp.semaine ? lundiDe(new Date(sp.semaine)) : lundiCourantKinshasa();
   const jours = Array.from({ length: 7 }, (_, i) => addDays(lundi, i));
   const finSemaine = addDays(lundi, 7);
   const joursLabel = jours.map((d, i) => ({ iso: iso(d), label: `${JOURS[i]} ${d.getUTCDate()}` }));

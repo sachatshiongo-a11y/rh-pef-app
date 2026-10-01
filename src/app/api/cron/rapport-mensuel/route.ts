@@ -5,6 +5,7 @@ import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { envoyerEmail } from "@/lib/email";
 import { MOIS_FR_MAJ } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 // Toujours exécuté à la demande (jamais mis en cache) : c'est un déclencheur.
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Mois écoulé, à l'heure de Kinshasa (UTC+1) — le déclencheur tourne le 1er au matin.
-  const kinshasa = new Date(Date.now() + 3_600_000);
+  const kinshasa = jourCivilKinshasa(new Date());
   const moisRapport = kinshasa.getUTCMonth() === 0 ? 12 : kinshasa.getUTCMonth(); // 1..12
   const anneeRapport = moisRapport === 12 ? kinshasa.getUTCFullYear() - 1 : kinshasa.getUTCFullYear();
   const debutMois = new Date(Date.UTC(anneeRapport, moisRapport - 1, 1));

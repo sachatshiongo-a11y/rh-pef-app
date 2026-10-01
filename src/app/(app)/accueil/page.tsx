@@ -6,6 +6,7 @@ import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { indicateursPaieDuMois, moisDePaie } from "@/lib/indicateurs/rh";
 import { exigerPageRH } from "@/lib/garde-page";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -17,8 +18,10 @@ const STYLE_ALERTE: Record<Alerte["niveau"], string> = {
   info: "bg-blue-500",
 };
 function libelleJour(date: Date): string {
-  const j = Math.ceil(
-    (new Date(new Date(date).toDateString()).getTime() - new Date(new Date().toDateString()).getTime()) / 86_400_000
+  // Dates stockées à minuit UTC (jour civil) ; « aujourd'hui » = le jour civil de Kinshasa.
+  const d = new Date(date);
+  const j = Math.round(
+    (Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - jourCivilKinshasa(new Date()).getTime()) / 86_400_000
   );
   if (j <= 0) return "Aujourd'hui";
   if (j === 1) return "Demain";
@@ -33,7 +36,9 @@ export default async function AccueilPage() {
   const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const maintenant = new Date();
-  const dans30j = new Date(maintenant.getTime() + 30 * 86_400_000);
+  // Dates stockées à minuit UTC (jour civil) : les échéances et congés se comparent au JOUR de Kinshasa.
+  const aujourdhui = jourCivilKinshasa(maintenant);
+  const dans30j = new Date(aujourdhui.getTime() + 30 * 86_400_000);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const { mois, annee } = moisDePaie(config, maintenant);
   const filtreRun = config ? { payrollRun: { mois, annee } } : {};
@@ -59,10 +64,10 @@ export default async function AccueilPage() {
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
     compterPasValideComptees(prisma, filtreRun), // hors calcul exclues (paie-hors-calcul.ts)
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
-    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: maintenant }, dateFin: { gte: maintenant } } }),
+    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: aujourdhui }, dateFin: { gte: aujourdhui } } }),
     calculerAlertes().then((l) => l.filter((a) => a.espace === "RH")), // les alertes STOCK restent dans leur espace
     prisma.leaveRequest.findMany({
-      where: { statut: "APPROUVE", dateFin: { gte: maintenant }, dateDebut: { lte: dans30j } },
+      where: { statut: "APPROUVE", dateFin: { gte: aujourdhui }, dateDebut: { lte: dans30j } },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { dateDebut: "asc" },
       take: 10,
@@ -72,8 +77,8 @@ export default async function AccueilPage() {
       where: {
         statut: "ACTIF",
         OR: [
-          { dateFin: { gte: maintenant, lte: dans30j } },
-          { finPeriodeEssai: { gte: maintenant, lte: dans30j } },
+          { dateFin: { gte: aujourdhui, lte: dans30j } },
+          { finPeriodeEssai: { gte: aujourdhui, lte: dans30j } },
         ],
       },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
@@ -95,8 +100,8 @@ export default async function AccueilPage() {
 
   // Anniversaires à venir (30 j) : on compare mois/jour (indépendamment de l'année).
   const jourAnnee = (d: Date) => d.getUTCMonth() * 31 + d.getUTCDate();
-  const ajd = jourAnnee(new Date(Date.UTC(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate())));
-  const fin30 = jourAnnee(new Date(dans30j.getUTCFullYear(), dans30j.getUTCMonth(), dans30j.getUTCDate()));
+  const ajd = jourAnnee(jourCivilKinshasa(maintenant));
+  const fin30 = jourAnnee(jourCivilKinshasa(dans30j));
   const anniversaires = employesAnniv
     .map((e) => {
       const dn = new Date(e.dateNaissance!);
@@ -130,7 +135,7 @@ export default async function AccueilPage() {
     { label: "Congés en cours", value: String(congesEnCours) },
   ];
 
-  const dateDuJour = maintenant.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const dateDuJour = jourCivilKinshasa(maintenant).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
     <div className="max-w-6xl">

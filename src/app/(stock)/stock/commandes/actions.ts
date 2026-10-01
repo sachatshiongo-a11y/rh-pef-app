@@ -15,6 +15,7 @@ import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { usd } from "@/lib/stock";
 import { extraireBonCommandePDF, type LigneBonCommande } from "@/lib/import-bc-pdf";
+import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
 const slugBC = (s: string) => normNom(s).slice(0, 40) || "bc";
@@ -52,7 +53,7 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
     try {
       const e = await extraireBonCommandePDF(await f.arrayBuffer(), taux);
       if (!e.numero || !e.fournisseur) { erreurs.push(`${f.name} : numéro/fournisseur introuvable`); continue; }
-      extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? new Date().getFullYear(), fournisseur: e.fournisseur, date: e.date, total: e.total, lignes: e.lignes });
+      extraits.push({ file: f, numero: e.numero, sequence: e.sequence, mois: e.mois ?? 1, annee: e.annee ?? anneeCouranteKinshasa(), fournisseur: e.fournisseur, date: e.date, total: e.total, lignes: e.lignes });
     } catch (err) {
       erreurs.push(`${f.name} : ${err instanceof Error ? err.message : "illisible"}`);
     }
@@ -89,7 +90,7 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
       const totalLignes = e.lignes.reduce((t, l) => t + l.totalLigneUSD, 0);
       const total = e.total > 0 ? e.total : Math.round(totalLignes * 100) / 100;
       await prisma.bonDeCommande.create({
-        data: { numero, sequence: e.sequence, annee: e.annee, mois: e.mois, date: e.date ? new Date(e.date) : new Date(),
+        data: { numero, sequence: e.sequence, annee: e.annee, mois: e.mois, date: e.date ? new Date(e.date) : jourCivilKinshasa(new Date()),
           fournisseurId: parNom.get(normNom(e.fournisseur)) ?? null, statut: "VALIDE", totalUSD: total, documentUrl: url, creeParId: user.id,
           lignes: { create: e.lignes.map((l) => ({ designation: l.designation, unite: l.unite, quantite: l.quantite, prixUnitaireUSD: l.prixUnitaireUSD, totalLigneUSD: l.totalLigneUSD })) } },
       });
@@ -149,9 +150,9 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : null;
 
-  const now = new Date();
-  const annee = now.getFullYear();
-  const mois = now.getMonth() + 1;
+  const now = jourCivilKinshasa(new Date()); // le numéro du bon suit le mois de Kinshasa
+  const annee = now.getUTCFullYear();
+  const mois = now.getUTCMonth() + 1;
 
   // Étiquette fournisseur intégrée au numéro pour compiler/identifier plus vite (ex. « 001/PEF/SENEVE/JUIN/26 »).
   const four = fournisseurId ? await prisma.fournisseur.findUnique({ where: { id: fournisseurId }, select: { nom: true } }) : null;
@@ -169,6 +170,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
     return tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,
+        date: now, // jour civil de Kinshasa, explicite : le défaut de la base (now() UTC) daterait la veille
         ...(autoValide ? { statut: "VALIDE" as const } : {}),
         fournisseurId,
         delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
@@ -336,7 +338,7 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
   if (aRecevoir.length === 0) throw new Error("Renseignez au moins une quantité reçue (sur une ligne liée à un article).");
 
   await prisma.$transaction(async (tx) => {
-    await tx.reception.create({ data: { bonDeCommandeId: bcId, creeParId: user.id } });
+    await tx.reception.create({ data: { bonDeCommandeId: bcId, date: jourCivilKinshasa(new Date()), creeParId: user.id } }); // date explicite : le défaut de la base est le jour UTC
     const articleLines = bc.lignes.filter((l) => l.articleId);
     const complet = articleLines.every((l) => (recu.get(l.id) ?? 0) >= Number(l.quantite));
     await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: complet ? "RECU" : "RECU_PARTIEL" } });

@@ -187,7 +187,7 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
                       <span className="font-medium">{ENTITE_LABEL[e.entite] ?? e.entite}</span> <span className="text-xs text-muted-foreground">· {e.champ}</span>
                       <span className="block truncate text-xs text-muted-foreground">{e.nouvelleValeur ?? e.ancienneValeur ?? "—"}{e.user?.nom ? ` · ${e.user.nom}` : ""}</span>
                     </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR")}</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{new Date(e.date).toLocaleString("fr-FR", { timeZone: "Africa/Kinshasa" })}</span>
                   </li>
                 ))}
               </ul>

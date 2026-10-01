@@ -24,7 +24,7 @@ import { ContratViewerButton } from "./contrat-viewer";
 import { creerPret, annulerPret } from "./pret-actions";
 import type { Echeancier } from "@/lib/prets";
 import { MOIS_FR } from "@/lib/dates-fr";
-import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { jourKinshasa, jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { PretForm } from "./pret-form";
 import { listeEnProse } from "@/lib/texte";
 import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
@@ -84,16 +84,16 @@ const TYPE_CONTRAT_LABEL = LIBELLE_TYPE_CONTRAT;
 
 // Dates relatives de la carte « Conditions actuelles » (« il y a 3 ans », « dans 6 mois »).
 function ecartMois(a: Date, b: Date) {
-  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  return (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
 }
 function relatifPasse(date: Date) {
-  const m = Math.max(0, ecartMois(date, new Date()));
+  const m = Math.max(0, ecartMois(date, jourCivilKinshasa(new Date())));
   if (m >= 12) { const ans = Math.floor(m / 12); return `il y a ${ans} an${ans > 1 ? "s" : ""}`; }
   if (m >= 1) return `il y a ${m} mois`;
   return "ce mois-ci";
 }
 function relatifFutur(date: Date) {
-  const m = ecartMois(new Date(), date);
+  const m = ecartMois(jourCivilKinshasa(new Date()), date);
   if (m < 0) return "échue";
   if (m >= 12) { const ans = Math.floor(m / 12); return `dans ${ans} an${ans > 1 ? "s" : ""}`; }
   if (m >= 1) return `dans ${m} mois`;
@@ -209,7 +209,7 @@ export function DossierEmploye({
   peutModifier: boolean;
   estAdmin: boolean;
 }) {
-  const aujourdhui = new Date();
+  const aujourdhui = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : les échéances sont des dates pures
   const dans30j = new Date(aujourdhui.getTime() + 30 * 86400000);
 
   return (
@@ -510,7 +510,7 @@ export function DossierEmploye({
                       </select>
                     </label>
                     <label className="flex flex-col gap-0.5">Début du nouveau contrat
-                      <input type="date" name="dateDebut" defaultValue={new Date().toISOString().slice(0, 10)} className={inputCls} />
+                      <input type="date" name="dateDebut" defaultValue={jourCourantKinshasaISO()} className={inputCls} />
                     </label>
                     <label className="flex flex-col gap-0.5">Fin (si CDD)
                       <input type="date" name="dateFin" className={inputCls} />

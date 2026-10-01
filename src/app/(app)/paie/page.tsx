@@ -12,7 +12,7 @@ import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
 import { classerContrats, jourMetier, type Classement } from "@/lib/contrats-classement";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
-import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { jourCivilKinshasa, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 import { HistoriquePaie, type SPHistorique } from "./historique-paie";
 import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
@@ -44,8 +44,8 @@ export default async function PaiePage({
   const estAdmin = user.role === "ADMIN";
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
+  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
 
   // Bulletins TOUJOURS à jour : si la paie a été calculée et qu'il reste des lignes non figées,
   // on les recalcule silencieusement AVANT l'affichage — les présences, heures, pointages et

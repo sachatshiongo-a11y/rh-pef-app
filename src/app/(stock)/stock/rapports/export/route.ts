@@ -5,11 +5,11 @@ import { classeurExcel, type FeuilleExcel } from "@/lib/export-excel";
 import { TableauDocument, TablesDocument } from "@/lib/pdf/tableau";
 import { libellePeriodeRapport, versTableSpec } from "@/lib/rapports-pdf";
 import { genererDonneesRapport, genererDonneesRapportDetail, TYPES_RAPPORT, type TypeRapport } from "@/lib/rapports";
+import { jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 function bornes(sp: URLSearchParams): { debut: Date; fin: Date } {
-  const now = new Date();
-  const defFin = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const defDebut = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate()));
+  const defFin = jourCivilKinshasa(new Date()); // aujourd'hui à Kinshasa
+  const defDebut = new Date(Date.UTC(defFin.getUTCFullYear() - 1, defFin.getUTCMonth(), defFin.getUTCDate()));
   const pd = sp.get("debut"), pf = sp.get("fin");
   const debut = pd && /^\d{4}-\d{2}-\d{2}$/.test(pd) ? new Date(`${pd}T00:00:00Z`) : defDebut;
   const fin = pf && /^\d{4}-\d{2}-\d{2}$/.test(pf) ? new Date(`${pf}T00:00:00Z`) : defFin;
@@ -41,7 +41,7 @@ export async function GET(req: Request) {
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="Rapport_${type}_${mode}_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+        "Content-Disposition": `attachment; filename="Rapport_${type}_${mode}_${jourCourantKinshasaISO()}.xlsx"`,
       },
     });
   }
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="Rapport_${type}_${mode}_${new Date().toISOString().slice(0, 10)}.pdf"`,
+      "Content-Disposition": `attachment; filename="Rapport_${type}_${mode}_${jourCourantKinshasaISO()}.pdf"`,
     },
   });
 }

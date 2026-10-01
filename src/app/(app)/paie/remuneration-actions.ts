@@ -10,12 +10,13 @@ import { recalculerPaieSiCalculee } from "./actions";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
 import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 async function periodeCourante() {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   return {
-    mois: config?.moisCourant ?? new Date().getMonth() + 1,
-    annee: config?.anneeCourante ?? new Date().getFullYear(),
+    mois: config?.moisCourant ?? numeroMoisCourantKinshasa(),
+    annee: config?.anneeCourante ?? anneeCouranteKinshasa(),
   };
 }
 

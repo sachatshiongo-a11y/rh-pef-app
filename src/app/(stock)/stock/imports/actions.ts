@@ -8,12 +8,13 @@ import { analyserFactures, appliquerFactures, type PreviewFactures } from "@/lib
 import { analyserMouvements, appliquerMouvements, type PreviewMouvements } from "@/lib/import-mouvements";
 import { detecterDoublons, retirerDoublons, type ApercuDoublons } from "@/lib/doublons-imports";
 import { sortiesSontLivraisons, CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 // Toutes les actions sont enrobées par actionLisible : les erreurs métier (fichier manquant,
 // mois clôturé, rien à importer…) reviennent au client comme { erreur } LISIBLE — en prod,
 // Next masque le message des erreurs jetées.
 
-const AUJ = () => new Date().toISOString().slice(0, 10);
+const AUJ = () => jourCourantKinshasaISO();
 
 async function gardeDirection() {
   const user = await verifySession();
@@ -60,7 +61,7 @@ export const appliquerFacturesAction = actionLisible(
     const user = await gardeDirection();
     const fichiers = formData.getAll("fichiers").filter((f): f is File => f instanceof File && f.size > 0);
     if (fichiers.length === 0) throw new Error("Fichier(s) manquant(s).");
-    const libelle = String(formData.get("libelle") ?? "").trim() || `Factures ${new Date().toLocaleDateString("fr-FR")}`;
+    const libelle = String(formData.get("libelle") ?? "").trim() || `Factures ${jourKinshasa(new Date())}`;
     const res = await appliquerFactures(fichiers, libelle, user.id);
     revalidatePath("/stock/imports");
     revalidatePath("/stock/factures");
@@ -86,7 +87,7 @@ export const appliquerMouvementsAction = actionLisible(
     const user = await gardeDirection();
     const file = formData.get("fichier");
     if (!(file instanceof File) || file.size === 0) throw new Error("Fichier manquant.");
-    const libelle = String(formData.get("libelle") ?? "").trim() || `Mouvements ${new Date().toLocaleDateString("fr-FR")}`;
+    const libelle = String(formData.get("libelle") ?? "").trim() || `Mouvements ${jourKinshasa(new Date())}`;
     const dateDefaut = String(formData.get("dateDefaut") ?? "").trim() || AUJ();
     let lignesChoisies: number[] | undefined;
     const brut = String(formData.get("lignes") ?? "").trim();

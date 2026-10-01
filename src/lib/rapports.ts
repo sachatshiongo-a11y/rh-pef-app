@@ -8,6 +8,7 @@ import { chargerAnneeRapport } from "@/app/(exploitation)/exploitation/_data/cha
 import { construireRapportAnnuel, type DonneesRapportAnnuel } from "@/lib/exploitation/rapport-annuel";
 import type { RatioResultat } from "@/lib/exploitation/calcul";
 import { construireRapportVisuel, type DonneesRapportVisuel } from "@/lib/exploitation/rapport-regroupe";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 export type { LigneEcritureRapport };
 
@@ -159,7 +160,8 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
 
   if (type === "PAIEMENTS") {
     const rows = (await prisma.factureFournisseur.findMany({ where: { statut: "ECHUE_NON_REGLEE" }, orderBy: { dateEcheance: "asc" }, include: { fournisseur: { select: { nom: true } } } }));
-    const auj = Date.now();
+    // Retard en jours CIVILS de Kinshasa (échéance = minuit UTC d'un jour civil) : plus d'arrondi à midi.
+    const auj = jourCivilKinshasa(new Date()).getTime();
     const lignes = rows.map((r) => {
       const jrs = r.dateEcheance ? Math.round((auj - new Date(r.dateEcheance).getTime()) / 86400000) : null;
       return [r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), jrs !== null ? `${jrs} j` : "—", arr(Number(r.resteAPayerUSD))];

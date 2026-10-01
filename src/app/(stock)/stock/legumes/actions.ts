@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
 /**
@@ -18,7 +19,7 @@ export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
   requireModule(user, "stock");
 
   const dateStr = String(formData.get("date") ?? "").trim();
-  const date = dateStr ? new Date(dateStr) : new Date();
+  const date = dateStr ? new Date(dateStr) : jourCivilKinshasa(new Date()); // jour civil de Kinshasa
   await exigerPeriodeOuverte(date);
   const noms = formData.getAll("legume").map((v) => String(v).trim());
   const unites = formData.getAll("unite").map((v) => String(v).trim());

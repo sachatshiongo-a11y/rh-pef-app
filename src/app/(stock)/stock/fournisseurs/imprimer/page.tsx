@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { PrintDoc } from "../../_print/print-doc";
 import { exigerPageStock } from "@/lib/garde-page";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 export default async function FournisseursImprimerPage() {
   await exigerPageStock();
@@ -17,7 +18,7 @@ export default async function FournisseursImprimerPage() {
   return (
     <PrintDoc
       titre="Fournisseurs"
-      sousTitre={new Date().toLocaleDateString("fr-FR")}
+      sousTitre={jourKinshasa(new Date())}
       entete={["Nom", "Contact", "Téléphone", "Ville", "RCCM", "N° Id national", "Délai paiement", "Mode", "Articles", "Factures"]}
       aligneDroite={[8, 9]}
       lignes={lignes}

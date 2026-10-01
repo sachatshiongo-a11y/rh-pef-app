@@ -5,6 +5,7 @@ import { BarreSemaineMobile } from "@/components/barre-semaine-mobile";
 import { BasculeVueSemaine, SelecteurJour } from "@/components/selecteur-jour";
 import { MenuFicheCommande, MenuFichesConso } from "./menu-fiches-conso";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 // Haut de page de la Conso. journalière : titre, onglets, semaine, filtre Cuisine / Bar et exports.
 // Ordinateur : les rangées d'origine. Téléphone : titre, onglets qui défilent de côté, semaine sur
@@ -73,7 +74,7 @@ export function EnteteJournalier({ vue, domaine, lundi, jourDefaut, aujourdhui, 
           <Link href={semainePrec} className="rounded-md border px-2 py-1 hover:bg-accent">←</Link>
           <span className="px-2 font-medium">{libelleSemaine}</span>
           <Link href={semaineSuiv} className="rounded-md border px-2 py-1 hover:bg-accent">→</Link>
-          <Link href={lien({ semaine: iso(new Date()) })} className="ml-1 rounded-md border px-2 py-1 hover:bg-accent">Cette semaine</Link>
+          <Link href={lien({ semaine: jourCourantKinshasaISO() })} className="ml-1 rounded-md border px-2 py-1 hover:bg-accent">Cette semaine</Link>
         </div>
         <span className="text-muted-foreground">·</span>
         <div className="flex gap-1.5">
@@ -110,7 +111,7 @@ export function EnteteJournalier({ vue, domaine, lundi, jourDefaut, aujourdhui, 
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link href={lien({ semaine: iso(new Date()) })} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Cette semaine</Link>
+          <Link href={lien({ semaine: jourCourantKinshasaISO() })} className="flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Cette semaine</Link>
           <BasculeVueSemaine />
         </div>
         <div className="flex flex-wrap items-start gap-2">

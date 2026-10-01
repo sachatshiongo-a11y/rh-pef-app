@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { cloturerMoisStock, rouvrirMoisStock } from "@/app/(stock)/stock/parametres/actions";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 // Section « Clôture mensuelle du stock » — EXTRAITE de (stock)/stock/parametres pour être partagée :
 // l'onglet Paramètres est UNIQUE (demande user 2026-07-20). Elle vit désormais dans la page
@@ -13,9 +14,9 @@ export async function ClotureStockSection() {
     prisma.clotureStock.findMany({ orderBy: [{ annee: "desc" }, { mois: "desc" }] }),
   ]);
   const closes = new Set(clotures.map((c) => `${c.annee}-${c.mois}`));
-  const maintenant = new Date();
+  const aujourdhui = jourCivilKinshasa(new Date()); // le mois en cours se lit à Kinshasa
   const moisRecents = Array.from({ length: 6 }).map((_, i) => {
-    const d = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - i, 1));
+    const d = new Date(Date.UTC(aujourdhui.getUTCFullYear(), aujourdhui.getUTCMonth() - i, 1));
     const annee = d.getUTCFullYear(), mois = d.getUTCMonth() + 1;
     return { annee, mois, label: `${MOIS_FR[mois - 1]} ${annee}`, cloture: closes.has(`${annee}-${mois}`) };
   });

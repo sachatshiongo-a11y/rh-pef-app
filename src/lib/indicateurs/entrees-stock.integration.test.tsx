@@ -5,6 +5,7 @@ import { renderToStaticMarkup, renderToReadableStream } from "react-dom/server";
 import { formaterUSD } from "@/lib/montant";
 import { creerBaseTest } from "@/lib/test/db";
 import { whereMouvements, whereColonne } from "@/lib/filtre-mouvements";
+import { moisCourantKinshasa } from "@/lib/heure-kinshasa";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) — cartes « Entrées de stock » du tableau
 // de bord Stock (demande Direction 2026-09-30). Les achats et la facture passent par les VRAIES
@@ -247,8 +248,7 @@ const texte = (html: string) =>
 describe("tableau de bord Stock rendu sur la base", () => {
   it("les cartes y figurent, pour le mois du tableau de bord, avec les chiffres du calcul et des liens sur ce mois", async () => {
     const { default: StockDashboard } = await import("@/app/(stock)/stock/page");
-    const n = new Date();
-    const [annee, mois] = [n.getUTCFullYear(), n.getUTCMonth() + 1]; // mois courant du tableau de bord (UTC, comme la page)
+    const [annee, mois] = moisCourantKinshasa().split("-").map(Number); // mois courant du tableau de bord (Kinshasa, comme la page)
     // Une entrée valorisée ce mois-ci, quel que soit le jour où le test tourne.
     const riz = (await prisma.articleStock.findFirstOrThrow({ where: { designation: "Riz" } })).id;
     const mv = await prisma.mouvementStock.create({ data: { articleId: riz, type: "ENTREE", quantite: 1, montantUSD: 12.34, date: new Date(Date.UTC(annee, mois - 1, 2)), origine: "Liste d'achat" } });

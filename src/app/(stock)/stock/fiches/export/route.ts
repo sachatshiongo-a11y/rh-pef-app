@@ -5,6 +5,7 @@ import { chargerFichesVues, chargerArticlesDesFiches } from "../_data/charger-fi
 import { construireContexte, TYPE_LABEL } from "../_data/fiche-calc";
 import { familleBoisson, FAMILLES_BOISSON } from "@/lib/fiches/famille-boisson";
 import { fichesAExporter } from "../_data/selection-export";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 // Export Excel des fiches techniques : celles de l'onglet affiché (`?vue=plats|boissons`), ou la
 // sélection de la barre d'actions groupées (`?ids=`, déjà limitée à l'onglet par l'écran).
@@ -93,7 +94,7 @@ export async function GET(req: Request) {
   const suffixe = vue === "boissons" ? "Boissons" : vue === "plats" ? "Plats" : null;
   const buf = await classeurExcel({
     titre: `Fiches techniques${suffixe ? ` (${suffixe})` : ""} — coût de revient`,
-    periode: new Date().toLocaleDateString("fr-FR"),
+    periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: suffixe ?? "Fiches techniques",
       entete: [
@@ -109,7 +110,7 @@ export async function GET(req: Request) {
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Fiches_techniques_${suffixe ? `${suffixe}_` : ""}${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Fiches_techniques_${suffixe ? `${suffixe}_` : ""}${jourCourantKinshasaISO()}.xlsx"`,
     },
   });
 }

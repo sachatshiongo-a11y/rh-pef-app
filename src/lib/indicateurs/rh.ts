@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { salaireNetUSD } from "@/lib/paie-net";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 // Indicateurs de paie partagés : UNE seule source de vérité pour l'accueil RH et le tableau de bord
 // de l'Exploitation. Les formules sont celles que l'accueil RH portait jusqu'ici, recopiées à
@@ -35,14 +36,14 @@ export type IndicateursPaie = {
   variationCout: number | null;
 };
 
-/** Mois de paie courant : `Config.moisCourant`/`anneeCourante`, à défaut le mois civil du serveur. */
+/** Mois de paie courant : `Config.moisCourant`/`anneeCourante`, à défaut le mois civil de Kinshasa. */
 export function moisDePaie(
   config: { moisCourant: number; anneeCourante: number } | null,
   maintenant: Date,
 ): { mois: number; annee: number } {
   return {
-    mois: config?.moisCourant ?? maintenant.getMonth() + 1,
-    annee: config?.anneeCourante ?? maintenant.getFullYear(),
+    mois: config?.moisCourant ?? numeroMoisCourantKinshasa(maintenant),
+    annee: config?.anneeCourante ?? anneeCouranteKinshasa(maintenant),
   };
 }
 
