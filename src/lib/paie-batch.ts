@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import { estCalculeEnPaie } from "@/lib/paie-hors-calcul";
+import { estCalculeEnPaie, ORDRE_CONTRATS_ACTIFS } from "@/lib/paie-hors-calcul";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerEcheancePret } from "@/lib/prets";
 import {
@@ -113,7 +113,7 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
       db.acompteSalaire.findMany({ where: { mois, annee, statut: "APPROUVE" } }),
       db.leaveRequest.findMany({ where: { statut: "APPROUVE", dateDebut: { lte: finMois }, dateFin: { gte: debutMois } } }),
       db.fraisMedical.findMany({ where: { mois, annee } }),
-      db.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: { dateDebut: "asc" }, select: { employeeId: true, type: true } }),
+      db.contrat.findMany({ where: { statut: "ACTIF" }, orderBy: ORDRE_CONTRATS_ACTIFS, select: { employeeId: true, type: true } }),
       db.pretPersonnel.findMany({ where: { statut: "EN_COURS" }, include: { retenues: true } }),
       // Avantages en nature : lus UNIQUEMENT pour être recopiés sur le bulletin. Ils n'entrent dans
       // aucun calcul (ni assiette, ni base imposable, ni net) — voir le modèle AvantageNature.

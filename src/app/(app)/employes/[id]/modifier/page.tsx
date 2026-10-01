@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { requireRole } from "@/lib/auth";
 import { EmployeeForm } from "../../employee-form";
 import { modifierEmploye } from "../../actions";
@@ -33,11 +34,13 @@ export default async function ModifierEmployePage({
     // Dernière paie calculée : référence de la simulation (visualiser une augmentation).
     prisma.payrollRun.findFirst({
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
-      include: { lignes: { select: { employeeId: true, salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
+      include: { lignes: { select: { id: true, employeeId: true, statutPaiement: true, salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
     }),
     prisma.membreFamille.findMany({ where: { employeeId: id }, orderBy: [{ lien: "asc" }, { dateNaissance: "asc" }] }),
     prisma.config.findUnique({ where: { id: "singleton" }, select: { ageLimiteEnfantACharge: true } }),
   ]);
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors de la masse de référence (paie-hors-calcul.ts).
+  if (dernierRun) dernierRun.lignes = await lignesComptees(prisma, dernierRun.lignes);
   if (!employee) notFound();
 
   const ligneEmp = dernierRun?.lignes.find((l) => l.employeeId === id) ?? null;

@@ -14,6 +14,7 @@ import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-
 import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import {
+  ATTENTE_VERROU_VALIDATION,
   controlerLignesAValider,
   DELAI_VALIDATION_PAIE,
   messageErreurValidation,
@@ -386,6 +387,7 @@ export async function reinitialiserPaieDuMois() {
 
   // Run verrouillée FOR UPDATE (comme le recalcul) : une validation ou un recalcul concurrent attend.
   const { gardees, bulletinsRemis, figeesEntreTemps } = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${ATTENTE_VERROU_VALIDATION}'`);
     await tx.$queryRaw`SELECT "id" FROM "public"."PayrollRun" WHERE "id" = ${run.id} FOR UPDATE`;
     const figeesEntreTemps = await tx.payrollLine.count({ where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } } });
     if (figeesEntreTemps > 0) return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps };
@@ -415,7 +417,7 @@ export async function reinitialiserPaieDuMois() {
       userId: user.id,
     });
     return { gardees: gardees.length, bulletinsRemis, figeesEntreTemps: 0 };
-  });
+  }, { timeout: 60_000 });
   if (figeesEntreTemps > 0) {
     redirect(`/paie?erreur=${encodeURIComponent(`${figeesEntreTemps} bulletin(s) validé(s)/payé(s) entre-temps : rien n'a été réinitialisé.`)}`);
   }
@@ -427,7 +429,7 @@ export async function reinitialiserPaieDuMois() {
   revalidatePath("/accueil");
   redirect(`/paie?msg=${encodeURIComponent(
     gardees > 0
-      ? `Paie du mois réinitialisée et recalculée : ${bulletinsRemis} bulletin(s) déjà remis conservé(s) en archive (fiche du salarié).`
+      ? `Paie du mois réinitialisée et recalculée : ${bulletinsRemis} bulletin(s) déjà remis conservé(s) en archive (fiche du salarié). Les lignes hors calcul gardent leurs montants.`
       : "Paie du mois réinitialisée.",
   )}`);
 }

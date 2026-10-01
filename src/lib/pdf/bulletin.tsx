@@ -248,10 +248,13 @@ export type BulletinProps = {
   params?: ParametresPaie;
   /** Tracé et mention de signature du salarié (`signatureImprimable`) ; absent = jamais signé. */
   signatureSalarie?: SignatureImprimable;
+  /** Bulletin déjà REMIS relu depuis son instantané (VersionBulletin) : daté de sa remise, sans le
+   *  calendrier des présences (non conservé dans l'instantané), et dit comme une archive. */
+  archive?: { version: number; remisLe: Date };
 };
 
 /** Contenu d'UN bulletin (une page A4), mise en page tabulaire façon PayFit, fiscalité RDC. */
-export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params, signatureSalarie }: BulletinProps) {
+export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, congesPeriode = [], primes = [], feries = [], entreprise = entrepriseDefaut, logo, params, signatureSalarie, archive }: BulletinProps) {
   const feriesSet = new Set(feries);
   const tauxChange = Number(run.tauxChangeUtilise);
   const m = (usd: number) => formatMontant(usd, devise, tauxChange);
@@ -260,7 +263,7 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
     month: "long",
     year: "numeric",
   });
-  const faitLe = jourKinshasa(new Date());
+  const faitLe = jourKinshasa(archive ? new Date(archive.remisLe) : new Date());
 
   // Le mode de paiement n'est une information certaine qu'une fois le salaire effectivement payé.
   // Tant que le bulletin n'est pas au statut « Payé », la mention reste vide (pas de « Espèces »
@@ -479,7 +482,8 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         {/* Colonne calendrier */}
         <View style={styles.calWrap}>
           <Text style={styles.calHead}>Calendrier</Text>
-          {joursCal.map((j) => (
+          {archive && <Text style={styles.calCode}>Non conservé dans l&apos;archive.</Text>}
+          {!archive && joursCal.map((j) => (
             <View key={j.jour} style={[styles.calRow, j.dow === 0 ? styles.calRowDim : {}]}>
               <Text style={styles.calJour}>
                 {WD[j.dow]} {String(j.jour).padStart(2, "0")}
@@ -561,6 +565,11 @@ export function BulletinPage({ employee, ligne, run, devise, codesParJour = {}, 
         Ce bulletin de paie doit être conservé par le salarié sans limitation de durée.
       </Text>
 
+      {archive && (
+        <Text style={styles.conservation}>
+          {normaliserEspaces(`Bulletin remis (version ${archive.version}) — archive : montants figés à la remise ; le détail des présences n'est pas conservé.`)}
+        </Text>
+      )}
       <Text style={styles.fait}>Fait à Kinshasa, le {faitLe}</Text>
 
       <View style={styles.signatures} wrap={false}>

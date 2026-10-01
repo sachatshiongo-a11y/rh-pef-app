@@ -12,7 +12,11 @@ import type { PaymentStatus, Prisma, PrismaClient } from "@prisma/client";
  * réinitialiser la paie du mois).
  *
  * Une ligne VALIDÉE ou PAYÉE compte toujours (bulletin émis), quel que soit l'état de la fiche
- * aujourd'hui. Seule une ligne PAS VALIDÉE d'un salarié qui n'est plus calculé est mise à part.
+ * aujourd'hui. Une ligne PAS VALIDÉE est mise à part :
+ *   • si son salarié n'est plus calculé (fiche désactivée, intérim) ;
+ *   • ou si elle appartient à un mois PASSÉ déjà CLÔTURÉ (PayrollRun VALIDE, mois ≠ mois courant) :
+ *     la clôture l'a laissée de côté, et le mois clôturé ne doit plus bouger — réactiver la fiche
+ *     ou changer le contrat aujourd'hui ne la fait pas revenir dans les totaux de ce mois-là.
  *
  * RÈGLE UNIQUE « qui est calculé » : `estCalculeEnPaie`, appelée AUSSI par le moteur
  * (`calculerLignesPaie`, paie-batch.ts) — l'écart entre « calculé » et « compté » ne peut pas naître.
@@ -27,11 +31,15 @@ export function estCalculeEnPaie(e: { actif: boolean; contrat: string }, typeCon
   return (typeContratActif ?? e.contrat) !== "INTERIM";
 }
 
+/** Ordre des contrats ACTIF, partagé avec paie-batch.ts : le dernier lu l'emporte. Départagé par la
+ *  création puis l'identifiant — deux contrats de même date de début ne tombent plus au hasard. */
+export const ORDRE_CONTRATS_ACTIFS = [{ dateDebut: "asc" }, { createdAt: "asc" }, { id: "asc" }] satisfies Prisma.ContratOrderByWithRelationInput[];
+
 /** Type du contrat ACTIF le plus récent par salarié — même lecture que paie-batch.ts. */
 export async function typesContratActifs(db: Db, employeeIds?: string[]): Promise<Map<string, string>> {
   const contrats = await db.contrat.findMany({
     where: { statut: "ACTIF", ...(employeeIds ? { employeeId: { in: employeeIds } } : {}) },
-    orderBy: { dateDebut: "asc" },
+    orderBy: ORDRE_CONTRATS_ACTIFS,
     select: { employeeId: true, type: true },
   });
   const types = new Map<string, string>();
@@ -41,17 +49,24 @@ export async function typesContratActifs(db: Db, employeeIds?: string[]): Promis
 
 type LigneMinimale = { id: string; employeeId: string; statutPaiement: PaymentStatus };
 
-/** Identifiants des lignes HORS CALCUL parmi `lignes` (PAS VALIDÉES d'un salarié sorti du calcul). */
+/** Identifiants des lignes HORS CALCUL parmi `lignes` (voir l'en-tête du module). */
 export async function idsLignesHorsCalcul(db: Db, lignes: LigneMinimale[]): Promise<Set<string>> {
   const candidates = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE");
   if (candidates.length === 0) return new Set();
   const ids = [...new Set(candidates.map((l) => l.employeeId))];
-  const [employes, types] = await Promise.all([
+  const [employes, types, runs, config] = await Promise.all([
     db.employee.findMany({ where: { id: { in: ids } }, select: { id: true, actif: true, contrat: true } }),
     typesContratActifs(db, ids),
+    db.payrollLine.findMany({ where: { id: { in: candidates.map((l) => l.id) } }, select: { id: true, payrollRun: { select: { statut: true, mois: true, annee: true } } } }),
+    db.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } }),
   ]);
   const calcule = new Map(employes.map((e) => [e.id, estCalculeEnPaie(e, types.get(e.id))]));
-  return new Set(candidates.filter((l) => calcule.get(l.employeeId) === false).map((l) => l.id));
+  const moisPasseClos = new Set(
+    runs
+      .filter(({ payrollRun: r }) => r.statut === "VALIDE" && !(config && r.mois === config.moisCourant && r.annee === config.anneeCourante))
+      .map((l) => l.id),
+  );
+  return new Set(candidates.filter((l) => calcule.get(l.employeeId) === false || moisPasseClos.has(l.id)).map((l) => l.id));
 }
 
 /** Sépare les lignes qui COMPTENT (totaux, livre, déclarations, exports) de celles hors calcul. */

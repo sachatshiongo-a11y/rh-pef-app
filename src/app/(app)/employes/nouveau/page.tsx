@@ -1,5 +1,6 @@
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { EmployeeForm } from "../employee-form";
 import { creerEmploye } from "../actions";
 import { chargerParametresPaie } from "@/lib/config";
@@ -17,9 +18,11 @@ export default async function NouvelEmployePage() {
     // Dernière paie calculée : sert de référence à la simulation d'impact (masse, coût).
     prisma.payrollRun.findFirst({
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
-      include: { lignes: { select: { salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
+      include: { lignes: { select: { id: true, employeeId: true, statutPaiement: true, salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
     }),
   ]);
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors de la masse de référence (paie-hors-calcul.ts).
+  if (dernierRun) dernierRun.lignes = await lignesComptees(prisma, dernierRun.lignes);
   const impact =
     dernierRun && dernierRun.lignes.length > 0
       ? {

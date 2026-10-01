@@ -18,7 +18,7 @@ const FILTRE = /from\s+["']@\/lib\/paie-hors-calcul["']/;
 
 const LECTEURS_SANS_FILTRE: Record<string, string> = {
   "lib/paie-hors-calcul.ts": "Le module lui-même.",
-  "lib/paie-refresh.ts": "Recalcul : écrit les lignes, ne les additionne pas.",
+  "app/(app)/paie/actions.ts": "Actions de paie : la réinitialisation compte les lignes FIGÉES de toute la paie (refus) et le nombre total au journal ; la clôture, elle, filtre (lignesComptees, couvert par le test d'intégration).",
   "lib/paie-validation.ts": "Contrôle de validation : refuse nommément une ligne hors calcul (messageNonCalcules).",
   "lib/signature.ts": "Une ligne précise (empreinte du bulletin signé).",
   "lib/bulletin-salarie.ts": "Le bulletin d'UN salarié (espace salarié).",
@@ -26,8 +26,6 @@ const LECTEURS_SANS_FILTRE: Record<string, string> = {
   "lib/acompte-plafond.ts": "Une ligne précise (plafond d'acompte d'un salarié).",
   "app/(app)/employes/[id]/page.tsx": "Fiche d'UN salarié : toutes ses lignes, y compris rouvertes, et ses bulletins remis.",
   "app/(app)/employes/[id]/fiche/route.ts": "Fiche PDF d'UN salarié.",
-  "app/(app)/employes/[id]/modifier/page.tsx": "Simulation du salaire d'UN salarié (dernière paie de référence).",
-  "app/(app)/employes/nouveau/page.tsx": "Simulation d'embauche (dernière paie de référence, pas un total).",
   "app/(app)/documents/page.tsx": "Registre des documents par salarié (un bulletin par ligne, pas un total).",
   "app/espace/documents/page.tsx": "Espace salarié : ses propres bulletins.",
 };
@@ -41,9 +39,23 @@ function lister(dir: string): string[] {
 const sansCommentaires = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 const rel = (p: string) => path.relative(SRC, p).split(path.sep).join("/");
 
-/** Fichiers qui lisent des lignes de paie SANS passer par le filtre « hors calcul ». */
+/**
+ * Fichiers qui lisent des lignes de paie SANS passer par le filtre « hors calcul » : pas d'import du
+ * filtre, OU une utilisation directe des lignes d'une paie (`run.lignes.map/reduce/…`) dans un fichier
+ * qui n'a pas réaffecté ces lignes filtrées (`run.lignes = await lignesComptees(…)`) — l'import seul
+ * ne prouve pas que CHAQUE lecture est filtrée (défaut de l'onglet Rémunération, relecture 2026-10-01).
+ */
 export function lecteursNonFiltres(fichiers: { rel: string; source: string }[]): string[] {
-  return fichiers.filter((f) => LIT_LA_PAIE.test(sansCommentaires(f.source)) && !FILTRE.test(f.source)).map((f) => f.rel).sort();
+  const USAGE = /\b(\w+)\??\.lignes\??\.(?:map|reduce|filter|forEach|some|every|find|length)\b/g;
+  return fichiers
+    .filter((f) => {
+      const src = sansCommentaires(f.source);
+      if (!LIT_LA_PAIE.test(src)) return false;
+      if (!FILTRE.test(f.source)) return true;
+      return [...src.matchAll(USAGE)].some((m) => !new RegExp(`\\b${m[1]}\\.lignes = await lignesComptees\\(`).test(src));
+    })
+    .map((f) => f.rel)
+    .sort();
 }
 
 const TOUS = lister(SRC).map((p) => ({ rel: rel(p), source: fs.readFileSync(p, "utf8") }));
@@ -59,6 +71,12 @@ describe("lignes hors calcul : tout lecteur de lignes de paie passe par le filtr
   it("la liste est fermée : chaque exception lit encore la paie sans filtre", () => {
     const non = lecteursNonFiltres(TOUS);
     for (const r of Object.keys(LECTEURS_SANS_FILTRE)) expect(non, r).toContain(r);
+  });
+  it("mord : une lecture directe `run.lignes.map` dans un fichier qui importe le filtre → signalée", () => {
+    const f = TOUS.find((x) => x.rel === "app/(app)/paie/page.tsx")!;
+    const casse = { ...f, source: f.source.replace("lignesRun.map(", "run.lignes.map(") };
+    expect(casse.source).not.toBe(f.source);
+    expect(lecteursNonFiltres([casse])).toEqual(["app/(app)/paie/page.tsx"]);
   });
   it("mord : le filtre retiré d'un export → signalé", () => {
     const f = TOUS.find((x) => x.rel === "app/(app)/paie/export/route.ts")!;

@@ -34,7 +34,8 @@ vi.mock("@/lib/entreprise", () => ({ chargerEntreprise: async () => ({ entrepris
 vi.mock("@/lib/storage", () => ({ lireFichier: async () => null, televerserFichier: async (c: string) => `/fichiers/${c}` }));
 
 const { calculerPaieDuMois, changerStatutPaie, cloturerPaie, reinitialiserPaieDuMois } = await import("@/app/(app)/paie/actions");
-const { rafraichirPaieDuMois } = await import("@/lib/paie-refresh");
+const { rafraichirPaieDuMois, rafraichirPaieAffichee } = await import("@/lib/paie-refresh");
+const { reactiverEmploye } = await import("@/app/(app)/employes/actions");
 const { calculerLignesPaie } = await import("@/lib/paie-batch");
 const { separerHorsCalcul, compterPasValideComptees } = await import("@/lib/paie-hors-calcul");
 const { calculerDeclarationsMois } = await import("@/lib/declarations");
@@ -154,6 +155,38 @@ describe("ligne rouverte d'un salarié sorti du calcul : en base, à part, compt
     expect(ada.statutPaiement).toBe("PAS_VALIDE");
     expect((await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 } })).statut).toBe("VALIDE");
   });
+
+  it("paie clôturée avec une ligne hors calcul : l'ouverture de /paie ne la recalcule plus (taux figé, aucune ligne ajoutée)", async () => {
+    const avant = await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 }, include: { lignes: true } });
+    await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2500 } });
+    const embauche = await brigade("CC01-PEF", "Cléo Cibangu"); // embauchée après la clôture
+    await rafraichirPaieAffichee(9, 2026);
+    const apres = await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 }, include: { lignes: true } });
+    expect(Number(apres.tauxChangeUtilise)).toBe(Number(avant.tauxChangeUtilise));
+    expect(apres.lignes.map((l) => l.id).sort()).toEqual(avant.lignes.map((l) => l.id).sort());
+    await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2300 } });
+    await prisma.employee.update({ where: { id: embauche }, data: { actif: false } });
+  });
+
+  it("mois passé clôturé : réactiver la fiche aujourd'hui ne fait pas revenir la ligne dans ses totaux ; réactiver = Direction", async () => {
+    const bob = await ligne(ids.bob);
+    const decl = async () => Object.fromEntries((await calculerDeclarationsMois(9, 2026))!.lignes.map((x) => [x.type, x.montantUSD]));
+    const avant = await decl();
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 10 } }); // septembre est passé
+    A.user.role = "MANAGER";
+    await expect(reactiverEmploye(ids.ada)).rejects.toThrow(/Accès refusé/);
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id: ids.ada } })).actif).toBe(false);
+    A.user.role = "ADMIN";
+    await reactiverEmploye(ids.ada);
+    expect((await prisma.employee.findUniqueOrThrow({ where: { id: ids.ada } })).actif).toBe(true);
+    expect(await prisma.journalAudit.count({ where: { entite: "Employee", entiteId: ids.ada, champ: "actif", nouvelleValeur: "true" } })).toBe(1);
+    // Septembre ne bouge pas : la ligne PAS VALIDÉE d'Ada reste hors de ses totaux et de ses exports.
+    expect(await decl()).toEqual(avant);
+    expect((await decl()).IPR).toBeCloseTo(Number(bob.iprCalculeUSD), 2);
+    const run = await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 }, include: { lignes: true } });
+    expect((await separerHorsCalcul(prisma, run.lignes)).horsCalcul.map((x) => x.employeeId)).toEqual([ids.ada]);
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
+  });
 });
 
 describe("réinitialiser ne supprime jamais un bulletin déjà remis", () => {
@@ -174,6 +207,8 @@ describe("réinitialiser ne supprime jamais un bulletin déjà remis", () => {
     const transitions = await prisma.transitionPaie.count({ where: { payrollLineId: l.id } });
     const remis = await genererBulletinPdf(l.id, "USD", { version: versions });
     expect(remis).not.toBeNull();
+    const versionRemise = await prisma.versionBulletin.findFirstOrThrow({ where: { payrollLineId: l.id, numeroVersion: versions } });
+    const netRemis = Number((versionRemise.snapshot as { ligne: { salNetUSD: string } }).ligne.salNetUSD);
 
     // Une prime arrive, puis la Direction réinitialise.
     await prisma.prime.create({ data: { employeeId: ids.ada, nom: "Prime", montantUSD: 30, mois: 9, annee: 2026 } });
@@ -190,7 +225,18 @@ describe("réinitialiser ne supprime jamais un bulletin déjà remis", () => {
     // Bulletin remis consultable (archive), et nommé comme tel.
     const archive = await genererBulletinPdf(l.id, "USD", { version: versions });
     expect(archive!.nomFichier).toContain(`_remis-v${versions}_`);
-    expect((await pagesDuPdf(archive!.buffer)).map((p) => p.plat).join(" ")).toContain("Ada Kalala");
+    const texteArchive = (await pagesDuPdf(archive!.buffer)).map((p) => p.plat).join(" ");
+    const compact = texteArchive.replace(/[\s\u202f\u00a0]/g, "");
+    expect(texteArchive).toContain("Ada Kalala");
+    // Les montants REMIS, pas ceux recalculés depuis (prime de 30 ajoutée après la remise).
+    expect(compact).toContain(netRemis.toFixed(2).replace(".", ","));
+    expect(compact).not.toContain((netRemis + 30).toFixed(2).replace(".", ","));
+    // Archive dite comme telle, signature valable pour CETTE version, datée de la remise.
+    expect(texteArchive).toMatch(/archive : montants figés/);
+    expect(texteArchive).not.toMatch(/à resigner/);
+    expect(texteArchive).toMatch(/Accepté électroniquement le/); // signature sans tracé (test) : la mention de CETTE version
+    const jourRemise = new Intl.DateTimeFormat("fr-FR", { timeZone: "Africa/Kinshasa" }).format(versionRemise.genereLe);
+    expect(texteArchive).toContain(`Fait à Kinshasa, le ${jourRemise}`);
 
     // Montants recalculés par le vrai calcul (prime comprise).
     expect(Number(apres.primesUSD)).toBe(30);

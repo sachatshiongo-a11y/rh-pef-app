@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { ATTENTE_VERROU_VALIDATION } from "@/lib/paie-validation";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import type { PaymentStatus, Prisma } from "@prisma/client";
 
 // États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
@@ -155,9 +156,15 @@ export async function lignesNonFigees(tx: Prisma.TransactionClient, runId: strin
 export async function rafraichirPaieAffichee(mois: number, annee: number): Promise<void> {
   const runMeta = await prisma.payrollRun.findUnique({
     where: { mois_annee: { mois, annee } },
-    select: { lignes: { select: { statutPaiement: true } } },
+    select: { lignes: { select: { id: true, employeeId: true, statutPaiement: true } } },
   });
-  if (!runMeta || !runMeta.lignes.some((l) => !STATUTS_FIGES.includes(l.statutPaiement))) return;
+  if (!runMeta) return;
+  // Seules les lignes qui COMPTENT déclenchent le recalcul : une ligne hors calcul (ligne rouverte
+  // d'un salarié sorti du calcul, paie-hors-calcul.ts) n'est jamais recalculée. Sans ce filtre, une
+  // paie CLÔTURÉE qui garde une ligne hors calcul était recalculée à chaque ouverture de /paie (taux
+  // de change réécrit, ligne créée pour un salarié embauché après la clôture).
+  const aRecalculer = (await lignesComptees(prisma, runMeta.lignes)).some((l) => !STATUTS_FIGES.includes(l.statutPaiement));
+  if (!aRecalculer) return;
   try {
     await rafraichirPaieDuMois({ creerRun: false });
   } catch (e) {

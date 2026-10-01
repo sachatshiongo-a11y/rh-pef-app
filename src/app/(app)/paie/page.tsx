@@ -150,7 +150,7 @@ export default async function PaiePage({
 
   // Éléments de rémunération (détail par salarié), par type — toujours à jour (persisté ou aperçu).
   const remuLignes: LigneRemu[] = run
-    ? run.lignes.map((l) => ({
+    ? lignesRun.map((l) => ({
         employeeId: l.employeeId,
         nom: l.employee.nom,
         photoUrl: l.employee.photoUrl,
@@ -331,7 +331,7 @@ export default async function PaiePage({
               </button>
             </form>
           )}
-          {estAdmin && run && nbPasValide > 0 && taches.length === 0 && (
+          {estAdmin && run && (nbPasValide > 0 || (horsCalcul.length > 0 && run.statut !== "VALIDE")) && taches.length === 0 && (
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
                 variante="valider"
@@ -341,7 +341,7 @@ export default async function PaiePage({
               </ConfirmSubmitButton>
             </form>
           )}
-          {estAdmin && run && nbPasValide > 0 && taches.length > 0 && (
+          {estAdmin && run && (nbPasValide > 0 || (horsCalcul.length > 0 && run.statut !== "VALIDE")) && taches.length > 0 && (
             <span
               title="Traitez d'abord les tâches en attente (voir la bannière)"
               className={`${CLASSES_GEOMETRIE} cursor-not-allowed border border-amber-400 text-amber-700 opacity-70`}
@@ -352,7 +352,7 @@ export default async function PaiePage({
           {estAdmin && run && (
             <form action={reinitialiserPaieDuMois}>
               <ConfirmSubmitButton
-                message={`Supprimer la paie calculée pour ${periode} ?${bulletinsEmis > 0 ? ` ${bulletinsEmis} bulletin(s) déjà remis (lignes rouvertes) seront conservés en archive, consultables depuis la fiche du salarié ; leurs montants du mois seront recalculés.` : ""} Cette action est irréversible (n'affecte pas les mois passés).`}
+                message={`Supprimer la paie calculée pour ${periode} ?${bulletinsEmis > 0 ? ` ${bulletinsEmis} bulletin(s) déjà remis (lignes rouvertes) seront conservés en archive, consultables depuis la fiche du salarié ; leurs montants du mois seront recalculés (sauf lignes hors calcul, figées).` : ""} Cette action est irréversible (n'affecte pas les mois passés).`}
                 className={CLASSES_DANGER}
               >
                 Réinitialiser
@@ -434,8 +434,9 @@ export default async function PaiePage({
             Salarié sorti du calcul de la paie après la réouverture de sa ligne : elle est conservée (avec ses
             bulletins émis et son historique) mais ne compte ni dans les totaux, ni dans le livre de paie, ni
             dans les déclarations, ni dans les exports. Elle ne peut pas être validée ; la clôture du mois la
-            laisse de côté. Pour payer ce mois au salarié : réactivez sa fiche le temps de valider sa paie
-            (Direction), puis désactivez-la.
+            laisse de côté, et ses montants restent ceux de son dernier calcul (même après une
+            réinitialisation). Fiche désactivée : pour payer ce mois au salarié, réactivez sa fiche le temps de
+            valider sa paie (Direction), puis désactivez-la. Intérimaire : il est payé par l&apos;agence.
           </p>
           <ul className="mt-3 divide-y rounded-lg border border-amber-200 bg-background text-sm">
             {horsCalcul.map((l) => (

@@ -5,7 +5,7 @@ import { BulletinDocument } from "@/lib/pdf/bulletin";
 import type { Devise } from "@/lib/pdf/theme";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresPaie } from "@/lib/config";
-import { signatureImprimable } from "@/lib/signature";
+import { chargerSignatures, mentionSignature, signatureImprimable, type SignatureImprimable } from "@/lib/signature";
 
 /**
  * Génère le PDF d'un bulletin (buffer + nom de fichier) à partir de sa ligne de paie.
@@ -28,7 +28,7 @@ export async function genererBulletinPdf(
   });
   if (!vivante) return null;
   let ligne = vivante;
-  let archive: { genereLe: Date; suivante: Date | null } | null = null;
+  let archive: { version: number; genereLe: Date; suivante: Date | null } | null = null;
   if (opts.version !== undefined) {
     const versions = await prisma.versionBulletin.findMany({ where: { payrollLineId: ligneId }, orderBy: { numeroVersion: "asc" } });
     const i = versions.findIndex((v) => v.numeroVersion === opts.version);
@@ -36,7 +36,7 @@ export async function genererBulletinPdf(
     const s = versions[i].snapshot as unknown as { ligne: typeof vivante; employe: typeof vivante.employee; run: typeof vivante.payrollRun };
     // Instantané JSON : montants en texte, dates en ISO — le document les relit par Number()/new Date().
     ligne = { ...s.ligne, employee: s.employe, payrollRun: s.run };
-    archive = { genereLe: versions[i].genereLe, suivante: versions[i + 1]?.genereLe ?? null };
+    archive = { version: versions[i].numeroVersion, genereLe: versions[i].genereLe, suivante: versions[i + 1]?.genereLe ?? null };
   }
 
   const debutMois = new Date(Date.UTC(ligne.payrollRun.annee, ligne.payrollRun.mois - 1, 1));
@@ -71,14 +71,17 @@ export async function genererBulletinPdf(
       ligne,
       run: ligne.payrollRun,
       devise,
-      congesPeriode: congesApprouves.map((c) => ({ dateDebut: new Date(c.dateDebut), dateFin: new Date(c.dateFin) })),
-      primes: primes.map((p) => ({ nom: p.nom, montantUSD: Number(p.montantUSD) })),
-      codesParJour,
-      feries,
+      // Archive : seuls les montants de l'instantané font foi — rien du détail VIVANT (présences,
+      // congés, primes saisies depuis) qui contredirait le bulletin remis.
+      congesPeriode: archive ? [] : congesApprouves.map((c) => ({ dateDebut: new Date(c.dateDebut), dateFin: new Date(c.dateFin) })),
+      primes: archive ? [] : primes.map((p) => ({ nom: p.nom, montantUSD: Number(p.montantUSD) })),
+      codesParJour: archive ? {} : codesParJour,
+      feries: archive ? [] : feries,
       entreprise: ent.entreprise,
       logo: ent.logo,
       params: parametres,
       signatureSalarie,
+      archive: archive ? { version: archive.version, remisLe: archive.genereLe } : undefined,
     })
   );
 
@@ -91,9 +94,13 @@ export async function genererBulletinPdf(
  * signature a été donnée pendant que cette version était en vigueur (entre sa génération et la
  * suivante) — jamais la signature d'une autre version.
  */
-async function signatureDuBulletin(ligneId: string, archive: { genereLe: Date; suivante: Date | null } | null) {
+async function signatureDuBulletin(ligneId: string, archive: { genereLe: Date; suivante: Date | null } | null): Promise<SignatureImprimable | undefined> {
   if (!archive) return signatureImprimable(prisma, "BULLETIN", ligneId);
-  const sig = await prisma.signatureElectronique.findFirst({ where: { cible: "BULLETIN", cibleId: ligneId }, select: { signeLe: true } });
-  if (!sig || sig.signeLe < archive.genereLe || (archive.suivante && sig.signeLe >= archive.suivante)) return undefined;
-  return signatureImprimable(prisma, "BULLETIN", ligneId);
+  const v = (await chargerSignatures(prisma, "BULLETIN", [ligneId])).get(ligneId);
+  if (!v || v.signeLe < archive.genereLe || (archive.suivante && v.signeLe >= archive.suivante)) return undefined;
+  if (!v.obsolete) return signatureImprimable(prisma, "BULLETIN", ligneId); // toujours à jour : tracé compris
+  // Signée sur CETTE version : elle était valable pour elle, même si la ligne a changé depuis
+  // (jamais « à resigner » sur l'archive). La mention seule — décision du 2026-10-01 : le tracé
+  // d'une signature devenue obsolète n'est pas réimprimé.
+  return { image: null, mention: mentionSignature({ ...v, obsolete: false }) };
 }

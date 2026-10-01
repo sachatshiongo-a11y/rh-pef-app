@@ -185,6 +185,8 @@ export async function desactiverEmploye(employeeId: string) {
   requireRole(user, ["ADMIN"]);
 
   await prisma.employee.update({ where: { id: employeeId }, data: { actif: false } });
+  // Journalisé comme la réactivation : une fiche qui sort du calcul de la paie se retrouve au journal.
+  await journaliser(prisma, { entite: "Employee", entiteId: employeeId, champ: "actif", ancienneValeur: "true", nouvelleValeur: "false", userId: user.id });
 
   revalidatePath("/employes");
   redirect("/employes");

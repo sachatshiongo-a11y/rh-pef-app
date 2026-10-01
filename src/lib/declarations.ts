@@ -52,10 +52,10 @@ export async function calculerDeclarationsMois(
     where: { mois_annee: { mois, annee } },
     include: { lignes: true },
   });
-  if (!run || run.lignes.length === 0) return null;
-
+  if (!run) return null;
   // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : jamais déclarées (paie-hors-calcul.ts).
   const lignesRun = await lignesComptees(prisma, run.lignes);
+  if (lignesRun.length === 0) return null;
   const somme = (f: (l: (typeof lignesRun)[number]) => number) =>
     lignesRun.reduce((acc, l) => acc + f(l), 0);
 
