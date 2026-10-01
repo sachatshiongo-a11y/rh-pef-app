@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 
 /** Téléverse une image (logo/signature) vers Supabase Storage (bucket privé). PNG/JPG, max 5 Mo. */
 async function televerserImageEntreprise(dossier: string, file: File): Promise<{ url: string; nom: string }> {
@@ -67,21 +68,42 @@ export async function mettreAJourEntreprise(formData: FormData) {
 
 /** Paramètres opérationnels (non légaux) : taux de change et période courante. */
 export async function mettreAJourConfig(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible("/parametres", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  await prisma.config.update({
-    where: { id: "singleton" },
-    data: {
-      tauxChangeCDF: Number(formData.get("tauxChangeCDF")),
-      anneeCourante: Number(formData.get("anneeCourante")),
-      moisCourant: Number(formData.get("moisCourant")),
-      jourPaie: Math.min(31, Math.max(1, Math.trunc(Number(formData.get("jourPaie"))) || 30)),
-    },
+    const moisCourant = Number(formData.get("moisCourant"));
+    const anneeCourante = Number(formData.get("anneeCourante"));
+    // Quitter un mois CLÔTURÉ qui garde une ligne rouverte (salarié toujours calculé) en attente de
+    // re-validation : elle deviendrait « hors calcul » (mois passé clôturé, paie-hors-calcul.ts),
+    // sortirait des totaux et des déclarations et ne serait plus validable depuis /paie. Refusé.
+    const avant = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
+    if (avant && (avant.moisCourant !== moisCourant || avant.anneeCourante !== anneeCourante)) {
+      const run = await prisma.payrollRun.findUnique({
+        where: { mois_annee: { mois: avant.moisCourant, annee: avant.anneeCourante } },
+        select: { statut: true, lignes: { where: { statutPaiement: "PAS_VALIDE" }, select: { id: true, employeeId: true, statutPaiement: true, employee: { select: { nom: true } } } } },
+      });
+      if (run?.statut === "VALIDE") {
+        const enAttente = await lignesComptees(prisma, run.lignes);
+        if (enAttente.length > 0) {
+          throw new Error(`La paie du mois en cours est clôturée mais ${enAttente.length} bulletin(s) rouvert(s) attendent d'être revalidés (${enAttente.map((l) => l.employee.nom).join(", ")}) : revalidez-les dans Paie avant de changer de mois.`);
+        }
+      }
+    }
+
+    await prisma.config.update({
+      where: { id: "singleton" },
+      data: {
+        tauxChangeCDF: Number(formData.get("tauxChangeCDF")),
+        anneeCourante,
+        moisCourant,
+        jourPaie: Math.min(31, Math.max(1, Math.trunc(Number(formData.get("jourPaie"))) || 30)),
+      },
+    });
+
+    revalidatePath("/parametres");
+    revalidatePath("/accueil");
   });
-
-  revalidatePath("/parametres");
-  revalidatePath("/accueil");
 }
 
 /** Active / désactive l'espace salarié (self-service). Réservé à l'ADMIN. OFF par défaut. */

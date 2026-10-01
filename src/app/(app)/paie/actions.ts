@@ -386,38 +386,47 @@ export async function reinitialiserPaieDuMois() {
   }
 
   // Run verrouillée FOR UPDATE (comme le recalcul) : une validation ou un recalcul concurrent attend.
-  const { gardees, bulletinsRemis, figeesEntreTemps } = await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${ATTENTE_VERROU_VALIDATION}'`);
-    await tx.$queryRaw`SELECT "id" FROM "public"."PayrollRun" WHERE "id" = ${run.id} FOR UPDATE`;
-    const figeesEntreTemps = await tx.payrollLine.count({ where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } } });
-    if (figeesEntreTemps > 0) return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps };
-    const { existantes, aHistorique } = await lignesNonFigees(tx, run.id);
-    const gardees = existantes.filter(aHistorique);
-    const brouillons = existantes.filter((l) => !aHistorique(l)).map((l) => l.id);
-    if (gardees.length === 0) {
-      // Rien d'émis ni de tracé : la paie du mois n'est faite que de brouillons, elle part entière.
-      await tx.payrollRun.delete({ where: { id: run.id } });
+  let resultat: { gardees: number; bulletinsRemis: number; figeesEntreTemps: number };
+  try {
+    resultat = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${ATTENTE_VERROU_VALIDATION}'`);
+      await tx.$queryRaw`SELECT "id" FROM "public"."PayrollRun" WHERE "id" = ${run.id} FOR UPDATE`;
+      const figeesEntreTemps = await tx.payrollLine.count({ where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } } });
+      if (figeesEntreTemps > 0) return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps };
+      const { existantes, aHistorique } = await lignesNonFigees(tx, run.id);
+      const gardees = existantes.filter(aHistorique);
+      const brouillons = existantes.filter((l) => !aHistorique(l)).map((l) => l.id);
+      if (gardees.length === 0) {
+        // Rien d'émis ni de tracé : la paie du mois n'est faite que de brouillons, elle part entière.
+        await tx.payrollRun.delete({ where: { id: run.id } });
+        await journaliser(tx, {
+          entite: "PayrollRun",
+          entiteId: run.id,
+          champ: "suppression",
+          ancienneValeur: `${config.moisCourant}/${config.anneeCourante} (${run.lignes.length} lignes)`,
+          userId: user.id,
+        });
+        return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps: 0 };
+      }
+      if (brouillons.length) await tx.payrollLine.deleteMany({ where: { id: { in: brouillons } } });
+      const bulletinsRemis = await tx.versionBulletin.count({ where: { payrollLineId: { in: gardees.map((l) => l.id) } } });
       await journaliser(tx, {
         entite: "PayrollRun",
         entiteId: run.id,
-        champ: "suppression",
+        champ: "reinitialisation",
         ancienneValeur: `${config.moisCourant}/${config.anneeCourante} (${run.lignes.length} lignes)`,
+        nouvelleValeur: `${brouillons.length} brouillon(s) supprimé(s) ; ${gardees.length} ligne(s) avec historique conservée(s) (${bulletinsRemis} bulletin(s) remis en archive)`,
         userId: user.id,
       });
-      return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps: 0 };
-    }
-    if (brouillons.length) await tx.payrollLine.deleteMany({ where: { id: { in: brouillons } } });
-    const bulletinsRemis = await tx.versionBulletin.count({ where: { payrollLineId: { in: gardees.map((l) => l.id) } } });
-    await journaliser(tx, {
-      entite: "PayrollRun",
-      entiteId: run.id,
-      champ: "reinitialisation",
-      ancienneValeur: `${config.moisCourant}/${config.anneeCourante} (${run.lignes.length} lignes)`,
-      nouvelleValeur: `${brouillons.length} brouillon(s) supprimé(s) ; ${gardees.length} ligne(s) avec historique conservée(s) (${bulletinsRemis} bulletin(s) remis en archive)`,
-      userId: user.id,
-    });
-    return { gardees: gardees.length, bulletinsRemis, figeesEntreTemps: 0 };
-  }, { timeout: 60_000 });
+      return { gardees: gardees.length, bulletinsRemis, figeesEntreTemps: 0 };
+    }, { timeout: 60_000 });
+  } catch (e) {
+    // Verrou tenu trop longtemps (validation, recalcul ou planning en cours) : message lisible.
+    const refus = messageErreurValidation(e);
+    if (!refus) throw e;
+    redirect(`/paie?erreur=${encodeURIComponent(`Réinitialisation non faite : ${refus}`)}`);
+  }
+  const { gardees, bulletinsRemis, figeesEntreTemps } = resultat;
   if (figeesEntreTemps > 0) {
     redirect(`/paie?erreur=${encodeURIComponent(`${figeesEntreTemps} bulletin(s) validé(s)/payé(s) entre-temps : rien n'a été réinitialisé.`)}`);
   }

@@ -36,6 +36,7 @@ vi.mock("@/lib/storage", () => ({ lireFichier: async () => null, televerserFichi
 const { calculerPaieDuMois, changerStatutPaie, cloturerPaie, reinitialiserPaieDuMois } = await import("@/app/(app)/paie/actions");
 const { rafraichirPaieDuMois, rafraichirPaieAffichee } = await import("@/lib/paie-refresh");
 const { reactiverEmploye } = await import("@/app/(app)/employes/actions");
+const { mettreAJourConfig } = await import("@/app/(app)/parametres/actions");
 const { calculerLignesPaie } = await import("@/lib/paie-batch");
 const { separerHorsCalcul, compterPasValideComptees } = await import("@/lib/paie-hors-calcul");
 const { calculerDeclarationsMois } = await import("@/lib/declarations");
@@ -253,5 +254,27 @@ describe("réinitialiser ne supprime jamais un bulletin déjà remis", () => {
     const msg = await ignorerRedirection(reinitialiserPaieDuMois());
     expect(decodeURIComponent(msg)).toContain("Paie du mois réinitialisée.");
     expect(await prisma.payrollRun.count({ where: { mois: 9, annee: 2026 } })).toBe(0);
+  });
+});
+
+describe("mois courant clôturé : une ligne rouverte pour correction reste comptée", () => {
+  it("rouverte après clôture : comptée et validable ; on ne change pas de mois tant qu'elle attend sa revalidation", async () => {
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
+    await calculerPaieDuMois();
+    expect(await ignorerRedirection(cloturerPaie())).toBe("");
+    const l = await ligne(ids.ada);
+    expect(l.statutPaiement).toBe("VALIDE");
+    await changerStatutPaie(l.id, fd({ versStatut: "PAS_VALIDE" })); // rouverte pour correction
+    const run = await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 }, include: { lignes: true } });
+    expect(run.statut).toBe("VALIDE");
+    expect((await separerHorsCalcul(prisma, run.lignes)).horsCalcul).toEqual([]); // comptée
+    const changerDeMois = () => mettreAJourConfig(fd({ moisCourant: "10", anneeCourante: "2026", tauxChangeCDF: "2300", jourPaie: "30" }));
+    expect(decodeURIComponent(await ignorerRedirection(changerDeMois()))).toMatch(/revalidez-les dans Paie avant de changer de mois/);
+    expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(9);
+    await changerStatutPaie(l.id, fd({ versStatut: "VALIDE" }));
+    expect((await ligne(ids.ada)).statutPaiement).toBe("VALIDE");
+    expect(await ignorerRedirection(changerDeMois())).toBe("");
+    expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(10);
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
   });
 });
