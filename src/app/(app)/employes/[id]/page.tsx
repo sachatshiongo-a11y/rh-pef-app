@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ancienneteEnMois, reconstituerBrutDepuisNet, resumerPresences, tauxPrimeAnciennete, type CodePresence } from "@/lib/payroll";
+import { ChampNombre } from "@/components/champ-nombre";
 import { PrimeForm } from "./prime-form";
 import { chargerParametresPaie } from "@/lib/config";
 import { DossierEmploye } from "./dossier";
@@ -835,7 +836,7 @@ export default async function FicheEmployePage({
             <form action={demanderAcompte.bind(null, employee.id)} className="rounded-lg border p-3">
               <p className="mb-2 text-sm font-medium">Demander un acompte</p>
               <div className="flex flex-wrap items-end gap-2">
-                <input name="montantUSD" type="number" step="0.01" min="0" max={plafondAcompte.disponibleUSD || undefined} placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <ChampNombre name="montantUSD" suffixe="$" placeholder="Montant $" aria-label="Montant de l'acompte en dollars" required classeConteneur="w-28" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Demander</button>
               </div>
@@ -847,7 +848,7 @@ export default async function FicheEmployePage({
             <form action={ajouterFraisMedical.bind(null, employee.id)} className="rounded-lg border p-3 md:col-span-2">
               <p className="mb-2 text-sm font-medium">Ajouter un frais médical (avec certificat)</p>
               <div className="flex flex-wrap items-end gap-2">
-                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Montant $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <ChampNombre name="montantUSD" suffixe="$" placeholder="Montant $" aria-label="Montant du frais médical en dollars" required classeConteneur="w-28" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Motif (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="certificat" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="text-xs" />
                 <button type="submit" className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">Ajouter</button>
@@ -864,7 +865,7 @@ export default async function FicheEmployePage({
                   <option value="Véhicule" />
                   <option value="Téléphone" />
                 </datalist>
-                <input name="montantUSD" type="number" step="0.01" min="0" placeholder="Valeur $" required className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" />
+                <ChampNombre name="montantUSD" suffixe="$" placeholder="Valeur $" aria-label="Valeur de l'avantage en dollars" required classeConteneur="w-28" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <input name="motif" placeholder="Précision (optionnel)" className="rounded border border-input bg-background px-2 py-1 text-sm" />
                 <button type="submit" className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">Consigner</button>
               </div>

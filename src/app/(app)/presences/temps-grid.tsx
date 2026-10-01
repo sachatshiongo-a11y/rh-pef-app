@@ -16,7 +16,7 @@ import { useJourMobile } from "@/components/jour-mobile";
 import { CelluleNombre, type ContexteCase } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { LIBELLE_PAUSE_PAR_DEFAUT } from "@/lib/pointage-qr";
-import { lireSaisieNombre } from "@/lib/nombre";
+import { lireSaisieNombre, versSaisie } from "@/lib/nombre";
 import {
   calculerHeuresSupp,
   resumerPresences,
@@ -182,7 +182,7 @@ export function TempsGrid({
     const largeur = 300;
     const x = Math.min(Math.max(8, r.left), window.innerWidth - largeur - 8);
     const y = r.bottom + 6 > window.innerHeight - 220 ? r.top - 226 : r.bottom + 6;
-    setPop({ empId, day, x, y, code: c.code, heures: c.heures === null ? "" : String(c.heures) });
+    setPop({ empId, day, x, y, code: c.code, heures: c.heures === null ? "" : versSaisie(c.heures) }); // écrit PAR LE PROGRAMME dans le champ : à la française (« 7,5 »), relu par lireSaisieNombre
   }
 
   // ── Écritures (optimistes, mêmes actions serveur qu'avant) ───────────────

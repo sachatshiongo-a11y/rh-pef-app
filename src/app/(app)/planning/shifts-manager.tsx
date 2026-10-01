@@ -1,6 +1,8 @@
 import type { Shift } from "@prisma/client";
 import { creerShift, modifierShift, supprimerShift, reactiverShift } from "./actions";
 import { COULEURS_DISPO, paletteDe } from "./creneaux";
+import { ChampNombre } from "@/components/champ-nombre";
+import { versSaisie } from "@/lib/nombre";
 
 function ChampsShift({ shift }: { shift?: Shift }) {
   return (
@@ -33,25 +35,24 @@ function ChampsShift({ shift }: { shift?: Shift }) {
           <option key={c} value={c}>{c}</option>
         ))}
       </select>
-      <input
+      <ChampNombre
         name="dureeHeures"
-        type="number"
-        step="0.25"
-        min="0"
-        defaultValue={shift?.dureeHeures != null ? String(shift.dureeHeures) : ""}
+        defaultValue={shift?.dureeHeures != null ? versSaisie(Number(shift.dureeHeures)) : ""}
         placeholder="h (auto)"
         title="Durée en heures (laisser vide = calculée depuis les horaires)"
-        className="w-20 rounded border border-input bg-background px-2 py-1 text-sm"
+        suffixe="h"
+        alerteMilliers
+        classeConteneur="w-20"
+        className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
       />
-      <input
+      <ChampNombre
         name="tauxHoraireUSD"
-        type="number"
-        step="0.0001"
-        min="0"
-        defaultValue={shift?.tauxHoraireUSD != null ? String(shift.tauxHoraireUSD) : ""}
+        defaultValue={shift?.tauxHoraireUSD != null ? versSaisie(Number(shift.tauxHoraireUSD)) : ""}
         placeholder="$/h (défaut)"
         title="Taux horaire de ce rôle (laisser vide = taux par défaut de l'employé)"
-        className="w-24 rounded border border-input bg-background px-2 py-1 text-sm"
+        suffixe="$/h"
+        classeConteneur="w-24"
+        className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
       />
     </>
   );

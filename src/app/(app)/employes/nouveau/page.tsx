@@ -9,9 +9,10 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { exigerPageRH } from "@/lib/garde-page";
 
-export default async function NouvelEmployePage() {
+export default async function NouvelEmployePage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
   const user = await exigerPageRH();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const sp = await searchParams;
   const [parametres, postes, dernierRun] = await Promise.all([
     chargerParametresPaie(),
     chargerPostes(),
@@ -35,6 +36,7 @@ export default async function NouvelEmployePage() {
 
   return (
     <div>
+      {sp.erreur && <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
       <h1 className="mb-6 text-xl font-semibold sm:text-2xl">Nouvel employé</h1>
       <EmployeeForm
         action={creerEmploye}

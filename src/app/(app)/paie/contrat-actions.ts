@@ -13,6 +13,7 @@ import { actionLisible } from "@/lib/action-lisible";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
 import { notifierContratASigner, etatSignatureContrat, notifierSiContratARevoir } from "@/lib/contrats-notification";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 
 function revalider(employeeId: string) {
   revalidatePath("/paie");
@@ -96,20 +97,18 @@ export async function modifierContrat(id: string, formData: FormData) {
     const dateDebutStr = String(formData.get("dateDebut") ?? "").trim();
     const dateFinStr = String(formData.get("dateFin") ?? "").trim();
     const finEssaiStr = String(formData.get("finPeriodeEssai") ?? "").trim();
-    const salaireStr = String(formData.get("salaireMensuel") ?? "").trim().replace(",", ".");
-    const heuresStr = String(formData.get("heuresHebdo") ?? "").trim().replace(",", ".");
     const devise = (String(formData.get("devise") ?? contrat.devise).trim() || "USD").toUpperCase();
     const agence = String(formData.get("agence") ?? "").trim() || null;
-    const coutJourStr = String(formData.get("coutJourUSD") ?? "").trim().replace(",", ".");
 
     if (!poste) throw new Error("Le poste est obligatoire.");
     if (!dateDebutStr) throw new Error("La date de début est obligatoire.");
     if (type !== "CDI" && !dateFinStr) throw new Error(`Un ${type} doit avoir une date de fin.`);
-    const salaire = Number(salaireStr);
+    // Nombres lus à la française (« 1 250,5 ») ; illisible → erreur lisible, jamais un zéro silencieux.
+    const salaire = decSaisi(formData.get("salaireMensuel"), "Salaire mensuel");
     if (!Number.isFinite(salaire) || salaire < 0) throw new Error("Salaire mensuel invalide.");
-    const heures = heuresStr ? Number(heuresStr) : Number(contrat.heuresHebdo);
+    const heures = decSaisiOptionnel(formData.get("heuresHebdo"), "Heures / semaine") ?? Number(contrat.heuresHebdo);
     if (!Number.isFinite(heures) || heures <= 0) throw new Error("Heures par semaine invalides.");
-    const coutJour = coutJourStr ? Number(coutJourStr) : null;
+    const coutJour = decSaisiOptionnel(formData.get("coutJourUSD"), "Coût / jour facturé");
 
     // État de signature AVANT la correction : le salarié n'est prévenu que si un contrat SIGNÉ
     // repasse « à resigner » (spec 2026-09-28, §3.3).

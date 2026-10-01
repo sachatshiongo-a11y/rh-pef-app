@@ -20,6 +20,7 @@ import {
 } from "@/lib/pointage-qr";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
 import { formaterNombre } from "@/lib/montant";
+import { lireNombreSaisi } from "@/lib/nombre";
 
 // ── Messages ─────────────────────────────────────────────────────────────────
 export const MESSAGE_QR_ETRANGER = "Ce n'est pas l'affiche de pointage.";
@@ -284,11 +285,10 @@ export function ecranApresPause(
   };
 }
 
-/** La pause saisie, en minutes entières bornées 0-600 (comme le serveur) ; `null` si illisible. */
+/** La pause saisie, en minutes entières bornées 0-600 (comme le serveur) ; `null` si vide ou illisible
+ *  (lecture à la française : « 12,6 » oui, « 12.6 » non — jamais une saisie illisible lue comme 0). */
 export function pauseLue(texte: string): number | null {
-  const t = texte.trim();
-  if (t === "") return null;
-  const n = Number(t.replace(",", "."));
-  if (!Number.isFinite(n)) return null;
+  const n = lireNombreSaisi(texte);
+  if (n === null) return null;
   return Math.round(Math.max(0, Math.min(600, n)));
 }

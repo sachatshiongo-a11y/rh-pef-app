@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { retenuePourDuree } from "@/lib/prets";
 import { MOIS_FR } from "@/lib/dates-fr";
+import { ChampNombre } from "@/components/champ-nombre";
+import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 
 const inputCls = "rounded border border-input bg-background px-2 py-1 text-sm";
 const usd = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -27,19 +29,21 @@ export function PretForm({
   const [duree, setDuree] = useState("");
   const [retenue, setRetenue] = useState("");
 
-  const montantNum = Number(montant.replace(",", "."));
-  const retenueNum = Number(retenue.replace(",", "."));
+  // Saisies lues à la française (« 1 250,5 ») ; vide ou illisible → 0 : rien n'est calculé, le champ signale « illisible ».
+  const lire = (s: string) => lireNombreSaisi(s) ?? 0;
+  const montantNum = lire(montant);
+  const retenueNum = lire(retenue);
 
   function onDuree(v: string) {
     setDuree(v);
-    const calc = retenuePourDuree(montantNum, Number(v.replace(",", ".")));
-    if (calc > 0) setRetenue(String(calc));
+    const calc = retenuePourDuree(montantNum, lire(v));
+    if (calc > 0) setRetenue(versSaisie(calc));
   }
 
   function onMontant(v: string) {
     setMontant(v);
-    const calc = retenuePourDuree(Number(v.replace(",", ".")), Number(duree.replace(",", ".")));
-    if (calc > 0) setRetenue(String(calc));
+    const calc = retenuePourDuree(lire(v), lire(duree));
+    if (calc > 0) setRetenue(versSaisie(calc));
   }
 
   // Nombre d'échéances réellement nécessaires avec la retenue retenue (qui peut avoir été ajustée
@@ -57,13 +61,13 @@ export function PretForm({
     <form action={action} className="border-t pt-3 text-xs">
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-0.5">Montant du prêt ($)
-          <input type="number" name="montantUSD" step="0.01" min="0" required value={montant} onChange={(e) => onMontant(e.target.value)} className={inputCls} />
+          <ChampNombre name="montantUSD" suffixe="$" required value={montant} onChange={(e) => onMontant(e.target.value)} className={inputCls} />
         </label>
         <label className="flex flex-col gap-0.5">Durée (mois)
-          <input type="number" step="1" min="1" value={duree} onChange={(e) => onDuree(e.target.value)} placeholder="ex. 6" className={`${inputCls} w-24`} />
+          <ChampNombre alerteMilliers suffixe="mois" value={duree} onChange={(e) => onDuree(e.target.value)} placeholder="ex. 6" classeConteneur="w-24" className={inputCls} />
         </label>
         <label className="flex flex-col gap-0.5">Retenue mensuelle ($)
-          <input type="number" name="retenueMensuelleUSD" step="0.01" min="0" required value={retenue} onChange={(e) => setRetenue(e.target.value)} className={inputCls} />
+          <ChampNombre name="retenueMensuelleUSD" suffixe="$" required value={retenue} onChange={(e) => setRetenue(e.target.value)} className={inputCls} />
         </label>
         <label className="flex flex-col gap-0.5">Motif (optionnel)
           <input type="text" name="motif" placeholder="ex. avance médicale" className={inputCls} />

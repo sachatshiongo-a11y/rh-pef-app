@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
+import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 
 /** Téléverse une image (logo/signature) vers Supabase Storage (bucket privé). PNG/JPG, max 5 Mo. */
 async function televerserImageEntreprise(dossier: string, file: File): Promise<{ url: string; nom: string }> {
@@ -72,8 +73,18 @@ export async function mettreAJourConfig(formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN"]);
 
-    const moisCourant = Number(formData.get("moisCourant"));
-    const anneeCourante = Number(formData.get("anneeCourante"));
+    // Champs de texte lus à la française (« 2.350 » = 2350, « 2,5 » = 2,5) ; une saisie illisible
+    // lève une erreur lisible (affichée en tête de page) au lieu de devenir 0.
+    const tauxChangeCDF = decSaisi(formData.get("tauxChangeCDF"), "Taux de change");
+    if (!(tauxChangeCDF > 0)) throw new Error("Le taux de change doit être un nombre positif (ex. 2 350).");
+    const moisCourant = decSaisi(formData.get("moisCourant"), "Mois en cours");
+    if (!Number.isInteger(moisCourant) || moisCourant < 1 || moisCourant > 12) throw new Error("Le mois en cours doit être un entier de 1 à 12.");
+    const anneeCourante = decSaisi(formData.get("anneeCourante"), "Année en cours");
+    if (!Number.isInteger(anneeCourante) || anneeCourante < 2000 || anneeCourante > 2100) throw new Error("L'année en cours doit être un entier à 4 chiffres (ex. 2026).");
+    // Jour de paie : vide = 30 (défaut de la base) ; hors 1-31 ou décimal = refusé (plus d'arrondi silencieux).
+    const jourPaieSaisi = decSaisiOptionnel(formData.get("jourPaie"), "Jour de paie");
+    if (jourPaieSaisi !== null && (!Number.isInteger(jourPaieSaisi) || jourPaieSaisi < 1 || jourPaieSaisi > 31)) throw new Error("Le jour de paie doit être un entier de 1 à 31.");
+    const jourPaie = jourPaieSaisi ?? 30;
     // Quitter un mois CLÔTURÉ qui garde une ligne rouverte (salarié toujours calculé) en attente de
     // re-validation : elle deviendrait « hors calcul » (mois passé clôturé, paie-hors-calcul.ts),
     // sortirait des totaux et des déclarations et ne serait plus validable depuis /paie. Refusé.
@@ -94,10 +105,10 @@ export async function mettreAJourConfig(formData: FormData) {
     await prisma.config.update({
       where: { id: "singleton" },
       data: {
-        tauxChangeCDF: Number(formData.get("tauxChangeCDF")),
+        tauxChangeCDF,
         anneeCourante,
         moisCourant,
-        jourPaie: Math.min(31, Math.max(1, Math.trunc(Number(formData.get("jourPaie"))) || 30)),
+        jourPaie,
       },
     });
 
@@ -147,40 +158,48 @@ export async function basculerSalairesEnNet(formData: FormData) {
  * Toute modification remet le statut à « À VALIDER » sauf validation explicite.
  */
 export async function mettreAJourParametreLegal(id: number, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible("/parametres", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  const valeurRaw = String(formData.get("valeur") ?? "").trim();
-  const valider = formData.get("valider") === "on";
+    // Lu à la française (« 150.000 » = 150 000, « 0,05 » = 0,05) ; illisible → erreur en tête de page.
+    const valeur = decSaisiOptionnel(formData.get("valeur"), "Valeur du paramètre");
+    const valider = formData.get("valider") === "on";
 
-  await prisma.parametreLegal.update({
-    where: { id },
-    data: {
-      valeur: valeurRaw === "" ? null : Number(valeurRaw.replace(",", ".")),
-      statutValidation: valider ? "VALIDE" : "A_VALIDER",
-    },
+    await prisma.parametreLegal.update({
+      where: { id },
+      data: {
+        valeur,
+        statutValidation: valider ? "VALIDE" : "A_VALIDER",
+      },
+    });
+
+    revalidatePath("/parametres");
   });
-
-  revalidatePath("/parametres");
 }
 
 export async function mettreAJourTrancheIprCDF(id: number, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  await formulaireLisible("/parametres", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
 
-  const plafondRaw = String(formData.get("plafondAnnuelCDF") ?? "").trim();
-  const valider = formData.get("valider") === "on";
+    const plafondAnnuelCDF = decSaisiOptionnel(formData.get("plafondAnnuelCDF"), "Plafond annuel");
+    // Le taux est obligatoire : vide = oubli, pas 0 (avant : « Number("null") » → NaN rejeté par la base).
+    const taux = decSaisiOptionnel(formData.get("taux"), "Taux");
+    if (taux === null) throw new Error("Le taux de la tranche est requis (ex. 0,03 pour 3 %).");
+    const valider = formData.get("valider") === "on";
 
-  await prisma.trancheIprCDF.update({
-    where: { id },
-    data: {
-      plafondAnnuelCDF: plafondRaw === "" ? null : Number(plafondRaw.replace(",", ".")),
-      taux: Number(String(formData.get("taux")).replace(",", ".")),
-      statutValidation: valider ? "VALIDE" : "A_VALIDER",
-    },
+    await prisma.trancheIprCDF.update({
+      where: { id },
+      data: {
+        plafondAnnuelCDF,
+        taux,
+        statutValidation: valider ? "VALIDE" : "A_VALIDER",
+      },
+    });
+
+    revalidatePath("/parametres");
   });
-
-  revalidatePath("/parametres");
 }
 
 export async function ajouterJourFerie(formData: FormData) {

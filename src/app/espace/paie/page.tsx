@@ -8,6 +8,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { chargerPlafondAcompte } from "@/lib/acompte-plafond";
 import { construireEcheancier } from "@/lib/prets";
 import { formaterUSD } from "@/lib/montant";
+import { ChampNombre } from "@/components/champ-nombre";
 import { bulletinConsultableDuMois } from "@/lib/bulletin-salarie";
 import { statutDemande } from "@/lib/libelles-espace";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
@@ -189,7 +190,8 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
 
         <form action={demanderMonAcompte} className="grid gap-4 sm:grid-cols-2">
           <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium">Montant en dollars ($)
-            <input type="number" inputMode="decimal" name="montantUSD" min="0" step="0.01" max={plafondAcompte.disponibleUSD || undefined} required placeholder="ex. 50" className={inputCls} />
+            {/* Le plafond (« jusqu'à X $ ») est contrôlé par le serveur, qui répond en clair. */}
+            <ChampNombre name="montantUSD" required placeholder="ex. 50" suffixe="$" classeConteneur="w-full" className={inputCls} />
           </label>
           <label className="flex min-w-0 flex-col gap-1.5 text-sm font-medium"><span>Motif <span className="font-normal text-muted-foreground">(facultatif)</span></span>
             <input type="text" name="motif" placeholder="ex. dépense imprévue" className={inputCls} />

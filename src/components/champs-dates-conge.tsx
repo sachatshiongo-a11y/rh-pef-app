@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ChampNombre } from "@/components/champ-nombre";
 import { recalculerChampsConge, CHAMPS_CONGE_VIDES, type ChampConge } from "@/lib/jours-ouvrables";
 
 /**
@@ -41,7 +42,8 @@ export function ChampsDatesConge({
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="nbJours" className="text-sm font-medium">{labelJours}</label>
-        <input id="nbJours" name="nbJours" type="number" inputMode="numeric" required min={1} step={1} value={etat.jours} onChange={toucher("jours")} className={inputClassName} />
+        {/* Entier exigé (la fin ne se recalcule que sur un entier) ; le serveur recalcule les jours depuis les dates et refuse un écart. */}
+        <ChampNombre id="nbJours" name="nbJours" required value={etat.jours} onChange={toucher("jours")} classeConteneur="w-full" className={`${inputClassName} w-full`} />
       </div>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="dateFin" className="text-sm font-medium">{labelFin}</label>

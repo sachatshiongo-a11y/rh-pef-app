@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { journaliser } from "@/lib/audit";
+import { decSaisi } from "@/lib/nombre";
 
 /** Accorde un prêt au personnel : montant + retenue mensuelle (déduite auto de la paie). Admin/Manager. */
 export async function creerPret(employeeId: string, formData: FormData) {
@@ -12,8 +13,9 @@ export async function creerPret(employeeId: string, formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
-    const montant = Number(String(formData.get("montantUSD") ?? "").replace(",", "."));
-    const retenue = Number(String(formData.get("retenueMensuelleUSD") ?? "").replace(",", "."));
+    // Lus à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux.
+    const montant = decSaisi(formData.get("montantUSD"), "Montant du prêt");
+    const retenue = decSaisi(formData.get("retenueMensuelleUSD"), "Retenue mensuelle");
     const motif = String(formData.get("motif") ?? "").trim() || null;
     if (!Number.isFinite(montant) || montant <= 0) throw new Error("Montant du prêt invalide.");
     if (!Number.isFinite(retenue) || retenue <= 0) throw new Error("Retenue mensuelle invalide.");

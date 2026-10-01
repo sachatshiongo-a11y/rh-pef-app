@@ -8,6 +8,8 @@ import {
   supprimerTypeConge,
 } from "./typeconge-actions";
 import { estErreur } from "@/lib/action-lisible";
+import { ChampNombre } from "@/components/champ-nombre";
+import { versSaisie } from "@/lib/nombre";
 
 export type TypeCongeRow = {
   id: string;
@@ -55,8 +57,8 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
                 <td className="py-1.5">
                   <form action={(fd) => run(() => modifierTypeConge(t.id, fd))} className="flex items-center gap-2">
                     <input name="nom" defaultValue={t.nom} className={`${inputCls} w-44`} />
-                    <input name="joursPayes" type="number" defaultValue={t.joursPayes ?? ""} placeholder="À valider" className={`${inputCls} w-24`} />
-                    <input name="tauxPct" type="number" defaultValue={t.tauxPct ?? ""} placeholder="À valider" className={`${inputCls} w-20`} />
+                    <ChampNombre name="joursPayes" defaultValue={t.joursPayes === null ? "" : versSaisie(t.joursPayes)} placeholder="À valider" className={`${inputCls} w-full`} classeConteneur="w-24" />
+                    <ChampNombre name="tauxPct" defaultValue={t.tauxPct === null ? "" : versSaisie(t.tauxPct)} placeholder="À valider" suffixe="%" className={`${inputCls} w-full`} classeConteneur="w-20" />
                     <label className="flex items-center gap-1 text-xs" title="Ce type se déduit du solde de congé annuel">
                       <input type="checkbox" name="compteDansSolde" defaultChecked={t.compteDansSolde} />
                       solde
@@ -96,8 +98,8 @@ export function TypesCongesAdmin({ types }: { types: TypeCongeRow[] }) {
 
       <form action={(fd) => run(() => creerTypeConge(fd))} className="flex flex-wrap items-end gap-2 rounded-lg border p-3">
         <input name="nom" placeholder="Nouveau type (ex. Congé exceptionnel)" required className={`${inputCls} flex-1`} />
-        <input name="joursPayes" type="number" placeholder="Jours payés" className={`${inputCls} w-28`} />
-        <input name="tauxPct" type="number" placeholder="Taux %" className={`${inputCls} w-24`} />
+        <ChampNombre name="joursPayes" placeholder="Jours payés" className={`${inputCls} w-full`} classeConteneur="w-28" />
+        <ChampNombre name="tauxPct" placeholder="Taux %" suffixe="%" className={`${inputCls} w-full`} classeConteneur="w-24" />
         <label className="flex items-center gap-1 text-sm"><input type="checkbox" name="compteDansSolde" /> Compte dans le solde</label>
         <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Ajouter</button>
       </form>

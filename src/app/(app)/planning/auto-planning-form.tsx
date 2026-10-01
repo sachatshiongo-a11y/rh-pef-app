@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { genererPlanningAuto, type ResumeGeneration } from "./actions";
+import { ChampNombre } from "@/components/champ-nombre";
 
 const LIBELLE_RAISON: Record<ResumeGeneration["trous"][number]["raison"], string> = {
   AUCUN_TITULAIRE: "personne à ce poste, ni en polyvalence",
@@ -98,7 +99,7 @@ export function AutoPlanningForm({
 
               <label className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">Jours / semaine sans modèle (0 = selon les heures)</span>
-                <input name="nbParSemaine" type="number" min="0" max="7" defaultValue="0" className="w-16 rounded border border-input bg-background px-2 py-1" />
+                <ChampNombre name="nbParSemaine" defaultValue="0" classeConteneur="w-16 items-end" className="w-full rounded border border-input bg-background px-2 py-1 text-right" />
               </label>
 
               <label className="flex items-start gap-2 rounded-md bg-primary/5 p-2 text-xs">

@@ -26,6 +26,8 @@ import type { Echeancier } from "@/lib/prets";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { jourKinshasa, jourCourantKinshasaISO, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { PretForm } from "./pret-form";
+import { ChampNombre } from "@/components/champ-nombre";
+import { versSaisie } from "@/lib/nombre";
 import { listeEnProse } from "@/lib/texte";
 import { genererOnboarding, basculerTacheOnboarding } from "./onboarding-actions";
 import { Icone } from "@/components/icones";
@@ -468,10 +470,10 @@ export function DossierEmploye({
                       <input type="date" name="finPeriodeEssai" defaultValue={iso(c.finPeriodeEssai)} className={inputCls} />
                     </label>
                     <label className="flex flex-col gap-0.5">Heures / semaine
-                      <input type="number" name="heuresHebdo" step="0.5" min="1" defaultValue={Number(c.heuresHebdo)} className={inputCls} />
+                      <ChampNombre name="heuresHebdo" suffixe="h" alerteMilliers defaultValue={versSaisie(Number(c.heuresHebdo))} className={inputCls} />
                     </label>
                     <label className="flex flex-col gap-0.5">Salaire mensuel {salaireEstNet ? "net" : "brut"}
-                      <input type="number" name="salaireMensuel" step="0.01" min="0" required defaultValue={Number(c.salaireMensuel)} className={inputCls} />
+                      <ChampNombre name="salaireMensuel" suffixe={c.devise} required defaultValue={versSaisie(Number(c.salaireMensuel))} className={inputCls} />
                     </label>
                     <label className="flex flex-col gap-0.5">Devise
                       <select name="devise" defaultValue={c.devise} className={inputCls}>
@@ -484,7 +486,7 @@ export function DossierEmploye({
                           <input type="text" name="agence" defaultValue={c.agence ?? ""} className={inputCls} />
                         </label>
                         <label className="flex flex-col gap-0.5">Coût / jour facturé ($)
-                          <input type="number" name="coutJourUSD" step="0.01" min="0" defaultValue={c.coutJourUSD ? Number(c.coutJourUSD) : ""} className={inputCls} />
+                          <ChampNombre name="coutJourUSD" suffixe="$" defaultValue={c.coutJourUSD ? versSaisie(Number(c.coutJourUSD)) : ""} className={inputCls} />
                         </label>
                       </>
                     )}
@@ -646,10 +648,10 @@ export function DossierEmploye({
               <LabeledInput name="dateDebut" label="Début" type="date" required />
               <LabeledInput name="dateFin" label="Fin (CDD)" type="date" />
               <LabeledInput name="finPeriodeEssai" label="Fin période d'essai" type="date" />
-              <LabeledInput name="salaireMensuel" label="Salaire mensuel" type="number" step="0.01" defaultValue={salaireMensuel} />
-              <LabeledInput name="heuresHebdo" label="Heures / semaine" type="number" step="0.5" defaultValue="48" />
+              <LabeledInput name="salaireMensuel" label="Salaire mensuel" nombre suffixe="$" defaultValue={versSaisie(salaireMensuel)} />
+              <LabeledInput name="heuresHebdo" label="Heures / semaine" nombre suffixe="h" alerteMilliers defaultValue="48" />
               <LabeledInput name="agence" label="Agence (intérim) — qui l'emploie et le paie" />
-              <LabeledInput name="coutJourUSD" label="Coût / jour facturé $ (intérim)" type="number" step="0.01" />
+              <LabeledInput name="coutJourUSD" label="Coût / jour facturé $ (intérim)" nombre suffixe="$" />
               <div className="flex flex-col gap-1 sm:col-span-2">
                 <span className="text-xs text-muted-foreground">Fichier du contrat (PDF, Word… max 15 Mo)</span>
                 <input type="file" name="fichier" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" className={inputCls} />
@@ -831,7 +833,7 @@ export function DossierEmploye({
         {estAdmin && (
           <form action={changerSalaire.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
             <p className="w-full text-sm font-medium">Changer le salaire / poste (tracé à l&apos;historique)</p>
-            <input name="nouveauSalaire" type="number" step="0.01" placeholder="Nouveau salaire $" defaultValue={salaireMensuel} className={inputCls} required />
+            <ChampNombre name="nouveauSalaire" suffixe="$" placeholder="Nouveau salaire $" aria-label="Nouveau salaire en dollars" defaultValue={versSaisie(salaireMensuel)} className={inputCls} required />
             <input name="nouveauPoste" placeholder="Nouveau poste (optionnel)" defaultValue={poste} className={inputCls} />
             <select name="motif" className={inputCls} defaultValue="Ajustement">
               <option>Ajustement</option>
@@ -918,7 +920,7 @@ export function DossierEmploye({
           <form action={ajouterEvaluation.bind(null, employeeId)} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-4">
             <p className="w-full text-sm font-medium">Ajouter une évaluation</p>
             <LabeledInput name="date" label="Date" type="date" required />
-            <input name="note" type="number" min="0" max="100" placeholder="Note /100" className={`${inputCls} w-24`} />
+            <ChampNombre name="note" placeholder="Note /100" aria-label="Note sur 100" classeConteneur="w-24" className={inputCls} />
             <input name="evaluateur" placeholder="Évaluateur" className={inputCls} />
             <input name="commentaire" placeholder="Commentaire" className={`${inputCls} flex-1`} />
             <SubmitBtn>Ajouter</SubmitBtn>
@@ -1074,7 +1076,9 @@ function LabeledInput({
   type = "text",
   required,
   defaultValue,
-  step,
+  nombre = false,
+  suffixe,
+  alerteMilliers,
   select,
   options,
 }: {
@@ -1083,7 +1087,10 @@ function LabeledInput({
   type?: string;
   required?: boolean;
   defaultValue?: string | number;
-  step?: string;
+  /** Champ de nombre à la française (ChampNombre) ; `defaultValue` doit alors être écrit par `versSaisie`. */
+  nombre?: boolean;
+  suffixe?: string;
+  alerteMilliers?: boolean;
   select?: boolean;
   options?: string[];
 }) {
@@ -1096,8 +1103,10 @@ function LabeledInput({
             <option key={o} value={o}>{o}</option>
           ))}
         </select>
+      ) : nombre ? (
+        <ChampNombre name={name} suffixe={suffixe} alerteMilliers={alerteMilliers} required={required} defaultValue={defaultValue} className={inputCls} />
       ) : (
-        <input name={name} type={type} step={step} required={required} defaultValue={defaultValue} className={inputCls} />
+        <input name={name} type={type} required={required} defaultValue={defaultValue} className={inputCls} />
       )}
     </label>
   );

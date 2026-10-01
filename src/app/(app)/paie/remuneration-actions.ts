@@ -10,6 +10,7 @@ import { recalculerPaieSiCalculee } from "./actions";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
 import type { DecisionAcompte, ResultatLotAcomptes } from "@/lib/acompte-plafond";
+import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 async function periodeCourante() {
@@ -26,15 +27,15 @@ export async function ajouterPrime(employeeId: string, formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
     const nom = String(formData.get("nom") ?? "").trim() || "Prime";
-    const montantUSD = Number(formData.get("montantUSD"));
+    // Lu à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux.
+    const montantUSD = decSaisi(formData.get("montantUSD"), "Montant de la prime");
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant de prime invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;
 
     // Majoration exprimée en % du salaire de base : le taux est CONSERVÉ pour la traçabilité, mais
     // c'est le montant soumis qui fait foi (calculé et ajustable à la saisie, jamais recalculé à la
     // paie) — même principe que la prime d'ancienneté, une seule source de vérité.
-    const pctBrut = String(formData.get("pourcentageBase") ?? "").trim();
-    const pourcentageBase = pctBrut ? Number(pctBrut.replace(",", ".")) : null;
+    const pourcentageBase = decSaisiOptionnel(formData.get("pourcentageBase"), "Pourcentage du salaire de base");
     if (pourcentageBase !== null && (!Number.isFinite(pourcentageBase) || pourcentageBase <= 0)) {
       throw new Error("Pourcentage de majoration invalide.");
     }
@@ -117,7 +118,7 @@ export async function ajouterFraisMedical(employeeId: string, formData: FormData
   await formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
-    const montantUSD = Number(formData.get("montantUSD"));
+    const montantUSD = decSaisi(formData.get("montantUSD"), "Montant du frais médical");
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant de frais médical invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();
@@ -165,7 +166,7 @@ export async function ajouterAvantageNature(employeeId: string, formData: FormDa
     requireRole(user, ["ADMIN", "MANAGER"]);
     const nature = String(formData.get("nature") ?? "").trim();
     if (!nature) throw new Error("Indiquez la nature de l'avantage (logement, nourriture…).");
-    const montantUSD = Number(String(formData.get("montantUSD") ?? "").replace(",", "."));
+    const montantUSD = decSaisi(formData.get("montantUSD"), "Valeur de l'avantage");
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant d'avantage invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();
@@ -210,7 +211,7 @@ export async function demanderAcompte(employeeId: string, formData: FormData) {
   await formulaireLisible(`/employes/${employeeId}`, async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
-    const montantUSD = Number(formData.get("montantUSD"));
+    const montantUSD = decSaisi(formData.get("montantUSD"), "Montant de l'acompte");
     if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Montant d'acompte invalide.");
     const motif = String(formData.get("motif") ?? "").trim() || null;
     const { mois, annee } = await periodeCourante();

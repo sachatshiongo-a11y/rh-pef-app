@@ -14,6 +14,7 @@ import type {
 } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { notifierContratASigner } from "@/lib/contrats-notification";
+import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -30,11 +31,18 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
 
     const motif = String(formData.get("motif") ?? "AUTRE");
     const dateFin = new Date(String(formData.get("dateFin")));
-    const joursTravaillesMois = Number(formData.get("joursTravaillesMois") ?? 0) || 0;
-    const joursCongesNonPris = Number(formData.get("joursCongesNonPris") ?? 0) || 0;
-    const preavisJours = Number(formData.get("preavisJours") ?? 0) || 0;
-    const indemniteLicenciementUSD = Number(formData.get("indemniteLicenciementUSD") ?? 0) || 0;
-    const autresUSD = Number(formData.get("autresUSD") ?? 0) || 0;
+    // Saisies lues à la française (« 1 250,5 »), erreur lisible si illisible — jamais un zéro silencieux
+    // dans un solde de tout compte. Les minimums du champ natif (>= 0) sont repris ici.
+    const positif = (nom: string, libelle: string) => {
+      const n = decSaisi(formData.get(nom), libelle);
+      if (n < 0) throw new Error(`${libelle} : une valeur négative n'est pas permise.`);
+      return n;
+    };
+    const joursTravaillesMois = positif("joursTravaillesMois", "Jours de présence");
+    const joursCongesNonPris = positif("joursCongesNonPris", "Jours de congés non pris");
+    const preavisJours = positif("preavisJours", "Préavis (jours)");
+    const indemniteLicenciementUSD = positif("indemniteLicenciementUSD", "Indemnité de licenciement");
+    const autresUSD = positif("autresUSD", "Autres indemnités");
     const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
 
     const [employee, parametres] = await Promise.all([
@@ -122,7 +130,7 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
 
     const type = String(formData.get("type")) as TypeContrat;
     const agence = String(formData.get("agence") ?? "").trim() || null;
-    const coutJour = Number(String(formData.get("coutJourUSD") ?? "").replace(",", "."));
+    const coutJour = decSaisi(formData.get("coutJourUSD"), "Coût / jour facturé");
     if (type === "INTERIM" && !agence) throw new Error("Pour un intérimaire, indiquez l'agence d'intérim (c'est elle qui l'emploie et le paie).");
 
     // CLÔTURE PROPOSÉE du contrat en cours (spec 2026-09-28, §3.4) : la case du formulaire, jamais
@@ -139,6 +147,9 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
     // clôture, le responsable ajoute un contrat comme avant.
     if (cloturerId) exigerDirectionPourSupprimer(user, "Clôturer ou résilier le contrat en cours est réservé à la Direction : ajoutez le contrat sans cocher la clôture.");
 
+    // Lus avant la transaction : une saisie illisible s'arrête ici avec son message, rien n'est écrit.
+    const heuresHebdo = decSaisi(formData.get("heuresHebdo"), "Heures / semaine");
+    const salaireMensuel = decSaisi(formData.get("salaireMensuel"), "Salaire mensuel");
     const cree = await prisma.$transaction(async (tx) => {
       if (cloturerId) {
         // VERROU sur le contrat à clôturer AVANT de relire son statut : un double envoi du
@@ -166,8 +177,8 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
           dateDebut: new Date(String(formData.get("dateDebut"))),
           dateFin: date(formData, "dateFin"),
           finPeriodeEssai: date(formData, "finPeriodeEssai"),
-          heuresHebdo: Number(formData.get("heuresHebdo")) || 48,
-          salaireMensuel: Number(formData.get("salaireMensuel")) || 0,
+          heuresHebdo: heuresHebdo || 48,
+          salaireMensuel,
           devise: String(formData.get("devise") ?? "USD"),
           poste: String(formData.get("poste") ?? ""),
           documentUrl,
@@ -206,7 +217,7 @@ export async function changerSalaire(employeeId: string, formData: FormData) {
     requireRole(user, ["ADMIN"]);
 
     const employee = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
-    const nouveauSalaire = Number(formData.get("nouveauSalaire"));
+    const nouveauSalaire = decSaisi(formData.get("nouveauSalaire"), "Nouveau salaire");
     const nouveauPoste = String(formData.get("nouveauPoste") ?? "").trim() || employee.poste;
     const motif = String(formData.get("motif") ?? "Ajustement");
 
@@ -276,13 +287,14 @@ export async function ajouterEvaluation(employeeId: string, formData: FormData) 
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
-    const noteRaw = String(formData.get("note") ?? "").trim();
+    const note = decSaisiOptionnel(formData.get("note"), "Note");
+    if (note !== null && (note < 0 || note > 100)) throw new Error("Note : entre 0 et 100.");
 
     await prisma.evaluation.create({
       data: {
         employeeId,
         date: new Date(String(formData.get("date"))),
-        note: noteRaw ? Number(noteRaw) : null,
+        note,
         commentaire: String(formData.get("commentaire") ?? "").trim() || null,
         evaluateur: String(formData.get("evaluateur") ?? "").trim() || user.nom,
         documentUrl: String(formData.get("documentUrl") ?? "").trim() || null,
