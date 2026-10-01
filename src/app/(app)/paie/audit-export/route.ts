@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     "Nouvelle valeur",
   ];
   const rows = entrees.map((e) => [
-    new Date(e.date).toLocaleString("fr-FR"),
+    new Date(e.date).toLocaleString("fr-FR", { timeZone: "Africa/Kinshasa" }),
     e.user?.nom ?? e.userId,
     e.entite,
     e.entiteId,

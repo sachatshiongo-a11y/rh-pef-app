@@ -10,7 +10,11 @@
 //  1. `new Date().getUTCMonth()` & co (et leurs formes locales `getMonth()`, `getFullYear()`…) ;
 //  2. `new Date().toISOString().slice(…)` et `new Date().toLocaleDateString(…)` : le jour d'un instant brut ;
 //  3. une variable reçue de `new Date()` (sans argument) ou un paramètre `maintenant|now|aujourdhui: Date`
-//     dont on lit ensuite l'année, le mois, le jour du mois ou le jour de la semaine.
+//     dont on lit ensuite l'année, le mois, le jour du mois ou le jour de la semaine ;
+//  4. l'HEURE d'un instant lue à l'heure du serveur : `new Date(…).toLocaleString(` / `.toLocaleTimeString(`
+//     sans `timeZone`, ou `.toLocaleDateString/TimeString/String(` sans `timeZone` sur une variable reçue de
+//     `new Date()` (« généré le … à 05:28 » retardait d'une heure en permanence). À la place :
+//     `dateHeureGenerationKinshasa`, `dateHeureKinshasa`, ou l'option `timeZone: "Africa/Kinshasa"`.
 // À la place : `jourCivilKinshasa(maintenant)` (date pure de ce jour, à lire en UTC) ou l'une des
 // fonctions « courant » ci-dessus.
 //
@@ -43,6 +47,11 @@ function trouverHorlogeBrute(source: string): { ligne: number; extrait: string }
   for (const m of code.matchAll(/\b(?:const|let)\s+(\w+)\s*=\s*new Date\(\)\s*;/g)) noms.add(m[1]);
   for (const m of code.matchAll(/\b(maintenant|now|aujourdhui)\s*:\s*Date\b/g)) noms.add(m[1]);
 
+  // Règles qui ne valent que si la ligne ne fixe pas de fuseau.
+  const sansFuseau: RegExp[] = [
+    /new Date\([^)]*\)\s*\.\s*toLocale(?:Time)?String\(/,
+    ...[...noms].map((n) => new RegExp(`\\b${n}\\s*\\.\\s*toLocale(?:Date|Time)?String\\(`)),
+  ];
   const regles: RegExp[] = [
     new RegExp(`new Date\\(\\)\\s*\\.\\s*${LECTURE}\\(`),
     /new Date\(\)\s*\.\s*toISOString\(\)\s*\.\s*slice\(/,
@@ -51,7 +60,7 @@ function trouverHorlogeBrute(source: string): { ligne: number; extrait: string }
   ];
   const trouves: { ligne: number; extrait: string }[] = [];
   lignes.forEach((l, i) => {
-    if (regles.some((r) => r.test(l))) trouves.push({ ligne: i + 1, extrait: l.trim().slice(0, 140) });
+    if (regles.some((r) => r.test(l)) || (!/timeZone/.test(l) && sansFuseau.some((r) => r.test(l)))) trouves.push({ ligne: i + 1, extrait: l.trim().slice(0, 140) });
   });
   return trouves;
 }
@@ -108,5 +117,14 @@ describe("trouverHorlogeBrute — le détecteur lui-même (falsification)", () =
     expect(trouverHorlogeBrute("// new Date().getUTCMonth() est interdit")).toHaveLength(0);
     expect(trouverHorlogeBrute("/* const now = new Date();\n now.getMonth() */")).toHaveLength(0);
     expect(trouverHorlogeBrute("const t = new Date().getTime();")).toHaveLength(0); // un instant, pas un jour
+  });
+  it("attrape l'heure lue à l'heure du serveur, accepte celle qui fixe le fuseau", () => {
+    expect(trouverHorlogeBrute('const h = new Date(x).toLocaleString("fr-FR");')).toHaveLength(1);
+    expect(trouverHorlogeBrute('const h = d.toLocaleTimeString("fr-FR", { hour: "2-digit" });\nconst d = new Date(x).toLocaleTimeString("fr-FR");')).toHaveLength(1);
+    expect(trouverHorlogeBrute('const m = new Date();\nconst h = m.toLocaleTimeString("fr-FR", { hour: "2-digit" });')).toHaveLength(1);
+    expect(trouverHorlogeBrute('const m = new Date();\nconst j = m.toLocaleDateString("fr-FR");')).toHaveLength(1);
+    expect(trouverHorlogeBrute('const h = new Date(x).toLocaleString("fr-FR", { timeZone: "Africa/Kinshasa" });')).toHaveLength(0);
+    expect(trouverHorlogeBrute('const m = new Date();\nconst h = m.toLocaleTimeString("fr-FR", { timeZone: "Africa/Kinshasa" });')).toHaveLength(0);
+    expect(trouverHorlogeBrute('const j = new Date(x).toLocaleDateString("fr-FR");')).toHaveLength(0); // date pure stockée : se lit telle quelle
   });
 });

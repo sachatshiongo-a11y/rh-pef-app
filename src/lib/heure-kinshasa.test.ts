@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dateHeureKinshasa, heureKinshasa, jourKinshasa, jourCivilKinshasa, jourCourantKinshasaISO, moisCourantKinshasa, anneeCouranteKinshasa, numeroMoisCourantKinshasa } from "./heure-kinshasa";
+import { dateHeureKinshasa, dateHeureGenerationKinshasa, heureKinshasa, jourKinshasa, jourCivilKinshasa, jourCourantKinshasaISO, moisCourantKinshasa, anneeCouranteKinshasa, numeroMoisCourantKinshasa } from "./heure-kinshasa";
 
 // Le serveur tourne en UTC, Kinshasa en UTC+1 : entre minuit et une heure à Kinshasa, l'instant
 // est encore la VEILLE en UTC. C'est la fenêtre où un formatage « à l'heure du serveur » ment.
@@ -97,5 +97,14 @@ describe("le « maintenant » civil de Kinshasa : jour, mois, année courants", 
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("« généré le … à HH:MM » des pieds et aperçus de rapport", () => {
+  it("heure de Kinshasa (UTC+1), 24 h sur deux chiffres, jour de Kinshasa", () => {
+    expect(dateHeureGenerationKinshasa(new Date("2026-10-01T04:28:00.000Z"))).toBe("01/10/2026 à 05:28");
+    expect(dateHeureGenerationKinshasa(new Date("2026-09-30T23:30:00.000Z"))).toBe("01/10/2026 à 00:30"); // la veille UTC
+    expect(dateHeureGenerationKinshasa(new Date("2026-10-31T22:30:00.000Z"))).toBe("31/10/2026 à 23:30");
+    expect(dateHeureGenerationKinshasa(new Date("2026-10-01T04:28:00.000Z"))).not.toMatch(/[\u202F\u00A0]/);
   });
 });

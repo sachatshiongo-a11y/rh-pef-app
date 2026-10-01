@@ -44,6 +44,15 @@ export function heureKinshasa(d: Date): string {
   return normaliserEspaces(`${Number(p("hour"))} h ${p("minute")}`);
 }
 
+/**
+ * « généré le » des pieds de rapport et aperçus : `JJ/MM/AAAA à HH:MM` (heure de Kinshasa, 24 h,
+ * deux chiffres : « 05:28 »). Le serveur étant en UTC, l'heure brute retardait d'une heure.
+ */
+export function dateHeureGenerationKinshasa(d: Date): string {
+  const p = morceauxKinshasa(d, true);
+  return normaliserEspaces(`${p("day")}/${p("month")}/${p("year")} à ${p("hour")}:${p("minute")}`);
+}
+
 /** Le seul jour, heure de Kinshasa, `JJ/MM/AAAA`. */
 export function jourKinshasa(d: Date): string {
   const p = morceauxKinshasa(d, false);

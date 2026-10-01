@@ -60,7 +60,7 @@ export default async function ImportsPage() {
                   <div className="min-w-0">
                     <p className="font-medium">{b.libelle} {annule && <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">annulé</span>}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(b.createdAt).toLocaleString("fr-FR")} · {b.type === "INVENTAIRE" ? "Inventaire" : b.type === "MOUVEMENTS" ? "Mouvements" : "Factures"}
+                      {new Date(b.createdAt).toLocaleString("fr-FR", { timeZone: "Africa/Kinshasa" })} · {b.type === "INVENTAIRE" ? "Inventaire" : b.type === "MOUVEMENTS" ? "Mouvements" : "Factures"}
                       {r.maj != null && ` · ${r.maj} MAJ · ${r.crees ?? 0} créés · ${(r.mvEntree ?? 0) + (r.mvSortie ?? 0)} mouvements · ${r.legumes ?? 0} légumes`}
                       {r.dejaPresents ? ` · ${r.dejaPresents} déjà présent(s), ignoré(s)` : ""}
                       {b._count.operations > 0 && ` · ${b._count.operations} doublon(s) retiré(s)`}
