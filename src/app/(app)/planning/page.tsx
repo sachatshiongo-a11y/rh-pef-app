@@ -22,6 +22,7 @@ import { EcartView } from "./ecart-view";
 
 import { lundiDe as lundiDeLaSemaine } from "@/lib/dates-fr";
 import { exigerPageRH } from "@/lib/garde-page";
+import { peutSupprimer } from "@/lib/suppression-direction";
 import { TelechargerLien } from "@/components/telecharger-lien";
 
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -79,11 +80,12 @@ export default async function PlanningPage({
   const besoinsPanel = peutModifier ? (
     <div className="space-y-2">
       <BesoinsManager shifts={shiftsBesoin} postes={postesBesoin} besoins={besoinsDTO} />
-      <PolyvalenceManager postes={postesBesoin} polyvalences={polyvalences.map((p) => ({ id: p.id, posteSource: p.posteSource, posteCible: p.posteCible }))} />
+      <PolyvalenceManager postes={postesBesoin} polyvalences={polyvalences.map((p) => ({ id: p.id, posteSource: p.posteSource, posteCible: p.posteCible }))} peutRetirer={peutSupprimer(user)} />
       <ShiftPosteManager
         postes={postesBesoin}
         shifts={shiftsBesoin}
         shiftsPoste={shiftsPosteRows.map((s) => ({ id: s.id, poste: s.poste, shiftId: s.shiftId, ordre: s.ordre }))}
+        peutRetirer={peutSupprimer(user)}
       />
     </div>
   ) : null;
@@ -139,7 +141,7 @@ export default async function PlanningPage({
       <div className="space-y-3 border-t p-3">
         {chipsLegende}
         <div className="grid items-start gap-3 md:grid-cols-2">
-          <ShiftsManager shifts={shifts} peutModifier={peutModifier} />
+          <ShiftsManager shifts={shifts} peutModifier={peutModifier} peutSupprimer={peutSupprimer(user)} />
           {besoinsPanel}
         </div>
       </div>

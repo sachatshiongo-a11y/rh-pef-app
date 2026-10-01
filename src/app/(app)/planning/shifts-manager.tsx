@@ -57,7 +57,11 @@ function ChampsShift({ shift }: { shift?: Shift }) {
   );
 }
 
-export function ShiftsManager({ shifts, peutModifier }: { shifts: Shift[]; peutModifier: boolean }) {
+export function ShiftsManager({ shifts, peutModifier, peutSupprimer = false }: {
+  shifts: Shift[]; peutModifier: boolean;
+  /** Direction seulement : supprimer un shift (règle de Sacha, 2026-10-01). */
+  peutSupprimer?: boolean;
+}) {
   if (!peutModifier) return null;
   return (
     <details className="mb-6 rounded-xl border bg-card">
@@ -86,7 +90,7 @@ export function ShiftsManager({ shifts, peutModifier }: { shifts: Shift[]; peutM
 
               {!s.systeme &&
                 (s.actif ? (
-                  <form action={supprimerShift.bind(null, s.id)}>
+                  peutSupprimer && <form action={supprimerShift.bind(null, s.id)}>
                     <button type="submit" className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10">
                       Supprimer
                     </button>

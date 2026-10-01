@@ -11,10 +11,13 @@ export function ShiftPosteManager({
   postes,
   shifts,
   shiftsPoste,
+  peutRetirer = false,
 }: {
   postes: string[];
   shifts: { id: string; nom: string }[];
   shiftsPoste: ShiftPosteDTO[];
+  /** Direction seulement : retirer un shift d'un poste est une suppression (règle de Sacha, 2026-10-01). */
+  peutRetirer?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [poste, setPoste] = useState("");
@@ -105,7 +108,7 @@ export function ShiftPosteManager({
                     >
                       ↓
                     </button>
-                    <button onClick={() => startTransition(() => supprimerShiftPoste(sp.id))} disabled={pending} className="px-0.5 opacity-70 hover:opacity-100" title="Retirer">✕</button>
+                    {peutRetirer && <button onClick={() => startTransition(async () => { await supprimerShiftPoste(sp.id); })} disabled={pending} className="px-0.5 opacity-70 hover:opacity-100" title="Retirer">✕</button>}
                   </span>
                 ))}
               </li>

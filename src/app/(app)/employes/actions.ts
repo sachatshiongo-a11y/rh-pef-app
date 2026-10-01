@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { genererMatricule } from "@/lib/matricule";
 import { journaliser } from "@/lib/audit";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 
 function decimalField(formData: FormData, name: string): number {
@@ -115,8 +116,12 @@ export async function ajouterMembreFamille(employeeId: string, formData: FormDat
       throw new Error("La date de naissance ne peut pas être dans le futur.");
     }
 
-    // Un seul conjoint : remplacer plutôt qu'empiler des lignes contradictoires.
+    // Un seul conjoint : remplacer plutôt qu'empiler des lignes contradictoires. Remplacer EFFACE
+    // le conjoint enregistré : réservé à la Direction (règle de Sacha, 2026-10-01).
     if (lien === "CONJOINT") {
+      if (await prisma.membreFamille.count({ where: { employeeId, lien: "CONJOINT" } })) {
+        exigerDirectionPourSupprimer(user, "Un conjoint est déjà saisi : seule la Direction peut le remplacer.");
+      }
       await prisma.membreFamille.deleteMany({ where: { employeeId, lien: "CONJOINT" } });
     }
 
@@ -135,23 +140,26 @@ export async function ajouterMembreFamille(employeeId: string, formData: FormDat
   });
 }
 
-/** Retire un membre de la composition familiale. Tracé au journal d'audit. */
+/** Retire un membre de la composition familiale (Direction seulement). Tracé au journal d'audit. */
 export async function supprimerMembreFamille(id: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
 
   const membre = await prisma.membreFamille.findUnique({ where: { id } });
   if (!membre) return;
-  await prisma.membreFamille.delete({ where: { id } });
-  await journaliser(prisma, {
-    entite: "MembreFamille",
-    entiteId: membre.employeeId,
-    champ: "suppression",
-    ancienneValeur: `${membre.lien === "CONJOINT" ? "Conjoint" : "Enfant"} : ${membre.nom}`,
-    userId: user.id,
-  });
+  await formulaireLisible(`/employes/${membre.employeeId}/modifier`, async () => {
+    exigerDirectionPourSupprimer(user);
+    await prisma.membreFamille.delete({ where: { id } });
+    await journaliser(prisma, {
+      entite: "MembreFamille",
+      entiteId: membre.employeeId,
+      champ: "suppression",
+      ancienneValeur: `${membre.lien === "CONJOINT" ? "Conjoint" : "Enfant"} : ${membre.nom}`,
+      userId: user.id,
+    });
 
-  revalidatePath(`/employes/${membre.employeeId}`);
+    revalidatePath(`/employes/${membre.employeeId}`);
+  });
 }
 
 export async function desactiverEmploye(employeeId: string) {

@@ -12,6 +12,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { CompositionFamiliale } from "../../composition-familiale";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { exigerPageRH } from "@/lib/garde-page";
+import { peutSupprimer } from "@/lib/suppression-direction";
 
 export default async function ModifierEmployePage({
   params,
@@ -89,6 +90,7 @@ export default async function ModifierEmployePage({
           enfantsCompteur={employee.enfants}
           ageLimiteEnfant={config?.ageLimiteEnfantACharge ?? 18}
           modifiable
+          peutRetirer={peutSupprimer(user)}
         />
       </div>
 

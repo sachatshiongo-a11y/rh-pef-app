@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { exigerDirectionPourSupprimer, refusSuppression } from "@/lib/suppression-direction";
 import { dureeShift } from "./creneaux";
 import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from "@/lib/planning-auto";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -324,9 +325,11 @@ export async function definirShiftPoste(poste: string, shiftId: string, ordre: n
 /** Retire un shift de la liste des shifts acceptables d'un poste, puis renumérote le reste (compact,
  *  sans trou) — sinon deux lignes peuvent finir avec le même `ordre`, et le tri devient dépendant de
  *  l'ordre de retour de la base. */
-export async function supprimerShiftPoste(id: string) {
+export async function supprimerShiftPoste(id: string): Promise<{ erreur: string } | undefined> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const refus = refusSuppression(user);
+  if (refus) return refus;
   await prisma.$transaction(async (tx) => {
     const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
     if (!sp) return;
@@ -450,6 +453,7 @@ export async function supprimerShift(id: string) {
   await formulaireLisible("/planning", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    exigerDirectionPourSupprimer(user); // règle de Sacha (2026-10-01) : seule la Direction supprime
 
     const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
     if (!shift) return;
@@ -509,9 +513,11 @@ export async function definirPolyvalence(posteSource: string, posteCible: string
   revalidatePath("/planning");
 }
 
-export async function supprimerPolyvalence(id: string) {
+export async function supprimerPolyvalence(id: string): Promise<{ erreur: string } | undefined> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const refus = refusSuppression(user);
+  if (refus) return refus;
   await prisma.polyvalencePoste.delete({ where: { id } });
   revalidatePath("/planning");
 }

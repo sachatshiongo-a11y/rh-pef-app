@@ -21,12 +21,15 @@ export function CompositionFamiliale({
   enfantsCompteur,
   ageLimiteEnfant,
   modifiable,
+  peutRetirer = false,
 }: {
   employeeId: string;
   membres: MembreFamille[];
   enfantsCompteur: number;
   ageLimiteEnfant: number;
   modifiable?: boolean;
+  /** Direction seulement : retirer un membre (ou remplacer le conjoint) est une suppression. */
+  peutRetirer?: boolean;
 }) {
   const comptage = compterFamille(membres, new Date(), ageLimiteEnfant);
   const ecart = ecartCompositionFamiliale(enfantsCompteur, comptage);
@@ -57,7 +60,7 @@ export function CompositionFamiliale({
             >
               {m.lien === "CONJOINT" ? "Conjoint" : "Enfant"} · {m.nom} ·{" "}
               {m.dateNaissance ? m.dateNaissance.toLocaleDateString("fr-FR", { timeZone: "UTC" }) : "date inconnue"}
-              {modifiable && (
+              {modifiable && peutRetirer && (
                 <form action={supprimerMembreFamille.bind(null, m.id)} className="inline">
                   <button className="opacity-70 hover:opacity-100" title="Retirer">✕</button>
                 </form>
@@ -73,7 +76,8 @@ export function CompositionFamiliale({
           <div className="flex flex-wrap items-end gap-2">
             <select name="lien" defaultValue="ENFANT" className={inputCls}>
               <option value="ENFANT">Enfant</option>
-              <option value="CONJOINT">Conjoint</option>
+              {/* Un conjoint déjà saisi ne se remplace que par la Direction (le remplacer l'efface). */}
+              {(peutRetirer || !membres.some((m) => m.lien === "CONJOINT")) && <option value="CONJOINT">Conjoint</option>}
             </select>
             <input name="nom" placeholder="Nom et prénom" required className={inputCls} />
             <label className="flex flex-col text-xs text-muted-foreground">

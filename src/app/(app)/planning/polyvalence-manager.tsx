@@ -7,7 +7,11 @@ type PolyDTO = { id: string; posteSource: string; posteCible: string };
 
 /** Polyvalence des postes : « tel poste peut couvrir tel autre » quand les titulaires manquent
  *  à la génération automatique. */
-export function PolyvalenceManager({ postes, polyvalences }: { postes: string[]; polyvalences: PolyDTO[] }) {
+export function PolyvalenceManager({ postes, polyvalences, peutRetirer = false }: {
+  postes: string[]; polyvalences: PolyDTO[];
+  /** Direction seulement : retirer une règle est une suppression (règle de Sacha, 2026-10-01). */
+  peutRetirer?: boolean;
+}) {
   const [pending, startTransition] = useTransition();
   const [source, setSource] = useState("");
   const [cible, setCible] = useState("");
@@ -48,7 +52,7 @@ export function PolyvalenceManager({ postes, polyvalences }: { postes: string[];
             {polyvalences.map((p) => (
               <li key={p.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
                 <span><span className="font-medium">{p.posteSource}</span> <span className="text-muted-foreground">peut couvrir</span> <span className="font-medium">{p.posteCible}</span></span>
-                <button onClick={() => startTransition(() => supprimerPolyvalence(p.id))} disabled={pending} className="text-xs text-destructive underline disabled:opacity-50">Retirer</button>
+                {peutRetirer && <button onClick={() => startTransition(async () => { await supprimerPolyvalence(p.id); })} disabled={pending} className="text-xs text-destructive underline disabled:opacity-50">Retirer</button>}
               </li>
             ))}
           </ul>

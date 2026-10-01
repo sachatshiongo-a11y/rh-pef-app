@@ -115,6 +115,7 @@ export function TempsGrid({
   hoursMap,
   shiftMap = {},
   peutModifier,
+  peutEffacer = false,
   isoDates,
   joursFeries,
   params,
@@ -125,6 +126,9 @@ export function TempsGrid({
   hoursMap: Record<string, number>; // `${employeeId}_${day}` -> heures
   shiftMap?: Record<string, InfoShift>; // `${employeeId}_${day}` -> shift du jour (réel > planning > modèle)
   peutModifier: boolean;
+  /** Direction seulement : vider une présence déjà saisie est une suppression (« Supprimer »,
+   *  « Effacer », touche Suppr). Le responsable remplace le code ; le serveur refuse de toute façon. */
+  peutEffacer?: boolean;
   isoDates: string[]; // isoDates[day-1] = "YYYY-MM-DD"
   joursFeries: Set<string>;
   params: ParametresPaie;
@@ -187,6 +191,12 @@ export function TempsGrid({
     setCellules((c) => ({ ...c, [k]: { ...avant, code } }));
     startTransition(async () => {
       const res = await saisirPresence(empId, isoDates[day - 1], code as AttendanceCode | "");
+      if (res?.erreur) {
+        // Refus (effacement réservé à la Direction) : rien n'a été écrit, la case revient.
+        setCellules((c) => ({ ...c, [k]: avant }));
+        setNote(res.erreur);
+        return;
+      }
       if (res?.ignore) {
         setCellules((c) => ({ ...c, [k]: { ...c[k], code: "" } }));
         setNote(res.ignore);
@@ -259,7 +269,7 @@ export function TempsGrid({
       celluleAt(rowIndex, colIndex + 1)?.focus();
       return;
     }
-    if (peutModifier && (ev.key === "Backspace" || ev.key === "Delete")) {
+    if (peutModifier && peutEffacer && (ev.key === "Backspace" || ev.key === "Delete")) {
       ev.preventDefault();
       ecrireCode(empId, day, "");
       ecrireHeures(empId, day, "");
@@ -334,6 +344,7 @@ export function TempsGrid({
     const faireHeures = vider || heures !== "";
     if (!faireCode && !faireHeures) return;
 
+    const avantLot = cellules; // pour revenir en arrière si le serveur refuse le lot
     setCellules((c) => {
       const n = { ...c };
       for (const empId of emps)
@@ -354,7 +365,13 @@ export function TempsGrid({
         const entrees = emps.flatMap((empId) =>
           cibles.map((d) => ({ employeeId: empId, date: isoDates[d - 1], code: code as AttendanceCode | "" }))
         );
-        const { ignores } = await saisirPresencesEnLot(entrees);
+        const { ignores, erreur } = await saisirPresencesEnLot(entrees);
+        if (erreur) {
+          // Lot refusé en entier (il viderait une présence saisie) : rien n'a été écrit.
+          setCellules(avantLot);
+          setNote(erreur);
+          return;
+        }
         nbIgnores += ignores.length;
         if (ignores.length > 0)
           setCellules((c) => {
@@ -469,7 +486,7 @@ export function TempsGrid({
                       style={coul ? { backgroundColor: coul.bg, color: coul.text } : undefined}
                       aria-label={`Code de ${emp.nom}`}
                     >
-                      <option value="">—</option>
+                      {(peutEffacer || !c.code) && <option value="">—</option>}
                       {CODES.map((x) => (<option key={x} value={x}>{x}</option>))}
                     </select>
                     <CelluleNombre
@@ -536,14 +553,14 @@ export function TempsGrid({
             >
               Appliquer
             </button>
-            <button
+            {peutEffacer && <button
               onClick={() => appliquerBulk(true)}
               disabled={isPending || selection.size === 0}
               className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive disabled:opacity-50"
               title="Effacer code ET heures des employés sélectionnés sur les jours ciblés"
             >
               Supprimer
-            </button>
+            </button>}
             <button onClick={() => setSelection(new Set())} className="text-xs text-muted-foreground underline">Désélectionner</button>
             {isPending && <span className="text-xs text-muted-foreground">Enregistrement…</span>}
           </div>
@@ -608,7 +625,7 @@ export function TempsGrid({
                             disabled={!peutModifier}
                             onClick={(ev) => ouvrirMenu(ev, e.id, d)}
                             onKeyDown={(ev) => clavier(ev, e.id, d, rowIndex, colIndex)}
-                            title={`${peutModifier ? "Clic : menu code + heures. Ou tapez une lettre (P, O, M…) ; Suppr efface ; flèches pour naviguer." : ""}${hs.titre}` || undefined}
+                            title={`${peutModifier ? `Clic : menu code + heures. Ou tapez une lettre (P, O, M…)${peutEffacer ? " ; Suppr efface" : ""} ; flèches pour naviguer.` : ""}${hs.titre}` || undefined}
                             className="flex h-10 w-[4.6rem] flex-col items-center justify-center rounded-md border border-transparent leading-none hover:border-input focus:border-primary focus:outline-none disabled:cursor-default"
                             style={coul ? { backgroundColor: coul.bg, color: coul.text } : undefined}
                           >
@@ -674,7 +691,7 @@ export function TempsGrid({
                   <button
                     key={c}
                     type="button"
-                    onClick={() => setPop((p) => (p ? { ...p, code: actif ? "" : c } : p))}
+                    onClick={() => setPop((p) => (p ? { ...p, code: actif && peutEffacer ? "" : c } : p))}
                     className={`rounded-md px-2.5 py-1 text-xs font-bold ${actif ? "ring-2 ring-primary" : ""}`}
                     style={{ backgroundColor: coul.bg, color: coul.text }}
                     aria-pressed={actif}
@@ -701,9 +718,11 @@ export function TempsGrid({
             </label>
             {pop.erreur && <p className="mb-2 text-xs font-medium text-destructive">{pop.erreur}</p>}
             <div className="flex items-center justify-between gap-2">
-              <button type="button" onClick={effacerMenu} className="rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">
-                Effacer
-              </button>
+              {peutEffacer ? (
+                <button type="button" onClick={effacerMenu} className="rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10">
+                  Effacer
+                </button>
+              ) : <span />}
               <span className="flex gap-2">
                 <button type="button" onClick={() => setPop(null)} className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent">Annuler</button>
                 <button type="button" onClick={validerMenu} className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground">OK</button>
