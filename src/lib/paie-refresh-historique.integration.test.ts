@@ -154,10 +154,11 @@ describe("recalcul de la paie : une ligne rouverte garde tout son historique", (
     await calculerPaieDuMois();
     expect(await prisma.payrollLine.count({ where: { id: l.id } })).toBe(1);
     expect(await prisma.versionBulletin.count({ where: { payrollLineId: l.id } })).toBeGreaterThanOrEqual(1);
-    // Ni validée, ni dans une clôture, avec un message qui dit comment en sortir (jamais « rechargez » seul).
+    // Jamais validée, avec un message qui dit comment en sortir (jamais « rechargez » seul) ; la
+    // clôture la laisse de côté (ligne hors calcul, 2026-10-01) au lieu de rester bloquée sur elle.
     en("ADMIN");
     expect(await changerStatutEnLot([l.id], "VALIDE")).toEqual({ erreur: messageNonCalcules(["Ada Kalala"]) });
-    await expect(cloturerPaie()).rejects.toThrow(encodeURIComponent(messageNonCalcules(["Ada Kalala"])));
+    await expect(cloturerPaie()).resolves.toBeUndefined();
     expect((await ligne(ids.ada)).statutPaiement).toBe("PAS_VALIDE");
     // Sortie annoncée : fiche réactivée → recalcul → validation possible.
     await prisma.employee.update({ where: { id: ids.ada }, data: { actif: true } });

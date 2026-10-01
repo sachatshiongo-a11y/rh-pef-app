@@ -162,6 +162,24 @@ export async function supprimerMembreFamille(id: string) {
   });
 }
 
+/**
+ * Réactive une fiche désactivée (Direction). Sortie prévue pour une ligne de paie rouverte « hors
+ * calcul » (paie-hors-calcul.ts) : la fiche réactivée revient dans le calcul, sa ligne est recalculée
+ * et peut être validée — la Direction la désactive ensuite. Journalisé.
+ */
+export async function reactiverEmploye(employeeId: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  const avant = await prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { actif: true } });
+  if (!avant.actif) {
+    await prisma.employee.update({ where: { id: employeeId }, data: { actif: true } });
+    await journaliser(prisma, { entite: "Employee", entiteId: employeeId, champ: "actif", ancienneValeur: "false", nouvelleValeur: "true", userId: user.id });
+  }
+  revalidatePath("/employes");
+  revalidatePath(`/employes/${employeeId}`);
+  revalidatePath("/paie");
+}
+
 export async function desactiverEmploye(employeeId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);

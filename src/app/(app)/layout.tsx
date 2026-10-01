@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { verifySession, estRH, ciblesAutresEspaces } from "@/lib/auth";
 import { espaceEmployeActif } from "@/lib/espace-employe";
 import { chargerNotifications } from "@/lib/notifications";
@@ -17,7 +18,7 @@ async function chargerBadges(): Promise<Record<string, number>> {
   const filtreRun = config ? { payrollRun: { mois: config.moisCourant, annee: config.anneeCourante } } : {};
   const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente, changementsShift] = await Promise.all([
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
-    prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
+    compterPasValideComptees(prisma, filtreRun), // hors calcul exclues (paie-hors-calcul.ts)
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.acompteSalaire.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),

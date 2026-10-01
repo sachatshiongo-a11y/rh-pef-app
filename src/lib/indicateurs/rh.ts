@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { salaireNetUSD } from "@/lib/paie-net";
 
 // Indicateurs de paie partagés : UNE seule source de vérité pour l'accueil RH et le tableau de bord
@@ -51,11 +52,13 @@ export async function indicateursPaieDuMois(mois: number, annee: number): Promis
     prisma.payrollRun.findMany({
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
       take: 6,
-      include: { lignes: { select: { salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
+      include: { lignes: { select: { id: true, employeeId: true, statutPaiement: true, salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
     }),
   ]);
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors des indicateurs (paie-hors-calcul.ts).
+  for (const r of runsHistorique) r.lignes = await lignesComptees(prisma, r.lignes);
 
-  const lignes = run?.lignes ?? [];
+  const lignes = run ? await lignesComptees(prisma, run.lignes) : [];
   const totaux: TotauxPaie = {
     masseNette: lignes.reduce((a, l) => a + salaireNetUSD(l), 0),
     coutEmployeur: lignes.reduce((a, l) => a + Number(l.coutEmployeurUSD), 0),

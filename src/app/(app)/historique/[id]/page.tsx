@@ -2,6 +2,7 @@ import Link from "next/link";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD } from "@/lib/paie-net";
 import { exigerPageRH } from "@/lib/garde-page";
 
@@ -22,6 +23,8 @@ export default async function HistoriqueDetailPage({
     include: { lignes: { include: { employee: true }, orderBy: { employee: { nom: "asc" } } } },
   });
   if (!run) notFound();
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors des totaux (paie-hors-calcul.ts).
+  run.lignes = await lignesComptees(prisma, run.lignes);
 
   const periode = new Date(run.annee, run.mois - 1).toLocaleDateString("fr-FR", {
     month: "long",

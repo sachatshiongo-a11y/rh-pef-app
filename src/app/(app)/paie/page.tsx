@@ -23,6 +23,8 @@ import { lireAvertissements } from "@/lib/paie-avertissements";
 import { BadgeReference } from "./avertissements-paie";
 import { messageConfirmationValidation } from "./avertissements-validation";
 import { exigerPageRH } from "@/lib/garde-page";
+import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
+import { reactiverEmploye } from "../employes/actions";
 
 // Toujours rendre à neuf, jamais depuis un cache de route (2026-07-22) : la page recalcule les
 // bulletins brouillons à chaque affichage à partir des dernières présences/heures. Sans ceci, en
@@ -56,9 +58,12 @@ export default async function PaiePage({
     where: { mois_annee: { mois, annee } },
     include: { lignes: { include: { employee: true }, orderBy: { employee: { nom: "asc" } } } },
   });
+  // Lignes HORS CALCUL (paie-hors-calcul.ts) : ligne rouverte d'un salarié sorti du calcul. Elles ne
+  // comptent nulle part (totaux, frise, clôture, tableau, exports) et sont montrées À PART plus bas.
+  const { comptees: lignesRun, horsCalcul } = run ? await separerHorsCalcul(prisma, run.lignes) : { comptees: [], horsCalcul: [] };
 
-  // « Réinitialiser » emporte aussi les bulletins déjà ÉMIS des lignes rouvertes : la confirmation
-  // les nomme (geste de la Direction, irréversible).
+  // « Réinitialiser » CONSERVE les bulletins déjà REMIS des lignes rouvertes (archive) : la
+  // confirmation les nomme.
   const bulletinsEmis = run && estAdmin ? await prisma.versionBulletin.count({ where: { payrollLine: { payrollRunId: run.id } } }) : 0;
 
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {
@@ -79,7 +84,7 @@ export default async function PaiePage({
   const modeDefaut = (e: { modePaiement: PaieRow["modePaiementDefaut"] }): PaieRow["modePaiementDefaut"] => e.modePaiement;
 
   const rows: PaieRow[] = run
-    ? run.lignes.map((l) => ({
+    ? lignesRun.map((l) => ({
         id: l.id,
         employeeId: l.employee.id,
         matricule: l.employee.matricule,
@@ -330,7 +335,7 @@ export default async function PaiePage({
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
                 variante="valider"
-                message={`Clôturer la paie de ${periode} ? Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
+                message={`Clôturer la paie de ${periode} ?${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
                 Clôturer la paie ({nbPasValide})
               </ConfirmSubmitButton>
@@ -347,7 +352,7 @@ export default async function PaiePage({
           {estAdmin && run && (
             <form action={reinitialiserPaieDuMois}>
               <ConfirmSubmitButton
-                message={`Supprimer la paie calculée pour ${periode} ?${bulletinsEmis > 0 ? ` ${bulletinsEmis} bulletin(s) déjà émis (lignes rouvertes) et leur historique de validation seront supprimés aussi.` : ""} Cette action est irréversible (n'affecte pas les mois passés).`}
+                message={`Supprimer la paie calculée pour ${periode} ?${bulletinsEmis > 0 ? ` ${bulletinsEmis} bulletin(s) déjà remis (lignes rouvertes) seront conservés en archive, consultables depuis la fiche du salarié ; leurs montants du mois seront recalculés.` : ""} Cette action est irréversible (n'affecte pas les mois passés).`}
                 className={CLASSES_DANGER}
               >
                 Réinitialiser
@@ -418,6 +423,43 @@ export default async function PaiePage({
             ))}
           </ul>
         </div>
+      )}
+
+      {run && horsCalcul.length > 0 && (
+        <section data-hors-calcul className="mb-6 rounded-xl border border-amber-300 bg-amber-50/60 p-4">
+          <h2 className="text-sm font-semibold text-amber-900">
+            Hors calcul — ligne{horsCalcul.length > 1 ? "s" : ""} rouverte{horsCalcul.length > 1 ? "s" : ""} ({horsCalcul.length})
+          </h2>
+          <p className="mt-1 text-xs text-amber-900/80">
+            Salarié sorti du calcul de la paie après la réouverture de sa ligne : elle est conservée (avec ses
+            bulletins émis et son historique) mais ne compte ni dans les totaux, ni dans le livre de paie, ni
+            dans les déclarations, ni dans les exports. Elle ne peut pas être validée ; la clôture du mois la
+            laisse de côté. Pour payer ce mois au salarié : réactivez sa fiche le temps de valider sa paie
+            (Direction), puis désactivez-la.
+          </p>
+          <ul className="mt-3 divide-y rounded-lg border border-amber-200 bg-background text-sm">
+            {horsCalcul.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                <span className="min-w-0">
+                  <Link href={`/employes/${l.employee.id}`} className="font-medium hover:underline">{l.employee.nom}</Link>{" "}
+                  <span className="font-mono text-xs text-muted-foreground">{l.employee.matricule}</span>
+                  <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">hors calcul — ligne rouverte</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {l.employee.actif ? "Passé en intérim (payé par l'agence)" : "Fiche désactivée"} · dernier montant calculé, non compté :{" "}
+                    {salaireNetUSD(l).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+                  </span>
+                </span>
+                {estAdmin && !l.employee.actif && (
+                  <form action={reactiverEmploye.bind(null, l.employee.id)}>
+                    <ConfirmSubmitButton message={`Réactiver la fiche de ${l.employee.nom} ? Sa paie du mois sera recalculée et pourra être validée ; désactivez-la ensuite.`} className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-accent">
+                      Réactiver la fiche
+                    </ConfirmSubmitButton>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {run && (

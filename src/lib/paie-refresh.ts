@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { calculerLignesPaie } from "@/lib/paie-batch";
 import { ATTENTE_VERROU_VALIDATION } from "@/lib/paie-validation";
-import type { PaymentStatus } from "@prisma/client";
+import type { PaymentStatus, Prisma } from "@prisma/client";
 
 // États figés : une ligne validée ou payée n'est jamais recalculée / écrasée (bulletin émis).
 export const STATUTS_FIGES: PaymentStatus[] = ["VALIDE", "PAYE"];
@@ -87,20 +87,7 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     // paiement remis à vide (une ligne non figée n'est ni validée ni payée). Aucun montant ne change.
     // Une ligne avec historique dont le salarié n'est plus calculé (fiche désactivée) est laissée
     // telle quelle, jamais supprimée : seule la Direction efface une paie (`reinitialiserPaieDuMois`).
-    const existantes = await tx.payrollLine.findMany({
-      where: { payrollRunId: runId, statutPaiement: { notIn: STATUTS_FIGES } },
-      select: { id: true, employeeId: true, _count: { select: { versionsBulletin: true, transitions: true, attestations: true } } },
-    });
-    const idsExistants = existantes.map((l) => l.id);
-    const [signees, journalisees] = idsExistants.length
-      ? await Promise.all([
-          tx.signatureElectronique.findMany({ where: { cible: "BULLETIN", cibleId: { in: idsExistants } }, select: { cibleId: true } }),
-          tx.journalAudit.findMany({ where: { entite: "PayrollLine", entiteId: { in: idsExistants } }, select: { entiteId: true }, distinct: ["entiteId"] }),
-        ])
-      : [[], []];
-    const tracees = new Set([...signees.map((s) => s.cibleId), ...journalisees.map((j) => j.entiteId)]);
-    const aHistorique = (l: (typeof existantes)[number]) =>
-      l._count.versionsBulletin + l._count.transitions + l._count.attestations > 0 || tracees.has(l.id);
+    const { existantes, aHistorique } = await lignesNonFigees(tx, runId);
     const conservees = new Map(existantes.filter(aHistorique).map((l) => [l.employeeId, l.id]));
     const brouillons = existantes.filter((l) => !aHistorique(l)).map((l) => l.id);
 
@@ -129,6 +116,31 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     }
     return true;
   }, { timeout: 60_000 });
+}
+
+/**
+ * Lignes NON figées d'une paie, et le prédicat « a un HISTORIQUE » : bulletin émis (VersionBulletin),
+ * transition, attestation, signature BULLETIN ou journal. Une ligne qui a un historique n'est JAMAIS
+ * supprimée — ni par le recalcul (mise à jour en place), ni par la réinitialisation (conservée, ses
+ * bulletins remis restent en archive) : décisions de Sacha du 2026-10-01. Seul un brouillon sans
+ * historique (rien d'enregistré n'y est rattaché) peut être remplacé.
+ */
+export async function lignesNonFigees(tx: Prisma.TransactionClient, runId: string) {
+  const existantes = await tx.payrollLine.findMany({
+    where: { payrollRunId: runId, statutPaiement: { notIn: STATUTS_FIGES } },
+    select: { id: true, employeeId: true, _count: { select: { versionsBulletin: true, transitions: true, attestations: true } } },
+  });
+  const idsExistants = existantes.map((l) => l.id);
+  const [signees, journalisees] = idsExistants.length
+    ? await Promise.all([
+        tx.signatureElectronique.findMany({ where: { cible: "BULLETIN", cibleId: { in: idsExistants } }, select: { cibleId: true } }),
+        tx.journalAudit.findMany({ where: { entite: "PayrollLine", entiteId: { in: idsExistants } }, select: { entiteId: true }, distinct: ["entiteId"] }),
+      ])
+    : [[], []];
+  const tracees = new Set([...signees.map((s) => s.cibleId), ...journalisees.map((j) => j.entiteId)]);
+  const aHistorique = (l: (typeof existantes)[number]) =>
+    l._count.versionsBulletin + l._count.transitions + l._count.attestations > 0 || tracees.has(l.id);
+  return { existantes, aHistorique };
 }
 
 /**

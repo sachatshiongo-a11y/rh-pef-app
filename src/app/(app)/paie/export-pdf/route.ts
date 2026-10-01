@@ -1,5 +1,6 @@
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { LivrePaieDocument } from "@/lib/pdf/livre-paie";
 
@@ -18,7 +19,8 @@ export async function GET() {
     where: { mois_annee: { mois, annee } },
     include: { lignes: { include: { employee: true } } },
   });
-  const lignes = run?.lignes ?? [];
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors du livre (paie-hors-calcul.ts).
+  const lignes = run ? await lignesComptees(prisma, run.lignes) : [];
   if (!run || lignes.length === 0) return new Response("Aucune paie calculée pour ce mois", { status: 404 });
   // Taux du bulletin — jamais déduit des montants nets stockés (voir src/lib/paie-net.ts et src/lib/livre-paie.ts).
   const taux = Number(run.tauxChangeUtilise);

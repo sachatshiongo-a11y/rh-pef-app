@@ -14,7 +14,9 @@ export async function GET(
   // ?dl=1 → téléchargement direct ; sinon affichage inline (aperçu).
   const telecharger = url.searchParams.get("dl") === "1";
 
-  const pdf = await genererBulletinPdf(id, devise);
+  // ?version=N : bulletin déjà REMIS, relu depuis son instantané (archive, jamais supprimée).
+  const v = url.searchParams.get("version");
+  const pdf = await genererBulletinPdf(id, devise, v !== null && /^\d+$/.test(v) ? { version: Number(v) } : {});
   if (!pdf) return new Response("Bulletin introuvable", { status: 404 });
 
   return new Response(new Uint8Array(pdf.buffer), {

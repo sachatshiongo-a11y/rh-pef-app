@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jetonCronValide } from "@/lib/jeton-cron";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { envoyerEmail } from "@/lib/email";
 import { MOIS_FR_MAJ } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
@@ -49,6 +50,8 @@ export async function GET(request: NextRequest) {
 
   // — Synthèse paie (si un calcul existe pour le mois) —
   let blocPaie: string;
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors du rapport (paie-hors-calcul.ts).
+  if (run) run.lignes = await lignesComptees(prisma, run.lignes);
   if (run && run.lignes.length > 0) {
     const lignes = run.lignes;
     const somme = (f: (l: (typeof lignes)[number]) => number) => lignes.reduce((a, l) => a + f(l), 0);

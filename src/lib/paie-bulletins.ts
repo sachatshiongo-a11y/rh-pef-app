@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { chargerEntreprise } from "@/lib/entreprise";
 import { chargerParametresPaie } from "@/lib/config";
 import type { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
@@ -36,6 +37,8 @@ function chargerRun(mois: number, annee: number) {
  */
 export async function chargerDonneesBulletinsDuMois(mois: number, annee: number): Promise<DonneesBulletinsDuMois | null> {
   const run = await chargerRun(mois, annee);
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors des exports (paie-hors-calcul.ts).
+  if (run) run.lignes = await lignesComptees(prisma, run.lignes);
   if (!run || run.lignes.length === 0) return null;
 
   const debutMois = new Date(Date.UTC(annee, mois - 1, 1));

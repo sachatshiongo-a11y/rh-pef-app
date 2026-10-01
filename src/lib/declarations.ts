@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import type { StatutDeclaration, TypeTaxe } from "@prisma/client";
 
 export type LigneDeclaration = {
@@ -53,7 +54,8 @@ export async function calculerDeclarationsMois(
   });
   if (!run || run.lignes.length === 0) return null;
 
-  const lignesRun = run.lignes;
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : jamais déclarées (paie-hors-calcul.ts).
+  const lignesRun = await lignesComptees(prisma, run.lignes);
   const somme = (f: (l: (typeof lignesRun)[number]) => number) =>
     lignesRun.reduce((acc, l) => acc + f(l), 0);
 

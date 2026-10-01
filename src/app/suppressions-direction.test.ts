@@ -219,7 +219,7 @@ describe("seule la Direction supprime : chaque action qui supprime appelle une g
 const SUPPRESSION_PAIE = /\.(payrollLine|payrollRun|versionBulletin|transitionPaie)\.(delete|deleteMany)\s*\(/;
 const PAIE_PERMIS: Record<string, string> = {
   "lib/paie-refresh.ts": "Recalcul : remplace les seuls brouillons SANS historique (bulletin émis, transition, attestation, signature, journal).",
-  "app/(app)/paie/actions.ts": "reinitialiserPaieDuMois : geste explicite de la Direction (requireRole ADMIN).",
+  "app/(app)/paie/actions.ts": "reinitialiserPaieDuMois (Direction) : brouillons sans historique ; la paie entière seulement si AUCUNE ligne n'a d'historique (rien d'émis).",
 };
 function fichiersSupprimantLaPaie(): string[] {
   return lister(SRC, (p) => /\.(ts|tsx)$/.test(p) && !/\.test\./.test(p))
@@ -237,6 +237,19 @@ describe("l'historique de paie ne disparaît jamais hors geste de la Direction",
     const appels = [...src.matchAll(/\.payrollLine\.(?:delete|deleteMany)\s*\(([^;]*)/g)].map((m) => m[1]);
     expect(appels).toEqual([expect.stringContaining("brouillons")]);
     expect(src).toMatch(/const brouillons = existantes\.filter\(\(l\) => !aHistorique\(l\)\)/);
+  });
+  it("aucun bulletin émis ne se supprime : ni VersionBulletin, ni TransitionPaie, nulle part", () => {
+    const re = /\.(versionBulletin|transitionPaie)\.(delete|deleteMany)\s*\(/;
+    const coupables = lister(SRC, (p) => /\.(ts|tsx)$/.test(p) && !/\.test\./.test(p)).filter((p) => re.test(sansCommentaires(fs.readFileSync(p, "utf8"))));
+    expect(coupables).toEqual([]);
+  });
+  it("la réinitialisation ne supprime que des brouillons, et la paie entière seulement sans aucune ligne à historique", () => {
+    const corps = declarations(sansCommentaires(fs.readFileSync(path.join(APP, "(app)/paie/actions.ts"), "utf8"))).find((d) => d.nom === "reinitialiserPaieDuMois")!.corps;
+    const lignes = [...corps.matchAll(/\.payrollLine\.(?:delete|deleteMany)\s*\(([^;]*)/g)].map((m) => m[1]);
+    expect(lignes).toEqual([expect.stringContaining("brouillons")]);
+    expect(corps).toMatch(/const brouillons = existantes\.filter\(\(l\) => !aHistorique\(l\)\)/);
+    expect(corps).toMatch(/if \(gardees\.length === 0\) \{[^}]*\.payrollRun\.delete\(/);
+    expect(corps.match(/\.payrollRun\.delete\(/g)).toHaveLength(1);
   });
   it("la réinitialisation est gardée Direction", () => {
     const src = fs.readFileSync(path.join(APP, "(app)/paie/actions.ts"), "utf8");

@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { jetonLigne } from "@/lib/paie-jeton";
@@ -126,7 +128,10 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     avertissements: lireAvertissements(l.avertissementsPaie),
     jeton: jetonLigne(l),
   });
-  const prepareRows = prepare.map(toRow);
+  // Une ligne HORS CALCUL (ligne rouverte d'un salarié sorti du calcul) ne se valide pas : elle est
+  // montrée à part sur l'écran Paie, pas ici (paie-hors-calcul.ts).
+  const { comptees: prepareComptees, horsCalcul: prepareHorsCalcul } = await separerHorsCalcul(prisma, prepare);
+  const prepareRows = prepareComptees.map(toRow);
   const valideRows = valide.map(toRow);
   const acompteRows: AcompteRow[] = acomptes.map((a) => ({
     id: a.id,
@@ -278,6 +283,11 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
               </div>
             ) : (
               <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" />
+            )}
+            {prepareHorsCalcul.length > 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {prepareHorsCalcul.length} ligne(s) hors calcul (salarié sorti du calcul après réouverture) : voir l&apos;écran <Link href="/paie" className="text-primary underline">Paie</Link>.
+              </p>
             )}
           </section>
 

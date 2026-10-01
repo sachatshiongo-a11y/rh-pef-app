@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { calculerAlertes, type Alerte } from "@/lib/alertes";
 import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
@@ -56,7 +57,7 @@ export default async function AccueilPage() {
     prisma.employee.count({ where: { categorie: "BACKOFFICE", actif: true } }),
     indicateursPaieDuMois(mois, annee),
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
-    prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
+    compterPasValideComptees(prisma, filtreRun), // hors calcul exclues (paie-hors-calcul.ts)
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
     prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: maintenant }, dateFin: { gte: maintenant } } }),
     calculerAlertes().then((l) => l.filter((a) => a.espace === "RH")), // les alertes STOCK restent dans leur espace

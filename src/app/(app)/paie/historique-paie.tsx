@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { salaireNetUSD } from "@/lib/paie-net";
 
 // Sous-onglet « Historique » de la Paie (fusion de l'ancien /historique) : tous les mois de paie
@@ -26,6 +27,8 @@ export async function HistoriquePaie({ sp }: { sp: SPHistorique }) {
     include: { lignes: true },
     orderBy: [{ annee: "desc" }, { mois: "desc" }],
   });
+  // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors des totaux (paie-hors-calcul.ts).
+  for (const r of tous) r.lignes = await lignesComptees(prisma, r.lignes);
 
   const annees = [...new Set(tous.map((r) => r.annee))].sort((a, b) => b - a);
   const MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];

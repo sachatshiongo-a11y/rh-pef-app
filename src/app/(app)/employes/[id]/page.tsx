@@ -148,7 +148,8 @@ export default async function FicheEmployePage({
     }),
     prisma.payrollLine.findMany({
       where: { employeeId: id },
-      include: { payrollRun: true },
+      // Bulletins déjà REMIS (figés à chaque validation) : jamais supprimés, consultables en archive.
+      include: { payrollRun: true, versionsBulletin: { select: { numeroVersion: true, genereLe: true }, orderBy: { numeroVersion: "asc" } } },
       orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }],
     }),
     chargerSoldeCongeSalarie(prisma, id),
@@ -788,6 +789,16 @@ export default async function FicheEmployePage({
                   <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline">
                     CDF
                   </TelechargerLien>
+                  {/* Bulletins remis antérieurs (ligne rouverte, recalculée ou réinitialisée depuis) : l'archive
+                      figée, jamais le bulletin recalculé. Le dernier remis d'une ligne validée = le bulletin ci-dessus. */}
+                  {(l.statutPaiement === "PAS_VALIDE" ? l.versionsBulletin : l.versionsBulletin.slice(0, -1)).map((v) => (
+                    <span key={v.numeroVersion} className="block text-[11px] text-muted-foreground">
+                      Remis v{v.numeroVersion} ({new Date(v.genereLe).toLocaleDateString("fr-FR")}) :{" "}
+                      <TelechargerLien href={`/paie/bulletin/${l.id}?version=${v.numeroVersion}&devise=USD&dl=1`} className="text-primary underline">$</TelechargerLien>
+                      {" · "}
+                      <TelechargerLien href={`/paie/bulletin/${l.id}?version=${v.numeroVersion}&devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
+                    </span>
+                  ))}
                   {l.statutPaiement !== "PAS_VALIDE" && " · "}
                   {l.statutPaiement !== "PAS_VALIDE" && <ContratViewerButton
                     href={`/employes/${employee.id}/attestation-paie/${l.id}`}

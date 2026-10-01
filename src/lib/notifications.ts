@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { compterPasValideComptees } from "@/lib/paie-hors-calcul";
 import { envoyerEmail } from "@/lib/email";
 import { envoyerPush } from "@/lib/push";
 
@@ -112,7 +113,7 @@ export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH", userI
           select: { id: true },
         });
         const restants = run
-          ? await prisma.payrollLine.count({ where: { payrollRunId: run.id, statutPaiement: "PAS_VALIDE" } })
+          ? await compterPasValideComptees(prisma, { payrollRunId: run.id }) // hors calcul exclues
           : 0;
         if (!run || restants > 0) {
           cloture = {

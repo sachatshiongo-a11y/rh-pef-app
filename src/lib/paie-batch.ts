@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { estCalculeEnPaie } from "@/lib/paie-hors-calcul";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerEcheancePret } from "@/lib/prets";
 import {
@@ -171,8 +172,9 @@ export async function calculerLignesPaie(mois: number, annee: number, db: Prisma
 
   for (const employee of employees) {
     const typeContrat = typeContratParEmp.get(employee.id) ?? employee.contrat;
-    // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici.
-    if (typeContrat === "INTERIM") continue;
+    // INTERIMAIRE : salarié de l'AGENCE (qui l'emploie et le paie) — aucun bulletin ici. Règle
+    // partagée avec les totaux et les exports (paie-hors-calcul.ts) : « calculé » = « compté ».
+    if (!estCalculeEnPaie(employee, typeContratParEmp.get(employee.id))) continue;
 
     const codes = codesParEmp.get(employee.id) ?? [];
     const resume = resumerPresences(codes);

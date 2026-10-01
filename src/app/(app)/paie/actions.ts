@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { verifySession, requireRole } from "@/lib/auth";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
 import { transitionAutorisee, transitionAutoriseeEnLot, roleRequisPour } from "@/lib/paie-etats";
-import { rafraichirPaieDuMois, STATUTS_FIGES } from "@/lib/paie-refresh";
+import { rafraichirPaieDuMois, lignesNonFigees, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { calculerEcheancePret } from "@/lib/prets";
 import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-medicaux";
 import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
@@ -329,7 +330,10 @@ export async function cloturerPaie(): Promise<void> {
     await prisma.$transaction(async (tx) => {
       // Lignes lues APRÈS le verrou de la run : un recalcul (/paie) ne peut plus les remplacer.
       await verrouillerRunExclusif(tx, run.id);
-      const lignes = await tx.payrollLine.findMany({ where: { payrollRunId: run.id, statutPaiement: "PAS_VALIDE" }, select: { id: true } });
+      // Les lignes HORS CALCUL (ligne rouverte d'un salarié sorti du calcul, paie-hors-calcul.ts) ne
+      // comptent nulle part et ne se valident pas : la clôture les laisse de côté, PAS VALIDÉES, au
+      // lieu de rester bloquée sur elles (la réinitialisation ne les supprime plus, 2026-10-01).
+      const lignes = await lignesComptees(tx, await tx.payrollLine.findMany({ where: { payrollRunId: run.id, statutPaiement: "PAS_VALIDE" }, select: { id: true, employeeId: true, statutPaiement: true } }));
       const controlees = await controlerLignesAValider(tx, lignes.map((l) => l.id), { verrouRun: "EXCLUSIF" });
       for (const l of lignes) {
         await appliquerTransitionPaie(tx, l.id, "VALIDE", { controlees }, user.id);
@@ -351,6 +355,13 @@ export async function cloturerPaie(): Promise<void> {
  * Réinitialise la paie du mois en cours. Refuse si des salaires sont déjà validés ou payés
  * (bulletins émis non destructibles) — il faut d'abord les annuler explicitement.
  * N'affecte pas l'historique des mois passés.
+ *
+ * UN BULLETIN DÉJÀ REMIS NE DISPARAÎT JAMAIS (décision de Sacha du 2026-10-01). Une ligne rouverte
+ * qui a un historique (bulletin émis, transition, attestation, signature, journal) est CONSERVÉE :
+ * ses bulletins remis restent en archive (VersionBulletin, consultables depuis la fiche du salarié),
+ * et ses montants sont recalculés par le vrai calcul. Seuls les brouillons sans historique sont
+ * supprimés ; la paie elle-même (PayrollRun) n'est supprimée que s'il ne reste AUCUNE ligne à
+ * historique — elle ne contient alors que des brouillons, rien d'émis.
  */
 export async function reinitialiserPaieDuMois() {
   const user = await verifySession();
@@ -373,18 +384,50 @@ export async function reinitialiserPaieDuMois() {
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.payrollRun.delete({ where: { id: run.id } });
+  // Run verrouillée FOR UPDATE (comme le recalcul) : une validation ou un recalcul concurrent attend.
+  const { gardees, bulletinsRemis, figeesEntreTemps } = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "public"."PayrollRun" WHERE "id" = ${run.id} FOR UPDATE`;
+    const figeesEntreTemps = await tx.payrollLine.count({ where: { payrollRunId: run.id, statutPaiement: { in: STATUTS_FIGES } } });
+    if (figeesEntreTemps > 0) return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps };
+    const { existantes, aHistorique } = await lignesNonFigees(tx, run.id);
+    const gardees = existantes.filter(aHistorique);
+    const brouillons = existantes.filter((l) => !aHistorique(l)).map((l) => l.id);
+    if (gardees.length === 0) {
+      // Rien d'émis ni de tracé : la paie du mois n'est faite que de brouillons, elle part entière.
+      await tx.payrollRun.delete({ where: { id: run.id } });
+      await journaliser(tx, {
+        entite: "PayrollRun",
+        entiteId: run.id,
+        champ: "suppression",
+        ancienneValeur: `${config.moisCourant}/${config.anneeCourante} (${run.lignes.length} lignes)`,
+        userId: user.id,
+      });
+      return { gardees: 0, bulletinsRemis: 0, figeesEntreTemps: 0 };
+    }
+    if (brouillons.length) await tx.payrollLine.deleteMany({ where: { id: { in: brouillons } } });
+    const bulletinsRemis = await tx.versionBulletin.count({ where: { payrollLineId: { in: gardees.map((l) => l.id) } } });
     await journaliser(tx, {
       entite: "PayrollRun",
       entiteId: run.id,
-      champ: "suppression",
+      champ: "reinitialisation",
       ancienneValeur: `${config.moisCourant}/${config.anneeCourante} (${run.lignes.length} lignes)`,
+      nouvelleValeur: `${brouillons.length} brouillon(s) supprimé(s) ; ${gardees.length} ligne(s) avec historique conservée(s) (${bulletinsRemis} bulletin(s) remis en archive)`,
       userId: user.id,
     });
+    return { gardees: gardees.length, bulletinsRemis, figeesEntreTemps: 0 };
   });
+  if (figeesEntreTemps > 0) {
+    redirect(`/paie?erreur=${encodeURIComponent(`${figeesEntreTemps} bulletin(s) validé(s)/payé(s) entre-temps : rien n'a été réinitialisé.`)}`);
+  }
+  // Lignes conservées : les montants du mois sont recalculés (en place) par le vrai calcul, les
+  // brouillons recréés — exactement le recalcul du bouton « Calculer ».
+  if (gardees > 0) await rafraichirPaieDuMois({ creerRun: false, userId: user.id });
 
   revalidatePath("/paie");
   revalidatePath("/accueil");
-  redirect(`/paie?msg=${encodeURIComponent("Paie du mois réinitialisée.")}`);
+  redirect(`/paie?msg=${encodeURIComponent(
+    gardees > 0
+      ? `Paie du mois réinitialisée et recalculée : ${bulletinsRemis} bulletin(s) déjà remis conservé(s) en archive (fiche du salarié).`
+      : "Paie du mois réinitialisée.",
+  )}`);
 }
