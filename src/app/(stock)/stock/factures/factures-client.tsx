@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { marquerPayee, supprimerFacture, marquerPayeesEnLot, supprimerFacturesEnLot } from "./actions";
 import { usd, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
@@ -8,6 +9,9 @@ import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
+import { TelechargerLien } from "@/components/telecharger-lien";
+import { BulkBar } from "@/components/bulk-bar";
+import { MoisAccordeon } from "@/components/mois-accordeon";
 
 export type FactureRow = {
   id: string;
@@ -29,6 +33,9 @@ export type FactureRow = {
 export type Groupe = { titre: string; factures: FactureRow[] };
 export type MoisGroupe = { cle: string; label: string; factures: FactureRow[] };
 export type AnneeGroupe = { annee: number; mois: MoisGroupe[] };
+
+/** Au-delà, l'adresse de l'export de la sélection deviendrait démesurée : le bouton le dit au lieu d'échouer. */
+export const MAX_EXPORT_SELECTION = 200;
 
 const sumReste = (fs: FactureRow[]) => fs.reduce((t, f) => t + f.reste, 0);
 
@@ -55,7 +62,15 @@ function messageEcartLot(reglees: number, demandees: number): string {
   return `${reglees} facture${reglees > 1 ? "s" : ""} réglée${reglees > 1 ? "s" : ""} sur ${demandees} sélectionnée${demandees > 1 ? "s" : ""} : ${manquantes} était${manquantes > 1 ? "ent" : ""} déjà réglée${manquantes > 1 ? "s" : ""}.`;
 }
 
-export function FacturesUI({ groupes, annees, estDirection = true, ouvert = false }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; estDirection?: boolean; ouvert?: boolean }) {
+/**
+ * Trois présentations d'une même liste (mêmes lignes, même barre d'actions groupées, mêmes droits) :
+ *  - `annees`   : Année → Mois (écran Factures) ;
+ *  - `groupes`  : par fournisseur (écran Factures) ;
+ *  - `moisPlats`: Mois seuls, le plus récent ouvert (fiche d'un fournisseur — `sansFournisseur` : le
+ *                 nom du fournisseur est celui de la page, on ne le répète pas à chaque ligne).
+ */
+export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null); // écart honnête du lot, pas une erreur
@@ -75,6 +90,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
       else {
         if (r && typeof r === "object" && "demande" in r && "message" in r) setInfo(String((r as { message: string }).message));
         onSuccess?.();
+        router.refresh(); // l'écran peut ne pas être celui que l'action revalide (fiche d'un fournisseur)
       }
     });
   };
@@ -83,12 +99,15 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
   const toutes = useMemo(() => {
     const acc: FactureRow[] = [];
     if (annees) for (const a of annees) for (const m of a.mois) acc.push(...m.factures);
+    else if (moisPlats) for (const m of moisPlats) acc.push(...m.factures);
     else for (const g of groupes ?? []) acc.push(...g.factures);
     return acc;
-  }, [annees, groupes]);
+  }, [annees, groupes, moisPlats]);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const clear = () => { setSel(new Set()); setLotDatePicker(false); };
-  const selIds = [...sel];
+  // Seulement ce qui est À L'ÉCRAN : après un changement de filtre, une case cochée avant ne doit
+  // ni se compter, ni se supprimer, ni s'exporter sans qu'on la voie.
+  const selIds = [...sel].filter((id) => toutes.some((f) => f.id === id));
   // À régler = ni réglée, ni déjà en attente d'une décision de la Direction (jamais demandée deux fois).
   const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE" && !f.paiementDemande));
   const selDejaDemandees = selIds.filter((id) => toutes.some((f) => f.id === id && f.paiementDemande)).length;
@@ -104,6 +123,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
       if (r.demandePaiement !== undefined) setInfo(`Paiement de ${r.demandePaiement} facture${r.demandePaiement > 1 ? "s" : ""} demandé à la Direction (tout ou rien) : rien n'est payé avant sa validation.`);
       else if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
       clear();
+      router.refresh();
     });
   };
 
@@ -113,14 +133,14 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
         const be = badgeEcheance(f);
         return (
           <li key={f.id} className={`flex gap-3 px-3 py-1.5 hover:bg-accent/30 sm:px-4 ${sel.has(f.id) ? "bg-primary/5" : ""}`}>
-            <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="mt-1 shrink-0" aria-label={`Sélectionner ${f.nom}`} />
+            <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} className="mt-1 shrink-0" aria-label={`Sélectionner ${f.nom}${f.numero ? ` N° ${f.numero}` : ""}`} />
             <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                {f.fournisseurId
+                {!sansFournisseur && (f.fournisseurId
                   ? <Link href={`/stock/fournisseurs/${f.fournisseurId}`} className="truncate font-semibold text-primary hover:underline">{f.nom}</Link>
-                  : <p className="truncate font-semibold">{f.nom}</p>}
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  : <p className="truncate font-semibold">{f.nom}</p>)}
+                <div className={`${sansFournisseur ? "" : "mt-0.5 "}flex flex-wrap items-center gap-x-2 gap-y-1`}>
                   {f.numero ? (
                     <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 font-mono text-sm font-semibold tracking-wide text-foreground">N° {f.numero}</span>
                   ) : (
@@ -142,7 +162,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                 {f.documentUrl && (
                   <ApercuDocumentBouton href={f.documentUrl} titre={`Facture ${f.nom}${f.numero ? ` · N° ${f.numero}` : ""}`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF</ApercuDocumentBouton>
                 )}
-                <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
+                <a href={`/stock/factures/${f.id}${suffixeRetour}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
                 {f.statut !== "REGLEE" && !f.paiementDemande && (
                   datePickerId === f.id ? (
                     <span className="flex items-center gap-1.5">
@@ -178,60 +198,69 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
       {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</p>}
 
-      {/* Barre d'actions groupées — sélection multiple par cases à cocher. */}
-      <div className="sticky colle-sous-entete z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
-        <label className="flex items-center gap-2 text-sm font-medium">
-          <input
-            type="checkbox"
-            checked={toutes.length > 0 && sel.size === toutes.length}
-            ref={(el) => { if (el) el.indeterminate = sel.size > 0 && sel.size < toutes.length; }}
-            onChange={(e) => setSel(e.target.checked ? new Set(toutes.map((f) => f.id)) : new Set())}
-          />
-          Tout sélectionner
-        </label>
-        <span className="text-sm text-muted-foreground">{sel.size} sélectionnée(s)</span>
-        {sel.size > 0 && (
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {lotDatePicker ? (
-              <span className="flex flex-wrap items-center gap-1.5">
-                <label className="flex items-center gap-1 text-xs text-muted-foreground">Date de paiement
-                  <input
-                    type="date"
-                    value={lotDate}
-                    onChange={(e) => setLotDate(e.target.value)}
-                    max={jourKinshasaISO()}
-                    className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
-                  />
-                </label>
-                <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
-                  {libelleConfirmer} ({selNonReglees.length})
-                </BoutonValider>
-                <BoutonNeutre onClick={() => setLotDatePicker(false)}>Annuler</BoutonNeutre>
-              </span>
-            ) : (
-              <BoutonValider
-                onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); }}
-                disabled={isPending || selNonReglees.length === 0}
-              >
-                {estDirection ? "Marquer payées" : "Demander le paiement"} ({selNonReglees.length})
-              </BoutonValider>
-            )}
-            {selDejaDemandees > 0 && <span className="text-xs text-amber-800">{selDejaDemandees} déjà en attente de la Direction</span>}
-            {estDirection && (
-              <button
-                onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { const r = await supprimerFacturesEnLot(selIds); if (!estErreur(r)) clear(); return r; }); }}
-                disabled={isPending}
-                className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
-              >
-                ✕ Supprimer ({sel.size})
-              </button>
-            )}
-            <button onClick={clear} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Désélectionner</button>
-          </div>
+      {/* Barre d'actions groupées — sélection multiple par cases à cocher (BulkBar, commune à l'application). */}
+      <BulkBar count={selIds.length} total={toutes.length} onAll={(on) => setSel(on ? new Set(toutes.map((f) => f.id)) : new Set())}>
+        {lotDatePicker ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <label className="flex items-center gap-1 text-xs text-muted-foreground">Date de paiement
+              <input
+                type="date"
+                value={lotDate}
+                onChange={(e) => setLotDate(e.target.value)}
+                max={jourKinshasaISO()}
+                className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
+              />
+            </label>
+            <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
+              {libelleConfirmer} ({selNonReglees.length})
+            </BoutonValider>
+            <BoutonNeutre onClick={() => setLotDatePicker(false)}>Annuler</BoutonNeutre>
+          </span>
+        ) : (
+          <BoutonValider
+            onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); }}
+            disabled={isPending || selNonReglees.length === 0}
+          >
+            {estDirection ? "Marquer payées" : "Demander le paiement"} ({selNonReglees.length})
+          </BoutonValider>
         )}
-      </div>
+        {selDejaDemandees > 0 && <span className="text-xs text-amber-800">{selDejaDemandees} déjà en attente de la Direction</span>}
+        {/* Export Excel de la SÉLECTION (lecture seule, ouvert à tout l'espace Stock comme l'export complet). */}
+        {selIds.length > MAX_EXPORT_SELECTION ? (
+          <button type="button" disabled title={`Exportez ${MAX_EXPORT_SELECTION} factures au plus à la fois.`} className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60">
+            Export : {MAX_EXPORT_SELECTION} factures au plus
+          </button>
+        ) : (
+          <TelechargerLien href={`/stock/factures/export?ids=${selIds.join(",")}`} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">
+            ⭳ Exporter ({selIds.length})
+          </TelechargerLien>
+        )}
+        {estDirection && (
+          <button
+            onClick={() => { if (confirm(`Supprimer ${selIds.length} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { const r = await supprimerFacturesEnLot(selIds); if (!estErreur(r)) clear(); return r; }); }}
+            disabled={isPending}
+            className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+          >
+            ✕ Supprimer ({selIds.length})
+          </button>
+        )}
+        <button onClick={clear} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Désélectionner</button>
+      </BulkBar>
 
-      {annees ? (
+      {moisPlats ? (
+        <>
+          {moisPlats.map((m, i) => {
+            const duM = sumReste(m.factures);
+            return (
+              <MoisAccordeon key={m.cle} titre={m.label} compteur={`${m.factures.length} facture(s)`} defaultOpen={ouvert || i === 0}
+                resume={duM > 0 ? <span className="text-xs text-red-700">dû {usd(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}>
+                {liste(m.factures)}
+              </MoisAccordeon>
+            );
+          })}
+          {moisPlats.length === 0 && <p className="rounded-lg border px-3 py-6 text-center text-sm text-muted-foreground">Aucune facture.</p>}
+        </>
+      ) : annees ? (
         <>
           {annees.map((a) => {
             const nbA = a.mois.reduce((n, m) => n + m.factures.length, 0);

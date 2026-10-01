@@ -9,18 +9,11 @@ import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
+import { versFactureRow } from "./facture-row";
+import { STATUTS_FACTURE_A_REGLER } from "@/lib/fiche-fournisseur";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
-const JOUR_MS = 86400000;
-/** Jours restants avant l'échéance (négatif si dépassée) ; null si réglée ou sans échéance. */
-function joursAvant(echeance: Date | null, statut: string): number | null {
-  if (statut === "REGLEE" || !echeance) return null;
-  const e = new Date(echeance);
-  const e0 = Date.UTC(e.getUTCFullYear(), e.getUTCMonth(), e.getUTCDate());
-  const a0 = jourCivilKinshasa(new Date()).getTime(); // aujourd'hui à Kinshasa
-  return Math.round((e0 - a0) / JOUR_MS);
-}
 
 export default async function FacturesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
@@ -46,7 +39,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     filtreImpayes || sp.annee === "toutes" ? null : Number(sp.annee) || anneeDefaut;
 
   const where: Prisma.FactureFournisseurWhereInput = {
-    ...(f === "du" ? { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }
+    ...(f === "du" ? { statut: { in: STATUTS_FACTURE_A_REGLER } }
       : f === "A_REGLER" || f === "REGLEE" || f === "ECHUE_NON_REGLEE" ? { statut: f } : {}),
     ...(anneeSel ? { annee: anneeSel } : {}),
   };
@@ -121,14 +114,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     echeancier.sort((a, b) => a.cle.localeCompare(b.cle));
   }
 
-  const toRow = (x: (typeof factures)[number]): FactureRow => ({
-    id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
-    date: d(x.date), echeance: d(x.dateEcheance),
-    joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
-    montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
-    documentUrl: x.documentUrl ?? null,
-    paiementDemande: enAttente.factures.has(x.id),
-  });
+  const toRow = (x: (typeof factures)[number]): FactureRow => versFactureRow(x, enAttente.factures);
   // Groupement « fournisseur » : liste plate. Groupement « mois » : accordéon Année → Mois.
   const groupes: Groupe[] = [];
   const annees: AnneeGroupe[] = [];

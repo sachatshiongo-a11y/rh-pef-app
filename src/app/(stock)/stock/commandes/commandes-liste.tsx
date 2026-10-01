@@ -18,7 +18,12 @@ export type BCRow = {
   date: string; nbLignes: number; total: number; statut: string; documentUrl: string | null;
 };
 
-export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]; estDirection: boolean }) {
+/**
+ * `sansFournisseur` : la liste est celle d'UN fournisseur (sa fiche) — son nom est celui de la page,
+ * on ne le répète pas à chaque ligne. `suffixeRetour` : « ?retour=… » ajouté au lien du bon pour que
+ * son « ← Retour » revienne à la fiche, sur le bon onglet.
+ */
+export function CommandesListe({ commandes, estDirection, sansFournisseur = false, suffixeRetour = "" }: { commandes: BCRow[]; estDirection: boolean; sansFournisseur?: boolean; suffixeRetour?: string }) {
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
@@ -50,9 +55,9 @@ export function CommandesListe({ commandes, estDirection }: { commandes: BCRow[]
                 <li key={c.id} className={`flex items-center gap-2 px-3 py-1.5 ${sel.has(c.id) ? "bg-primary/10" : "hover:bg-accent/40"}`}>
                   {estDirection && <input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} className="shrink-0" aria-label={`Sélectionner ${c.numero}`} />}
                   <div className="min-w-0 flex-1">
-                    <Link href={`/stock/commandes/${c.id}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
+                    <Link href={`/stock/commandes/${c.id}${suffixeRetour}`} className="font-medium text-primary hover:underline">{c.numero}</Link>
                     <span className="ml-2 text-xs text-muted-foreground">
-                      {c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseurNom}</Link> : (c.fournisseurNom ?? "—")} · {new Date(c.date).toLocaleDateString("fr-FR")} · {c.nbLignes} ligne(s)
+                      {!sansFournisseur && <>{c.fournisseurId ? <Link href={`/stock/fournisseurs/${c.fournisseurId}`} className="text-primary hover:underline">{c.fournisseurNom}</Link> : (c.fournisseurNom ?? "—")} · </>}{new Date(c.date).toLocaleDateString("fr-FR")} · {c.nbLignes} ligne(s)
                     </span>
                   </div>
                   <span className="flex shrink-0 items-center gap-2">

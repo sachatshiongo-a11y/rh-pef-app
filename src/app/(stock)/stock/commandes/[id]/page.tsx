@@ -10,8 +10,9 @@ import { BoutonValider, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
+import { lireRetourFiche } from "@/lib/fiche-fournisseur";
 
-export default async function BonDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ erreur?: string }> }) {
+export default async function BonDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ erreur?: string; retour?: string }> }) {
   const user = await exigerPageStock();
   const { id } = await params;
   const sp = await searchParams;
@@ -29,6 +30,7 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
     prisma.parametresAchat.findUnique({ where: { id: "singleton" } }),
   ]);
   if (!bc) notFound();
+  const retour = lireRetourFiche(sp.retour, bc.fournisseurId);
 
   // Factures non liées du même fournisseur, à rattacher à ce bon à tout moment.
   const facturesLiablesRaw = bc.fournisseurId
@@ -53,7 +55,10 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
 
   return (
     <div className="w-full space-y-5">
-      <FilAriane segments={[{ label: "Bons de commande", href: "/stock/commandes" }, { label: bc.numero }]} />
+      {/* Ouvert depuis la fiche d'un fournisseur : on y revient, sur le bon onglet (`?retour=` validé, jamais cru tel quel). */}
+      <FilAriane segments={[...(retour && bc.fournisseur
+        ? [{ label: "Fournisseurs", href: "/stock/fournisseurs" }, { label: bc.fournisseur.nom, href: retour }]
+        : [{ label: "Bons de commande", href: "/stock/commandes" }]), { label: bc.numero }]} />
       {sp.erreur && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
       {/* Barre d'actions selon l'état */}

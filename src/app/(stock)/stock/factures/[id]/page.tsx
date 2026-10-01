@@ -13,13 +13,15 @@ import { demandeSurCible } from "@/lib/validations-stock/apercu";
 import { cleFacture } from "@/lib/validations-stock/charge";
 import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
 import { DecisionDemande } from "../../a-valider/decision-demande";
+import { lireRetourFiche } from "@/lib/fiche-fournisseur";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
 
-export default async function FactureDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function FactureDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ retour?: string }> }) {
   const user = await exigerPageStock();
   const { id } = await params;
+  const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const facture = await prisma.factureFournisseur.findUnique({
     where: { id },
@@ -39,6 +41,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
   const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
   const bc = facture.bonDeCommande;
+  const retour = lireRetourFiche(sp.retour, facture.fournisseurId);
 
   // Bons de commande liables (même fournisseur), pour lier / changer à tout moment.
   const bonsLiablesRaw = await prisma.bonDeCommande.findMany({
@@ -75,7 +78,10 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div className="w-full space-y-5">
-      <FilAriane segments={[{ label: "Factures", href: "/stock/factures" }, { label: facture.numero ? `N° ${facture.numero}` : nom }]} />
+      {/* Ouverte depuis la fiche d'un fournisseur : on y revient, sur le bon onglet (`?retour=` validé, jamais cru tel quel). */}
+      <FilAriane segments={[...(retour
+        ? [{ label: "Fournisseurs", href: "/stock/fournisseurs" }, { label: nom, href: retour }]
+        : [{ label: "Factures", href: "/stock/factures" }]), { label: facture.numero ? `N° ${facture.numero}` : nom }]} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold sm:text-2xl">Facture · {facture.fournisseurId
           ? <Link href={`/stock/fournisseurs/${facture.fournisseurId}`} className="text-primary hover:underline">{nom}</Link>
@@ -84,7 +90,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           {/* Un paiement déjà demandé se DÉCIDE (bloc ci-dessous) : pas de second geste de paiement. */}
           {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} />}
           {!demande && <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} estDirection={estDirection} />}
-          <Link href="/stock/factures" className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
+          <Link href={retour ?? "/stock/factures"} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
 
