@@ -94,7 +94,7 @@ export default async function FactureDetailPage({ params }: { params: Promise<{ 
           <p className="text-xs text-amber-900/80">{demande.resume} · demandé par {demande.auteurNom} le {new Date(demande.creeLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}. Rien n&apos;est payé avant sa validation.</p>
           <AlertesDemande a={demande} />
           <DetailDemande a={demande} />
-          <DecisionDemande id={demande.id} estDirection={estDirection} estAuteur={demande.auteurId === user.id} dateProposee={demande.paiement?.date} />
+          <DecisionDemande id={demande.id} version={demande.version} estDirection={estDirection} estAuteur={demande.auteurId === user.id} dateProposee={demande.paiement?.date} />
         </section>
       )}
 

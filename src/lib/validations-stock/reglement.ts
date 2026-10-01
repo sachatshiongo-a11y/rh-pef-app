@@ -101,6 +101,7 @@ export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr
     SELECT "id", "date", "fournisseurNom", "numero", "resteAPayerUSD"
     FROM "stock"."FactureFournisseur"
     WHERE "id" IN (${Prisma.join(ids)}) AND "statut" <> 'REGLEE' AND "resteAPayerUSD" > 0
+    ORDER BY "id"
     FOR UPDATE`;
   if (facs.length === 0) return [];
   // Ordre de la sélection, jamais l'ordre physique de la base (notification et journal stables).

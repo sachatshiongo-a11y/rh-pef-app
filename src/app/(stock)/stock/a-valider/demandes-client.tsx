@@ -31,6 +31,8 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
   const [bilan, setBilan] = useState<{ ok: string; echecs: string[] } | null>(null);
 
   const resume = useMemo(() => new Map(demandes.map((d) => [d.id, d.resume])), [demandes]);
+  // Version AFFICHÉE de chaque demande : la décision porte sur elle, pas sur une retouche ultérieure.
+  const versionsDe = (liste: string[]) => Object.fromEntries(liste.flatMap((id) => { const d = demandes.find((x) => x.id === id); return d ? [[id, d.version]] : []; }));
   const groupes = ORDRE.map((n) => ({ nature: n, items: demandes.filter((d) => d.nature === n) })).filter((g) => g.items.length > 0);
 
   const decider = (fn: () => Promise<BilanDecision | { erreur: string }>, verbe: string, apres?: () => void) => {
@@ -74,14 +76,14 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
         <BulkBar count={sel.size} total={demandes.length} onAll={(on) => setAll(demandes.map((d) => d.id), on)}>
           {!refusLot ? (
             <>
-              <BoutonApprouver disabled={isPending} onClick={() => decider(() => validerDemandes(ids, datesDe(ids)), "validée")}>Valider ({sel.size})</BoutonApprouver>
+              <BoutonApprouver disabled={isPending} onClick={() => decider(() => validerDemandes(ids, datesDe(ids), versionsDe(ids)), "validée")}>Valider ({sel.size})</BoutonApprouver>
               <BoutonRefuser disabled={isPending} onClick={() => setRefusLot(true)}>Refuser ({sel.size})</BoutonRefuser>
               <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
             </>
           ) : (
             <>
               <input value={motifLot} onChange={(e) => setMotifLot(e.target.value)} autoFocus placeholder="Motif du refus (obligatoire)" aria-label="Motif du refus" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm sm:w-64 sm:flex-none" />
-              <BoutonRefuser disabled={isPending || motifLot.trim().length < 3} onClick={() => decider(() => refuserDemandes(ids, motifLot), "refusée", () => { setRefusLot(false); setMotifLot(""); })}>Confirmer le refus ({sel.size})</BoutonRefuser>
+              <BoutonRefuser disabled={isPending || motifLot.trim().length < 3} onClick={() => decider(() => refuserDemandes(ids, motifLot, versionsDe(ids)), "refusée", () => { setRefusLot(false); setMotifLot(""); })}>Confirmer le refus ({sel.size})</BoutonRefuser>
               <BoutonNeutre onClick={() => { setRefusLot(false); setMotifLot(""); }}>Annuler</BoutonNeutre>
             </>
           )}
@@ -116,14 +118,14 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
                       )}
                       {estDirection && refusUn !== d.id && (
                         <>
-                          <BoutonApprouver disabled={isPending || d.illisible} onClick={() => decider(() => validerDemandes([d.id], datesDe([d.id])), "validée")}>Valider</BoutonApprouver>
+                          <BoutonApprouver disabled={isPending || d.illisible} onClick={() => decider(() => validerDemandes([d.id], datesDe([d.id]), versionsDe([d.id])), "validée")}>Valider</BoutonApprouver>
                           <BoutonRefuser disabled={isPending} onClick={() => { setRefusUn(d.id); setMotifUn(""); }}>Refuser</BoutonRefuser>
                         </>
                       )}
                       {estDirection && refusUn === d.id && (
                         <>
                           <input value={motifUn} onChange={(e) => setMotifUn(e.target.value)} autoFocus placeholder="Motif du refus (obligatoire)" aria-label="Motif du refus" className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
-                          <BoutonRefuser disabled={isPending || motifUn.trim().length < 3} onClick={() => decider(() => refuserDemandes([d.id], motifUn), "refusée", () => setRefusUn(null))}>Confirmer le refus</BoutonRefuser>
+                          <BoutonRefuser disabled={isPending || motifUn.trim().length < 3} onClick={() => decider(() => refuserDemandes([d.id], motifUn, versionsDe([d.id])), "refusée", () => setRefusUn(null))}>Confirmer le refus</BoutonRefuser>
                           <BoutonNeutre onClick={() => setRefusUn(null)}>Annuler</BoutonNeutre>
                         </>
                       )}

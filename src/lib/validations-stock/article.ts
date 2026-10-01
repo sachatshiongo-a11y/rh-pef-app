@@ -107,8 +107,10 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
   if (verrouiller) {
     // Ligne d'article et ligne de stock verrouillées jusqu'à la fin de la transaction : la
     // comparaison « avant » et l'écriture portent sur le même état.
-    await tx.$queryRaw`SELECT "id" FROM "stock"."ArticleStock" WHERE "id" IN (${Prisma.join(ids)}) FOR UPDATE`;
-    await tx.$queryRaw`SELECT "id" FROM "stock"."Stock" WHERE "articleId" IN (${Prisma.join(ids)}) FOR UPDATE`;
+    // Toujours dans le même ordre (par id) : deux transactions qui verrouillent les mêmes lignes ne
+    // peuvent pas s'attendre mutuellement (interblocage).
+    await tx.$queryRaw`SELECT "id" FROM "stock"."ArticleStock" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
+    await tx.$queryRaw`SELECT "id" FROM "stock"."Stock" WHERE "articleId" IN (${Prisma.join(ids)}) ORDER BY "articleId" FOR UPDATE`;
   }
   const arts = await tx.articleStock.findMany({
     where: { id: { in: ids } },

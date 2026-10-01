@@ -8,7 +8,7 @@ import { creerBaseTest } from "@/lib/test/db";
 // l'envoi push sont simulés.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN" as string, nom: "Direction", accesStock: false } }));
-const PUSH = vi.hoisted(() => ({ appels: [] as { ids: string[]; body: string }[] }));
+const PUSH = vi.hoisted(() => ({ appels: [] as { ids: string[]; body: string }[], casser: false }));
 vi.mock("@/lib/prisma", () => ({
   prisma: new Proxy({}, {
     get: (_t, p) => {
@@ -19,11 +19,14 @@ vi.mock("@/lib/prisma", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule: () => {}, requireRole: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
-vi.mock("@/lib/push", () => ({ envoyerPush: async (ids: string[], p: { body: string }) => { PUSH.appels.push({ ids, body: p.body }); } }));
+vi.mock("@/lib/push", () => ({ envoyerPush: async (ids: string[], p: { body: string }) => { if (PUSH.casser) throw new Error("push en panne"); PUSH.appels.push({ ids, body: p.body }); } }));
 
 const { marquerPayee, marquerPayeesEnLot, enregistrerPaiement } = await import("../factures/actions");
 const { validerDemandes, refuserDemandes, retirerMaDemande } = await import("./actions");
 const { validerDemande } = await import("@/lib/validations-stock/demandes");
+
+/** Version actuelle des demandes (jeton que l'écran renvoie avec la décision). */
+const v = async (ids: string[]) => Object.fromEntries((await prisma.demandeValidationStock.findMany({ where: { id: { in: ids } }, select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -129,12 +132,12 @@ describe("Validation = EXACTEMENT le paiement direct de la Direction", () => {
     const [d] = await demandes();
     PUSH.appels = [];
     en("dir");
-    expect(await validerDemandes([d.id])).toEqual({ traitees: [d.id], echecs: [] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
     expect(await etatArgent(demandee.id)).toEqual(await etatArgent(directe.id));
     expect((await etatArgent(demandee.id)).statut).toBe("REGLEE");
-    const v = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
-    expect(v).toMatchObject({ statut: "VALIDEE", decideurId: U.dir.id, decideurNom: "Sacha" });
-    expect(v.cibles).toEqual([]);
+    const relue = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
+    expect(relue).toMatchObject({ statut: "VALIDEE", decideurId: U.dir.id, decideurNom: "Sacha" });
+    expect(relue.cibles).toEqual([]);
     // Notification « à valider » retirée ; « payée » émise, push à la Direction, aux comptes Stock et au demandeur.
     expect(await prisma.notification.count({ where: { refId: d.id } })).toBe(0);
     const payee = await prisma.notification.findFirstOrThrow({ where: { refId: `reglement:${demandee.id}` } });
@@ -147,7 +150,7 @@ describe("Validation = EXACTEMENT le paiement direct de la Direction", () => {
     const f = await facture();
     en("resp"); await marquerPayee(f.id, "2026-09-10");
     const [d] = await demandes();
-    en("dir"); await validerDemandes([d.id], { [d.id]: "2026-09-12" });
+    en("dir"); await validerDemandes([d.id], { [d.id]: "2026-09-12" }, await v([d.id]));
     expect((await etatArgent(f.id)).datePaiement).toBe("2026-09-12T00:00:00.000Z");
   }, 60_000);
 
@@ -158,7 +161,7 @@ describe("Validation = EXACTEMENT le paiement direct de la Direction", () => {
     expect((await etatArgent(c.id)).paiements).toEqual([]);
     const [d] = await demandes();
     expect(d.cibles.map((x) => x.cle).sort()).toEqual([`FACTURE:${c.id}`, `FACTURE:${e.id}`].sort());
-    en("dir"); expect(await validerDemandes([d.id])).toMatchObject({ traitees: [d.id] });
+    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ traitees: [d.id] });
     expect(await etatArgent(c.id)).toEqual(await etatArgent(a.id));
     expect(await etatArgent(e.id)).toEqual(await etatArgent(b.id));
     expect((await prisma.notification.findFirstOrThrow({ where: { message: { startsWith: "2 factures payées" } } })).message).toBe("2 factures payées le 11/09/2026 — 140,00 $ (A n° 1, B n° 2)");
@@ -178,7 +181,7 @@ describe("Validation = EXACTEMENT le paiement direct de la Direction", () => {
     await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2500 } });
     try {
       en("dir"); await enregistrerPaiement(directe.id, fd(saisie)); // geste direct du même jour
-      expect(await validerDemandes([d.id])).toMatchObject({ traitees: [d.id] });
+      expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ traitees: [d.id] });
       expect(await etatArgent(demandee.id)).toEqual(await etatArgent(directe.id));
       expect((await etatArgent(demandee.id)).paiements[0]).toMatchObject({ montantUSD: "46", montantCDF: "115000", taux: "2500" });
     } finally {
@@ -193,8 +196,8 @@ describe("Refus, retrait, conflits, droits", () => {
     en("resp"); await marquerPayee(f.id, "2026-09-10");
     const [d] = await demandes();
     en("dir");
-    expect(await refuserDemandes([d.id], " ")).toMatchObject({ erreur: expect.stringMatching(/motif/) });
-    expect(await refuserDemandes([d.id], "Facture contestée")).toEqual({ traitees: [d.id], echecs: [] });
+    expect(await refuserDemandes([d.id], " ", await v([d.id]))).toMatchObject({ erreur: expect.stringMatching(/motif/) });
+    expect(await refuserDemandes([d.id], "Facture contestée", await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
     const r = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
     expect(r).toMatchObject({ statut: "REFUSEE", motifRefus: "Facture contestée", decideurId: U.dir.id });
     expect(r.cibles).toEqual([]);
@@ -202,7 +205,7 @@ describe("Refus, retrait, conflits, droits", () => {
     expect(await prisma.notification.count({ where: { refId: d.id } })).toBe(0);
     expect((await prisma.notification.findFirstOrThrow({ where: { refId: `decision:${d.id}` } })).message).toMatch(/refusée.*Facture contestée/);
     // Une demande refusée ne se valide plus, et la facture peut être redemandée.
-    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ id: d.id, erreur: expect.stringMatching(/déjà été refusée/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ id: d.id, erreur: expect.stringMatching(/déjà été refusée/) }] });
     en("resp"); expect(await marquerPayee(f.id, "2026-09-10")).toMatchObject({ demande: true });
   }, 60_000);
 
@@ -224,7 +227,7 @@ describe("Refus, retrait, conflits, droits", () => {
     // Règlement « par ailleurs » (import du suivi, correction en base…) — hors des gestes gardés.
     await prisma.factureFournisseur.update({ where: { id: f.id }, data: { montantRegleUSD: 100, resteAPayerUSD: 0, statut: "REGLEE" } });
     en("dir");
-    const r = await validerDemandes([d.id]);
+    const r = await validerDemandes([d.id], {}, await v([d.id]));
     expect(r).toMatchObject({ traitees: [], echecs: [{ id: d.id, erreur: expect.stringMatching(/déjà été réglée depuis la demande.*rien n'a été écrit/) }] });
     expect(await paiements(f.id)).toEqual([]);
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
@@ -236,7 +239,7 @@ describe("Refus, retrait, conflits, droits", () => {
     const [d] = await demandes();
     await prisma.factureFournisseur.update({ where: { id: b.id }, data: { montantRegleUSD: 30, resteAPayerUSD: 70 } });
     en("dir");
-    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/reste à payer.*a changé/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/reste à payer.*a changé/) }] });
     expect(await prisma.paiement.count()).toBe(0);
     expect((await relire(a.id)).statut).toBe("A_REGLER");
   }, 60_000);
@@ -246,13 +249,13 @@ describe("Refus, retrait, conflits, droits", () => {
     en("resp"); await marquerPayee(f.id, "2026-09-10");
     const [d] = await demandes();
     en("resp");
-    expect(await validerDemandes([d.id])).toMatchObject({ erreur: "Réservé à la Direction." });
-    expect(await refuserDemandes([d.id], "je refuse")).toMatchObject({ erreur: "Réservé à la Direction." });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
+    expect(await refuserDemandes([d.id], "je refuse", await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     // Même en appelant le cœur avec un compte non-Direction (défense en profondeur).
     await expect(validerDemande({ id: U.resp.id, nom: "Jean", role: "STOCK" }, d.id)).rejects.toThrow("Réservé à la Direction.");
     // Un salarié avec accès Stock, idem.
     A.user = { id: U.autre.id, role: "EMPLOYE", nom: "Marie", accesStock: true };
-    expect(await validerDemandes([d.id])).toMatchObject({ erreur: "Réservé à la Direction." });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
     expect(await etatArgent(f.id)).toMatchObject({ paiements: [] });
   }, 60_000);
@@ -265,6 +268,42 @@ describe("Refus, retrait, conflits, droits", () => {
     // Un montant réglé NÉGATIF (qui gonflerait le reste à payer) est refusé de même.
     expect(await creerFactureAvecLignes(fd({ fournisseurNom: "ETS SENEVE", ligne_designation: "Riz", ligne_quantite: "1", ligne_prix: "100", montantRegleUSD: "-50" }))).toMatchObject({ erreur: expect.stringMatching(/validé par la Direction/) });
     expect(await prisma.factureFournisseur.count()).toBe(0);
+  }, 60_000);
+
+  it("charge altérée (vise une autre facture que celle verrouillée) : jamais exécutée", async () => {
+    const f = await facture({ numero: "1" });
+    const autreFacture = await facture({ numero: "2" });
+    en("resp"); await marquerPayee(f.id, "2026-09-10");
+    const [d] = await demandes();
+    const charge = d.charge as { factures: { id: string }[] };
+    charge.factures[0].id = autreFacture.id; // la cible verrouillée reste FACTURE:f
+    await prisma.demandeValidationStock.update({ where: { id: d.id }, data: { charge } });
+    en("dir");
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/ne correspond plus.*altérée/) }] });
+    expect(await prisma.paiement.count()).toBe(0);
+  }, 60_000);
+
+  it("la réponse de la Direction est PERSONNELLE : cloche du demandeur seulement, motif invisible des autres comptes", async () => {
+    const { chargerNotifications } = await import("@/lib/notifications");
+    const f = await facture();
+    en("resp"); await marquerPayee(f.id, "2026-09-10");
+    const [d] = await demandes();
+    en("dir"); await refuserDemandes([d.id], "Litige fournisseur", await v([d.id]));
+    const n = await prisma.notification.findFirstOrThrow({ where: { refId: `decision:${d.id}` } });
+    expect(n.destinataireUserId).toBe(U.resp.id);
+    expect((await chargerNotifications("STOCK", U.resp.id)).items.map((x) => x.id)).toContain(n.id);
+    expect((await chargerNotifications("STOCK", U.autre.id)).items.map((x) => x.id)).not.toContain(n.id);
+    expect((await chargerNotifications("STOCK", U.dir.id)).items.map((x) => x.id)).not.toContain(n.id);
+  }, 60_000);
+
+  it("une notification qui échoue APRÈS un paiement direct ne le fait pas passer pour un échec (pas de second essai qui paierait deux fois)", async () => {
+    const f = await facture();
+    PUSH.casser = true;
+    try {
+      en("dir"); expect(await marquerPayee(f.id, "2026-09-10")).toBeUndefined();
+    } finally { PUSH.casser = false; }
+    expect((await relire(f.id)).statut).toBe("REGLEE");
+    expect(await paiements(f.id)).toHaveLength(1);
   }, 60_000);
 
   it("la Direction qui paie en direct notifie aussi « payée »", async () => {

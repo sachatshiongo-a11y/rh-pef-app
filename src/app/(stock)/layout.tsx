@@ -18,7 +18,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
     // Paiements, réconciliations et modifications d'articles en attente de la Direction.
     // Toutes pour la Direction ; les siennes pour un autre compte (celles qu'il voit sur la page).
     prisma.demandeValidationStock.count({ where: { statut: "EN_ATTENTE", ...(user.role === "ADMIN" ? {} : { auteurId: user.id }) } }),
-    chargerNotifications("STOCK"),
+    chargerNotifications("STOCK", user.id), // + les réponses de la Direction adressées à ce compte
     // Comptage des articles urgents par domaine, agrégé en SQL — MÊME RÈGLE que niveauAlerte :
     // URGENT = rupture (quantité ≤ 0) uniquement si un seuil minimum est défini (sans seuil,
     // pas d'alerte). Un seul aller-retour qui renvoie 3 nombres.

@@ -11,8 +11,8 @@ import type { ApercuDemande } from "@/lib/validations-stock/apercu";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const A = vi.hoisted(() => ({
-  valider: vi.fn(async (_ids: string[], _dates?: Record<string, string>): Promise<unknown> => ({ traitees: [], echecs: [] })),
-  refuser: vi.fn(async (_ids: string[], _motif: string): Promise<unknown> => ({ traitees: [], echecs: [] })),
+  valider: vi.fn(async (_ids: string[], _dates?: Record<string, string>, _versions?: Record<string, string>): Promise<unknown> => ({ traitees: [], echecs: [] })),
+  refuser: vi.fn(async (_ids: string[], _motif: string, _versions?: Record<string, string>): Promise<unknown> => ({ traitees: [], echecs: [] })),
   retirer: vi.fn(async (_id: string): Promise<unknown> => undefined),
 }));
 vi.mock("./actions", () => ({ validerDemandes: A.valider, refuserDemandes: A.refuser, retirerMaDemande: A.retirer }));
@@ -24,7 +24,7 @@ vi.mock("../catalogue/actions", () => ({
 const { DemandesAValider } = await import("./demandes-client");
 const { CatalogueTable } = await import("../catalogue/catalogue-table");
 
-const base = { statut: "EN_ATTENTE", auteurId: "u1", auteurNom: "Jean", creeLe: "2026-09-30T08:00:00.000Z", decideurNom: null, decideLe: null, motifRefus: null, illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null };
+const base = { version: "2026-09-30T08:00:00.000Z", statut: "EN_ATTENTE", auteurId: "u1", auteurNom: "Jean", creeLe: "2026-09-30T08:00:00.000Z", decideurNom: null, decideLe: null, motifRefus: null, illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null };
 const DEMANDES: ApercuDemande[] = [
   { ...base, id: "p1", nature: "PAIEMENT_FACTURE", resume: "Payer la facture n° 12 de SENEVE le 29/09/2026 — 100,00 $",
     paiement: { mode: "SOLDE", date: "2026-09-29", total: 100, reglement: null, factures: [{ id: "f1", nom: "SENEVE", numero: "12", resteDemande: 100, resteActuel: 100, reglee: false }] } },
@@ -69,7 +69,7 @@ describe("File de la Direction", () => {
     expect(cases).toHaveLength(3);
     await clic(cases[0]); await clic(cases[2]);
     await clic(boutons("Valider (2)")[0]);
-    expect(A.valider).toHaveBeenCalledWith(["p1", "m1"], { p1: "2026-09-29" });
+    expect(A.valider).toHaveBeenCalledWith(["p1", "m1"], { p1: "2026-09-29" }, { p1: "2026-09-30T08:00:00.000Z", m1: "2026-09-30T08:00:00.000Z" }); // la version VUE part avec la décision
     expect(conteneur.textContent).toContain("1 demande validée.");
     expect(conteneur.textContent).toContain("« « Riz » : Prix unitaire USD 2 → 3 » : Prix changé — rien n'a été écrit");
   });
@@ -83,7 +83,7 @@ describe("File de la Direction", () => {
     taper(conteneur.querySelector<HTMLInputElement>('input[aria-label="Motif du refus"]')!, "Recompter");
     expect(boutons("Confirmer le refus (3)")[0].disabled).toBe(false);
     await clic(boutons("Confirmer le refus (3)")[0]);
-    expect(A.refuser).toHaveBeenCalledWith(["p1", "r1", "m1"], "Recompter");
+    expect(A.refuser).toHaveBeenCalledWith(["p1", "r1", "m1"], "Recompter", { p1: "2026-09-30T08:00:00.000Z", r1: "2026-09-30T08:00:00.000Z", m1: "2026-09-30T08:00:00.000Z" });
   });
 });
 

@@ -21,6 +21,9 @@ vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
 const C = await import("../catalogue/actions");
 const { validerDemandes, refuserDemandes } = await import("./actions");
 
+/** Version actuelle des demandes (jeton que l'écran renvoie avec la décision). */
+const v = async (ids: string[]) => Object.fromEntries((await prisma.demandeValidationStock.findMany({ where: { id: { in: ids } }, select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
+
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
 let cat1: string, cat2: string, four: string;
@@ -122,7 +125,7 @@ describe("Modification par le responsable stock : une proposition, l'article ne 
     expect((await etat(a)).categorieId).toBe(cat1);
     const [d] = await demandes();
     expect(d.resume).toBe("2 articles : Catégorie → Frais");
-    en("dir"); await validerDemandes([d.id]);
+    en("dir"); await validerDemandes([d.id], {}, await v([d.id]));
     expect([(await etat(a)).categorieId, (await etat(b)).categorieId]).toEqual([cat2, cat2]);
   }, 60_000);
 });
@@ -132,10 +135,12 @@ describe("Validation = EXACTEMENT la modification directe de la Direction", () =
     const direct = await article("Riz A");
     const propose = await article("Riz B");
     const saisie = { ...SAISIE_FICHE, categorieId: cat2, fournisseurId: four };
-    en("dir"); await C.modifierArticle(direct, fd(saisie));
+    // Proposition D'ABORD : faite après le geste direct, son code « 137 » doublonnerait celui de A
+    // (refusé dès la proposition) — la comparaison porte sur l'écriture, pas sur ce contrôle.
     en("resp"); await C.modifierArticle(propose, fd(saisie));
+    en("dir"); await C.modifierArticle(direct, fd(saisie));
     const [d] = await demandes();
-    en("dir"); expect(await validerDemandes([d.id])).toEqual({ traitees: [d.id], echecs: [] });
+    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
     expect(await etat(propose)).toEqual(await etat(direct));
     expect((await etat(propose)).prix).toBe("2.75");
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("VALIDEE");
@@ -155,7 +160,7 @@ describe("Validation = EXACTEMENT la modification directe de la Direction", () =
       en("dir"); await geste([direct]);
       en("resp"); expect(await geste([propose])).toMatchObject({ proposition: true });
       const d = (await demandes()).find((x) => x.statut === "EN_ATTENTE")!;
-      en("dir"); expect(await validerDemandes([d.id])).toMatchObject({ traitees: [d.id] });
+      en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ traitees: [d.id] });
       expect({ nom, ...(await etat(propose)) }).toEqual({ nom, ...(await etat(direct)) });
     }
   }, 120_000);
@@ -165,7 +170,7 @@ describe("Validation = EXACTEMENT la modification directe de la Direction", () =
     en("resp"); await C.modifierArticle(riz, fd({ prixUnitaireUSD: "3", unite: "Kg" }));
     const [d] = await demandes();
     en("dir"); await C.modifierArticle(riz, fd({ prixUnitaireUSD: "2,5" })); // la Direction corrige le prix en direct
-    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/« Riz » — Prix unitaire USD a changé depuis la proposition \(2 → aujourd'hui 2,5\)/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/« Riz » — Prix unitaire USD a changé depuis la proposition \(2 → aujourd'hui 2,5\)/) }] });
     expect(await etat(riz)).toMatchObject({ prix: "2.5", unite: "Sac" }); // l'unité non plus n'a pas été écrite
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
   }, 60_000);
@@ -175,10 +180,43 @@ describe("Validation = EXACTEMENT la modification directe de la Direction", () =
     const avant = await etat(riz);
     en("resp"); await C.modifierArticle(riz, fd({ prixUnitaireUSD: "9" }));
     const [d] = await demandes();
-    en("dir"); await refuserDemandes([d.id], "Prix hors marché");
+    en("dir"); await refuserDemandes([d.id], "Prix hors marché", await v([d.id]));
     expect(await etat(riz)).toEqual(avant);
     expect(await prisma.cibleDemandeStock.count()).toBe(0);
     expect((await prisma.notification.findFirstOrThrow({ where: { refId: `decision:${d.id}` } })).message).toMatch(/refusée.*Prix hors marché/);
+  }, 60_000);
+});
+
+describe("La Direction décide de ce qu'elle a VU (jeton de version)", () => {
+  it("retouche APRÈS l'ouverture de la page par la Direction : la validation de la page périmée est refusée, rien n'est écrit", async () => {
+    const riz = await article("Riz", { quantite: 10 });
+    en("resp"); await C.modifierArticle(riz, fd({ nomCourt: "HUI" }));
+    const [d] = await demandes();
+    const vue = await v([d.id]); // la Direction ouvre « Demandes à valider »
+    await new Promise((r) => setTimeout(r, 5));
+    expect(await C.modifierArticle(riz, fd({ prixUnitaireUSD: "200", quantite: "5000" }))).toMatchObject({ proposition: true }); // retouche de l'auteur
+    en("dir");
+    expect(await validerDemandes([d.id], {}, vue)).toMatchObject({ traitees: [], echecs: [{ erreur: expect.stringMatching(/modifiée depuis que vous l'avez ouverte/) }] });
+    expect(await refuserDemandes([d.id], "vu trop vite", vue)).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/modifiée depuis/) }] });
+    expect(await etat(riz)).toMatchObject({ prix: "2", quantite: "10", nomCourt: null });
+    // Sans version du tout : refus (« rechargez »), jamais une décision à l'aveugle.
+    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/Version de la demande inconnue/) }] });
+    // Page rechargée : la Direction voit prix et quantité, et décide en connaissance de cause.
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ traitees: [d.id] });
+    expect(await etat(riz)).toMatchObject({ prix: "200", quantite: "5000", nomCourt: "HUI" });
+  }, 60_000);
+});
+
+describe("Références vérifiées dès la proposition", () => {
+  it("catégorie inconnue, désignation vide ou en doublon, code en doublon : refus lisible, aucune demande", async () => {
+    const riz = await article("Riz");
+    await prisma.articleStock.update({ where: { id: await article("Sel") }, data: { code: "137" } });
+    en("resp");
+    expect(await C.modifierArticle(riz, fd({ categorieId: "inexistante" }))).toMatchObject({ erreur: expect.stringMatching(/catégorie introuvable/) });
+    expect(await C.modifierArticle(riz, fd({ designation: "  " }))).toMatchObject({ erreur: expect.stringMatching(/ne peut pas être vide/) });
+    expect(await C.modifierArticle(riz, fd({ designation: "sel" }))).toMatchObject({ erreur: expect.stringMatching(/s'appelle déjà « Sel »/) });
+    expect(await C.modifierArticle(riz, fd({ code: "137" }))).toMatchObject({ erreur: expect.stringMatching(/déjà celui de « Sel »/) });
+    expect(await demandes()).toEqual([]);
   }, 60_000);
 });
 
@@ -216,7 +254,7 @@ describe("Droits et gestes hors flux", () => {
     en("resp");
     await C.modifierArticle(a, fd({ prixUnitaireUSD: "3" }));
     const [d] = await demandes();
-    expect(await validerDemandes([d.id])).toMatchObject({ erreur: "Réservé à la Direction." });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect(await C.fusionnerArticles([a, b], a)).toMatchObject({ erreur: expect.stringMatching(/réservé à la Direction/) });
     await prisma.stock.update({ where: { articleId: b }, data: { quantite: -3 } });
     expect(await C.corrigerStocksNegatifs([b])).toMatchObject({ erreur: expect.stringMatching(/réservé à la Direction/) });
@@ -230,7 +268,7 @@ describe("Droits et gestes hors flux", () => {
     en("resp"); await C.modifierArticle(riz, fd({ quantite: "12" }));
     expect((await etat(riz)).quantite).toBe("10");
     const [d] = await demandes();
-    en("dir"); await validerDemandes([d.id]);
+    en("dir"); await validerDemandes([d.id], {}, await v([d.id]));
     expect((await etat(riz)).quantite).toBe("12");
   }, 60_000);
 

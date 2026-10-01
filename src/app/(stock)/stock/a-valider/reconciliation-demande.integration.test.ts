@@ -23,6 +23,9 @@ const { appliquerComptage } = await import("../reconciliation/actions");
 const { mouvementManuel } = await import("../mouvements/actions");
 const { validerDemandes, refuserDemandes } = await import("./actions");
 
+/** Version actuelle des demandes (jeton que l'écran renvoie avec la décision). */
+const v = async (ids: string[]) => Object.fromEntries((await prisma.demandeValidationStock.findMany({ where: { id: { in: ids } }, select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
+
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
 const U = { dir: { id: "", role: "ADMIN", nom: "Sacha", accesStock: false }, resp: { id: "", role: "STOCK", nom: "Jean", accesStock: false } };
@@ -114,12 +117,12 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     en("dir"); await appliquerComptage(comptage([[direct, 8.5, "casse"]], "Inventaire"));
     en("resp"); await appliquerComptage(comptage([[demande, 8.5, "casse"]], "Inventaire"));
     const [d] = await demandes();
-    en("dir"); expect(await validerDemandes([d.id])).toEqual({ traitees: [d.id], echecs: [] });
+    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
     expect(await ecrit(demande)).toEqual(await ecrit(direct));
     expect((await ecrit(demande)).stock).toBe(8.5);
-    const v = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
-    expect(v.statut).toBe("VALIDEE");
-    expect(v.cibles).toEqual([]);
+    const relue = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
+    expect(relue.statut).toBe("VALIDEE");
+    expect(relue.cibles).toEqual([]);
     expect(await prisma.notification.count({ where: { refId: d.id } })).toBe(0);
     expect(await prisma.notification.count({ where: { refId: `decision:${d.id}` } })).toBe(1);
   }, 60_000);
@@ -128,12 +131,14 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const riz = await article("Riz", 10);
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]])); // écart −2 constaté
     const [d] = await demandes();
+    // Comptage fait il y a deux jours : les mouvements datés d'aujourd'hui sont postérieurs au comptage.
+    await prisma.demandeValidationStock.update({ where: { id: d.id }, data: { createdAt: new Date(Date.now() - 2 * 86_400_000) } });
     // Datés du jour à Kinshasa, comme les saisit l'écran (une sortie datée d'un jour antérieur serait une saisie tardive).
     const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); else f.set("motifEntree", "RETOUR_RESTAURANT"); return f; }; // flux libres
     await mouvementManuel(mvt("ENTREE", 5)); // 15
     await mouvementManuel(mvt("SORTIE", 1)); // 14
     expect(await stock(riz)).toBe(14);
-    en("dir"); expect(await validerDemandes([d.id])).toEqual({ traitees: [d.id], echecs: [] });
+    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
     expect(await stock(riz)).toBe(12); // 14 − 2 : ni la livraison ni la sortie ne sont effacées
     const l = await prisma.ligneComptage.findFirstOrThrow({ where: { articleId: riz } });
     expect([l.theorique.toString(), l.physique.toString(), l.ecart.toString()]).toEqual(["10", "8", "-2"]);
@@ -145,7 +150,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const [d] = await demandes();
     await prisma.stock.update({ where: { articleId: riz }, data: { quantite: 11 } }); // quantité posée à la main
     en("dir");
-    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/Le stock a bougé.*« Riz ».*sans mouvement.*recompter/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/Le stock a bougé.*« Riz ».*sans mouvement.*recompter/) }] });
     expect(await stock(riz)).toBe(11);
     expect(await prisma.sessionComptage.count()).toBe(0);
     expect(await prisma.mouvementStock.count({ where: { type: "AJUSTEMENT" } })).toBe(0);
@@ -160,7 +165,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     await prisma.mouvementStock.create({ data: { articleId: riz, type: "AJUSTEMENT", quantite: 1, origine: "Import" } });
     await prisma.stock.update({ where: { articleId: riz }, data: { quantite: 9 } });
     en("dir");
-    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/autre comptage ou ajustement/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/autre comptage ou ajustement/) }] });
     expect(await stock(riz)).toBe(9);
   }, 60_000);
 
@@ -181,8 +186,31 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const f = new FormData(); f.set("type", "SORTIE"); f.append("articleId", riz); f.append("quantite", "3"); f.set("categorieSortie", "LIVRAISON_RESTAURANT"); f.set("date", hier);
     await mouvementManuel(f);
     en("dir");
-    expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/datée d'avant le comptage/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/datée du jour du comptage ou d'avant/) }] });
     expect(await stock(riz)).toBe(7);
+  }, 60_000);
+
+  it("saisie le jour MÊME du comptage, après la demande : conflit (la sortie du matin a pu être comptée)", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
+    const [d] = await demandes();
+    const f = new FormData(); f.set("type", "SORTIE"); f.append("articleId", riz); f.append("quantite", "2"); f.set("categorieSortie", "LIVRAISON_RESTAURANT"); f.set("date", jourKinshasaISO());
+    await mouvementManuel(f); // stock 8 : la même consommation que l'écart constaté
+    en("dir");
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/datée du jour du comptage ou d'avant/) }] });
+    expect(await stock(riz)).toBe(8); // jamais 6
+  }, 60_000);
+
+  it("une sortie manuelle validée APRÈS un comptage en attente, datée du jour du comptage : le comptage devient un conflit", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
+    const f = new FormData(); f.set("type", "SORTIE"); f.set("origine", "Inventaire"); f.append("articleId", riz); f.append("quantite", "2"); f.set("date", jourKinshasaISO());
+    await mouvementManuel(f); // demande de sortie manuelle (pas encore un mouvement)
+    const [comptageD, sortieD] = await demandes();
+    en("dir");
+    expect(await validerDemandes([sortieD.id], {}, await v([sortieD.id]))).toMatchObject({ traitees: [sortieD.id] }); // stock 8
+    expect(await validerDemandes([comptageD.id], {}, await v([comptageD.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/datée du jour du comptage ou d'avant/) }] });
+    expect(await stock(riz)).toBe(8);
   }, 60_000);
 
   it("l'archive du comptage validé porte le compteur et le jour du comptage, pas ceux de la validation", async () => {
@@ -191,7 +219,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const [d] = await demandes();
     const ilYaCinqJours = new Date(Date.now() - 5 * 86_400_000);
     await prisma.demandeValidationStock.update({ where: { id: d.id }, data: { createdAt: ilYaCinqJours } });
-    en("dir"); await validerDemandes([d.id]);
+    en("dir"); await validerDemandes([d.id], {}, await v([d.id]));
     const s = await prisma.sessionComptage.findFirstOrThrow();
     expect(s.creeParId).toBe(U.resp.id);
     expect(s.date.toISOString().slice(0, 10)).toBe(new Date(ilYaCinqJours.getTime() + 3_600_000).toISOString().slice(0, 10));
@@ -208,7 +236,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const riz = await article("Riz", 10);
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
     const [d] = await demandes();
-    en("dir"); expect(await refuserDemandes([d.id], "Recompter demain")).toMatchObject({ traitees: [d.id] });
+    en("dir"); expect(await refuserDemandes([d.id], "Recompter demain", await v([d.id]))).toMatchObject({ traitees: [d.id] });
     expect(await stock(riz)).toBe(10);
     expect(await prisma.cibleDemandeStock.count()).toBe(0);
   }, 60_000);
@@ -217,7 +245,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     const riz = await article("Riz", 10);
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
     const [d] = await demandes();
-    expect(await validerDemandes([d.id])).toMatchObject({ erreur: "Réservé à la Direction." });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect(await stock(riz)).toBe(10);
   }, 60_000);
 });

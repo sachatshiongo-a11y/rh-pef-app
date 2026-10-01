@@ -63,7 +63,8 @@ export function exigerExplications(lignes: LigneCalculee[]) {
 /** Verrouille les lignes de stock des articles (`FOR UPDATE`) : aucune entrée/sortie ne s'intercale. */
 export async function verrouillerStocks(tx: Tx, articleIds: string[]) {
   if (articleIds.length === 0) return [];
-  await tx.$queryRaw`SELECT "id" FROM "stock"."Stock" WHERE "articleId" IN (${Prisma.join(articleIds)}) FOR UPDATE`;
+  // Ordre fixe (par article) : pas d'interblocage entre deux transactions sur les mêmes lignes.
+  await tx.$queryRaw`SELECT "id" FROM "stock"."Stock" WHERE "articleId" IN (${Prisma.join(articleIds)}) ORDER BY "articleId" FOR UPDATE`;
   return tx.stock.findMany({ where: { articleId: { in: articleIds } } });
 }
 
@@ -151,10 +152,12 @@ export function etatLigneAValider(l: { theorique: string; physique: string }, ac
   const t = new Decimal(l.theorique);
   const ecart = new Decimal(l.physique).minus(t);
   if (depuis.ajustements > 0) return { etat: "conflit", actuel, raison: "un autre comptage ou ajustement a été enregistré depuis" };
-  // Saisie TARDIVE : une entrée/sortie enregistrée après le comptage mais datée d'un jour antérieur
-  // (la consommation de vendredi saisie samedi). Le comptage l'a peut-être déjà constatée dans son
-  // écart : l'appliquer en plus compterait deux fois la même consommation.
-  if (depuis.tardifs > 0) return { etat: "conflit", actuel, raison: "une entrée ou sortie datée d'avant le comptage a été saisie depuis (déjà comptée ou non : impossible de trancher)" };
+  // Saisie TARDIVE : une entrée/sortie enregistrée après le comptage mais datée du JOUR du comptage
+  // ou d'avant (la consommation de vendredi saisie samedi ; la sortie du matin saisie le soir d'un
+  // comptage fait à midi). Le comptage l'a peut-être déjà constatée dans son écart : l'appliquer en
+  // plus compterait deux fois la même consommation. Seuls les mouvements datés STRICTEMENT après le
+  // jour du comptage sont « expliqués ».
+  if (depuis.tardifs > 0) return { etat: "conflit", actuel, raison: "une entrée ou sortie datée du jour du comptage ou d'avant a été saisie depuis (déjà comptée ou non : impossible de trancher)" };
   const explique = depuis.entrees.minus(depuis.sorties);
   if (!actuel.minus(t).equals(explique)) return { etat: "conflit", actuel, raison: `le stock a changé sans mouvement qui l'explique (compté sur ${t.toString().replace(".", ",")}, aujourd'hui ${actuel.toString().replace(".", ",")})` };
   if (actuel.equals(t)) return { etat: "inchange", actuel, final: new Decimal(l.physique) };
@@ -166,11 +169,12 @@ export async function mouvementsDepuis(client: Tx | typeof prisma, articleIds: s
   const r = new Map<string, MouvementsDepuis>();
   for (const id of articleIds) r.set(id, { entrees: new Decimal(0), sorties: new Decimal(0), ajustements: 0, tardifs: 0 });
   if (articleIds.length === 0) return r;
-  // Jour civil du comptage à Kinshasa (UTC+1) : un mouvement daté d'un jour ANTÉRIEUR mais saisi après.
+  // Jour civil du comptage à Kinshasa (UTC+1) : un mouvement daté de ce jour-là ou d'avant, mais saisi
+  // après la demande, est TARDIF (date de mouvement inclusive : le même jour ne prouve pas l'« après »).
   const jourComptage = new Date(`${jourKinshasaISO(depuis)}T00:00:00.000Z`);
   const tardifs = await client.mouvementStock.groupBy({
     by: ["articleId"],
-    where: { articleId: { in: articleIds }, createdAt: { gt: depuis }, date: { lt: jourComptage } },
+    where: { articleId: { in: articleIds }, createdAt: { gt: depuis }, date: { lte: jourComptage } },
     _count: { _all: true },
   });
   for (const g of tardifs) r.get(g.articleId)!.tardifs = g._count._all;

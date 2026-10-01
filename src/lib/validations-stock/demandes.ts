@@ -55,6 +55,14 @@ const nomFacture = (f: { numero: string | null; fournisseurNom: string }) => `${
 // ── Création ────────────────────────────────────────────────────────────────
 const MESSAGE_CIBLE_PRISE = "Une demande vient d'être déposée pour le même élément : rechargez la page.";
 
+/** Une erreur brute de la base pendant une validation devient un message lisible (rien n'est écrit). */
+function traduireErreurBase(e: unknown): never {
+  if (e instanceof Prisma.PrismaClientKnownRequestError || e instanceof Prisma.PrismaClientValidationError) {
+    throw new Error("La base a refusé l'écriture (référence disparue ou valeur hors limites) — rien n'a été écrit : refusez cette demande.");
+  }
+  throw e;
+}
+
 /** Une violation de la clé des cibles (deux demandes simultanées) devient un message lisible. */
 export function traduireConflitCible(e: unknown): never {
   if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw new Error(MESSAGE_CIBLE_PRISE);
@@ -90,7 +98,7 @@ async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string
  * écrite. Un échec ici (e-mail, push, base momentanément indisponible) est consigné, jamais relancé :
  * sinon l'écran annoncerait « non traitée » une demande bel et bien validée.
  */
-async function apresCommit(fn: () => Promise<unknown>) {
+export async function apresCommit(fn: () => Promise<unknown>) {
   try { await fn(); } catch (e) { console.error("[validations-stock] effet après validation en échec :", e); }
 }
 
@@ -115,7 +123,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
   const ids = s.mode === "LOT" ? [...new Set(s.factureIds.map(String))].filter(Boolean) : [s.factureId];
   if (ids.length === 0) throw new Error("Aucune facture sélectionnée.");
   const d = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(ids)}) FOR UPDATE`;
+    await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
     // Ordre de la sélection (jamais l'ordre physique de la base) : le résumé se relit à l'identique.
     const facs = (await tx.factureFournisseur.findMany({ where: { id: { in: ids } } })).sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
     const aRegler = facs.filter((f) => f.statut !== "REGLEE" && Number(f.resteAPayerUSD) > 0.001);
@@ -153,7 +161,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
           : `Payer la ${nomFacture(aRegler[0])} le ${dateFr(date)} — ${formaterUSD(total)}`;
     return creerDemandeTx(tx, { nature: "PAIEMENT_FACTURE", resume, charge, cles: aRegler.map((f) => cleFacture(f.id)), auteur });
   }).catch(traduireConflitCible);
-  await notifierNouvelleDemande(d);
+  await apresCommit(() => notifierNouvelleDemande(d));
   const charge = lireCharge("PAIEMENT_FACTURE", d.charge);
   return { demandeId: d.id, nbFactures: charge.factures.length, demandees: ids.length };
 }
@@ -169,7 +177,8 @@ export async function exigerAucunPaiementDemande(client: Tx | typeof prisma, fac
 async function executerPaiementTx(tx: Tx, decideur: Acteur, d: { auteurNom: string }, c: ChargePaiement, dateCorrigee?: string): Promise<ReglementEcrit[]> {
   const date = dateCorrigee?.trim() || c.date;
   const courantes = new Map<string, number>();
-  for (const f of c.factures) {
+  // Verrous pris dans un ordre fixe (par id) : pas d'interblocage avec un lot concurrent.
+  for (const f of [...c.factures].sort((a, b) => (a.id < b.id ? -1 : 1))) {
     const existe = await tx.factureFournisseur.findUnique({ where: { id: f.id }, select: { id: true } });
     if (!existe) throw new ConflitDemande(`La ${nomFacture(f)} a été supprimée depuis la demande`);
     const cur = await verrouillerFacture(tx, f.id);
@@ -262,7 +271,7 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
     await journaliser(prisma, { entite: "SessionComptage", entiteId: r.sessionId, champ: "comptage", nouvelleValeur: `${r.nbEcarts} écart(s), ${r.nbHorsTol} hors tolérance`, userId: user.id });
     return { applique: true, sessionId: r.sessionId, nbEcarts: r.nbEcarts, nbHorsTol: r.nbHorsTol };
   }
-  await notifierNouvelleDemande(r.demande);
+  await apresCommit(() => notifierNouvelleDemande(r.demande));
   return { applique: false, demandeId: r.demande.id, nbEcarts: r.nbEcarts, nbHorsTol: r.nbHorsTol };
 }
 
@@ -309,6 +318,28 @@ function resumeArticles(articles: ArticleDemande[]): string {
   return `${articles.length} articles : ${champs.join(", ")}`;
 }
 
+/**
+ * Références d'une proposition vérifiées DÈS LA SAISIE (refus lisible), plutôt qu'à la validation :
+ * catégorie et fournisseur existants ; désignation et code qui ne doublonnent pas un autre article.
+ */
+async function exigerReferencesValides(tx: Tx, articles: ArticleDemande[], noms: { categories: Map<string, string>; fournisseurs: Map<string, string> }) {
+  const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, " ");
+  let autres: { id: string; designation: string; code: string | null }[] | null = null;
+  for (const a of articles) {
+    for (const c of a.changements) {
+      if (c.champ === "designation" && !String(c.apres ?? "").trim()) throw new Error(`« ${a.designation} » : la désignation ne peut pas être vide.`);
+      if (c.champ === "categorieId" && c.apres && !noms.categories.has(String(c.apres))) throw new Error(`« ${a.designation} » : catégorie introuvable — rechargez la page.`);
+      if (c.champ === "fournisseurId" && c.apres && !noms.fournisseurs.has(String(c.apres))) throw new Error(`« ${a.designation} » : fournisseur introuvable — rechargez la page.`);
+      if ((c.champ === "designation" || c.champ === "code") && c.apres) {
+        autres ??= await tx.articleStock.findMany({ select: { id: true, designation: true, code: true } });
+        const v = norm(String(c.apres));
+        const doublon = autres.find((x) => x.id !== a.id && (c.champ === "designation" ? norm(x.designation) === v : x.code !== null && norm(x.code) === v));
+        if (doublon) throw new Error(c.champ === "designation" ? `Un autre article s'appelle déjà « ${doublon.designation} » : choisissez une autre désignation (ou demandez une fusion à la Direction).` : `Le code « ${String(c.apres)} » est déjà celui de « ${doublon.designation} ».`);
+      }
+    }
+  }
+}
+
 export type ResultatProposition = { rien: true } | { rien: false; demandeId: string; nbArticles: number; fusionnee: boolean };
 
 /**
@@ -343,13 +374,14 @@ export async function proposerModifications(auteur: Acteur, libelle: string, pat
       .map(({ id, patch }) => { const e = etats.get(id)!; return { id, designation: e.designation, changements: changementsDe(e, patch, noms, dejaProposes.get(id)) }; })
       .filter((a) => a.changements.length > 0);
     if (articles.length === 0) return { rien: true as const };
+    await exigerReferencesValides(tx, articles, noms);
 
     // Retouche d'une proposition du même auteur : fusion dans SA demande en attente.
     let fusionnee: string | null = null;
     const annulees: string[] = [];
     const retouchees: { id: string; resume: string; auteurNom: string }[] = [];
     const restants = new Map(articles.map((a) => [a.id, a]));
-    for (const demandeId of new Set(prises.filter((p) => restants.has(p.cle.slice(cleArticle("").length))).map((p) => p.demandeId))) {
+    for (const demandeId of [...new Set(prises.filter((p) => restants.has(p.cle.slice(cleArticle("").length))).map((p) => p.demandeId))].sort()) {
       await tx.$queryRaw`SELECT "id" FROM "stock"."DemandeValidationStock" WHERE "id" = ${demandeId} FOR UPDATE`;
       const dem = await tx.demandeValidationStock.findUniqueOrThrow({ where: { id: demandeId } });
       // La cible a été lue AVANT le verrou : la Direction a pu décider entre-temps. Une demande
@@ -458,7 +490,7 @@ export async function appliquerOuDemanderMouvement(user: Acteur, m: MouvementSai
     const resume = `${m.type === "ENTREE" ? "Entrée" : "Sortie"} manuelle « ${m.origine} » : ${detail}`;
     return creerDemandeTx(tx, { nature: "MOUVEMENT_MANUEL", resume, charge, cles: ids.map(cleMouvement), auteur: user });
   }).catch(traduireConflitCible);
-  await notifierNouvelleDemande(d);
+  await apresCommit(() => notifierNouvelleDemande(d));
   return { applique: false, demandeId: d.id };
 }
 
@@ -482,16 +514,43 @@ async function executerMouvementTx(tx: Tx, d: { auteurId: string }, c: ChargeMou
 }
 
 // ── Décisions ───────────────────────────────────────────────────────────────
-async function verrouillerDemande(tx: Tx, id: string) {
+async function verrouillerDemande(tx: Tx, id: string, version?: string) {
   await tx.$queryRaw`SELECT "id" FROM "stock"."DemandeValidationStock" WHERE "id" = ${id} FOR UPDATE`;
   const d = await tx.demandeValidationStock.findUnique({ where: { id } });
   if (!d) throw new Error("Demande introuvable.");
   if (d.statut !== "EN_ATTENTE") throw new Error(`Cette demande a déjà été ${d.statut === "VALIDEE" ? "validée" : d.statut === "REFUSEE" ? "refusée" : "retirée"}.`);
+  // Jeton de version : la Direction décide de ce qu'elle a VU. Une retouche de l'auteur après
+  // l'ouverture de sa page (fusion d'une proposition) change `updatedAt` : décision refusée.
+  if (version !== undefined && d.updatedAt.toISOString() !== version) {
+    throw new ConflitDemande("Cette demande a été modifiée depuis que vous l'avez ouverte — rechargez la page pour voir son contenu à jour");
+  }
   return d;
 }
 
+/** Clés de cible qu'une charge DOIT porter — recalculées depuis la charge relue (voir validerDemande). */
+function clesAttendues(nature: NatureDemande, brut: unknown): string[] {
+  if (nature === "PAIEMENT_FACTURE") return lireCharge(nature, brut).factures.map((f) => cleFacture(f.id));
+  if (nature === "MODIF_ARTICLE") return lireCharge(nature, brut).articles.map((a) => cleArticle(a.id));
+  if (nature === "MOUVEMENT_MANUEL") return lireCharge(nature, brut).lignes.map((l) => cleMouvement(l.articleId));
+  return lireCharge("RECONCILIATION", brut).lignes.filter((l) => aUnEcart({ ecart: Number(l.physique) - Number(l.theorique) })).map((l) => cleComptage(l.articleId));
+}
+
+/**
+ * La charge exécutée doit viser EXACTEMENT les éléments verrouillés à la création : une charge
+ * altérée (ou corrompue) ne paie jamais une autre facture, ne touche jamais un autre article.
+ */
+async function exigerCiblesCoherentes(tx: Tx, d: { id: string; nature: NatureDemande; charge: unknown }) {
+  const attendues = [...new Set(clesAttendues(d.nature, d.charge))].sort();
+  const posees = (await tx.cibleDemandeStock.findMany({ where: { demandeId: d.id }, select: { cle: true } })).map((c) => c.cle).sort();
+  if (attendues.length !== posees.length || attendues.some((c, i) => c !== posees[i])) {
+    throw new ConflitDemande("Le contenu de cette demande ne correspond plus aux éléments qu'elle verrouille (demande altérée)");
+  }
+}
+
 async function notifierDemandeur(d: { id: string; auteurId: string }, message: string, lien: string) {
-  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: message.slice(0, 480), lien, refId: `decision:${d.id}` } });
+  // Cloche PERSONNELLE du demandeur dans l'espace Stock (le motif d'un refus ne regarde que lui) :
+  // `destinataireUserId` la cache aux autres comptes (chargerNotifications, acces-notification).
+  await prisma.notification.create({ data: { domaine: "STOCK", destinataireUserId: d.auteurId, type: "AUTRE", message: message.slice(0, 480), lien, refId: `decision:${d.id}` } });
   await envoyerPush([d.auteurId], { title: "Demande traitée par la Direction", body: message.slice(0, 180), url: lien, tag: `decision-${d.id}` });
 }
 
@@ -509,10 +568,11 @@ export type ResultatValidation = { id: string; nature: NatureDemande; resume: st
  * Valide une demande : exécute son effet par le cœur commun, puis la passe à VALIDEE — dans la même
  * transaction. `date` : date de paiement corrigée par la Direction (paiements seulement).
  */
-export async function validerDemande(decideur: Acteur, id: string, opts: { date?: string } = {}): Promise<ResultatValidation> {
+export async function validerDemande(decideur: Acteur, id: string, opts: { date?: string; version?: string } = {}): Promise<ResultatValidation> {
   if (!estDirection(decideur)) throw new Error(MESSAGE_RESERVE_DIRECTION);
   const r = await prisma.$transaction(async (tx) => {
-    const d = await verrouillerDemande(tx, id);
+    const d = await verrouillerDemande(tx, id, opts.version);
+    await exigerCiblesCoherentes(tx, d);
     let reglements: ReglementEcrit[] = [];
     let comptage: Awaited<ReturnType<typeof executerComptageTx>> | null = null;
     let mouvement: Awaited<ReturnType<typeof executerMouvementTx>> | null = null;
@@ -524,7 +584,7 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });
     await journaliser(tx, { entite: "DemandeValidationStock", entiteId: id, champ: "statut", ancienneValeur: "EN_ATTENTE", nouvelleValeur: "VALIDEE", userId: decideur.id });
     return { d, reglements, comptage, mouvement };
-  }, { timeout: 60000 });
+  }, { timeout: 60000 }).catch(traduireErreurBase);
 
   const { d } = r;
   await apresCommit(async () => {
@@ -546,12 +606,12 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
 }
 
 /** Refuse une demande (motif obligatoire) : rien n'est écrit hors la demande elle-même. */
-export async function refuserDemande(decideur: Acteur, id: string, motif: string): Promise<ResultatValidation> {
+export async function refuserDemande(decideur: Acteur, id: string, motif: string, version?: string): Promise<ResultatValidation> {
   if (!estDirection(decideur)) throw new Error(MESSAGE_RESERVE_DIRECTION);
   const m = String(motif ?? "").trim();
   if (m.length < 3) throw new Error("Indiquez le motif du refus.");
   const d = await prisma.$transaction(async (tx) => {
-    const d = await verrouillerDemande(tx, id);
+    const d = await verrouillerDemande(tx, id, version);
     await tx.demandeValidationStock.update({ where: { id }, data: { statut: "REFUSEE", motifRefus: m.slice(0, 480), decideurId: decideur.id, decideurNom: decideur.nom, decideLe: new Date() } });
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });
     await journaliser(tx, { entite: "DemandeValidationStock", entiteId: id, champ: "statut", ancienneValeur: "EN_ATTENTE", nouvelleValeur: `REFUSEE — ${m}`, userId: decideur.id });

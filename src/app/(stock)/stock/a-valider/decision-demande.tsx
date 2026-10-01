@@ -12,7 +12,7 @@ import { BoutonApprouver, BoutonRefuser, BoutonNeutre } from "@/components/actio
  * page « Demandes à valider » — qui revérifient les droits, ce bouton n'est qu'un raccourci.
  * `dateProposee` : demande de paiement → la Direction peut corriger la date avant de valider.
  */
-export function DecisionDemande({ id, estDirection, estAuteur, dateProposee }: { id: string; estDirection: boolean; estAuteur: boolean; dateProposee?: string }) {
+export function DecisionDemande({ id, version, estDirection, estAuteur, dateProposee }: { id: string; version: string; estDirection: boolean; estAuteur: boolean; dateProposee?: string }) {
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [refus, setRefus] = useState(false);
@@ -40,7 +40,7 @@ export function DecisionDemande({ id, estDirection, estAuteur, dateProposee }: {
         )}
         {estDirection && !refus && (
           <>
-            <BoutonApprouver disabled={isPending} onClick={() => agir(() => validerDemandes([id], dateProposee ? { [id]: date } : {}))}>Valider</BoutonApprouver>
+            <BoutonApprouver disabled={isPending} onClick={() => agir(() => validerDemandes([id], dateProposee ? { [id]: date } : {}, { [id]: version }))}>Valider</BoutonApprouver>
             <BoutonRefuser disabled={isPending} onClick={() => setRefus(true)}>Refuser</BoutonRefuser>
           </>
         )}
@@ -49,7 +49,7 @@ export function DecisionDemande({ id, estDirection, estAuteur, dateProposee }: {
             <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">Motif du refus *
               <input value={motif} onChange={(e) => setMotif(e.target.value)} autoFocus placeholder="ex. facture contestée, recompter…" className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
             </label>
-            <BoutonRefuser disabled={isPending || motif.trim().length < 3} onClick={() => agir(() => refuserDemandes([id], motif))}>Confirmer le refus</BoutonRefuser>
+            <BoutonRefuser disabled={isPending || motif.trim().length < 3} onClick={() => agir(() => refuserDemandes([id], motif, { [id]: version }))}>Confirmer le refus</BoutonRefuser>
             <BoutonNeutre onClick={() => { setRefus(false); setMotif(""); }}>Annuler</BoutonNeutre>
           </>
         )}

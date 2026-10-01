@@ -21,6 +21,8 @@ export type ApercuLigneComptage = {
 export type ApercuChangement = { libelle: string; avant: string; apres: string; actuel: string | null };
 export type ApercuDemande = {
   id: string; nature: NatureDemande; statut: string; resume: string;
+  /** Jeton de version (updatedAt ISO) : renvoyé à la décision, qui refuse une demande retouchée depuis. */
+  version: string;
   auteurId: string; auteurNom: string; creeLe: string;
   decideurNom: string | null; decideLe: string | null; motifRefus: string | null;
   illisible: boolean;
@@ -46,7 +48,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
   const res: ApercuDemande[] = [];
   for (const d of demandes) {
     const base: ApercuDemande = {
-      id: d.id, nature: d.nature, statut: d.statut, resume: d.resume, auteurId: d.auteurId, auteurNom: d.auteurNom, creeLe: ISO(d.createdAt),
+      id: d.id, nature: d.nature, statut: d.statut, resume: d.resume, version: ISO(d.updatedAt), auteurId: d.auteurId, auteurNom: d.auteurNom, creeLe: ISO(d.createdAt),
       decideurNom: d.decideurNom, decideLe: d.decideLe ? ISO(d.decideLe) : null, motifRefus: d.motifRefus,
       illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null,
     };

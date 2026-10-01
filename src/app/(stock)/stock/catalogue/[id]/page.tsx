@@ -166,7 +166,7 @@ export default async function ArticleFichePage({
           <p className="text-xs text-amber-900/80">Proposée par {proposition.auteurNom} le {new Date(proposition.creeLe).toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}. L&apos;article garde ses valeurs actuelles tant qu&apos;elle n&apos;est pas validée.</p>
           <AlertesDemande a={proposition} />
           <DetailDemande a={proposition} />
-          <DecisionDemande id={proposition.id} estDirection={estDirection} estAuteur={proposition.auteurId === user.id} />
+          <DecisionDemande id={proposition.id} version={proposition.version} estDirection={estDirection} estAuteur={proposition.auteurId === user.id} />
         </section>
       )}
 

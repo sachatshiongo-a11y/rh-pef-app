@@ -14,7 +14,7 @@ import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
 import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
-import { demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
+import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { Prisma } from "@prisma/client";
 
@@ -408,7 +408,9 @@ export const marquerPayee = actionLisible(async (id: string, dateStr?: string): 
     return reglerFactureTx(tx, user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
   });
   rafraichirFactures([id]);
-  if (reg) await notifierReglements([reg]);
+  // Après le paiement : un échec de notification ne doit JAMAIS revenir comme une erreur (un nouvel
+  // essai paierait deux fois).
+  if (reg) await apresCommit(() => notifierReglements([reg]));
 });
 
 /** Enregistre un paiement (total ou PARTIEL, en USD ou en CDF) ou un AVOIR (note de crédit). */
@@ -443,7 +445,7 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
     return reglerFactureTx(tx, user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
   });
   rafraichirFactures([id]);
-  await notifierReglements([reg]);
+  await apresCommit(() => notifierReglements([reg]));
 });
 
 /**
@@ -472,14 +474,14 @@ export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: 
   }
 
   const regs = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(uniq)}) FOR UPDATE`; // avant la lecture des demandes
+    await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(uniq)}) ORDER BY "id" FOR UPDATE`; // avant la lecture des demandes
     await exigerAucunPaiementDemande(tx, uniq);
     return reglerLotTx(tx, user.id, uniq, dateStr, "Marquée payée (lot)");
   });
 
   if (regs.length > 0) {
     rafraichirFactures([]);
-    await notifierReglements(regs);
+    await apresCommit(() => notifierReglements(regs));
   }
   return { reglees: regs.length, demandees: uniq.length };
 });

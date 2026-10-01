@@ -22,6 +22,9 @@ vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
 const { mouvementManuel } = await import("../mouvements/actions");
 const { validerDemandes, refuserDemandes } = await import("./actions");
 
+/** Version actuelle des demandes (jeton que l'écran renvoie avec la décision). */
+const v = async (ids: string[]) => Object.fromEntries((await prisma.demandeValidationStock.findMany({ where: { id: { in: ids } }, select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
+
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
 const U = { dir: { id: "", role: "ADMIN", nom: "Sacha", accesStock: false }, resp: { id: "", role: "STOCK", nom: "Jean", accesStock: false } };
@@ -116,14 +119,14 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     en("dir"); await mouvementManuel(mvt({ type, origine, lignes: [[direct, 2.5]] }));
     en("resp"); await mouvementManuel(mvt({ type, origine, lignes: [[demande, 2.5]] }));
     const [d] = await demandes();
-    en("dir"); expect(await validerDemandes([d.id])).toEqual({ traitees: [d.id], echecs: [] });
+    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
     expect(await ecrit(demande)).toEqual(await ecrit(direct));
     expect(await stock(demande)).toBe(type === "SORTIE" ? 7.5 : 12.5);
     const m = await prisma.mouvementStock.findFirstOrThrow({ where: { articleId: demande } });
     expect(m.creeParId).toBe(U.resp.id); // le mouvement est celui du demandeur ; la validation est sur la demande
-    const v = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
-    expect(v).toMatchObject({ statut: "VALIDEE", decideurId: U.dir.id });
-    expect(v.cibles).toEqual([]);
+    const relue = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
+    expect(relue).toMatchObject({ statut: "VALIDEE", decideurId: U.dir.id });
+    expect(relue.cibles).toEqual([]);
     expect(await prisma.notification.count({ where: { refId: `decision:${d.id}` } })).toBe(1);
   }, 60_000);
 
@@ -132,7 +135,7 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
     const [d] = await demandes();
     await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 2]] })); // 8
-    en("dir"); await validerDemandes([d.id]);
+    en("dir"); await validerDemandes([d.id], {}, await v([d.id]));
     expect(await stock(riz)).toBe(5);
   }, 60_000);
 
@@ -140,7 +143,7 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     const riz = await article("Riz");
     en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
     const [d] = await demandes();
-    en("dir"); expect(await refuserDemandes([d.id], "Faites un comptage")).toMatchObject({ traitees: [d.id] });
+    en("dir"); expect(await refuserDemandes([d.id], "Faites un comptage", await v([d.id]))).toMatchObject({ traitees: [d.id] });
     expect(await stock(riz)).toBe(10);
     expect(await prisma.mouvementStock.count()).toBe(0);
     expect(await prisma.cibleDemandeStock.count()).toBe(0);
@@ -152,8 +155,8 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     A.user = { id: U.resp.id, role: "EMPLOYE", nom: "Jean", accesStock: true };
     expect(await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }))).toMatchObject({ demande: true });
     const [d] = await demandes();
-    expect(await validerDemandes([d.id])).toMatchObject({ erreur: "Réservé à la Direction." });
-    en("resp"); expect(await validerDemandes([d.id])).toMatchObject({ erreur: "Réservé à la Direction." });
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
+    en("resp"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect(await stock(riz)).toBe(10);
   }, 60_000);
 
@@ -162,10 +165,9 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     const sel = await article("Sel");
     en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3], [sel, 1]] }));
     const [d] = await demandes();
-    await prisma.cibleDemandeStock.deleteMany(); // (la cible n'empêche pas une suppression)
     await prisma.stock.deleteMany({ where: { articleId: sel } });
     await prisma.articleStock.delete({ where: { id: sel } });
-    en("dir"); expect(await validerDemandes([d.id])).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/« Sel » n'existe/) }] });
+    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/« Sel » n'existe/) }] });
     expect(await stock(riz)).toBe(10);
   }, 60_000);
 });
