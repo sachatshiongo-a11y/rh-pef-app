@@ -202,7 +202,7 @@ function OngletFactures({ id, filtre, estDirection, factures, enAttente, effecti
           action={filtre !== "toutes" && effectifs.toutes > 0 ? <Link href={lien("toutes")} className="text-primary underline">Voir toutes les factures ({effectifs.toutes})</Link> : undefined}
         />
       ) : (
-        <FacturesUI key={filtre} moisPlats={moisPlats} sansFournisseur estDirection={estDirection} suffixeRetour={suffixeRetour(lien(filtre))} />
+        <FacturesUI key={filtre} moisPlats={moisPlats} ouvert={filtre === "a-regler"} sansFournisseur estDirection={estDirection} suffixeRetour={suffixeRetour(lien(filtre))} />
       )}
     </section>
   );

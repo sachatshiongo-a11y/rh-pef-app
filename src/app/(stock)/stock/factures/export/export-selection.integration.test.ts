@@ -54,6 +54,19 @@ describe("export des factures", () => {
   it("les identifiants invalides sont écartés, les valides gardés", async () => {
     expect(await exporter(`?ids=zzz,${ids[1]}`)).toEqual(["F-B"]);
   });
+  it("plafond de 200 sélectionnées appliqué côté serveur : 400 lisible au-delà, rien n'est lu ; 200 passent", async () => {
+    const { GET } = await import("./route");
+    const lecture = vi.spyOn(H.client.factureFournisseur, "findMany");
+    const faux = (n: number) => Array.from({ length: n }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`).join(",");
+    const trop = await GET(new Request(`http://localhost/stock/factures/export?ids=${faux(201)}`));
+    expect(trop.status).toBe(400);
+    expect(trop.headers.get("Content-Type")).toContain("text/plain");
+    expect(await trop.text()).toContain("200 factures au plus");
+    expect(lecture).not.toHaveBeenCalled();
+    const limite = await GET(new Request(`http://localhost/stock/factures/export?ids=${faux(200)}`));
+    expect(limite.status).toBe(200);
+    lecture.mockRestore();
+  });
   it("hors de l'espace Stock : refusé, sans lecture", async () => {
     H.garde.ok = false;
     const { GET } = await import("./route");

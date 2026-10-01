@@ -184,6 +184,13 @@ describe("onglet Factures : filtres, mois, pastilles", () => {
     expect(details.map((x) => x.titre)).toEqual(["Septembre 2026", "Août 2026", "Juillet 2026"]);
     expect(details.map((x) => x.ouvert)).toEqual([true, false, false]);
   });
+  it("À régler : tous les mois déroulés (comme les impayés de l'écran Factures) ; Payées et Toutes : le plus récent seul", async () => {
+    const ouverts = (html: string) => [...html.matchAll(/<details([^>]*)>\s*<summary/g)].map((m) => /\bopen\b/.test(m[1]));
+    expect(ouverts(await rendre({ onglet: "factures" }))).toEqual([true, true]); // septembre et juillet
+    expect(ouverts(await rendre({ onglet: "factures", filtre: "a-regler" }))).toEqual([true, true]);
+    expect(ouverts(await rendre({ onglet: "factures", filtre: "toutes" }))).toEqual([true, false, false]);
+    expect(ouverts(await rendre({ onglet: "factures", filtre: "payees" }))).toEqual([true]);
+  });
   it("la pastille « Paiement demandé » reste sur sa facture, et seulement sur elle", async () => {
     const html = await rendre({ onglet: "factures", filtre: "toutes" });
     expect(html.match(/Paiement demandé — en attente de la Direction/g)).toHaveLength(1);

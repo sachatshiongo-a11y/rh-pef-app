@@ -2,6 +2,7 @@
 
 import { EtatVide } from "@/components/etat-vide";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { MoisAccordeon } from "@/components/mois-accordeon";
@@ -24,11 +25,12 @@ export type BCRow = {
  * son « ← Retour » revienne à la fiche, sur le bon onglet.
  */
 export function CommandesListe({ commandes, estDirection, sansFournisseur = false, suffixeRetour = "" }: { commandes: BCRow[]; estDirection: boolean; sansFournisseur?: boolean; suffixeRetour?: string }) {
+  const router = useRouter();
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
   const brouillons = ids.filter((id) => commandes.some((c) => c.id === id && c.statut === "BROUILLON"));
-  const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) { setErreur(r.erreur); return; } clear(); }); };
+  const run = (fn: () => Promise<unknown>) => { setErreur(null); start(async () => { const r = await fn(); if (estErreur(r)) { setErreur(r.erreur); return; } clear(); router.refresh(); /* la fiche d'un fournisseur n'est pas revalidée par ces actions */ }); };
   const pdfLien = (c: BCRow) => c.documentUrl
     ? <ApercuDocumentBouton href={c.documentUrl} titre={`Bon de commande ${c.numero} (PDF d'origine)`} libelle="PDF" className="text-primary underline" />
     : c.statut !== "BROUILLON" && c.statut !== "ANNULE" ? <TelechargerLien href={`/stock/commandes/${c.id}/pdf`} className="text-primary underline">PDF</TelechargerLien> : null;

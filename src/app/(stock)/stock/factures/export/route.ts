@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
+import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "");
@@ -16,7 +17,10 @@ export async function GET(req: Request) {
   if (!g.ok) return g.reponse;
 
   const brut = new URL(req.url).searchParams.get("ids");
-  const ids = brut === null ? null : brut.split(",").map((x) => x.trim()).filter((x) => UUID.test(x));
+  const demandes = brut === null ? null : brut.split(",").map((x) => x.trim()).filter(Boolean);
+  // Plafond côté serveur (le bouton se désactive aussi, mais une adresse écrite à la main passe) : refus lisible, jamais tronqué en silence.
+  if (demandes && demandes.length > MAX_EXPORT_SELECTION) return new Response(MESSAGE_EXPORT_TROP_GRAND, { status: 400, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  const ids = demandes ? demandes.filter((x) => UUID.test(x)) : null;
 
   const factures = await prisma.factureFournisseur.findMany({
     ...(ids ? { where: { id: { in: ids } } } : {}),

@@ -12,6 +12,7 @@ import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { BulkBar } from "@/components/bulk-bar";
 import { MoisAccordeon } from "@/components/mois-accordeon";
+import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
 
 export type FactureRow = {
   id: string;
@@ -34,8 +35,8 @@ export type Groupe = { titre: string; factures: FactureRow[] };
 export type MoisGroupe = { cle: string; label: string; factures: FactureRow[] };
 export type AnneeGroupe = { annee: number; mois: MoisGroupe[] };
 
-/** Au-delà, l'adresse de l'export de la sélection deviendrait démesurée : le bouton le dit au lieu d'échouer. */
-export const MAX_EXPORT_SELECTION = 200;
+// Plafond de l'export de la sélection : au-delà, le bouton le dit au lieu d'échouer (la route refuse aussi).
+export { MAX_EXPORT_SELECTION };
 
 const sumReste = (fs: FactureRow[]) => fs.reduce((t, f) => t + f.reste, 0);
 
@@ -227,7 +228,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
         {selDejaDemandees > 0 && <span className="text-xs text-amber-800">{selDejaDemandees} déjà en attente de la Direction</span>}
         {/* Export Excel de la SÉLECTION (lecture seule, ouvert à tout l'espace Stock comme l'export complet). */}
         {selIds.length > MAX_EXPORT_SELECTION ? (
-          <button type="button" disabled title={`Exportez ${MAX_EXPORT_SELECTION} factures au plus à la fois.`} className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60">
+          <button type="button" disabled title={MESSAGE_EXPORT_TROP_GRAND} className="rounded-md border px-3 py-1.5 text-sm font-medium opacity-60">
             Export : {MAX_EXPORT_SELECTION} factures au plus
           </button>
         ) : (
