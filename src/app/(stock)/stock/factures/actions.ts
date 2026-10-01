@@ -257,7 +257,10 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
   // pour une facture purement financière sans mouvement de marchandise.
   const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
-  if (entrerEnStock) await exigerPeriodeOuverte(new Date()); // les entrées en stock sont datées du jour
+  // Les entrées en stock créées plus bas portent la date de la FACTURE (`d`) : c'est elle que la
+  // clôture doit contrôler. Contrôler « aujourd'hui » laissait une facture datée d'un mois clôturé
+  // écrire dans ce mois figé.
+  if (entrerEnStock) await exigerPeriodeOuverte(d);
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
   // Garde-fou anti-double comptage : le même achat saisi dans la Liste d'achat (ou en entrée

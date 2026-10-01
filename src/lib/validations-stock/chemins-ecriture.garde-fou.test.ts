@@ -28,7 +28,7 @@ type Sort = "DIRECTION_SEULE" | "PROPOSITION_HORS_DIRECTION" | "FLUX_NORMAL" | "
 
 const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "app/(stock)/stock/catalogue/actions.ts": { sort: "PROPOSITION_HORS_DIRECTION", pourquoi: "modifierArticle + actions groupées : proposition hors Direction ; fusion et correction des stocks négatifs : Direction seule ; création : permise, signalée, sans stock initial." },
-  "app/(stock)/stock/entree/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Liste d'achat : entrée de stock (flux normal) ; article créé à la volée permis et signalé." },
+  "app/(stock)/stock/entree/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Liste d'achat : vrai achat (fournisseur, montant), libre — décision du 2026-10-01 ; article créé à la volée permis et signalé." },
   "app/(stock)/stock/factures/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Facture avec lignes : entrée de stock (flux normal) ; suppression (reprise du stock) : Direction seule." },
   "app/(stock)/stock/mouvements/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Suppression de mouvements (reprise du stock) : Direction seule. Les entrées/sorties manuelles passent par lib/validations-stock/mouvement.ts." },
   "app/(stock)/stock/fiches/import-bar-actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import des fiches du bar (crée/complète des articles) : requireRole ADMIN." },
@@ -37,7 +37,7 @@ const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "lib/import-inventaire.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import d'inventaire : appelé seulement par imports/actions.ts (gardeDirection)." },
   "lib/import-mouvements.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import de mouvements : appelé seulement par imports/actions.ts (gardeDirection)." },
   "lib/validations-stock/article.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un patch d'article : geste direct de la Direction ou proposition validée." },
-  "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : libres pour livraison restaurant, perte, retour restaurant ; sinon Direction, ou demande validée (décision du 2026-10-01)." },
+  "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : seules les sorties « Livraison restaurant » et « Perte » sont libres ; toute entrée manuelle (retour restaurant compris) et toute autre sortie : Direction, ou demande validée (décisions du 2026-10-01)." },
   "lib/validations-stock/comptage.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un comptage : Direction, comptage sans écart, ou réconciliation validée." },
 };
 

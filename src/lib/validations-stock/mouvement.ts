@@ -7,9 +7,9 @@ import "server-only";
 //  - SORTIE « Livraison restaurant » ou « Perte » : libre pour tout compte Stock (flux du restaurant) ;
 //  - toute AUTRE sortie manuelle (sans motif : inventaire, correction, consommation…) : hors Direction,
 //    une demande à valider ;
-//  - ENTRÉE manuelle : l'écran la décrit « hors achat (ex. retour restaurant → dépôt) ». Le retour
-//    restaurant est le pendant de la livraison : libre. Toute autre entrée manuelle (correction, don…)
-//    est un ajout de stock hors flux : hors Direction, une demande à valider.
+//  - ENTRÉE manuelle, « Retour restaurant » COMPRIS (décision de Sacha, 2026-10-01 : « Retours à
+//    valider ») : hors Direction, une demande à valider. Les vrais achats (Liste d'achat, entrée en
+//    stock d'une facture), rattachés à un fournisseur et à un montant, restent libres.
 
 import type { Prisma } from "@prisma/client";
 import { verrouillerStocks } from "./comptage";
@@ -26,7 +26,7 @@ export type MouvementSaisi = {
   categorieSortie: MotifSortie;
   raisonSortie: string | null;
   origine: string;
-  /** Entrée déclarée « Retour restaurant » (flux libre, pendant de la livraison). */
+  /** Entrée déclarée « Retour restaurant » (libellé seulement : à valider hors Direction, comme toute entrée manuelle). */
   retourRestaurant: boolean;
   lignes: { articleId: string; quantite: number }[];
 };
@@ -69,9 +69,9 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   return { type, date, categorieSortie, raisonSortie, origine, retourRestaurant, lignes };
 }
 
-/** Flux libre (aucune validation, quel que soit le compte) : livraison restaurant, perte, retour restaurant. */
-export const estMouvementLibre = (m: Pick<MouvementSaisi, "type" | "categorieSortie" | "retourRestaurant">) =>
-  m.type === "SORTIE" ? m.categorieSortie !== null : m.retourRestaurant;
+/** Flux libre (aucune validation, quel que soit le compte) : SORTIE « Livraison restaurant » ou « Perte » seulement. */
+export const estMouvementLibre = (m: Pick<MouvementSaisi, "type" | "categorieSortie">) =>
+  m.type === "SORTIE" && m.categorieSortie !== null;
 
 /** Écrit les mouvements et met le stock à jour (ENTRÉE incrémente, SORTIE décrémente). */
 export async function ecrireMouvementsTx(tx: Tx, userId: string, m: MouvementSaisi) {

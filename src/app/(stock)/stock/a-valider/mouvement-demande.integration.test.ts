@@ -3,8 +3,9 @@ import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : entrées/sorties manuelles soumises à la
-// Direction (décision du 2026-10-01). « Livraison restaurant », « Perte » et « Retour restaurant »
-// restent libres ; tout autre mouvement manuel d'un compte non-Direction devient une demande.
+// Direction (décisions du 2026-10-01). Seules les sorties « Livraison restaurant » et « Perte » restent
+// libres ; toute autre sortie et TOUTE entrée manuelle (retour restaurant compris) d'un compte
+// non-Direction deviennent une demande.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN" as string, nom: "Direction", accesStock: false } }));
 vi.mock("@/lib/prisma", () => ({
@@ -78,7 +79,6 @@ describe("Flux libres : aucune validation, quel que soit le compte", () => {
   it.each([
     ["livraison restaurant", { type: "SORTIE" as const, categorieSortie: "LIVRAISON_RESTAURANT" }, 7],
     ["perte (raison)", { type: "SORTIE" as const, categorieSortie: "PERTE", raisonSortie: "Moisi" }, 7],
-    ["retour restaurant", { type: "ENTREE" as const, motifEntree: "RETOUR_RESTAURANT" }, 13],
   ])("%s : écrit tout de suite", async (_n, o, attendu) => {
     const riz = await article("Riz");
     en("resp");
@@ -116,6 +116,7 @@ describe("Autre mouvement manuel du responsable : une demande, rien d'écrit", (
   it.each([
     ["sortie sans motif (inventaire, correction…)", { type: "SORTIE" as const, origine: "Inventaire" }],
     ["entrée hors retour restaurant (correction)", { type: "ENTREE" as const, origine: "Correction" }],
+    ["entrée « Retour restaurant » (décision « Retours à valider »)", { type: "ENTREE" as const, motifEntree: "RETOUR_RESTAURANT", origine: "Retour restaurant" }],
   ])("%s", async (_n, o) => {
     const riz = await article("Riz");
     en("resp");

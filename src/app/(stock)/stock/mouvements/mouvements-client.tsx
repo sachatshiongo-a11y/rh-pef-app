@@ -272,8 +272,9 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [motifEntree, setMotifEntree] = useState<"RETOUR_RESTAURANT" | "">("");
-  // Hors Direction, un mouvement hors flux libre (livraison, perte, retour restaurant) est une DEMANDE.
-  const soumis = !estDirection && (type === "SORTIE" ? motif === "" : motifEntree === "");
+  // Hors Direction, toute entrée manuelle (retour restaurant compris) et toute sortie hors livraison
+  // restaurant et perte sont des DEMANDES (décision de la Direction du 2026-10-01).
+  const soumis = !estDirection && (type === "SORTIE" ? motif === "" : true);
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
   const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMsg(null); setChoix({}); setCle((c) => c + 1); };
@@ -311,8 +312,8 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
         ) : (
           <>
             <select name="motifEntree" value={motifEntree} onChange={(e) => setMotifEntree(e.target.value as typeof motifEntree)} className={inp} aria-label="Nature de l'entrée">
-              <option value="">Autre entrée (correction, don…)</option>
-              <option value="RETOUR_RESTAURANT">Retour restaurant</option>
+              <option value="">Autre entrée (correction, don…){estDirection ? "" : " — à valider par la Direction"}</option>
+              <option value="RETOUR_RESTAURANT">Retour restaurant{estDirection ? "" : " — à valider par la Direction"}</option>
             </select>
             <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
           </>
@@ -324,7 +325,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
 
       {soumis && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {type === "SORTIE" ? "Une sortie hors « Livraison restaurant » et « Perte »" : "Une entrée hors « Retour restaurant »"} est soumise à la Direction : le stock ne bouge qu&apos;après sa validation.
+          {type === "SORTIE" ? "Une sortie hors « Livraison restaurant » et « Perte »" : "Une entrée manuelle (retour restaurant compris)"} est à valider par la Direction : le stock ne bouge qu&apos;après sa validation. Les achats passent par la Liste d&apos;achat ou une facture.
         </p>
       )}
 

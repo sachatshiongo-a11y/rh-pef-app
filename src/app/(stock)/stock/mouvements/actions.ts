@@ -16,9 +16,9 @@ import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneM
  * Mouvement de stock manuel (entrée ou sortie), multi-lignes. ENTRÉE incrémente l'inventaire,
  * SORTIE le décrémente. Trace un MouvementStock par ligne.
  *
- * Décision de la Direction (2026-10-01) : « Livraison restaurant », « Perte » et « Retour
- * restaurant » restent libres ; hors Direction, TOUT autre mouvement manuel (inventaire, correction,
- * consommation…) n'écrit rien et devient une demande à valider (voir lib/validations-stock/mouvement.ts).
+ * Décision de la Direction (2026-10-01) : les SORTIES « Livraison restaurant » et « Perte » restent
+ * libres ; hors Direction, toute autre sortie et TOUTE entrée manuelle (retour restaurant compris)
+ * n'écrivent rien et deviennent une demande à valider (voir lib/validations-stock/mouvement.ts).
  */
 export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: boolean; message: string }> => {
   const user = await verifySession();
