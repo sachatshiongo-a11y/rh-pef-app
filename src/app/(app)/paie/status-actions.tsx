@@ -1,9 +1,9 @@
 "use client";
 
 import { changerStatutPaie } from "./actions";
-import { prochainsEtats } from "@/lib/paie-etats";
+import { prochainsEtatsPour } from "@/lib/paie-etats";
 import { BoutonValider, BTN_NEUTRE } from "@/components/action-buttons";
-import type { PaymentStatus, ModePaiement } from "@prisma/client";
+import type { PaymentStatus, ModePaiement, Role } from "@prisma/client";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import type { AvertissementPaie } from "@/lib/paie-reference";
 import { messageConfirmationValidation } from "./avertissements-validation";
@@ -25,14 +25,19 @@ const MODES_PAIEMENT: { valeur: ModePaiement; label: string }[] = [
   { valeur: "AUTRE", label: "Autre" },
 ];
 
+/** Ce que la RH lit à la place d'un bouton sur une ligne que la Direction n'a pas encore validée. */
+export const EN_ATTENTE_DIRECTION = "En attente de validation par la Direction";
+
 /**
- * Boutons de transition (3 états : Pas validé → Validé → Payé, + réouverture).
- * Plus de confirmation de paiement (mode/preuve). Validation/paiement/réouverture = Admin.
+ * Boutons de transition (3 états : Pas validé → Validé → Payé, + réouverture). Les boutons d'une
+ * ligne sont ceux que le rôle peut réellement faire (`prochainsEtatsPour`, la règle du serveur) :
+ * Direction = valider, payer, rouvrir, annuler le paiement ; RH = « Marquer payé » sur une ligne
+ * validée seulement (décision du 2026-10-01). Les autres rôles n'ont aucun bouton.
  */
 export function StatusActions({
   payrollLineId,
   statut,
-  peutValider,
+  role,
   modePaiementDefaut = "ESPECES",
   avertissements = [],
   nom = "",
@@ -40,17 +45,18 @@ export function StatusActions({
 }: {
   payrollLineId: string;
   statut: PaymentStatus;
-  peutValider: boolean; // ADMIN
-  peutPreparer?: boolean; // conservé pour compatibilité d'appel, non utilisé
+  role: Role; // le rôle du compte : décide des boutons (même règle que l'action serveur)
   modePaiementDefaut?: ModePaiement; // pré-rempli depuis la fiche employé
   avertissements?: AvertissementPaie[]; // montrés avant de valider, jamais bloquants
   nom?: string;
   /** Montants affichés (paie-jeton.ts) : renvoyés à la validation, qui refuse une ligne recalculée depuis. */
   jeton?: string;
 }) {
-  if (!peutValider) return null;
-  const cibles = prochainsEtats(statut);
-  if (cibles.length === 0) return null;
+  const cibles = prochainsEtatsPour(role, statut);
+  if (cibles.length === 0) {
+    // La RH voit pourquoi elle ne peut pas encore payer (libellé, jamais un bouton grisé muet).
+    return role === "MANAGER" && statut === "PAS_VALIDE" ? <span className="text-xs text-muted-foreground">{EN_ATTENTE_DIRECTION}</span> : null;
+  }
   // Rien à signaler → null : bouton de validation direct, sans boîte.
   const confirmation = messageConfirmationValidation([{ nom, avertissements }]);
 

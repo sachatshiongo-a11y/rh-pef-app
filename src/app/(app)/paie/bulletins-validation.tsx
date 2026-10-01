@@ -12,6 +12,7 @@ import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { LBL_BULLETIN as L } from "@/lib/bulletin-format";
 import type { PaieRow } from "./paie-bulk";
 import type { Devise } from "@/lib/pdf/theme";
+import type { Role } from "@prisma/client";
 import { formaterNombre } from "@/lib/montant";
 
 function money(n: number) {
@@ -35,7 +36,9 @@ function MiniLigne({ label, usd, fort }: { label: string; usd: number; fort?: bo
  * Vérification / validation des bulletins façon PayFit : liste des salariés à gauche, vrai
  * bulletin PDF rendu en iframe à droite (sans téléchargement), avec agrandissement plein écran.
  */
-export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; peutValider: boolean }) {
+/** `role` : décide des boutons de chaque ligne (StatusActions) — Direction : tout ; RH : « Marquer
+ *  payé » sur les lignes validées ; autres : aucun. */
+export function BulletinsValidation({ rows, role }: { rows: PaieRow[]; role: Role }) {
   const [selId, setSelId] = useState<string | null>(null);
   const [devise, setDevise] = useState<Devise>("USD");
   const [recherche, setRecherche] = useState("");
@@ -134,11 +137,9 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 >
                   Bulletin CDF
                 </TelechargerLien>
-                {peutValider && (
-                  <div className="ml-auto">
-                    <StatusActions payrollLineId={r.id} statut={r.statutPaiement} peutValider={peutValider} modePaiementDefaut={r.modePaiementDefaut} avertissements={r.avertissements} nom={r.nom} jeton={r.jeton} />
-                  </div>
-                )}
+                <div className="ml-auto">
+                  <StatusActions payrollLineId={r.id} statut={r.statutPaiement} role={role} modePaiementDefaut={r.modePaiementDefaut} avertissements={r.avertissements} nom={r.nom} jeton={r.jeton} />
+                </div>
               </div>
             </div>
           ))}
@@ -222,8 +223,8 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 Télécharger
               </TelechargerLien>
             )}
-            {sel && peutValider && (
-              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} peutValider={peutValider} modePaiementDefaut={sel.modePaiementDefaut} avertissements={sel.avertissements} nom={sel.nom} jeton={sel.jeton} />
+            {sel && (
+              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} role={role} modePaiementDefaut={sel.modePaiementDefaut} avertissements={sel.avertissements} nom={sel.nom} jeton={sel.jeton} />
             )}
           </div>
         </div>

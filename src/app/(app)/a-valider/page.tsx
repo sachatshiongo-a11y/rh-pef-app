@@ -36,6 +36,9 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   // Refus renvoyé par une approbation (planning verrouillé par une paie validée ou payée).
   const { erreur } = await searchParams;
   const peutValider = user.role === "ADMIN";
+  // La RH paie les bulletins que la Direction a validés (2026-10-01) ; elle voit ceux qui attendent
+  // la Direction, sans bouton.
+  const peutPayer = user.role === "ADMIN" || user.role === "MANAGER";
   const peutPlanning = user.role === "ADMIN" || user.role === "MANAGER"; // qui peut acter un changement de shift
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
@@ -165,8 +168,9 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
 
       {!peutValider && (
         <p className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-          Vous pouvez consulter les éléments en attente. La validation et le paiement sont réservés
-          à la Directrice et à Sacha.
+          {peutPayer
+            ? "Vous pouvez consulter les éléments en attente et marquer payés les bulletins validés par la Direction. La validation est réservée à la Direction."
+            : "Vous pouvez consulter les éléments en attente. La validation et le paiement sont réservés à la Direction et à la RH."}
         </p>
       )}
 
@@ -272,18 +276,20 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
         )}
       </section>
 
-      {peutValider && (
+      {peutPayer && (
         <>
           <section className="mb-8">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Bulletins à valider — signer ({prepareRows.length})
+              {peutValider ? "Bulletins à valider — signer" : "Bulletins en attente de validation par la Direction"} ({prepareRows.length})
             </h2>
             {prepareRows.length === 0 ? (
               <div className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">
                 Aucun bulletin en attente de validation.
               </div>
-            ) : (
+            ) : peutValider ? (
               <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" />
+            ) : (
+              <BulletinsInbox rows={prepareRows} cible="VALIDE" actionLabel="Valider" lectureSeule="En attente de validation par la Direction" />
             )}
             {prepareHorsCalcul.length > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">

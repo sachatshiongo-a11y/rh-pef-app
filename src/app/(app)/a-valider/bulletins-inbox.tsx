@@ -38,10 +38,14 @@ export function BulletinsInbox({
   rows,
   cible,
   actionLabel,
+  lectureSeule,
 }: {
   rows: BulletinRow[];
   cible: PaymentStatus;
   actionLabel: string;
+  /** Lecture seule (la RH devant les bulletins que la Direction n'a pas validés) : ce libellé
+   *  remplace les cases et les boutons. Le serveur refuse de toute façon (paie-etats.ts). */
+  lectureSeule?: string;
 }) {
   // Sélection = SALARIÉS (cleSelection) : les identifiants des lignes changent à chaque recalcul.
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -84,6 +88,7 @@ export function BulletinsInbox({
           <button onClick={() => setSelection(new Set())} className="underline">Tout désélectionner</button>
         </p>
       )}
+      {!lectureSeule && (
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input
@@ -108,11 +113,12 @@ export function BulletinsInbox({
           </>
         )}
       </div>
+      )}
 
       <div className="space-y-2">
         {rows.map((r) => (
           <div key={r.id} className={`flex items-center gap-3 rounded-xl border bg-card p-3 ${selection.has(cleSelection(r)) ? "ring-1 ring-primary" : ""}`}>
-            <input type="checkbox" checked={selection.has(cleSelection(r))} onChange={() => toggle(cleSelection(r))} aria-label={`Sélectionner ${r.nom}`} />
+            {!lectureSeule && <input type="checkbox" checked={selection.has(cleSelection(r))} onChange={() => toggle(cleSelection(r))} aria-label={`Sélectionner ${r.nom}`} />}
             <Avatar nom={r.nom} photoUrl={r.photoUrl} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm">
@@ -124,7 +130,11 @@ export function BulletinsInbox({
             <div className="flex items-center gap-3 text-xs">
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=CDF&dl=1`} className="text-primary underline">CDF</TelechargerLien>
-              <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
+              {lectureSeule ? (
+                <span className="text-muted-foreground">{lectureSeule}</span>
+              ) : (
+                <BoutonValider onClick={() => lancer([r.id])} disabled={isPending}>{actionLabel}</BoutonValider>
+              )}
             </div>
           </div>
         ))}

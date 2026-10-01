@@ -7,12 +7,12 @@ import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
-import type { PaymentStatus, ModePaiement } from "@prisma/client";
+import type { PaymentStatus, ModePaiement, Role } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { BadgeReference } from "./avertissements-paie";
 import { lignesAValiderDuLot, messageConfirmationValidation } from "./avertissements-validation";
-import { cleSelection, lignesSelectionnees, messageEcartes } from "./selection-paie";
+import { cleSelection, lignesSelectionnees, messageEcartes, messageEcarteesPaiement, partagerPourPaiement } from "./selection-paie";
 
 export type PaieRow = {
   id: string;
@@ -54,14 +54,15 @@ function money(n: number) {
 export function PaieBulk({
   brigade,
   backoffice,
-  peutGerer,
-  estAdmin,
+  role,
 }: {
   brigade: PaieRow[];
   backoffice: PaieRow[];
-  peutGerer: boolean;
-  estAdmin: boolean;
+  /** Direction : valider, payer, rouvrir ; RH (MANAGER) : « Marquer payé » des lignes validées. */
+  role: Role;
 }) {
+  const estAdmin = role === "ADMIN";
+  const estRH = role === "MANAGER";
   const [filtreStatut, setFiltreStatut] = useState<string>("");
   const filtrer = (rows: PaieRow[]) => (filtreStatut ? rows.filter((r) => r.statutPaiement === filtreStatut) : rows);
   const brigadeAff = filtrer(brigade);
@@ -71,6 +72,7 @@ export function PaieBulk({
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   // "" = automatique (suit la fiche de chaque employé) ; sinon on force ce mode pour tout le lot.
   const [modeBulk, setModeBulk] = useState<"" | ModePaiement>("");
 
@@ -122,12 +124,36 @@ export function PaieBulk({
     });
   }
 
+  // RH : seules les lignes VALIDÉES partent au paiement ; les autres sont nommées avant l'envoi (le
+  // serveur les refuse de toute façon, et revérifie les montants affichés de chaque ligne).
+  const toutesLignes = [...brigade, ...backoffice];
+  const { aPayer, ecartees } = partagerPourPaiement(toutesLignes, idsSelection);
+  function payerCommeRH() {
+    if (aPayer.length === 0) {
+      setErreur("Aucun bulletin validé dans la sélection : seuls les bulletins validés par la Direction se paient.");
+      return;
+    }
+    const message = messageEcarteesPaiement(ecartees, aPayer.length);
+    if (message && !window.confirm(message)) return;
+    const ids = aPayer;
+    setErreur(null);
+    setInfo(null);
+    startTransition(async () => {
+      const jetons = Object.fromEntries(toutesLignes.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
+      const r = await changerStatutEnLot(ids, "PAYE", modeBulk || null, jetons);
+      if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
+      if (r < ids.length) setInfo(`${ids.length - r} bulletin(s) non payé(s) : ils ne sont plus validés (rouverts par la Direction entre-temps). Rechargez la page.`);
+      setSelection(new Set());
+    });
+  }
+
   const n = idsSelection.length;
   const avisEcartes = messageEcartes(ecartes);
 
   return (
     <div>
       {erreur && <p className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {info && <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</p>}
       {avisEcartes && (
         <p className="mb-3 text-xs text-muted-foreground">
           {avisEcartes}{" "}
@@ -160,6 +186,29 @@ export function PaieBulk({
               </BoutonNeutre>
             </>
           )}
+          {estRH && (
+            <span className="inline-flex items-center gap-1">
+              <select
+                value={modeBulk}
+                onChange={(e) => setModeBulk(e.target.value as "" | ModePaiement)}
+                title="Moyen de paiement pour le lot"
+                className="rounded border border-input bg-background px-1.5 py-1 text-xs"
+              >
+                <option value="">Auto (selon la fiche)</option>
+                {MODES_PAIEMENT.map((m) => (
+                  <option key={m.valeur} value={m.valeur}>{m.label}</option>
+                ))}
+              </select>
+              <BoutonValider onClick={payerCommeRH} disabled={isPending || aPayer.length === 0}>
+                Marquer payé ({aPayer.length})
+              </BoutonValider>
+              {ecartees.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {ecartees.length} non validé(s) ou déjà payé(s) : écarté(s)
+                </span>
+              )}
+            </span>
+          )}
           <button onClick={() => setSelection(new Set())} className="ml-auto text-xs text-muted-foreground underline">
             Tout désélectionner
           </button>
@@ -177,9 +226,9 @@ export function PaieBulk({
         {filtreStatut && <span className="text-xs text-muted-foreground">{toutes.length} ligne(s)</span>}
       </div>
 
-      <Groupe titre="Brigade" rows={brigadeAff} selection={selection} onToggle={toggle} onToggleGroupe={toggleGroupe} peutGerer={peutGerer} estAdmin={estAdmin} />
+      <Groupe titre="Brigade" rows={brigadeAff} selection={selection} onToggle={toggle} onToggleGroupe={toggleGroupe} role={role} />
       <div className="h-6" />
-      <Groupe titre="Backoffice" rows={backofficeAff} selection={selection} onToggle={toggle} onToggleGroupe={toggleGroupe} peutGerer={peutGerer} estAdmin={estAdmin} />
+      <Groupe titre="Backoffice" rows={backofficeAff} selection={selection} onToggle={toggle} onToggleGroupe={toggleGroupe} role={role} />
 
       {toutes.length === 0 && (
         <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
@@ -196,16 +245,14 @@ function Groupe({
   selection,
   onToggle,
   onToggleGroupe,
-  peutGerer,
-  estAdmin,
+  role,
 }: {
   titre: string;
   rows: PaieRow[];
   selection: Set<string>;
   onToggle: (id: string) => void;
   onToggleGroupe: (rows: PaieRow[], on: boolean) => void;
-  peutGerer: boolean;
-  estAdmin: boolean;
+  role: Role;
 }) {
   if (rows.length === 0) return null;
   const tousCoches = rows.every((r) => selection.has(cleSelection(r)));
@@ -273,8 +320,7 @@ function Groupe({
                   <StatusActions
                     payrollLineId={l.id}
                     statut={l.statutPaiement}
-                    peutValider={estAdmin}
-                    peutPreparer={peutGerer}
+                    role={role}
                     modePaiementDefaut={l.modePaiementDefaut}
                     avertissements={l.avertissements}
                     nom={l.nom}

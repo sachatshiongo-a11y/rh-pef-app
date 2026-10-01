@@ -42,6 +42,9 @@ export default async function PaiePage({
   const vue = sp.vue ?? "bulletins";
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const estAdmin = user.role === "ADMIN";
+  // La RH (MANAGER) paie les bulletins validés par la Direction et clôture une paie entièrement
+  // validée (décision du 2026-10-01) ; elle ne valide, ne rouvre ni ne réinitialise rien.
+  const estRHPaie = user.role === "MANAGER";
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
@@ -260,7 +263,7 @@ export default async function PaiePage({
   }));
 
   const sousOnglets = [
-    { cle: "bulletins", label: "Valider les bulletins" },
+    { cle: "bulletins", label: estRHPaie ? "Payer les bulletins" : "Valider les bulletins" },
     { cle: "remuneration", label: "Éléments de la paie" },
     { cle: "contrats", label: `Suivi des contrats (${contratRows.length})` },
     { cle: "historique", label: "Historique" },
@@ -331,17 +334,28 @@ export default async function PaiePage({
               </button>
             </form>
           )}
-          {estAdmin && run && (nbPasValide > 0 || (horsCalcul.length > 0 && run.statut !== "VALIDE")) && taches.length === 0 && (
+          {/* Clôture. Direction : comme avant (valide les « pas validé » puis ferme la paie), et aussi
+              quand tout est déjà validé mais la paie pas encore fermée. RH : seulement ce dernier cas
+              — sinon le bouton est remplacé par la raison. */}
+          {run && taches.length === 0 && ((estAdmin && (nbPasValide > 0 || run.statut !== "VALIDE")) || (estRHPaie && nbPasValide === 0 && run.statut !== "VALIDE")) && (
             <form action={cloturerPaie}>
               <ConfirmSubmitButton
                 variante="valider"
-                message={`Clôturer la paie de ${periode} ?${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
+                message={`Clôturer la paie de ${periode} ?${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."}${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
-                Clôturer la paie ({nbPasValide})
+                {nbPasValide > 0 ? `Clôturer la paie (${nbPasValide})` : "Clôturer la paie"}
               </ConfirmSubmitButton>
             </form>
           )}
-          {estAdmin && run && (nbPasValide > 0 || (horsCalcul.length > 0 && run.statut !== "VALIDE")) && taches.length > 0 && (
+          {estRHPaie && run && nbPasValide > 0 && run.statut !== "VALIDE" && (
+            <span
+              title="La RH clôture une paie que la Direction a entièrement validée"
+              className={`${CLASSES_GEOMETRIE} cursor-not-allowed border border-amber-400 text-amber-700 opacity-70`}
+            >
+              Clôture : {nbPasValide} bulletin(s) en attente de validation par la Direction
+            </span>
+          )}
+          {run && taches.length > 0 && ((estAdmin && (nbPasValide > 0 || run.statut !== "VALIDE")) || (estRHPaie && nbPasValide === 0 && run.statut !== "VALIDE")) && (
             <span
               title="Traitez d'abord les tâches en attente (voir la bannière)"
               className={`${CLASSES_GEOMETRIE} cursor-not-allowed border border-amber-400 text-amber-700 opacity-70`}
@@ -468,14 +482,14 @@ export default async function PaiePage({
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Vérifier les bulletins
           </h2>
-          <BulletinsValidation rows={rows} peutValider={estAdmin} />
+          <BulletinsValidation rows={rows} role={user.role} />
           <h2 className="mb-2 hidden text-sm font-semibold uppercase tracking-wide text-muted-foreground lg:block">
             Tableau détaillé &amp; actions groupées
           </h2>
           {/* Tableau détaillé large : ordinateur uniquement (dense, défilement horizontal). Sur mobile,
               la validation se fait via les cartes ci-dessus. */}
           <div className="hidden lg:block">
-            <PaieBulk brigade={brigade} backoffice={backoffice} peutGerer={peutGerer} estAdmin={estAdmin} />
+            <PaieBulk brigade={brigade} backoffice={backoffice} role={user.role} />
           </div>
         </>
       )}

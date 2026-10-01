@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isValidElement, type ReactNode } from "react";
 import { messageConfirmationValidation, MAX_SALARIES_CONFIRMATION, lignesAValiderDuLot } from "./avertissements-validation";
-import { StatusActions } from "./status-actions";
+import { StatusActions, EN_ATTENTE_DIRECTION } from "./status-actions";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { BadgeReference, ListeAvertissements } from "./avertissements-paie";
 import { LIBELLE_SOURCE_REFERENCE } from "@/lib/paie-reference-libelles";
@@ -116,7 +116,7 @@ function elements(n: ReactNode): { type: unknown; props: Record<string, unknown>
 }
 
 describe("StatusActions : confirmation avant de valider une ligne", () => {
-  const base = { payrollLineId: "l1", peutValider: true, nom: "Rachel Lunda" };
+  const base = { payrollLineId: "l1", role: "ADMIN" as const, nom: "Rachel Lunda" };
   const confirmations = (n: ReactNode) => elements(n).filter((e) => e.type === ConfirmSubmitButton);
   it("avec avertissements : le bouton Valider passe par la confirmation, message complet", () => {
     const c = confirmations(StatusActions({ ...base, statut: "PAS_VALIDE", avertissements: RACHEL.avertissements }));
@@ -130,6 +130,33 @@ describe("StatusActions : confirmation avant de valider une ligne", () => {
   it("paiement et réouverture : jamais de rappel des avertissements", () => {
     expect(confirmations(StatusActions({ ...base, statut: "VALIDE", avertissements: RACHEL.avertissements }))).toHaveLength(0);
     expect(confirmations(StatusActions({ ...base, statut: "PAYE", avertissements: RACHEL.avertissements }))).toHaveLength(0);
+  });
+});
+
+// La RH (2026-10-01) : « Marquer payé » sur une ligne validée, rien d'autre ; une ligne pas validée
+// dit qu'elle attend la Direction. Les autres rôles n'ont aucun bouton.
+describe("StatusActions selon le rôle", () => {
+  const ligne = { payrollLineId: "l1", nom: "Rachel Lunda", avertissements: [] };
+  const cibles = (n: ReactNode) => elements(n).filter((e) => e.type === "input" && e.props.name === "versStatut").map((e) => e.props.value);
+  const texte = (n: ReactNode) => elements(n).map((e) => (typeof e.props.children === "string" ? e.props.children : "")).join(" ");
+  it("RH : ligne validée → seul « Marquer payé »", () => {
+    expect(cibles(StatusActions({ ...ligne, role: "MANAGER", statut: "VALIDE" }))).toEqual(["PAYE"]);
+  });
+  it("RH : ligne pas validée → libellé d'attente, aucun bouton", () => {
+    const n = StatusActions({ ...ligne, role: "MANAGER", statut: "PAS_VALIDE" });
+    expect(cibles(n)).toEqual([]);
+    expect(texte(n)).toContain(EN_ATTENTE_DIRECTION);
+  });
+  it("RH : ligne payée → ni annulation ni rien", () => {
+    expect(StatusActions({ ...ligne, role: "MANAGER", statut: "PAYE" })).toBeNull();
+  });
+  it("Direction : inchangé (valider ; payer + rouvrir ; annuler le paiement)", () => {
+    expect(cibles(StatusActions({ ...ligne, role: "ADMIN", statut: "PAS_VALIDE" }))).toEqual(["VALIDE"]);
+    expect(cibles(StatusActions({ ...ligne, role: "ADMIN", statut: "VALIDE" })).sort()).toEqual(["PAS_VALIDE", "PAYE"]);
+    expect(cibles(StatusActions({ ...ligne, role: "ADMIN", statut: "PAYE" }))).toEqual(["VALIDE"]);
+  });
+  it.each(["COMPTA", "VIEWER", "STOCK", "EMPLOYE"] as const)("%s : aucun bouton", (role) => {
+    for (const statut of ["PAS_VALIDE", "VALIDE", "PAYE"] as const) expect(StatusActions({ ...ligne, role, statut })).toBeNull();
   });
 });
 
@@ -147,6 +174,8 @@ describe("lot et clôture : la confirmation est câblée", () => {
   it("clôture : le message rappelle les avertissements des « pas validé »", () => {
     const s = src("page.tsx");
     expect(s).toContain('messageConfirmationValidation(rows.filter((r) => r.statutPaiement === "PAS_VALIDE"))');
-    expect(s).toMatch(/« pas validé ».\$\{avertissementsCloture \? `\\n\\n\$\{avertissementsCloture\}` : ""\}`/);
+    // Le rappel suit la phrase de la clôture (« valide … les N « pas validé ». » ou, tout étant
+    // validé, « la paie du mois sera fermée »).
+    expect(s).toMatch(/« pas validé ».` : "Tous les bulletins sont validés[^"]*"\}\$\{avertissementsCloture \? `\\n\\n\$\{avertissementsCloture\}` : ""\}`/);
   });
 });

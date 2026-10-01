@@ -41,7 +41,7 @@ const ligne = (p: Partial<PaieRow>): PaieRow => ({
   ...p,
 });
 
-const rendu = (r: PaieRow) => renderToStaticMarkup(<BulletinsValidation rows={[r]} peutValider={false} />);
+const rendu = (r: PaieRow) => renderToStaticMarkup(<BulletinsValidation rows={[r]} role="VIEWER" />);
 const texte = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 const montant = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 
