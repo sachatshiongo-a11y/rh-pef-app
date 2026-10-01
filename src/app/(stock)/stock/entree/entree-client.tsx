@@ -11,8 +11,10 @@ import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsArticles } from "@/lib/recherche-options";
 
-type Art = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null };
+type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null };
 type Fourn = { id: string; nom: string };
 type Devise = "USD" | "CDF";
 /** Libellé court d'une devise, tel qu'il s'affiche à côté du montant. */
@@ -85,6 +87,8 @@ const avecPuCatalogue = (l: Ligne, pu: string, puCatalogue: string | null): Lign
 
 export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDirection = false }: { articles: Art[]; fournisseurs: Fourn[]; aujourdhui: string; taux: number; estDirection?: boolean }) {
   const [isPending, startTransition] = useTransition();
+  // UNE liste d'options pour toutes les lignes : on y cherche par désignation, nom court ou code.
+  const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   // Devise par défaut des NOUVELLES lignes (sélecteur du haut). Aussi tenue par référence : « + Ligne »
   // et Entrée sur la dernière ligne gardent un rappel stable.
@@ -284,10 +288,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
               const montreFournisseur = l.detail ? "" : "hidden @4xl:block";
               return (
                 <div key={i} data-ligne-achat className={`grid gap-1.5 rounded-lg border p-2 ${PISTES} ${COLONNES} @4xl:items-center @4xl:rounded-none @4xl:border-0 @4xl:border-t @4xl:p-0 @4xl:py-0.5`}>
-                  <select name="articleId" value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} aria-label={`Article, ligne ${i + 1}`} className={`${champ} ${PLACE.article}`}>
-                    <option value="">— libre —</option>
-                    {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-                  </select>
+                  <ChoixRecherche options={optionsArt} name="articleId" value={l.articleId} vide="— libre —" onChange={(id) => choisirArticle(i, id)} aria-label={`Article, ligne ${i + 1}`} className={`${champ} ${PLACE.article}`} />
                   <input name="designation" placeholder="Désignation" aria-label={`Désignation, ligne ${i + 1}`} value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${champ} ${PLACE.designation} ${montreDesignation} ${!libre ? "text-muted-foreground" : ""}`} />
                   <input name="unite" placeholder="Kg…" aria-label={`Unité, ligne ${i + 1}`} value={l.unite} onChange={(e) => majLigne(i, { unite: e.target.value })} readOnly={!libre} className={`${champ} ${PLACE.unite} ${!libre ? "text-muted-foreground" : ""}`} />
                   {/* Domaine du NOUVEL article (création automatique au catalogue) — figé si article existant. */}

@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { estErreur } from "@/lib/action-lisible";
 import { CLASSES_NEUTRE } from "@/components/action-buttons";
 import { formaterNombre, formaterUSD } from "@/lib/montant";
-import { normTexte } from "@/lib/texte";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import type { OptionChoix } from "@/lib/recherche-options";
 import { UNITES_CONTENANCE, uniteManquante, type UniteArticle } from "@/lib/fiches/conversion";
 import {
   articleVise, choixInitiaux, contenanceProposee, erreurContenanceChoisie, contenanceRequise, contenanceValideChoisie, planifierImportBar, uniteConvertible, UNITES_STOCK_COMPTAGE,
@@ -131,6 +132,10 @@ export function ImportFichesBar() {
   const contenancesAEcrire = [...new Map(prets.flatMap((p) => p.lignes.filter((l) => l.statut === "OK" && l.article?.id && l.article.contenanceAEcrire)
     .map((l) => [l.article!.id!, `${l.article!.designation} → ${l.article!.contenanceAEcrire!.quantite.replace(".", ",")} ${l.article!.contenanceAEcrire!.unite}`] as const))).values()];
 
+  // Listes d'options PARTAGÉES par toutes les feuilles et tous les ingrédients (jamais recopiées par ligne) :
+  // on y cherche en tapant, par nom, nom court ou code.
+  const optionsFiches = useMemo(() => optionsDesFiches(analyse?.fichesBar ?? []), [analyse]);
+  const optionsCatalogue = useMemo(() => optionsDuCatalogue(analyse?.articles ?? []), [analyse]);
   const changerFiche = useCallback((feuille: string, c: Partial<ChoixFiche>) =>
     setChoix((s) => ({ ...s, fiches: { ...s.fiches, [feuille]: { ...s.fiches[feuille]!, ...c } } })), []);
   const parIdArticle = useMemo(() => new Map((analyse?.articles ?? []).map((a) => [a.id, a])), [analyse]);
@@ -271,7 +276,7 @@ export function ImportFichesBar() {
                 <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1.5 [&>tr>td]:align-top">
                   {lues.map((l, i) => (
                     <LigneFiche key={l.feuille} lue={l} proposition={analyse.fiches[i]!} plan={plans[i]!} choix={choix.fiches[l.feuille]!}
-                      fichesBar={analyse.fichesBar} onChange={changerFiche}
+                      fichesBar={analyse.fichesBar} optionsFiches={optionsFiches} onChange={changerFiche}
                       photo={photos?.photos.get(l.feuille) ? { url: vignettes.get(l.feuille) ?? null, partageeAvec: photos.photos.get(l.feuille)!.partageeAvec, incertaine: photos.photos.get(l.feuille)!.incertaine, cochee: photoCochee(l.feuille), dejaUne: cibleAPhoto(l.feuille) } : null}
                       onPhoto={changerPhoto} />
                   ))}
@@ -295,7 +300,7 @@ export function ImportFichesBar() {
                 </thead>
                 <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1.5 [&>tr>td]:align-top">
                   {analyse.ingredients.map((p) => (
-                    <LigneIngredient key={p.cle} proposition={p} choix={choix.ingredients[p.cle]!} articles={analyse.articles} onChange={changerIngredient}
+                    <LigneIngredient key={p.cle} proposition={p} choix={choix.ingredients[p.cle]!} articles={analyse.articles} optionsCatalogue={optionsCatalogue} onChange={changerIngredient}
                       contenance={idVise.get(p.cle) ? choix.contenances[idVise.get(p.cle)!] : undefined}
                       onContenance={changerContenance} />
                   ))}
@@ -311,20 +316,42 @@ export function ImportFichesBar() {
   );
 }
 
+/** Fiches existantes du bar, groupées par rubrique (ordre du catalogue) : la liste où l'on cherche la fiche visée. */
+function optionsDesFiches(fiches: FicheExistanteBar[]): OptionChoix[] {
+  const parRubrique = new Map<string, FicheExistanteBar[]>();
+  for (const f of fiches) parRubrique.set(f.categorie || "Sans rubrique", [...(parRubrique.get(f.categorie || "Sans rubrique") ?? []), f]);
+  return [...parRubrique].flatMap(([rubrique, fs]) => fs.map((f) => ({
+    id: `fiche:${f.id}`,
+    libelle: `${f.nom}${f.nbIngredients ? ` (${f.nbIngredients} ingr.)` : ""}${f.actif ? "" : " — inactive"}`,
+    groupe: rubrique,
+    ...(f.actif ? {} : { attenue: true }),
+  })));
+};
+
+/** Libellé d'un article du catalogue dans ce choix : désignation et unité, comme l'ancienne liste. */
+const libelleArticle = (a: ArticleExistant) => `${a.designation} (${a.unite || "unité ?"})`;
+/** Articles du catalogue : le choix d'un ingrédient ne se limite plus aux « proches » — on cherche dans tout le catalogue. */
+function optionsDuCatalogue(articles: ArticleExistant[]): OptionChoix[] {
+  return articles.map((a) => ({ id: `art:${a.id}`, libelle: libelleArticle(a), recherche: [a.nomCourt, a.code], groupe: "Catalogue" }));
+}
+
 // ─── Une feuille ─────────────────────────────────────────────────────────────
 
-const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fichesBar, onChange, photo, onPhoto }: {
+const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fichesBar, optionsFiches, onChange, photo, onPhoto }: {
   lue: FicheBarLue; proposition: PropositionFiche; plan: FichePlan; choix: ChoixFiche; fichesBar: FicheExistanteBar[];
+  /** Liste partagée des fiches existantes (recherche au clavier). */
+  optionsFiches: OptionChoix[];
   onChange: (feuille: string, c: Partial<ChoixFiche>) => void;
   /** Photo de la feuille (null : aucune, ou le seul logo partagé). */
   photo: { url: string | null; partageeAvec: string[]; incertaine: boolean; cochee: boolean; dejaUne: boolean } | null;
   onPhoto: (feuille: string, oui: boolean) => void;
 }) {
-  const parRubrique = useMemo(() => {
-    const m = new Map<string, FicheExistanteBar[]>();
-    for (const f of fichesBar) m.set(f.categorie || "Sans rubrique", [...(m.get(f.categorie || "Sans rubrique") ?? []), f]);
-    return [...m];
-  }, [fichesBar]);
+  // Propres à cette feuille : les fiches proches, créer, ignorer — listées avant la liste partagée.
+  const extras = useMemo<OptionChoix[]>(() => [
+    ...proposition.suggestions.map((x) => ({ id: `fiche:${x.id}`, libelle: x.libelle, groupe: "Proches (à vérifier)" })),
+    { id: "creer", libelle: `Créer la fiche « ${lue.nom} »` },
+    { id: "ignorer", libelle: "Ignorer cette feuille" },
+  ], [proposition.suggestions, lue.nom]);
   const choisie = choix.cible.startsWith("fiche:") ? fichesBar.find((f) => f.id === choix.cible.slice(6)) : undefined;
   const sure = proposition.ficheId !== null && choix.cible === `fiche:${proposition.ficheId}`;
   const badge = BADGE[plan.statut];
@@ -356,22 +383,8 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
         )}
       </td>
       <td className="min-w-64">
-        <select value={choix.cible} onChange={(e) => onChange(lue.feuille, { cible: e.target.value, remplacer: false })}
-          className={`${inp} w-full max-w-xs ${choix.cible === "" ? "border-amber-400" : ""}`} aria-label={`Fiche visée par ${lue.nom}`}>
-          <option value="">— à décider —</option>
-          {proposition.suggestions.length > 0 && (
-            <optgroup label="Proches (à vérifier)">
-              {proposition.suggestions.map((s) => <option key={s.id} value={`fiche:${s.id}`}>{s.libelle}</option>)}
-            </optgroup>
-          )}
-          <option value="creer">Créer la fiche « {lue.nom} »</option>
-          <option value="ignorer">Ignorer cette feuille</option>
-          {parRubrique.map(([rubrique, fs]) => (
-            <optgroup key={rubrique} label={rubrique}>
-              {fs.map((f) => <option key={f.id} value={`fiche:${f.id}`}>{f.nom}{f.nbIngredients ? ` (${f.nbIngredients} ingr.)` : ""}{f.actif ? "" : " — inactive"}</option>)}
-            </optgroup>
-          ))}
-        </select>
+        <ChoixRecherche options={optionsFiches} extras={extras} value={choix.cible} vide="— à décider —" onChange={(v) => onChange(lue.feuille, { cible: v, remplacer: false })}
+          className={`${inp} w-full max-w-xs ${choix.cible === "" ? "border-amber-400" : ""}`} aria-label={`Fiche visée par ${lue.nom}`} colonne="fiche" />
         {sure && (
           <p className="mt-0.5 text-[11px] text-emerald-800">
             correspondance sûre{proposition.correspondance === "orthographe" ? ` (à une lettre près : « ${lue.nom} » / « ${choisie?.nom} »)` : " (même nom, même famille)"}
@@ -422,23 +435,28 @@ const LigneFiche = memo(function LigneFiche({ lue, proposition, plan, choix, fic
 
 // ─── Un ingrédient (un libellé distinct) ─────────────────────────────────────
 
-const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, articles, onChange, contenance, onContenance }: {
+const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, articles, optionsCatalogue, onChange, contenance, onContenance }: {
   proposition: PropositionIngredient; choix: ChoixIngredient; articles: ArticleExistant[];
+  /** Liste partagée du catalogue (recherche au clavier). */
+  optionsCatalogue: OptionChoix[];
   onChange: (cle: string, c: Partial<ChoixIngredient>, p: { libelle: string; unites: string[] }) => void;
   /** Contenance saisie pour l'article choisi (s'il en faut une). */
   contenance: ContenanceChoisie | undefined;
   onContenance: (articleId: string, c: Partial<ContenanceChoisie>) => void;
 }) {
-  const [recherche, setRecherche] = useState<string | null>(null);
   const parId = useMemo(() => new Map(articles.map((a) => [a.id, a])), [articles]);
   const choisi = choix.cible.startsWith("art:") ? parId.get(choix.cible.slice(4)) : undefined;
   const sure = p.articleId !== null && choix.cible === `art:${p.articleId}`;
-  const resultats = useMemo(() => {
-    if (recherche === null) return [];
-    const n = normTexte(recherche.trim());
-    return (n ? articles.filter((a) => normTexte(a.designation).includes(n)) : articles).slice(0, 20);
-  }, [recherche, articles]);
   const suggestions = p.suggestions.map((id) => parId.get(id)).filter((a): a is ArticleExistant => !!a);
+  // Propres à cette ligne, listés avant le catalogue : l'article choisi, les proches, « Créer », « Ignorer ».
+  // « Créer » seulement si aucun article ne porte déjà ce nom (sinon il serait réutilisé).
+  const extras = useMemo<OptionChoix[]>(() => [
+    ...(choisi && !suggestions.some((a) => a.id === choisi.id) ? [{ id: `art:${choisi.id}`, libelle: libelleArticle(choisi) }] : []),
+    ...suggestions.map((a) => ({ id: `art:${a.id}`, libelle: libelleArticle(a), groupe: "Proches (à vérifier)" })),
+    ...(p.creation && !p.articleId && !p.doute ? [{ id: "creer", libelle: `Créer l'article « ${p.creation.designation} » (${p.creation.unite})` }] : []),
+    { id: "ignorer", libelle: "Ignorer la ligne" },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `suggestions` est dérivé de p.suggestions et parId
+  ], [choisi, p.suggestions, parId, p.creation, p.articleId, p.doute]);
   // Article visé : le choisi, ou celui que « Créer » réutilisera (même nom, même contenance).
   const vise = useMemo(() => articleVise(p.libelle, choix.cible, articles), [p.libelle, choix.cible, articles]);
   const reutilise = choix.cible === "creer" && vise !== null;
@@ -461,20 +479,8 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
         </div>
       </td>
       <td className="min-w-72">
-        <select value={choix.cible} onChange={(e) => { if (e.target.value === "chercher") setRecherche(""); else onChange(p.cle, { cible: e.target.value }, p); }}
-          className={`${inp} w-full max-w-xs ${choix.cible === "" ? "border-amber-400" : ""}`} aria-label={`Article pour ${p.libelle}`}>
-          <option value="">— à décider —</option>
-          {choisi && !suggestions.some((a) => a.id === choisi.id) && <option value={`art:${choisi.id}`}>{choisi.designation} ({choisi.unite || "unité ?"})</option>}
-          {suggestions.length > 0 && (
-            <optgroup label="Proches (à vérifier)">
-              {suggestions.map((a) => <option key={a.id} value={`art:${a.id}`}>{a.designation} ({a.unite || "unité ?"})</option>)}
-            </optgroup>
-          )}
-          {/* « Créer » seulement si aucun article ne porte déjà ce nom (sinon il serait réutilisé). */}
-          {p.creation && !p.articleId && !p.doute && <option value="creer">Créer l&apos;article « {p.creation.designation} » ({p.creation.unite})</option>}
-          <option value="ignorer">Ignorer la ligne</option>
-          <option value="chercher">Chercher un autre article du catalogue…</option>
-        </select>
+        <ChoixRecherche options={optionsCatalogue} extras={extras} value={choix.cible} vide="— à décider —" onChange={(v) => onChange(p.cle, { cible: v }, p)}
+          className={`${inp} w-full max-w-xs ${choix.cible === "" ? "border-amber-400" : ""}`} aria-label={`Article pour ${p.libelle}`} colonne="article" />
         {sure && <p className="mt-0.5 text-[11px] text-emerald-800">correspondance sûre (même désignation)</p>}
         {!p.articleId && p.doute && <p className="mt-0.5 text-[11px] text-amber-800">{p.doute}</p>}
         {vise && (
@@ -519,22 +525,6 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
               {DOMAINES.map((d) => <option key={d.valeur} value={d.valeur}>{d.libelle}</option>)}
             </select>
           </label>
-        )}
-        {recherche !== null && (
-          <div className="mt-1 max-w-xs space-y-1">
-            <input autoFocus value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher un article…" className={`${inp} w-full`} aria-label={`Rechercher un article pour ${p.libelle}`} />
-            <ul className="max-h-48 overflow-auto rounded border bg-card text-xs">
-              {resultats.map((a) => (
-                <li key={a.id}>
-                  <button type="button" onClick={() => { onChange(p.cle, { cible: `art:${a.id}` }, p); setRecherche(null); }} className="w-full px-2 py-1 text-left hover:bg-accent">
-                    {a.designation} <span className="text-muted-foreground">({a.unite || "unité ?"})</span>
-                  </button>
-                </li>
-              ))}
-              {resultats.length === 0 && <li className="px-2 py-1 text-muted-foreground">Aucun article.</li>}
-            </ul>
-            <button type="button" onClick={() => setRecherche(null)} className="text-xs underline">Annuler</button>
-          </div>
         )}
       </td>
       <td className="min-w-40 text-[11px]">

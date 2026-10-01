@@ -17,7 +17,8 @@ export async function marquerNotificationsLues(domaine: "RH" | "STOCK" = "RH"): 
   const user = await verifySession();
   const dom = domaine === "STOCK" ? "STOCK" : "RH";
   if (!peutGererDomaine(user, dom)) return { erreur: MESSAGE_NOTIFICATION_REFUSEE };
-  await prisma.notification.updateMany({ where: { domaine: dom, lu: false }, data: { lu: true } });
+  // Les notifications personnelles d'un AUTRE compte (réponses à ses demandes) ne sont pas touchées.
+  await prisma.notification.updateMany({ where: { domaine: dom, lu: false, OR: [{ destinataireUserId: null }, { destinataireUserId: user.id }] }, data: { lu: true } });
   revalidatePath("/", "layout");
   return { ok: true };
 }

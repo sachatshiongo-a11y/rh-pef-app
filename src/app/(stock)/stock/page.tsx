@@ -7,6 +7,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { inventaireFige } from "@/lib/cloture-inventaire";
 import { moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
 import { SelecteurMois } from "@/components/selecteur-mois";
+import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
 import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/cartes-entrees-stock";
 import { BlocDisponibilitePlats, voitDisponibilitePlats } from "./_tableau-de-bord/bloc-disponibilite-plats";
 import { jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
@@ -47,7 +48,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     moi, config, nbArticles, nbFournisseurs, ind,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
-    derniersComptages, pertesRecentes, bcAValider, stockFige,
+    derniersComptages, pertesRecentes, bcAValider, stockFige, demandesParNature,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -70,7 +71,11 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
     // Valeur du stock d'un autre mois : l'inventaire figé à sa clôture, s'il existe (jamais reconstitué).
     estCourant ? Promise.resolve(null) : inventaireFige(annee, mois),
+    // Demandes en attente de la Direction (paiements, réconciliations, articles) : toutes pour la
+    // Direction, les siennes pour un autre compte.
+    prisma.demandeValidationStock.groupBy({ by: ["nature"], where: { statut: "EN_ATTENTE", ...(estDirection ? {} : { auteurId: user.id }) }, _count: { _all: true } }),
   ]);
+  const nbDemandes = demandesParNature.reduce((t, g) => t + g._count._all, 0);
 
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const taux = config ? Number(config.tauxChangeCDF) : 0;
@@ -134,6 +139,17 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
 
       {/* Entrées de stock du MOIS CHOISI par le sélecteur (annee/mois ci-dessus). */}
       <CartesEntreesStock annee={annee} mois={mois} voitMontants={voitIndicateursEntrees(user)} />
+
+      {/* Paiements, réconciliations, articles en attente de la Direction (toutes pour elle, les siennes sinon). */}
+      {nbDemandes > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+          <span className="font-semibold text-amber-900">{estDirection ? `Demandes à valider (${nbDemandes})` : `Mes demandes en attente de la Direction (${nbDemandes})`}</span>
+          {demandesParNature.map((g) => (
+            <span key={g.nature} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">{NATURE_LIBELLE[g.nature]} : {g._count._all}</span>
+          ))}
+          <Link href="/stock/a-valider" className="ml-auto text-xs font-medium text-amber-800 underline">{estDirection ? "Tout traiter" : "Voir"}</Link>
+        </div>
+      )}
 
       {/* Bons de commande à valider — Direction uniquement */}
       {estDirection && bcAValider.length > 0 && (

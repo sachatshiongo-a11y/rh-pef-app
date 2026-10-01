@@ -22,6 +22,8 @@ export type FactureRow = {
   reste: number;
   statut: string;
   documentUrl: string | null;
+  /** Un paiement de cette facture attend la Direction (« Demandes à valider ») : pas de second geste. */
+  paiementDemande?: boolean;
 };
 
 export type Groupe = { titre: string; factures: FactureRow[] };
@@ -38,6 +40,9 @@ function badgeEcheance(f: FactureRow): { texte: string; cls: string } | null {
   if (f.joursRestants === 0) return { texte: "Échéance aujourd’hui", cls: "bg-amber-100 text-amber-800" };
   return { texte: `${f.joursRestants} j restants`, cls: f.joursRestants > 10 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800" };
 }
+
+/** Pastille « paiement demandé » : même forme que les pastilles de statut et d'échéance. */
+const BADGE_DEMANDE = "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800";
 
 const sommaireCls = "flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden";
 
@@ -67,7 +72,10 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
     startTransition(async () => {
       const r = await fn();
       if (estErreur(r)) setErreur(r.erreur);
-      else onSuccess?.();
+      else {
+        if (r && typeof r === "object" && "demande" in r && "message" in r) setInfo(String((r as { message: string }).message));
+        onSuccess?.();
+      }
     });
   };
 
@@ -81,14 +89,20 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const clear = () => { setSel(new Set()); setLotDatePicker(false); };
   const selIds = [...sel];
-  const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE"));
+  // À régler = ni réglée, ni déjà en attente d'une décision de la Direction (jamais demandée deux fois).
+  const selNonReglees = selIds.filter((id) => toutes.some((f) => f.id === id && f.statut !== "REGLEE" && !f.paiementDemande));
+  const selDejaDemandees = selIds.filter((id) => toutes.some((f) => f.id === id && f.paiementDemande)).length;
+  // Hors Direction, « Marquer payée » DEMANDE le paiement : les mots le disent.
+  const libelleMarquer = estDirection ? "Marquer payée" : "Demander le paiement";
+  const libelleConfirmer = estDirection ? "Confirmer" : "Envoyer la demande";
 
   const confirmerLot = () => {
     setErreur(null); setInfo(null);
     startTransition(async () => {
       const r = await marquerPayeesEnLot(selNonReglees, lotDate);
       if (estErreur(r)) { setErreur(r.erreur); return; }
-      if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
+      if (r.demandePaiement !== undefined) setInfo(`Paiement de ${r.demandePaiement} facture${r.demandePaiement > 1 ? "s" : ""} demandé à la Direction (tout ou rien) : rien n'est payé avant sa validation.`);
+      else if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
       clear();
     });
   };
@@ -123,12 +137,13 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
               {be && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${be.cls}`}>{be.texte}</span>}
+              {f.paiementDemande && <a href="/stock/a-valider" className={BADGE_DEMANDE}>Paiement demandé — en attente de la Direction</a>}
               <div className="ml-auto flex items-center gap-2">
                 {f.documentUrl && (
                   <ApercuDocumentBouton href={f.documentUrl} titre={`Facture ${f.nom}${f.numero ? ` · N° ${f.numero}` : ""}`} className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">📄 PDF</ApercuDocumentBouton>
                 )}
                 <a href={`/stock/factures/${f.id}`} title="Détail & réconciliation" className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent">Détail</a>
-                {f.statut !== "REGLEE" && (
+                {f.statut !== "REGLEE" && !f.paiementDemande && (
                   datePickerId === f.id ? (
                     <span className="flex items-center gap-1.5">
                       <input
@@ -139,11 +154,11 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                         aria-label="Date de paiement"
                         className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
                       />
-                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie), () => setDatePickerId(null))} disabled={isPending}>Confirmer</BoutonValider>
+                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie), () => setDatePickerId(null))} disabled={isPending}>{libelleConfirmer}</BoutonValider>
                       <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
                     </span>
                   ) : (
-                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); }}>Marquer payée</BoutonValider>
+                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); }}>{libelleMarquer}</BoutonValider>
                   )
                 )}
                 {estDirection && (
@@ -189,7 +204,7 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                   />
                 </label>
                 <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
-                  Confirmer ({selNonReglees.length})
+                  {libelleConfirmer} ({selNonReglees.length})
                 </BoutonValider>
                 <BoutonNeutre onClick={() => setLotDatePicker(false)}>Annuler</BoutonNeutre>
               </span>
@@ -198,9 +213,10 @@ export function FacturesUI({ groupes, annees, estDirection = true, ouvert = fals
                 onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); }}
                 disabled={isPending || selNonReglees.length === 0}
               >
-                Marquer payées ({selNonReglees.length})
+                {estDirection ? "Marquer payées" : "Demander le paiement"} ({selNonReglees.length})
               </BoutonValider>
             )}
+            {selDejaDemandees > 0 && <span className="text-xs text-amber-800">{selDejaDemandees} déjà en attente de la Direction</span>}
             {estDirection && (
               <button
                 onClick={() => { if (confirm(`Supprimer ${sel.size} facture(s) ? Le stock entré par ces factures sera repris.`)) run(async () => { const r = await supprimerFacturesEnLot(selIds); if (!estErreur(r)) clear(); return r; }); }}

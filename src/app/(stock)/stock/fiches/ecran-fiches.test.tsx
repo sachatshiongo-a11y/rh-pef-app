@@ -161,7 +161,7 @@ describe("Fiches techniques — les actions groupées ne portent que sur l'ongle
   const lienExport = () => [...conteneur.querySelectorAll("a")].find((a) => a.textContent?.includes("Exporter ("))!;
 
   it("« Tout sélectionner » dans Boissons ne prend que les boissons (export, dupliquer, supprimer)", async () => {
-    rendre({ rows: ROWS, vue: "boissons" });
+    rendre({ rows: ROWS, vue: "boissons", peutSupprimer: true }); // la Direction
     toutSelectionner();
     expect(conteneur.textContent).toContain("5 sélectionné(s)");
     const ids = new URL(lienExport().href, "http://x").searchParams.get("ids")!.split(",").sort();
@@ -175,6 +175,13 @@ describe("Fiches techniques — les actions groupées ne portent que sur l'ongle
     vi.stubGlobal("confirm", () => true);
     await act(async () => { bouton("Supprimer").click(); });
     expect(appels.supprimerFiches.mock.calls[0][0].slice().sort()).toEqual(ids);
+  });
+
+  it("hors Direction : la sélection garde Exporter et Dupliquer, mais pas « Supprimer »", () => {
+    rendre({ rows: ROWS, vue: "boissons" });
+    toutSelectionner();
+    expect(bouton("Dupliquer")).toBeTruthy();
+    expect(bouton("Supprimer")).toBeUndefined();
   });
 
   it("PDF de la sélection : chiffré ou sans prix, les mêmes fiches que l'Excel, dans l'onglet", () => {

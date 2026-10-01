@@ -12,10 +12,13 @@ export default async function StockLayout({ children }: { children: React.ReactN
   const user = await verifySession();
   if (!estStock(user)) redirect("/entree");
 
-  const [moi, nbAValider, notifs, urgents, espaceSalarieActif] = await Promise.all([
+  const [moi, nbAValider, nbDemandes, notifs, urgents, espaceSalarieActif] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { motDePasseTemporaire: true, employe: { select: { photoUrl: true } } } }),
     prisma.bonDeCommande.count({ where: { statut: "BROUILLON" } }),
-    chargerNotifications("STOCK"),
+    // Paiements, réconciliations et modifications d'articles en attente de la Direction.
+    // Toutes pour la Direction ; les siennes pour un autre compte (celles qu'il voit sur la page).
+    prisma.demandeValidationStock.count({ where: { statut: "EN_ATTENTE", ...(user.role === "ADMIN" ? {} : { auteurId: user.id }) } }),
+    chargerNotifications("STOCK", user.id), // + les réponses de la Direction adressées à ce compte
     // Comptage des articles urgents par domaine, agrégé en SQL — MÊME RÈGLE que niveauAlerte :
     // URGENT = rupture (quantité ≤ 0) uniquement si un seuil minimum est défini (sans seuil,
     // pas d'alerte). Un seul aller-retour qui renvoie 3 nombres.
@@ -50,7 +53,7 @@ export default async function StockLayout({ children }: { children: React.ReactN
       maPhoto={moi?.employe?.photoUrl ?? null}
       autresEspaces={ciblesAutresEspaces(user, espaceSalarieActif, "stock")}
       badges={{
-        "/stock/a-valider": nbAValider,
+        "/stock/a-valider": nbAValider + nbDemandes,
         "/stock/commandes": nbAValider,
         "/stock/catalogue": urgent.NOURRITURE + urgent.BOISSON + urgent.AUTRE,
       }}

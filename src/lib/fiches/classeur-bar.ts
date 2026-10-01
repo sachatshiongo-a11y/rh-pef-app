@@ -327,6 +327,9 @@ export type ArticleExistant = {
   /** Contenance d'une unité comptée à l'unité (texte pleine précision), null = inconnue. */
   contenance: string | null;
   contenanceUnite: string | null;
+  /** Textes où chercher l'article en tapant (écran d'import) : jamais lus par le rapprochement. */
+  nomCourt?: string | null;
+  code?: string | null;
 };
 
 export type ValeursCreation = { designation: string; unite: string; prixUnitaireUSD: string | null; prixClasseur: number | null; uniteClasseur: string };

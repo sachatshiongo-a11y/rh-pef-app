@@ -5,6 +5,7 @@ import { versFicheCalc, versFicheDispo } from "../_data/fiche-calc";
 import { EditerFiche } from "./editer-fiche";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { exigerPageStock } from "@/lib/garde-page";
+import { peutSupprimer } from "@/lib/suppression-direction";
 import { ongletFiche } from "@/lib/fiches/famille-boisson";
 
 export default async function FicheDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -41,6 +42,7 @@ export default async function FicheDetailPage({ params }: { params: Promise<{ id
         contexteDispo={contexteDispo}
         stocks={stocks}
         aujourdhui={jourCivilKinshasa(new Date()).toISOString().slice(0, 10)}
+        peutSupprimer={peutSupprimer(user)}
       />
     </div>
   );

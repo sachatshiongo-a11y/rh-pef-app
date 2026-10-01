@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
 import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
+import { refusSuppression, MESSAGE_EFFACER_PRESENCE } from "@/lib/suppression-direction";
 
 // Un congé (C ou S) ne se pose JAMAIS sur un dimanche ou un jour férié : ces jours ne sont pas
 // décomptés des congés (même règle que calculerJoursOuvrables). Garde partagée unitaire/lot.
@@ -89,9 +90,24 @@ async function appliquerPresence(
   }
 }
 
-export async function saisirPresence(employeeId: string, date: string, code: AttendanceCode | ""): Promise<{ ignore?: string }> {
+/** Vrai si l'une des cases à VIDER porte déjà un code enregistré : les vider serait une suppression. */
+async function videUnePresenceSaisie(entrees: { employeeId: string; date: string; code: AttendanceCode | "" }[]): Promise<boolean> {
+  const aVider = entrees.filter((e) => e.code === "");
+  if (aVider.length === 0) return false;
+  const n = await prisma.attendance.count({ where: { OR: aVider.map((e) => ({ employeeId: e.employeeId, date: new Date(e.date) })) } });
+  return n > 0;
+}
+
+export async function saisirPresence(employeeId: string, date: string, code: AttendanceCode | ""): Promise<{ ignore?: string; erreur?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+
+  // Vider un code déjà saisi efface le pointage du jour : réservé à la Direction (règle de Sacha,
+  // 2026-10-01). Remplacer le code reste ouvert au responsable.
+  if (code === "" && (await videUnePresenceSaisie([{ employeeId, date, code }]))) {
+    const refus = refusSuppression(user, MESSAGE_EFFACER_PRESENCE);
+    if (refus) return refus;
+  }
 
   if (code !== "" && estConge(code)) {
     const feries = await feriesDans([date]);
@@ -115,9 +131,16 @@ export async function saisirPresence(employeeId: string, date: string, code: Att
  *  - « C »/« S » sur un dimanche ou un jour férié (jamais décomptés des congés). */
 export async function saisirPresencesEnLot(
   entrees: { employeeId: string; date: string; code: AttendanceCode | "" }[]
-): Promise<{ ignores: { employeeId: string; date: string }[] }> {
+): Promise<{ ignores: { employeeId: string; date: string }[]; erreur?: string }> {
   const user: CurrentUser = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+
+  // Même règle qu'en saisie unitaire, TOUT OU RIEN : un lot qui viderait un code déjà saisi est
+  // refusé en entier, sans rien écrire (pas de lot à moitié appliqué).
+  if (await videUnePresenceSaisie(entrees)) {
+    const refus = refusSuppression(user, MESSAGE_EFFACER_PRESENCE);
+    if (refus) return { ignores: [], ...refus };
+  }
 
   const [enConge, feries, repos] = await Promise.all([
     joursEnConge(entrees),

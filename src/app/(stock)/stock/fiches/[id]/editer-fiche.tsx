@@ -6,7 +6,9 @@ import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from "r
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { VignettePlat } from "@/components/vignette-plat";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
+import { ChoixRecherche } from "@/components/choix-recherche";
 import { estErreur } from "@/lib/action-lisible";
+import { optionsArticles, type OptionChoix } from "@/lib/recherche-options";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
 import {
   calculerDisponibilite,
@@ -44,7 +46,7 @@ const decoderSource = (v: string) => ({
  * même fonction que côté serveur — un seul chiffre possible pour une même fiche.
  */
 export function EditerFiche({
-  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui,
+  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui, peutSupprimer = false,
 }: {
   vue: FicheVue;
   articles: ArticleOption[];
@@ -56,6 +58,8 @@ export function EditerFiche({
   stocks: Record<string, StockArticle>;
   /** Jour civil de Kinshasa (AAAA-MM-JJ), fixé par le serveur : référence du stock figé. */
   aujourdhui: string;
+  /** Direction seulement : supprimer la fiche, retirer la photo ou des ingrédients (règle de Sacha, 2026-10-01). */
+  peutSupprimer?: boolean;
 }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
@@ -68,6 +72,8 @@ export function EditerFiche({
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
 
   const mapArticles = new Map(articles.map((a) => [a.id, a]));
+  // Une liste partagée par toutes les lignes et par le formulaire d'ajout (on y cherche en tapant).
+  const optionsSource = useMemo(() => construireOptionsSource(articles, autresFiches), [articles, autresFiches]);
   const mapNoms = new Map<string, { nom: string }>([
     [vue.id, { nom: ent.nom }],
     ...autresFiches.map((f) => [f.id, { nom: f.nom }] as [string, { nom: string }]),
@@ -210,7 +216,7 @@ export function EditerFiche({
           <BoutonPdfFiche id={vue.id} nom={vue.nom} avecPrix nonEnregistre={nonEnregistre} />
           <BoutonPdfFiche id={vue.id} nom={vue.nom} avecPrix={false} nonEnregistre={nonEnregistre} />
           <button onClick={dupliquer} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">⧉ Dupliquer</button>
-          <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>
+          {peutSupprimer && <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>}
         </div>
       </div>
 
@@ -224,7 +230,7 @@ export function EditerFiche({
         onChoisir={choisirPhoto}
         onEnvoyer={envoyerPhoto}
         onAnnuler={annulerPhoto}
-        onRetirer={retirerPhoto}
+        onRetirer={peutSupprimer ? retirerPhoto : undefined}
       />
 
       {/* ── Entête ───────────────────────────────────────────────────────── */}
@@ -260,10 +266,18 @@ export function EditerFiche({
             <input type="checkbox" name="estSousRecette" checked={ent.estSousRecette} onChange={(e) => setEnt({ ...ent, estSousRecette: e.target.checked })} />
             <span>Sous-recette (entre dans d&apos;autres fiches, pas de prix de vente attendu)</span>
           </label>
-          <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-2">
-            <input type="checkbox" name="actif" checked={ent.actif} onChange={(e) => setEnt({ ...ent, actif: e.target.checked })} />
-            <span>Fiche active</span>
-          </label>
+          {/* Désactiver une fiche active : Direction seulement (le serveur refuse aussi). La réactiver reste ouvert. */}
+          {peutSupprimer || !vue.actif ? (
+            <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-2">
+              <input type="checkbox" name="actif" checked={ent.actif} onChange={(e) => setEnt({ ...ent, actif: e.target.checked })} />
+              <span>Fiche active</span>
+            </label>
+          ) : (
+            <p className="col-span-2 text-xs text-muted-foreground md:col-span-2">
+              <input type="hidden" name="actif" value="on" />
+              Fiche active — sa désactivation est réservée à la Direction.
+            </p>
+          )}
 
           {/* Fiche redevenue « plat » : on conserve le rendement déjà saisi plutôt que de l'effacer
               en silence à l'enregistrement (il redeviendra utile si la fiche repasse sous-recette). */}
@@ -311,7 +325,7 @@ export function EditerFiche({
           )}
         </div>
 
-        {lignes.length > 0 && (
+        {lignes.length > 0 && peutSupprimer && (
           <BulkBar count={sel.size} total={lignes.length} onAll={(on) => setAll(lignes.map((l) => l.id), on)}>
             <button
               disabled={isPending || modifiees.length > 0}
@@ -346,11 +360,10 @@ export function EditerFiche({
                   cout={resultat.lignes[i]}
                   article={l.articleId ? mapArticles.get(l.articleId) : undefined}
                   sousFiche={l.sousFicheId ? autresFiches.find((f) => f.id === l.sousFicheId) : undefined}
-                  articles={articles}
-                  autresFiches={autresFiches}
+                  optionsSource={optionsSource}
                   modifiee={ligneModifiee(l)}
                   selectionnee={sel.has(l.id)}
-                  onToggle={() => toggle(l.id)}
+                  onToggle={peutSupprimer ? () => toggle(l.id) : undefined}
                   onChange={(patch) => majLigne(l.id, patch)}
                   dispoLigne={dispo.lignes[i]}
                   detailsArticles={detailsArticles}
@@ -367,10 +380,7 @@ export function EditerFiche({
         {/* Ajout d'une ligne */}
         <form action={ajouter} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
           <label className={champ}>Article ou sous-recette
-            <select name="source" required value={nouvelle.source} onChange={(e) => setNouvelle({ ...nouvelle, source: e.target.value })} className={`${inp} w-72 text-foreground`}>
-              <option value="">— choisir —</option>
-              <OptionsSource articles={articles} autresFiches={autresFiches} />
-            </select>
+            <ChoixRecherche options={optionsSource} name="source" required value={nouvelle.source} vide="— choisir —" onChange={(v) => setNouvelle({ ...nouvelle, source: v })} aria-label="Article ou sous-recette à ajouter" className={`${inp} w-72 max-w-full text-foreground`} />
           </label>
           <label className={champ}>Unité
             <input name="unite" required value={nouvelle.unite} onChange={(e) => setNouvelle({ ...nouvelle, unite: e.target.value })} placeholder="g, cl, pièce…" className={`${inp} w-28 text-foreground`} />
@@ -520,7 +530,8 @@ function PhotoPlat({
   onChoisir: (e: ChangeEvent<HTMLInputElement>) => void;
   onEnvoyer: () => void;
   onAnnuler: () => void;
-  onRetirer: () => void;
+  /** Absent hors Direction : pas de bouton « Retirer la photo » (la remplacer reste possible). */
+  onRetirer?: () => void;
 }) {
   // Aperçu local de la sélection en cours (avant envoi) : révoqué à chaque changement pour ne pas
   // accumuler d'URL objet en mémoire.
@@ -553,7 +564,7 @@ function PhotoPlat({
               <button onClick={onAnnuler} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50">Annuler</button>
             </>
           ) : (
-            photoUrl && (
+            photoUrl && onRetirer && (
               <button onClick={onRetirer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">
                 Retirer la photo
               </button>
@@ -566,18 +577,18 @@ function PhotoPlat({
 }
 
 function LigneIngredient({
-  ligne, cout, article, sousFiche, articles, autresFiches, modifiee, selectionnee, onToggle, onChange,
+  ligne, cout, article, sousFiche, optionsSource, modifiee, selectionnee, onToggle, onChange,
   dispoLigne, detailsArticles, limitante,
 }: {
   ligne: LigneFiche;
   cout: LigneCout | undefined;
   article: ArticleOption | undefined;
   sousFiche: AutreFiche | undefined;
-  articles: ArticleOption[];
-  autresFiches: AutreFiche[];
+  optionsSource: OptionChoix[];
   modifiee: boolean;
   selectionnee: boolean;
-  onToggle: () => void;
+  /** Absent hors Direction : la sélection ne sert qu'à « Retirer », réservé à la Direction. */
+  onToggle?: () => void;
   onChange: (patch: Partial<LigneFiche>) => void;
   dispoLigne: DetailLigneDispo | undefined;
   detailsArticles: Map<string, DetailArticleDispo>;
@@ -587,13 +598,10 @@ function LigneIngredient({
     <tr className={`border-t align-top ${selectionnee ? "bg-primary/10" : modifiee ? "bg-amber-50/60" : ""}`}>
       {/* La ligne limitante est marquée d'un filet à gauche : il reste visible même sélectionnée. */}
       <td className={`px-2 py-1.5 ${limitante ? "border-l-4 border-l-amber-500" : ""}`}>
-        <input type="checkbox" checked={selectionnee} onChange={onToggle} aria-label="Sélectionner cet ingrédient" />
+        {onToggle && <input type="checkbox" checked={selectionnee} onChange={onToggle} aria-label="Sélectionner cet ingrédient" />}
       </td>
       <td className="px-2 py-1.5">
-        <select value={valeurSource(ligne)} onChange={(e) => onChange(decoderSource(e.target.value))} className={`${inp} w-full min-w-56`}>
-          <option value="">— choisir —</option>
-          <OptionsSource articles={articles} autresFiches={autresFiches} />
-        </select>
+        <ChoixRecherche options={optionsSource} colonne="source" value={valeurSource(ligne)} vide="— choisir —" onChange={(v) => onChange(decoderSource(v))} aria-label="Article ou sous-recette de la ligne" className={`${inp} w-full min-w-56`} />
         {/* Harmonie : le nom d'un article mène à sa fiche catalogue, celui d'une sous-recette à sa
             fiche technique — comme les noms de fournisseurs mènent à leur fiche. */}
         {article && (
@@ -636,27 +644,18 @@ function LigneIngredient({
   );
 }
 
-/** Sélecteur unique : les deux sources dans deux groupes, le XOR est garanti par construction. */
-function OptionsSource({ articles, autresFiches }: { articles: ArticleOption[]; autresFiches: AutreFiche[] }) {
-  const sousRecettes = autresFiches.filter((f) => f.estSousRecette);
-  const autres = autresFiches.filter((f) => !f.estSousRecette);
-  return (
-    <>
-      {sousRecettes.length > 0 && (
-        <optgroup label="Sous-recettes">
-          {sousRecettes.map((f) => <option key={f.id} value={`fiche:${f.id}`}>{f.nom}</option>)}
-        </optgroup>
-      )}
-      <optgroup label="Articles du stock">
-        {articles.map((a) => <option key={a.id} value={`art:${a.id}`}>{a.designation}{a.actif ? "" : " (inactif)"}</option>)}
-      </optgroup>
-      {autres.length > 0 && (
-        <optgroup label="Autres fiches">
-          {autres.map((f) => <option key={f.id} value={`fiche:${f.id}`}>{f.nom}</option>)}
-        </optgroup>
-      )}
-    </>
-  );
+/**
+ * Choix unique de la source d'une ligne : les deux sources dans trois groupes, le XOR est garanti par
+ * construction (`art:` / `fiche:`). Calculée UNE fois pour la fiche et partagée par toutes les lignes ;
+ * on y cherche en tapant (désignation, nom court, code). Un article inactif reste proposé, marqué.
+ */
+function construireOptionsSource(articles: ArticleOption[], autresFiches: AutreFiche[]): OptionChoix[] {
+  const fiche = (f: AutreFiche, groupe: string): OptionChoix => ({ id: `fiche:${f.id}`, libelle: f.nom, groupe });
+  return [
+    ...autresFiches.filter((f) => f.estSousRecette).map((f) => fiche(f, "Sous-recettes")),
+    ...optionsArticles(articles, { marquerInactifs: true, prefixe: "art:", groupe: "Articles du stock" }),
+    ...autresFiches.filter((f) => !f.estSousRecette).map((f) => fiche(f, "Autres fiches")),
+  ];
 }
 
 /** Coût partiel : jamais un chiffre nu — on nomme les ingrédients en cause. */

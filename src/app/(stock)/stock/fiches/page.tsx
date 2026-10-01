@@ -4,6 +4,7 @@ import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } f
 import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_data/fiche-calc";
 import type { FicheRow } from "./fiches-client";
 import { EcranFiches } from "./ecran-fiches";
+import { peutSupprimer } from "@/lib/suppression-direction";
 import { ImportFichesBar } from "./import-bar";
 import { lireOngletFiches } from "@/lib/fiches/famille-boisson";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -57,5 +58,5 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
   });
 
   // Import du classeur des fiches du bar : réservé à la Direction (l'action serveur le refuse aussi).
-  return <EcranFiches rows={rows} vue={vue} etatInitial={etatInitial} importBar={user.role === "ADMIN" ? <ImportFichesBar /> : undefined} />;
+  return <EcranFiches rows={rows} vue={vue} etatInitial={etatInitial} importBar={user.role === "ADMIN" ? <ImportFichesBar /> : undefined} peutSupprimer={peutSupprimer(user)} />;
 }

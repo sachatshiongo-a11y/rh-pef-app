@@ -86,14 +86,17 @@ export async function chargerNotificationsSalarie(userId: string): Promise<{ ite
 }
 
 /** Données de la cloche pour un espace (`domaine`) : notifications récentes, non lues, + alerte clôture (RH). */
-export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH"): Promise<{
+export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH", userId?: string): Promise<{
   items: NotificationItem[];
   nonLues: number;
   cloture: { message: string; jours: number } | null;
 }> {
+  // Cloche d'espace = notifications PARTAGÉES de l'espace + celles adressées à CE compte (réponse de
+  // la Direction à une demande de l'espace Stock) ; celles d'un autre compte ne s'affichent jamais.
+  const visibles = { domaine, OR: [{ destinataireUserId: null }, ...(userId ? [{ destinataireUserId: userId }] : [])] };
   const [items, nonLues, config] = await Promise.all([
-    prisma.notification.findMany({ where: { domaine }, orderBy: { createdAt: "desc" }, take: 20 }),
-    prisma.notification.count({ where: { domaine, lu: false } }),
+    prisma.notification.findMany({ where: visibles, orderBy: { createdAt: "desc" }, take: 20 }),
+    prisma.notification.count({ where: { ...visibles, lu: false } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
 

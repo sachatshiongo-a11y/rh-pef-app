@@ -6,6 +6,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { CLASSES_DANGER, CLASSES_GEOMETRIE } from "@/components/action-buttons";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { PaieBulk, type PaieRow } from "./paie-bulk";
+import { jetonLigne } from "@/lib/paie-jeton";
 import { BulletinsValidation } from "./bulletins-validation";
 import { RemunerationElements, type LigneRemu } from "./remuneration-elements";
 import { SuiviContrats, type ContratRow } from "./suivi-contrats";
@@ -56,6 +57,10 @@ export default async function PaiePage({
     include: { lignes: { include: { employee: true }, orderBy: { employee: { nom: "asc" } } } },
   });
 
+  // « Réinitialiser » emporte aussi les bulletins déjà ÉMIS des lignes rouvertes : la confirmation
+  // les nomme (geste de la Direction, irréversible).
+  const bulletinsEmis = run && estAdmin ? await prisma.versionBulletin.count({ where: { payrollLine: { payrollRunId: run.id } } }) : 0;
+
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {
     month: "long",
     year: "numeric",
@@ -101,6 +106,7 @@ export default async function PaiePage({
         sourceReference: l.sourceReference,
         motifReference: l.motifReference,
         avertissements: lireAvertissements(l.avertissementsPaie),
+        jeton: jetonLigne(l),
       }))
     : (apercu!.lignes).map((l) => ({
         id: `apercu-${l.employee.id}`,
@@ -341,7 +347,7 @@ export default async function PaiePage({
           {estAdmin && run && (
             <form action={reinitialiserPaieDuMois}>
               <ConfirmSubmitButton
-                message={`Supprimer la paie calculée pour ${periode} ? Cette action est irréversible (n'affecte pas les mois passés).`}
+                message={`Supprimer la paie calculée pour ${periode} ?${bulletinsEmis > 0 ? ` ${bulletinsEmis} bulletin(s) déjà émis (lignes rouvertes) et leur historique de validation seront supprimés aussi.` : ""} Cette action est irréversible (n'affecte pas les mois passés).`}
                 className={CLASSES_DANGER}
               >
                 Réinitialiser

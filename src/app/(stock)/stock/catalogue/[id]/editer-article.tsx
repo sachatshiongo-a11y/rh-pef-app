@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { modifierArticle } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsFournisseurs } from "@/lib/recherche-options";
 import { contenanceDansNom, UNITES_CONTENANCE } from "@/lib/fiches/conversion";
 
 type Cat = { id: string; nom: string; domaine: string };
@@ -46,9 +48,11 @@ const texteDe = (v: number | null) => (v === null ? "" : String(v));
  * N'envoie JAMAIS `quantite` : le stock ne se modifie que par un mouvement, l'inventaire (comptage)
  * ou la correction de stock négatif — jamais par ce formulaire.
  */
-export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[] }) {
+export function EditerArticle({ a, categories, fournisseurs, estDirection = true }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[]; estDirection?: boolean }) {
+  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const [ouvert, setOuvert] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null); // proposition envoyée (hors Direction)
   const [isPending, start] = useTransition();
   // Cases numériques : valeur tenue en state (texte), portée par un champ caché du même nom que
   // lit `modifierArticle` — comme les lignes de la Liste d'achat de légumes.
@@ -68,12 +72,19 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
     start(async () => {
       const r = await modifierArticle(a.id, fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
+      if (r && "message" in r) setInfo(r.message);
       setOuvert(false);
     });
   };
 
   if (!ouvert) {
-    return <button onClick={() => setOuvert(true)} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Modifier</button>;
+    // Hors Direction : on PROPOSE une modification (la Direction la valide ou la refuse).
+    return (
+      <>
+        <button onClick={() => { setInfo(null); setOuvert(true); }} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{estDirection ? "Modifier" : "Proposer une modification"}</button>
+        {info && <p className="w-full rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{info}</p>}
+      </>
+    );
   }
 
   return (
@@ -121,10 +132,7 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
             </select>
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Fournisseur
-            <select name="fournisseurId" defaultValue={a.fournisseurId ?? ""} className={inp}>
-              <option value="">—</option>
-              {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-            </select>
+            <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue={a.fournisseurId ?? ""} vide="—" aria-label="Fournisseur" className={inp} />
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Stock minimum
             <input type="hidden" name="stockMinimum" value={seuilMin} />
@@ -137,8 +145,9 @@ export function EditerArticle({ a, categories, fournisseurs }: { a: ArticleEdit;
         </div>
       </ZoneTableur>
       <p className="mt-2 text-xs text-muted-foreground">Le stock ne se modifie pas ici : il évolue par les mouvements, l&apos;inventaire (comptage) ou la correction d&apos;un stock négatif.</p>
+      {!estDirection && <p className="mt-1 text-xs text-amber-800">Seuls les champs changés sont proposés ; l&apos;article ne change qu&apos;après validation de la Direction.</p>}
       <div className="mt-3 flex items-center gap-2">
-        <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : "Enregistrer"}</button>
+        <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : estDirection ? "Enregistrer" : "Envoyer à la Direction"}</button>
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Annuler</button>
       </div>
     </form>

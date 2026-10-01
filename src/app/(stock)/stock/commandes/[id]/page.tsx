@@ -11,9 +11,10 @@ import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 
-export default async function BonDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BonDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ erreur?: string }> }) {
   const user = await exigerPageStock();
   const { id } = await params;
+  const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const [bc, acheteur] = await Promise.all([
     prisma.bonDeCommande.findUnique({
@@ -53,6 +54,7 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
   return (
     <div className="w-full space-y-5">
       <FilAriane segments={[{ label: "Bons de commande", href: "/stock/commandes" }, { label: bc.numero }]} />
+      {sp.erreur && <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>}
 
       {/* Barre d'actions selon l'état */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -222,7 +224,10 @@ export default async function BonDetailPage({ params }: { params: Promise<{ id: 
         <form action={changerStatutBonCommande.bind(null, bc.id)} className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Corriger le statut :</span>
           <select name="statut" defaultValue={bc.statut} className="rounded border border-input bg-background px-2 py-1 text-xs">
-            {Object.entries(STATUT_BC_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {/* Annulé, ou retour en brouillon d'un bon déjà envoyé : Direction seulement (le serveur refuse aussi). */}
+            {Object.entries(STATUT_BC_LABEL)
+              .filter(([k]) => estDirection || k === bc.statut || (k !== "ANNULE" && k !== "BROUILLON"))
+              .map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
           <button className="rounded-md border px-2 py-1 text-xs hover:bg-accent">Appliquer</button>
         </form>

@@ -15,7 +15,11 @@ export const lienOngletFiches = (vue: OngletFiches) => `/stock/fiches?vue=${vue}
  * Le rangement vient de `ongletFiche` (type ; sous-recettes toujours avec les plats) : une
  * boisson n'est jamais transmise à la liste des plats, et inversement.
  */
-export function EcranFiches({ rows, vue, etatInitial, importBar }: { rows: FicheRow[]; vue: OngletFiches; etatInitial?: EtatDispo; importBar?: ReactNode }) {
+export function EcranFiches({ rows, vue, etatInitial, importBar, peutSupprimer = false }: {
+  rows: FicheRow[]; vue: OngletFiches; etatInitial?: EtatDispo; importBar?: ReactNode;
+  /** Direction seulement : « Supprimer » dans les actions groupées (règle de Sacha, 2026-10-01). */
+  peutSupprimer?: boolean;
+}) {
   const fiches = rows.filter((r) => ongletFiche(r) === vue);
   const nbParOnglet = (o: OngletFiches) => rows.filter((r) => ongletFiche(r) === o).length;
 
@@ -62,7 +66,7 @@ export function EcranFiches({ rows, vue, etatInitial, importBar }: { rows: Fiche
 
       {/* Clé = onglet : changer d'onglet remonte la liste, donc vide la sélection et les filtres.
           Une action groupée ne peut ainsi jamais emporter des fiches de l'onglet qu'on a quitté. */}
-      <FichesClient key={vue} fiches={fiches} etatInitial={etatInitial} vue={vue} />
+      <FichesClient key={vue} fiches={fiches} etatInitial={etatInitial} vue={vue} peutSupprimer={peutSupprimer} />
     </div>
   );
 }

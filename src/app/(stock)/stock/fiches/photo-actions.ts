@@ -5,6 +5,7 @@ import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { identifiantsSupabase, supprimerPhoto, cheminDepuisUrlPrivee } from "@/lib/fiches/photo-storage";
 import { televerserPhotoFiche } from "@/lib/fiches/photo-fiche-serveur";
 
@@ -30,9 +31,11 @@ export const envoyerPhotoFiche = actionLisible(async (ficheId: string, formData:
   revalidatePath("/stock/fiches");
 });
 
-/** Retire la photo d'une fiche technique : colonne remise à `null` ET objet supprimé du bucket. */
+/** Retire la photo d'une fiche technique : colonne remise à `null` ET objet supprimé du bucket.
+ *  Direction seulement (règle de Sacha, 2026-10-01). La REMPLACER (`envoyerPhotoFiche`) reste ouvert. */
 export const supprimerPhotoFiche = actionLisible(async (ficheId: string) => {
   const user = await garde();
+  exigerDirectionPourSupprimer(user);
   const fiche = await prisma.ficheTechnique.findUnique({ where: { id: ficheId }, select: { id: true, photoUrl: true } });
   if (!fiche) throw new Error("Fiche introuvable.");
   if (!fiche.photoUrl) return;

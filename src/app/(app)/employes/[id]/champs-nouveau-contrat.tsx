@@ -17,8 +17,11 @@ const TYPES = ["CDD", "CDI", "STAGE", "JOURNALIER", "INTERIM"];
  */
 export function ChampsNouveauContrat({
   courant,
+  peutCloturer = false,
 }: {
   courant: { id: string; type: string; debutTexte: string } | null;
+  /** Direction seulement : clôturer / résilier le contrat en cours (comme « Rompre »). */
+  peutCloturer?: boolean;
 }) {
   const [type, setType] = useState("CDD");
   const [choixManuel, setChoixManuel] = useState<boolean | null>(null);
@@ -35,7 +38,12 @@ export function ChampsNouveauContrat({
           ))}
         </select>
       </label>
-      {courant && (
+      {courant && !peutCloturer && (
+        <p className="rounded-md border bg-background p-2 text-xs text-muted-foreground sm:col-span-2 md:col-span-4">
+          Le contrat en cours ({libelleTypeContrat(courant.type)} depuis le {courant.debutTexte}) reste actif : sa clôture est réservée à la Direction.
+        </p>
+      )}
+      {courant && peutCloturer && (
         <div className="flex min-w-0 flex-col gap-1.5 rounded-md border bg-background p-2 text-xs sm:col-span-2 md:col-span-4">
           <input type="hidden" name="cloturerContratId" value={courant.id} />
           <label className="flex items-start gap-2">

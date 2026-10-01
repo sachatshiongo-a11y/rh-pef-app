@@ -43,6 +43,8 @@ export type PaieRow = {
   sourceReference: SourceReference;
   motifReference: string | null;
   avertissements: AvertissementPaie[];
+  /** Montants affichés (paie-jeton.ts), absent en aperçu : renvoyés à la validation. */
+  jeton?: string;
 };
 
 function money(n: number) {
@@ -112,7 +114,9 @@ export function PaieBulk({
     const mode = versStatut === "PAYE" ? (modeBulk || null) : null;
     setErreur(null);
     startTransition(async () => {
-      const r = await changerStatutEnLot(ids, versStatut, mode);
+      // Montants affichés (paie-jeton.ts) : une ligne recalculée depuis l'affichage refuse le lot.
+      const jetons = Object.fromEntries([...brigade, ...backoffice].filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
+      const r = await changerStatutEnLot(ids, versStatut, mode, jetons);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });
@@ -274,6 +278,7 @@ function Groupe({
                     modePaiementDefaut={l.modePaiementDefaut}
                     avertissements={l.avertissements}
                     nom={l.nom}
+                    jeton={l.jeton}
                   />
                 </td>
               </tr>

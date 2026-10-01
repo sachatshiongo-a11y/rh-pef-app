@@ -5,6 +5,7 @@ import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { dec, decOptionnel } from "@/lib/nombre";
 
 // Fiches techniques : recettes et ingrédients. Aucune de ces actions ne calcule un coût, une marge
@@ -66,8 +67,13 @@ export const creerFiche = actionLisible(async (formData: FormData) => {
  */
 export const modifierFiche = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
-  const avant = await prisma.ficheTechnique.findUnique({ where: { id }, select: { nom: true } });
+  const avant = await prisma.ficheTechnique.findUnique({ where: { id }, select: { nom: true, actif: true } });
   if (!avant) throw new Error("Fiche introuvable.");
+  // Désactiver une fiche la fait disparaître des listes et des ventes : réservé à la Direction
+  // (arbitrage du 2026-10-01). La réactiver, et toute autre modification, restent ouvertes.
+  if (avant.actif && !coche(formData, "actif")) {
+    exigerDirectionPourSupprimer(user, "Désactiver une fiche technique est réservé à la Direction.");
+  }
 
   const nom = txt(formData, "nom");
   if (!nom) throw new Error("Le nom de la fiche est requis.");
@@ -120,6 +126,7 @@ export const modifierFiche = actionLisible(async (id: string, formData: FormData
  */
 export const supprimerFiches = actionLisible(async (ids: string[]) => {
   const user = await garde();
+  exigerDirectionPourSupprimer(user); // règle de Sacha (2026-10-01) : seule la Direction supprime
   if (!ids.length) throw new Error("Aucune fiche sélectionnée.");
 
   const fiches = await prisma.ficheTechnique.findMany({ where: { id: { in: ids } }, select: { id: true, nom: true } });
@@ -301,6 +308,10 @@ export const remplacerIngredients = actionLisible(async (ficheId: string, lignes
   }
   const gardes = new Set(valides.map((l) => l.id).filter(Boolean) as string[]);
   const aRetirer = existantes.filter((l) => !gardes.has(l.id)).map((l) => l.id);
+  // Une ligne absente du lot serait SUPPRIMÉE : réservé à la Direction, comme « Retirer »
+  // (`supprimerIngredients`) — sinon ce chemin le contournerait. L'écran n'envoie jamais de lot
+  // amputé (il renvoie toutes les lignes) : rien ne change pour le responsable.
+  if (aRetirer.length > 0) exigerDirectionPourSupprimer(user, "Retirer un ingrédient d'une fiche est réservé à la Direction. Si la fiche a changé entre-temps, rechargez la page.");
 
   // 2. Écriture : une seule transaction, tout ou rien.
   await prisma.$transaction([
@@ -321,9 +332,10 @@ export const remplacerIngredients = actionLisible(async (ficheId: string, lignes
   rafraichir(ficheId);
 });
 
-/** Supprime des lignes d'ingrédient en lot (une seule ligne = un lot de un). */
+/** Supprime des lignes d'ingrédient en lot (une seule ligne = un lot de un). Direction seulement. */
 export const supprimerIngredients = actionLisible(async (ficheId: string, ids: string[]) => {
   const user = await garde();
+  exigerDirectionPourSupprimer(user);
   if (!ids.length) throw new Error("Aucun ingrédient sélectionné.");
 
   const { count } = await prisma.ingredientFiche.deleteMany({ where: { id: { in: ids }, ficheId } });

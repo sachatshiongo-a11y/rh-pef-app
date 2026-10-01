@@ -12,6 +12,8 @@ import { lireSaisieNombre } from "@/lib/nombre";
 import { formaterNombre, formaterUSD } from "@/lib/montant";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import type { OptionChoix } from "@/lib/recherche-options";
 
 type Ligne = { legume: string; unite: string; quantite: string; montantCDF: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -21,6 +23,8 @@ const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok
 const texteDe = (v: number | null) => (v === null ? "" : String(v));
 const vide = (): Ligne => ({ legume: "", unite: "", quantite: "", montantCDF: "" });
 const NB_LIGNES = 3;
+/** Liste figée des légumes, partagée par toutes les lignes : la valeur envoyée est le nom (texte libre en base). */
+const OPTIONS_LEGUMES: OptionChoix[] = LEGUMES.map((x) => ({ id: x.nom, libelle: x.nom, detail: x.unite }));
 
 // Même motif que la Liste d'achat (Stock → Achats & mouvements) : UNE seule arborescence, deux
 // présentations, suivant la largeur de la LISTE (requête de conteneur) et non celle de l'écran — le
@@ -103,10 +107,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
             </div>
             {lignes.map((l, i) => (
               <div key={i} data-ligne-achat className={`grid gap-1.5 rounded-lg border p-2 ${PISTES} ${COLONNES} @4xl:items-center @4xl:rounded-none @4xl:border-0 @4xl:border-t @4xl:p-0 @4xl:py-0.5`}>
-                <select name="legume" value={l.legume} onChange={(e) => choisir(i, e.target.value)} aria-label={`Légume, ligne ${i + 1}`} className={`${champ} ${PLACE.legume}`}>
-                  <option value="">— légume —</option>
-                  {LEGUMES.map((x) => <option key={x.nom} value={x.nom}>{x.nom}</option>)}
-                </select>
+                <ChoixRecherche options={OPTIONS_LEGUMES} name="legume" value={l.legume} vide="— légume —" onChange={(nom) => choisir(i, nom)} aria-label={`Légume, ligne ${i + 1}`} className={`${champ} ${PLACE.legume}`} />
                 <input name="unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} placeholder="Unité" aria-label={`Unité, ligne ${i + 1}`} className={`${champ} ${PLACE.unite}`} />
                 {/* Quantité et montant : cases du tableur (sans flèches, Entrée descend). Ce qui part au serveur
                     est le champ caché, à point. */}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { exigerDirectionPourSupprimer, refusSuppression } from "@/lib/suppression-direction";
 import { dureeShift } from "./creneaux";
 import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from "@/lib/planning-auto";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -84,6 +85,9 @@ export type ResumeGeneration = {
 
 /** Nombre de semaines d'historique lues pour l'équité (rotation des dimanches/fériés et des shifts). */
 const SEMAINES_HISTORIQUE = 8;
+
+/** Refus de « Écraser » hors Direction, levé dans la transaction pour l'annuler, rendu en `erreur`. */
+class RefusEcrasement extends Error {}
 
 /**
  * Génère automatiquement le planning sur une période. Ne fait plus que lire, appeler le moteur
@@ -222,7 +226,7 @@ export async function genererPlanningAuto(
     posees = await prisma.$transaction(async (tx) => {
       const actuels = await tx.planningCreneau.findMany({
         where: { date: { gte: debut, lte: fin } },
-        select: { employeeId: true, date: true },
+        select: { employeeId: true, date: true, genereAuto: true },
       });
       const actuelsCles = new Set(actuels.map((x) => cleCreneau(x.employeeId, x.date)));
       const nouveaux = uniques.filter((c) => ecraser || !actuelsCles.has(cleCreneau(c.employeeId, c.date)));
@@ -240,6 +244,14 @@ export async function genererPlanningAuto(
       // mois) : seules les opérations d'un mois verrouillé sont retirées, jamais le reste du salarié.
       noterVerrous(await verrousPlanning(tx, operations));
       const aEcrire = operations.filter((o) => !estFige(o.employeeId, o.date));
+      // « Écraser » EFFACERAIT des créneaux saisis à la main : réservé à la Direction (règle de
+      // Sacha, 2026-10-01). Hors Direction, écraser ne reste permis que sur des créneaux ✨ générés.
+      const manuels = new Set(actuels.filter((x) => !x.genereAuto).map((x) => cleCreneau(x.employeeId, x.date)));
+      const nbManuelsEffaces = aEcrire.filter((o) => o.shiftId === null && manuels.has(cleCreneau(o.employeeId, o.date))).length;
+      if (nbManuelsEffaces > 0) {
+        const refus = refusSuppression(user, `« Écraser » effacerait ${nbManuelsEffaces} créneau(x) saisi(s) à la main : réservé à la Direction. Décochez « Écraser » (seuls les jours vides seront remplis).`);
+        if (refus) throw new RefusEcrasement(refus.erreur); // annule la transaction : rien n'est écrit
+      }
       // Effacements puis poses, en deux appels (clés disjointes : un jour effacé ET reposé n'est
       // qu'une pose) : le second renvoie le nombre de poses RÉELLEMENT changées — une pose identique
       // à l'existant n'est ni écrite ni comptée.
@@ -247,6 +259,7 @@ export async function genererPlanningAuto(
       return ecrireCreneaux(tx, user.id, aEcrire.filter((o) => o.shiftId !== null), { genereAuto: true });
     }, { timeout: DELAI_ECRITURE_PLANNING });
   } catch (e) {
+    if (e instanceof RefusEcrasement) return { ...vide, erreur: e.message };
     const erreur = messageErreurPlanning(e);
     if (erreur) return { ...vide, erreur };
     throw e;
@@ -324,9 +337,11 @@ export async function definirShiftPoste(poste: string, shiftId: string, ordre: n
 /** Retire un shift de la liste des shifts acceptables d'un poste, puis renumérote le reste (compact,
  *  sans trou) — sinon deux lignes peuvent finir avec le même `ordre`, et le tri devient dépendant de
  *  l'ordre de retour de la base. */
-export async function supprimerShiftPoste(id: string) {
+export async function supprimerShiftPoste(id: string): Promise<{ erreur: string } | undefined> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const refus = refusSuppression(user);
+  if (refus) return refus;
   await prisma.$transaction(async (tx) => {
     const sp = await tx.shiftPoste.findUnique({ where: { id }, select: { poste: true } });
     if (!sp) return;
@@ -450,6 +465,7 @@ export async function supprimerShift(id: string) {
   await formulaireLisible("/planning", async () => {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
+    exigerDirectionPourSupprimer(user); // règle de Sacha (2026-10-01) : seule la Direction supprime
 
     const shift = await prisma.shift.findUnique({ where: { id }, include: { _count: { select: { creneaux: true } } } });
     if (!shift) return;
@@ -509,9 +525,11 @@ export async function definirPolyvalence(posteSource: string, posteCible: string
   revalidatePath("/planning");
 }
 
-export async function supprimerPolyvalence(id: string) {
+export async function supprimerPolyvalence(id: string): Promise<{ erreur: string } | undefined> {
   const user = await verifySession();
   requireRole(user, ["ADMIN", "MANAGER"]);
+  const refus = refusSuppression(user);
+  if (refus) return refus;
   await prisma.polyvalencePoste.delete({ where: { id } });
   revalidatePath("/planning");
 }

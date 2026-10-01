@@ -73,11 +73,47 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     // (avec certificat, scopée par mois/année) n'est pas concernée : elle n'est jamais remise à zéro,
     // ses montants sont naturellement bornés au mois pour lequel ils ont été saisis.
 
-    // Écriture en masse (remplace ~100 requêtes par ~4).
-    await tx.payrollLine.deleteMany({
+    // L'HISTORIQUE DE PAIE NE DISPARAÎT JAMAIS (arbitrage Direction du 2026-10-01). Jusque-là, toutes
+    // les lignes non figées étaient supprimées puis recréées : une ligne ROUVERTE par la Direction
+    // (VALIDÉ → PAS_VALIDÉ) emportait en cascade ses bulletins émis (VersionBulletin) et ses
+    // transitions (TransitionPaie), détachait son attestation et laissait sa signature et son journal
+    // pointer dans le vide — au prochain recalcul, par un MANAGER ou à la simple ouverture de /paie.
+    //   • Ligne AVEC historique (bulletin émis, transition, attestation, signature ou journal) : mise
+    //     à jour EN PLACE — même identifiant, tout ce qui s'y rattache reste.
+    //   • Brouillon SANS historique (calculé, jamais validé ni tracé) : remplacé comme avant. Rien
+    //     d'enregistré n'y est attaché ; et son identifiant qui change garde la protection d'un écran
+    //     périmé (`MESSAGE_LIGNE_RECALCULEE`, paie-validation.ts).
+    // Les colonnes écrites sont EXACTEMENT celles d'une ligne recréée : les données du calcul, et le
+    // paiement remis à vide (une ligne non figée n'est ni validée ni payée). Aucun montant ne change.
+    // Une ligne avec historique dont le salarié n'est plus calculé (fiche désactivée) est laissée
+    // telle quelle, jamais supprimée : seule la Direction efface une paie (`reinitialiserPaieDuMois`).
+    const existantes = await tx.payrollLine.findMany({
       where: { payrollRunId: runId, statutPaiement: { notIn: STATUTS_FIGES } },
+      select: { id: true, employeeId: true, _count: { select: { versionsBulletin: true, transitions: true, attestations: true } } },
     });
-    await tx.payrollLine.createMany({ data: nouvellesLignes });
+    const idsExistants = existantes.map((l) => l.id);
+    const [signees, journalisees] = idsExistants.length
+      ? await Promise.all([
+          tx.signatureElectronique.findMany({ where: { cible: "BULLETIN", cibleId: { in: idsExistants } }, select: { cibleId: true } }),
+          tx.journalAudit.findMany({ where: { entite: "PayrollLine", entiteId: { in: idsExistants } }, select: { entiteId: true }, distinct: ["entiteId"] }),
+        ])
+      : [[], []];
+    const tracees = new Set([...signees.map((s) => s.cibleId), ...journalisees.map((j) => j.entiteId)]);
+    const aHistorique = (l: (typeof existantes)[number]) =>
+      l._count.versionsBulletin + l._count.transitions + l._count.attestations > 0 || tracees.has(l.id);
+    const conservees = new Map(existantes.filter(aHistorique).map((l) => [l.employeeId, l.id]));
+    const brouillons = existantes.filter((l) => !aHistorique(l)).map((l) => l.id);
+
+    if (brouillons.length) await tx.payrollLine.deleteMany({ where: { id: { in: brouillons } } });
+    // Dans l'ordre des identifiants, comme les verrous de la validation : jamais d'interblocage.
+    const enPlace = nouvellesLignes
+      .filter((l) => conservees.has(l.employeeId))
+      .sort((a, b) => conservees.get(a.employeeId)!.localeCompare(conservees.get(b.employeeId)!));
+    for (const { payrollRunId: _run, employeeId, ...donnees } of enPlace) {
+      await tx.payrollLine.update({ where: { id: conservees.get(employeeId)! }, data: { ...donnees, datePaiement: null, modePaiement: null, payeParId: null } });
+    }
+    // Écriture en masse des autres (remplace ~100 requêtes par ~4).
+    await tx.payrollLine.createMany({ data: nouvellesLignes.filter((l) => !conservees.has(l.employeeId)) });
     // Journalisé uniquement quand l'action vient d'un utilisateur (bouton) — le rafraîchissement
     // automatique à l'affichage ne pollue pas le journal d'audit.
     if (opts.userId) {

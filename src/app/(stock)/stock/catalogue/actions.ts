@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { decOptionnel as dec } from "@/lib/nombre";
+import { appliquerPatchArticleTx, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
+import { texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
-import type { Prisma } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
-import { lireContenanceSaisie } from "@/lib/fiches/conversion";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
@@ -19,6 +20,30 @@ async function garde() {
   requireModule(user, "stock");
   return user;
 }
+
+/**
+ * Réponse d'une modification d'article faite par un compte qui n'est pas la Direction : RIEN ne
+ * change sur l'article, une proposition part à la Direction (« Demandes à valider »), qui valide
+ * (même écriture que la sienne) ou refuse. Règle de Sacha du 2026-09-30.
+ */
+export type PropositionEnvoyee = { proposition: boolean; message: string };
+
+async function proposer(user: Acteur, libelle: string, patchs: { id: string; patch: PatchArticle }[]): Promise<PropositionEnvoyee> {
+  const r = await proposerModifications(user, libelle, patchs);
+  revalidatePath("/stock/catalogue", "layout");
+  revalidatePath("/stock/a-valider");
+  revalidatePath("/stock");
+  if (r.rien) return { proposition: false, message: "Aucun changement : rien n'a été proposé." };
+  const qui = r.nbArticles > 1 ? `${r.nbArticles} articles` : "l'article";
+  return {
+    proposition: true,
+    message: r.fusionnee
+      ? `Ajouté à votre proposition en attente : ${qui} ne change${r.nbArticles > 1 ? "nt" : ""} qu'après validation de la Direction.`
+      : `Proposition envoyée à la Direction : ${qui} ne change${r.nbArticles > 1 ? "nt" : ""} qu'après sa validation.`,
+  };
+}
+
+const MESSAGE_DIRECTION_SEULE = (quoi: string) => `${quoi} est réservé à la Direction.`;
 
 /** Crée un article dans l'inventaire (+ sa ligne de stock). */
 export const creerArticle = actionLisible(async (formData: FormData) => {
@@ -29,6 +54,13 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
   const domaine = domaineRaw === "NOURRITURE" || domaineRaw === "BOISSON" || domaineRaw === "AUTRE" ? domaineRaw : "NOURRITURE";
   const categorieId = String(formData.get("categorieId") ?? "").trim() || null;
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
+
+  // Le stock initial d'un nouvel article est une quantité posée hors flux : hors Direction, il
+  // entre par la Liste d'achat (entrée) ou par un comptage, pas par la création.
+  const quantiteInitiale = dec(formData.get("quantite")) ?? 0;
+  if (quantiteInitiale !== 0 && !estDirection(user)) {
+    throw new Error("Le stock initial se saisit par une entrée (Liste d'achat) ou un comptage : créez l'article avec un stock vide, ou demandez à la Direction.");
+  }
 
   const art = await prisma.articleStock.create({
     data: {
@@ -50,49 +82,22 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
     },
   });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: art.id, champ: "creation", nouvelleValeur: designation, userId: user.id });
+  // Création hors Direction : permise (un article nouveau n'est pas une modification), mais SIGNALÉE
+  // sur la cloche de l'espace Stock.
+  if (!estDirection(user)) await signalerCreationArticle(art.id, designation, user.nom);
   revalidatePath("/stock/catalogue");
 });
 
-/** Modifie un ou plusieurs champs d'un article (et ses seuils/stock). */
-export const modifierArticle = actionLisible(async (id: string, formData: FormData) => {
+/**
+ * Modifie un ou plusieurs champs d'un article (et ses seuils/stock). Direction : écrit tout de
+ * suite. Autre compte : propose (voir `PropositionEnvoyee`) — rien ne change avant validation.
+ */
+export const modifierArticle = actionLisible(async (id: string, formData: FormData): Promise<PropositionEnvoyee | void> => {
   const user = await garde();
-  const data: Prisma.ArticleStockUpdateInput = {};
-  if (formData.has("code")) data.code = String(formData.get("code") ?? "").trim() || null;
-  if (formData.has("designation")) data.designation = String(formData.get("designation")).trim();
-  if (formData.has("nomCourt")) data.nomCourt = String(formData.get("nomCourt") ?? "").trim() || null;
-  if (formData.has("prixUnitaireUSD")) data.prixUnitaireUSD = dec(formData.get("prixUnitaireUSD"));
-  if (formData.has("uniteParCarton")) data.uniteParCarton = dec(formData.get("uniteParCarton"));
-  if (formData.has("unite")) data.unite = String(formData.get("unite")).trim() || null;
-  // Contenance d'une unité comptée à l'unité (« Bouteille » de 75 cl) : sert au coût et à la
-  // disponibilité des fiches consommées en cl/g. Validée avant toute écriture.
-  if (formData.has("contenance") || formData.has("contenanceUnite")) Object.assign(data, lireContenanceSaisie(formData.get("contenance"), formData.get("contenanceUnite")));
-  if (formData.has("categorieId")) {
-    const c = String(formData.get("categorieId")).trim();
-    data.categorie = c ? { connect: { id: c } } : { disconnect: true };
-  }
-  if (formData.has("fournisseurId")) {
-    const f = String(formData.get("fournisseurId")).trim();
-    data.fournisseur = f ? { connect: { id: f } } : { disconnect: true };
-  }
-  await prisma.articleStock.update({ where: { id }, data });
-
-  // seuils / stock (modèle Stock lié)
-  const stockData: Prisma.StockUpdateInput = {};
-  if (formData.has("stockMinimum")) stockData.stockMinimum = dec(formData.get("stockMinimum")) ?? 0;
-  if (formData.has("seuilUrgent")) stockData.seuilUrgent = dec(formData.get("seuilUrgent")) ?? 0;
-  if (formData.has("quantite")) stockData.quantite = dec(formData.get("quantite")) ?? 0;
-  if (Object.keys(stockData).length > 0) {
-    await prisma.stock.upsert({
-      where: { articleId: id },
-      update: stockData,
-      create: {
-        articleId: id,
-        quantite: dec(formData.get("quantite")) ?? 0,
-        stockMinimum: dec(formData.get("stockMinimum")) ?? 0,
-        seuilUrgent: dec(formData.get("seuilUrgent")) ?? 0,
-      },
-    });
-  }
+  // Lecture ET validation (contenance…) avant toute écriture comme avant toute proposition.
+  const patch = lirePatchArticle(formData);
+  if (!estDirection(user)) return proposer(user, "Modification de l'article", [{ id, patch }]);
+  await prisma.$transaction((tx) => appliquerPatchArticleTx(tx, id, patch));
   await journaliser(prisma, { entite: "ArticleStock", entiteId: id, champ: "modification", userId: user.id });
   revalidatePath("/stock/catalogue");
   revalidatePath(`/stock/catalogue/${id}`); // la fiche article se modifie aussi depuis elle-même
@@ -108,6 +113,8 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
  */
 export const fusionnerArticles = actionLisible(async (articleIds: string[], keepId?: string) => {
   const user = await garde();
+  // Fusionner supprime des articles et additionne leurs stocks : réservé à la Direction.
+  if (!estDirection(user)) throw new Error(MESSAGE_DIRECTION_SEULE("Fusionner des articles"));
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length < 2) throw new Error("Sélectionnez au moins deux articles à fusionner.");
   const arts = await prisma.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } });
@@ -142,6 +149,10 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
 /** Catégorise en masse : affecte une catégorie à plusieurs articles. */
 export const categoriserEnMasse = actionLisible(async (articleIds: string[], categorieId: string) => {
   const user = await garde();
+  if (!estDirection(user)) {
+    if (articleIds.length === 0 || !categorieId) return;
+    return proposer(user, "Catégorie en masse", [...new Set(articleIds.map(String))].filter(Boolean).map((id) => ({ id, patch: { categorieId } })));
+  }
   if (articleIds.length === 0 || !categorieId) return;
   await prisma.articleStock.updateMany({ where: { id: { in: articleIds } }, data: { categorieId } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: `${articleIds.length} articles`, champ: "categorie (masse)", nouvelleValeur: categorieId, userId: user.id });
@@ -153,6 +164,7 @@ export const basculerActifArticles = actionLisible(async (articleIds: string[], 
   const user = await garde();
   const uniq = [...new Set(articleIds.map(String))].filter(Boolean);
   if (uniq.length === 0) return;
+  if (!estDirection(user)) return proposer(user, actif ? "Activation en masse" : "Désactivation en masse", uniq.map((id) => ({ id, patch: { actif } })));
   const n = await prisma.articleStock.updateMany({ where: { id: { in: uniq } }, data: { actif } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "actif", nouvelleValeur: `${n.count} article(s) ${actif ? "activé(s)" : "désactivé(s)"}`, userId: user.id });
   revalidatePath("/stock/catalogue");
@@ -167,6 +179,7 @@ export const basculerFicheCommande = actionLisible(async (articleIds: string[], 
   const user = await garde();
   const uniq = [...new Set((Array.isArray(articleIds) ? articleIds : []).map(String))].filter(Boolean);
   if (uniq.length === 0) throw new Error("Aucun article sélectionné.");
+  if (!estDirection(user)) return proposer(user, sur ? "Mise sur la fiche commande" : "Retrait de la fiche commande", uniq.map((id) => ({ id, patch: { surFicheCommande: sur } })));
   const n = await prisma.articleStock.updateMany({ where: { id: { in: uniq }, surFicheCommande: !sur }, data: { surFicheCommande: sur } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: "lot", champ: "ficheCommande", nouvelleValeur: `${n.count} article(s) ${sur ? "mis sur" : "retiré(s) de"} la fiche commande`, userId: user.id });
   revalidatePath("/stock/catalogue");
@@ -179,6 +192,7 @@ export const definirFournisseurEnMasse = actionLisible(async (articleIds: string
   const user = await garde();
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length === 0) return;
+  if (!estDirection(user)) return proposer(user, "Fournisseur en masse", ids.map((id) => ({ id, patch: { fournisseurId: fournisseurId || null } })));
   await prisma.articleStock.updateMany({ where: { id: { in: ids } }, data: { fournisseurId: fournisseurId || null } });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: `${ids.length} articles`, champ: "fournisseur (masse)", nouvelleValeur: fournisseurId || "retiré", userId: user.id });
   revalidatePath("/stock/catalogue");
@@ -191,6 +205,9 @@ export const definirFournisseurEnMasse = actionLisible(async (articleIds: string
  */
 export const corrigerStocksNegatifs = actionLisible(async (articleIds: string[]) => {
   const user = await garde();
+  // Poser une quantité hors flux normal : réservé à la Direction. Hors Direction, un stock faux se
+  // corrige par un comptage (Réconciliation), soumis à la Direction.
+  if (!estDirection(user)) throw new Error(MESSAGE_DIRECTION_SEULE("Corriger les stocks négatifs (mise à 0)") + " Faites un comptage dans Réconciliation : il lui sera soumis.");
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length === 0) return { corriges: 0 };
   const stocks = await prisma.stock.findMany({ where: { articleId: { in: ids }, quantite: { lt: 0 } } });
@@ -217,6 +234,7 @@ export const definirSeuilEnMasse = actionLisible(async (articleIds: string[], se
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   const s = Math.max(0, Number(seuil) || 0);
   if (ids.length === 0) return;
+  if (!estDirection(user)) return proposer(user, "Stock minimum en masse", ids.map((id) => ({ id, patch: { stockMinimum: texteDecimal(s) } })));
   // Le seuil vit sur la ligne Stock (créée si absente).
   await prisma.$transaction(async (tx) => {
     for (const articleId of ids) {
@@ -277,4 +295,9 @@ export async function supprimerArticle(id: string) {
     revalidatePath("/stock");
   });
   redirect("/stock/catalogue"); // succès : retour au catalogue
+}
+
+/** Cloche de l'espace Stock : un article créé hors Direction (Inventaire ou Liste d'achat). */
+async function signalerCreationArticle(id: string, designation: string, auteurNom: string) {
+  await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Nouvel article « ${designation} » créé par ${auteurNom}`.slice(0, 480), lien: `/stock/catalogue/${id}`, refId: `article-cree:${id}` } });
 }

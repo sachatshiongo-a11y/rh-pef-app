@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, reconstituerBrutDepuisNet, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
+import { peutSupprimer } from "@/lib/suppression-direction";
 import { pariteSemaine } from "../planning/creneaux";
 import { JourMobileProvider } from "@/components/jour-mobile";
 import { COULEUR_CODE } from "./attendance-colors";
@@ -29,6 +30,7 @@ const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
 export default async function PresencesPage() {
   const user = await exigerPageRH();
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
+  const peutEffacer = peutSupprimer(user); // vider une présence saisie = suppression → Direction
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const parametres = await chargerParametresPaie();
@@ -223,6 +225,7 @@ export default async function PresencesPage() {
             hoursMap={hoursMap}
             shiftMap={shiftMap}
             peutModifier={peutModifier}
+            peutEffacer={peutEffacer}
             isoDates={isoDates}
             joursFeries={joursFeries}
             params={parametres}
@@ -238,6 +241,7 @@ export default async function PresencesPage() {
             hoursMap={hoursMap}
             shiftMap={shiftMap}
             peutModifier={peutModifier}
+            peutEffacer={peutEffacer}
             isoDates={isoDates}
             joursFeries={joursFeries}
             params={parametres}
