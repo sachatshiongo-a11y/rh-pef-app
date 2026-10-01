@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 type T = { value: string; label: string };
 
@@ -31,7 +32,7 @@ export function BoutonRapport({ types, pdfHref, pdfSansPrixHref, excelHref, pdfP
     }
     setOpen(true);
   };
-  const now = new Date();
+  const now = jourCivilKinshasa(new Date()); // aujourd'hui à Kinshasa
   const iso = (x: Date) => x.toISOString().slice(0, 10);
   const finDef = iso(now);
   const debutDef = iso(new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate())));

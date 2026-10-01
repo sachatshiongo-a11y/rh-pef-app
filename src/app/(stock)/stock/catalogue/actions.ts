@@ -11,6 +11,7 @@ import type { Prisma } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { redirect } from "next/navigation";
 import { lireContenanceSaisie } from "@/lib/fiches/conversion";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
 async function garde() {
@@ -194,7 +195,7 @@ export const corrigerStocksNegatifs = actionLisible(async (articleIds: string[])
   if (ids.length === 0) return { corriges: 0 };
   const stocks = await prisma.stock.findMany({ where: { articleId: { in: ids }, quantite: { lt: 0 } } });
   if (stocks.length === 0) return { corriges: 0 };
-  const date = new Date();
+  const date = jourCivilKinshasa(new Date()); // jour civil de Kinshasa
   await exigerPeriodeOuverte(date);
   await prisma.$transaction(async (tx) => {
     for (const s of stocks) {

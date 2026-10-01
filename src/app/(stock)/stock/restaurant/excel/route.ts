@@ -4,6 +4,7 @@ import { classeurExcel } from "@/lib/export-excel";
 import { joursSemaine } from "../semaine";
 import { lignesStockResto } from "../export-data";
 import { articlesRestoDeLaPeriode, designationResto } from "@/lib/stock-restaurant-charger";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 /** Stock restaurant (Cuisine ou Bar) en Excel : grille hebdo groupée par catégorie. */
 export async function GET(req: Request) {
@@ -12,7 +13,7 @@ export async function GET(req: Request) {
 
   const sp = new URL(req.url).searchParams;
   const espace = sp.get("espace") === "BAR" ? "BAR" : "CUISINE";
-  const jours = joursSemaine(sp.get("semaine") ? new Date(sp.get("semaine")!) : new Date());
+  const jours = joursSemaine(sp.get("semaine") ? new Date(sp.get("semaine")!) : jourCivilKinshasa(new Date()));
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 
   // Semaine affichée : les actifs, et les désactivés qui y ont un comptage ou une livraison —

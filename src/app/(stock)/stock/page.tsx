@@ -5,10 +5,11 @@ import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACT
 import { indicateursStock } from "@/lib/indicateurs/stock";
 import { exigerPageStock } from "@/lib/garde-page";
 import { inventaireFige } from "@/lib/cloture-inventaire";
-import { moisDe, moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
+import { moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
 import { SelecteurMois } from "@/components/selecteur-mois";
 import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/cartes-entrees-stock";
 import { BlocDisponibilitePlats, voitDisponibilitePlats } from "./_tableau-de-bord/bloc-disponibilite-plats";
+import { jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -30,7 +31,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
   const estDirection = user.role === "ADMIN";
   const prenom = user.nom.split(" ")[0];
   const now = new Date();
-  const moisCourant = moisDe(now);
+  const moisCourant = moisCourantKinshasa(now);
   const moisValue = moisDuParametre(sp.mois, now);
   const estCourant = moisValue === moisCourant;
   // Mois choisi, en nombres (mois de 1 à 12) : à passer tel quel à tout bloc « par période ».
@@ -40,7 +41,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
   // listes « derniers … » ne changent pas.
   const dansLeMois = estCourant ? {} : { date: { gte: new Date(Date.UTC(annee, mois - 1, 1)), lt: new Date(Date.UTC(annee, mois, 1)) } };
   const pieceDuMois = estCourant ? {} : { annee, mois };
-  const dateDuJour = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const dateDuJour = jourCivilKinshasa(now).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
   const [
     moi, config, nbArticles, nbFournisseurs, ind,

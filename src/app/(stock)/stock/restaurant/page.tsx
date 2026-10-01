@@ -14,6 +14,7 @@ const jjmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const texteSignal = (s: SignalementLivraison, avecDate: boolean) =>
   `${q3(s.quantite)}${s.uniteCatalogue ? ` ${s.uniteCatalogue}` : ""}${avecDate ? ` du ${jjmm(s.date)}` : ""} : ${LIBELLE_SIGNALEMENT[s.motif]}`;
 import { exigerPageStock } from "@/lib/garde-page";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 type SP = { espace?: string; semaine?: string; desactives?: string };
 
@@ -24,7 +25,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
   const espace = sp.espace === "BAR" ? "BAR" : "CUISINE";
   // « Afficher les désactivés » (Direction) : les articles désactivés reviennent, grisés, sans saisie.
   const afficherDesactives = estDirection && sp.desactives === "1";
-  const base = sp.semaine ? new Date(sp.semaine) : new Date();
+  const base = sp.semaine ? new Date(sp.semaine) : jourCivilKinshasa(new Date());
   const jours: Jour[] = joursSemaine(base);
   const debut = new Date(jours[0].iso), fin = new Date(jours[6].iso);
 

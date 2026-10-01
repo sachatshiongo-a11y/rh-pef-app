@@ -10,6 +10,7 @@ import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stoc
 import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import { Prisma } from "@prisma/client";
 import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
 /**
@@ -24,7 +25,7 @@ export const mouvementManuel = actionLisible(async (formData: FormData) => {
   const ids = formData.getAll("articleId").map(String);
   const qtes = formData.getAll("quantite").map(dec);
   const dateStr = String(formData.get("date") ?? "").trim();
-  const date = dateStr ? new Date(dateStr) : new Date();
+  const date = dateStr ? new Date(dateStr) : jourCivilKinshasa(new Date()); // jour civil de Kinshasa
   await exigerPeriodeOuverte(date);
 
   // Pour une SORTIE : motif (PERTE | LIVRAISON_RESTAURANT). La perte exige une explication.

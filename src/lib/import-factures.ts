@@ -5,6 +5,7 @@ import { parserClasseurFactures, type FactureImportee } from "@/lib/import-factu
 
 // Import de factures fournisseurs depuis un classeur Excel, avec aperçu et journal réversible.
 import { cleAlnum as normNom } from "./texte";
+import { anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
 export type FacturePreview = { fournisseurNom: string; numero: string | null; periode: string; montantUSD: number; statut: string; nouvelle: boolean };
@@ -30,7 +31,7 @@ async function parseTous(fichiers: File[], taux: number, anneeDefaut: number): P
 export async function analyserFactures(fichiers: File[]): Promise<PreviewFactures> {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
-  const anneeDefaut = config?.anneeCourante ?? new Date().getFullYear();
+  const anneeDefaut = config?.anneeCourante ?? anneeCouranteKinshasa();
   const { lignes, erreurs } = await parseTous(fichiers, taux, anneeDefaut);
 
   const fours = await prisma.fournisseur.findMany({ select: { nom: true } });
@@ -53,7 +54,7 @@ export async function analyserFactures(fichiers: File[]): Promise<PreviewFacture
 export async function appliquerFactures(fichiers: File[], libelle: string, userId: string | null): Promise<{ batchId: string; resume: PreviewFactures["resume"] }> {
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
-  const anneeDefaut = config?.anneeCourante ?? new Date().getFullYear();
+  const anneeDefaut = config?.anneeCourante ?? anneeCouranteKinshasa();
   const { lignes } = await parseTous(fichiers, taux, anneeDefaut);
 
   const res = await prisma.$transaction(async (tx) => {

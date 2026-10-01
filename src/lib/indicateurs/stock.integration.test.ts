@@ -22,11 +22,15 @@ let fermer: () => Promise<void>;
 /** Texte rendu : balises retirées, entités décodées, espaces (insécables comprises) ramenées à une seule. */
 const texte = (html: string) =>
   html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/[\s\u00a0\u202f]+/g, " ");
-// Aujourd'hui (UTC, comme les bornes de la page) : toutes les dates du jeu tombent dans la semaine
-// et le mois en cours, quel que soit le jour où le test tourne.
-const auj = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+// Horloge figée en milieu de journée (mercredi 30 septembre 2026) : toutes les dates du jeu tombent
+// dans la semaine et le mois en cours, quel que soit le moment où le test tourne — y compris le 1er
+// du mois entre 00 h et 01 h à Kinshasa, où l'horloge UTC et le jour civil de Kinshasa divergent.
+// Seule la date est simulée : les minuteries (Postgres embarqué) restent réelles.
+const auj = new Date("2026-09-30T00:00:00Z");
 
 beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-30T12:00:00Z"));
   const db = await creerBaseTest();
   prisma = db.prisma; fermer = db.fermer; H.client = prisma;
   const u = await prisma.user.create({ data: { email: "stock@pef.cd", nom: "Sacha Test", role: "ADMIN" } });
@@ -53,7 +57,7 @@ beforeAll(async () => {
   await prisma.mouvementStock.create({ data: { articleId: farine.id, type: "SORTIE", quantite: 2, date: auj } });
 }, 120_000);
 
-afterAll(async () => { await fermer?.(); });
+afterAll(async () => { vi.useRealTimers(); await fermer?.(); });
 
 describe("accueil Stock — mêmes chiffres avant et après l'extraction", () => {
   it("cartes d'indicateurs et articles au seuil", async () => {

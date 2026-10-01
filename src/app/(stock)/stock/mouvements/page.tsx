@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { MouvementForm, ColonneMouvements, BandeauPlafond, type MvtLite } from "./mouvements-client";
-import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, optionsMoisMouvements, FILTRES_MOTIF, PLAFOND_AFFICHAGE } from "@/lib/filtre-mouvements";
+import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, optionsMoisMouvements, moisCourantMouvements, FILTRES_MOTIF, PLAFOND_AFFICHAGE } from "@/lib/filtre-mouvements";
 import { OngletsAchats } from "../_achats/onglets-achats";
 import { fournisseurDuMouvement } from "@/lib/achats-liste";
 import type { Prisma } from "@prisma/client";
@@ -56,7 +56,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   // Le filtre et son `where` viennent de `lib/filtre-mouvements` : les actions « tout le filtre »
   // reconstruisent EXACTEMENT le même ensemble côté serveur.
   const now = new Date();
-  const moisCourant = `${now.getUTCFullYear()}-${now.getUTCMonth() + 1}`;
+  const moisCourant = moisCourantMouvements(now);
   const filtre = lireFiltreMouvements(sp, now);
   const mois = filtre.mois === "tous" ? undefined : filtre.mois; // « 2026-7 »
   const articleId = filtre.articleId ?? undefined;

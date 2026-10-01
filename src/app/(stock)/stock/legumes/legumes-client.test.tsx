@@ -17,6 +17,7 @@ const { creer } = vi.hoisted(() => ({ creer: vi.fn(async () => undefined) }));
 vi.mock("./actions", () => ({ creerAchatsLegumes: creer, supprimerAchatLegume: vi.fn() }));
 
 import { AchatLegumesForm, SupprimerAchatBtn } from "./legumes-client";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -213,7 +214,7 @@ describe("Achat de légumes frais — l'envoi est inchangé", () => {
   // Référence : le FormData produit par l'ANCIEN formulaire (relevé le 2026-09-30, avant la refonte,
   // avec exactement la même saisie — voir `scenario`). Mêmes champs, même ordre, mêmes valeurs
   // (nombres à POINT). La date est celle du jour (le champ n'a pas de valeur fournie).
-  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const aujourdhui = jourCourantKinshasaISO(); // le champ propose le jour civil de Kinshasa
   const ATTENDU = [
     ["date", aujourdhui],
     ["legume", "Ail"], ["unite", "Kg"], ["quantite", "2.5"], ["montantCDF", "14000"],

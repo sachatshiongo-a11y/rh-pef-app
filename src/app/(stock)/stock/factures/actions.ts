@@ -15,6 +15,7 @@ import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
 import { lireDatePaiement } from "@/lib/date-paiement";
 import { Prisma } from "@prisma/client";
+import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 
 async function televerserFacturePdf(file: File, fournisseurNom: string): Promise<string> {
@@ -132,7 +133,7 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = Number(config?.tauxChangeCDF ?? 2300) || 2300;
-  const anneeCourante = config?.anneeCourante ?? new Date().getFullYear();
+  const anneeCourante = config?.anneeCourante ?? anneeCouranteKinshasa();
 
   const erreurs: string[] = [];
   const lignes = [] as Awaited<ReturnType<typeof parserClasseurFactures>>;
@@ -182,7 +183,7 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
   return { importees: aInserer.length, ignorees: lignes.length - aInserer.length, fournisseursCrees, erreurs };
 });
 
-const AUJ = () => new Date().toISOString().slice(0, 10);
+const AUJ = () => jourCourantKinshasaISO();
 
 function statutDe(reste: number, echeanceISO: string | null): "REGLEE" | "A_REGLER" | "ECHUE_NON_REGLEE" {
   if (reste <= 0.001) return "REGLEE";
@@ -255,7 +256,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   // en stock — pas la réception du bon de commande (volontairement différenciés). Décochable
   // pour une facture purement financière sans mouvement de marchandise.
   const entrerEnStock = formData.get("entrerEnStock") != null; // case cochée ⇒ présente dans le FormData
-  if (entrerEnStock) await exigerPeriodeOuverte(new Date()); // les entrées en stock sont datées du jour
+  if (entrerEnStock) await exigerPeriodeOuverte(jourCivilKinshasa(new Date())); // les entrées en stock sont datées du jour (de Kinshasa)
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
 
   // Garde-fou anti-double comptage : le même achat saisi dans la Liste d'achat (ou en entrée
@@ -264,7 +265,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   if (entrerEnStock && formData.get("forcerDoublons") == null) {
     const artIds = lignes.map((l) => l.articleId).filter((x): x is string => !!x);
     if (artIds.length > 0) {
-      const ref = dateStr ? new Date(dateStr) : new Date();
+      const ref = dateStr ? new Date(dateStr) : jourCivilKinshasa(new Date());
       const debut = new Date(ref); debut.setUTCDate(debut.getUTCDate() - 14);
       const fin = new Date(ref); fin.setUTCDate(fin.getUTCDate() + 14);
       const recents = await prisma.mouvementStock.findMany({

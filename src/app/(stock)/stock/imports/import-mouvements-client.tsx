@@ -6,6 +6,7 @@ import { estErreur } from "@/lib/action-lisible";
 import type { PreviewMouvements } from "@/lib/import-mouvements";
 import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
 import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 const RAPPRO_LABEL: Record<string, string> = { code: "Code", nom: "Nom", flou: "Approché", inconnu: "Inconnu" };
 const RAPPRO_CLASSE: Record<string, string> = {
@@ -23,7 +24,7 @@ export function ImportMouvementsClient() {
 
   // Sélection : période (sur la date effective = date de la ligne, sinon date par défaut)
   // + lignes décochées à la main. Par défaut : tout ce qui est rapproché est sélectionné.
-  const [dateDefaut, setDateDefaut] = useState(new Date().toISOString().slice(0, 10));
+  const [dateDefaut, setDateDefaut] = useState(jourCourantKinshasaISO());
   const [du, setDu] = useState("");
   const [au, setAu] = useState("");
   const [decochees, setDecochees] = useState<Set<number>>(new Set());

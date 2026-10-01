@@ -11,6 +11,7 @@ import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { formaterNombre, formaterUSD } from "@/lib/montant";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 type Ligne = { legume: string; unite: string; quantite: string; montantCDF: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
@@ -81,7 +82,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
       <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Date de l&apos;achat</span>
-          <input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} />
+          <input name="date" type="date" defaultValue={jourCourantKinshasaISO()} className={inp} />
         </label>
         <span className="pb-1.5 text-xs text-muted-foreground">Taux : 1 USD = {taux ? taux.toLocaleString("fr-FR") : "—"} CDF</span>
       </div>
