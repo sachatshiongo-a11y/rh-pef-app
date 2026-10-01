@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { MOIS_FR_MAJ as MOIS } from "@/lib/dates-fr";
 import { exigerPageStock } from "@/lib/garde-page";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsFournisseurs } from "@/lib/recherche-options";
 
 type SP = { annee?: string; mois?: string; fournisseurId?: string };
 
@@ -49,10 +51,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
           <option value="">Tous les mois</option>
           {MOIS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
         </select>
-        <select name="fournisseurId" defaultValue={fournisseurId ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
-          <option value="">Tous les fournisseurs</option>
-          {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-        </select>
+        <ChoixRecherche options={optionsFournisseurs(fournisseurs)} name="fournisseurId" defaultValue={fournisseurId ?? ""} vide="Tous les fournisseurs" aria-label="Fournisseur" className="rounded-md border border-input bg-background px-2 py-1.5" />
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
         {estDirection && <Link href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</Link>}
       </form>

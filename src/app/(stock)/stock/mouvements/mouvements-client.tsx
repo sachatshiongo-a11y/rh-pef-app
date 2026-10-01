@@ -8,6 +8,8 @@ import { qte, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
 import { ChangerMotif } from "./changer-motif";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsArticles } from "@/lib/recherche-options";
 import { BORNE_TOUT_LE_FILTRE, type ColonneMouvements as Colonne, type FiltreMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
@@ -15,7 +17,7 @@ export type ConseilLivraison = { texte: string; href: string };
 
 export { AVERTISSEMENT_LIVRAISON };
 
-type Art = { id: string; designation: string };
+type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
 // Version sérialisable d'un mouvement (Decimal/Date convertis) — passée du serveur au client.
@@ -268,6 +270,8 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   const [choix, setChoix] = useState<Record<number, string>>({});
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
+  // Une liste d'options pour toutes les lignes : on y cherche par désignation, nom court ou code.
+  const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
   const [nb, setNb] = useState(3);
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
@@ -285,7 +289,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
     startTransition(async () => {
       const r = await mouvementManuel(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
-      setMsg({ ok: true, texte: r.message }); setNb(3);
+      setMsg({ ok: true, texte: r?.message ?? (type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.") }); setNb(3);
     });
   };
 
@@ -335,10 +339,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
 
       {Array.from({ length: nb }).map((_, i) => (
         <div key={i} className="flex items-center gap-2">
-          <select name="articleId" defaultValue="" onChange={(e) => { const v = e.target.value; setChoix((c) => ({ ...c, [i]: v })); }} className={`${inp} min-w-64 flex-1`}>
-            <option value="">— article —</option>
-            {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-          </select>
+          <ChoixRecherche options={optionsArt} name="articleId" defaultValue="" vide="— article —" onChange={(v) => setChoix((c) => ({ ...c, [i]: v }))} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-64 flex-1`} />
           <input name="quantite" type="number" step="0.001" min="0" placeholder="Qté" className={`${inp} w-28`} />
         </div>
       ))}

@@ -19,6 +19,7 @@ const { entree, verifier } = vi.hoisted(() => ({
 vi.mock("./actions", () => ({ entreeListeAchat: entree, verifierDoublonsListe: verifier }));
 
 import { ListeAchatForm } from "./entree-client";
+import { choisirEnTapant, choisirOption, libellesOuverts, taperChoix, valeurChoisie } from "@/lib/test/choix-recherche";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -50,6 +51,8 @@ const form = () => conteneur.querySelector("form")!;
 const cas = (nom: string) => conteneur.querySelector<HTMLInputElement>(`[aria-label="${nom}"]`)!;
 const active = () => (document.activeElement as HTMLElement | null)?.getAttribute("aria-label");
 const classes = (el: Element) => el.getAttribute("class") ?? "";
+/** Le champ de choix d'article d'une ligne (le <select> d'avant est devenu un champ où l'on tape). */
+const champArticle = (l: Element) => l.querySelector<HTMLInputElement>('input[role="combobox"][data-choix-recherche="articleId"]')!;
 const bouton = (texte: string) => [...conteneur.querySelectorAll("button")].find((b) => b.textContent?.trim() === texte)!;
 
 function taper(el: HTMLInputElement, texte: string) {
@@ -146,7 +149,7 @@ describe("Liste d'achat — téléphone : une carte compacte par ligne", () => {
     }
     const l = lignes()[0];
     const ordre = (nom: string) => Number(/\border-(\d+)\b/.exec(classes(cas(nom)))?.[1]);
-    const art = Number(/\border-(\d+)\b/.exec(classes(l.querySelector("select[name=articleId]")!))?.[1]);
+    const art = Number(/\border-(\d+)\b/.exec(classes(champArticle(l)))?.[1]);
     // Rangée 1 : article (1), montant (2), ✕ (3) — rangée 2 : qté (4), × (5), PU (6), unité (7), ⋯ (8).
     expect(art).toBe(1);
     // Le montant et sa devise partagent la même cellule (rangée 1).
@@ -171,13 +174,13 @@ describe("Liste d'achat — téléphone : une carte compacte par ligne", () => {
     expect(classes(l.querySelector("button[data-devise-ligne]")!)).toMatch(/\bh-11 w-11\b/); // la devise se change en UN appui de 44 px
   });
 
-  it("ligne libre : désignation et domaine à saisir sont visibles ; article du catalogue : ils se replient (simple recopie)", () => {
+  it("ligne libre : désignation et domaine à saisir sont visibles ; article du catalogue : ils se replient (simple recopie)", async () => {
     const l = lignes()[0];
     const des = l.querySelector<HTMLInputElement>("input[name=designation]")!;
     const dom = l.querySelector<HTMLSelectElement>("select[name=domaine]")!;
     expect(classes(des)).not.toMatch(/\bhidden\b/);
     expect(classes(dom)).not.toMatch(/\bhidden\b/);
-    choisir(l.querySelector<HTMLSelectElement>("select[name=articleId]")!, "a2");
+    await choisirOption(champArticle(l), "a2");
     expect(des.value).toBe("Huile de palme");
     expect(classes(des)).toMatch(/\bhidden @4xl:block\b/);
     expect(classes(l.querySelector("select[name=domaine]")!)).toMatch(/\bhidden @4xl:block\b/);
@@ -256,7 +259,7 @@ describe("Liste d'achat — cases de nombres du tableur", () => {
   });
 });
 
-describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LIGNE", () => {
+describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LIGNE", async () => {
   // Référence d'origine : le FormData de l'ANCIEN formulaire (champs `type=number`, une carte de 3 rangées
   // par ligne), relevé dans un navigateur. Il envoyait UN champ `devise` (global, avant les lignes), et
   // la bascule du haut CONVERTISSAIT tous les montants.
@@ -279,7 +282,7 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
 
   async function scenario() {
     const L = (i: number) => lignes()[i];
-    choisir(L(0).querySelector("select[name=articleId]")!, "a2");
+    await choisirOption(champArticle(L(0)), "a2");
     await saisir(cas("Quantité, ligne 1"), "2.5");
     act(() => deviseDe(0).click()); // PU du catalogue (1,70 $) → 4 760 FC ; montant = 2,5 × 4 760
     taper(cas("Fournisseur de la ligne 1"), "Maman Épiphanie");
@@ -357,7 +360,7 @@ describe("Liste d'achat — devise PAR LIGNE", () => {
   });
 
   it("un PU REPRIS DU CATALOGUE (en USD) est converti au taux en passant en FC, et retrouve le prix exact au retour", async () => {
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a2"); // 1,70 $
+    await choisirOption(champArticle(lignes()[0]), "a2"); // 1,70 $
     await saisir(cas("Quantité, ligne 1"), "2");
     expect(cas("Montant USD, ligne 1").value).toBe("3,4");
     act(() => deviseDe(0).click());
@@ -367,7 +370,7 @@ describe("Liste d'achat — devise PAR LIGNE", () => {
   });
 
   it("un montant TAPÉ n'est jamais écrasé par la bascule, même quand le PU du catalogue est converti (double bascule)", async () => {
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a2"); // 1,70 $
+    await choisirOption(champArticle(lignes()[0]), "a2"); // 1,70 $
     await saisir(cas("Quantité, ligne 1"), "10");
     act(() => deviseDe(0).click());
     expect([cas("Prix unitaire FC, ligne 1").value, cas("Montant FC, ligne 1").value]).toEqual(["4760", "47600"]); // montant encore automatique : il suit
@@ -381,20 +384,20 @@ describe("Liste d'achat — devise PAR LIGNE", () => {
   it("changement d'article : le PU du catalogue repart du NOUVEL article, dans la devise de la ligne — jamais de l'ancien", async () => {
     // Ligne en FC : le PU du catalogue est repris converti ; la bascule retrouve le prix de CET article.
     act(() => deviseDe(0).click());
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a2");
+    await choisirOption(champArticle(lignes()[0]), "a2");
     expect(cas("Prix unitaire FC, ligne 1").value).toBe("4760");
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a0"); // 1,00 $
+    await choisirOption(champArticle(lignes()[0]), "a0"); // 1,00 $
     expect(cas("Prix unitaire FC, ligne 1").value).toBe("2800");
     act(() => deviseDe(0).click());
     expect(cas("Prix unitaire USD, ligne 1").value).toBe("1");
     // Article sans prix : le PU de l'ancien article s'efface, et la bascule n'en ressort aucun.
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a9");
+    await choisirOption(champArticle(lignes()[0]), "a9");
     expect(cas("Prix unitaire USD, ligne 1").value).toBe("");
     act(() => deviseDe(0).click());
     expect(cas("Prix unitaire FC, ligne 1").value).toBe("");
     // Un PU TAPÉ reste quand le nouvel article n'a rien à proposer, et n'est jamais converti.
     await saisir(cas("Prix unitaire FC, ligne 1"), "3000");
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a9");
+    await choisirOption(champArticle(lignes()[0]), "a9");
     act(() => deviseDe(0).click());
     expect(cas("Prix unitaire USD, ligne 1").value).toBe("3000");
   });
@@ -436,14 +439,14 @@ describe("Liste d'achat — devise PAR LIGNE", () => {
 describe("Liste d'achat — total en USD, francs saisis à part", () => {
   it("sans montant : pas de total ; lignes toutes en USD : leur somme", async () => {
     expect(total()).toBeNull();
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a0");
+    await choisirOption(champArticle(lignes()[0]), "a0");
     await saisir(cas("Quantité, ligne 1"), "2");
     await saisir(cas("Montant USD, ligne 1"), "30");
     expect(total()).toBe("Total en USD : 30,00 $");
   });
 
   it("lignes mêlées : total USD au taux de l'enregistrement (FC ÷ taux) ; les FC saisis se lisent à part, jamais ajoutés tels quels", async () => {
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a0");
+    await choisirOption(champArticle(lignes()[0]), "a0");
     await saisir(cas("Quantité, ligne 1"), "2");
     await saisir(cas("Montant USD, ligne 1"), "30");
     taper(lignes()[1].querySelector<HTMLInputElement>("input[name=designation]")!, "Sel gris");
@@ -461,12 +464,48 @@ describe("Liste d'achat — total en USD, francs saisis à part", () => {
 describe("Liste d'achat — sans taux défini", () => {
   it("une ligne en FC : le total USD est inconnu (« — »), les FC restent non convertis, et le refus est annoncé", async () => {
     act(() => racine.render(h(ListeAchatForm, { articles: ARTICLES, fournisseurs: FOURNISSEURS, aujourdhui: "2026-09-30", taux: 0, estDirection: true })));
-    choisir(lignes()[0].querySelector("select[name=articleId]")!, "a0");
+    await choisirOption(champArticle(lignes()[0]), "a0");
     await saisir(cas("Quantité, ligne 1"), "2");
     await saisir(cas("Montant USD, ligne 1"), "30");
     expect(conteneur.textContent).not.toContain("Taux CDF/USD non défini");
     act(() => deviseDe(0).click());
     expect(total()).toBe("Total en USD : —dont en USD : 0,00 $en FC : 30 FC (taux non défini : non converti)");
     expect(conteneur.textContent).toContain("Taux CDF/USD non défini (Paramètres) : une ligne en FC avec un montant sera refusée.");
+  });
+});
+
+describe("Liste d'achat — choisir un article en tapant son nom", () => {
+  it("« palme huile » (mots dans le désordre, sans majuscule) + Entrée : même article, même unité, même prix suivi, même valeur envoyée", async () => {
+    await choisirEnTapant(champArticle(lignes()[0]), "palme huile");
+    expect(valeurChoisie(champArticle(lignes()[0]))).toBe("a2");
+    expect(champArticle(lignes()[0]).value).toBe("Huile de palme");
+    expect(cas("Unité, ligne 1").value).toBe("pièce");
+    expect(cas("Prix unitaire USD, ligne 1").value).toBe("1,7"); // prix catalogue suivi
+    expect(donnees().filter(([n]) => n === "articleId")[0][1]).toBe("a2");
+  });
+
+  it("la liste propose ce qui correspond (sans accent ni casse) ; les 4 lignes partagent UNE liste", async () => {
+    await taperChoix(champArticle(lignes()[1]), "EAU minerale");
+    expect(libellesOuverts()).toEqual(["Eau minérale 1,5 L"]);
+    expect(document.querySelectorAll('[role="listbox"]')).toHaveLength(1);
+  });
+
+  it("taper puis quitter sans choisir ne change pas l'article ; « — libre — » efface le choix et le prix suivi", async () => {
+    await choisirOption(champArticle(lignes()[0]), "a0");
+    await taperChoix(champArticle(lignes()[0]), "sel");
+    await act(async () => champArticle(lignes()[0]).blur());
+    expect(valeurChoisie(champArticle(lignes()[0]))).toBe("a0");
+    await choisirOption(champArticle(lignes()[0]), "");
+    expect(valeurChoisie(champArticle(lignes()[0]))).toBe("");
+    expect(cas("Prix unitaire USD, ligne 1").value).toBe("");
+    expect(cas("Désignation, ligne 1").readOnly).toBe(false); // ligne libre : on saisit à nouveau
+  });
+
+  it("Entrée, liste fermée, descend à l'article de la ligne suivante et n'envoie rien", async () => {
+    act(() => champArticle(lignes()[0]).focus());
+    const ev = await entree_(champArticle(lignes()[0]));
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(champArticle(lignes()[1]));
+    expect(entree).not.toHaveBeenCalled();
   });
 });

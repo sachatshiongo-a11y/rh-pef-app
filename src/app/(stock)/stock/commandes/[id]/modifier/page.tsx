@@ -9,7 +9,7 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
   const { id } = await params;
   const [bc, articles, fournisseurs] = await Promise.all([
     prisma.bonDeCommande.findUnique({ where: { id }, include: { lignes: true } }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, prixUnitaireUSD: true, uniteParCarton: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, prixUnitaireUSD: true, uniteParCarton: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
   ]);
   if (!bc) notFound();
@@ -18,6 +18,8 @@ export default async function ModifierBonPage({ params }: { params: Promise<{ id
   const arts = articles.map((a) => ({
     id: a.id,
     designation: a.designation,
+    nomCourt: a.nomCourt,
+    code: a.code,
     prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
     uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
   }));

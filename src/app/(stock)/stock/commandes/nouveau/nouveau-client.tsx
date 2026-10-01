@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { creerBonCommande, modifierBonCommande } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
@@ -8,6 +8,8 @@ import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
@@ -18,7 +20,7 @@ const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok
  */
 const texteDe = (v: number | null) => (v === null ? "" : String(v));
 
-type Art = { id: string; designation: string; prix: string | null; uniteParCarton: string | null };
+type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
 type Ligne = { articleId: string; designation: string; quantite: string; prix: string; uniteParCarton: string };
 export type BonInitial = {
@@ -31,6 +33,9 @@ const vide = (): Ligne => ({ articleId: "", designation: "", quantite: "", prix:
 
 export function NouveauBonForm({ articles, fournisseurs, initial, estDirection = false }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial; estDirection?: boolean }) {
   const [lignes, setLignes] = useState<Ligne[]>(initial?.lignes.length ? initial.lignes : [vide(), vide(), vide()]);
+  // Une liste d'options par écran, partagée par toutes les lignes (recherche par désignation, nom court, code).
+  const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
+  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const action = initial ? modifierBonCommande.bind(null, initial.bcId) : creerBonCommande;
   const [erreur, setErreur] = useState<string | null>(null);
   const [isPending, start] = useTransition();
@@ -60,10 +65,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Fournisseur</span>
-          <select name="fournisseurId" defaultValue={initial?.fournisseurId ?? ""} className={inp}>
-            <option value="">— fournisseur —</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue={initial?.fournisseurId ?? ""} vide="— fournisseur —" aria-label="Fournisseur" className={inp} />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Délai de paiement</span>
@@ -94,10 +96,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
             {lignes.map((l, i) => (
               <tr key={i} className="border-t">
                 <td className="px-2 py-1">
-                  <select value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} className={`${inp} min-w-48`}>
-                    <option value="">— libre —</option>
-                    {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-                  </select>
+                  <ChoixRecherche options={optionsArt} colonne="article" value={l.articleId} vide="— libre —" onChange={(id) => choisirArticle(i, id)} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-48`} />
                   <input type="hidden" name="ligne_articleId" value={l.articleId} />
                   <input type="hidden" name="ligne_uniteParCarton" value={l.uniteParCarton} />
                 </td>

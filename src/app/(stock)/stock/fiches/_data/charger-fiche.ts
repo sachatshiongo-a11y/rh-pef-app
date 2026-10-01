@@ -117,9 +117,10 @@ export async function chargerArticlesSelectionnables(): Promise<ArticleOption[]>
   const articles = await prisma.articleStock.findMany({
     where: { OR: [{ actif: true }, { fichesIngredient: { some: {} } }] },
     orderBy: { designation: "asc" },
-    select: SELECT_ARTICLE,
+    // Nom court et code : pour retrouver l'article en tapant (le calcul n'en a pas besoin).
+    select: { ...SELECT_ARTICLE, nomCourt: true, code: true },
   });
-  return articles.map(versOption);
+  return articles.map((a) => ({ ...versOption(a), nomCourt: a.nomCourt, code: a.code }));
 }
 
 /**

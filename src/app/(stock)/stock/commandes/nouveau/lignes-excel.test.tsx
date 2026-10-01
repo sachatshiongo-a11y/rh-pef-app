@@ -25,6 +25,7 @@ vi.mock("../../factures/actions", () => ({
 
 import { NouveauBonForm } from "./nouveau-client";
 import { NouvelleFactureForm } from "../../factures/nouveau/nouveau-client";
+import { choisirEnTapant, choisirOption, libellesOuverts, taperChoix, valeurChoisie } from "@/lib/test/choix-recherche";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -79,6 +80,7 @@ async function entree(el: HTMLInputElement, opts: KeyboardEventInit = {}) {
 }
 const qte = (i: number) => conteneur.querySelector<HTMLInputElement>(`[aria-label="Quantité, ligne ${i}"]`)!;
 const pu = (i: number) => conteneur.querySelector<HTMLInputElement>(`[aria-label="Prix unitaire, ligne ${i}"]`)!;
+const champArticle = (i: number) => qte(i).closest("tr")!.querySelector<HTMLInputElement>('input[role="combobox"]')!;
 const totalLigne = (i: number) => qte(i).closest("tr")!.querySelectorAll("td")[5].textContent;
 const totalGeneral = () => conteneur.querySelector(".text-lg.font-semibold")!.textContent;
 
@@ -152,11 +154,7 @@ describe("lignes — bon de commande, prix fixé au catalogue", () => {
     monter(() => createElement(NouveauBonForm, {
       articles: [{ id: "a1", designation: "Farine", prix: "12.5", uniteParCarton: null }], fournisseurs: [],
     }));
-    const select = qte(2).closest("tr")!.querySelector("select")!;
-    await act(async () => {
-      select.value = "a1";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await choisirOption(champArticle(2), "a1");
     expect(pu(2).readOnly).toBe(true);
     expect(pu(2).value).toBe("12,5");
     await saisir(qte(2), "2");
@@ -171,14 +169,51 @@ describe("lignes — bon de commande, prix fixé au catalogue", () => {
     monter(() => createElement(NouveauBonForm, {
       articles: [{ id: "a1", designation: "Farine", prix: "12.5", uniteParCarton: null }], fournisseurs: [],
     }));
-    const select = qte(3).closest("tr")!.querySelector("select")!;
-    await act(async () => {
-      select.value = "a1";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await choisirOption(champArticle(3), "a1");
     act(() => pu(2).focus());
     await entree(pu(2));
     expect(qte(4)).toBeNull();
     expect(document.activeElement).toBe(pu(2));
+  });
+});
+
+// Choisir l'article EN TAPANT son nom (demande de la Direction, 2026-09-30) : même valeur envoyée
+// qu'avec l'ancienne liste déroulante, mêmes effets (désignation, prix du catalogue, cartons).
+const ARTICLES_RECHERCHE = [
+  { id: "a1", designation: "Bacardi blanc-1l", nomCourt: "Bacardi", code: "B137", prix: "12.5", uniteParCarton: "6", unite: "Bouteille" },
+  { id: "a2", designation: "Crème fraîche 1L", prix: "3", uniteParCarton: null, unite: "L" },
+];
+describe.each([
+  ["bon de commande", () => createElement(NouveauBonForm, { articles: ARTICLES_RECHERCHE, fournisseurs: [{ id: "f1", nom: "Marché central" }] })],
+  ["facture", () => createElement(NouvelleFactureForm, { articles: ARTICLES_RECHERCHE, fournisseurs: [{ id: "f1", nom: "Marché central", delaiJours: 30 }], bons: [], bcInitial: null })],
+] as const)("choisir un article en tapant — %s", (_nom, ecran) => {
+  it("« bacardi 1l » + Entrée choisit l'article : désignation, prix du catalogue et id envoyé comme avant", async () => {
+    monter(ecran);
+    await choisirEnTapant(champArticle(2), "bacardi 1l");
+    expect(valeurChoisie(champArticle(2))).toBe("a1");
+    expect(champArticle(2).value).toBe("Bacardi blanc-1l");
+    expect(conteneur.querySelectorAll<HTMLInputElement>('input[name="ligne_designation"]')[1].value).toBe("Bacardi blanc-1l");
+    expect(pu(2).value).toBe("12,5");
+    const fd = new FormData(conteneur.querySelector("form")!);
+    expect(fd.getAll("ligne_articleId")).toEqual(["", "a1", ""]);
+    expect(envois.bc).not.toHaveBeenCalled();
+    expect(envois.facture).not.toHaveBeenCalled();
+  });
+
+  it("cherche aussi par nom court et par code ; accents et casse ignorés", async () => {
+    monter(ecran);
+    await taperChoix(champArticle(1), "b137");
+    expect(libellesOuverts()).toEqual(["Bacardi blanc-1l"]);
+    await taperChoix(champArticle(1), "CREME");
+    expect(libellesOuverts()).toEqual(["Crème fraîche 1L"]);
+  });
+
+  it("la liste n'est pas coupée par le tableau qui défile (portail) et les trois lignes partagent une seule liste", async () => {
+    monter(ecran);
+    await taperChoix(champArticle(3), "c");
+    const liste = document.querySelector('[role="listbox"]')!;
+    expect(liste.closest("table")).toBeNull();
+    expect(liste.closest(".overflow-auto")).toBeNull();
+    expect(document.querySelectorAll('[role="listbox"]')).toHaveLength(1);
   });
 });

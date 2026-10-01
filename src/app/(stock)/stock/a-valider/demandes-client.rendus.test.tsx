@@ -109,7 +109,9 @@ describe("Inventaire hors Direction : en lecture, modifications proposées", () 
     const tr = ligne()!;
     const textes = [...tr.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])')];
     expect(textes.length).toBeGreaterThan(5);
-    expect(textes.every((i) => i.readOnly)).toBe(true);
+    // Cases texte en lecture seule ; la liste de recherche des fournisseurs (ChoixRecherche) désactivée.
+    expect(textes.every((i) => i.readOnly || i.disabled)).toBe(true);
+    expect(textes.some((i) => i.disabled)).toBe(true);
     expect([...tr.querySelectorAll("select")].every((s) => s.disabled)).toBe(true);
     expect(tr.textContent).toContain("proposition en attente");
     expect(conteneur.textContent).toContain("validées par la Direction");
@@ -119,7 +121,7 @@ describe("Inventaire hors Direction : en lecture, modifications proposées", () 
   it("Direction : cases modifiables (rien ne change pour elle)", () => {
     monter(h(CatalogueTable, { ...props, estDirection: true }));
     const tr = ligne()!;
-    expect([...tr.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])')].some((i) => i.readOnly)).toBe(false);
+    expect([...tr.querySelectorAll<HTMLInputElement>('input:not([type="checkbox"])')].some((i) => i.readOnly || i.disabled)).toBe(false);
     expect([...tr.querySelectorAll("select")].some((s) => s.disabled)).toBe(false);
   });
 });
