@@ -30,13 +30,14 @@ const CLASSEMENT: Record<string, { sort: Sort; pourquoi: string }> = {
   "app/(stock)/stock/catalogue/actions.ts": { sort: "PROPOSITION_HORS_DIRECTION", pourquoi: "modifierArticle + actions groupées : proposition hors Direction ; fusion et correction des stocks négatifs : Direction seule ; création : permise, signalée, sans stock initial." },
   "app/(stock)/stock/entree/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Liste d'achat : entrée de stock (flux normal) ; article créé à la volée permis et signalé." },
   "app/(stock)/stock/factures/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Facture avec lignes : entrée de stock (flux normal) ; suppression (reprise du stock) : Direction seule." },
-  "app/(stock)/stock/mouvements/actions.ts": { sort: "FLUX_NORMAL", pourquoi: "Entrées/sorties manuelles (flux normal) ; suppression de mouvements : Direction seule." },
+  "app/(stock)/stock/mouvements/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Suppression de mouvements (reprise du stock) : Direction seule. Les entrées/sorties manuelles passent par lib/validations-stock/mouvement.ts." },
   "app/(stock)/stock/fiches/import-bar-actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import des fiches du bar (crée/complète des articles) : requireRole ADMIN." },
   "app/(stock)/stock/journalier/import-commande-actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import du classeur Commande (rang, rubrique, nom court) : requireRole ADMIN." },
   "app/(stock)/stock/fournisseurs/actions.ts": { sort: "DIRECTION_SEULE", pourquoi: "Fusion de fournisseurs (réaffecte les articles) : garde ADMIN du fichier." },
   "lib/import-inventaire.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import d'inventaire : appelé seulement par imports/actions.ts (gardeDirection)." },
   "lib/import-mouvements.ts": { sort: "DIRECTION_SEULE", pourquoi: "Import de mouvements : appelé seulement par imports/actions.ts (gardeDirection)." },
   "lib/validations-stock/article.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un patch d'article : geste direct de la Direction ou proposition validée." },
+  "lib/validations-stock/mouvement.ts": { sort: "COEUR_PARTAGE", pourquoi: "Entrées/sorties manuelles : libres pour livraison restaurant, perte, retour restaurant ; sinon Direction, ou demande validée (décision du 2026-10-01)." },
   "lib/validations-stock/comptage.ts": { sort: "COEUR_PARTAGE", pourquoi: "Écriture d'un comptage : Direction, comptage sans écart, ou réconciliation validée." },
 };
 
@@ -108,7 +109,7 @@ describe("chemins d'écriture des factures et paiements", () => {
 });
 
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
-  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture"];
+  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerOuDemanderMouvement", "convertirFrancs"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
     const fautifs: string[] = [];
     for (const p of fichiers(path.join(SRC, "app"))) {

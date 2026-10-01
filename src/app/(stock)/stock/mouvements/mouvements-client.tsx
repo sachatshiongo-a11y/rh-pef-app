@@ -271,9 +271,12 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   const [nb, setNb] = useState(3);
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
+  const [motifEntree, setMotifEntree] = useState<"RETOUR_RESTAURANT" | "">("");
+  // Hors Direction, un mouvement hors flux libre (livraison, perte, retour restaurant) est une DEMANDE.
+  const soumis = !estDirection && (type === "SORTIE" ? motif === "" : motifEntree === "");
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMsg(null); setChoix({}); setCle((c) => c + 1); };
+  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMsg(null); setChoix({}); setCle((c) => c + 1); };
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -281,7 +284,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
     startTransition(async () => {
       const r = await mouvementManuel(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
-      setMsg({ ok: true, texte: type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté." }); setNb(3);
+      setMsg({ ok: true, texte: r.message }); setNb(3);
     });
   };
 
@@ -301,17 +304,29 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
         <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className={inp} /></label>
         {type === "SORTIE" ? (
           <select name="categorieSortie" value={motif} onChange={(e) => setMotif(e.target.value as typeof motif)} className={inp}>
-            <option value="">Motif de sortie…</option>
+            <option value="">Autre sortie (inventaire, correction…)</option>
             <option value="PERTE">Perte</option>
             <option value="LIVRAISON_RESTAURANT">Livraison restaurant</option>
           </select>
         ) : (
-          <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
+          <>
+            <select name="motifEntree" value={motifEntree} onChange={(e) => setMotifEntree(e.target.value as typeof motifEntree)} className={inp} aria-label="Nature de l'entrée">
+              <option value="">Autre entrée (correction, don…)</option>
+              <option value="RETOUR_RESTAURANT">Retour restaurant</option>
+            </select>
+            <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
+          </>
         )}
         {type === "SORTIE" && motif === "PERTE" && (
           <input name="raisonSortie" placeholder="Raison de la perte (obligatoire)" required className={`${inp} min-w-56 flex-1`} />
         )}
       </div>
+
+      {soumis && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {type === "SORTIE" ? "Une sortie hors « Livraison restaurant » et « Perte »" : "Une entrée hors « Retour restaurant »"} est soumise à la Direction : le stock ne bouge qu&apos;après sa validation.
+        </p>
+      )}
 
       {type === "SORTIE" && motif === "LIVRAISON_RESTAURANT" && (
         <AvertissementLivraison ids={Object.values(choix).filter(Boolean)} articles={articles} conseils={conseilsLivraison} />
@@ -328,7 +343,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
       ))}
       <div className="flex items-center gap-3 pt-1">
         <button type="button" onClick={() => setNb((n) => n + 1)} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
-        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
+        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : soumis ? "Envoyer à la Direction" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Fermer</button>
       </div>

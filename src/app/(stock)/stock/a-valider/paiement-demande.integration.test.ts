@@ -164,17 +164,26 @@ describe("Validation = EXACTEMENT le paiement direct de la Direction", () => {
     expect((await prisma.notification.findFirstOrThrow({ where: { message: { startsWith: "2 factures payées" } } })).message).toBe("2 factures payées le 11/09/2026 — 140,00 $ (A n° 1, B n° 2)");
   }, 60_000);
 
-  it("règlement partiel en francs : montant, francs et taux figés comme le chemin direct", async () => {
+  it("règlement partiel en francs : converti au taux des Paramètres du jour de la VALIDATION, comme le paiement direct de ce jour", async () => {
     const directe = await facture();
     const demandee = await facture();
     const saisie = { type: "PAIEMENT", devise: "CDF", montant: "115000", modePaiement: "Espèces", date: "2026-09-09" };
-    en("dir"); await enregistrerPaiement(directe.id, fd(saisie));
     en("resp"); expect(await enregistrerPaiement(demandee.id, fd(saisie))).toMatchObject({ demande: true });
     expect((await etatArgent(demandee.id)).paiements).toEqual([]);
     const [d] = await demandes();
-    en("dir"); await validerDemandes([d.id]);
-    expect(await etatArgent(demandee.id)).toEqual(await etatArgent(directe.id));
-    expect((await etatArgent(demandee.id)).paiements[0]).toMatchObject({ montantUSD: "50", montantCDF: "115000", taux: "2300" });
+    // La charge garde les FRANCS saisis, jamais un taux ni un équivalent figés au jour de la demande.
+    expect((d.charge as { reglement: unknown }).reglement).toMatchObject({ montantUSD: null, montantCDF: "115000", taux: null });
+    expect(d.resume).toMatch(/Paiement de 115 000 FC sur la facture n° 12/);
+    // Le taux change entre la demande et la validation : c'est le NOUVEAU qui s'applique.
+    await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2500 } });
+    try {
+      en("dir"); await enregistrerPaiement(directe.id, fd(saisie)); // geste direct du même jour
+      expect(await validerDemandes([d.id])).toMatchObject({ traitees: [d.id] });
+      expect(await etatArgent(demandee.id)).toEqual(await etatArgent(directe.id));
+      expect((await etatArgent(demandee.id)).paiements[0]).toMatchObject({ montantUSD: "46", montantCDF: "115000", taux: "2500" });
+    } finally {
+      await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2300 } });
+    }
   }, 60_000);
 });
 

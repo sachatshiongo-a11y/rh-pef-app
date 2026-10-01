@@ -22,13 +22,16 @@ import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { envoyerPush } from "@/lib/push";
-import { formaterUSD } from "@/lib/montant";
+import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { jourKinshasaISO, lireDatePaiement } from "@/lib/date-paiement";
 import {
-  CHAMPS_ARTICLE, NATURE_LIBELLE, type ChampArticle, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
+  CHAMPS_ARTICLE, NATURE_LIBELLE, cleMouvement, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
   type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargePaiement, type NatureDemande, type ReglementDemande,
 } from "./charge";
-import { reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit } from "./reglement";
+import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit } from "./reglement";
+import { apresMouvements, ecrireMouvementsTx, estMouvementLibre, type MouvementSaisi } from "./mouvement";
+import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
+import { niveauxActuels } from "@/lib/alerte-stock";
 import {
   aUnEcart, apresComptage, calculerLignes, ecrireComptageTx, etatLigneAValider, exigerExplications, mouvementsDepuis,
   niveauxDe, verrouillerStocks, type CompteSaisi, type Domaine,
@@ -67,7 +70,7 @@ async function exigerCiblesLibres(tx: Tx, cles: string[], quoi: (cle: string) =>
   }
 }
 
-async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string; charge: ChargePaiement | ChargeComptage | ChargeArticle; cles: string[]; auteur: Acteur }) {
+async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string; charge: ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement; cles: string[]; auteur: Acteur }) {
   // La charge doit se relire EXACTEMENT comme elle sera relue à la validation : une charge que
   // `lireCharge` refuserait ne doit jamais être enregistrée (elle bloquerait sa cible pour rien).
   lireCharge(p.nature, JSON.parse(JSON.stringify(p.charge)));
@@ -125,7 +128,9 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
     }
     const date = lireDatePaiement(s.dateStr, null, maintenant);
     if (s.mode === "REGLEMENT") {
-      const m = Number(s.reglement.montantUSD);
+      // En francs : contrôle avec le taux d'AUJOURD'HUI (indicatif) — la validation reconvertit au
+      // taux de son jour et recontrôle.
+      const m = s.reglement.montantCDF !== null ? (await convertirFrancs(tx, Number(s.reglement.montantCDF))).montant : Number(s.reglement.montantUSD);
       const reste = Number(aRegler[0].resteAPayerUSD);
       if (!(m > 0)) throw new Error("Le montant doit être supérieur à 0.");
       if (m > reste + 0.009) throw new Error(`Le ${s.reglement.type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${m.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
@@ -144,7 +149,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
       s.mode === "LOT" && aRegler.length > 1
         ? `Payer ${aRegler.length} factures le ${dateFr(date)} — ${formaterUSD(total)} (${aRegler.map((f) => (f.numero ? `${f.fournisseurNom} n° ${f.numero}` : f.fournisseurNom)).join(", ")})`
         : s.mode === "REGLEMENT"
-          ? `${s.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de ${formaterUSD(Number(s.reglement.montantUSD))}${s.reglement.montantCDF ? ` (${Number(s.reglement.montantCDF).toLocaleString("fr-FR")} FC)` : ""} sur la ${nomFacture(aRegler[0])} le ${dateFr(date)}`
+          ? `${s.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de ${s.reglement.montantCDF !== null ? formaterFC(Number(s.reglement.montantCDF)) : formaterUSD(Number(s.reglement.montantUSD))} sur la ${nomFacture(aRegler[0])} le ${dateFr(date)}`
           : `Payer la ${nomFacture(aRegler[0])} le ${dateFr(date)} — ${formaterUSD(total)}`;
     return creerDemandeTx(tx, { nature: "PAIEMENT_FACTURE", resume, charge, cles: aRegler.map((f) => cleFacture(f.id)), auteur });
   }).catch(traduireConflitCible);
@@ -185,8 +190,10 @@ async function executerPaiementTx(tx: Tx, decideur: Acteur, d: { auteurNom: stri
     return regs;
   }
   const r = c.reglement!;
+  // En francs : conversion au taux des Paramètres MAINTENANT, comme le paiement direct de ce jour.
+  const enFrancs = r.montantCDF !== null ? await convertirFrancs(tx, Number(r.montantCDF)) : null;
   return [await reglerFactureTx(tx, decideur.id, c.factures[0].id, {
-    montant: Number(r.montantUSD), montantCDF: r.montantCDF === null ? null : Number(r.montantCDF), taux: r.taux === null ? null : Number(r.taux),
+    montant: enFrancs ? enFrancs.montant : Number(r.montantUSD), montantCDF: r.montantCDF === null ? null : Number(r.montantCDF), taux: enFrancs ? enFrancs.taux : null,
     dateStr: date, mode: r.modePaiement, note: r.note, type: r.type,
   })];
 }
@@ -412,6 +419,68 @@ async function executerModifArticleTx(tx: Tx, decideur: Acteur, c: ChargeArticle
   }
 }
 
+// ── Entrée / sortie manuelle ────────────────────────────────────────────────
+export type ResultatMouvement = { applique: true } | { applique: false; demandeId: string };
+
+/**
+ * Applique un mouvement manuel (Direction, ou flux libre : livraison restaurant, perte, retour
+ * restaurant) ou le soumet à la Direction (autre compte, tout autre motif). Mêmes contrôles que le
+ * geste direct AVANT de créer la demande (période ouverte, lignes) ; rien n'est écrit sur le stock.
+ * Un article qui a déjà un mouvement manuel en attente est refusé : un double envoi ne doit pas
+ * devenir deux sorties validées.
+ */
+export async function appliquerOuDemanderMouvement(user: Acteur, m: MouvementSaisi): Promise<ResultatMouvement> {
+  await exigerPeriodeOuverte(m.date);
+  const ids = m.lignes.map((l) => l.articleId);
+  if (estDirection(user) || estMouvementLibre(m)) {
+    // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
+    const niveauxAvant = m.type === "SORTIE" ? await niveauxActuels(ids) : new Map();
+    await prisma.$transaction((tx) => ecrireMouvementsTx(tx, user.id, m));
+    await apresMouvements(m, niveauxAvant);
+    return { applique: true };
+  }
+  const d = await prisma.$transaction(async (tx) => {
+    const arts = await tx.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } });
+    const parId = new Map(arts.map((a) => [a.id, a]));
+    const manquant = ids.find((id) => !parId.has(id));
+    if (manquant) throw new Error("Article introuvable : rechargez la page.");
+    const dejaVu = ids.find((id, i) => ids.indexOf(id) !== i);
+    if (dejaVu) throw new Error(`« ${parId.get(dejaVu)!.designation} » apparaît deux fois : regroupez la quantité sur une seule ligne.`);
+    await exigerCiblesLibres(tx, ids.map(cleMouvement), (cle) => `« ${parId.get(cle.slice(cleMouvement("").length))?.designation ?? "Article"} »`);
+    const charge: ChargeMouvement = {
+      v: 1, type: m.type, date: m.date.toISOString(), origine: m.origine, raisonSortie: m.raisonSortie,
+      lignes: m.lignes.map((l) => {
+        const a = parId.get(l.articleId)!;
+        return { articleId: l.articleId, designation: a.designation, unite: a.unite, quantite: texteDecimal(l.quantite), stockAvant: a.stock?.quantite.toString() ?? "0", prixUnitaireUSD: a.prixUnitaireUSD?.toString() ?? null };
+      }),
+    };
+    const detail = charge.lignes.map((l) => `${l.designation} ${formaterNombre(Number(l.quantite), { maximumFractionDigits: 3 })}${l.unite ? ` ${l.unite}` : ""}`).join(", ");
+    const resume = `${m.type === "ENTREE" ? "Entrée" : "Sortie"} manuelle « ${m.origine} » : ${detail}`;
+    return creerDemandeTx(tx, { nature: "MOUVEMENT_MANUEL", resume, charge, cles: ids.map(cleMouvement), auteur: user });
+  }).catch(traduireConflitCible);
+  await notifierNouvelleDemande(d);
+  return { applique: false, demandeId: d.id };
+}
+
+/** Validation : le MÊME mouvement que le geste direct (quantités telles que saisies, date saisie). */
+async function executerMouvementTx(tx: Tx, d: { auteurId: string }, c: ChargeMouvement) {
+  const date = new Date(c.date);
+  await exigerPeriodeOuverte(date);
+  const ids = c.lignes.map((l) => l.articleId);
+  const existants = new Set((await tx.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((a) => a.id));
+  const disparus = c.lignes.filter((l) => !existants.has(l.articleId));
+  if (disparus.length > 0) throw new ConflitDemande(`${disparus.map((l) => `« ${l.designation} »`).join(", ")} n'existe(nt) plus (supprimé ou fusionné depuis la demande)`);
+  const stocks = await verrouillerStocks(tx, ids);
+  const niveauxAvant = niveauxDe(stocks);
+  const saisi: MouvementSaisi = {
+    type: c.type, date, categorieSortie: null, raisonSortie: c.raisonSortie, origine: c.origine, retourRestaurant: false,
+    lignes: c.lignes.map((l) => ({ articleId: l.articleId, quantite: Number(l.quantite) })),
+  };
+  // Le mouvement est celui du demandeur (il l'a constaté) ; la validation est au journal et sur la demande.
+  await ecrireMouvementsTx(tx, d.auteurId, saisi);
+  return { saisi, niveauxAvant };
+}
+
 // ── Décisions ───────────────────────────────────────────────────────────────
 async function verrouillerDemande(tx: Tx, id: string) {
   await tx.$queryRaw`SELECT "id" FROM "stock"."DemandeValidationStock" WHERE "id" = ${id} FOR UPDATE`;
@@ -431,7 +500,7 @@ function lienCible(nature: NatureDemande, charge: unknown): string {
     if (nature === "PAIEMENT_FACTURE") { const c = lireCharge(nature, charge); return c.factures.length === 1 ? `/stock/factures/${c.factures[0].id}` : "/stock/factures"; }
     if (nature === "MODIF_ARTICLE") { const c = lireCharge(nature, charge); return c.articles.length === 1 ? `/stock/catalogue/${c.articles[0].id}` : "/stock/catalogue"; }
   } catch { /* charge illisible : lien générique */ }
-  return nature === "RECONCILIATION" ? "/stock/reconciliation" : "/stock/a-valider";
+  return nature === "RECONCILIATION" ? "/stock/reconciliation" : nature === "MOUVEMENT_MANUEL" ? "/stock/mouvements" : "/stock/a-valider";
 }
 
 export type ResultatValidation = { id: string; nature: NatureDemande; resume: string };
@@ -446,13 +515,15 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
     const d = await verrouillerDemande(tx, id);
     let reglements: ReglementEcrit[] = [];
     let comptage: Awaited<ReturnType<typeof executerComptageTx>> | null = null;
+    let mouvement: Awaited<ReturnType<typeof executerMouvementTx>> | null = null;
     if (d.nature === "PAIEMENT_FACTURE") reglements = await executerPaiementTx(tx, decideur, d, lireCharge("PAIEMENT_FACTURE", d.charge), opts.date);
     else if (d.nature === "RECONCILIATION") comptage = await executerComptageTx(tx, decideur, d, lireCharge("RECONCILIATION", d.charge));
+    else if (d.nature === "MOUVEMENT_MANUEL") mouvement = await executerMouvementTx(tx, d, lireCharge("MOUVEMENT_MANUEL", d.charge));
     else await executerModifArticleTx(tx, decideur, lireCharge("MODIF_ARTICLE", d.charge));
     await tx.demandeValidationStock.update({ where: { id }, data: { statut: "VALIDEE", decideurId: decideur.id, decideurNom: decideur.nom, decideLe: new Date() } });
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });
     await journaliser(tx, { entite: "DemandeValidationStock", entiteId: id, champ: "statut", ancienneValeur: "EN_ATTENTE", nouvelleValeur: "VALIDEE", userId: decideur.id });
-    return { d, reglements, comptage };
+    return { d, reglements, comptage, mouvement };
   }, { timeout: 60000 });
 
   const { d } = r;
@@ -464,6 +535,9 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
     await apresComptage({ sessionId: r.comptage.sessionId, nbHorsTol: r.comptage.nbHorsTol, articleIds: r.comptage.articleIds, niveauxAvant: r.comptage.niveauxAvant });
     await journaliser(prisma, { entite: "SessionComptage", entiteId: r.comptage.sessionId, champ: "comptage", nouvelleValeur: `${r.comptage.nbEcarts} écart(s), ${r.comptage.nbHorsTol} hors tolérance (demande validée)`, userId: decideur.id });
     await notifierDemandeur(d, `Réconciliation validée par la Direction — ${d.resume}`, `/stock/archives/${r.comptage.sessionId}`);
+  } else if (d.nature === "MOUVEMENT_MANUEL" && r.mouvement) {
+    await apresMouvements(r.mouvement.saisi, r.mouvement.niveauxAvant);
+    await notifierDemandeur(d, `Mouvement validé par la Direction — ${d.resume}`, "/stock/mouvements");
   } else {
     await notifierDemandeur(d, `Modification validée par la Direction — ${d.resume}`, lienCible(d.nature, d.charge));
   }

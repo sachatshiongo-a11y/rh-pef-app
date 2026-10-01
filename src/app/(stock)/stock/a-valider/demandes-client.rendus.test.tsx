@@ -24,7 +24,7 @@ vi.mock("../catalogue/actions", () => ({
 const { DemandesAValider } = await import("./demandes-client");
 const { CatalogueTable } = await import("../catalogue/catalogue-table");
 
-const base = { statut: "EN_ATTENTE", auteurId: "u1", auteurNom: "Jean", creeLe: "2026-09-30T08:00:00.000Z", decideurNom: null, decideLe: null, motifRefus: null, illisible: false, alertes: [], paiement: null, comptage: null, article: null };
+const base = { statut: "EN_ATTENTE", auteurId: "u1", auteurNom: "Jean", creeLe: "2026-09-30T08:00:00.000Z", decideurNom: null, decideLe: null, motifRefus: null, illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null };
 const DEMANDES: ApercuDemande[] = [
   { ...base, id: "p1", nature: "PAIEMENT_FACTURE", resume: "Payer la facture n° 12 de SENEVE le 29/09/2026 — 100,00 $",
     paiement: { mode: "SOLDE", date: "2026-09-29", total: 100, reglement: null, factures: [{ id: "f1", nom: "SENEVE", numero: "12", resteDemande: 100, resteActuel: 100, reglee: false }] } },

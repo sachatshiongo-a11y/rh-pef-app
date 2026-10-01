@@ -25,9 +25,17 @@ export type ApercuDemande = {
   decideurNom: string | null; decideLe: string | null; motifRefus: string | null;
   illisible: boolean;
   alertes: string[]; // ce qui empêchera la validation (constaté maintenant)
-  paiement: null | { mode: "SOLDE" | "LOT" | "REGLEMENT"; date: string; total: number; factures: ApercuFacture[]; reglement: null | { type: string; montantUSD: number; montantCDF: number | null; taux: number | null; mode: string | null; note: string | null } };
+  paiement: null | {
+    mode: "SOLDE" | "LOT" | "REGLEMENT"; date: string; total: number | null; factures: ApercuFacture[];
+    /** En francs : `montantUSD` = équivalent au taux des Paramètres d'AUJOURD'HUI (`tauxActuel`, null s'il manque) — celui qui sera appliqué si la Direction valide maintenant. */
+    reglement: null | { type: string; montantUSD: number | null; montantCDF: number | null; tauxActuel: number | null; mode: string | null; note: string | null };
+  };
   comptage: null | { origine: string; nbLignes: number; valeurTotale: number | null; lignes: ApercuLigneComptage[] };
   article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
+  mouvement: null | {
+    type: "ENTREE" | "SORTIE"; origine: string; date: string;
+    lignes: { articleId: string; designation: string; unite: string | null; quantite: string; actuel: string; apres: string; valeur: number | null }[];
+  };
 };
 
 const ISO = (d: Date) => d.toISOString();
@@ -40,13 +48,13 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
     const base: ApercuDemande = {
       id: d.id, nature: d.nature, statut: d.statut, resume: d.resume, auteurId: d.auteurId, auteurNom: d.auteurNom, creeLe: ISO(d.createdAt),
       decideurNom: d.decideurNom, decideLe: d.decideLe ? ISO(d.decideLe) : null, motifRefus: d.motifRefus,
-      illisible: false, alertes: [], paiement: null, comptage: null, article: null,
+      illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null,
     };
     const charge = lireChargeOuNull(d.nature, d.charge);
     if (!charge) { res.push({ ...base, illisible: true, alertes: ["Demande illisible : elle ne peut pas être exécutée — refusez-la."] }); continue; }
     if (!opts.detail) { res.push(base); continue; }
 
-    if ("mode" in charge) {
+    if (d.nature === "PAIEMENT_FACTURE" && "mode" in charge) {
       const actuelles = new Map((await prisma.factureFournisseur.findMany({ where: { id: { in: charge.factures.map((f) => f.id) } }, select: { id: true, statut: true, resteAPayerUSD: true } })).map((f) => [f.id, f]));
       const factures = charge.factures.map((f) => {
         const a = actuelles.get(f.id);
@@ -57,12 +65,47 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
         return { id: f.id, nom: f.fournisseurNom, numero: f.numero, resteDemande: Number(f.resteUSD), resteActuel: a ? Number(a.resteAPayerUSD) : null, reglee: a ? a.statut === "REGLEE" : false };
       });
       const r = charge.reglement;
+      let reglement: NonNullable<ApercuDemande["paiement"]>["reglement"] = null;
+      if (r) {
+        const cdf = r.montantCDF === null ? null : Number(r.montantCDF);
+        let tauxActuel: number | null = null, usd: number | null = r.montantUSD === null ? null : Number(r.montantUSD);
+        if (cdf !== null) {
+          const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { tauxChangeCDF: true } });
+          tauxActuel = Number(config?.tauxChangeCDF ?? 0) || null;
+          usd = tauxActuel ? Math.round((cdf / tauxActuel) * 100) / 100 : null;
+          if (!tauxActuel) base.alertes.push("Taux de change non configuré (Paramètres) : le paiement en francs ne peut pas être converti.");
+        }
+        const reste = factures[0]?.resteActuel;
+        if (usd !== null && reste !== null && reste !== undefined && usd > reste + 0.009) base.alertes.push(`Le montant dépasse aujourd'hui le reste à payer (${usd.toFixed(2)} $ > ${reste.toFixed(2)} $).`);
+        reglement = { type: r.type, montantUSD: usd, montantCDF: cdf, tauxActuel, mode: r.modePaiement, note: r.note };
+      }
       base.paiement = {
-        mode: charge.mode, date: charge.date, factures,
-        total: r ? Number(r.montantUSD) : factures.reduce((t, f) => t + f.resteDemande, 0),
-        reglement: r ? { type: r.type, montantUSD: Number(r.montantUSD), montantCDF: r.montantCDF === null ? null : Number(r.montantCDF), taux: r.taux === null ? null : Number(r.taux), mode: r.modePaiement, note: r.note } : null,
+        mode: charge.mode, date: charge.date, factures, reglement,
+        total: reglement ? reglement.montantUSD : factures.reduce((t, f) => t + f.resteDemande, 0),
       };
-    } else if ("lignes" in charge) {
+    } else if (d.nature === "MOUVEMENT_MANUEL" && "type" in charge) {
+      const ids = charge.lignes.map((l) => l.articleId);
+      const [stocks, existants] = await Promise.all([
+        prisma.stock.findMany({ where: { articleId: { in: ids } }, select: { articleId: true, quantite: true } }),
+        prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true } }),
+      ]);
+      const actuel = new Map(stocks.map((x) => [x.articleId, new Decimal(x.quantite.toString())]));
+      const vivants = new Set(existants.map((a) => a.id));
+      const signe = charge.type === "ENTREE" ? 1 : -1;
+      base.mouvement = {
+        type: charge.type, origine: charge.origine, date: charge.date,
+        lignes: charge.lignes.map((l) => {
+          if (!vivants.has(l.articleId)) base.alertes.push(`« ${l.designation} » n'existe plus.`);
+          const a = actuel.get(l.articleId) ?? new Decimal(0);
+          const q = new Decimal(l.quantite);
+          return {
+            articleId: l.articleId, designation: l.designation, unite: l.unite, quantite: l.quantite,
+            actuel: a.toString(), apres: a.plus(q.times(signe)).toString(),
+            valeur: l.prixUnitaireUSD === null ? null : q.times(signe).times(new Decimal(l.prixUnitaireUSD)).toNumber(),
+          };
+        }),
+      };
+    } else if (d.nature === "RECONCILIATION" && "lignes" in charge && !("type" in charge)) {
       const ecarts = charge.lignes.filter((l) => aUnEcart({ ecart: Number(l.physique) - Number(l.theorique) }));
       const ids = ecarts.map((l) => l.articleId);
       const [stocks, existants, depuis] = await Promise.all([
@@ -87,7 +130,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
         return { ...l, ecart: ecart.toString(), valeur, actuel: a.toString(), final: e.etat === "conflit" ? null : e.final.toString(), etat: e.etat, raison: e.etat === "conflit" ? e.raison : null };
       });
       base.comptage = { origine: charge.origine, nbLignes: charge.lignes.length, valeurTotale, lignes };
-    } else {
+    } else if ("articles" in charge) {
       const ids = charge.articles.map((a) => a.id);
       const [arts, cats, fours] = await Promise.all([
         prisma.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } }),

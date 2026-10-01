@@ -13,7 +13,7 @@ import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
-import { reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
+import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
 import { demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { Prisma } from "@prisma/client";
@@ -423,25 +423,20 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
   const note = String(formData.get("note") ?? "").trim() || null;
   if (type === "AVOIR" && !note) throw new Error("Indiquez le motif de l'avoir (ex. retour marchandise).");
 
-  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement (pour
-  // une demande : figés au jour de la demande, affichés à la Direction).
-  let montant = saisi, montantCDF: number | null = null, taux: number | null = null;
-  if (devise === "CDF") {
-    const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-    taux = Number(config?.tauxChangeCDF ?? 0);
-    if (!taux) throw new Error("Taux de change non configuré (Paramètres RH).");
-    montantCDF = saisi;
-    montant = Math.round((saisi / taux) * 100) / 100;
-  }
-
+  // Hors Direction : une demande, en DEVISE DE SAISIE. Un montant en francs sera converti au taux
+  // des Paramètres au moment de la validation (comme le paiement direct, ci-dessous, le fait maintenant).
   if (!estDirection(user)) {
     await demanderPaiement(user, {
       mode: "REGLEMENT", factureId: id, dateStr,
-      reglement: { type, montantUSD: texteDecimal(montant), montantCDF: montantCDF === null ? null : texteDecimal(montantCDF), taux: taux === null ? null : texteDecimal(taux), modePaiement: mode, note },
+      reglement: { type, montantUSD: devise === "USD" ? texteDecimal(saisi) : null, montantCDF: devise === "CDF" ? texteDecimal(saisi) : null, taux: null, modePaiement: mode, note },
     });
     rafraichirFactures([id]);
     return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura validé." : MESSAGE_DEMANDE };
   }
+  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement.
+  let montant = saisi, montantCDF: number | null = null, taux: number | null = null;
+  if (devise === "CDF") ({ montant, taux } = await convertirFrancs(prisma, (montantCDF = saisi)));
+
   const reg = await prisma.$transaction(async (tx) => {
     await verrouillerFacture(tx, id); // avant la lecture des demandes (voir marquerPayee)
     await exigerAucunPaiementDemande(tx, [id]);

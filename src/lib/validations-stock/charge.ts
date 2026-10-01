@@ -13,18 +13,20 @@ import Decimal from "decimal.js";
 /** Nombre → chaîne décimale en notation simple (« 0.0000001 », jamais « 1e-7 »), lisible par la charge. */
 export const texteDecimal = (n: number): string => new Decimal(n).toFixed();
 
-export type NatureDemande = "PAIEMENT_FACTURE" | "RECONCILIATION" | "MODIF_ARTICLE";
+export type NatureDemande = "PAIEMENT_FACTURE" | "RECONCILIATION" | "MODIF_ARTICLE" | "MOUVEMENT_MANUEL";
 
 export const NATURE_LIBELLE: Record<NatureDemande, string> = {
   PAIEMENT_FACTURE: "Paiements de factures",
   RECONCILIATION: "Réconciliations du stock",
   MODIF_ARTICLE: "Modifications d'articles",
+  MOUVEMENT_MANUEL: "Entrées et sorties manuelles",
 };
 
 // ── Cibles (verrou « une demande en attente par cible », voir CibleDemandeStock) ──────────────
 export const cleFacture = (id: string) => `FACTURE:${id}`;
 export const cleArticle = (id: string) => `ARTICLE:${id}`;
 export const cleComptage = (articleId: string) => `COMPTAGE:${articleId}`;
+export const cleMouvement = (articleId: string) => `MOUVEMENT:${articleId}`;
 
 // ── Paiement de facture ─────────────────────────────────────────────────────
 /**
@@ -35,11 +37,16 @@ export const cleComptage = (articleId: string) => `COMPTAGE:${articleId}`;
  * `factures[].resteUSD` = le reste à payer VU par le demandeur : si la facture a bougé depuis
  * (payée ailleurs, avoir…), la validation le signale et refuse au lieu de payer autre chose.
  */
+/**
+ * Un règlement en FRANCS porte `montantCDF` et AUCUN montant en dollars ni taux : la conversion se
+ * fait à la VALIDATION, au taux des Paramètres à ce moment-là — exactement comme le paiement direct
+ * (décision de la Direction, 2026-10-01). En dollars : `montantUSD`, sans francs.
+ */
 export type ReglementDemande = {
   type: "PAIEMENT" | "AVOIR";
-  montantUSD: string;
+  montantUSD: string | null;
   montantCDF: string | null;
-  taux: string | null;
+  taux: null;
   modePaiement: string | null;
   note: string | null;
 };
@@ -103,7 +110,19 @@ export type Changement = { champ: ChampArticle; avant: Valeur; apres: Valeur; av
 export type ArticleDemande = { id: string; designation: string; changements: Changement[] };
 export type ChargeArticle = { v: 1; libelle: string; articles: ArticleDemande[] };
 
-export type Charge = ChargePaiement | ChargeComptage | ChargeArticle;
+// ── Entrée / sortie manuelle ────────────────────────────────────────────────
+/** Un mouvement manuel tel que saisi : appliqué tel quel (des quantités, pas un stock final). */
+export type LigneMouvementDemande = { articleId: string; designation: string; unite: string | null; quantite: string; stockAvant: string; prixUnitaireUSD: string | null };
+export type ChargeMouvement = {
+  v: 1;
+  type: "ENTREE" | "SORTIE";
+  date: string; // instant ISO de la date du mouvement (comme le geste direct)
+  origine: string;
+  raisonSortie: string | null;
+  lignes: LigneMouvementDemande[];
+};
+
+export type Charge = ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement;
 
 /** Égalité de deux valeurs d'un champ : décimales comparées exactement (« 2.50 » = « 2.5 »). */
 export function valeursEgales(champ: ChampArticle, a: Valeur, b: Valeur): boolean {
@@ -154,11 +173,15 @@ function lirePaiement(o: Record<string, unknown>): ChargePaiement {
   if (o.mode === "REGLEMENT") {
     const r = o.reglement;
     if (!estObjet(r) || (r.type !== "PAIEMENT" && r.type !== "AVOIR")) throw new ChargeIllisible("règlement");
+    const montantUSD = decimaleOuNull(r.montantUSD, "règlement.montantUSD");
+    const montantCDF = decimaleOuNull(r.montantCDF, "règlement.montantCDF");
+    if ((montantUSD === null) === (montantCDF === null)) throw new ChargeIllisible("règlement : un montant en dollars OU en francs");
+    if (r.taux !== null && r.taux !== undefined) throw new ChargeIllisible("règlement : le taux se lit à la validation");
     reglement = {
       type: r.type,
-      montantUSD: decimale(r.montantUSD, "règlement.montantUSD"),
-      montantCDF: decimaleOuNull(r.montantCDF, "règlement.montantCDF"),
-      taux: decimaleOuNull(r.taux, "règlement.taux"),
+      montantUSD,
+      montantCDF,
+      taux: null,
       modePaiement: chaineOuNull(r.modePaiement, "règlement.modePaiement"),
       note: chaineOuNull(r.note, "règlement.note"),
     };
@@ -217,7 +240,24 @@ function lireArticle(o: Record<string, unknown>): ChargeArticle {
   return { v: 1, libelle: chaine(o.libelle, "libellé"), articles };
 }
 
+function lireMouvement(o: Record<string, unknown>): ChargeMouvement {
+  if (o.type !== "ENTREE" && o.type !== "SORTIE") throw new ChargeIllisible("type");
+  const date = chaine(o.date, "date");
+  if (Number.isNaN(new Date(date).getTime())) throw new ChargeIllisible("date");
+  const lignes = liste(o.lignes, "lignes").map((l, i) => {
+    if (!estObjet(l)) throw new ChargeIllisible(`ligne ${i + 1}`);
+    const quantite = decimale(l.quantite, "ligne.quantite");
+    if (!(Number(quantite) > 0)) throw new ChargeIllisible("quantité nulle ou négative");
+    return {
+      articleId: chaine(l.articleId, "ligne.articleId"), designation: chaine(l.designation, "ligne.designation"), unite: chaineOuNull(l.unite, "ligne.unite"),
+      quantite, stockAvant: decimale(l.stockAvant, "ligne.stockAvant"), prixUnitaireUSD: decimaleOuNull(l.prixUnitaireUSD, "ligne.prixUnitaireUSD"),
+    };
+  });
+  return { v: 1, type: o.type, date, origine: chaine(o.origine, "origine"), raisonSortie: chaineOuNull(o.raisonSortie, "raisonSortie"), lignes };
+}
+
 export function lireCharge(nature: "PAIEMENT_FACTURE", brut: unknown): ChargePaiement;
+export function lireCharge(nature: "MOUVEMENT_MANUEL", brut: unknown): ChargeMouvement;
 export function lireCharge(nature: "RECONCILIATION", brut: unknown): ChargeComptage;
 export function lireCharge(nature: "MODIF_ARTICLE", brut: unknown): ChargeArticle;
 export function lireCharge(nature: NatureDemande, brut: unknown): Charge;
@@ -226,6 +266,7 @@ export function lireCharge(nature: NatureDemande, brut: unknown): Charge {
   if (!estObjet(brut) || brut.v !== 1) throw new ChargeIllisible("version");
   if (nature === "PAIEMENT_FACTURE") return lirePaiement(brut);
   if (nature === "RECONCILIATION") return lireComptage(brut);
+  if (nature === "MOUVEMENT_MANUEL") return lireMouvement(brut);
   return lireArticle(brut);
 }
 

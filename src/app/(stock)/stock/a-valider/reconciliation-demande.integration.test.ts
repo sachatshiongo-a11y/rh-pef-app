@@ -129,7 +129,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]])); // écart −2 constaté
     const [d] = await demandes();
     // Datés du jour à Kinshasa, comme les saisit l'écran (une sortie datée d'un jour antérieur serait une saisie tardive).
-    const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); return f; };
+    const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); else f.set("motifEntree", "RETOUR_RESTAURANT"); return f; }; // flux libres
     await mouvementManuel(mvt("ENTREE", 5)); // 15
     await mouvementManuel(mvt("SORTIE", 1)); // 14
     expect(await stock(riz)).toBe(14);

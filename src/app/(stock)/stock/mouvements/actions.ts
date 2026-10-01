@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
-import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
+import { lireMouvementSaisi } from "@/lib/validations-stock/mouvement";
+import { appliquerOuDemanderMouvement } from "@/lib/validations-stock/demandes";
 import { Prisma } from "@prisma/client";
 import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 
@@ -15,59 +15,27 @@ import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneM
 /**
  * Mouvement de stock manuel (entrée ou sortie), multi-lignes. ENTRÉE incrémente l'inventaire,
  * SORTIE le décrémente. Trace un MouvementStock par ligne.
+ *
+ * Décision de la Direction (2026-10-01) : « Livraison restaurant », « Perte » et « Retour
+ * restaurant » restent libres ; hors Direction, TOUT autre mouvement manuel (inventaire, correction,
+ * consommation…) n'écrit rien et devient une demande à valider (voir lib/validations-stock/mouvement.ts).
  */
-export const mouvementManuel = actionLisible(async (formData: FormData) => {
+export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: boolean; message: string }> => {
   const user = await verifySession();
   requireModule(user, "stock");
-
-  const type = String(formData.get("type") ?? "SORTIE") === "ENTREE" ? "ENTREE" : "SORTIE";
-  const ids = formData.getAll("articleId").map(String);
-  const qtes = formData.getAll("quantite").map(dec);
-  const dateStr = String(formData.get("date") ?? "").trim();
-  const date = dateStr ? new Date(dateStr) : new Date();
-  await exigerPeriodeOuverte(date);
-
-  // Pour une SORTIE : motif (PERTE | LIVRAISON_RESTAURANT). La perte exige une explication.
-  let categorieSortie: string | null = null;
-  let raisonSortie: string | null = null;
-  let origine = String(formData.get("origine") ?? "").trim();
-  if (type === "SORTIE") {
-    const cat = String(formData.get("categorieSortie") ?? "").trim();
-    categorieSortie = cat === "PERTE" || cat === "LIVRAISON_RESTAURANT" ? cat : null;
-    raisonSortie = String(formData.get("raisonSortie") ?? "").trim() || null;
-    if (categorieSortie === "PERTE" && !raisonSortie) throw new Error("Indiquez la raison de la perte.");
-    origine = origine || (categorieSortie === "PERTE" ? `Perte${raisonSortie ? ` — ${raisonSortie}` : ""}` : categorieSortie === "LIVRAISON_RESTAURANT" ? "Livraison restaurant" : "Sortie / consommation");
-  } else {
-    origine = origine || "Entrée manuelle";
+  const m = lireMouvementSaisi(formData);
+  const r = await appliquerOuDemanderMouvement(user, m);
+  if (r.applique) {
+    await journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id });
   }
-
-  const lignes = ids
-    .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
-    .filter((l) => l.articleId && l.quantite > 0);
-  if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article + quantité).");
-
-  // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
-  const idsLignes = lignes.map((l) => l.articleId);
-  const niveauxAvant = type === "SORTIE" ? await niveauxActuels(idsLignes) : new Map();
-
-  await prisma.$transaction(async (tx) => {
-    for (const l of lignes) {
-      await tx.mouvementStock.create({ data: { articleId: l.articleId, type, quantite: l.quantite, origine, date, categorieSortie, raisonSortie, creeParId: user.id } });
-      await tx.stock.upsert({
-        where: { articleId: l.articleId },
-        update: { quantite: type === "ENTREE" ? { increment: l.quantite } : { decrement: l.quantite } },
-        create: { articleId: l.articleId, quantite: type === "ENTREE" ? l.quantite : -l.quantite },
-      });
-    }
-  });
-
-  if (type === "SORTIE") await notifierNouvellesAlertes(idsLignes, niveauxAvant);
-
-  await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} ${type.toLowerCase()}(s)`, champ: type.toLowerCase(), nouvelleValeur: origine, userId: user.id });
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
+  revalidatePath("/stock/a-valider");
   revalidatePath("/stock");
+  return r.applique
+    ? { demande: false, message: m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté." }
+    : { demande: true, message: `${m.type === "ENTREE" ? "Entrée" : "Sortie"} envoyée à la Direction : le stock ne bouge qu'après sa validation.` };
 });
 
 /**

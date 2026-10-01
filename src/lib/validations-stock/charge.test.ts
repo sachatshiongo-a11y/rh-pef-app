@@ -23,6 +23,8 @@ describe("lireCharge — jamais lue de confiance", () => {
     ["SOLDE sur deux factures", { ...paiement, factures: [paiement.factures[0], { ...paiement.factures[0], id: "f2" }] }],
     ["règlement sans son détail", { ...paiement, mode: "REGLEMENT" }],
     ["règlement glissé dans un SOLDE", { ...paiement, reglement: { type: "PAIEMENT", montantUSD: "1", montantCDF: null, taux: null, modePaiement: null, note: null } }],
+    ["règlement en dollars ET en francs", { ...paiement, mode: "REGLEMENT", reglement: { type: "PAIEMENT", montantUSD: "1", montantCDF: "2300", taux: null, modePaiement: null, note: null } }],
+    ["règlement en francs avec un taux figé à la demande", { ...paiement, mode: "REGLEMENT", reglement: { type: "PAIEMENT", montantUSD: null, montantCDF: "2300", taux: "2300", modePaiement: null, note: null } }],
   ])("refuse : %s", (_nom, brut) => {
     expect(() => lireCharge("PAIEMENT_FACTURE", brut)).toThrow(/Demande illisible/);
     expect(lireChargeOuNull("PAIEMENT_FACTURE", brut)).toBeNull();

@@ -1807,6 +1807,7 @@ enum NatureDemandeStock {
   PAIEMENT_FACTURE
   RECONCILIATION
   MODIF_ARTICLE
+  MOUVEMENT_MANUEL // entrée/sortie manuelle hors flux libre (ni livraison restaurant, ni perte, ni retour restaurant)
 
   @@schema("stock")
 }
@@ -1843,7 +1844,7 @@ model DemandeValidationStock {
 }
 
 // Verrou « une seule demande en attente par cible » porté par la BASE : la clé (« FACTURE:<id> »,
-// « ARTICLE:<id> », « COMPTAGE:<articleId> ») est la clé primaire. Les lignes sont créées avec la
+// « ARTICLE:<id> », « COMPTAGE:<articleId> », « MOUVEMENT:<articleId> ») est la clé primaire. Les lignes sont créées avec la
 // demande et supprimées dès qu'elle est décidée ou retirée : deux demandes simultanées sur la même
 // facture se heurtent à la contrainte d'unicité, pas à une lecture préalable qui pourrait se croiser.
 model CibleDemandeStock {

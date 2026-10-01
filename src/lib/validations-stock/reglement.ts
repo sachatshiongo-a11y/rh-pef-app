@@ -33,6 +33,18 @@ export type ParamsReglement = {
   dateStr?: string; mode?: string | null; note?: string | null; type?: "PAIEMENT" | "AVOIR";
 };
 
+/**
+ * Conversion d'un règlement en FRANCS, au taux des Paramètres LU MAINTENANT — la règle du paiement
+ * direct, reprise telle quelle à la validation d'une demande (décision de la Direction, 2026-10-01 :
+ * le taux appliqué est celui du jour où le paiement est enregistré, pas celui du jour de la demande).
+ */
+export async function convertirFrancs(client: Tx | typeof prisma, montantCDF: number): Promise<{ montant: number; taux: number }> {
+  const config = await client.config.findUnique({ where: { id: "singleton" } });
+  const taux = Number(config?.tauxChangeCDF ?? 0);
+  if (!taux) throw new Error("Taux de change non configuré (Paramètres RH).");
+  return { montant: Math.round((montantCDF / taux) * 100) / 100, taux };
+}
+
 /** Ce qui a été réglé — de quoi dire « Facture n° 12 de SENEVE payée le … — 120,00 $ ». */
 export type ReglementEcrit = {
   factureId: string; fournisseurNom: string; numero: string | null;

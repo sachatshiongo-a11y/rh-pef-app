@@ -4,7 +4,7 @@
 // « Demandes à valider » (composant client) comme sur la fiche facture / article (serveur).
 import Link from "next/link";
 import type { ApercuDemande } from "@/lib/validations-stock/apercu";
-import { formaterNombre, formaterUSD, montantSigne } from "@/lib/montant";
+import { formaterFC, formaterNombre, formaterUSD, montantSigne } from "@/lib/montant";
 
 const dateFr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const nb = (s: string) => formaterNombre(Number(s), { maximumFractionDigits: 3 });
@@ -43,13 +43,22 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
         </ul>
         {p.reglement && (
           <p>
-            {p.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de <b className="tabular-nums">{formaterUSD(p.reglement.montantUSD)}</b>
-            {p.reglement.montantCDF !== null && <> ({formaterNombre(p.reglement.montantCDF, { maximumFractionDigits: 0 })} FC au taux {formaterNombre(p.reglement.taux ?? 0)})</>}
+            {p.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de{" "}
+            {p.reglement.montantCDF !== null ? (
+              // En francs : le montant saisi, et son équivalent au taux qui SERA appliqué (celui des
+              // Paramètres au moment de la validation — aujourd'hui, s'il est validé maintenant).
+              <>
+                <b className="tabular-nums">{formaterFC(p.reglement.montantCDF)}</b>{" "}
+                {p.reglement.montantUSD !== null && p.reglement.tauxActuel !== null
+                  ? <>≈ <b className="tabular-nums">{formaterUSD(p.reglement.montantUSD)}</b> au taux du jour ({formaterNombre(p.reglement.tauxActuel)} FC/$), appliqué à la validation</>
+                  : <>— équivalent en dollars : — (taux de change non configuré)</>}
+              </>
+            ) : <b className="tabular-nums">{p.reglement.montantUSD === null ? "—" : formaterUSD(p.reglement.montantUSD)}</b>}
             {p.reglement.mode && <> · {p.reglement.mode}</>}
             {p.reglement.note && <> · « {p.reglement.note} »</>}
           </p>
         )}
-        {!p.reglement && p.factures.length > 1 && <p>Total : <b className="tabular-nums">{formaterUSD(p.total)}</b> — tout ou rien.</p>}
+        {!p.reglement && p.factures.length > 1 && <p>Total : <b className="tabular-nums">{p.total === null ? "—" : formaterUSD(p.total)}</b> — tout ou rien.</p>}
         <p className="text-xs text-muted-foreground">Date de paiement proposée : {dateFr(p.date)}</p>
       </div>
     );
@@ -91,6 +100,32 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
           </table>
         </div>
         {bouge && <p className="text-[11px] text-muted-foreground">Le stock a bougé depuis le comptage (entrées/sorties enregistrées) : l&apos;écart constaté est appliqué au stock actuel, sans effacer ces mouvements.</p>}
+      </div>
+    );
+  }
+
+  if (a.mouvement) {
+    const m = a.mouvement;
+    return (
+      <div className="space-y-1.5 text-sm">
+        <p className="text-xs text-muted-foreground">{m.type === "ENTREE" ? "Entrée" : "Sortie"} manuelle « {m.origine} » · datée du {new Date(m.date).toLocaleDateString("fr-FR", { timeZone: "UTC" })}</p>
+        <div className="overflow-x-auto rounded-md border">
+          <table className="w-full min-w-[30rem] text-xs">
+            <thead className="bg-muted text-left">
+              <tr className="[&>th]:px-2 [&>th]:py-1.5"><th>Article</th><th className="text-right">Quantité</th><th className="text-right">Stock actuel → après</th><th className="text-right">Valeur</th></tr>
+            </thead>
+            <tbody>
+              {m.lignes.map((l) => (
+                <tr key={l.articleId} className="border-t">
+                  <td className="px-2 py-1"><Link href={`/stock/catalogue/${l.articleId}`} className="font-medium text-primary hover:underline">{l.designation}</Link></td>
+                  <td className={`px-2 py-1 text-right font-medium tabular-nums ${m.type === "SORTIE" ? "text-red-700" : "text-emerald-700"}`}>{m.type === "SORTIE" ? "-" : "+"}{nb(l.quantite)}{l.unite ? ` ${l.unite}` : ""}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{nb(l.actuel)} → {nb(l.apres)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{l.valeur === null ? "—" : <Signe n={l.valeur} />}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
