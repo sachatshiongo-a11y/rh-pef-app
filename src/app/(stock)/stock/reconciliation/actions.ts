@@ -9,7 +9,7 @@ import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
-import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 const num = (s: string) => Number(String(s).replace(",", ".").trim());
 
@@ -67,7 +67,7 @@ export const appliquerComptage = actionLisible(async (formData: FormData) => {
   // transaction dépassait le délai Prisma (5 s) et explosait en production (P2028).
   const session = await prisma.$transaction(async (tx) => {
     const s = await tx.sessionComptage.create({
-      data: { domaine, nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: user.id },
+      data: { domaine, date: jourCivilKinshasa(new Date()), nbArticles: lignes.length, nbEcarts, nbHorsTol, creeParId: user.id }, // date explicite : le défaut de la base est le jour UTC
     });
     await tx.ligneComptage.createMany({
       data: lignes.map((l) => ({
@@ -80,7 +80,7 @@ export const appliquerComptage = actionLisible(async (formData: FormData) => {
     const avecEcart = lignes.filter((l) => Math.abs(l.ecart) > 0.0001);
     if (avecEcart.length > 0) {
       await tx.mouvementStock.createMany({
-        data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, creeParId: user.id })),
+        data: avecEcart.map((l) => ({ articleId: l.articleId, type: "AJUSTEMENT" as const, quantite: Math.abs(l.ecart), origine, date: jourCivilKinshasa(new Date()), creeParId: user.id })),
       });
     }
     const existants = new Set(stocks.map((x) => x.articleId));

@@ -5,6 +5,7 @@ import { PdfHeader, PdfFooter, signatureDirectriceDisponible, SIGNATURE_DIRECTRI
 import { pdfColors, entreprise as entrepriseDefaut, formatCDF } from "./theme";
 import { formaterNombre } from "@/lib/montant";
 import { salaireNetUSD, totalVerseUSD } from "@/lib/paie-net";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
 
@@ -123,7 +124,7 @@ export function AttestationPaieDocument({
           </Text>
         </View>
 
-        <Text style={styles.lieuDate}>Fait à Kinshasa, le {fr(new Date())}</Text>
+        <Text style={styles.lieuDate}>Fait à Kinshasa, le {fr(jourCivilKinshasa(new Date()))}</Text>
         <View style={styles.signatures}>
           <View style={styles.signCol}>
             <View style={styles.signSpace}>{signatureSrc && <Image src={signatureSrc as string} style={styles.signImg} />}</View>

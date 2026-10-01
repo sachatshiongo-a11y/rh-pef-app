@@ -17,7 +17,7 @@ import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-pla
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { actionLisible } from "@/lib/action-lisible";
-import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 /** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
@@ -338,7 +338,7 @@ export async function envoyerMonCertificat(formData: FormData) {
         type: "CERTIFICAT_MEDICAL",
         nom: note || `Certificat médical du ${jourKinshasa(new Date())}`,
         fichierUrl,
-        dateEmission: new Date(),
+        dateEmission: jourCivilKinshasa(new Date()),
       },
     });
     const emp = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true } });

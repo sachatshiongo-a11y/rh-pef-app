@@ -702,10 +702,12 @@ export function resumerPresences(codes: CodePresence[]): ResumePresence {
  * salarié, PDF de demande de congé, calendrier des absences.
  */
 export function ancienneteEnMois(dateEmbauche: Date, dateRef: Date): number {
+  // Deux dates PURES (minuit UTC d'un jour civil), lues en UTC : `dateRef` n'est JAMAIS l'horloge brute
+  // (passer `jourCivilKinshasa(maintenant)`), sinon le mois révolu tombe avec une heure de retard.
   let mois =
-    (dateRef.getFullYear() - dateEmbauche.getFullYear()) * 12 +
-    (dateRef.getMonth() - dateEmbauche.getMonth());
-  if (dateRef.getDate() < dateEmbauche.getDate()) mois -= 1;
+    (dateRef.getUTCFullYear() - dateEmbauche.getUTCFullYear()) * 12 +
+    (dateRef.getUTCMonth() - dateEmbauche.getUTCMonth());
+  if (dateRef.getUTCDate() < dateEmbauche.getUTCDate()) mois -= 1;
   return Math.max(0, mois);
 }
 

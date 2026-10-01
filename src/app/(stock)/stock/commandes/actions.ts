@@ -168,6 +168,7 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
     return tx.bonDeCommande.create({
       data: {
         numero, sequence, annee, mois,
+        date: now, // jour civil de Kinshasa, explicite : le défaut de la base (now() UTC) daterait la veille
         ...(autoValide ? { statut: "VALIDE" as const } : {}),
         fournisseurId,
         delaiPaiement: String(formData.get("delaiPaiement") ?? "").trim() || null,
@@ -319,7 +320,7 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
   if (aRecevoir.length === 0) throw new Error("Renseignez au moins une quantité reçue (sur une ligne liée à un article).");
 
   await prisma.$transaction(async (tx) => {
-    await tx.reception.create({ data: { bonDeCommandeId: bcId, creeParId: user.id } });
+    await tx.reception.create({ data: { bonDeCommandeId: bcId, date: jourCivilKinshasa(new Date()), creeParId: user.id } }); // date explicite : le défaut de la base est le jour UTC
     const articleLines = bc.lignes.filter((l) => l.articleId);
     const complet = articleLines.every((l) => (recu.get(l.id) ?? 0) >= Number(l.quantite));
     await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: complet ? "RECU" : "RECU_PARTIEL" } });
