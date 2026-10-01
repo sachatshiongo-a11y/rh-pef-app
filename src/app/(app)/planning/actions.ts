@@ -8,6 +8,7 @@ import { exigerDirectionPourSupprimer, refusSuppression } from "@/lib/suppressio
 import { dureeShift } from "./creneaux";
 import { genererPlanning, type RaisonNonCouverture, type CauseDepassement } from "@/lib/planning-auto";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { decSaisiOptionnel } from "@/lib/nombre";
 import { notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { ecrireCreneaux, ecrireModele, messageErreurPlanning, messageMoisFiges, modifierShiftEnBase, verrousPlanning, type OperationCreneau, type Verrou } from "@/lib/planning-ecriture";
@@ -106,6 +107,16 @@ export async function genererPlanningAuto(
   const fin = new Date(finIso + "T00:00:00.000Z");
   if (isNaN(debut.getTime()) || isNaN(fin.getTime()) || debut > fin) return vide;
 
+  // Jours par semaine sans modèle (0 = selon les heures) : lu à la française ; illisible, décimal ou
+  // hors 0-7 → refusé et rien n'est écrit (avant : lu 0 en silence, « selon les heures »).
+  let nbParSemaine: number;
+  try {
+    nbParSemaine = decSaisiOptionnel(formData.get("nbParSemaine"), "Jours par semaine") ?? 0;
+    if (!Number.isInteger(nbParSemaine) || nbParSemaine < 0 || nbParSemaine > 7) throw new Error("Jours par semaine : un entier de 0 à 7 est attendu.");
+  } catch (e) {
+    return { ...vide, erreur: e instanceof Error ? e.message : "Jours par semaine illisible." };
+  }
+
   const ecraser = formData.get("ecraser") === "on";
   const debutHistorique = new Date(debut.getTime() - SEMAINES_HISTORIQUE * 7 * 86_400_000);
   const veilleDebut = new Date(debut.getTime() - 86_400_000);
@@ -195,7 +206,7 @@ export async function genererPlanningAuto(
     options: {
       shiftId: shiftIdParam || undefined,
       jours: joursParam,
-      nbParSemaine: Number(formData.get("nbParSemaine") ?? 0) || 0,
+      nbParSemaine,
       inclureFeries: formData.get("inclureFeries") === "on",
       utiliserModeles: formData.get("modeles") === "on",
       ecraser,
@@ -392,11 +403,11 @@ function lireHeure(v: FormDataEntryValue | null): string | null {
   return /^\d{1,2}:\d{2}$/.test(s) ? s.padStart(5, "0") : null;
 }
 
-function lireNombre(v: FormDataEntryValue | null): number | null {
-  const s = String(v ?? "").trim().replace(",", ".");
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+/** Nombre positif facultatif d'un champ de shift (vide = null) : lu à la française, illisible ou négatif → erreur lisible. */
+function lireNombre(v: FormDataEntryValue | null, libelle: string): number | null {
+  const n = decSaisiOptionnel(v, libelle);
+  if (n !== null && n < 0) throw new Error(`${libelle} : un nombre positif est attendu.`);
+  return n;
 }
 
 /** Ajoute un nouveau shift configurable. */
@@ -416,8 +427,8 @@ export async function creerShift(formData: FormData) {
         heureDebut: lireHeure(formData.get("heureDebut")),
         heureFin: lireHeure(formData.get("heureFin")),
         couleur,
-        dureeHeures: lireNombre(formData.get("dureeHeures")),
-        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
+        dureeHeures: lireNombre(formData.get("dureeHeures"), "Durée (h)"),
+        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD"), "Taux horaire"),
         ordre: (dernier?.ordre ?? 0) + 1,
       },
     });
@@ -436,16 +447,20 @@ export async function modifierShift(formData: FormData) {
     const nom = String(formData.get("nom") ?? "").trim();
     if (!nom) throw new Error("Le nom du shift est requis.");
 
+    // Lus AVANT d'ouvrir la transaction : une saisie illisible est refusée sans rien toucher.
+    const tauxHoraireUSD = lireNombre(formData.get("tauxHoraireUSD"), "Taux horaire");
+    const dureeHeures = lireNombre(formData.get("dureeHeures"), "Durée (h)");
+
     // La paie relit les heures du shift de chaque créneau à chaque calcul : les changer est refusé
     // si le shift a servi à une paie validée ou payée, et journalisé sinon (planning-ecriture.ts).
     try {
       await prisma.$transaction((tx) => modifierShiftEnBase(tx, user.id, id, {
         nom,
         couleur: String(formData.get("couleur") ?? "indigo"),
-        tauxHoraireUSD: lireNombre(formData.get("tauxHoraireUSD")),
+        tauxHoraireUSD,
         heureDebut: lireHeure(formData.get("heureDebut")),
         heureFin: lireHeure(formData.get("heureFin")),
-        dureeHeures: lireNombre(formData.get("dureeHeures")),
+        dureeHeures,
       }), { timeout: DELAI_ECRITURE_PLANNING });
     } catch (e) {
       const erreur = messageErreurPlanning(e);

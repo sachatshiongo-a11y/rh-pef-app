@@ -221,12 +221,12 @@ describe("Achat de légumes frais — totaux", () => {
 describe("Achat de légumes frais — l'envoi est inchangé", () => {
   // Référence : le FormData produit par l'ANCIEN formulaire (relevé le 2026-09-30, avant la refonte,
   // avec exactement la même saisie — voir `scenario`). Mêmes champs, même ordre, mêmes valeurs
-  // (nombres à POINT). La date est celle du jour (le champ n'a pas de valeur fournie).
+  // (nombres à la française depuis le 2026-10-01). La date est celle du jour (le champ n'a pas de valeur fournie).
   const aujourdhui = jourCourantKinshasaISO(); // le champ propose le jour civil de Kinshasa
   const ATTENDU = [
     ["date", aujourdhui],
-    ["legume", "Ail"], ["unite", "Kg"], ["quantite", "2.5"], ["montantCDF", "14000"],
-    ["legume", "Ananas"], ["unite", "Caisse"], ["quantite", "3"], ["montantCDF", "8400.5"],
+    ["legume", "Ail"], ["unite", "Kg"], ["quantite", "2,5"], ["montantCDF", "14000"],
+    ["legume", "Ananas"], ["unite", "Caisse"], ["quantite", "3"], ["montantCDF", "8400,5"],
     ["legume", ""], ["unite", ""], ["quantite", "1"], ["montantCDF", ""],
   ];
   async function scenario() {

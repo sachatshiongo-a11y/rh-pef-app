@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
-import { dec, decOptionnel } from "@/lib/nombre";
+import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 
 // Fiches techniques : recettes et ingrédients. Aucune de ces actions ne calcule un coût, une marge
 // ou un prix — ces chiffres ne sont JAMAIS stockés, ils sont recalculés par le moteur
@@ -29,6 +29,14 @@ function rafraichir(...ficheIds: string[]) {
 
 const txt = (fd: FormData, k: string) => String(fd.get(k) ?? "").trim();
 const txtOuNull = (fd: FormData, k: string) => txt(fd, k) || null;
+/** Nombre de portions : un ENTIER strictement positif (« 2,5 portions » est refusé, pas arrondi). */
+const portions = (v: FormDataEntryValue | null, parDefaut?: number): number => {
+  const brut = decSaisiOptionnel(v, "portions");
+  const n = brut ?? parDefaut ?? 0;
+  if (!Number.isInteger(n)) throw new Error("Le nombre de portions doit être un entier (2, 4, 10…).");
+  if (n <= 0) throw new Error("Le nombre de portions doit être supérieur à 0.");
+  return n;
+};
 const coche = (fd: FormData, k: string) => {
   const v = txt(fd, k);
   return v === "on" || v === "true" || v === "1";
@@ -42,8 +50,7 @@ export const creerFiche = actionLisible(async (formData: FormData) => {
   const nom = txt(formData, "nom");
   if (!nom) throw new Error("Le nom de la fiche est requis.");
 
-  const nbPortions = Math.trunc(dec(formData.get("nbPortions"))) || 1;
-  if (nbPortions <= 0) throw new Error("Le nombre de portions doit être supérieur à 0.");
+  const nbPortions = portions(formData.get("nbPortions"), 1);
 
   const fiche = await prisma.ficheTechnique.create({
     data: {
@@ -78,21 +85,20 @@ export const modifierFiche = actionLisible(async (id: string, formData: FormData
   const nom = txt(formData, "nom");
   if (!nom) throw new Error("Le nom de la fiche est requis.");
 
-  const nbPortions = Math.trunc(dec(formData.get("nbPortions")));
-  if (nbPortions <= 0) throw new Error("Le nombre de portions doit être supérieur à 0.");
+  const nbPortions = portions(formData.get("nbPortions"));
 
-  const tauxTVA = decOptionnel(formData.get("tauxTVA")) ?? 0;
+  const tauxTVA = decSaisiOptionnel(formData.get("tauxTVA"), "TVA") ?? 0;
   if (tauxTVA < 0) throw new Error("Le taux de TVA ne peut pas être négatif.");
   if (tauxTVA > 1) throw new Error("Saisissez la TVA en décimal : 0,16 pour 16 %.");
 
-  const coefficient = decOptionnel(formData.get("coefficientMargeCible"));
+  const coefficient = decSaisiOptionnel(formData.get("coefficientMargeCible"), "coefficient cible");
   if (coefficient !== null && coefficient <= 0) throw new Error("Le coefficient cible doit être supérieur à 0.");
 
-  const prixVenteTTC = decOptionnel(formData.get("prixVenteTTC"));
+  const prixVenteTTC = decSaisiOptionnel(formData.get("prixVenteTTC"), "prix de vente TTC");
   if (prixVenteTTC !== null && prixVenteTTC <= 0) throw new Error("Le prix de vente TTC doit être supérieur à 0.");
 
   const estSousRecette = coche(formData, "estSousRecette");
-  const rendementQuantite = decOptionnel(formData.get("rendementQuantite"));
+  const rendementQuantite = decSaisiOptionnel(formData.get("rendementQuantite"), "rendement");
   const rendementUnite = txtOuNull(formData, "rendementUnite");
   if (rendementQuantite !== null && rendementQuantite <= 0) throw new Error("Le rendement doit être supérieur à 0.");
   if (rendementQuantite !== null && !rendementUnite) throw new Error("Précisez l'unité du rendement (« g » ou « ml ») : sans elle, le coût de la sous-recette serait faux d'un facteur 1000 sans que rien ne le signale.");
@@ -251,7 +257,9 @@ async function validerLigne(l: LigneSaisie, ficheId: string, rang?: number): Pro
   const unite = l.unite.trim();
   if (!unite) throw new Error(`${ou}L'unité de consommation est requise (« g », « cl », « pièce »…).`);
 
-  const quantite = dec(l.quantite);
+  // Saisie illisible : refusée (jamais un zéro), avec le rang de la ligne dans un lot.
+  let quantite: number;
+  try { quantite = decSaisi(l.quantite, "quantité"); } catch (e) { throw new Error(`${ou}${e instanceof Error ? e.message : "quantité illisible."}`); }
   if (quantite <= 0) throw new Error(`${ou}La quantité doit être supérieure à 0.`);
 
   return { id: l.id?.trim() || null, articleId, sousFicheId, unite, quantite };

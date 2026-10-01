@@ -60,7 +60,7 @@ describe("page d'une fiche — boutons PDF", () => {
   });
 
   it("quantité d'un ingrédient modifiée : désactivés ; revenue à l'enregistré : actifs", () => {
-    const qte = [...conteneur.querySelectorAll<HTMLInputElement>('input[type="number"]')].find((i) => i.value === "5")!;
+    const qte = [...conteneur.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]')].find((i) => i.value === "5")!;
     saisir(qte, "6");
     expect(boutonsPdf().every((b) => b.disabled)).toBe(true);
     saisir(qte, "5");

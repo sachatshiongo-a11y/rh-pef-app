@@ -3,7 +3,7 @@
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { dec } from "@/lib/nombre";
+import { decSaisi } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -77,8 +77,8 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const designations = formData.getAll("designation").map((v) => String(v).trim());
   const unites = formData.getAll("unite").map((v) => String(v).trim());
   const domaines = formData.getAll("domaine").map(String);
-  const qtes = formData.getAll("quantite").map(dec);
-  const montants = formData.getAll("montant").map(dec); // montant payé par ligne (facultatif)
+  const qtes = formData.getAll("quantite").map((v, i) => decSaisi(v, `quantité, ligne ${i + 1}`));
+  const montants = formData.getAll("montant").map((v, i) => decSaisi(v, `montant, ligne ${i + 1}`)); // montant payé par ligne (facultatif)
   const fournIds = formData.getAll("fournisseurId").map((v) => String(v).trim());
   const fournNoms = formData.getAll("fournisseurNom").map((v) => String(v).trim());
   const devises = lireDevisesParLigne(formData, ids.length);

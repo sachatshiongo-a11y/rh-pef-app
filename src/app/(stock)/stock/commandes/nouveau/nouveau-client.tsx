@@ -6,7 +6,8 @@ import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
-import { lireSaisieNombre } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
+import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
@@ -14,11 +15,11 @@ import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
 /**
- * Valeur de case → texte de ligne : écriture à POINT (« 2.5 »), celle que produisait l'ancien
- * champ number. Les montants (`Number(l.quantite) * Number(l.prix)`) et ce qui part au serveur
- * (champs cachés ligne_quantite / ligne_prix) sont donc inchangés, virgule tapée ou non.
+ * Valeur de case → texte de ligne : écriture à la FRANÇAISE (« 2,5 »), relisible par `nombreOuNull`
+ * et par le serveur (champs cachés ligne_quantite / ligne_prix lus par `decSaisi`). Les montants
+ * se calculent par `nombreDeSaisie`, jamais par `Number()` (qui lirait « 2,5 » comme NaN).
  */
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
@@ -32,7 +33,10 @@ const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", quantite: "", prix: "", uniteParCarton: "" });
 
 export function NouveauBonForm({ articles, fournisseurs, initial, estDirection = false }: { articles: Art[]; fournisseurs: Four[]; initial?: BonInitial; estDirection?: boolean }) {
-  const [lignes, setLignes] = useState<Ligne[]>(initial?.lignes.length ? initial.lignes : [vide(), vide(), vide()]);
+  // Le brouillon vient de la base en notation anglaise (« 2.125 ») : écrit à la française dans les cases.
+  const [lignes, setLignes] = useState<Ligne[]>(() => initial?.lignes.length
+    ? initial.lignes.map((l) => ({ ...l, quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prix), uniteParCarton: canoniqueVersSaisie(l.uniteParCarton) }))
+    : [vide(), vide(), vide()]);
   // Une liste d'options par écran, partagée par toutes les lignes (recherche par désignation, nom court, code).
   const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
   const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
@@ -55,9 +59,9 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
   const { racine, onEntreeDerniereLigne } = useLigneSuivante(lignes.length, ajouterLigne);
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
-    maj(i, { articleId, designation: a ? a.designation : "", prix: a?.prix ?? "", uniteParCarton: a?.uniteParCarton ?? "" });
+    maj(i, { articleId, designation: a ? a.designation : "", prix: canoniqueVersSaisie(a?.prix), uniteParCarton: canoniqueVersSaisie(a?.uniteParCarton) });
   };
-  const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
+  const total = lignes.reduce((t, l) => t + nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix), 0);
 
   return (
     // Entrée n'envoie jamais le bon : seul un clic sur le bouton l'enregistre.
@@ -108,7 +112,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                 </td>
                 <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
                   {(() => {
-                    const upc = Number(l.uniteParCarton) || 0, q = Number(l.quantite) || 0;
+                    const upc = nombreDeSaisie(l.uniteParCarton), q = nombreDeSaisie(l.quantite);
                     if (upc <= 0 || q <= 0) return "—";
                     const c = q / upc;
                     return Number.isInteger(c) ? `${c}` : c.toFixed(2).replace(".", ",");
@@ -126,7 +130,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                     aria-label={`Prix unitaire, ligne ${i + 1}`}
                   />
                 </td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{(nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
               </tr>
             ))}
           </tbody>

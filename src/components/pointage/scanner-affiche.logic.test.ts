@@ -360,12 +360,13 @@ describe("pauseLue : la pause saisie", () => {
     expect(pauseLue("30")).toBe(30);
     expect(pauseLue("0")).toBe(0);
     expect(pauseLue(" 45 ")).toBe(45);
-    expect(pauseLue("12.6")).toBe(13);
+    expect(pauseLue("12,6")).toBe(13);
     expect(pauseLue("900")).toBe(600);
     expect(pauseLue("-5")).toBe(0);
   });
   it("vide ou illisible → rien (le bouton reste inactif)", () => {
     expect(pauseLue("")).toBeNull();
     expect(pauseLue("abc")).toBeNull();
+    expect(pauseLue("12.6")).toBeNull(); // le point n'est pas la décimale : « écrivez 12,6 »
   });
 });

@@ -9,6 +9,7 @@ import { estErreur } from "@/lib/action-lisible";
 import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
 import { ChangerMotif } from "./changer-motif";
 import { ChoixRecherche } from "@/components/choix-recherche";
+import { ChampNombre } from "@/components/champ-nombre";
 import { optionsArticles } from "@/lib/recherche-options";
 import { BORNE_TOUT_LE_FILTRE, type ColonneMouvements as Colonne, type FiltreMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
@@ -341,7 +342,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
       {Array.from({ length: nb }).map((_, i) => (
         <div key={i} className="flex items-center gap-2">
           <ChoixRecherche options={optionsArt} name="articleId" defaultValue="" vide="— article —" onChange={(v) => setChoix((c) => ({ ...c, [i]: v }))} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-64 flex-1`} />
-          <input name="quantite" type="number" step="0.001" min="0" placeholder="Qté" className={`${inp} w-28`} />
+          <ChampNombre name="quantite" placeholder="Qté" aria-label={`Quantité, ligne ${i + 1}`} alerteMilliers className={`${inp} w-28`} classeConteneur="w-28" />
         </div>
       ))}
       <div className="flex items-center gap-3 pt-1">

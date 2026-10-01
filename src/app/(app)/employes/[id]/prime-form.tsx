@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { ChampNombre } from "@/components/champ-nombre";
+import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -34,7 +36,7 @@ export function PrimeForm({
   function onType(v: string) {
     setType(v);
     if (v === "Prime d'ancienneté" && suggestion > 0) {
-      setMontant(String(suggestion));
+      setMontant(versSaisie(suggestion));
       setPourcentage("");
     }
   }
@@ -44,8 +46,8 @@ export function PrimeForm({
   // à la paie, exactement comme la prime d'ancienneté.
   function onPourcentage(v: string) {
     setPourcentage(v);
-    const pct = Number(v.replace(",", "."));
-    if (Number.isFinite(pct) && pct > 0) setMontant(String(round2(salaireBase * (pct / 100))));
+    const pct = lireNombreSaisi(v); // null = vide ou illisible : le champ le signale, rien n'est calculé
+    if (pct !== null && pct > 0) setMontant(versSaisie(round2(salaireBase * (pct / 100))));
   }
 
   return (
@@ -64,27 +66,26 @@ export function PrimeForm({
             </option>
           ))}
         </select>
-        <input
+        <ChampNombre
           name="pourcentageBase"
-          type="number"
-          step="0.01"
-          min="0"
           value={pourcentage}
           onChange={(e) => onPourcentage(e.target.value)}
           placeholder="% base"
           aria-label="Pourcentage du salaire de base"
-          className="w-24 rounded border border-input bg-background px-2 py-1 text-sm"
+          suffixe="%"
+          classeConteneur="w-24"
+          className="rounded border border-input bg-background px-2 py-1 text-sm"
         />
-        <input
+        <ChampNombre
           name="montantUSD"
-          type="number"
-          step="0.01"
-          min="0"
           value={montant}
           onChange={(e) => setMontant(e.target.value)}
           placeholder="Montant $"
+          aria-label="Montant de la prime en dollars"
+          suffixe="$"
           required
-          className="w-28 rounded border border-input bg-background px-2 py-1 text-sm"
+          classeConteneur="w-28"
+          className="rounded border border-input bg-background px-2 py-1 text-sm"
         />
         <button
           type="submit"

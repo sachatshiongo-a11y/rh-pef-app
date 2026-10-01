@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { dec } from "@/lib/nombre";
+import { decSaisi } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
@@ -23,8 +23,8 @@ export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
   await exigerPeriodeOuverte(date);
   const noms = formData.getAll("legume").map((v) => String(v).trim());
   const unites = formData.getAll("unite").map((v) => String(v).trim());
-  const qtes = formData.getAll("quantite").map(dec);
-  const cdfs = formData.getAll("montantCDF").map(dec);
+  const qtes = formData.getAll("quantite").map((v, i) => decSaisi(v, `quantité, ligne ${i + 1}`));
+  const cdfs = formData.getAll("montantCDF").map((v, i) => decSaisi(v, `montant, ligne ${i + 1}`));
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : 0;

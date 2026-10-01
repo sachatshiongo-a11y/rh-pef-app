@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { decOptionnel as dec } from "@/lib/nombre";
+import { decSaisiOptionnel } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
@@ -24,7 +24,7 @@ export const majComptage = actionLisible(async (articleRestoId: string, dateISO:
   if (!article) throw new Error("Article du restaurant introuvable. Rechargez la page.");
   if (!article.actif) throw new Error(`« ${article.designation} » est désactivé : la Direction doit le réactiver avant tout comptage.`);
   const date = new Date(dateISO);
-  const q = dec(valeur);
+  const q = decSaisiOptionnel(valeur, "comptage");
   if (q === null) {
     await prisma.comptageResto.deleteMany({ where: { articleRestoId, date } });
   } else {
@@ -49,7 +49,7 @@ export const creerArticleResto = actionLisible(async (formData: FormData) => {
       espace, designation,
       categorie: String(formData.get("categorie") ?? "").trim() || null,
       unite: String(formData.get("unite") ?? "").trim() || null,
-      stockBaseJournalier: dec(formData.get("stockBaseJournalier")),
+      stockBaseJournalier: decSaisiOptionnel(formData.get("stockBaseJournalier"), "stock de base"),
       ordre: (dernier._max.ordre ?? 0) + 1,
     },
   });
@@ -67,7 +67,7 @@ export const modifierArticleResto = actionLisible(async (id: string, formData: F
   }
   if (formData.has("categorie")) data.categorie = String(formData.get("categorie") ?? "").trim() || null;
   if (formData.has("unite")) data.unite = String(formData.get("unite") ?? "").trim() || null;
-  if (formData.has("stockBaseJournalier")) data.stockBaseJournalier = dec(formData.get("stockBaseJournalier"));
+  if (formData.has("stockBaseJournalier")) data.stockBaseJournalier = decSaisiOptionnel(formData.get("stockBaseJournalier"), "stock de base");
   if (formData.has("ordre")) { const n = Number(formData.get("ordre")); if (Number.isFinite(n)) data.ordre = Math.trunc(n); }
   await prisma.articleResto.update({ where: { id }, data });
   revalidatePath("/stock/restaurant");

@@ -9,6 +9,7 @@ import {
 } from "@/lib/payroll";
 import { salaireNetUSD, salaireNetCDF, totalVerseUSD, type LigneNet } from "@/lib/paie-net";
 import { MENTION_REFERENCE_PLANNING } from "@/lib/mention-reference-planning";
+import { lireNombreSaisi } from "@/lib/nombre";
 
 // Simulation de bulletin EN DIRECT dans le formulaire employé : mois « type » (heures
 // contractuelles, sans heures supp. ni absences), avec le VRAI moteur de paie (CNSS, barème
@@ -30,10 +31,8 @@ export type ValeursSimulation = {
 
 /** Extrait du formulaire les champs qui influencent la paie. */
 export function lireValeursSimulation(fd: FormData): ValeursSimulation {
-  const n = (name: string) => {
-    const v = Number(String(fd.get(name) ?? "").replace(",", "."));
-    return Number.isFinite(v) ? v : 0;
-  };
+  // Saisie à la française : une saisie illisible compte 0 dans l'aperçu (le formulaire la refuse à l'envoi).
+  const n = (name: string) => lireNombreSaisi(fd.get(name)) ?? 0;
   return {
     salaireMensuel: n("salaireMensuel"),
     categorie: String(fd.get("categorie") ?? "BRIGADE"),

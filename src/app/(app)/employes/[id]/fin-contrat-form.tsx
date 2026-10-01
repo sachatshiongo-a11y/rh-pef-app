@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { terminerContrat } from "./dossier-actions";
+import { ChampNombre } from "@/components/champ-nombre";
+import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 
 const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
 const cls = "rounded-md border border-input bg-background px-3 py-2 text-sm";
@@ -41,22 +43,25 @@ export function FinContratForm({
       : 0;
 
   const [motif, setMotif] = useState("DEMISSION");
-  const [joursTravailles, setJoursTravailles] = useState(String(joursPresence));
-  const [joursConges, setJoursConges] = useState(String(Math.max(0, soldeCongesInit)));
-  const [preavis, setPreavis] = useState(String(preavisDemission ?? 0));
+  const [joursTravailles, setJoursTravailles] = useState(versSaisie(joursPresence));
+  const [joursConges, setJoursConges] = useState(versSaisie(Math.max(0, soldeCongesInit)));
+  const [preavis, setPreavis] = useState(versSaisie(preavisDemission ?? 0));
   const [licenciement, setLicenciement] = useState("0");
   const [autres, setAutres] = useState("0");
 
   function changerMotif(m: string) {
     setMotif(m);
-    setPreavis(String(preavisDe(m) ?? 0));
-    setLicenciement(m === "LICENCIEMENT" ? String(indemLicenciementSuggeree) : "0");
+    setPreavis(versSaisie(preavisDe(m) ?? 0));
+    setLicenciement(m === "LICENCIEMENT" ? versSaisie(indemLicenciementSuggeree) : "0");
   }
 
-  const salaireProrata = salaireJournalier * (Number(joursTravailles) || 0);
-  const indemConges = salaireJournalier * (Number(joursConges) || 0);
-  const indemPreavis = salaireJournalier * (Number(preavis) || 0);
-  const total = salaireProrata + indemConges + indemPreavis + (Number(licenciement) || 0) + (Number(autres) || 0);
+  // Saisies à la française (« 1 250,5 ») ; vide ou illisible → 0 dans le récapitulatif (le champ signale « illisible »,
+  // et l'envoi est refusé par le serveur plutôt que compté zéro).
+  const lire = (s: string) => lireNombreSaisi(s) ?? 0;
+  const salaireProrata = salaireJournalier * lire(joursTravailles);
+  const indemConges = salaireJournalier * lire(joursConges);
+  const indemPreavis = salaireJournalier * lire(preavis);
+  const total = salaireProrata + indemConges + indemPreavis + lire(licenciement) + lire(autres);
 
   return (
     <form
@@ -92,10 +97,10 @@ export function FinContratForm({
             <p className="mb-3 text-xs text-emerald-700">D&apos;après les présences saisies et les congés approuvés — ajustable si besoin.</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Champ label="Jours de présence (mois en cours)">
-                <input name="joursTravaillesMois" type="number" min="0" step="1" value={joursTravailles} onChange={(e) => setJoursTravailles(e.target.value)} className={cls} />
+                <ChampNombre name="joursTravaillesMois" suffixe="j" alerteMilliers value={joursTravailles} onChange={(e) => setJoursTravailles(e.target.value)} className={cls} />
               </Champ>
               <Champ label="Jours de congés non pris">
-                <input name="joursCongesNonPris" type="number" min="0" step="0.5" value={joursConges} onChange={(e) => setJoursConges(e.target.value)} className={cls} />
+                <ChampNombre name="joursCongesNonPris" suffixe="j" alerteMilliers value={joursConges} onChange={(e) => setJoursConges(e.target.value)} className={cls} />
               </Champ>
             </div>
           </div>
@@ -105,13 +110,13 @@ export function FinContratForm({
             <p className="mb-3 text-xs text-amber-700">Pré-remplies depuis Paramètres → paramètres légaux (ancienneté × barème). À faire valider par un juriste.</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Champ label="Préavis (jours)">
-                <input name="preavisJours" type="number" min="0" step="1" value={preavis} onChange={(e) => setPreavis(e.target.value)} className={cls} />
+                <ChampNombre name="preavisJours" suffixe="j" alerteMilliers value={preavis} onChange={(e) => setPreavis(e.target.value)} className={cls} />
               </Champ>
               <Champ label="Indemnité de licenciement $">
-                <input name="indemniteLicenciementUSD" type="number" min="0" step="0.01" value={licenciement} onChange={(e) => setLicenciement(e.target.value)} className={cls} disabled={motif !== "LICENCIEMENT"} />
+                <ChampNombre name="indemniteLicenciementUSD" suffixe="$" value={licenciement} onChange={(e) => setLicenciement(e.target.value)} className={cls} disabled={motif !== "LICENCIEMENT"} />
               </Champ>
               <Champ label="Autres indemnités $">
-                <input name="autresUSD" type="number" min="0" step="0.01" value={autres} onChange={(e) => setAutres(e.target.value)} className={cls} />
+                <ChampNombre name="autresUSD" suffixe="$" value={autres} onChange={(e) => setAutres(e.target.value)} className={cls} />
               </Champ>
               <Champ label="Commentaire"><input name="commentaire" placeholder="optionnel" className={cls} /></Champ>
             </div>
@@ -125,8 +130,8 @@ export function FinContratForm({
             <div className="flex justify-between"><span className="text-muted-foreground">Salaire au prorata <span className="text-xs">({joursTravailles || 0} j × {fmt(salaireJournalier)})</span></span><span className="font-medium">{fmt(salaireProrata)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Congés non pris <span className="text-xs">({joursConges || 0} j)</span></span><span className="font-medium">{fmt(indemConges)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Préavis <span className="text-xs">({preavis || 0} j)</span></span><span className="font-medium">{fmt(indemPreavis)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Licenciement</span><span className="font-medium">{fmt(Number(licenciement) || 0)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Autres</span><span className="font-medium">{fmt(Number(autres) || 0)}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Licenciement</span><span className="font-medium">{fmt(lire(licenciement))}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">Autres</span><span className="font-medium">{fmt(lire(autres))}</span></div>
           </div>
           <div className="mt-3 flex items-center justify-between border-t pt-3">
             <span className="font-semibold">Total à verser</span>

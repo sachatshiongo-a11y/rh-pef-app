@@ -6,7 +6,7 @@
 // `grille[l][c]` vaut vrai si la case existe et accepte la saisie (ni désactivée ni en lecture
 // seule). Les lignes peuvent être de longueurs différentes : une case absente vaut faux.
 
-import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre, conseilSaisie } from "@/lib/nombre";
 
 export type Position = { l: number; c: number };
 export type Grille = ReadonlyArray<ReadonlyArray<boolean>>;
@@ -132,8 +132,12 @@ export function decisionSortie(texte: string, enregistree: number | null, regles
   const lu = lireSaisieNombre(texte, { ambigu: regles.entier || regles.quantite ? "refuser" : "decimal" });
   if (!lu.ok) {
     const t = texte.trim();
-    if (lu.raison === "illisible") return { type: "invalide", message: `« ${t} » n'est pas un nombre.` };
-    const decimal = lireSaisieNombre(t);
+    if (lu.raison === "illisible") {
+      const conseil = conseilSaisie(t);
+      return { type: "invalide", message: `« ${t} » n'est pas un nombre${conseil ? ` — ${conseil} (la virgule est la décimale)` : ""}.` };
+    }
+    // Lecture « décimale » de l'ambigu : la virgule à la place du séparateur (« 1.250 » → 1,25).
+    const decimal = lireSaisieNombre(t.replace(".", ","));
     const commeDecimal = ecrireSaisieNombre(decimal.ok ? decimal.valeur : null);
     const commeEntier = t.replace(/[.,]/, "");
     return {

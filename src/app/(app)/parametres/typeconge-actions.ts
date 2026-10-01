@@ -4,12 +4,16 @@ import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
+import { decSaisiOptionnel } from "@/lib/nombre";
 
-function intOuNull(v: FormDataEntryValue | null): number | null {
-  const s = String(v ?? "").trim();
-  if (s === "") return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.round(n) : null;
+/** Entier facultatif d'un champ (vide = « À VALIDER »). Illisible, décimal ou hors bornes : refusé, jamais arrondi. */
+function entierOuNull(v: FormDataEntryValue | null, libelle: string, max?: number): number | null {
+  const n = decSaisiOptionnel(v, libelle);
+  if (n === null) return null;
+  if (!Number.isInteger(n) || n < 0 || (max !== undefined && n > max)) {
+    throw new Error(`${libelle} : un nombre entier${max !== undefined ? ` de 0 à ${max}` : " positif"} est attendu (« ${String(v).trim()} » refusé).`);
+  }
+  return n;
 }
 
 /** Crée un type de congé/absence paramétrable. joursPayes/tauxPct vides = « À VALIDER » et la case
@@ -23,8 +27,8 @@ export const creerTypeConge = actionLisible(async (formData: FormData) => {
   await prisma.typeConge.create({
     data: {
       nom,
-      joursPayes: intOuNull(formData.get("joursPayes")),
-      tauxPct: intOuNull(formData.get("tauxPct")),
+      joursPayes: entierOuNull(formData.get("joursPayes"), "Jours payés"),
+      tauxPct: entierOuNull(formData.get("tauxPct"), "Taux %"),
       compteDansSolde: formData.get("compteDansSolde") === "on",
       ordre: (dernier?.ordre ?? 0) + 1,
     },
@@ -43,8 +47,8 @@ export const modifierTypeConge = actionLisible(async (id: string, formData: Form
     where: { id },
     data: {
       nom,
-      joursPayes: intOuNull(formData.get("joursPayes")),
-      tauxPct: intOuNull(formData.get("tauxPct")),
+      joursPayes: entierOuNull(formData.get("joursPayes"), "Jours payés"),
+      tauxPct: entierOuNull(formData.get("tauxPct"), "Taux %"),
       compteDansSolde: formData.get("compteDansSolde") === "on",
     },
   });

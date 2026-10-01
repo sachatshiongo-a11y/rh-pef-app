@@ -8,7 +8,8 @@ import { cleAlnum } from "@/lib/texte";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
-import { lireSaisieNombre } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
+import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
@@ -20,11 +21,11 @@ type Devise = "USD" | "CDF";
 /** Libellé court d'une devise, tel qu'il s'affiche à côté du montant. */
 const COURT: Record<Devise, string> = { USD: "USD", CDF: "FC" };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
-/** Texte de ligne → valeur de case ; valeur de case → texte à POINT (ce que produisait l'ancien champ
- *  number) : les calculs (quantité × PU) et ce qui part au serveur (champs cachés quantite / montant)
- *  sont inchangés, virgule tapée ou non. */
+/** Texte de ligne → valeur de case ; valeur de case → texte à la FRANÇAISE (« 2,5 ») : relu par
+ *  `nombreDeSaisie` pour les calculs (quantité × PU) et par `decSaisi` au serveur (champs cachés
+ *  quantite / montant). Jamais `Number()` sur un texte de ligne : « 2,5 » y est illisible. */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 // Mise en page d'UNE SEULE arborescence, deux présentations (jamais deux jeux de champs : le
 // formulaire enverrait chaque ligne en double). Elle suit la largeur de la LISTE (requête de
@@ -71,9 +72,9 @@ const vide = (devise: Devise): Ligne => ({ articleId: "", designation: "", unite
 const quatreVides = (devise: Devise) => [vide(devise), vide(devise), vide(devise), vide(devise)];
 /** Montant automatique d'une ligne : quantité × PU (au centime), vide si l'un manque — la règle de `majLigne`. */
 const produit = (qte: string, pu: string) => {
-  const q = Number(qte.replace(",", "."));
-  const p = Number(pu.replace(",", "."));
-  return q > 0 && p > 0 ? String(Math.round(q * p * 100) / 100) : "";
+  const q = nombreDeSaisie(qte);
+  const p = nombreDeSaisie(pu);
+  return q > 0 && p > 0 ? ecrireSaisieNombre(Math.round(q * p * 100) / 100) : "";
 };
 /**
  * Nouveau PU venu du CATALOGUE (bascule de devise, changement d'article). Le montant ne suit que
@@ -111,7 +112,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // Double saisie : vérifiée PENDANT la saisie (même article, même jour, même quantité déjà entré
   // par facture ou réception ; comptage postérieur). Avertissement seulement — rien n'est bloqué.
   const aVerifier = lignes
-    .map((l) => ({ articleId: l.articleId, designation: l.designation.trim(), quantite: Number(l.qte.replace(",", ".")) }))
+    .map((l) => ({ articleId: l.articleId, designation: l.designation.trim(), quantite: nombreDeSaisie(l.qte) }))
     .filter((l) => (l.articleId || l.designation) && l.quantite > 0);
   const cleVerif = JSON.stringify([date, aVerifier]);
   useEffect(() => {
@@ -135,9 +136,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         if ("pu" in patch && !("puCatalogue" in patch)) maj.puCatalogue = null;
         // Quantité ou PU modifiés et PU renseigné → montant recalculé (modifiable ensuite à la main).
         if (("qte" in patch || "pu" in patch) && maj.pu !== "") {
-          const q = Number(maj.qte.replace(",", "."));
-          const pu = Number(maj.pu.replace(",", "."));
-          maj.montant = q > 0 && pu > 0 ? String(Math.round(q * pu * 100) / 100) : "";
+          maj.montant = produit(maj.qte, maj.pu);
         }
         return maj;
       })
@@ -164,7 +163,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
     const d: Devise = l.devise === "USD" ? "CDF" : "USD";
     const prix = l.puCatalogue !== null ? Number(l.puCatalogue) : NaN;
     if (taux > 0 && prix > 0) {
-      const pu = d === "CDF" ? String(Math.round(prix * taux)) : l.puCatalogue!;
+      const pu = d === "CDF" ? ecrireSaisieNombre(Math.round(prix * taux)) : canoniqueVersSaisie(l.puCatalogue);
       setLignes((ls) => ls.map((x, j) => (j === i ? { ...avecPuCatalogue(x, pu, x.puCatalogue), devise: d } : x)));
     } else majLigne(i, { devise: d });
   };
@@ -174,8 +173,8 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   const puDuCatalogue = (prix: string | null, devise: Devise): string | null => {
     const p = prix !== null ? Number(prix) : NaN;
     if (!(p > 0)) return null;
-    if (devise === "USD") return prix;
-    return taux > 0 ? String(Math.round(p * taux)) : null;
+    if (devise === "USD") return canoniqueVersSaisie(prix);
+    return taux > 0 ? ecrireSaisieNombre(Math.round(p * taux)) : null;
   };
 
   // Changement d'article : `puCatalogue` repart TOUJOURS du nouvel article (ou devient nul s'il n'a
@@ -203,8 +202,8 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // qui seront enregistrées (article ou désignation, quantité > 0, montant > 0). Les francs saisis se
   // lisent À PART : jamais additionnés aux dollars sans conversion. Taux absent : total inconnu (« — »).
   const aMontant = lignes
-    .map((l) => ({ l, m: Number(l.montant) }))
-    .filter(({ l, m }) => (l.articleId || l.designation.trim()) && Number(l.qte) > 0 && m > 0);
+    .map((l) => ({ l, m: nombreDeSaisie(l.montant) }))
+    .filter(({ l, m }) => (l.articleId || l.designation.trim()) && nombreDeSaisie(l.qte) > 0 && m > 0);
   const saisiUSD = aMontant.filter(({ l }) => l.devise === "USD").reduce((t, { m }) => t + m, 0);
   const saisiFC = aMontant.filter(({ l }) => l.devise === "CDF").reduce((t, { m }) => t + m, 0);
   const aFrancs = aMontant.some(({ l }) => l.devise === "CDF");
@@ -313,7 +312,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
                   <div className={`${PLACE.montant} flex min-w-0`}>
                     <CelluleNombre ligne={String(i)} col={2} valeur={nombreOuNull(l.montant)} onEnregistrer={(v) => majLigne(i, { montant: texteDe(v) })}
                       onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} placeholder="Montant"
-                      title={`Montant payé pour la ligne (${COURT[l.devise]})${l.devise === "CDF" && Number(l.montant) > 0 && taux > 0 ? ` ≈ ${formaterUSD(Number(l.montant) / taux)}` : ""}`}
+                      title={`Montant payé pour la ligne (${COURT[l.devise]})${l.devise === "CDF" && nombreDeSaisie(l.montant) > 0 && taux > 0 ? ` ≈ ${formaterUSD(nombreDeSaisie(l.montant) / taux)}` : ""}`}
                       className={`${champMontant} rounded-r-none text-right font-semibold placeholder:font-normal @4xl:font-normal`} aria-label={`Montant ${COURT[l.devise]}, ligne ${i + 1}`} />
                     <input type="hidden" name="devise" value={l.devise} />
                     <button type="button" data-devise-ligne={l.devise} onClick={() => basculerDevise(i)}

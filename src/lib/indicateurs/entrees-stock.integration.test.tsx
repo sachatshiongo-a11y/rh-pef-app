@@ -6,6 +6,7 @@ import { formaterUSD } from "@/lib/montant";
 import { creerBaseTest } from "@/lib/test/db";
 import { whereMouvements, whereColonne } from "@/lib/filtre-mouvements";
 import { moisCourantKinshasa } from "@/lib/heure-kinshasa";
+import { ecrireSaisieNombre } from "@/lib/nombre";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) — cartes « Entrées de stock » du tableau
 // de bord Stock (demande Direction 2026-09-30). Les achats et la facture passent par les VRAIES
@@ -50,7 +51,7 @@ const listeAchat = (date: string, lignes: LigneAchat[], origine?: string) => {
   if (origine) f.set("origine", origine);
   for (const l of lignes) {
     f.append("articleId", l.articleId); f.append("designation", ""); f.append("unite", ""); f.append("domaine", "NOURRITURE");
-    f.append("quantite", String(l.quantite)); f.append("montant", String(l.montant)); f.append("devise", l.devise);
+    f.append("quantite", ecrireSaisieNombre(l.quantite)); f.append("montant", ecrireSaisieNombre(l.montant)); f.append("devise", l.devise);
     f.append("fournisseurId", ""); f.append("fournisseurNom", "");
   }
   return entreeListeAchat(f);
@@ -62,7 +63,7 @@ const facture = (date: string, numero: string, lignes: LigneFac[], entrerEnStock
   if (entrerEnStock) f.set("entrerEnStock", "on");
   for (const l of lignes) {
     f.append("ligne_articleId", l.articleId ?? ""); f.append("ligne_designation", l.designation); f.append("ligne_unite", "");
-    f.append("ligne_quantite", String(l.quantite)); f.append("ligne_prix", String(l.prix));
+    f.append("ligne_quantite", ecrireSaisieNombre(l.quantite)); f.append("ligne_prix", ecrireSaisieNombre(l.prix)); // à la virgule, comme à l'écran
   }
   return creerFactureAvecLignes(f);
 };

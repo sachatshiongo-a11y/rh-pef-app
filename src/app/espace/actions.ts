@@ -13,6 +13,7 @@ import { calculerJoursOuvrables } from "@/lib/payroll";
 import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { creerNotification, notifierSalarie, compteSalarieDe, supprimerNotificationsPour } from "@/lib/notifications";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { decSaisi } from "@/lib/nombre";
 import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-plafond";
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
@@ -124,8 +125,9 @@ export async function demanderMonConge(formData: FormData) {
 export async function demanderMonAcompte(formData: FormData) {
   return formulaireLisible("/espace/paie", async () => {
     const { employeeId } = await exigerSalarie();
-    const montantUSD = Number(String(formData.get("montantUSD") ?? "").replace(",", "."));
-    if (!Number.isFinite(montantUSD) || montantUSD <= 0) throw new Error("Indiquez un montant d'acompte valide (en $).");
+    // Lu à la française (« 50,5 » ; « 1.500 » = 1 500) : illisible = erreur lisible, jamais un zéro.
+    const montantUSD = decSaisi(formData.get("montantUSD"), "Montant de l'acompte");
+    if (montantUSD <= 0) throw new Error("Indiquez un montant d'acompte valide (en $).");
     const motif = String(formData.get("motif") ?? "").trim() || null;
 
     const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });

@@ -21,6 +21,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTran
 import { useRouter } from "next/navigation";
 import jsQR from "jsqr";
 import { BoutonNeutre, BoutonValider } from "@/components/action-buttons";
+import { ChampNombre } from "@/components/champ-nombre";
+import { versSaisie } from "@/lib/nombre";
 import { annulerPointage, saisirMaPause, scannerAffiche } from "@/app/pointage/actions";
 import type { PositionScan } from "@/lib/pointage-qr";
 import { originesAcceptees } from "@/lib/pointage-origines";
@@ -99,7 +101,7 @@ const CLASSES_BOUTON_PLEIN = "min-h-11 w-full justify-center";
 export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
   const router = useRouter();
   const [etat, setEtat] = useState<Phase>(() => phaseInitiale(codeInitial));
-  const [pause, setPause] = useState(String(PAUSE_DEFAUT_MIN));
+  const [pause, setPause] = useState(versSaisie(PAUSE_DEFAUT_MIN));
   const [enCours, demarrer] = useTransition();
   const visible = usePageVisible();
 
@@ -246,7 +248,7 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
   }, [annulableId, annulableDelai]);
 
   const reviser = () => {
-    setPause(String(PAUSE_DEFAUT_MIN));
+    setPause(versSaisie(PAUSE_DEFAUT_MIN));
     setEtat({ phase: "VISEE", avis: null });
   };
 
@@ -350,15 +352,12 @@ export function ScannerAffiche({ codeInitial }: { codeInitial?: string }) {
                   Ma pause du jour <span className="font-normal text-muted-foreground">(facultatif)</span>
                 </span>
                 <span className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    max={600}
-                    step={5}
+                  <ChampNombre
                     value={pause}
                     onChange={(e) => setPause(e.target.value)}
-                    className="w-20 rounded-md border border-input bg-background px-2 py-1 text-right text-base tabular-nums"
+                    suffixe="min"
+                    classeConteneur="w-20 items-end"
+                    className="w-full rounded-md border border-input bg-background px-2 py-1 text-right text-base tabular-nums"
                   />
                   <span className="text-muted-foreground">min</span>
                 </span>

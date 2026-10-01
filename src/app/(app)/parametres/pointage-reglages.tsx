@@ -4,9 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BoutonNeutre, CLASSES_DANGER, CLASSES_GEOMETRIE, CLASSES_NEUTRE } from "@/components/action-buttons";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { ChampNombre } from "@/components/champ-nombre";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { estErreur } from "@/lib/action-lisible";
 import { formaterNombre } from "@/lib/montant";
+import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 import {
   coordonneesSaisissables,
   lireCoordonneesSaisies,
@@ -95,7 +97,13 @@ export function PointageReglages({ reglages }: { reglages: ReglagesPointage }) {
   }
 
   function enregistrerRayon(formData: FormData) {
-    const rayon = Number(formData.get("rayonM"));
+    // Illisible ou vide : refusé ici avec un message, jamais envoyé comme 0. Les bornes (50 à 1 000,
+    // entier) restent décidées par le serveur (`reglerRayon`).
+    const rayon = lireNombreSaisi(formData.get("rayonM"));
+    if (rayon === null) {
+      setAvis({ type: "erreur", texte: "Rayon illisible : écrivez un nombre entier de mètres, de 50 à 1 000 (ex. 150)." });
+      return;
+    }
     executer(() => reglerRayon(rayon), `Rayon toléré enregistré : ${formaterNombre(rayon)} m.`);
   }
 
@@ -174,16 +182,13 @@ export function PointageReglages({ reglages }: { reglages: ReglagesPointage }) {
           Rayon toléré
         </label>
         <div className="flex flex-wrap items-center gap-2">
-          <input
+          <ChampNombre
             id="pointage-rayon"
             name="rayonM"
-            type="number"
-            inputMode="numeric"
-            min={50}
-            max={1000}
-            step={1}
-            defaultValue={reglages.rayonM}
-            className={`${inputCls} w-28 text-right`}
+            suffixe="m"
+            defaultValue={versSaisie(reglages.rayonM)}
+            classeConteneur="w-28 items-end"
+            className={`${inputCls} w-full text-right`}
           />
           <span className="text-muted-foreground">mètres (de 50 à 1 000)</span>
           <button type="submit" disabled={enCours} className={CLASSES_ENREGISTRER}>

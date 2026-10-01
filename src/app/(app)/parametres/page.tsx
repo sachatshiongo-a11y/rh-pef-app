@@ -19,6 +19,8 @@ import { ClotureStockSection } from "@/components/stock/cloture-stock-section";
 import { entreprise as entrepriseDefaut } from "@/lib/pdf/theme";
 import { lireMoisEffet } from "@/lib/config";
 import { exigerPageRH } from "@/lib/garde-page";
+import { ChampNombre } from "@/components/champ-nombre";
+import { versSaisie } from "@/lib/nombre";
 
 // Date d'effet de la paie sur heures planifiées : saisie ici en texte libre, relue par
 // `lireMoisEffet` (config.ts). Une valeur mal formée vaut « ancienne règle partout » : l'écran le dit.
@@ -222,27 +224,23 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           <Field
             label="Taux de change CDF/USD"
             name="tauxChangeCDF"
-            type="number"
-            step="0.01"
-            defaultValue={config.tauxChangeCDF.toString()}
+            suffixe="CDF pour 1 USD"
+            defaultValue={versSaisie(Number(config.tauxChangeCDF))}
           />
           <Field
             label="Mois en cours (1-12)"
             name="moisCourant"
-            type="number"
-            defaultValue={String(config.moisCourant)}
+            defaultValue={versSaisie(config.moisCourant)}
           />
           <Field
             label="Année en cours"
             name="anneeCourante"
-            type="number"
-            defaultValue={String(config.anneeCourante)}
+            defaultValue={versSaisie(config.anneeCourante)}
           />
           <Field
             label="Jour de paie (1-31)"
             name="jourPaie"
-            type="number"
-            defaultValue={String(config.jourPaie)}
+            defaultValue={versSaisie(config.jourPaie)}
           />
           <div className="col-span-2 md:col-span-3">
             <button
@@ -322,16 +320,15 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
                   </p>
                 )}
               </div>
-              <input
+              <ChampNombre
                 name="valeur"
-                type="text"
-                inputMode="decimal"
-                defaultValue={p.valeur === null ? "" : p.valeur.toString()}
+                defaultValue={p.valeur === null ? "" : versSaisie(Number(p.valeur))}
+                classeConteneur="w-32 items-end"
                 placeholder={p.cle === CLE_MOIS_EFFET ? "ex. 202609" : "vide = inconnu"}
                 // Le navigateur refuse l'envoi d'un AAAAMM mal formé (vide reste permis).
                 pattern={p.cle === CLE_MOIS_EFFET ? "(20[0-9]{2}|2100)(0[1-9]|1[0-2])" : undefined}
                 title={p.cle === CLE_MOIS_EFFET ? "Format AAAAMM, ex. 202609" : undefined}
-                className="w-32 rounded-md border border-input bg-background px-2 py-1 text-right"
+                className="w-full rounded-md border border-input bg-background px-2 py-1 text-right"
               />
               <span className="w-16 text-xs text-muted-foreground">{p.unite}</span>
               <label className="flex items-center gap-1.5 text-xs">
@@ -366,23 +363,22 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
               <span className="w-20 text-muted-foreground">Tranche {t.ordre}</span>
               <label className="flex items-center gap-1.5">
                 Plafond annuel CDF
-                <input
+                <ChampNombre
                   name="plafondAnnuelCDF"
-                  type="text"
-                  inputMode="numeric"
-                  defaultValue={t.plafondAnnuelCDF?.toString() ?? ""}
+                  defaultValue={t.plafondAnnuelCDF === null ? "" : versSaisie(Number(t.plafondAnnuelCDF))}
                   placeholder="au-delà"
-                  className="w-36 rounded-md border border-input bg-background px-2 py-1 text-right"
+                  suffixe="CDF"
+                  classeConteneur="w-36 items-end"
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-right"
                 />
               </label>
               <label className="flex items-center gap-1.5">
                 Taux
-                <input
+                <ChampNombre
                   name="taux"
-                  type="text"
-                  inputMode="decimal"
-                  defaultValue={t.taux.toString()}
-                  className="w-20 rounded-md border border-input bg-background px-2 py-1 text-right"
+                  defaultValue={versSaisie(Number(t.taux))}
+                  classeConteneur="w-20 items-end"
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-right"
                 />
               </label>
               <label className="flex items-center gap-1.5 text-xs">
@@ -497,28 +493,26 @@ function StatutBadge({ statut }: { statut: string }) {
 function Field({
   label,
   name,
-  type = "text",
-  step,
   defaultValue,
+  suffixe,
 }: {
   label: string;
   name: string;
-  type?: string;
-  step?: string;
   defaultValue?: string;
+  suffixe?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={name} className="text-sm font-medium">
         {label}
       </label>
-      <input
+      <ChampNombre
         id={name}
         name={name}
-        type={type}
-        step={step}
         defaultValue={defaultValue}
-        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+        suffixe={suffixe}
+        classeConteneur="w-full"
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
       />
     </div>
   );

@@ -6,7 +6,7 @@ import "server-only";
 // même raison que reglement.ts.
 
 import { Prisma } from "@prisma/client";
-import { decOptionnel } from "@/lib/nombre";
+import { decSaisiOptionnel } from "@/lib/nombre";
 import { lireContenanceSaisie } from "@/lib/fiches/conversion";
 import {
   CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, libelleValeur, texteDecimal, valeursEgales,
@@ -17,8 +17,8 @@ type Tx = Prisma.TransactionClient;
 
 export type PatchArticle = Partial<Record<ChampArticle, Valeur>>;
 
-/** Nombre lu par `decOptionnel` (même lecture qu'avant) → chaîne décimale exacte, ou null. */
-const decTexte = (v: FormDataEntryValue | null): string | null => { const n = decOptionnel(v); return n === null ? null : texteDecimal(n); };
+/** Nombre lu à la française par `decSaisiOptionnel` (illisible : refus lisible qui nomme le champ) → chaîne décimale exacte, ou null. */
+const decTexte = (v: FormDataEntryValue | null, libelle: string): string | null => { const n = decSaisiOptionnel(v, libelle); return n === null ? null : texteDecimal(n); };
 
 /**
  * Lit la saisie de « Modifier l'article » (fiche, case de l'Inventaire) — MÊMES RÈGLES qu'avant :
@@ -31,8 +31,8 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   if (formData.has("code")) p.code = texte("code");
   if (formData.has("designation")) p.designation = String(formData.get("designation")).trim();
   if (formData.has("nomCourt")) p.nomCourt = texte("nomCourt");
-  if (formData.has("prixUnitaireUSD")) p.prixUnitaireUSD = decTexte(formData.get("prixUnitaireUSD"));
-  if (formData.has("uniteParCarton")) p.uniteParCarton = decTexte(formData.get("uniteParCarton"));
+  if (formData.has("prixUnitaireUSD")) p.prixUnitaireUSD = decTexte(formData.get("prixUnitaireUSD"), "prix unitaire");
+  if (formData.has("uniteParCarton")) p.uniteParCarton = decTexte(formData.get("uniteParCarton"), "unités par carton");
   if (formData.has("unite")) p.unite = String(formData.get("unite")).trim() || null;
   // Contenance : validée avant toute écriture (nombre ET unité, ou aucun des deux).
   if (formData.has("contenance") || formData.has("contenanceUnite")) {
@@ -42,9 +42,9 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   }
   if (formData.has("categorieId")) p.categorieId = String(formData.get("categorieId")).trim() || null;
   if (formData.has("fournisseurId")) p.fournisseurId = String(formData.get("fournisseurId")).trim() || null;
-  if (formData.has("stockMinimum")) p.stockMinimum = decTexte(formData.get("stockMinimum")) ?? "0";
-  if (formData.has("seuilUrgent")) p.seuilUrgent = decTexte(formData.get("seuilUrgent")) ?? "0";
-  if (formData.has("quantite")) p.quantite = decTexte(formData.get("quantite")) ?? "0";
+  if (formData.has("stockMinimum")) p.stockMinimum = decTexte(formData.get("stockMinimum"), "stock minimum") ?? "0";
+  if (formData.has("seuilUrgent")) p.seuilUrgent = decTexte(formData.get("seuilUrgent"), "seuil urgent") ?? "0";
+  if (formData.has("quantite")) p.quantite = decTexte(formData.get("quantite"), "quantité") ?? "0";
   exigerBornes(p);
   return p;
 }

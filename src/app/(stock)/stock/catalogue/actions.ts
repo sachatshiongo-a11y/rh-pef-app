@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { decOptionnel as dec } from "@/lib/nombre";
+import { decSaisiOptionnel } from "@/lib/nombre";
 import { appliquerPatchArticleTx, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
@@ -57,7 +57,7 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
 
   // Le stock initial d'un nouvel article est une quantité posée hors flux : hors Direction, il
   // entre par la Liste d'achat (entrée) ou par un comptage, pas par la création.
-  const quantiteInitiale = dec(formData.get("quantite")) ?? 0;
+  const quantiteInitiale = decSaisiOptionnel(formData.get("quantite"), "stock initial") ?? 0;
   if (quantiteInitiale !== 0 && !estDirection(user)) {
     throw new Error("Le stock initial se saisit par une entrée (Liste d'achat) ou un comptage : créez l'article avec un stock vide, ou demandez à la Direction.");
   }
@@ -70,13 +70,13 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
       unite: String(formData.get("unite") ?? "").trim() || null,
       categorieId,
       fournisseurId,
-      prixUnitaireUSD: dec(formData.get("prixUnitaireUSD")),
-      uniteParCarton: dec(formData.get("uniteParCarton")),
+      prixUnitaireUSD: decSaisiOptionnel(formData.get("prixUnitaireUSD"), "prix unitaire"),
+      uniteParCarton: decSaisiOptionnel(formData.get("uniteParCarton"), "unités par carton"),
       stock: {
         create: {
-          quantite: dec(formData.get("quantite")) ?? 0,
-          stockMinimum: dec(formData.get("stockMinimum")) ?? 0,
-          seuilUrgent: dec(formData.get("seuilUrgent")) ?? 0,
+          quantite: quantiteInitiale,
+          stockMinimum: decSaisiOptionnel(formData.get("stockMinimum"), "stock minimum") ?? 0,
+          seuilUrgent: decSaisiOptionnel(formData.get("seuilUrgent"), "seuil urgent") ?? 0,
         },
       },
     },

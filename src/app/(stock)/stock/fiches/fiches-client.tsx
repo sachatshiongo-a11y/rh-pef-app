@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { VignettePlat } from "@/components/vignette-plat";
 import { EtatVide } from "@/components/etat-vide";
+import { ChampNombre } from "@/components/champ-nombre";
 import { estErreur } from "@/lib/action-lisible";
 import { usd } from "@/lib/stock";
 import { normTexte } from "@/lib/texte";
@@ -160,7 +161,7 @@ export function FichesClient({ fiches, etatInitial, vue = "plats", peutSupprimer
         <form action={creer} aria-label="Nouvelle fiche" className="grid grid-cols-2 gap-2 rounded-lg border p-3 md:grid-cols-4">
           <input name="nom" placeholder="Nom de la fiche *" required className={inp} />
           <input name="categorie" placeholder={boissons ? "Catégorie (ex. Cocktail, Vin rouge)" : "Catégorie (ex. Pâtes classiques)"} className={inp} />
-          <input name="nbPortions" type="number" min="1" step="1" defaultValue="1" placeholder="Portions" className={inp} />
+          <ChampNombre name="nbPortions" defaultValue="1" placeholder="Portions" aria-label="Portions" className={`${inp} w-full`} />
           {/* Type prérempli par l'onglet : Boissons crée une fiche Bar, Plats une fiche Plat. */}
           <select name="type" defaultValue={boissons ? "BAR" : "PLAT"} className={inp} aria-label="Type">
             <option value="PLAT">Plat</option>

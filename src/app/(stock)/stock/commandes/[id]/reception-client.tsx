@@ -3,9 +3,14 @@
 import { useState, useTransition } from "react";
 import { receptionnerBonCommande } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
+import { ChampNombre } from "@/components/champ-nombre";
+import { versSaisie } from "@/lib/nombre";
 
 type L = { id: string; designation: string; quantite: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
+
+/** Quantité de la base (« 2.125 », notation anglaise) → texte de saisie français (« 2,125 »). */
+const enSaisie = (q: string) => versSaisie(Number(q));
 
 export function ReceptionForm({ bcId, lignes }: { bcId: string; lignes: L[] }) {
   const [isPending, startTransition] = useTransition();
@@ -27,7 +32,7 @@ export function ReceptionForm({ bcId, lignes }: { bcId: string; lignes: L[] }) {
   const toutRecu = () => {
     setErreur(null);
     const fd = new FormData();
-    for (const l of lignes) { fd.append("recu_ligneId", l.id); fd.append("recu_quantite", l.quantite); }
+    for (const l of lignes) { fd.append("recu_ligneId", l.id); fd.append("recu_quantite", enSaisie(l.quantite)); }
     startTransition(async () => {
       const r = await receptionnerBonCommande(bcId, fd);
       if (estErreur(r)) setErreur(r.erreur);
@@ -56,9 +61,9 @@ export function ReceptionForm({ bcId, lignes }: { bcId: string; lignes: L[] }) {
       {lignes.map((l) => (
         <div key={l.id} className="flex items-center gap-2 text-sm">
           <span className="flex-1 truncate">{l.designation}</span>
-          <span className="text-xs text-muted-foreground">commandé {l.quantite}</span>
+          <span className="text-xs text-muted-foreground">commandé {enSaisie(l.quantite)}</span>
           <input type="hidden" name="recu_ligneId" value={l.id} />
-          <input name="recu_quantite" type="number" step="0.001" min="0" defaultValue={l.quantite} className={`${inp} w-24 text-right`} />
+          <ChampNombre name="recu_quantite" defaultValue={enSaisie(l.quantite)} alerteMilliers aria-label={`Quantité reçue : ${l.designation}`} className={`${inp} w-24 text-right`} classeConteneur="w-24" />
         </div>
       ))}
       <div className="flex items-center gap-2 pt-1">

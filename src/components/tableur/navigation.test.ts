@@ -105,9 +105,12 @@ describe("intentionClavier", () => {
 });
 
 describe("lireSaisieNombre — saisie à la française", () => {
-  it("virgule et point", () => {
+  it("la virgule est la SEULE décimale (Sacha, 2026-10-01) ; le point sépare les milliers", () => {
     expect(lireSaisieNombre("2,5")).toEqual({ ok: true, valeur: 2.5 });
-    expect(lireSaisieNombre("2.5")).toEqual({ ok: true, valeur: 2.5 });
+    expect(lireSaisieNombre("2.5")).toEqual({ ok: false, raison: "illisible" });
+    expect(lireSaisieNombre("150.000")).toEqual({ ok: true, valeur: 150000, ambigu: true });
+    expect(lireSaisieNombre("12.500.000")).toEqual({ ok: true, valeur: 12500000 });
+    expect(lireSaisieNombre("1.250,5")).toEqual({ ok: true, valeur: 1250.5 });
     expect(lireSaisieNombre(",5")).toEqual({ ok: true, valeur: 0.5 });
     expect(lireSaisieNombre("3,")).toEqual({ ok: true, valeur: 3 });
     expect(lireSaisieNombre("-1,25")).toEqual({ ok: true, valeur: -1.25 });
@@ -122,12 +125,13 @@ describe("lireSaisieNombre — saisie à la française", () => {
     expect(lireSaisieNombre("12 500 000")).toEqual({ ok: true, valeur: 12500000 });
     for (const s of ["1 5", "2 5", "12 50", "1 2500", "1  250"]) expect(lireSaisieNombre(s), s).toEqual({ ok: false, raison: "illisible" });
   });
-  it("« 1,250 » / « 1.250 » : ambigu — lu décimal et signalé par défaut, refusé sur demande", () => {
+  it("« 1,250 » / « 1.250 » : ambigu — lu selon la règle et signalé par défaut, refusé sur demande", () => {
     for (const s of ["1,250", "1.250", "12,500", "250.000", "-1,250"]) {
       expect(lireSaisieNombre(s), s).toMatchObject({ ok: true, ambigu: true });
       expect(lireSaisieNombre(s, { ambigu: "refuser" }), s).toEqual({ ok: false, raison: "ambigu" });
     }
     expect(lireSaisieNombre("1,250")).toEqual({ ok: true, valeur: 1.25, ambigu: true });
+    expect(lireSaisieNombre("1.250")).toEqual({ ok: true, valeur: 1250, ambigu: true });
     // Pas ambigus : autre nombre de décimales, zéro devant, ou milliers déjà marqués par des espaces.
     for (const [s, v] of [["1,25", 1.25], ["1,2500", 1.25], ["0,250", 0.25], ["1250", 1250], ["1 250,500", 1250.5], ["1234,567", 1234.567]] as const) {
       expect(lireSaisieNombre(s, { ambigu: "refuser" }), s).toEqual({ ok: true, valeur: v });
@@ -138,7 +142,7 @@ describe("lireSaisieNombre — saisie à la française", () => {
     expect(lireSaisieNombre("   ")).toEqual({ ok: true, valeur: null });
   });
   it("invalide : signalé, jamais lu comme zéro", () => {
-    for (const s of ["abc", "2,5,1", "1.250,5", "2..5", "1e3", "0x10", "Infinity", "12a", "-", ",", "5 kg"]) {
+    for (const s of ["abc", "2,5,1", "2.5", "0.125", "1.25", "2..5", "1e3", "0x10", "Infinity", "12a", "-", ",", "5 kg", "1 250.000"]) {
       expect(lireSaisieNombre(s), s).toEqual({ ok: false, raison: "illisible" });
     }
   });
@@ -155,7 +159,7 @@ describe("lireSaisieNombre — saisie à la française", () => {
 describe("decisionSortie — enregistrer seulement ce qui a changé", () => {
   it("même valeur, autre écriture : rien à enregistrer", () => {
     expect(decisionSortie("2,50", 2.5)).toEqual({ type: "inchange" });
-    expect(decisionSortie(" 2.5", 2.5)).toEqual({ type: "inchange" });
+    expect(decisionSortie(" 2,50 ", 2.5)).toEqual({ type: "inchange" });
     expect(decisionSortie("", null)).toEqual({ type: "inchange" });
   });
   it("valeur nouvelle ou case vidée : à enregistrer", () => {
@@ -165,7 +169,8 @@ describe("decisionSortie — enregistrer seulement ce qui a changé", () => {
   });
   it("colonnes entières ou de quantité : « 1,250 » refusé comme ambigu ; ailleurs lu décimal et marqué", () => {
     expect(decisionSortie("1,250", null, { quantite: true })).toMatchObject({ type: "invalide", message: expect.stringMatching(/ambigu \(1,25 ou 1250 \?\)/) });
-    expect(decisionSortie("1.250", null, { entier: true })).toMatchObject({ type: "invalide" });
+    expect(decisionSortie("1.250", null, { entier: true })).toMatchObject({ type: "invalide", message: expect.stringMatching(/ambigu \(1,25 ou 1250 \?\)/) });
+    expect(decisionSortie("2.5", null)).toEqual({ type: "invalide", message: "« 2.5 » n'est pas un nombre — écrivez 2,5 (la virgule est la décimale)." });
     expect(decisionSortie("1,250", null)).toEqual({ type: "enregistrer", valeur: 1.25, ambigu: true });
     // … mais l'écriture même d'une valeur enregistrée (1,125 kg) n'est jamais refusée.
     expect(decisionSortie("1,125", 1.125, { quantite: true })).toEqual({ type: "inchange" });

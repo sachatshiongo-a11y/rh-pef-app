@@ -8,13 +8,21 @@ import { genererMatricule } from "@/lib/matricule";
 import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
+import { decSaisi } from "@/lib/nombre";
 
-function decimalField(formData: FormData, name: string): number {
-  const raw = formData.get(name);
-  return raw ? Number(raw) : 0;
+// Nombre d'un champ du formulaire : lu à la française (« 1 250,5 », « 150.000 »), 0 si vide, erreur
+// lisible si illisible — jamais un zéro silencieux (cf. lib/nombre).
+function decimalField(formData: FormData, name: string, libelle: string): number {
+  return decSaisi(formData.get(name), libelle);
 }
 
 function toEmployeeInput(formData: FormData) {
+  // Règles que le champ numérique natif portait (min / pas entier) : reportées ici, avec un message.
+  const enfantsSaisis = decimalField(formData, "enfants", "Enfants");
+  if (enfantsSaisis < 0 || !Number.isInteger(enfantsSaisis)) throw new Error("Enfants : un nombre entier positif est attendu.");
+  for (const [champ, libelle] of [["heuresParJour", "Heures / jour"], ["heuresHebdomadaires", "Heures / semaine"]] as const) {
+    if (decimalField(formData, champ, libelle) < 0) throw new Error(`${libelle} : une valeur négative n'est pas permise.`);
+  }
   return {
     matricule: String(formData.get("matricule") ?? "").trim(),
     nom: String(formData.get("nom") ?? "").trim(),
@@ -24,18 +32,18 @@ function toEmployeeInput(formData: FormData) {
     secteur: String(formData.get("secteur") ?? ""),
     categorie: String(formData.get("categorie") ?? "BRIGADE") as "BRIGADE" | "BACKOFFICE",
     categorieProfessionnelle: String(formData.get("categorieProfessionnelle") ?? "").trim() || null,
-    salaireMensuel: decimalField(formData, "salaireMensuel"),
-    transportJourCDF: decimalField(formData, "transportJourCDF"),
-    transportMoisCDF: decimalField(formData, "transportMoisCDF"),
-    transportMoisUSD: decimalField(formData, "transportMoisUSD"),
-    cnssMontant: decimalField(formData, "cnssMontant"),
-    enfants: Math.round(decimalField(formData, "enfants")),
+    salaireMensuel: decimalField(formData, "salaireMensuel", "Salaire mensuel"),
+    transportJourCDF: decimalField(formData, "transportJourCDF", "Transport / jour (CDF)"),
+    transportMoisCDF: decimalField(formData, "transportMoisCDF", "Transport / mois (CDF)"),
+    transportMoisUSD: decimalField(formData, "transportMoisUSD", "Transport / mois ($)"),
+    cnssMontant: decimalField(formData, "cnssMontant", "CNSS $"),
+    enfants: Math.round(decimalField(formData, "enfants", "Enfants")),
     type: String(formData.get("type") ?? "NATIONAL") as "NATIONAL" | "EXPATRIE",
     dateEmbauche: new Date(String(formData.get("dateEmbauche"))),
     contrat: String(formData.get("contrat") ?? ""),
-    heuresParJour: decimalField(formData, "heuresParJour") || 8,
-    heuresHebdomadaires: decimalField(formData, "heuresHebdomadaires") || 48,
-    fraisMedicauxMoisCourant: decimalField(formData, "fraisMedicauxMoisCourant"),
+    heuresParJour: decimalField(formData, "heuresParJour", "Heures / jour") || 8,
+    heuresHebdomadaires: decimalField(formData, "heuresHebdomadaires", "Heures / semaine") || 48,
+    fraisMedicauxMoisCourant: decimalField(formData, "fraisMedicauxMoisCourant", "Frais médicaux du mois ($)"),
     idExterneIVMS: String(formData.get("idExterneIVMS") ?? "").trim() || null,
     dateNaissance: String(formData.get("dateNaissance") ?? "").trim()
       ? new Date(String(formData.get("dateNaissance")))
@@ -53,44 +61,49 @@ function toEmployeeInput(formData: FormData) {
 }
 
 export async function creerEmploye(formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  // Une saisie illisible revient sur le formulaire avec son message (les erreurs jetées sont masquées en production).
+  await formulaireLisible("/employes/nouveau", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  const data = toEmployeeInput(formData);
-  // Matricule auto-généré si laissé vide, selon la logique de la catégorie (brigade / back-office).
-  if (!data.matricule) {
-    const existants = await prisma.employee.findMany({
-      where: { categorie: data.categorie },
-      select: { matricule: true },
-    });
-    data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
-  }
+    const data = toEmployeeInput(formData);
+    // Matricule auto-généré si laissé vide, selon la logique de la catégorie (brigade / back-office).
+    if (!data.matricule) {
+      const existants = await prisma.employee.findMany({
+        where: { categorie: data.categorie },
+        select: { matricule: true },
+      });
+      data.matricule = genererMatricule(data.nom, data.categorie, existants.map((e) => e.matricule));
+    }
 
-  const nouvel = await prisma.employee.create({ data });
+    const nouvel = await prisma.employee.create({ data });
 
-  // Checklist d'intégration : copie du modèle d'onboarding pour le nouvel employé.
-  const modeleOnboarding = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
-  if (modeleOnboarding.length > 0) {
-    await prisma.tacheOnboarding.createMany({
-      data: modeleOnboarding.map((m) => ({ employeeId: nouvel.id, libelle: m.libelle, ordre: m.ordre })),
-    });
-  }
+    // Checklist d'intégration : copie du modèle d'onboarding pour le nouvel employé.
+    const modeleOnboarding = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
+    if (modeleOnboarding.length > 0) {
+      await prisma.tacheOnboarding.createMany({
+        data: modeleOnboarding.map((m) => ({ employeeId: nouvel.id, libelle: m.libelle, ordre: m.ordre })),
+      });
+    }
 
-  revalidatePath("/employes");
-  redirect("/employes");
+    revalidatePath("/employes");
+    redirect("/employes");
+  });
 }
 
 export async function modifierEmploye(employeeId: string, formData: FormData) {
-  const user = await verifySession();
-  requireRole(user, ["ADMIN", "MANAGER"]);
+  await formulaireLisible(`/employes/${employeeId}/modifier`, async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN", "MANAGER"]);
 
-  await prisma.employee.update({
-    where: { id: employeeId },
-    data: toEmployeeInput(formData),
+    await prisma.employee.update({
+      where: { id: employeeId },
+      data: toEmployeeInput(formData),
+    });
+
+    revalidatePath("/employes");
+    redirect("/employes");
   });
-
-  revalidatePath("/employes");
-  redirect("/employes");
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   type ArticleDispo, type EtatDispo, type FicheDispo, type ResultatDisponibilite, type StockArticle,
 } from "@/lib/fiches/disponibilite";
 import { formaterNombre } from "@/lib/montant";
+import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 
 /**
  * Article du catalogue, réduit à ce dont la fiche a besoin (prix en texte, pleine précision).
@@ -62,6 +63,60 @@ export type FicheVue = {
   photoUrl: string | null;
   lignes: LigneFiche[];
 };
+
+/**
+ * La fiche telle qu'elle est SAISIE à l'écran : mêmes champs que `FicheVue`, mais chaque nombre est
+ * le texte tapé (« 2,5 », « 1.500 »), à la française. `FicheVue` reste en notation canonique
+ * (« 2.5 ») : c'est la seule que lisent les moteurs (Decimal) et le PDF.
+ */
+export type FicheSaisie = Omit<FicheVue, "nbPortions"> & { nbPortions: string };
+
+/** Texte canonique (« 2.125 », Decimal de la base) → texte de saisie (« 2,125 »). Vide reste vide. */
+const canoniqueVersSaisie = (t: string): string => {
+  if (!t.trim()) return "";
+  const n = Number(t);
+  return Number.isFinite(n) ? versSaisie(n) : t;
+};
+
+/**
+ * Texte de saisie → texte canonique pour les moteurs. Une saisie ILLISIBLE devient « illisible » :
+ * les moteurs la refusent (quantité invalide) au lieu de lire « 2.5 » tel quel — jamais un zéro.
+ */
+const saisieVersCanonique = (t: string): string => {
+  if (!t.trim()) return "";
+  const n = lireNombreSaisi(t);
+  return n === null ? "illisible" : String(n);
+};
+
+/** Fiche enregistrée → fiche de saisie (point de départ du formulaire). */
+export function vueEnSaisie(v: FicheVue): FicheSaisie {
+  return {
+    ...v,
+    nbPortions: String(v.nbPortions),
+    tauxTVA: canoniqueVersSaisie(v.tauxTVA),
+    prixVenteTTC: canoniqueVersSaisie(v.prixVenteTTC),
+    coefficientMargeCible: canoniqueVersSaisie(v.coefficientMargeCible),
+    rendementQuantite: canoniqueVersSaisie(v.rendementQuantite),
+    lignes: v.lignes.map((l) => ({ ...l, quantite: canoniqueVersSaisie(l.quantite) })),
+  };
+}
+
+/**
+ * Fiche de saisie → fiche pour les moteurs. Portions : un ENTIER, sinon NaN (« portions
+ * inexploitables », déjà géré par l'écran et les moteurs).
+ */
+export function vueDepuisSaisie(s: FicheSaisie): FicheVue {
+  const portions = lireNombreSaisi(s.nbPortions);
+  return {
+    ...s,
+    nbPortions: portions !== null && Number.isInteger(portions) ? portions : Number.NaN,
+    tauxTVA: saisieVersCanonique(s.tauxTVA),
+    prixVenteTTC: saisieVersCanonique(s.prixVenteTTC),
+    coefficientMargeCible: saisieVersCanonique(s.coefficientMargeCible),
+    rendementQuantite: saisieVersCanonique(s.rendementQuantite),
+    lignes: s.lignes.map((l) => ({ ...l, quantite: saisieVersCanonique(l.quantite) })),
+  };
+}
 
 /** Libellé d'une ligne : le nom de l'article, celui de la sous-recette, ou un repère de rang. */
 export function nomLigne(

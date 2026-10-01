@@ -5,14 +5,26 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, type CurrentUser } from "@/lib/auth";
 import { joursEnConge, joursDeReposSelonModele } from "@/lib/conges-couverture";
 import { journaliser } from "@/lib/audit";
+import { lireNombreSaisi } from "@/lib/nombre";
 
 /**
  * Écrit (ou vide : 0 / vide) les heures d'un jour. Vider reste une correction de grille ouverte au
  * responsable (arbitrage du 2026-10-01) ; comme ces heures font la paie, chaque changement est
  * JOURNALISÉ avant → après (même règle que les ventes du jour) — une case vidée se retrouve au journal.
  */
+/**
+ * Heures envoyées par l'écran : lues à la française (« 7,5 ») ; une chaîne canonique écrite par le
+ * programme (« 7.5 ») reste lue. Illisible → erreur : jamais un effacement silencieux des heures.
+ */
+function lireHeures(heures: string): number {
+  if (!heures) return 0;
+  const v = lireNombreSaisi(heures) ?? Number(heures);
+  if (Number.isNaN(v)) throw new Error(`Heures « ${heures} » illisibles : écrivez 7,5 pour sept heures et demie.`);
+  return v;
+}
+
 async function appliquerHeures(employeeId: string, date: string, heures: string, userId: string) {
-  const valeur = Number(heures);
+  const valeur = lireHeures(heures);
   const jour = new Date(date);
   const avant = await prisma.overtimeEntry.findUnique({ where: { employeeId_date: { employeeId, date: jour } }, select: { heuresTravaillees: true } });
   const ancienne = avant ? Number(avant.heuresTravaillees) : null;
@@ -61,7 +73,7 @@ export async function saisirHeuresEnLot(
   const [enConge, repos] = await Promise.all([joursEnConge(entrees), joursDeReposSelonModele(entrees)]);
   const ignores: { employeeId: string; date: string }[] = [];
   for (const { employeeId, date, heures } of entrees) {
-    const valeur = Number(heures);
+    const valeur = lireHeures(heures);
     if (heures !== "" && valeur > 0 && (enConge.has(`${employeeId}|${date}`) || repos.has(`${employeeId}|${date}`))) { ignores.push({ employeeId, date }); continue; }
     await appliquerHeures(employeeId, date, heures, user.id);
   }
