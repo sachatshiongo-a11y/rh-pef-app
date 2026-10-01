@@ -10,6 +10,8 @@ import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 import { formaterNombre } from "@/lib/montant";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 
 /** Valeur d'une case numérique à partir du texte reçu du serveur (« 12.5 », « » → null). */
 const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
@@ -37,6 +39,8 @@ export type ArticleRow = {
   stockMinimum: string;
   niveau: NiveauAlerte | null;
   haussePct?: number | null; // % de hausse du dernier prix d'achat vs moyenne précédente (si anormale)
+  /** Une proposition de modification attend la décision de la Direction (« Demandes à valider »). */
+  propositionEnAttente?: boolean;
 };
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
@@ -79,13 +83,18 @@ const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."]
 
 export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, actionsPlus, estDirection = true }: {
   articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte;
-  /** Hors Direction : pas de « Fusionner » — fusionner supprime des articles (règle de Sacha, 2026-10-01). */
+  /**
+   * Direction : les cases s'enregistrent tout de suite. Autre compte : l'Inventaire est en LECTURE
+   * (une modification se PROPOSE depuis la fiche article), et les actions groupées créent une
+   * proposition — règle de Sacha du 2026-09-30.
+   */
   estDirection?: boolean;
   /** Téléphone : boutons de l'en-tête de page (Exporter…) rangés dans le menu « Plus » du bloc du haut. */
   actionsPlus?: ReactNode;
 }) {
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null); // proposition envoyée à la Direction
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
@@ -104,6 +113,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
   const fourNom = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f.nom])), [fournisseurs]);
+  // Une liste d'options pour TOUS les fournisseurs du tableau (lignes, cartes, action groupée, ajout) : on y cherche en tapant.
+  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
 
   // Clic sur un en-tête : croissant → décroissant → retour au groupement par catégorie.
   const trierPar = (col: TriCol) =>
@@ -168,9 +179,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
     return { urgent, appro };
   }, [articles, dom]);
 
+  // Le résultat de l'action est RENDU par `fn` : une erreur s'affiche, une proposition envoyée à la
+  // Direction aussi (en information) — jamais avalés.
   const run = (fn: () => Promise<unknown>) => {
-    setErreur(null);
-    startTransition(async () => { const r = await fn(); if (estErreur(r)) setErreur(r.erreur); });
+    setErreur(null); setInfo(null);
+    startTransition(async () => {
+      const r = await fn();
+      if (estErreur(r)) setErreur(r.erreur);
+      else if (r && typeof r === "object" && "proposition" in r && "message" in r) setInfo(String((r as { message: string }).message));
+    });
   };
   // Stable (useCallback) : les lignes mémoïsées ne se re-rendent plus à chaque rendu du tableau.
   // Renvoie le résultat : une case numérique affiche elle-même l'échec en rouge.
@@ -189,6 +206,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   return (
     <div className="space-y-2 lg:space-y-3">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{info} <Link href="/stock/a-valider" className="font-medium underline">Voir mes demandes</Link></p>}
+      {!estDirection && (
+        <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Les modifications d&apos;articles sont validées par la Direction : ouvrez la fiche d&apos;un article (↗) pour en proposer une. Les actions groupées envoient, elles aussi, une proposition.
+        </p>
+      )}
 
       {/* Bandeau réapprovisionnement : visible en permanence dès qu'un article est bas ; clic = filtre. Sur téléphone, ces deux bandeaux (et « À compléter ») deviennent des pilules à compteur dans la rangée défilante plus bas : la même information, sans la place. */}
       {(compte.urgent > 0 || compte.appro > 0) && (
@@ -335,13 +358,13 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       )}
 
       {/* Correction rapide : le filtre « stock négatif » est actif → remise à 0 en un clic (ajustement tracé). */}
-      {manque === "negatif" && visibles.length > 0 && (
+      {manque === "negatif" && visibles.length > 0 && estDirection && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm">
           <span className="font-medium text-red-800">{visibles.length} article(s) en stock négatif</span>
           <span className="text-xs text-red-700/80">Un mouvement d&apos;ajustement (entrée) sera créé pour revenir à 0.</span>
           <button
             disabled={isPending}
-            onClick={() => run(async () => { await corrigerStocksNegatifs(visibles.map((a) => a.id)); setManque(""); })}
+            onClick={() => run(async () => { const r = await corrigerStocksNegatifs(visibles.map((a) => a.id)); if (!estErreur(r)) setManque(""); return r; })}
             className="ml-auto rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
           >
             Remettre à 0
@@ -357,20 +380,17 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <option value="">Choisir une catégorie…</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
-          <button disabled={isPending || !bulkCat} onClick={() => run(async () => { await categoriserEnMasse([...sel], bulkCat); setSel(new Set()); setBulkCat(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
+          <button disabled={isPending || !bulkCat} onClick={() => run(async () => { const r = await categoriserEnMasse([...sel], bulkCat); if (!estErreur(r)) { setSel(new Set()); setBulkCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
           <span className="text-muted-foreground">· fournisseur :</span>
-          <select value={bulkFour} onChange={(e) => setBulkFour(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
-            <option value="">Choisir un fournisseur…</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
-          <button disabled={isPending || !bulkFour} onClick={() => run(async () => { await definirFournisseurEnMasse([...sel], bulkFour); setSel(new Set()); setBulkFour(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
+          <ChoixRecherche options={optionsFour} value={bulkFour} vide="Choisir un fournisseur…" onChange={setBulkFour} aria-label="Fournisseur de l'action groupée" className="w-52 rounded border border-input bg-background px-2 py-1 text-xs" />
+          <button disabled={isPending || !bulkFour} onClick={() => run(async () => { const r = await definirFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
           <span className="text-muted-foreground">· seuil min :</span>
           <input type="text" inputMode="decimal" autoComplete="off" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" aria-invalid={seuilEnMasse === null && bulkSeuil.trim() !== "" ? true : undefined} className="w-16 rounded border border-input bg-background px-2 py-1 text-xs aria-[invalid=true]:border-destructive" />
-          <button disabled={isPending || seuilEnMasse === null} onClick={() => run(async () => { await definirSeuilEnMasse([...sel], seuilEnMasse!); setSel(new Set()); setBulkSeuil(""); })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Appliquer</button>
-          <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], true); setSel(new Set()); })} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Activer</button>
-          <button disabled={isPending} onClick={() => run(async () => { await basculerActifArticles([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Désactiver</button>
-          <button disabled={isPending} onClick={() => run(async () => { await basculerFicheCommande([...sel], true); setSel(new Set()); })} className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium hover:bg-primary/10 disabled:opacity-50">Mettre sur la fiche commande</button>
-          <button disabled={isPending} onClick={() => run(async () => { await basculerFicheCommande([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Retirer de la fiche commande</button>
+          <button disabled={isPending || seuilEnMasse === null} onClick={() => run(async () => { const r = await definirSeuilEnMasse([...sel], seuilEnMasse!); if (!estErreur(r)) { setSel(new Set()); setBulkSeuil(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerActifArticles([...sel], true); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">{estDirection ? "Activer" : "Proposer l'activation"}</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerActifArticles([...sel], false); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">{estDirection ? "Désactiver" : "Proposer la désactivation"}</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerFicheCommande([...sel], true); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium hover:bg-primary/10 disabled:opacity-50">Mettre sur la fiche commande</button>
+          <button disabled={isPending} onClick={() => run(async () => { const r = await basculerFicheCommande([...sel], false); if (!estErreur(r)) setSel(new Set()); return r; })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Retirer de la fiche commande</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
           {sel.size >= 2 && estDirection && (
             <button disabled={isPending} onClick={() => setFusionKeep([...sel][0])} className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50">Fusionner en 1…</button>
@@ -401,7 +421,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               ))}
             </ul>
             <div className="flex items-center gap-2">
-              <button disabled={isPending || !keepOk} onClick={() => run(async () => { await fusionnerArticles([...sel], keepOk); setSel(new Set()); setFusionKeep(null); })} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50">Fusionner ({selectionnes.length - 1} supprimé{selectionnes.length - 1 > 1 ? "s" : ""})</button>
+              <button disabled={isPending || !keepOk} onClick={() => run(async () => { const r = await fusionnerArticles([...sel], keepOk); if (!estErreur(r)) { setSel(new Set()); setFusionKeep(null); } return r; })} className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50">Fusionner ({selectionnes.length - 1} supprimé{selectionnes.length - 1 > 1 ? "s" : ""})</button>
               <button onClick={() => setFusionKeep(null)} className="text-xs text-muted-foreground underline">Annuler</button>
             </div>
           </div>
@@ -413,7 +433,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       </div>
 
       {ajout && (
-        <form action={(fd) => run(async () => { await creerArticle(fd); setAjout(false); })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
+        <form action={(fd) => run(async () => { const r = await creerArticle(fd); if (!estErreur(r)) setAjout(false); return r; })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
           <input name="designation" placeholder="Désignation *" required className={cellCls} />
           <select name="domaine" defaultValue={lockedDomaine ?? "NOURRITURE"} className={cellCls}>
             <option value="NOURRITURE">Nourriture</option>
@@ -424,15 +444,13 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <option value="">— catégorie —</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
-          <select name="fournisseurId" defaultValue="" className={cellCls}>
-            <option value="">— fournisseur —</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue="" vide="— fournisseur —" aria-label="Fournisseur du nouvel article" className={cellCls} />
           <input name="code" placeholder="Code article (ex. 137)" className={cellCls} />
           <input name="unite" placeholder="Unité (Kg, Pièce…)" className={cellCls} />
           <input name="prixUnitaireUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Prix USD" className={cellCls} />
           <input name="uniteParCarton" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Unités / carton (ex. 24)" className={cellCls} />
-          <input name="quantite" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock initial" className={cellCls} />
+          {/* Stock initial : Direction seulement (ailleurs, il entre par la Liste d'achat ou un comptage). */}
+          {estDirection && <input name="quantite" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock initial" className={cellCls} />}
           <input name="stockMinimum" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock minimum" className={cellCls} />
           <button disabled={isPending} className="col-span-2 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50 md:col-span-4">Créer l&apos;article</button>
         </form>
@@ -449,7 +467,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               </div>
             )}
             <CarteArticle
-              a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save}
+              a={a} categories={categories} optionsFour={optionsFour} selected={sel.has(a.id)} onToggle={toggle} onSave={save} lectureSeule={!estDirection}
               ouvert={ouvert === a.id} onOuvrir={basculerOuvert}
               categorieNom={tri && a.categorieId ? catNom.get(a.categorieId) ?? null : null}
             />
@@ -489,7 +507,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                     </td>
                   </tr>
                 )}
-                <LigneArticle a={a} categories={categories} fournisseurs={fournisseurs} selected={sel.has(a.id)} onToggle={toggle} onSave={save} />
+                <LigneArticle a={a} categories={categories} optionsFour={optionsFour} selected={sel.has(a.id)} onToggle={toggle} onSave={save} lectureSeule={!estDirection} />
               </Fragment>
             ))}
             {visibles.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
@@ -531,15 +549,17 @@ function ThTri({ col, tri, onTri, align, className, title, children }: {
 }
 
 const LigneArticle = memo(function LigneArticle({
-  a, categories, fournisseurs, selected, onToggle, onSave,
+  a, categories, optionsFour, selected, onToggle, onSave, lectureSeule = false,
 }: {
-  a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
+  a: ArticleRow; categories: Cat[]; optionsFour: OptionChoix[];
   selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
+  /** Hors Direction : cases en lecture seule (la modification se propose depuis la fiche). */
+  lectureSeule?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const catsPour = categories.filter((c) => c.domaine === a.domaine);
   const write = (name: string, value: string, prev: string) => {
-    if (value === prev) return;
+    if (lectureSeule || value === prev) return;
     setBusy(true);
     onSave(a.id, name, value).finally(() => setBusy(false));
   };
@@ -547,40 +567,38 @@ const LigneArticle = memo(function LigneArticle({
   return (
     <tr className={`hover:bg-accent/40 ${selected ? "bg-primary/10" : "even:bg-muted/25"} ${busy ? "opacity-60" : ""}`}>
       <td><input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} /></td>
-      <td><input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} w-14 text-center tabular-nums`} placeholder="—" title="Code article" /></td>
+      <td><input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} w-14 text-center tabular-nums`} placeholder="—" title="Code article" /></td>
       <td>
         <div className="flex items-center gap-1">
-          <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 flex-1 font-medium`} title="Modifier le nom de l'article" />
+          <input readOnly={lectureSeule} defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 flex-1 font-medium`} title="Modifier le nom de l'article" />
           {a.haussePct != null && <span title={`Dernier prix d'achat +${Math.round(a.haussePct)}% vs moyenne précédente`} className="shrink-0 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">📈+{Math.round(a.haussePct)}%</span>}
           {a.surFicheCommande && <span title="Sur la fiche Commande journalière" className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">fiche cmd</span>}
+          {a.propositionEnAttente && <BadgeProposition />}
           <Link href={`/stock/catalogue/${a.id}`} title="Ouvrir la fiche article (historique, prix)" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche article">↗</Link>
         </div>
       </td>
-      <td><input defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} w-40`} placeholder="—" title="Nom court (fiche Commande journalière)" aria-label={`Nom court — ${a.designation}`} /></td>
+      <td><input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} w-40`} placeholder="—" title="Nom court (fiche Commande journalière)" aria-label={`Nom court — ${a.designation}`} /></td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
-      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
       <td>
-        <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
+        <select disabled={lectureSeule} defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
           {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
         </select>
       </td>
       <td>
         <div className="flex items-center gap-1">
-          <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} min-w-28 flex-1`}>
-            <option value="">—</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${a.designation}`} className={`${cellCls} min-w-28 flex-1`} />
           {a.fournisseurId && (
             <Link href={`/stock/fournisseurs/${a.fournisseurId}`} title="Ouvrir la fiche fournisseur" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche fournisseur">↗</Link>
           )}
         </div>
       </td>
-      <td><input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
+      <td><input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
       <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
-      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
-      <td><CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
     </tr>
   );
 });
@@ -612,10 +630,12 @@ const TON_RANGEE = { rupture: "border-red-300 bg-red-50/60", bas: "border-amber-
  * enregistrement case par case qu'avant (au blur, `onSave` → `modifierArticle`).
  */
 export const CarteArticle = memo(function CarteArticle({
-  a, categories, fournisseurs, selected, onToggle, onSave, ouvert, onOuvrir, categorieNom,
+  a, categories, optionsFour, selected, onToggle, onSave, ouvert, onOuvrir, categorieNom, lectureSeule = false,
 }: {
-  a: ArticleRow; categories: Cat[]; fournisseurs: Four[];
+  a: ArticleRow; categories: Cat[]; optionsFour: OptionChoix[];
   selected: boolean; onToggle: (id: string) => void; onSave: (id: string, name: string, value: string) => Promise<unknown>;
+  /** Hors Direction : champs en lecture seule (la modification se propose depuis la fiche). */
+  lectureSeule?: boolean;
   ouvert: boolean; onOuvrir: (id: string) => void;
   /** Catégorie à rappeler sous le nom quand la liste n'est pas groupée par catégorie (liste triée). */
   categorieNom?: string | null;
@@ -626,7 +646,7 @@ export const CarteArticle = memo(function CarteArticle({
   useEffect(() => { if (ouvert) racine.current?.scrollIntoView?.({ block: "nearest" }); }, [ouvert]);
   const catsPour = categories.filter((c) => c.domaine === a.domaine);
   const write = (name: string, value: string, prev: string) => {
-    if (value === prev) return;
+    if (lectureSeule || value === prev) return;
     setBusy(true);
     onSave(a.id, name, value).finally(() => setBusy(false));
   };
@@ -657,6 +677,7 @@ export const CarteArticle = memo(function CarteArticle({
               {a.niveau && a.niveau !== "OK" && <span className={`shrink-0 rounded-full px-1.5 py-px font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
               {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
               {a.haussePct != null && <span className="shrink-0 rounded bg-red-100 px-1 py-px font-semibold text-red-700" title="Hausse du prix d'achat">📈+{Math.round(a.haussePct)}%</span>}
+              {a.propositionEnAttente && <BadgeProposition />}
               {sousNom && <span className="truncate">{sousNom}</span>}
             </span>
           </span>
@@ -674,23 +695,23 @@ export const CarteArticle = memo(function CarteArticle({
         <div id={idChamps} className="border-t px-3 pb-3 pt-2">
           <div className="flex flex-wrap items-center gap-2">
             {a.surFicheCommande && <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary" title="Sur la fiche Commande journalière">fiche cmd</span>}
-            <Link href={`/stock/catalogue/${a.id}`} className="ml-auto inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:text-primary/70" aria-label={`Fiche article — ${a.designation}`}>Ouvrir la fiche ↗</Link>
+            <Link href={`/stock/catalogue/${a.id}`} className="ml-auto inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:text-primary/70" aria-label={`Fiche article — ${a.designation}`}>{lectureSeule ? "Proposer une modification ↗" : "Ouvrir la fiche ↗"}</Link>
           </div>
           <label className={champLabel}>Nom
-            <input defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
+            <input readOnly={lectureSeule} defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
           </label>
           <label className={`${champLabel} mt-2`}>Nom court (fiche commande)
-            <input defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${a.designation}`} />
+            <input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${a.designation}`} />
           </label>
           <div className="mt-2 grid grid-cols-2 gap-2 [&>*]:min-w-0">
             <label className={champLabel}>Stock min.
-              <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
             </label>
             <label className={champLabel}>Unité
-              <input defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
+              <input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
             </label>
             <label className={`${champLabel} col-span-2`}>Catégorie
-              <select defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
+              <select disabled={lectureSeule} defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} !py-1.5 ${!a.categorieId ? "border-amber-400" : ""}`}>
                 <option value="">— à classer —</option>
                 {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
               </select>
@@ -701,19 +722,16 @@ export const CarteArticle = memo(function CarteArticle({
                   <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="py-1 text-primary hover:underline">Voir la fiche ↗</Link>
                 )}
               </span>
-              <select defaultValue={a.fournisseurId ?? ""} onChange={(e) => write("fournisseurId", e.target.value, a.fournisseurId ?? "")} className={`${cellCls} !py-1.5`}>
-                <option value="">—</option>
-                {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-              </select>
+              <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${a.designation}`} className={`${cellCls} !py-1.5`} />
             </label>
             <label className={champLabel}>Code article
-              <input defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
+              <input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
             </label>
             <label className={champLabel}>Prix USD
-              <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
             </label>
             <label className={champLabel}>Unités / carton
-              <CelluleNombre groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
             </label>
             <label className={champLabel}>Valeur du stock
               <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
@@ -725,3 +743,8 @@ export const CarteArticle = memo(function CarteArticle({
     </div>
   );
 });
+
+/** Pastille « proposition en attente » (même forme que les autres pastilles de la ligne). */
+function BadgeProposition() {
+  return <span title="Une modification proposée attend la décision de la Direction" className="shrink-0 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">proposition en attente</span>;
+}

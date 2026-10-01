@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import { creerFactureAvecLignes, analyserFacturePDF, type AnalyseFacture } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
@@ -8,6 +8,8 @@ import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur ou du PDF → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
@@ -18,7 +20,7 @@ const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok
  */
 const texteDe = (v: number | null) => (v === null ? "" : String(v));
 
-type Art = { id: string; designation: string; prix: string | null; unite: string | null };
+type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
 type BonLigne = { articleId: string | null; designation: string; unite: string | null; quantite: string; prix: string };
 type Bon = { id: string; numero: string; fournisseurId: string | null; fournisseurNom: string; delaiJours: number | null; lignes: BonLigne[] };
@@ -27,7 +29,10 @@ type Ligne = { articleId: string; designation: string; unite: string; quantite: 
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 const vide = (): Ligne => ({ articleId: "", designation: "", unite: "", quantite: "", prix: "" });
 
-export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null }) {
+export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, estDirection = true }: { articles: Art[]; fournisseurs: Four[]; bons: Bon[]; bcInitial: string | null; estDirection?: boolean }) {
+  // Une liste d'options par écran, partagée par toutes les lignes (recherche par désignation, nom court, code).
+  const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
+  const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const bon0 = bons.find((b) => b.id === bcInitial) ?? null;
   const lignesDeBon = (b: Bon | null): Ligne[] =>
     b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: l.quantite, prix: l.prix })) : [vide(), vide(), vide()];
@@ -206,10 +211,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Fournisseur *</span>
-          <select value={fournisseurId} onChange={(e) => choisirFournisseur(e.target.value)} className={inp}>
-            <option value="">— catalogue —</option>
-            {fournisseurs.map((f) => <option key={f.id} value={f.id}>{f.nom}</option>)}
-          </select>
+          <ChoixRecherche options={optionsFour} value={fournisseurId} vide="— catalogue —" onChange={choisirFournisseur} aria-label="Fournisseur (catalogue)" className={inp} />
           <input type="hidden" name="fournisseurId" value={fournisseurId} />
           <input name="fournisseurNom" value={fournisseurNom} onChange={(e) => setFournisseurNom(e.target.value)} placeholder="Nom fournisseur *" required className={inp} />
         </label>
@@ -225,10 +227,13 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
           <span className="text-muted-foreground">Échéance (auto selon délai)</span>
           <input name="dateEcheance" type="date" value={echeance} onChange={(e) => setEcheance(e.target.value)} className={inp} />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Déjà réglé (USD)</span>
-          <input name="montantRegleUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
-        </label>
+        {/* Un montant déjà réglé est un paiement : Direction seulement (ailleurs, il se demande depuis la fiche). */}
+        {estDirection && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-muted-foreground">Déjà réglé (USD)</span>
+            <input name="montantRegleUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Montant, ex. 12,50" placeholder="0" className={inp} />
+          </label>
+        )}
       </div>
 
       <label className="flex items-start gap-2 rounded-lg border bg-muted/30 p-3 text-sm">
@@ -259,10 +264,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial }:
             {lignes.map((l, i) => (
               <tr key={i} className="border-t">
                 <td className="px-2 py-1">
-                  <select value={l.articleId} onChange={(e) => choisirArticle(i, e.target.value)} className={`${inp} min-w-44`}>
-                    <option value="">— libre —</option>
-                    {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-                  </select>
+                  <ChoixRecherche options={optionsArt} colonne="article" value={l.articleId} vide="— libre —" onChange={(id) => choisirArticle(i, id)} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-44`} />
                   <input type="hidden" name="ligne_articleId" value={l.articleId} />
                 </td>
                 <td className="px-2 py-1"><input name="ligne_designation" value={l.designation} onChange={(e) => maj(i, { designation: e.target.value })} className={`${inp} w-full min-w-40`} placeholder="Désignation" /></td>

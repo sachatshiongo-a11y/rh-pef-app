@@ -5,6 +5,7 @@ import { type ArticleRow } from "./catalogue-table";
 import { CatalogueEcran } from "./catalogue-ecran";
 import type { Prisma } from "@prisma/client";
 import { verifySession } from "@/lib/auth";
+import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string };
@@ -18,7 +19,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const user = await verifySession(); // mis en cache par requête : la page l'a déjà vérifié (exigerPageStock)
-  const [articles, categories, fournisseurs, lignes, entreesPayees] = await Promise.all([
+  const [articles, categories, fournisseurs, lignes, entreesPayees, enAttente] = await Promise.all([
     prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
@@ -33,6 +34,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       where: { type: "ENTREE", factureId: null, montantUSD: { not: null }, ...(domFiltre ? { article: { domaine: domFiltre } } : {}) },
       select: { articleId: true, montantUSD: true, quantite: true, date: true, origine: true },
     }),
+    ciblesEnAttente(),
   ]);
 
   // Pour chaque article, un éventuel % de hausse du dernier achat (badge dans le catalogue).
@@ -56,6 +58,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
       niveau,
       haussePct: haussePct.get(a.id) ?? null,
+      propositionEnAttente: enAttente.articles.has(a.id),
     };
   });
 

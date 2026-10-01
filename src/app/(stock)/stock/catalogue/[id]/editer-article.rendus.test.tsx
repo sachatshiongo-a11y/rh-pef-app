@@ -12,6 +12,7 @@ const appels = vi.hoisted(() => ({ modifier: vi.fn(async (_id: string, _fd: Form
 vi.mock("../actions", () => ({ modifierArticle: appels.modifier }));
 
 const { EditerArticle } = await import("./editer-article");
+import { choisirEnTapant, valeurChoisie } from "@/lib/test/choix-recherche";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -79,7 +80,9 @@ describe("fiche article — bouton Modifier", () => {
     expect(champ<HTMLInputElement>('input[name="code"]').value).toBe("137");
     expect(champ<HTMLInputElement>('input[name="unite"]').value).toBe("Kg");
     expect(champ<HTMLSelectElement>('select[name="categorieId"]').value).toBe("cat1");
-    expect(champ<HTMLSelectElement>('select[name="fournisseurId"]').value).toBe("f1");
+    // Le fournisseur est un champ où l'on tape (plus une liste déroulante) : l'id part dans le même `name`.
+    expect(champ<HTMLInputElement>('input[role="combobox"][aria-label="Fournisseur"]').value).toBe("Marché central");
+    expect(champ<HTMLInputElement>('input[type="hidden"][name="fournisseurId"]').value).toBe("f1");
     // Seules les catégories du domaine de l'article (Nourriture) sont proposées.
     const options = [...champ<HTMLSelectElement>('select[name="categorieId"]').options].map((o) => o.textContent);
     expect(options).toEqual(["— à classer —", "Farines", "Épices"]);
@@ -126,11 +129,8 @@ describe("fiche article — bouton Modifier", () => {
     await cliquer(bouton("Modifier"));
 
     taperTexte(champ<HTMLInputElement>('input[name="designation"]'), "Farine de blé");
-    act(() => {
-      const select = champ<HTMLSelectElement>('select[name="fournisseurId"]');
-      select.value = "f2";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    await choisirEnTapant(champ<HTMLInputElement>('input[role="combobox"][aria-label="Fournisseur"]'), "nord grossiste"); // mots dans le désordre
+    expect(valeurChoisie(champ<HTMLInputElement>('input[role="combobox"][aria-label="Fournisseur"]'))).toBe("f2");
     await taperNombreEtValider(champ<HTMLInputElement>('input[aria-label="Prix unitaire USD"]'), "3,2");
     await taperNombreEtValider(champ<HTMLInputElement>('input[aria-label="Seuil urgent"]'), "5");
 

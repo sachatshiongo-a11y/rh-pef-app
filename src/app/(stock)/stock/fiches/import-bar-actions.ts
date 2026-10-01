@@ -32,7 +32,7 @@ type Lecteur = Pick<Prisma.TransactionClient, "articleStock" | "ficheTechnique">
 
 async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fiches: FicheExistanteBar[] }> {
   const [articles, fiches] = await Promise.all([
-    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
+    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, prixUnitaireUSD: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
     db.ficheTechnique.findMany({
       where: { type: "BAR", estSousRecette: false },
       select: { id: true, nom: true, categorie: true, type: true, estSousRecette: true, actif: true, recette: true, prixVenteTTC: true, photoUrl: true, _count: { select: { ingredients: true } } },
@@ -43,6 +43,7 @@ async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fic
     articles: articles.map((a) => ({
       id: a.id, designation: a.designation, unite: a.unite, prixUnitaireUSD: a.prixUnitaireUSD === null ? null : Number(a.prixUnitaireUSD), domaine: a.domaine,
       contenance: a.contenance === null ? null : a.contenance.toString(), contenanceUnite: a.contenanceUnite,
+      nomCourt: a.nomCourt, code: a.code,
     })),
     fiches: fiches.map((f) => ({
       id: f.id, nom: f.nom, categorie: f.categorie, type: f.type, estSousRecette: f.estSousRecette, actif: f.actif,

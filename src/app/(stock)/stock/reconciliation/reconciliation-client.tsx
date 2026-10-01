@@ -106,7 +106,13 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
     startTransition(async () => {
       const r = await appliquerComptage(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
-      setMsg({ ok: true, texte: "Comptage appliqué : le stock a été ajusté au réel." }); setCle((c) => c + 1);
+      setMsg({
+        ok: true,
+        texte: r.applique
+          ? r.nbEcarts > 0 ? "Comptage appliqué : le stock a été ajusté au réel." : "Comptage archivé : aucun écart, le stock était juste."
+          : `Comptage envoyé à la Direction (${r.nbEcarts} écart${r.nbEcarts > 1 ? "s" : ""}) : le stock sera ajusté quand elle l'aura validé.`,
+      });
+      setCle((c) => c + 1);
     });
   };
 
@@ -119,7 +125,7 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
         <input name="origine" placeholder="Libellé du comptage (ex. Inventaire fin de mois)" className={`${inp} w-full sm:w-auto sm:min-w-64 sm:flex-1`} />
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">
-          {isPending ? "Application…" : "Appliquer le comptage"}
+          {isPending ? "Application…" : estDirection ? "Appliquer le comptage" : "Soumettre le comptage"}
         </button>
       </div>
 

@@ -25,7 +25,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
   domaine?: Domaine;
   q: string;
   alerte?: "URGENT" | "APPRO" | "OK";
-  /** Hors Direction : pas de « Fusionner » (voir CatalogueTable). */
+  /** Hors Direction : Inventaire en lecture, modifications proposées (voir CatalogueTable). */
   estDirection?: boolean;
 }) {
   // Bascule de domaine en conservant recherche et filtre d'alerte.

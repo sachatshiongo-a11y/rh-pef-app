@@ -22,7 +22,14 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   const rows = articles.map((a) => ({ id: a.id, code: a.code, designation: a.designation, categorie: a.categorie?.nom ?? "À classer", theorique: a.stock ? Number(a.stock.quantite) : 0 }));
 
   // Trois derniers comptages appliqués — l'historique complet vit dans Archives.
-  const comptages = await prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 3 });
+  const [comptages, enAttente] = await Promise.all([
+    prisma.sessionComptage.findMany({ orderBy: { createdAt: "desc" }, take: 3 }),
+    // Comptages soumis à la Direction, pas encore décidés (tous pour elle, les siens pour un autre compte).
+    prisma.demandeValidationStock.findMany({
+      where: { nature: "RECONCILIATION", statut: "EN_ATTENTE", ...(estDirection ? {} : { auteurId: user.id }) },
+      orderBy: { createdAt: "desc" }, select: { id: true, resume: true, auteurNom: true, createdAt: true },
+    }),
+  ]);
 
   // Fiche de comptage Excel téléchargeable : génération instantanée (pas de PDF serveur react-pdf,
   // qui saturait Render sur des centaines d'articles).
@@ -36,6 +43,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <p className="mt-1 text-sm text-muted-foreground">
             Saisissez les quantités physiques comptées : les écarts avec le stock théorique génèrent un
             ajustement et le stock est mis au réel. Filtrez pour compter par lot.
+            {!estDirection && " Un comptage avec écart est soumis à la Direction : le stock n'est ajusté qu'après sa validation."}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -66,6 +74,18 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           </summary>
           <div className="border-t p-3"><ImportInventaireClient /></div>
         </details>
+      )}
+
+      {enAttente.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+          <p className="font-semibold text-amber-900">En attente de la Direction ({enAttente.length})</p>
+          <ul className="mt-1 space-y-0.5 text-amber-900">
+            {enAttente.map((d) => (
+              <li key={d.id}>{d.resume} <span className="text-xs text-amber-800/80">— {d.auteurNom}, le {d.createdAt.toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}</span></li>
+            ))}
+          </ul>
+          <Link href="/stock/a-valider" className="mt-1 inline-block text-xs font-medium text-amber-800 underline">{estDirection ? "Valider ou refuser" : "Voir mes demandes"}</Link>
+        </div>
       )}
 
       <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} />

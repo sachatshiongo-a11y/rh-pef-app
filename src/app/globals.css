@@ -226,6 +226,15 @@
   label:has(select) {
     min-width: 0;
   }
+  /* Même règle pour le champ de choix avec recherche, qui remplace un <select> (il a une largeur de
+     champ texte, mais le plancher automatique de sa piste déborde pareil sur téléphone). */
+  input[role="combobox"] {
+    min-width: 0;
+    max-width: 100%;
+  }
+  label:has([role="combobox"]) {
+    min-width: 0;
+  }
 }
 
 /* ---- Fluidité mobile (PWA) ---- */
@@ -325,3 +334,13 @@ textarea,
 :is(.dark, .tamise) :is(.bg-amber-50, .bg-amber-100, .bg-amber-200) { background-color: oklch(0.43 0.08 75); }
 :is(.dark, .tamise) :is(.text-amber-600, .text-amber-700, .text-amber-800, .text-amber-900) { color: oklch(0.87 0.13 75); }
 :is(.dark, .tamise) :is(.border-amber-200, .border-amber-300) { border-color: oklch(0.55 0.09 75); }
+/* Champ de choix avec recherche (components/choix-recherche.tsx) : il remplace un <select> et en
+   garde le chevron. Hors @layer pour l'emporter sur le `px-*` du champ qu'il remplace. */
+.champ-choix {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a7d6c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  background-size: 0.8rem;
+  padding-right: 1.4rem;
+  text-overflow: ellipsis;
+}

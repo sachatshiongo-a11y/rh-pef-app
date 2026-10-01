@@ -7,6 +7,8 @@ import type { Prisma } from "@prisma/client";
 import { conseilLivraison, etatRattachementLivraison } from "@/lib/stock-restaurant";
 import type { ConseilLivraison } from "./mouvements-client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { ChoixRecherche } from "@/components/choix-recherche";
+import { optionsArticles } from "@/lib/recherche-options";
 
 const mvtInclude = {
   article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
@@ -68,7 +70,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "SORTIES") }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "ENTREES") }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } }),
     // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
     prisma.articleResto.findMany({ where: { actif: true, articleStockId: { not: null } }, select: { id: true, designation: true, espace: true, unite: true, articleStockId: true } }),
   ]);
@@ -102,10 +104,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
           <option value="tous">Tous les mois</option>
           {moisOptions.map((o) => <option key={o.val} value={o.val}>{o.label}</option>)}
         </select>
-        <select name="articleId" defaultValue={articleId ?? ""} className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5">
-          <option value="">Tous les produits</option>
-          {articles.map((a) => <option key={a.id} value={a.id}>{a.designation}</option>)}
-        </select>
+        <ChoixRecherche options={optionsArticles(articles)} name="articleId" defaultValue={articleId ?? ""} vide="Tous les produits" aria-label="Produit" className="min-w-56 rounded-md border border-input bg-background px-2 py-1.5" />
         <select name="motif" defaultValue={filtreMotif ?? ""} aria-label="Motif" className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="">Tous les motifs</option>
           {Object.entries(FILTRES_MOTIF).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
@@ -115,7 +114,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         <span className="ml-auto text-xs text-muted-foreground">{nbTotal} mouvement(s)</span>
       </form>
 
-      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
+      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
 
       {nbTotal > PLAFOND && <BandeauPlafond affiches={mouvements.length} total={nbTotal} estDirection={estDirection} />}
 

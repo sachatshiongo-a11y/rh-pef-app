@@ -9,7 +9,7 @@ import { BoutonValider } from "@/components/action-buttons";
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
 /** Formulaire « Enregistrer un paiement / avoir » (total ou partiel, USD ou CDF) — replié derrière un bouton. */
-export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: string; reste: number; taux: number }) {
+export function EnregistrerPaiement({ factureId, reste, taux, estDirection = true }: { factureId: string; reste: number; taux: number; estDirection?: boolean }) {
   const [ouvert, setOuvert] = useState(false);
   const [type, setType] = useState<"PAIEMENT" | "AVOIR">("PAIEMENT");
   const [devise, setDevise] = useState<"USD" | "CDF">("USD");
@@ -29,7 +29,8 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
   };
 
   if (!ouvert) {
-    return <BoutonValider onClick={() => setOuvert(true)}>+ Paiement / Avoir</BoutonValider>;
+    // Hors Direction, le formulaire DEMANDE le règlement (validé ensuite par la Direction).
+    return <BoutonValider onClick={() => setOuvert(true)}>{estDirection ? "+ Paiement / Avoir" : "+ Demander un paiement / avoir"}</BoutonValider>;
   }
 
   const equivalent = devise === "CDF" && taux > 0 && Number(montant) > 0 ? (Number(montant) / taux).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
@@ -68,7 +69,7 @@ export function EnregistrerPaiement({ factureId, reste, taux }: { factureId: str
       <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs text-muted-foreground">{type === "AVOIR" ? "Motif de l'avoir *" : "Note"}
         <input name="note" required={type === "AVOIR"} placeholder={type === "AVOIR" ? "ex. retour marchandise abîmée" : "ex. acompte livraison"} className={inp} />
       </label>
-      <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : "Enregistrer"}</button>
+      <button disabled={isPending} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Enregistrement…" : estDirection ? "Enregistrer" : "Envoyer la demande"}</button>
       <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Annuler</button>
     </form>
   );

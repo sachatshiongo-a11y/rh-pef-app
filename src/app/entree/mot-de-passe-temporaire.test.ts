@@ -38,6 +38,7 @@ vi.mock("@/lib/prisma", () => {
     },
     journalAudit: { createMany: async () => {} },
     bonDeCommande: { count: async () => 0 },
+    demandeValidationStock: { count: async () => 0 }, // compteur « Demandes à valider » du layout Stock
     $queryRaw: async () => [],
     $transaction: async (f: (tx: unknown) => Promise<unknown>) => f(prisma),
   };

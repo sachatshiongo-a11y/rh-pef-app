@@ -7,6 +7,7 @@ import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, MOIS_FR_COURT, MOIS_FR_MAJ as MOIS_FR } from "@/lib/dates-fr";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
@@ -52,7 +53,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     tri === "fournisseur" ? [{ fournisseurNom: "asc" }, { annee: "desc" }, { mois: "desc" }] : [{ annee: "desc" }, { mois: "desc" }, { date: "desc" }];
 
   // KPIs et soldes calculés en SQL (agrégats) : on ne recharge plus TOUTE la table à chaque affichage.
-  const [factures, kpiRows, config] = await Promise.all([
+  const [factures, kpiRows, config, enAttente] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
     prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number; nbTotal: number; nbReglees: number; nbDues: number; nbEchues: number }[]>`
       SELECT COALESCE(SUM("montantUSD"), 0)::float                                              AS total,
@@ -65,6 +66,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
              COUNT(*) FILTER (WHERE statut = 'ECHUE_NON_REGLEE')::int                           AS "nbEchues"
       FROM "stock"."FactureFournisseur"`,
     prisma.config.findUnique({ where: { id: "singleton" } }),
+    ciblesEnAttente(), // factures dont le paiement attend la Direction
   ]);
   const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0, nbTotal: 0, nbReglees: 0, nbDues: 0, nbEchues: 0 };
 
@@ -125,6 +127,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
     montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
     documentUrl: x.documentUrl ?? null,
+    paiementDemande: enAttente.factures.has(x.id),
   });
   // Groupement « fournisseur » : liste plate. Groupement « mois » : accordéon Année → Mois.
   const groupes: Groupe[] = [];

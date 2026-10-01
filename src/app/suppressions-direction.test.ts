@@ -59,6 +59,13 @@ const TECHNIQUES_LIB: Record<string, string> = {
   envoyerPush: "Purge les abonnements push expirés (410) renvoyés par le service.",
   effacerEchecs: "Remet à zéro le compteur d'échecs de connexion d'un compte (anti-force brute).",
   supprimerUtilisateurAuth: "Annule la création d'un compte d'authentification quand la suite a échoué (rien d'existant).",
+  // Demandes à valider de l'espace Stock (lib/validations-stock/demandes.ts) : CibleDemandeStock est le
+  // VERROU « une demande en attente par cible » (clé primaire), libéré quand la demande est décidée,
+  // retirée par son auteur (statut ANNULEE, la demande reste) ou fusionnée. Aucune donnée métier.
+  proposerModifications: "Libère le verrou CibleDemandeStock d'un article dont la proposition fusionnée ne change plus rien.",
+  validerDemande: "Libère le verrou CibleDemandeStock de la demande décidée (action réservée à la Direction : validerDemandes).",
+  refuserDemande: "Libère le verrou CibleDemandeStock de la demande refusée (action réservée à la Direction : refuserDemandes).",
+  retirerDemande: "« Retirer ma demande » : la demande passe ANNULEE (elle reste) et son verrou CibleDemandeStock est libéré.",
   rafraichirPaieDuMois: "Recalcul de la paie : seuls les brouillons SANS historique sont remplacés ; une ligne avec historique est mise à jour en place (voir le test « paie » plus bas).",
 };
 
