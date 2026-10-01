@@ -41,6 +41,11 @@ export function messageNonCalcules(noms: string[]): string {
   return `${noms.join(", ")} ${noms.length > 1 ? "ne sont" : "n'est"} plus dans le calcul de la paie (fiche désactivée ou passage en intérim) : sa ligne ne peut pas être validée. Rechargez la page Paie ; si la ligne reste (déjà validée puis rouverte, elle garde son historique), elle est « hors calcul » : elle ne compte nulle part et la clôture la laisse de côté — pour la payer, réactivez la fiche le temps de valider la paie du mois en cours (une paie d'un mois passé déjà clôturé ne bouge plus).`;
 }
 
+/** Clôture demandée par la RH alors que la Direction n'a pas tout validé (décision du 2026-10-01). */
+export function messageAttenteDirection(n: number): string {
+  return `${n} bulletin${n > 1 ? "s attendent" : " attend"} encore la validation de la Direction : la RH ne clôture qu'une paie entièrement validée.`;
+}
+
 export function messagePaieChangee(noms: string[]): string {
   return `La paie de ${noms.join(", ")} a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant de valider.`;
 }
@@ -184,4 +189,53 @@ export async function controlerLignesAValider(
     throw new ValidationPaieRefuseeError(messagePaieChangee(trier(changees)));
   }
   return new Set(aValider.map((l) => l.id));
+}
+
+// ── Payer (VALIDÉ → PAYÉ) ────────────────────────────────────────────────────────────────────────
+// Depuis le 2026-10-01 la RH paie ce que la Direction a validé. Une ligne validée ne se recalcule
+// pas (STATUTS_FIGES), mais la Direction peut la ROUVRIR, la faire recalculer et la REVALIDER entre
+// l'affichage et le clic : même identifiant, autres montants. Le jeton des montants affichés
+// (paie-jeton.ts) le trahit — la RH ne paie que les montants validés qu'elle a sous les yeux.
+
+export const MESSAGE_PAIEMENT_PERIME =
+  "Un bulletin a changé depuis l'affichage de cette page (rouvert ou revalidé par la Direction) : rechargez la page avant de payer.";
+
+export const MESSAGE_PAIEMENT_SANS_JETON =
+  "Les montants affichés n'ont pas été transmis : rechargez la page avant de payer.";
+
+/**
+ * Verrouille (FOR UPDATE, dans l'ordre des id) les lignes à payer et renvoie celles qui peuvent
+ * l'être : VALIDÉES, et dont le jeton (s'il est fourni) correspond aux montants en base. Un jeton
+ * différent refuse TOUT le paiement (ValidationPaieRefuseeError, rien d'écrit). `jetonObligatoire`
+ * (la RH) : une ligne validée payée sans jeton est refusée — elle n'a pas pu être lue à l'écran.
+ *
+ * Les lignes absentes (brouillon remplacé par un recalcul) ou non validées ne sont PAS payées : en
+ * lot, elles sont ignorées comme avant (la machine à états les refuse) ; seul un paiement de ligne
+ * validée est contrôlé ici. Seul ce jeu d'ids permet à `appliquerTransitionPaie` de payer.
+ */
+export async function controlerLignesAPayer(
+  tx: Prisma.TransactionClient,
+  payrollLineIds: string[],
+  opts: { jetons?: Record<string, string | undefined>; jetonObligatoire?: boolean } = {},
+): Promise<Set<string>> {
+  const ids = [...new Set(payrollLineIds)];
+  if (ids.length === 0) return new Set();
+  await borneAttenteVerrou(tx);
+  // Verrou des lignes : une réouverture concurrente (Direction) attend la fin du paiement, ou
+  // l'inverse — jamais une ligne payée ET rouverte par deux transactions qui se croisent.
+  await tx.$queryRaw`
+    SELECT l."id" FROM "public"."PayrollLine" l
+    WHERE l."id" IN (${Prisma.join(ids)})
+    ORDER BY l."id"
+    FOR UPDATE`;
+  const lignes = await tx.payrollLine.findMany({
+    where: { id: { in: ids }, statutPaiement: "VALIDE" },
+    select: { id: true, salNetUSD: true, salBrutUSD: true, netImposableUSD: true },
+  });
+  const jetons = opts.jetons ?? {};
+  if (opts.jetonObligatoire && lignes.some((l) => !jetons[l.id])) throw new ValidationPaieRefuseeError(MESSAGE_PAIEMENT_SANS_JETON);
+  if (lignes.some((l) => jetons[l.id] !== undefined && jetons[l.id] !== jetonLigne(l))) {
+    throw new ValidationPaieRefuseeError(MESSAGE_PAIEMENT_PERIME);
+  }
+  return new Set(lignes.map((l) => l.id));
 }

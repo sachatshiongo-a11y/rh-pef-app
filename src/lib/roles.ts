@@ -17,7 +17,7 @@ export const ROLE_LIBELLE: Record<Role, string> = {
 
 export const ROLE_DESCRIPTION: Record<Role, string> = {
   ADMIN: "Accès total : RH, paie, paramètres ET Stock & Achats",
-  MANAGER: "Saisit les demandes et vérifie les bulletins, mais ne valide rien",
+  MANAGER: "Saisit les demandes, vérifie les bulletins, paie ceux que la Direction a validés et clôture une paie entièrement validée — ne valide rien",
   VIEWER: "Consultation seule",
   STOCK: "Espace Stock & Achats uniquement (aucun accès RH ni paie)",
   COMPTA: "Espace Exploitation (finance) uniquement",

@@ -7,14 +7,16 @@ import { lignesComptees } from "@/lib/paie-hors-calcul";
 import { verifySession, requireRole } from "@/lib/auth";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { journaliser } from "@/lib/audit";
-import { transitionAutorisee, transitionAutoriseeEnLot, roleRequisPour } from "@/lib/paie-etats";
+import { cloturePeutValider, roleRequisPour, ROLES_CLOTURE, transitionPermise } from "@/lib/paie-etats";
 import { rafraichirPaieDuMois, lignesNonFigees, STATUTS_FIGES } from "@/lib/paie-refresh";
 import { calculerEcheancePret } from "@/lib/prets";
 import { fraisMedicauxARestituer, type TraceValidation } from "@/lib/paie-frais-medicaux";
-import type { ModePaiement, PaymentStatus, Prisma } from "@prisma/client";
+import type { ModePaiement, PaymentStatus, Prisma, Role } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import {
   ATTENTE_VERROU_VALIDATION,
+  messageAttenteDirection,
+  controlerLignesAPayer,
   controlerLignesAValider,
   DELAI_VALIDATION_PAIE,
   messageErreurValidation,
@@ -22,6 +24,7 @@ import {
   verrouillerRunExclusif,
 } from "@/lib/paie-validation";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
+import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH } from "@/lib/paie-notifications";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
@@ -63,7 +66,8 @@ export async function recalculerPaieSiCalculee() {
 /**
  * Cœur d'une transition de la machine à états de paie (En attente → Préparé → Validé → Payé,
  * annulation possible). Enregistre la transition, journalise l'audit, fige un snapshot immuable
- * du bulletin au passage en « Validé ». Retourne false si la transition n'est pas autorisée
+ * du bulletin au passage en « Validé ». Retourne l'état de DÉPART de la ligne (null si la transition
+ * n'est pas autorisée
  * (en lot : on ignore silencieusement les lignes non concernées). S'exécute dans la transaction
  * fournie par l'appelant (unitaire : la sienne ; lot : UNE transaction pour tout le lot — tout ou
  * rien). NE vérifie pas le rôle ni ne revalide — l'appelant s'en charge.
@@ -71,22 +75,31 @@ export async function recalculerPaieSiCalculee() {
  * `controlees` : ids rendus par `controlerLignesAValider` dans CETTE transaction (verrou + recalcul +
  * comparaison au centime). Une ligne PAS_VALIDE absente de ce jeu n'est jamais validée : un appelant
  * qui oublierait le contrôle figerait un montant que personne n'a revérifié.
+ *
+ * `payables` : ids rendus par `controlerLignesAPayer` (verrou + jeton des montants affichés). Une
+ * ligne VALIDÉE absente de ce jeu n'est jamais payée.
+ *
+ * `acteur.role` : revérifié PAR LIGNE (machine à états ET droit du rôle, `transitionPermise`), en plus
+ * du `requireRole` d'entrée — la RH ne paie que du VALIDÉ, ne valide et ne rouvre jamais rien.
  */
 async function appliquerTransitionPaie(
   tx: Prisma.TransactionClient,
   payrollLineId: string,
   versStatut: PaymentStatus,
-  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean; controlees?: Set<string> },
-  userId: string
-): Promise<boolean> {
+  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean; controlees?: Set<string>; payables?: Set<string> },
+  acteur: { id: string; role: Role }
+): Promise<PaymentStatus | null> {
+  const userId = acteur.id;
   const ligne = await tx.payrollLine.findUnique({
     where: { id: payrollLineId },
     include: { employee: true, payrollRun: true },
   });
-  const autorisee = opts.enLot ? transitionAutoriseeEnLot : transitionAutorisee;
-  if (!ligne || !autorisee(ligne.statutPaiement, versStatut)) return false;
+  if (!ligne || !transitionPermise(acteur.role, ligne.statutPaiement, versStatut, { enLot: opts.enLot })) return null;
   if (versStatut === "VALIDE" && ligne.statutPaiement === "PAS_VALIDE" && !opts.controlees?.has(payrollLineId)) {
     throw new Error(`appliquerTransitionPaie : ligne ${payrollLineId} validée sans contrôle du montant (controlerLignesAValider)`);
+  }
+  if (versStatut === "PAYE" && !opts.payables?.has(payrollLineId)) {
+    throw new Error(`appliquerTransitionPaie : ligne ${payrollLineId} payée sans contrôle des montants affichés (controlerLignesAPayer)`);
   }
 
   const deStatut = ligne.statutPaiement;
@@ -222,7 +235,7 @@ async function appliquerTransitionPaie(
     userId,
   });
 
-  return true;
+  return deStatut;
 }
 
 /** Transition d'UNE ligne de paie (depuis un formulaire). */
@@ -235,16 +248,19 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   // Montants que l'écran a montrés (paie-jeton.ts) : une ligne recalculée depuis est refusée.
   const jeton = String(formData.get("jeton") ?? "").trim() || undefined;
 
+  // Payer : Direction ET RH ; valider, rouvrir, annuler un paiement : Direction seule (paie-etats.ts).
   requireRole(user, roleRequisPour(versStatut));
 
   // Valider revérifie le montant (verrou + recalcul du mois + comparaison au centime) : délai du
-  // recalcul, refus renvoyé en message lisible, rien d'écrit.
-  let ok = false;
+  // recalcul, refus renvoyé en message lisible, rien d'écrit. Payer revérifie les montants affichés
+  // (jeton, obligatoire pour la RH).
+  let de: PaymentStatus | null = null;
   let refus: string | null = null;
   try {
-    ok = await prisma.$transaction(async (tx) => {
+    de = await prisma.$transaction(async (tx) => {
       const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton } }) : undefined;
-      return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees }, user.id);
+      const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: user.role !== "ADMIN" }) : undefined;
+      return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees, payables }, user);
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
     refus = messageErreurValidation(e);
@@ -252,7 +268,18 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   }
   // Message lisible via ?erreur= (un throw serait masqué par Next en production).
   if (refus) redirect(`/paie?erreur=${encodeURIComponent(refus)}`);
-  if (!ok) redirect(`/paie?erreur=${encodeURIComponent(`Transition non autorisée vers ${versStatut}.`)}`);
+  if (!de) {
+    redirect(`/paie?erreur=${encodeURIComponent(
+      versStatut === "PAYE"
+        ? "Seul un bulletin validé par la Direction peut être marqué payé : rechargez la page."
+        : `Transition non autorisée vers ${versStatut}.`,
+    )}`);
+  }
+
+  // Après la transaction : la RH apprend ce qui est à payer, la Direction ce que la RH a payé.
+  // (« Validé » depuis « Payé » = paiement annulé, pas une validation : pas de « à payer ».)
+  if (versStatut === "VALIDE" && de === "PAS_VALIDE") await notifierBulletinsValides([payrollLineId], user.id);
+  if (versStatut === "PAYE") await notifierBulletinsPayes([payrollLineId], user);
 
   revalidatePath("/paie");
   revalidatePath("/accueil");
@@ -272,41 +299,55 @@ export const changerStatutEnLot = actionLisible(async (
   jetons?: Record<string, string>,
 ): Promise<number> => {
   const user = await verifySession();
+  // Payer : Direction ET RH ; valider, rouvrir : Direction seule (paie-etats.ts).
   requireRole(user, roleRequisPour(versStatut));
 
   // ATOMIQUE : tout ou rien — un échec au milieu annule TOUT le lot (jamais de paie à moitié
-  // validée). Les lignes dont la transition n'est pas autorisée restent simplement ignorées.
+  // validée). Les lignes dont la transition n'est pas autorisée restent simplement ignorées (une
+  // ligne NON VALIDÉE glissée dans un lot « Marquer payé » n'est jamais payée).
   // Valider revérifie les montants : UN recalcul par mois pour tout le lot, et une seule ligne
-  // changée refuse le lot entier (message lisible via `actionLisible`).
-  let modifiees: number;
+  // changée refuse le lot entier (message lisible via `actionLisible`). Payer revérifie les
+  // montants affichés de chaque ligne validée (jeton, obligatoire pour la RH).
+  const modifiees: string[] = [];
   try {
-    modifiees = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
+      modifiees.length = 0; // une transaction rejouée repart de zéro
       const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds, { jetons }) : undefined;
-      let n = 0;
+      const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, payrollLineIds, { jetons, jetonObligatoire: user.role !== "ADMIN" }) : undefined;
       for (const id of payrollLineIds) {
-        if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees }, user.id)) n++;
+        if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees, payables }, user)) modifiees.push(id);
       }
-      return n;
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
     const refus = messageErreurValidation(e);
     throw refus ? new ValidationPaieRefuseeError(refus) : e;
   }
 
+  // Après la transaction (jamais avant : une notification n'annonce pas un lot annulé).
+  if (versStatut === "VALIDE") await notifierBulletinsValides(modifiees, user.id);
+  if (versStatut === "PAYE") await notifierBulletinsPayes(modifiees, user);
+
   revalidatePath("/paie");
   revalidatePath("/accueil");
   revalidatePath("/a-valider");
-  return modifiees;
+  return modifiees.length;
 });
 
 /**
  * CLÔTURE GLOBALE (§9) : valide d'un coup tous les bulletins « pas validé » du mois.
  * BLOQUÉE s'il reste des tâches à traiter (acompte non traité, contrat à échéance, période
- * d'essai). Tracée à l'audit. Réservée à l'Admin.
+ * d'essai). Tracée à l'audit (chaque transition porte son auteur réel).
+ * Direction ET RH depuis le 2026-10-01 (décision de Sacha) :
+ *  - la Direction : comportement inchangé (valide les « pas validé » comptés, puis ferme la paie) ;
+ *  - la RH : seulement une paie que la Direction a ENTIÈREMENT validée — s'il reste un bulletin
+ *    compté « pas validé », refus lisible et rien d'écrit. Sa clôture ne valide rien : elle ferme la
+ *    paie (PayrollRun « Validé » : pointage et import de présences du mois fermés). Les lignes hors
+ *    calcul sont laissées de côté comme pour la Direction. La Direction en est prévenue.
+ * Ne change PAS de mois (Paramètres > mois en cours : geste distinct, Direction seule).
  */
 export async function cloturerPaie(): Promise<void> {
   const user = await verifySession();
-  requireRole(user, ["ADMIN"]);
+  requireRole(user, ROLES_CLOTURE);
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
 
   const taches = await tachesBloquantesCloture(config.moisCourant, config.anneeCourante);
@@ -327,17 +368,33 @@ export async function cloturerPaie(): Promise<void> {
   // est revérifié (run prise d'emblée en FOR UPDATE : la clôture la modifie ensuite) ; une seule
   // ligne changée refuse la clôture entière.
   let refus: string | null = null;
+  const validees: string[] = [];
+  let horsCalculLaissees = 0;
+  let dejaCloturee = false;
+  const valideEnCloturant = cloturePeutValider(user.role);
   try {
     await prisma.$transaction(async (tx) => {
+      validees.length = 0;
       // Lignes lues APRÈS le verrou de la run : un recalcul (/paie) ne peut plus les remplacer.
       await verrouillerRunExclusif(tx, run.id);
+      dejaCloturee = (await tx.payrollRun.findUniqueOrThrow({ where: { id: run.id }, select: { statut: true } })).statut === "VALIDE";
+      if (!valideEnCloturant) {
+        // RH : toutes les lignes du mois verrouillées (FOR SHARE) AVANT de lire leur état. Une
+        // réouverture en cours (Direction) se termine d'abord et la ligne est lue « pas validé »
+        // (refus) ; une réouverture qui arrive ensuite attend la clôture — jamais une paie fermée
+        // sur un état déjà périmé au moment de la lecture.
+        await tx.$queryRaw`SELECT l."id" FROM "public"."PayrollLine" l WHERE l."payrollRunId" = ${run.id} ORDER BY l."id" FOR SHARE`;
+      }
       // Les lignes HORS CALCUL (ligne rouverte d'un salarié sorti du calcul, paie-hors-calcul.ts) ne
       // comptent nulle part et ne se valident pas : la clôture les laisse de côté, PAS VALIDÉES, au
       // lieu de rester bloquée sur elles (la réinitialisation ne les supprime plus, 2026-10-01).
-      const lignes = await lignesComptees(tx, await tx.payrollLine.findMany({ where: { payrollRunId: run.id, statutPaiement: "PAS_VALIDE" }, select: { id: true, employeeId: true, statutPaiement: true } }));
+      const pasValidees = await tx.payrollLine.findMany({ where: { payrollRunId: run.id, statutPaiement: "PAS_VALIDE" }, select: { id: true, employeeId: true, statutPaiement: true } });
+      const lignes = await lignesComptees(tx, pasValidees);
+      horsCalculLaissees = pasValidees.length - lignes.length;
+      if (!valideEnCloturant && lignes.length > 0) throw new ValidationPaieRefuseeError(messageAttenteDirection(lignes.length));
       const controlees = await controlerLignesAValider(tx, lignes.map((l) => l.id), { verrouRun: "EXCLUSIF" });
       for (const l of lignes) {
-        await appliquerTransitionPaie(tx, l.id, "VALIDE", { controlees }, user.id);
+        if (await appliquerTransitionPaie(tx, l.id, "VALIDE", { controlees }, user)) validees.push(l.id);
       }
       await tx.payrollRun.update({ where: { id: run.id }, data: { statut: "VALIDE" } });
     }, { timeout: DELAI_VALIDATION_PAIE });
@@ -345,7 +402,14 @@ export async function cloturerPaie(): Promise<void> {
     refus = messageErreurValidation(e);
     if (!refus) throw e;
   }
-  if (refus) redirect(`/paie?erreur=${encodeURIComponent(`Clôture annulée (aucun bulletin validé) : ${refus}`)}`);
+  if (refus) {
+    redirect(`/paie?erreur=${encodeURIComponent(valideEnCloturant ? `Clôture annulée (aucun bulletin validé) : ${refus}` : `Clôture refusée : ${refus}`)}`);
+  }
+
+  // Après la transaction, jamais bloquant : la clôture de la Direction valide → la RH apprend ce qui
+  // est à payer ; la RH a fermé la paie → la Direction le sait (une paie déjà close : rien à dire).
+  await notifierBulletinsValides(validees, user.id);
+  if (!valideEnCloturant && !dejaCloturee) await notifierClotureParRH({ payrollRunId: run.id, nom: user.nom, horsCalcul: horsCalculLaissees });
 
   revalidatePath("/paie");
   revalidatePath("/a-valider");

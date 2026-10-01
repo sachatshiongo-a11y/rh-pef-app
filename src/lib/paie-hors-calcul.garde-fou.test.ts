@@ -20,6 +20,7 @@ const LECTEURS_SANS_FILTRE: Record<string, string> = {
   "lib/paie-hors-calcul.ts": "Le module lui-même.",
   "app/(app)/paie/actions.ts": "Actions de paie : la réinitialisation compte les lignes FIGÉES de toute la paie (refus) et le nombre total au journal ; la clôture, elle, filtre (lignesComptees, couvert par le test d'intégration).",
   "lib/paie-validation.ts": "Contrôle de validation : refuse nommément une ligne hors calcul (messageNonCalcules).",
+  "lib/paie-notifications.ts": "Notifications de paie : les lignes précises qui viennent d'être validées/payées, et le nombre de lignes VALIDÉES (une ligne validée compte toujours) — ni total affiché, ni livre, ni export.",
   "lib/signature.ts": "Une ligne précise (empreinte du bulletin signé).",
   "lib/bulletin-salarie.ts": "Le bulletin d'UN salarié (espace salarié).",
   "lib/attestations.ts": "Une ligne précise (attestation de salaire : dernière ligne VALIDE ou PAYE).",

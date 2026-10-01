@@ -47,7 +47,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!estRH(user.role)) redirect("/entree");
   const [badges, notif, moi, salarieActif] = await Promise.all([
     chargerBadges(),
-    chargerNotifications("RH"), // cloche pour tous les utilisateurs RH
+    // Cloche RH : notifications partagées + celles ADRESSÉES à ce compte (paie : « à payer » pour la
+    // RH, « payés » / « clôturée » pour la Direction — 2026-10-01).
+    chargerNotifications("RH", user.id),
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { id: true, photoUrl: true } } } }),
     espaceEmployeActif(),
   ]);

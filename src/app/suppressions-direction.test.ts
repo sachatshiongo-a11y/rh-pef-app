@@ -66,6 +66,11 @@ const TECHNIQUES_LIB: Record<string, string> = {
   validerDemande: "Libère le verrou CibleDemandeStock de la demande décidée (action réservée à la Direction : validerDemandes).",
   refuserDemande: "Libère le verrou CibleDemandeStock de la demande refusée (action réservée à la Direction : refuserDemandes).",
   retirerDemande: "« Retirer ma demande » : la demande passe ANNULEE (elle reste) et son verrou CibleDemandeStock est libéré.",
+  // Paie (2026-10-01) : la cloche, pas la donnée — un rappel « à payer » non lu est remplacé par le
+  // suivant (pas d'empilement) ou retiré quand plus rien n'est à payer.
+  notifierBulletinsValides: "Remplace le rappel « à payer » non lu de la RH par le nouveau (notification, pas la paie).",
+  notifierBulletinsPayes: "Retire le rappel « à payer » non lu de la RH quand plus rien n'est à payer dans le mois.",
+  notifierClotureParRH: "Passe par le même envoi de notifications (remplacement facultatif d'un rappel non lu) ; ne supprime rien de la paie.",
   rafraichirPaieDuMois: "Recalcul de la paie : seuls les brouillons SANS historique sont remplacés ; une ligne avec historique est mise à jour en place (voir le test « paie » plus bas).",
 };
 
