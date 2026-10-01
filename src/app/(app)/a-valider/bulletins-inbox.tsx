@@ -26,7 +26,10 @@ export type BulletinRow = {
   jeton?: string;
 };
 
+// "" = automatique : le moyen de paiement de la fiche de chaque salarié (comme l'écran Paie). Jusqu'au
+// 2026-10-01 un lot payé d'ici enregistrait « Virement » pour tous, quelle que soit la fiche.
 const MODES = [
+  { value: "", label: "Auto (selon la fiche)" },
   { value: "ESPECES", label: "Espèces" },
   { value: "VIREMENT", label: "Virement" },
   { value: "MOBILE_MONEY", label: "Mobile Money" },
@@ -51,7 +54,7 @@ export function BulletinsInbox({
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const { ids: idsSelection, ecartes } = lignesSelectionnees(rows, selection);
   const avisEcartes = messageEcartes(ecartes);
-  const [mode, setMode] = useState("VIREMENT");
+  const [mode, setMode] = useState("");
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -73,7 +76,7 @@ export function BulletinsInbox({
     setErreur(null);
     startTransition(async () => {
       const jetons = Object.fromEntries(rows.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
-      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? (mode as ModePaiement) : null, jetons);
+      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });

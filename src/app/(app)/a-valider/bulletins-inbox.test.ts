@@ -34,3 +34,18 @@ describe("/a-valider : la validation rappelle les avertissements", () => {
     expect(p).toContain("avertissements: lireAvertissements(l.avertissementsPaie),");
   });
 });
+
+describe("/a-valider : le paiement (Direction et RH, 2026-10-01)", () => {
+  const s = src("bulletins-inbox.tsx");
+  it("lot payé : moyen de paiement « Auto (selon la fiche) » par défaut, jamais « Virement » imposé à tous", () => {
+    expect(s).toContain('useState("")');
+    expect(s).toContain('{ value: "", label: "Auto (selon la fiche)" }');
+    expect(s).toContain("((mode || null) as ModePaiement | null)");
+    expect(s).not.toContain('useState("VIREMENT")');
+  });
+  it("la RH voit les bulletins non validés en lecture seule (libellé à la place des cases et boutons)", () => {
+    const p = src("page.tsx");
+    expect(p).toContain('lectureSeule="En attente de validation par la Direction"');
+    expect(s).toMatch(/\{!lectureSeule && <input type="checkbox"/);
+  });
+});

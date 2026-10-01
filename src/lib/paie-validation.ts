@@ -221,8 +221,9 @@ export async function controlerLignesAPayer(
   const ids = [...new Set(payrollLineIds)];
   if (ids.length === 0) return new Set();
   await borneAttenteVerrou(tx);
-  // Verrou des lignes : une réouverture concurrente (Direction) attend la fin du paiement, ou
-  // l'inverse — jamais une ligne payée ET rouverte par deux transactions qui se croisent.
+  // Verrou des lignes : une réouverture concurrente (Direction, qui verrouille aussi ses lignes
+  // avant de les lire : verrouillerLignesPaie) attend la fin du paiement, ou l'inverse — jamais une
+  // ligne payée ET rouverte par deux transactions qui se croisent.
   await tx.$queryRaw`
     SELECT l."id" FROM "public"."PayrollLine" l
     WHERE l."id" IN (${Prisma.join(ids)})
@@ -238,4 +239,17 @@ export async function controlerLignesAPayer(
     throw new ValidationPaieRefuseeError(MESSAGE_PAIEMENT_PERIME);
   }
   return new Set(lignes.map((l) => l.id));
+}
+
+/**
+ * Verrou (FOR UPDATE, dans l'ordre des id, attente bornée) des lignes d'un retour en arrière
+ * (rouvrir) AVANT d'en lire l'état. Relecture du 2026-10-01 : sans lui, une réouverture lisait
+ * « Validé » pendant qu'un paiement concurrent (la RH) s'écrivait, attendait la ligne, puis
+ * l'écrasait en « Pas validé » — bulletin payé redevenu payable, journal faux.
+ */
+export async function verrouillerLignesPaie(tx: Prisma.TransactionClient, payrollLineIds: string[]): Promise<void> {
+  const ids = [...new Set(payrollLineIds)];
+  if (ids.length === 0) return;
+  await borneAttenteVerrou(tx);
+  await tx.$queryRaw`SELECT l."id" FROM "public"."PayrollLine" l WHERE l."id" IN (${Prisma.join(ids)}) ORDER BY l."id" FOR UPDATE`;
 }

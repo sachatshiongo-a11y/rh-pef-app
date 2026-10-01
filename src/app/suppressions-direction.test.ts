@@ -71,6 +71,8 @@ const TECHNIQUES_LIB: Record<string, string> = {
   notifierBulletinsValides: "Remplace le rappel « à payer » non lu de la RH par le nouveau (notification, pas la paie).",
   notifierBulletinsPayes: "Retire le rappel « à payer » non lu de la RH quand plus rien n'est à payer dans le mois.",
   notifierClotureParRH: "Passe par le même envoi de notifications (remplacement facultatif d'un rappel non lu) ; ne supprime rien de la paie.",
+  retirerRappelSiRienAPayer: "Retire le rappel « à payer » non lu de la RH quand la Direction a rouvert tout ce qui restait à payer.",
+  notifierPaiementAnnule: "Passe par le même envoi de notifications (remplacement facultatif d'un rappel non lu) ; ne supprime rien de la paie.",
   rafraichirPaieDuMois: "Recalcul de la paie : seuls les brouillons SANS historique sont remplacés ; une ligne avec historique est mise à jour en place (voir le test « paie » plus bas).",
 };
 

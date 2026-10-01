@@ -46,7 +46,8 @@ export function messageClotureParRH(mois: number, annee: number, nom: string, ho
 /** Sujet « à payer » d'une paie : une seule notification non lue par compte RH (remplacée, pas empilée). */
 export const refAPayer = (payrollRunId: string) => `paie-a-payer:${payrollRunId}`;
 
-const LIEN_A_PAYER = "/a-valider";
+// « Paie » est dans le menu de la RH (onglet « Payer les bulletins ») ; « À valider » ne l'est pas.
+const LIEN_A_PAYER = "/paie";
 const LIEN_PAYES = "/paie";
 
 async function comptesActifs(role: "ADMIN" | "MANAGER", sauf?: string): Promise<string[]> {
@@ -69,7 +70,7 @@ async function notifierComptes(userIds: string[], p: { message: string; lien: st
 async function parPaie(payrollLineIds: string[]) {
   const lignes = await prisma.payrollLine.findMany({
     where: { id: { in: [...new Set(payrollLineIds)] } },
-    select: { payrollRunId: true, salNetUSD: true, transportUSD: true, datePaiement: true, payrollRun: { select: { mois: true, annee: true } } },
+    select: { payrollRunId: true, salNetUSD: true, transportUSD: true, payrollRun: { select: { mois: true, annee: true } } },
   });
   const groupes = new Map<string, typeof lignes>();
   for (const l of lignes) (groupes.get(l.payrollRunId) ?? groupes.set(l.payrollRunId, []).get(l.payrollRunId)!).push(l);
@@ -104,7 +105,7 @@ export async function notifierBulletinsValides(payrollLineIds: string[], auteurI
  * versé). Dans tous les cas, quand plus rien n'est à payer dans le mois, le rappel « à payer » non lu
  * de la RH disparaît (il annoncerait un travail déjà fait).
  */
-export async function notifierBulletinsPayes(payrollLineIds: string[], payeur: { role: string }): Promise<void> {
+export async function notifierBulletinsPayes(payrollLineIds: string[], payeur: { role: string }, datePaiement: Date): Promise<void> {
   if (payrollLineIds.length === 0) return;
   await sansEchec("bulletins payés", async () => {
     const groupes = await parPaie(payrollLineIds);
@@ -112,12 +113,44 @@ export async function notifierBulletinsPayes(payrollLineIds: string[], payeur: {
     for (const [runId, lignes] of groupes) {
       const { mois, annee } = lignes[0].payrollRun;
       if (direction.length > 0) {
-        const date = lignes.reduce((max, l) => (l.datePaiement && l.datePaiement > max ? l.datePaiement : max), lignes[0].datePaiement ?? new Date(0));
+        // Date : l'instant du paiement passé par l'action (celui écrit sur les lignes), jamais relu.
         const total = lignes.reduce((s, l) => s + totalVerseUSD(l), 0);
-        await notifierComptes(direction, { message: messageBulletinsPayes(lignes.length, mois, annee, date, total), lien: LIEN_PAYES, refId: `paie-payes:${runId}` });
+        await notifierComptes(direction, { message: messageBulletinsPayes(lignes.length, mois, annee, datePaiement, total), lien: LIEN_PAYES, refId: `paie-payes:${runId}` });
       }
-      const restants = await prisma.payrollLine.count({ where: { payrollRunId: runId, statutPaiement: "VALIDE" } });
-      if (restants === 0) await prisma.notification.deleteMany({ where: { domaine: "RH", refId: refAPayer(runId), lu: false } });
+      await retirerRappelSansObjet(runId);
+    }
+  });
+}
+
+/** Le rappel « à payer » non lu de la RH disparaît quand plus rien n'est validé à payer dans le mois. */
+async function retirerRappelSansObjet(runId: string) {
+  const restants = await prisma.payrollLine.count({ where: { payrollRunId: runId, statutPaiement: "VALIDE" } });
+  if (restants === 0) await prisma.notification.deleteMany({ where: { domaine: "RH", refId: refAPayer(runId), lu: false } });
+}
+
+/** Après une RÉOUVERTURE (Direction) : un rappel « à payer » devenu sans objet disparaît. */
+export async function retirerRappelSiRienAPayer(payrollLineIds: string[]): Promise<void> {
+  if (payrollLineIds.length === 0) return;
+  await sansEchec("rappel à payer", async () => {
+    for (const [runId] of await parPaie(payrollLineIds)) await retirerRappelSansObjet(runId);
+  });
+}
+
+/** Message à la RH quand la Direction annule un paiement (pur, testé). */
+export function messagePaiementAnnule(n: number, mois: number, annee: number): string {
+  return `Paiement annulé par la Direction : ${pluriel(n, "bulletin")} de ${libelleMoisPaie(mois, annee)} à payer de nouveau`;
+}
+
+/** Après une ANNULATION DE PAIEMENT (Direction) : le bulletin redevient payable, la RH le sait. */
+export async function notifierPaiementAnnule(payrollLineIds: string[], auteurId: string): Promise<void> {
+  if (payrollLineIds.length === 0) return;
+  await sansEchec("paiement annulé", async () => {
+    const rh = await comptesActifs("MANAGER", auteurId);
+    if (rh.length === 0) return;
+    for (const [runId, lignes] of await parPaie(payrollLineIds)) {
+      const { mois, annee } = lignes[0].payrollRun;
+      // Même sujet que le rappel « à payer » : il le remplace, et disparaît quand plus rien n'est à payer.
+      await notifierComptes(rh, { message: messagePaiementAnnule(lignes.length, mois, annee), lien: LIEN_A_PAYER, refId: refAPayer(runId), remplacer: true });
     }
   });
 }

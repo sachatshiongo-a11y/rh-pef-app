@@ -21,10 +21,11 @@ import {
   DELAI_VALIDATION_PAIE,
   messageErreurValidation,
   ValidationPaieRefuseeError,
+  verrouillerLignesPaie,
   verrouillerRunExclusif,
 } from "@/lib/paie-validation";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
-import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH } from "@/lib/paie-notifications";
+import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH, notifierPaiementAnnule, retirerRappelSiRienAPayer } from "@/lib/paie-notifications";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
@@ -86,10 +87,13 @@ async function appliquerTransitionPaie(
   tx: Prisma.TransactionClient,
   payrollLineId: string,
   versStatut: PaymentStatus,
-  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean; controlees?: Set<string>; payables?: Set<string> },
+  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean; controlees?: Set<string>; payables?: Set<string>; maintenant?: Date },
   acteur: { id: string; role: Role }
 ): Promise<PaymentStatus | null> {
   const userId = acteur.id;
+  // La ligne est lue SOUS VERROU : son état ne peut plus changer entre la lecture et l'écriture
+  // (les appelants l'ont déjà verrouillée dans l'ordre des id ; ici, ceinture et bretelles).
+  await tx.$queryRaw`SELECT "id" FROM "public"."PayrollLine" WHERE "id" = ${payrollLineId} FOR UPDATE`;
   const ligne = await tx.payrollLine.findUnique({
     where: { id: payrollLineId },
     include: { employee: true, payrollRun: true },
@@ -111,7 +115,7 @@ async function appliquerTransitionPaie(
     where: { id: payrollLineId },
     data: {
       statutPaiement: versStatut,
-      datePaiement: versStatut === "PAYE" ? new Date() : ligne.datePaiement,
+      datePaiement: versStatut === "PAYE" ? (opts.maintenant ?? new Date()) : ligne.datePaiement,
       modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
       payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
     },
@@ -256,11 +260,13 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   // (jeton, obligatoire pour la RH).
   let de: PaymentStatus | null = null;
   let refus: string | null = null;
+  const maintenant = new Date(); // l'instant du paiement (et de sa notification)
   try {
     de = await prisma.$transaction(async (tx) => {
+      if (versStatut === "PAS_VALIDE") await verrouillerLignesPaie(tx, [payrollLineId]); // attente bornée
       const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton } }) : undefined;
       const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: user.role !== "ADMIN" }) : undefined;
-      return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees, payables }, user);
+      return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees, payables, maintenant }, user);
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
     refus = messageErreurValidation(e);
@@ -269,17 +275,23 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   // Message lisible via ?erreur= (un throw serait masqué par Next en production).
   if (refus) redirect(`/paie?erreur=${encodeURIComponent(refus)}`);
   if (!de) {
+    // Double clic, ou bulletin payé par l'autre acteur entre-temps : le dire, pas « non validé ».
+    const actuel = versStatut === "PAYE" ? (await prisma.payrollLine.findUnique({ where: { id: payrollLineId }, select: { statutPaiement: true } }))?.statutPaiement : null;
     redirect(`/paie?erreur=${encodeURIComponent(
-      versStatut === "PAYE"
-        ? "Seul un bulletin validé par la Direction peut être marqué payé : rechargez la page."
-        : `Transition non autorisée vers ${versStatut}.`,
+      versStatut !== "PAYE"
+        ? `Transition non autorisée vers ${versStatut}.`
+        : actuel === "PAYE"
+          ? "Ce bulletin est déjà payé."
+          : "Seul un bulletin validé par la Direction peut être marqué payé : rechargez la page.",
     )}`);
   }
 
-  // Après la transaction : la RH apprend ce qui est à payer, la Direction ce que la RH a payé.
-  // (« Validé » depuis « Payé » = paiement annulé, pas une validation : pas de « à payer ».)
+  // Après la transaction : la RH apprend ce qui est à payer (ou à payer de nouveau), la Direction ce
+  // que la RH a payé ; un rappel « à payer » devenu sans objet disparaît.
   if (versStatut === "VALIDE" && de === "PAS_VALIDE") await notifierBulletinsValides([payrollLineId], user.id);
-  if (versStatut === "PAYE") await notifierBulletinsPayes([payrollLineId], user);
+  if (versStatut === "VALIDE" && de === "PAYE") await notifierPaiementAnnule([payrollLineId], user.id);
+  if (versStatut === "PAYE") await notifierBulletinsPayes([payrollLineId], user, maintenant);
+  if (versStatut === "PAS_VALIDE") await retirerRappelSiRienAPayer([payrollLineId]);
 
   revalidatePath("/paie");
   revalidatePath("/accueil");
@@ -309,13 +321,17 @@ export const changerStatutEnLot = actionLisible(async (
   // changée refuse le lot entier (message lisible via `actionLisible`). Payer revérifie les
   // montants affichés de chaque ligne validée (jeton, obligatoire pour la RH).
   const modifiees: string[] = [];
+  const maintenant = new Date(); // UN instant de paiement pour tout le lot
   try {
     await prisma.$transaction(async (tx) => {
       modifiees.length = 0; // une transaction rejouée repart de zéro
+      // Rouvrir : les lignes verrouillées dans l'ordre des id AVANT d'être lues (un paiement
+      // concurrent est attendu, jamais écrasé). Valider et payer verrouillent dans leur contrôle.
+      if (versStatut === "PAS_VALIDE") await verrouillerLignesPaie(tx, payrollLineIds);
       const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds, { jetons }) : undefined;
       const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, payrollLineIds, { jetons, jetonObligatoire: user.role !== "ADMIN" }) : undefined;
       for (const id of payrollLineIds) {
-        if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees, payables }, user)) modifiees.push(id);
+        if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees, payables, maintenant }, user)) modifiees.push(id);
       }
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
@@ -324,8 +340,9 @@ export const changerStatutEnLot = actionLisible(async (
   }
 
   // Après la transaction (jamais avant : une notification n'annonce pas un lot annulé).
-  if (versStatut === "VALIDE") await notifierBulletinsValides(modifiees, user.id);
-  if (versStatut === "PAYE") await notifierBulletinsPayes(modifiees, user);
+  if (versStatut === "VALIDE") await notifierBulletinsValides(modifiees, user.id); // en lot : jamais depuis « Payé »
+  if (versStatut === "PAYE") await notifierBulletinsPayes(modifiees, user, maintenant);
+  if (versStatut === "PAS_VALIDE") await retirerRappelSiRienAPayer(modifiees);
 
   revalidatePath("/paie");
   revalidatePath("/accueil");

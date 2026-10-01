@@ -31,9 +31,10 @@ vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error
 vi.mock("@/lib/push", () => ({ envoyerPush: P.push }));
 
 const { calculerPaieDuMois, changerStatutPaie, changerStatutEnLot, cloturerPaie, reinitialiserPaieDuMois } = await import("./actions");
+const { mettreAJourConfig } = await import("../parametres/actions");
 const { jetonLigne } = await import("@/lib/paie-jeton");
 const { MESSAGE_PAIEMENT_PERIME, MESSAGE_PAIEMENT_SANS_JETON, messageAttenteDirection } = await import("@/lib/paie-validation");
-const { messageBulletinsAPayer, messageBulletinsPayes, messageClotureParRH, refAPayer } = await import("@/lib/paie-notifications");
+const { messageBulletinsAPayer, messageBulletinsPayes, messageClotureParRH, messagePaiementAnnule, refAPayer } = await import("@/lib/paie-notifications");
 const { totalVerseUSD } = await import("@/lib/paie-net");
 
 let prisma: PrismaClient;
@@ -42,7 +43,7 @@ let url = "";
 let journee = "";
 let runId = "";
 const comptes = {} as Record<Role, { id: string; nom: string }>;
-const ids = { ada: "", beatrice: "", clarisse: "", dieudonne: "", esther: "", fanny: "" };
+const ids = { ada: "", beatrice: "", clarisse: "", dieudonne: "", esther: "", fanny: "", gaston: "" };
 
 const ROLES: Role[] = ["ADMIN", "MANAGER", "COMPTA", "VIEWER", "STOCK", "EMPLOYE"];
 const AUTRES: Role[] = ["COMPTA", "VIEWER", "STOCK", "EMPLOYE"]; // ni Direction ni RH
@@ -88,6 +89,7 @@ beforeAll(async () => {
   ids.dieudonne = await brigade("DT01-PEF", "Dieudonné Tshala");
   ids.esther = await brigade("EM01-PEF", "Esther Mwamba");
   ids.fanny = await brigade("FL01-PEF", "Fanny Lukusa");
+  ids.gaston = await brigade("GM01-PEF", "Gaston Mbala");
   en("ADMIN");
   await calculerPaieDuMois();
   runId = (await prisma.payrollRun.findUniqueOrThrow({ where: { mois_annee: { mois: 9, annee: 2026 } } })).id;
@@ -112,16 +114,16 @@ describe("valider : la Direction seule", () => {
     const a = await ligne(ids.ada);
     await changerStatutPaie(a.id, fd({ versStatut: "VALIDE", jeton: jetonLigne(a) }));
     expect((await notifsDe("MANAGER")).map((n) => n.message)).toEqual([messageBulletinsAPayer(1, 9, 2026, 1)]);
-    const lot = await Promise.all([ids.beatrice, ids.clarisse, ids.dieudonne].map(ligne));
-    expect(await changerStatutEnLot(lot.map((l) => l.id), "VALIDE", null, Object.fromEntries(lot.map((l) => [l.id, jetonLigne(l)])))).toBe(3);
+    const lot = await Promise.all([ids.beatrice, ids.clarisse, ids.dieudonne, ids.gaston].map(ligne));
+    expect(await changerStatutEnLot(lot.map((l) => l.id), "VALIDE", null, Object.fromEntries(lot.map((l) => [l.id, jetonLigne(l)])))).toBe(4);
     const rh = await notifsDe("MANAGER");
-    expect(rh.map((n) => [n.message, n.lien, n.refId, n.lu])).toEqual([[messageBulletinsAPayer(3, 9, 2026, 4), "/a-valider", refAPayer(runId), false]]);
-    expect(rh[0].message).toBe("3 bulletins de septembre 2026 validés — à payer (4 en attente de paiement)");
+    expect(rh.map((n) => [n.message, n.lien, n.refId, n.lu])).toEqual([[messageBulletinsAPayer(4, 9, 2026, 5), "/paie", refAPayer(runId), false]]);
+    expect(rh[0].message).toBe("4 bulletins de septembre 2026 validés — à payer (5 en attente de paiement)");
     // L'auteur n'est pas notifié de son propre geste ; aucun autre compte non plus.
     for (const role of ROLES.filter((r) => r !== "MANAGER")) expect(await notifsDe(role)).toEqual([]);
-    expect(P.push).toHaveBeenCalledWith([comptes.MANAGER.id], expect.objectContaining({ url: "/a-valider" }));
+    expect(P.push).toHaveBeenCalledWith([comptes.MANAGER.id], expect.objectContaining({ url: "/paie" }));
     // Transitions : la Direction en est l'auteur.
-    expect(await prisma.transitionPaie.findMany({ where: { versStatut: "VALIDE" }, select: { userId: true } })).toEqual(Array(4).fill({ userId: comptes.ADMIN.id }));
+    expect(await prisma.transitionPaie.findMany({ where: { versStatut: "VALIDE" }, select: { userId: true } })).toEqual(Array(5).fill({ userId: comptes.ADMIN.id }));
   });
 });
 
@@ -167,6 +169,15 @@ describe("payer : la Direction ET la RH, depuis « Validé » seulement", () => 
     expect(await prisma.journalAudit.findFirst({ where: { entite: "PayrollLine", entiteId: a.id, nouvelleValeur: "PAYE" }, select: { userId: true } })).toEqual({ userId: comptes.MANAGER.id });
     expect((await notifsDe("ADMIN")).map((n) => n.message)).toEqual([messageBulletinsPayes(1, 9, 2026, apres.datePaiement!, totalVerseUSD(apres))]);
     expect((await notifsDe("ADMIN"))[0].message).toMatch(/^1 bulletin de septembre 2026 payé le \d\d\/\d\d\/2026 — [\d ]+,\d\d \$$/);
+    for (const role of AUTRES) expect(await notifsDe(role)).toEqual([]);
+  });
+
+  it("RH en lot : un jeton vide ou manquant sur UNE ligne refuse tout le lot", async () => {
+    const [b, c] = await Promise.all([ids.beatrice, ids.clarisse].map(ligne));
+    en("MANAGER");
+    expect(await changerStatutEnLot([b.id, c.id], "PAYE", null, { [b.id]: jetonLigne(b), [c.id]: "" })).toEqual({ erreur: MESSAGE_PAIEMENT_SANS_JETON });
+    expect(await changerStatutEnLot([b.id, c.id], "PAYE", null, { [b.id]: jetonLigne(b) })).toEqual({ erreur: MESSAGE_PAIEMENT_SANS_JETON });
+    expect([await statut(ids.beatrice), await statut(ids.clarisse)]).toEqual(["VALIDE", "VALIDE"]);
   });
 
   it("RH en lot : une ligne non validée glissée dans le lot est ignorée, jamais payée", async () => {
@@ -180,8 +191,41 @@ describe("payer : la Direction ET la RH, depuis « Validé » seulement", () => 
     expect(payees.map((l) => [l.payeParId, l.modePaiement])).toEqual([[comptes.MANAGER.id, "VIREMENT"], [comptes.MANAGER.id, "VIREMENT"]]);
     const dir = await notifsDe("ADMIN");
     expect(dir.at(-1)!.message).toBe(messageBulletinsPayes(2, 9, 2026, payees[0].datePaiement!, payees.reduce((s, l) => s + totalVerseUSD(l), 0)));
-    // Il reste Dieudonné à payer : le rappel « à payer » de la RH reste.
+    // Il reste Dieudonné et Gaston à payer : le rappel « à payer » de la RH reste.
     expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId))).toHaveLength(1);
+  });
+
+  it("paiement en cours contre réouverture (Direction) : la réouverture attend, relit « Payé », n'écrase rien", async () => {
+    const g = await ligne(ids.gaston);
+    const avant = await prisma.transitionPaie.count({ where: { payrollLineId: g.id } });
+    const externe = new Client({ connectionString: url });
+    await externe.connect();
+    let reouverture: Promise<unknown> | undefined;
+    try {
+      // Un paiement (la RH) en cours : la ligne est écrite PAYÉE, la transaction pas encore validée.
+      await externe.query("BEGIN");
+      await externe.query(`UPDATE "public"."PayrollLine" SET "statutPaiement" = 'PAYE', "datePaiement" = now(), "payeParId" = $2 WHERE "id" = $1`, [g.id, comptes.MANAGER.id]);
+      let fini = false;
+      en("ADMIN");
+      reouverture = changerStatutPaie(g.id, fd({ versStatut: "PAS_VALIDE" })).then(() => null, (e: unknown) => e).finally(() => { fini = true; });
+      await new Promise((r) => setTimeout(r, 400));
+      expect(fini).toBe(false); // elle attend le verrou de la ligne
+      await externe.query("COMMIT");
+      expect(((await reouverture) as Error).message).toBe(redirection("Transition non autorisée vers PAS_VALIDE."));
+    } finally {
+      await externe.query("ROLLBACK").catch(() => {});
+      await reouverture;
+      await externe.end();
+    }
+    const apres = await ligne(ids.gaston);
+    expect([apres.statutPaiement, apres.payeParId]).toEqual(["PAYE", comptes.MANAGER.id]);
+    expect(await prisma.transitionPaie.count({ where: { payrollLineId: g.id } })).toBe(avant); // journal non faussé
+  });
+
+  it("RH : double clic sur un bulletin déjà payé → « déjà payé », pas « non validé »", async () => {
+    const g = await ligne(ids.gaston);
+    en("MANAGER");
+    await expect(changerStatutPaie(g.id, fd({ versStatut: "PAYE", jeton: jetonLigne(g) }))).rejects.toThrow(redirection("Ce bulletin est déjà payé."));
   });
 
   it("jeton périmé : bulletin rouvert, recalculé et revalidé depuis l'affichage → paiement refusé (unité et lot)", async () => {
@@ -200,10 +244,20 @@ describe("payer : la Direction ET la RH, depuis « Validé » seulement", () => 
     await expect(changerStatutPaie(affiche.id, fd({ versStatut: "PAYE", jeton: jetonAffiche }))).rejects.toThrow(redirection(MESSAGE_PAIEMENT_PERIME));
     expect(await changerStatutEnLot([affiche.id], "PAYE", null, { [affiche.id]: jetonAffiche })).toEqual({ erreur: MESSAGE_PAIEMENT_PERIME });
     expect(await statut(ids.dieudonne)).toBe("VALIDE");
-    // Page rechargée : les montants validés sous les yeux, le paiement passe.
-    expect(await changerStatutEnLot([affiche.id], "PAYE", null, { [affiche.id]: jetonLigne(recalculee) })).toBe(1);
-    // Plus rien à payer dans le mois : le rappel « à payer » non lu de la RH disparaît.
+    // La Direction aussi : un jeton fourni et périmé est refusé.
+    en("ADMIN");
+    expect(await changerStatutEnLot([affiche.id], "PAYE", null, { [affiche.id]: jetonAffiche })).toEqual({ erreur: MESSAGE_PAIEMENT_PERIME });
+    expect(await statut(ids.dieudonne)).toBe("VALIDE");
+  });
+
+  it("Direction : paie sans jeton ; personne n'est notifié ; le rappel « à payer » de la RH disparaît (plus rien à payer)", async () => {
+    const avant = Object.fromEntries(await Promise.all(ROLES.map(async (r) => [r, (await notifsDe(r)).length] as const)));
+    expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId))).toHaveLength(1);
+    en("ADMIN");
+    expect(await changerStatutEnLot([(await ligne(ids.dieudonne)).id], "PAYE")).toBe(1);
+    expect((await ligne(ids.dieudonne)).payeParId).toBe(comptes.ADMIN.id);
     expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId))).toEqual([]);
+    for (const r of ROLES.filter((x) => x !== "MANAGER")) expect(await notifsDe(r), r).toHaveLength(avant[r]);
   });
 });
 
@@ -220,12 +274,12 @@ describe("retours en arrière et réinitialisation : la Direction seule", () => 
     expect(await transitions()).toBe(avant);
   });
 
-  it("ADMIN : annule un paiement à l'unité (pas de « à payer » envoyé pour autant)", async () => {
+  it("ADMIN : annule un paiement à l'unité ; la RH apprend que le bulletin est à payer de nouveau", async () => {
     en("ADMIN");
-    const avantRH = (await notifsDe("MANAGER")).length;
     await changerStatutPaie((await ligne(ids.ada)).id, fd({ versStatut: "VALIDE" }));
     expect(await statut(ids.ada)).toBe("VALIDE");
-    expect(await notifsDe("MANAGER")).toHaveLength(avantRH);
+    expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId)).map((n) => n.message)).toEqual([messagePaiementAnnule(1, 9, 2026)]);
+    expect(messagePaiementAnnule(1, 9, 2026)).toBe("Paiement annulé par la Direction : 1 bulletin de septembre 2026 à payer de nouveau");
   });
 
   it.each([...AUTRES, "MANAGER" as Role])("%s : ne rouvre pas un bulletin validé (unité, lot)", async (role) => {
@@ -242,6 +296,8 @@ describe("retours en arrière et réinitialisation : la Direction seule", () => 
     en("ADMIN");
     expect(await changerStatutEnLot([(await ligne(ids.ada)).id], "PAS_VALIDE")).toBe(1);
     expect(await statut(ids.ada)).toBe("PAS_VALIDE");
+    // Plus rien de validé à payer : le rappel de la RH, devenu sans objet, disparaît.
+    expect((await notifsDe("MANAGER")).filter((n) => n.refId === refAPayer(runId))).toEqual([]);
     expect(await changerStatutEnLot([(await ligne(ids.beatrice)).id], "VALIDE")).toBe(0); // en lot : jamais
     expect(await statut(ids.beatrice)).toBe("PAYE");
     await expect(reinitialiserPaieDuMois()).rejects.toThrow(/REDIRECT \/paie\?erreur=.*valid%C3%A9\(s\)%2Fpay%C3%A9\(s\)/);
@@ -296,7 +352,13 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
     await changerStatutPaie(fanny.id, fd({ versStatut: "VALIDE" }));
   });
 
-  it("RH : paie entièrement validée → fermée sans rien valider ; la Direction est notifiée une fois", async () => {
+  it("RH : paie entièrement validée (une ligne hors calcul laissée de côté) → fermée sans rien valider ; la Direction est notifiée une fois", async () => {
+    // Gaston : paiement annulé, ligne rouverte, puis fiche désactivée → sa ligne est HORS CALCUL.
+    en("ADMIN");
+    const g = await ligne(ids.gaston);
+    await changerStatutPaie(g.id, fd({ versStatut: "VALIDE" }));
+    await changerStatutPaie(g.id, fd({ versStatut: "PAS_VALIDE" }));
+    await prisma.employee.update({ where: { id: ids.gaston }, data: { actif: false } });
     const avant = await transitions();
     const avantDir = (await notifsDe("ADMIN")).length;
     en("MANAGER");
@@ -306,8 +368,10 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
     expect(await prisma.transitionPaie.count({ where: { userId: comptes.MANAGER.id, versStatut: { not: "PAYE" } } })).toBe(0);
     const dir = await notifsDe("ADMIN");
     expect(dir).toHaveLength(avantDir + 1);
-    expect(dir.at(-1)!.message).toBe(messageClotureParRH(9, 2026, "Responsable RH", 0));
-    expect(dir.at(-1)!.message).toBe("Paie de septembre 2026 clôturée par Responsable RH");
+    expect(dir.at(-1)!.message).toBe(messageClotureParRH(9, 2026, "Responsable RH", 1));
+    expect(dir.at(-1)!.message).toBe("Paie de septembre 2026 clôturée par Responsable RH — 1 ligne(s) hors calcul laissée(s) de côté");
+    expect(await statut(ids.gaston)).toBe("PAS_VALIDE"); // laissée de côté, jamais validée
+    for (const role of AUTRES) expect(await notifsDe(role)).toEqual([]);
     // Déjà close : une seconde clôture ne dit rien de plus.
     await cloturerPaie();
     expect(await notifsDe("ADMIN")).toHaveLength(avantDir + 1);
@@ -336,5 +400,18 @@ describe("une notification en échec n'annule jamais un paiement enregistré", (
     expect(await statut(ids.esther)).toBe("PAYE");
     expect(erreur).toHaveBeenCalled();
     erreur.mockRestore();
+  });
+});
+
+describe("changement de mois (Paramètres) : la Direction seule, distinct de la clôture", () => {
+  const config = (mois: string) => fd({ tauxChangeCDF: "2300", moisCourant: mois, anneeCourante: "2026", jourPaie: "30" });
+  it.each([...AUTRES, "MANAGER" as Role])("%s : refusé, le mois ne bouge pas", async (role) => {
+    en(role);
+    await expect(mettreAJourConfig(config("10"))).rejects.toThrow(`REDIRECT /parametres?erreur=${encodeURIComponent(REFUS)}`);
+    expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(9);
+  });
+  it("ADMIN : autorisé (même mois réenregistré)", async () => {
+    en("ADMIN");
+    await expect(mettreAJourConfig(config("9"))).resolves.toBeUndefined();
   });
 });

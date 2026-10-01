@@ -142,7 +142,7 @@ export function PaieBulk({
       const jetons = Object.fromEntries(toutesLignes.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
       const r = await changerStatutEnLot(ids, "PAYE", modeBulk || null, jetons);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
-      if (r < ids.length) setInfo(`${ids.length - r} bulletin(s) non payé(s) : ils ne sont plus validés (rouverts par la Direction entre-temps). Rechargez la page.`);
+      if (r < ids.length) setInfo(`${ids.length - r} bulletin(s) non payé(s) : ils ne sont plus « validé » (rouverts par la Direction ou déjà payés entre-temps). Rechargez la page.`);
       setSelection(new Set());
     });
   }
