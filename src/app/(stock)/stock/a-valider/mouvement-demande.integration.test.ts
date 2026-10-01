@@ -17,10 +17,12 @@ vi.mock("@/lib/prisma", () => ({
 }));
 vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule: () => {}, requireRole: () => {} }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
-vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
+const PUSH = vi.hoisted(() => ({ casser: false }));
+vi.mock("@/lib/push", () => ({ envoyerPush: async () => { if (PUSH.casser) throw new Error("push en panne"); } }));
 
 const { mouvementManuel } = await import("../mouvements/actions");
 const { validerDemandes, refuserDemandes } = await import("./actions");
+const { appliquerComptage } = await import("../reconciliation/actions");
 
 /** Version actuelle des demandes (jeton que l'écran renvoie avec la décision). */
 const v = async (ids: string[]) => Object.fromEntries((await prisma.demandeValidationStock.findMany({ where: { id: { in: ids } }, select: { id: true, updatedAt: true } })).map((x) => [x.id, x.updatedAt.toISOString()]));
@@ -83,6 +85,30 @@ describe("Flux libres : aucune validation, quel que soit le compte", () => {
     expect(await mouvementManuel(mvt({ ...o, lignes: [[riz, 3]] }))).toMatchObject({ demande: false });
     expect(await stock(riz)).toBe(attendu);
     expect(await demandes()).toEqual([]);
+  }, 60_000);
+});
+
+describe("Saisie contrôlée et effets après écriture (chemin libre compris)", () => {
+  it("article inconnu, quantité hors limites ou à 4 décimales, date illisible : refus lisible, rien d'écrit", async () => {
+    const riz = await article("Riz");
+    en("resp");
+    const libre = { type: "SORTIE" as const, categorieSortie: "LIVRAISON_RESTAURANT" };
+    expect(await mouvementManuel(mvt({ ...libre, lignes: [["inexistant", 1]] }))).toMatchObject({ erreur: expect.stringMatching(/Article introuvable/) });
+    expect(await mouvementManuel(mvt({ ...libre, lignes: [[riz, 1e12]] }))).toMatchObject({ erreur: expect.stringMatching(/hors limites/) });
+    expect(await mouvementManuel(mvt({ ...libre, lignes: [[riz, 1.2345]] }))).toMatchObject({ erreur: expect.stringMatching(/3 décimales au plus/) });
+    const f = mvt({ ...libre, lignes: [[riz, 1]] }); f.set("date", "2026-13-45");
+    expect(await mouvementManuel(f)).toMatchObject({ erreur: expect.stringMatching(/Date du mouvement invalide/) });
+    expect(await prisma.mouvementStock.count()).toBe(0);
+    expect(await stock(riz)).toBe(10);
+  }, 60_000);
+
+  it("une alerte qui échoue après une sortie libre ne la fait pas passer pour un échec", async () => {
+    const riz = await article("Riz", 10);
+    PUSH.casser = true;
+    try {
+      en("resp"); expect(await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 9.5]] }))).toMatchObject({ demande: false });
+    } finally { PUSH.casser = false; }
+    expect(await stock(riz)).toBe(0.5);
   }, 60_000);
 });
 
@@ -158,6 +184,28 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     en("resp"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect(await stock(riz)).toBe(10);
+  }, 60_000);
+
+  it("D1 — la Direction ne compte pas en direct un article dont une sortie manuelle attend sa décision", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
+    en("dir");
+    const f = new FormData(); f.append("recon_articleId", riz); f.append("recon_physique", "7"); f.append("recon_explication", "sortie non saisie"); f.set("origine", "Comptage");
+    expect(await appliquerComptage(f)).toMatchObject({ erreur: expect.stringMatching(/« Riz » fait partie d'un mouvement manuel en attente/) });
+    expect(await stock(riz)).toBe(10);
+  }, 60_000);
+
+  it("D1 — un comptage/ajustement intervenu depuis la demande : la sortie n'est pas retranchée une 2e fois (jamais 4 au lieu de 7)", async () => {
+    const riz = await article("Riz", 10);
+    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
+    const [d] = await demandes();
+    // Comptage appliqué par un autre chemin (import d'inventaire…) : stock 7, ajustement tracé.
+    await prisma.mouvementStock.create({ data: { articleId: riz, type: "AJUSTEMENT", quantite: 3, origine: "Inventaire importé" } });
+    await prisma.stock.update({ where: { articleId: riz }, data: { quantite: 7 } });
+    en("dir");
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/comptage ou ajustement a eu lieu depuis la demande sur « Riz »/) }] });
+    expect(await stock(riz)).toBe(7);
+    expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
   }, 60_000);
 
   it("article supprimé entre la demande et la validation : conflit, rien d'écrit", async () => {

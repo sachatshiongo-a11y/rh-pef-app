@@ -16,6 +16,7 @@ import { meilleurArticle } from "@/lib/article-match";
 import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
+import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { Prisma } from "@prisma/client";
 
 
@@ -310,6 +311,8 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   if (pdf instanceof File && pdf.size > 0) documentUrl = await televerserFacturePdf(pdf, fournisseurNom);
 
   const fac = await prisma.$transaction(async (tx) => {
+    // Entrée en stock : lignes de stock verrouillées d'abord, dans un ordre fixe (pas d'interblocage).
+    if (entrerEnStock) await verrouillerStocks(tx, [...new Set(lignes.map((l) => l.articleId).filter((x): x is string => !!x))]);
     const f = await tx.factureFournisseur.create({
       data: {
         fournisseurId,

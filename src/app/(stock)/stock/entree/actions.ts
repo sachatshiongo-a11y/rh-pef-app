@@ -1,5 +1,6 @@
 "use server";
 
+import { verrouillerStocks } from "@/lib/validations-stock/comptage";
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { dec } from "@/lib/nombre";
@@ -140,6 +141,9 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const crees: string[] = [];
   const fournisseursCrees: string[] = [];
   await prisma.$transaction(async (tx) => {
+    // Stocks des articles connus verrouillés d'abord, dans un ordre fixe (pas d'interblocage avec un
+    // comptage ou une validation qui verrouillent les mêmes lignes).
+    await verrouillerStocks(tx, [...new Set(lignes.map((l) => l.articleId).filter(Boolean))]);
     const resoudreFournisseur = async (l: (typeof lignes)[number]): Promise<string | null> => {
       if (l.fournId) return l.fournId;
       if (!l.fournNom) return null;

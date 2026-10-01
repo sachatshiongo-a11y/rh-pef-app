@@ -7,7 +7,7 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { lireMouvementSaisi } from "@/lib/validations-stock/mouvement";
-import { appliquerOuDemanderMouvement } from "@/lib/validations-stock/demandes";
+import { apresCommit, appliquerOuDemanderMouvement } from "@/lib/validations-stock/demandes";
 import { Prisma } from "@prisma/client";
 import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 
@@ -26,7 +26,7 @@ export const mouvementManuel = actionLisible(async (formData: FormData): Promise
   const m = lireMouvementSaisi(formData);
   const r = await appliquerOuDemanderMouvement(user, m);
   if (r.applique) {
-    await journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id });
+    await apresCommit(() => journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id }));
   }
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");

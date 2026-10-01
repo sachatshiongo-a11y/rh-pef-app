@@ -252,7 +252,9 @@ describe("Refus, retrait, conflits, droits", () => {
     expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect(await refuserDemandes([d.id], "je refuse", await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     // Même en appelant le cœur avec un compte non-Direction (défense en profondeur).
-    await expect(validerDemande({ id: U.resp.id, nom: "Jean", role: "STOCK" }, d.id)).rejects.toThrow("Réservé à la Direction.");
+    await expect(validerDemande({ id: U.resp.id, nom: "Jean", role: "STOCK" }, d.id, { version: d.updatedAt.toISOString() })).rejects.toThrow("Réservé à la Direction.");
+    // La Direction elle-même ne décide pas sans version : la règle est dans le cœur, pas seulement dans l'action.
+    await expect(validerDemande({ id: U.dir.id, nom: "Sacha", role: "ADMIN" }, d.id, { version: "" })).rejects.toThrow(/Version de la demande inconnue/);
     // Un salarié avec accès Stock, idem.
     A.user = { id: U.autre.id, role: "EMPLOYE", nom: "Marie", accesStock: true };
     expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });

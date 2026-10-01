@@ -12,6 +12,7 @@ import "server-only";
 //    est un ajout de stock hors flux : hors Direction, une demande à valider.
 
 import type { Prisma } from "@prisma/client";
+import { verrouillerStocks } from "./comptage";
 import { dec } from "@/lib/nombre";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import type { NiveauAlerte } from "@/lib/stock";
@@ -39,6 +40,7 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   const qtes = formData.getAll("quantite").map(dec);
   const dateStr = String(formData.get("date") ?? "").trim();
   const date = dateStr ? new Date(dateStr) : new Date();
+  if (Number.isNaN(date.getTime())) throw new Error("Date du mouvement invalide.");
 
   let categorieSortie: MotifSortie = null;
   let raisonSortie: string | null = null;
@@ -59,6 +61,11 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
     .map((articleId, i) => ({ articleId, quantite: qtes[i] ?? 0 }))
     .filter((l) => l.articleId && l.quantite > 0);
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article + quantité).");
+  // Bornes de la colonne (Decimal(14,3)) : refus lisible à la saisie plutôt qu'une erreur de la base.
+  for (const l of lignes) {
+    if (l.quantite >= 1e11) throw new Error(`Quantité hors limites (${l.quantite}) : vérifiez la saisie.`);
+    if (Math.round(l.quantite * 1000) / 1000 !== l.quantite) throw new Error(`Quantité ${String(l.quantite).replace(".", ",")} : 3 décimales au plus.`);
+  }
   return { type, date, categorieSortie, raisonSortie, origine, retourRestaurant, lignes };
 }
 
@@ -68,6 +75,8 @@ export const estMouvementLibre = (m: Pick<MouvementSaisi, "type" | "categorieSor
 
 /** Écrit les mouvements et met le stock à jour (ENTRÉE incrémente, SORTIE décrémente). */
 export async function ecrireMouvementsTx(tx: Tx, userId: string, m: MouvementSaisi) {
+  // Lignes de stock verrouillées d'abord, dans un ordre fixe : pas d'interblocage avec un comptage.
+  await verrouillerStocks(tx, [...new Set(m.lignes.map((l) => l.articleId))]);
   for (const l of m.lignes) {
     await tx.mouvementStock.create({ data: { articleId: l.articleId, type: m.type, quantite: l.quantite, origine: m.origine, date: m.date, categorieSortie: m.categorieSortie, raisonSortie: m.raisonSortie, creeParId: userId } });
     await tx.stock.upsert({
