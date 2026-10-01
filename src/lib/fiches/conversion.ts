@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import { lireSaisieNombre } from "@/lib/nombre";
 
 // Utilitaire pur de conversion d'unités pour les fiches techniques : aucune dépendance
 // Prisma/base, uniquement des Decimal en pleine précision (jamais de flottant).
@@ -239,7 +240,14 @@ export function contenanceCanonique(c: { quantite: Decimal.Value; unite: string 
  * unité de contenance. Lève un message lisible, jamais une valeur supposée.
  */
 export function lireContenanceSaisie(quantiteBrute: unknown, uniteBrute: unknown): { contenance: string | null; contenanceUnite: UniteContenance | null } {
-  const q = String(quantiteBrute ?? "").trim().replace(",", ".");
+  // Règle commune (2026-10-01) : la saisie se lit À LA FRANÇAISE (« 0,75 », « 1 500 ») ; une valeur
+  // déjà canonique écrite par le programme (« 0.75 », pré-remplissage) reste admise ; une saisie
+  // AMBIGUË (« 1.500 », « 1,500 » : 1,5 ou 1 500 ?) est refusée — un facteur mille dans un coût de
+  // fiche ne se verrait pas.
+  const brut = String(quantiteBrute ?? "").trim();
+  const fr = lireSaisieNombre(brut, { ambigu: "refuser" });
+  if (!fr.ok && fr.raison === "ambigu") throw new Error(`Contenance : « ${brut} » est ambigu — écrivez ${brut.replace(/[.,]/, "")} ou ${brut.replace(".", ",").replace(/0+$/, "").replace(/,$/, "")}.`);
+  const q = fr.ok && fr.valeur !== null ? String(fr.valeur) : brut;
   const u = String(uniteBrute ?? "").trim();
   if (!q && !u) return { contenance: null, contenanceUnite: null };
   const unite = UNITES_CONTENANCE.find((x) => x === u);

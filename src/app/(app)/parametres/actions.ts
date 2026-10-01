@@ -77,6 +77,9 @@ export async function mettreAJourConfig(formData: FormData) {
     // lève une erreur lisible (affichée en tête de page) au lieu de devenir 0.
     const tauxChangeCDF = decSaisi(formData.get("tauxChangeCDF"), "Taux de change");
     if (!(tauxChangeCDF > 0)) throw new Error("Le taux de change doit être un nombre positif (ex. 2 350).");
+    // « 2,350 » est lu 2,35 (la virgule est la décimale) : un dollar à 2,35 FC fausserait toute la
+    // paie en francs. Garde de vraisemblance plutôt qu'une confiance aveugle.
+    if (tauxChangeCDF < 100) throw new Error(`Taux de change de ${String(tauxChangeCDF).replace(".", ",")} FC pour 1 $ : invraisemblable. Pour deux mille trois cent cinquante, écrivez 2350 ou 2.350.`);
     const moisCourant = decSaisi(formData.get("moisCourant"), "Mois en cours");
     if (!Number.isInteger(moisCourant) || moisCourant < 1 || moisCourant > 12) throw new Error("Le mois en cours doit être un entier de 1 à 12.");
     const anneeCourante = decSaisi(formData.get("anneeCourante"), "Année en cours");

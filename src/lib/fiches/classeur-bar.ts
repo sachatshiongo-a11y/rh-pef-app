@@ -6,6 +6,7 @@ import {
 import { rubriqueComparable } from "@/lib/fiches/famille-boisson";
 import { distance, ressemblance } from "@/lib/classeur-ventes";
 import { cleTexte, lireFeuillesXlsx, propre, type CelluleXlsx } from "@/lib/xlsx-leger";
+import { ecrireSaisieNombre } from "@/lib/nombre";
 
 // « Importer les fiches du bar (classeur Excel) » (Fiches techniques → Boissons, Direction) : la
 // Direction dépose son classeur « Fiches techniques du bar » (une feuille par cocktail / mocktail) ;
@@ -534,7 +535,7 @@ export function articleVise(libelle: string, cible: string, articles: ArticleExi
 export function contenanceProposee(article: ArticleExistant): ContenanceChoisie & { lue: boolean } {
   const c = contenanceDansNom(article.designation);
   return {
-    quantite: c ? c.quantite.toString() : "",
+    quantite: c ? ecrireSaisieNombre(Number(c.quantite)) : "", // à la virgule : relu par la saisie française
     unite: c ? c.unite : "cl",
     // Article SANS unité : l'unité de stock n'est JAMAIS supposée (son prix est « 2,86 $ par ? ») —
     // la Direction la choisit, la ligne reste bloquée d'ici là.

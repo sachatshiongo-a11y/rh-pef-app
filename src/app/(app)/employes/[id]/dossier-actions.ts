@@ -38,9 +38,13 @@ export async function terminerContrat(employeeId: string, formData: FormData) {
       if (n < 0) throw new Error(`${libelle} : une valeur négative n'est pas permise.`);
       return n;
     };
-    const joursTravaillesMois = positif("joursTravaillesMois", "Jours de présence");
+    const entier = (n: number, libelle: string) => {
+      if (!Number.isInteger(n)) throw new Error(`${libelle} : un nombre entier de jours est attendu.`);
+      return n;
+    };
+    const joursTravaillesMois = entier(positif("joursTravaillesMois", "Jours de présence"), "Jours de présence");
     const joursCongesNonPris = positif("joursCongesNonPris", "Jours de congés non pris");
-    const preavisJours = positif("preavisJours", "Préavis (jours)");
+    const preavisJours = entier(positif("preavisJours", "Préavis (jours)"), "Préavis (jours)");
     const indemniteLicenciementUSD = positif("indemniteLicenciementUSD", "Indemnité de licenciement");
     const autresUSD = positif("autresUSD", "Autres indemnités");
     const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
@@ -288,7 +292,7 @@ export async function ajouterEvaluation(employeeId: string, formData: FormData) 
     requireRole(user, ["ADMIN", "MANAGER"]);
 
     const note = decSaisiOptionnel(formData.get("note"), "Note");
-    if (note !== null && (note < 0 || note > 100)) throw new Error("Note : entre 0 et 100.");
+    if (note !== null && (note < 0 || note > 100 || !Number.isInteger(note))) throw new Error("Note : un nombre entier entre 0 et 100.");
 
     await prisma.evaluation.create({
       data: {

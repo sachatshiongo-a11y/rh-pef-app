@@ -17,9 +17,16 @@ import {
 } from "@/lib/fiches/classeur-bar";
 import { analyserFichesBar, appliquerImportBar, envoyerPhotoFicheImport, type BilanImportBar } from "./import-bar-actions";
 import { dejaLeger, reduireImage } from "./[id]/reduire-photo";
+import { ChampNombre } from "@/components/champ-nombre";
+import { lireContenanceSaisie } from "@/lib/fiches/conversion";
 
 /** Taille maximale du fichier déposé (le classeur du bar fait 20 Mo, photos comprises). */
 const TAILLE_MAX = 60 * 1024 * 1024;
+
+/** Contenance saisie (à la française) → chaîne canonique pour la conversion ; null si illisible. */
+function contenanceCanoniqueSaisie(q: string): string | null {
+  try { return lireContenanceSaisie(q, "ml").contenance; } catch { return null; }
+}
 
 const CHOIX_VIDE: ChoixImportBar = { fiches: {}, ingredients: {}, contenances: {} };
 
@@ -465,7 +472,7 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
   // Article tel que la conversion le verra : sa contenance en base, sinon celle saisie ici.
   const effectif: UniteArticle | null = vise
     ? requise
-      ? { unite: vise.unite || contenance?.uniteStock || null, contenance: contenanceValideChoisie(contenance, vise) ? contenance.quantite.replace(",", ".") : null, contenanceUnite: contenance?.unite ?? null }
+      ? { unite: vise.unite || contenance?.uniteStock || null, contenance: contenanceValideChoisie(contenance, vise) ? contenanceCanoniqueSaisie(contenance.quantite) : null, contenanceUnite: contenance?.unite ?? null }
       : vise
     : choix.cible === "creer" && p.creation ? { unite: p.creation.unite } : null;
   const libelleCible = (a: UniteArticle) => `${a.unite || "article sans unité"}${a.contenance ? ` de ${formaterNombre(Number(a.contenance))} ${a.contenanceUnite}` : ""}`;
@@ -504,8 +511,8 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
               </>
             )}
             1 {vise.unite || contenance?.uniteStock || "unité"} =
-            <input value={contenance?.quantite ?? ""} inputMode="decimal" onChange={(e) => onContenance(vise.id, { quantite: e.target.value })}
-              className={`${inp} w-16`} aria-label={`Contenance de ${vise.designation}`} />
+            <ChampNombre value={contenance?.quantite ?? ""} onChange={(e) => onContenance(vise.id, { quantite: e.target.value })}
+              alerteMilliers className={`${inp} w-16`} aria-label={`Contenance de ${vise.designation}`} />
             <select value={contenance?.unite ?? "cl"} onChange={(e) => onContenance(vise.id, { unite: e.target.value })} className={inp} aria-label={`Unité de contenance de ${vise.designation}`}>
               {UNITES_CONTENANCE.map((u) => <option key={u} value={u}>{u}</option>)}
             </select>
