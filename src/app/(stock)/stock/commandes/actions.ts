@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
@@ -298,13 +299,22 @@ export async function supprimerBonCommande(id: string, _formData: FormData) {
 
 /** Change le statut d'un bon de commande. */
 export async function changerStatutBonCommande(id: string, formData: FormData) {
-  const user = await garde();
-  const statut = String(formData.get("statut") ?? "") as Statut;
-  if (!STATUTS.includes(statut)) throw new Error("Statut invalide.");
-  await prisma.bonDeCommande.update({ where: { id }, data: { statut } });
-  await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", nouvelleValeur: statut, userId: user.id });
-  revalidatePath("/stock/commandes");
-  revalidatePath(`/stock/commandes/${id}`);
+  await formulaireLisible(`/stock/commandes/${id}`, async () => {
+    const user = await garde();
+    const statut = String(formData.get("statut") ?? "") as Statut;
+    if (!STATUTS.includes(statut)) throw new Error("Statut invalide.");
+    // ANNULER un bon le fait disparaître (archives, rattachement des factures, PDF) ; le REPASSER en
+    // brouillon contourne sa validation par la Direction : l'un et l'autre lui sont réservés
+    // (arbitrage du 2026-10-01). Les corrections de réception (envoyé, reçu…) restent ouvertes.
+    const avant = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id }, select: { statut: true } });
+    if (statut === "ANNULE" || (statut === "BROUILLON" && avant.statut !== "BROUILLON")) {
+      exigerDirectionPourSupprimer(user, "Annuler un bon de commande, ou le repasser en brouillon, est réservé à la Direction.");
+    }
+    await prisma.bonDeCommande.update({ where: { id }, data: { statut } });
+    await journaliser(prisma, { entite: "BonDeCommande", entiteId: id, champ: "statut", ancienneValeur: avant.statut, nouvelleValeur: statut, userId: user.id });
+    revalidatePath("/stock/commandes");
+    revalidatePath(`/stock/commandes/${id}`);
+  });
 }
 
 /**

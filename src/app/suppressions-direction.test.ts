@@ -238,6 +238,75 @@ describe("l'historique de paie ne disparaît jamais hors geste de la Direction",
   });
 });
 
+/**
+ * SUPPRESSIONS « DOUCES » : ce qui fait disparaître sans `delete` (arbitrage du 2026-10-01) —
+ * désactiver une fiche technique, annuler / repasser en brouillon un bon de commande, clôturer ou
+ * résilier un contrat. Chaque action qui ÉCRIT ces champs est soit gardée Direction, soit nommée ici.
+ */
+const ECRITURES_DOUCES: { modele: string; champ: RegExp }[] = [
+  { modele: "ficheTechnique", champ: /\bactif\b/ },
+  { modele: "bonDeCommande", champ: /\bstatut\b/ },
+  { modele: "contrat", champ: /\bstatut\b/ },
+];
+const DOUCES_OUVERTES: Record<string, string> = {
+  "(stock)/stock/commandes/actions.ts#receptionnerBonCommande": "Réception : passe le bon en REÇU / REÇU PARTIEL (le bon reste visible).",
+  "(app)/paie/contrat-actions.ts#transformerContrat": "CDD → CDI : l'ancien passe TRANSFORMÉ, un nouveau est créé, l'historique reste lisible (à trancher : même effet que la clôture « Transformé » d'ajouterContrat).",
+  "(app)/paie/contrat-actions.ts#marquerContratsExpires": "Constat d'échéance : seul un contrat dont la date de fin est passée devient EXPIRÉ.",
+};
+
+/** Texte de l'appel `nom(` … `)` (parenthèses équilibrées), à partir de l'index de son nom. */
+function appelComplet(src: string, i: number): string {
+  const debut = src.indexOf("(", i);
+  let prof = 0;
+  for (let k = debut; k < src.length; k++) {
+    if (src[k] === "(") prof++;
+    else if (src[k] === ")" && --prof === 0) return src.slice(i, k + 1);
+  }
+  return src.slice(i);
+}
+
+/** Exports qui écrivent un champ de suppression douce sans garde Direction. */
+function doucesNonGardees(source: string): string[] {
+  const decls = analyser(source, new Set());
+  const ecritDoux = (corps: string) =>
+    ECRITURES_DOUCES.some(({ modele, champ }) =>
+      [...corps.matchAll(new RegExp(`\\.${modele}\\.(?:update|updateMany|upsert)\\s*\\(`, "g"))].some((m) => champ.test(appelComplet(corps, m.index!))));
+  const locales = decls.filter((d) => !d.exporte);
+  const atteint = (d: Decl, pile = new Set<string>()): boolean => {
+    if (pile.has(d.nom)) return false;
+    pile.add(d.nom);
+    return ecritDoux(d.corps) || locales.some((l) => l.nom !== d.nom && appelle(d.corps, l.nom) && atteint(l, pile));
+  };
+  return decls.filter((d) => d.exporte && !d.garde && atteint(d)).map((d) => d.nom);
+}
+
+describe("suppressions douces (désactiver, annuler, clôturer) : Direction seulement, sauf exceptions nommées", () => {
+  it.each(FICHIERS)("%s", (rel) => {
+    const manquantes = doucesNonGardees(lire(rel)).map((nom) => `${rel}#${nom}`).filter((cle) => !(cle in DOUCES_OUVERTES));
+    expect(manquantes).toEqual([]);
+  });
+  it("liste fermée : chaque exception existe et écrit encore sans garde", () => {
+    for (const cle of Object.keys(DOUCES_OUVERTES)) {
+      const [rel, nom] = cle.split("#");
+      expect(doucesNonGardees(lire(rel)), cle).toContain(nom);
+    }
+  });
+  it("le contrôle voit les trois arbitrages (garde retirée → signalée)", () => {
+    const cas: [string, string, RegExp][] = [
+      ["(stock)/stock/fiches/actions.ts", "modifierFiche", /exigerDirectionPourSupprimer\(user, "Désactiver[^)]*\);/],
+      ["(stock)/stock/commandes/actions.ts", "changerStatutBonCommande", /exigerDirectionPourSupprimer\(user, "Annuler un bon[^)]*\);/],
+      ["(app)/employes/[id]/dossier-actions.ts", "ajouterContrat", /if \(cloturerId\) exigerDirectionPourSupprimer\([^;]*;/],
+    ];
+    for (const [rel, nom, garde] of cas) {
+      const vrai = lire(rel);
+      expect(doucesNonGardees(vrai), nom).not.toContain(nom);
+      const f = vrai.replace(garde, "");
+      expect(f, nom).not.toBe(vrai);
+      expect(doucesNonGardees(f), nom).toContain(nom);
+    }
+  });
+});
+
 describe("le garde-fou des suppressions mord (falsification en mémoire)", () => {
   it("garde Direction retirée d'une vraie action → signalée", () => {
     const vrai = lire("(stock)/stock/fiches/actions.ts");

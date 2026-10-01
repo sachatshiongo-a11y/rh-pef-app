@@ -40,6 +40,7 @@ vi.mock("next/navigation", () => ({
   notFound: () => { throw Object.assign(new Error("NOT_FOUND"), { digest: "NEXT_NOT_FOUND" }); },
 }));
 vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
+vi.mock("@/lib/contrats-notification", () => ({ notifierContratASigner: async () => {}, notifierSiContratARevoir: async () => {} }));
 vi.mock("@/lib/fiches/photo-storage", async (orig) => ({
   ...(await orig<typeof import("@/lib/fiches/photo-storage")>()),
   identifiantsSupabase: () => ({ base: "https://exemple.test", key: "cle-de-test" }),
@@ -64,6 +65,8 @@ const BC = await import("./(stock)/stock/commandes/actions");
 const LEG = await import("./(stock)/stock/legumes/actions");
 const RESTO = await import("./(stock)/stock/restaurant/actions");
 const JOURNAL = await import("./(exploitation)/exploitation/journal/actions");
+const DOSSIER = await import("./(app)/employes/[id]/dossier-actions");
+const HEURES = await import("./(app)/heures-supp/actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -506,5 +509,90 @@ describe("ce qui reste ouvert au responsable (modifications, pas des suppression
       .filter((p) => /\.(ts|tsx)$/.test(p) && !/\.test\./.test(p))
       .filter((p) => /\bemployee\.(delete|deleteMany)\s*\(/.test(fs.readFileSync(p, "utf8")));
     expect(coupables).toEqual([]);
+  });
+});
+
+// ── Arbitrages du 2026-10-01 : ce qui fait DISPARAÎTRE sans supprimer est aussi réservé à la Direction ─
+const ficheFd = (o: Record<string, string>) => fd({ nom: "Carbonara", nbPortions: "1", ...o });
+
+describe("suppressions douces : refusées sans effet hors Direction, permises à la Direction", () => {
+  it("bon de commande : l'annuler, ou repasser un bon envoyé en brouillon", async () => {
+    for (const [depart, vers] of [["BROUILLON", "ANNULE"], ["ENVOYE", "BROUILLON"], ["ENVOYE", "ANNULE"]] as const) {
+      const id = await creerBC();
+      await prisma.bonDeCommande.update({ where: { id }, data: { statut: depart } });
+      for (const compte of NON_DIRECTION) {
+        en(compte);
+        expect(await tenter(() => BC.changerStatutBonCommande(id, fd({ statut: vers }))), `${compte} ${depart}→${vers}`).not.toBeNull();
+        expect((await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } })).statut).toBe(depart);
+      }
+      en("ADMIN");
+      expect(await tenter(() => BC.changerStatutBonCommande(id, fd({ statut: vers })))).toBeNull();
+      expect((await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } })).statut).toBe(vers);
+    }
+  });
+
+  it("bon de commande : les corrections de réception restent ouvertes au compte Stock", async () => {
+    const id = await creerBC();
+    await prisma.bonDeCommande.update({ where: { id }, data: { statut: "ENVOYE" } });
+    en("STOCK");
+    expect(await tenter(() => BC.changerStatutBonCommande(id, fd({ statut: "RECU" })))).toBeNull();
+    expect((await prisma.bonDeCommande.findUniqueOrThrow({ where: { id } })).statut).toBe("RECU");
+  });
+
+  it("nouveau contrat qui CLÔTURE l'ancien : refusé hors Direction (rien n'est créé), ouvert sans clôture", async () => {
+    const e = await creerEmploye();
+    const ancien = await prisma.contrat.create({ data: { employeeId: e, type: "CDD", dateDebut: new Date("2025-01-01"), salaireMensuel: 300, poste: "Commis" } });
+    const formulaire = (cloturer: boolean) => fd({
+      type: "CDI", dateDebut: "2026-10-01", poste: "Commis", salaireMensuel: "350", heuresHebdo: "45",
+      ...(cloturer ? { cloturer: "on", cloturerContratId: ancien.id, statutCloture: "RESILIE" } : {}),
+    });
+    for (const compte of NON_DIRECTION) {
+      en(compte);
+      expect(await tenter(() => DOSSIER.ajouterContrat(e, formulaire(true))), compte).not.toBeNull();
+    }
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("ACTIF");
+    expect(await prisma.contrat.count({ where: { employeeId: e } })).toBe(1);
+    en("MANAGER");
+    expect(await tenter(() => DOSSIER.ajouterContrat(e, formulaire(false)))).toBeNull(); // sans clôture : inchangé
+    expect(await prisma.contrat.count({ where: { employeeId: e } })).toBe(2);
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("ACTIF");
+    en("ADMIN");
+    expect(await tenter(() => DOSSIER.ajouterContrat(e, formulaire(true)))).toBeNull();
+    expect((await prisma.contrat.findUniqueOrThrow({ where: { id: ancien.id } })).statut).toBe("RESILIE");
+  });
+
+  it("fiche technique : la désactiver est réservé à la Direction ; la renommer reste ouvert", async () => {
+    const id = (await prisma.ficheTechnique.create({ data: { nom: unique("Bolognaise"), nbPortions: 1 } })).id;
+    for (const compte of NON_DIRECTION) {
+      en(compte);
+      expect(await tenter(() => FICHES.modifierFiche(id, ficheFd({}))), compte).not.toBeNull(); // case « actif » absente = décochée
+      expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id } })).actif).toBe(true);
+    }
+    en("STOCK");
+    expect(await tenter(() => FICHES.modifierFiche(id, ficheFd({ nom: "Bolognaise maison", actif: "on" })))).toBeNull();
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id } })).nom).toBe("Bolognaise maison");
+    en("ADMIN");
+    expect(await tenter(() => FICHES.modifierFiche(id, ficheFd({})))).toBeNull();
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id } })).actif).toBe(false);
+    en("STOCK"); // la réactiver reste ouvert
+    expect(await tenter(() => FICHES.modifierFiche(id, ficheFd({ actif: "on" })))).toBeNull();
+    expect((await prisma.ficheTechnique.findUniqueOrThrow({ where: { id } })).actif).toBe(true);
+  });
+
+  it("heures : le responsable vide ou met 0 (correction de grille), et chaque changement est journalisé avant → après", async () => {
+    const e = await creerEmploye();
+    await prisma.overtimeEntry.create({ data: { employeeId: e, date: new Date("2026-06-01"), heuresTravaillees: 8 } });
+    await prisma.overtimeEntry.create({ data: { employeeId: e, date: new Date("2026-06-02"), heuresTravaillees: 9 } });
+    en("MANAGER");
+    await HEURES.saisirHeures(e, "2026-06-01", "0");
+    await HEURES.saisirHeuresEnLot([{ employeeId: e, date: "2026-06-02", heures: "" }, { employeeId: e, date: "2026-06-03", heures: "7,5".replace(",", ".") }]);
+    await HEURES.saisirHeures(e, "2026-06-04", ""); // rien à vider : ni écriture, ni journal
+    expect(await prisma.overtimeEntry.count({ where: { employeeId: e } })).toBe(1);
+    const journal = await prisma.journalAudit.findMany({ where: { entite: "OvertimeEntry", entiteId: { startsWith: e } }, orderBy: { entiteId: "asc" } });
+    expect(journal.map((j) => [j.entiteId.slice(-10), j.ancienneValeur, j.nouvelleValeur, j.userId])).toEqual([
+      ["2026-06-01", "8", null, ids.MANAGER],
+      ["2026-06-02", "9", null, ids.MANAGER],
+      ["2026-06-03", null, "7.5", ids.MANAGER],
+    ]);
   });
 });

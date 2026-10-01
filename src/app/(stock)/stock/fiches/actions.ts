@@ -67,8 +67,13 @@ export const creerFiche = actionLisible(async (formData: FormData) => {
  */
 export const modifierFiche = actionLisible(async (id: string, formData: FormData) => {
   const user = await garde();
-  const avant = await prisma.ficheTechnique.findUnique({ where: { id }, select: { nom: true } });
+  const avant = await prisma.ficheTechnique.findUnique({ where: { id }, select: { nom: true, actif: true } });
   if (!avant) throw new Error("Fiche introuvable.");
+  // Désactiver une fiche la fait disparaître des listes et des ventes : réservé à la Direction
+  // (arbitrage du 2026-10-01). La réactiver, et toute autre modification, restent ouvertes.
+  if (avant.actif && !coche(formData, "actif")) {
+    exigerDirectionPourSupprimer(user, "Désactiver une fiche technique est réservé à la Direction.");
+  }
 
   const nom = txt(formData, "nom");
   if (!nom) throw new Error("Le nom de la fiche est requis.");

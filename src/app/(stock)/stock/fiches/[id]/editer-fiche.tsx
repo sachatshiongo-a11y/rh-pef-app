@@ -262,10 +262,18 @@ export function EditerFiche({
             <input type="checkbox" name="estSousRecette" checked={ent.estSousRecette} onChange={(e) => setEnt({ ...ent, estSousRecette: e.target.checked })} />
             <span>Sous-recette (entre dans d&apos;autres fiches, pas de prix de vente attendu)</span>
           </label>
-          <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-2">
-            <input type="checkbox" name="actif" checked={ent.actif} onChange={(e) => setEnt({ ...ent, actif: e.target.checked })} />
-            <span>Fiche active</span>
-          </label>
+          {/* Désactiver une fiche active : Direction seulement (le serveur refuse aussi). La réactiver reste ouvert. */}
+          {peutSupprimer || !vue.actif ? (
+            <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-2">
+              <input type="checkbox" name="actif" checked={ent.actif} onChange={(e) => setEnt({ ...ent, actif: e.target.checked })} />
+              <span>Fiche active</span>
+            </label>
+          ) : (
+            <p className="col-span-2 text-xs text-muted-foreground md:col-span-2">
+              <input type="hidden" name="actif" value="on" />
+              Fiche active — sa désactivation est réservée à la Direction.
+            </p>
+          )}
 
           {/* Fiche redevenue « plat » : on conserve le rendement déjà saisi plutôt que de l'effacer
               en silence à l'enregistrement (il redeviendra utile si la fiche repasse sous-recette). */}

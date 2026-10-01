@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole, invaliderProfil } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { chargerParametresPaie } from "@/lib/config";
 import { reconstituerBrutDepuisNet } from "@/lib/payroll";
 import type {
@@ -133,6 +134,10 @@ export async function ajouterContrat(employeeId: string, formData: FormData) {
     if (cloturerId && statutCloture !== "TRANSFORME" && statutCloture !== "RESILIE") {
       throw new Error("Le contrat en cours se clôture en Transformé ou Résilié.");
     }
+    // Clôturer l'ancien contrat le fait sortir (Transformé / Résilié) : même règle que
+    // `terminerContrat` et `rompreContrat`, réservé à la Direction (arbitrage du 2026-10-01). Sans
+    // clôture, le responsable ajoute un contrat comme avant.
+    if (cloturerId) exigerDirectionPourSupprimer(user, "Clôturer ou résilier le contrat en cours est réservé à la Direction : ajoutez le contrat sans cocher la clôture.");
 
     const cree = await prisma.$transaction(async (tx) => {
       if (cloturerId) {
