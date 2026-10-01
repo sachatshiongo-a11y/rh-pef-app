@@ -34,7 +34,7 @@ import { labelCategoriePro } from "@/lib/categorie-professionnelle";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { chargerSignatures, etatSignature, type EtatSignature } from "@/lib/signature";
 import { classerContrats, type Classement } from "@/lib/contrats-classement";
-import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { jourKinshasa, jourCivilKinshasa, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { EtatSignatureLecture } from "@/components/etat-signature-lecture";
 import { faireSignerDocument } from "../../signature-actions";
@@ -96,8 +96,8 @@ export default async function FicheEmployePage({
     prisma.tacheOnboarding.findMany({ where: { employeeId: id }, orderBy: { ordre: "asc" } }),
   ]);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
+  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
 
   const pretsView = prets.map((p) => {
     const rembourse = p.retenues.reduce((s, r) => s + Number(r.montantUSD), 0);

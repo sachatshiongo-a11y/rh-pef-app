@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { libelleShift } from "./creneaux";
 import { lundiDe } from "@/lib/dates-fr";
+import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 const isoJ = (d: Date) => d.toISOString().slice(0, 10);
 const WD = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -17,15 +18,15 @@ export async function donneesPlanning(sp: URLSearchParams) {
 
   if (moisParam && anneeParam) {
     const mois = Math.min(12, Math.max(1, Number(moisParam) || 1));
-    const annee = Number(anneeParam) || new Date().getUTCFullYear();
+    const annee = Number(anneeParam) || anneeCouranteKinshasa();
     const nb = new Date(Date.UTC(annee, mois, 0)).getUTCDate();
     dates = Array.from({ length: nb }, (_, i) => new Date(Date.UTC(annee, mois - 1, i + 1)));
     titre = "Planning mensuel";
     sousTitre = new Date(Date.UTC(annee, mois - 1, 1)).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
     fichierBase = `Planning_${annee}-${String(mois).padStart(2, "0")}`;
   } else {
-    const base = sp.get("debut") ? new Date(sp.get("debut") + "T00:00:00Z") : new Date();
-    const lundi = lundiDe(isNaN(base.getTime()) ? new Date() : base);
+    const base = sp.get("debut") ? new Date(sp.get("debut") + "T00:00:00Z") : jourCivilKinshasa(new Date());
+    const lundi = lundiDe(isNaN(base.getTime()) ? jourCivilKinshasa(new Date()) : base);
     dates = Array.from({ length: 7 }, (_, i) => { const d = new Date(lundi); d.setUTCDate(d.getUTCDate() + i); return d; });
     titre = "Planning hebdomadaire";
     sousTitre = `Semaine du ${dates[0].getUTCDate()}/${dates[0].getUTCMonth() + 1} au ${dates[6].getUTCDate()}/${dates[6].getUTCMonth() + 1}`;

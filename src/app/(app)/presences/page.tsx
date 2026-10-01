@@ -12,6 +12,7 @@ import { exigerPageRH } from "@/lib/garde-page";
 import { POINTAGE_VALABLE } from "@/lib/pointage-annulation";
 import { PAUSE_PAR_DEFAUT_MIN } from "@/lib/pointage-qr";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { jourCourantKinshasaISO, numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 // Chaque code = couleur + libellé + icône (jamais la couleur seule — D).
 const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
@@ -31,8 +32,8 @@ export default async function PresencesPage() {
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const parametres = await chargerParametresPaie();
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
+  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
 
   const nbJours = new Date(annee, mois, 0).getDate();
   const days = Array.from({ length: nbJours }, (_, i) => i + 1);
@@ -212,7 +213,7 @@ export default async function PresencesPage() {
         </span>
       </div>
 
-      <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(new Date().toISOString().slice(0, 10)))}>
+      <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(jourCourantKinshasaISO()))}>
         <div className="mb-8">
           <h2 className="mb-3 text-base font-semibold">Brigade</h2>
           <TempsGrid

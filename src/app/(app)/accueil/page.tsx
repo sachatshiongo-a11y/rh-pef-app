@@ -5,6 +5,7 @@ import { Avatar } from "@/components/avatar";
 import { FrisePaie, calculerEtapePaie } from "@/components/frise-paie";
 import { indicateursPaieDuMois, moisDePaie } from "@/lib/indicateurs/rh";
 import { exigerPageRH } from "@/lib/garde-page";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 function usd(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -16,8 +17,10 @@ const STYLE_ALERTE: Record<Alerte["niveau"], string> = {
   info: "bg-blue-500",
 };
 function libelleJour(date: Date): string {
-  const j = Math.ceil(
-    (new Date(new Date(date).toDateString()).getTime() - new Date(new Date().toDateString()).getTime()) / 86_400_000
+  // Dates stockées à minuit UTC (jour civil) ; « aujourd'hui » = le jour civil de Kinshasa.
+  const d = new Date(date);
+  const j = Math.round(
+    (Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - jourCivilKinshasa(new Date()).getTime()) / 86_400_000
   );
   if (j <= 0) return "Aujourd'hui";
   if (j === 1) return "Demain";
@@ -94,8 +97,8 @@ export default async function AccueilPage() {
 
   // Anniversaires à venir (30 j) : on compare mois/jour (indépendamment de l'année).
   const jourAnnee = (d: Date) => d.getUTCMonth() * 31 + d.getUTCDate();
-  const ajd = jourAnnee(new Date(Date.UTC(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate())));
-  const fin30 = jourAnnee(new Date(dans30j.getUTCFullYear(), dans30j.getUTCMonth(), dans30j.getUTCDate()));
+  const ajd = jourAnnee(jourCivilKinshasa(maintenant));
+  const fin30 = jourAnnee(jourCivilKinshasa(dans30j));
   const anniversaires = employesAnniv
     .map((e) => {
       const dn = new Date(e.dateNaissance!);
@@ -129,7 +132,7 @@ export default async function AccueilPage() {
     { label: "Congés en cours", value: String(congesEnCours) },
   ];
 
-  const dateDuJour = maintenant.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const dateDuJour = jourCivilKinshasa(maintenant).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
   return (
     <div className="max-w-6xl">

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { calculerJoursOuvrables } from "@/lib/payroll";
 import { Avatar } from "@/components/avatar";
 import { chargerSoldesCongeSalaries } from "@/lib/solde-conge-salarie";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 // Vue Calendrier de l'onglet « Congés & absences » (fusion de l'ancien /absences).
 // Le paramètre interne semaine/mois s'appelle `cal` (vue=calendrier est pris par la bascule).
@@ -44,6 +45,7 @@ export type SPCalendrier = { mois?: string; annee?: string; type?: string; emp?:
 
 export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   const maintenant = new Date();
+  const aujourdhui = jourCivilKinshasa(maintenant); // « aujourd'hui », le mois et l'année en cours : à Kinshasa
   const cal = sp.cal === "semaine" ? "semaine" : "mois";
   const filtreType = sp.type ?? "";
   const filtreEmp = sp.emp ?? "";
@@ -58,8 +60,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   let navAuj: string;
 
   if (cal === "semaine") {
-    const base = sp.debut ? new Date(sp.debut + "T00:00:00Z") : maintenant;
-    const ref = isNaN(base.getTime()) ? maintenant : base;
+    const base = sp.debut ? new Date(sp.debut + "T00:00:00Z") : aujourdhui;
+    const ref = isNaN(base.getTime()) ? aujourdhui : base;
     const dow = ref.getUTCDay();
     const lundi = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()));
     lundi.setUTCDate(lundi.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
@@ -75,8 +77,8 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
     navSuiv = `cal=semaine&debut=${isoJour(new Date(lundi.getTime() + 7 * 86_400_000))}`;
     navAuj = `cal=semaine`;
   } else {
-    annee = Number(sp.annee) || maintenant.getFullYear();
-    mois = sp.mois ? Math.min(12, Math.max(1, Number(sp.mois))) : maintenant.getMonth() + 1;
+    annee = Number(sp.annee) || aujourdhui.getUTCFullYear();
+    mois = sp.mois ? Math.min(12, Math.max(1, Number(sp.mois))) : aujourdhui.getUTCMonth() + 1;
     const debutMois = new Date(Date.UTC(annee, mois - 1, 1));
     const finMois = new Date(Date.UTC(annee, mois, 0));
     const offset = (debutMois.getUTCDay() + 6) % 7;
@@ -147,7 +149,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   // employé, de l'espace salarié et des PDF. Avant, cet écran le recalculait sur l'année AFFICHÉE et
   // en jours ouvrables recomptés : la Direction lisait ici un autre solde qu'ailleurs. 4 requêtes pour
   // tous les salariés, quel que soit leur nombre.
-  const anneeCourante = maintenant.getUTCFullYear();
+  const anneeCourante = aujourdhui.getUTCFullYear();
   const { soldes, entameLeSolde } = await chargerSoldesCongeSalaries(prisma, employeesAff.map((e) => e.id), maintenant);
 
   // Jours décomptés DANS L'ANNÉE AFFICHÉE, quand elle n'est pas l'année en cours : une information
@@ -168,7 +170,7 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
   }
 
   const typesPresents = Array.from(new Set(demandesAff.map((d) => d.type))).sort();
-  const isoAuj = isoJour(new Date(Date.UTC(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate())));
+  const isoAuj = isoJour(aujourdhui);
   const filtresQS = `${filtreType ? `&type=${encodeURIComponent(filtreType)}` : ""}${filtreEmp ? `&emp=${filtreEmp}` : ""}`;
   const enMois = cal === "mois";
   const dansPeriode = (d: Date) => (enMois ? d.getUTCMonth() === mois - 1 : true);

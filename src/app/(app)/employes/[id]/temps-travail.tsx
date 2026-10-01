@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { COULEUR_CODE } from "../../presences/attendance-colors";
 import type { CodePresence } from "@/lib/payroll";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 /**
  * Onglet « Temps de travail » de la fiche employé (présentation façon Factorial) :
@@ -43,7 +44,7 @@ export function TempsTravail({
   const creneauParJour = new Map(creneaux.map((c) => [c.iso, c]));
   const heuresParJour = new Map(heures.map((h) => [h.iso, h.h]));
   const codeParJour = new Map(codes.map((c) => [c.iso, c.code]));
-  const isoAujourdHui = new Date().toISOString().slice(0, 10);
+  const isoAujourdHui = jourCourantKinshasaISO();
 
   // Planning : semaine en cours + suivante.
   const semainesPlanning = [0, 1].map((s) => {

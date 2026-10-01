@@ -42,7 +42,7 @@ export default async function EspacePlanning() {
   ]);
   const publieeSet = new Set(publiees.map((p) => iso(new Date(p.lundi))));
   const parJour = new Map(creneaux.map((c) => [iso(new Date(c.date)), c.shift]));
-  const isoAuj = iso(new Date());
+  const isoAuj = iso(k); // aujourd'hui à Kinshasa
 
   // Total du mois + total de la semaine en cours (heures effectuées).
   const totalMois = heuresMois.reduce((a, h) => a + Number(h.heuresTravaillees), 0);

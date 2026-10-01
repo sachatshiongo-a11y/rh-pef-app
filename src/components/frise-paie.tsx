@@ -1,3 +1,4 @@
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 /** Couleur graduée : plus on approche du jour de paie, plus c'est orange ; rouge une fois dépassé. */
 function couleurProximite(jours: number | null): string {
   if (jours === null) return "bg-slate-400";
@@ -46,12 +47,12 @@ export function FrisePaie({
   jourPaie?: number;
   compact?: boolean;
 }) {
-  const auj = new Date();
-  const estMoisCourant = auj.getMonth() + 1 === mois && auj.getFullYear() === annee;
-  const joursAvantPaie = estMoisCourant ? jourPaie - auj.getDate() : null;
+  const auj = jourCivilKinshasa(new Date()); // le jour et le mois en cours : à Kinshasa
+  const estMoisCourant = auj.getUTCMonth() + 1 === mois && auj.getUTCFullYear() === annee;
+  const joursAvantPaie = estMoisCourant ? jourPaie - auj.getUTCDate() : null;
   const couleur = couleurProximite(joursAvantPaie);
   // Avancement temporel vers le jour de paie (0 → 100 %) : la frise « avance » avec les jours.
-  const progression = estMoisCourant ? Math.min(100, Math.max(0, (auj.getDate() / jourPaie) * 100)) : etape >= 3 ? 100 : 0;
+  const progression = estMoisCourant ? Math.min(100, Math.max(0, (auj.getUTCDate() / jourPaie) * 100)) : etape >= 3 ? 100 : 0;
   const datePaie = new Date(annee, mois - 1, jourPaie).toLocaleDateString("fr-FR", {
     day: "numeric",
     month: "long",
@@ -125,7 +126,7 @@ export function FrisePaie({
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div className={`h-full rounded-full transition-all ${couleur}`} style={{ width: `${progression}%` }} />
           </div>
-          <p className="mt-1 text-right text-[11px] text-muted-foreground">Jour {auj.getDate()} / {jourPaie}</p>
+          <p className="mt-1 text-right text-[11px] text-muted-foreground">Jour {auj.getUTCDate()} / {jourPaie}</p>
         </div>
       )}
     </div>

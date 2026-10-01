@@ -4,6 +4,7 @@ import { chargerEcartMois } from "../../ecart-data";
 import { libelleShift } from "../../creneaux";
 import { raisonDe } from "../../raisons";
 import { JOURS_FR, MOIS_FR } from "@/lib/dates-fr";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 const fmt1 = (n: number) => n.toFixed(1).replace(".", ",");
 const fmtEcart = (n: number) => `${n > 0 ? "↑" : n < 0 ? "↓" : ""} ${n >= 0 ? "+" : "−"}${fmt1(Math.abs(n))} h`;
@@ -14,8 +15,8 @@ export async function GET(req: Request) {
   const g = await exigerEspaceRH();
   if (!g.ok) return g.reponse;
   const sp = new URL(req.url).searchParams;
-  const annee = Number(sp.get("annee")) || new Date().getUTCFullYear();
-  const mois = Math.min(12, Math.max(1, Number(sp.get("mois")) || new Date().getUTCMonth() + 1));
+  const annee = Number(sp.get("annee")) || anneeCouranteKinshasa();
+  const mois = Math.min(12, Math.max(1, Number(sp.get("mois")) || numeroMoisCourantKinshasa()));
 
   const { resultat, employesInfo, shiftsInfo } = await chargerEcartMois(mois, annee);
 

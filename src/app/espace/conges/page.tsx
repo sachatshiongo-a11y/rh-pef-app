@@ -5,6 +5,7 @@ import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { signerMonDocument } from "../signature-actions";
 import { chargerSoldeCongeSalarie } from "@/lib/solde-conge-salarie";
 import { VueMesConges } from "./vue";
+import { jourCourantKinshasaISO, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 export default async function EspaceConges({ searchParams }: { searchParams: Promise<{ erreur?: string; envoye?: string }> }) {
   const s = await chargerSalarie();
@@ -29,10 +30,10 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
     <VueMesConges
       nomSalarie={s.nom}
       solde={solde}
-      annee={new Date().getUTCFullYear()}
+      annee={anneeCouranteKinshasa()}
       types={typesConges.map((t) => t.nom)}
       feries={feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10))}
-      aujourdhui={new Date().toISOString().slice(0, 10)}
+      aujourdhui={jourCourantKinshasaISO()}
       envoye={!!sp.envoye}
       erreur={sp.erreur ?? null}
       demanderConge={demanderMonConge}

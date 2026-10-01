@@ -24,6 +24,7 @@ import { enregistrerFichier, partageDeFichierPossible } from "@/components/telec
 import { estErreur } from "@/lib/action-lisible";
 import { creerComptesEnLot, nouvellesFichesEnLot } from "./comptes-lot-actions";
 import { apresEnregistrement, libelleEnvoiFiche, type EnvoiFiche } from "./envoi-fiches";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 /** Même union que `EtatCompteSalarie` (src/lib/comptes-salaries.ts, module serveur). */
 export type EtatCompteLigne = "SANS_COMPTE" | "ACTIF" | "DESACTIVE" | "PAR_EMAIL";
@@ -208,7 +209,7 @@ export function ComptesEnLot({ salaries }: { salaries: SalarieLigne[] }) {
     if (!planche) return;
     return unEnvoiALaFois(async () => {
       try {
-        const date = new Date().toISOString().slice(0, 10);
+        const date = jourCourantKinshasaISO();
         if ((await enregistrerFichier(planche, `Fiches de connexion ${date}.pdf`)) !== "annule") {
           setErreur(null);
           setPlancheEnregistree(true);

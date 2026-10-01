@@ -4,6 +4,7 @@ import { marquerDeclarationForm } from "./actions";
 import type { StatutDeclaration } from "@prisma/client";
 import { exigerPageRH } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 function money(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " $";
@@ -33,8 +34,8 @@ export default async function DeclarationsPage({
   const sp = await searchParams;
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
-  const mois = Number(sp.mois) || config?.moisCourant || new Date().getMonth() + 1;
-  const annee = Number(sp.annee) || config?.anneeCourante || new Date().getFullYear();
+  const mois = Number(sp.mois) || config?.moisCourant || numeroMoisCourantKinshasa();
+  const annee = Number(sp.annee) || config?.anneeCourante || anneeCouranteKinshasa();
 
   // Mois pour lesquels une paie existe (pour le sélecteur).
   const runs = await prisma.payrollRun.findMany({

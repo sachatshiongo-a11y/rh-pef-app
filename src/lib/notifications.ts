@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { envoyerEmail } from "@/lib/email";
 import { envoyerPush } from "@/lib/push";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 export type NotificationItem = {
   id: string;
@@ -99,10 +100,10 @@ export async function chargerNotifications(domaine: "RH" | "STOCK" = "RH"): Prom
   // Clôture proche : jours restants avant le 30 du mois courant, s'il reste des bulletins non validés (RH uniquement).
   let cloture: { message: string; jours: number } | null = null;
   if (config && domaine === "RH") {
-    const auj = new Date();
-    const estMoisCourant = auj.getMonth() + 1 === config.moisCourant && auj.getFullYear() === config.anneeCourante;
+    const auj = jourCivilKinshasa(new Date()); // le jour et le mois en cours : à Kinshasa
+    const estMoisCourant = auj.getUTCMonth() + 1 === config.moisCourant && auj.getUTCFullYear() === config.anneeCourante;
     if (estMoisCourant) {
-      const jours = config.jourPaie - auj.getDate();
+      const jours = config.jourPaie - auj.getUTCDate();
       if (jours >= 0 && jours <= 5) {
         const run = await prisma.payrollRun.findUnique({
           where: { mois_annee: { mois: config.moisCourant, annee: config.anneeCourante } },

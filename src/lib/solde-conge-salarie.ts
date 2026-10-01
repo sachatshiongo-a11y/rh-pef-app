@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { chargerDroitsCongesAnnuel } from "@/lib/config";
 import { ancienneteEnMois, calculerCongesAcquis, congeDeductibleDuSolde } from "@/lib/payroll";
 import { typeSansConges } from "@/lib/regles-contrats";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 /**
  * LE SOLDE DE CONGÉ DE L'ESPACE SALARIÉ — UNE SEULE SOURCE (lot 6, 2026-09-28).
@@ -55,7 +56,10 @@ export async function chargerSoldesCongeSalaries(
   employeeIds: string[],
   maintenant: Date = new Date(),
 ): Promise<{ soldes: Map<string, SoldeConge>; entameLeSolde: (type: string) => boolean }> {
-  const debutAnnee = new Date(Date.UTC(maintenant.getUTCFullYear(), 0, 1));
+  // « Maintenant » se lit à Kinshasa : le 1er du mois (ou de l'an) entre 00 h et 01 h, le mois révolu
+  // (1,5 j de plus) et l'année des congés avaient encore un jour de retard avec l'horloge UTC.
+  const aujourdhui = jourCivilKinshasa(maintenant);
+  const debutAnnee = new Date(Date.UTC(aujourdhui.getUTCFullYear(), 0, 1));
   const [emps, droitsCongesAnnuel, types, approuvees] = await Promise.all([
     db.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, contrat: true, dateEmbauche: true } }),
     // Les SEULS droits annuels, pas toute la paie : une clé CNSS absente ou un barème IPR vide ne
@@ -74,7 +78,7 @@ export async function chargerSoldesCongeSalaries(
   for (const emp of emps) {
     const acquis = typeSansConges(emp.contrat)
       ? 0
-      : calculerCongesAcquis(ancienneteEnMois(new Date(emp.dateEmbauche), maintenant), droitsCongesAnnuel);
+      : calculerCongesAcquis(ancienneteEnMois(new Date(emp.dateEmbauche), aujourdhui), droitsCongesAnnuel);
     const r = calculerSoldeConge({
       acquis,
       demandesApprouvees: approuvees

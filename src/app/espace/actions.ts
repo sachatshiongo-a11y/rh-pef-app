@@ -17,6 +17,7 @@ import { chargerPlafondAcompte, verifierMontantAcompte } from "@/lib/acompte-pla
 import { televerserFichierEmploye } from "@/lib/fichiers-employe";
 import { finaliserEchangeSiComplet } from "@/lib/echange-creneau";
 import { actionLisible } from "@/lib/action-lisible";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourKinshasa } from "@/lib/heure-kinshasa";
 
 /** Garde commune à l'espace salarié : feature active + compte salarié (EMPLOYE/STOCK) + fiche liée. */
 async function exigerSalarie(): Promise<{ userId: string; employeeId: string }> {
@@ -128,8 +129,8 @@ export async function demanderMonAcompte(formData: FormData) {
     const motif = String(formData.get("motif") ?? "").trim() || null;
 
     const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
-    const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-    const annee = config?.anneeCourante ?? new Date().getFullYear();
+    const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+    const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
 
     // Même plafond que côté Direction : le salarié ne peut pas demander plus que son salaire net
     // du mois précédent (à défaut, son salaire de fiche), cumul de ses demandes du mois compris.
@@ -335,7 +336,7 @@ export async function envoyerMonCertificat(formData: FormData) {
       data: {
         employeeId,
         type: "CERTIFICAT_MEDICAL",
-        nom: note || `Certificat médical du ${new Date().toLocaleDateString("fr-FR")}`,
+        nom: note || `Certificat médical du ${jourKinshasa(new Date())}`,
         fichierUrl,
         dateEmission: new Date(),
       },

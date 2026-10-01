@@ -4,7 +4,7 @@ import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
 import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
-import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { jourKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { Avatar } from "@/components/avatar";
 import { approuverChangementShift, refuserChangementShift, approuverEchange, refuserEchange } from "../planning/actions";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
@@ -14,7 +14,8 @@ import { rafraichirPaieAffichee } from "@/lib/paie-refresh";
 import { exigerPageRH } from "@/lib/garde-page";
 
 function joursAvant(date: Date): number {
-  return Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000);
+  // Échéances stockées à minuit UTC (jour civil) : l'écart se mesure au jour civil de Kinshasa.
+  return Math.round((new Date(date).getTime() - jourCivilKinshasa(new Date()).getTime()) / 86_400_000);
 }
 function echeanceInfo(date: Date): { texte: string; classe: string } {
   const j = joursAvant(date);

@@ -10,6 +10,7 @@ import { construireEcheancier } from "@/lib/prets";
 import { formaterUSD } from "@/lib/montant";
 import { bulletinConsultableDuMois } from "@/lib/bulletin-salarie";
 import { statutDemande } from "@/lib/libelles-espace";
+import { numeroMoisCourantKinshasa, anneeCouranteKinshasa } from "@/lib/heure-kinshasa";
 
 const fmtH = (n: number) => (Math.round(n * 100) / 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
 const usd = formaterUSD;
@@ -20,8 +21,8 @@ export default async function EspacePaie({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
 
   const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
-  const mois = config?.moisCourant ?? new Date().getMonth() + 1;
-  const annee = config?.anneeCourante ?? new Date().getFullYear();
+  const mois = config?.moisCourant ?? numeroMoisCourantKinshasa();
+  const annee = config?.anneeCourante ?? anneeCouranteKinshasa();
   const periode = `${MOIS_FR[mois - 1]} ${annee}`;
 
   const [apercu, acomptes, ligneEnCours, pretsBruts, plafondAcompte] = await Promise.all([

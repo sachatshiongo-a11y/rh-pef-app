@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 export type Alerte = {
   type: "CONGE_NON_VALIDE" | "JOUR_PAIE" | "CONTRAT" | "PERIODE_ESSAI" | "DOCUMENT" | "DECLARATION" | "FACTURES";
@@ -14,8 +15,8 @@ export type Alerte = {
 const JOUR_PAIE = 29; // jour de paie fixé au 29 de chaque mois
 
 function joursAvant(date: Date): number {
-  const diff = date.getTime() - Date.now();
-  return Math.ceil(diff / 86_400_000);
+  // Échéances stockées à minuit UTC (jour civil) : l'écart se mesure au jour civil de Kinshasa.
+  return Math.round((date.getTime() - jourCivilKinshasa(new Date()).getTime()) / 86_400_000);
 }
 
 /**
@@ -81,10 +82,11 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   }
 
   // 2. Rappel du jour de paie (le 29). Fenêtre d'anticipation : 5 jours avant.
-  const auj = maintenant.getDate();
-  const dansLeMois = maintenant.getMonth();
-  const annee = maintenant.getFullYear();
-  const dernierJourMois = new Date(annee, dansLeMois + 1, 0).getDate();
+  const aujourdhuiKinshasa = jourCivilKinshasa(maintenant); // le jour et le mois en cours : à Kinshasa
+  const auj = aujourdhuiKinshasa.getUTCDate();
+  const dansLeMois = aujourdhuiKinshasa.getUTCMonth();
+  const annee = aujourdhuiKinshasa.getUTCFullYear();
+  const dernierJourMois = new Date(Date.UTC(annee, dansLeMois + 1, 0)).getUTCDate();
   const jourPaieEffectif = Math.min(JOUR_PAIE, dernierJourMois); // si le mois n'a pas 29 jours
   if (auj >= jourPaieEffectif - 5 && auj <= jourPaieEffectif) {
     const restant = jourPaieEffectif - auj;

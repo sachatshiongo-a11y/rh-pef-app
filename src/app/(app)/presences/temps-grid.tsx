@@ -24,6 +24,7 @@ import {
   type ParametresPaie,
 } from "@/lib/payroll";
 import type { AttendanceCode } from "@prisma/client";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 const CODES: AttendanceCode[] = ["P", "O", "M", "A", "N", "C", "F", "S"];
 const CODES_SET = new Set<string>(CODES);
@@ -417,7 +418,7 @@ export function TempsGrid({
   }, [cellules, employees]);
 
   // ── Vue mobile jour par jour (code + heures côte à côte) ─────────────────
-  const isoAuj = new Date().toISOString().slice(0, 10);
+  const isoAuj = jourCourantKinshasaISO();
   const idxAuj = isoDates.indexOf(isoAuj);
   const [idxMobile, setIdxMobile] = useJourMobile(idxAuj >= 0 ? idxAuj : 0);
   const jourMobile = days[idxMobile] ?? days[0] ?? 1;
