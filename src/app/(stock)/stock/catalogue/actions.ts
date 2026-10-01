@@ -6,6 +6,7 @@ import { decOptionnel as dec } from "@/lib/nombre";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import type { Prisma } from "@prisma/client";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
@@ -107,6 +108,8 @@ export const modifierArticle = actionLisible(async (id: string, formData: FormDa
  */
 export const fusionnerArticles = actionLisible(async (articleIds: string[], keepId?: string) => {
   const user = await garde();
+  // Fusionner supprime des articles : réservé à la Direction (règle de Sacha, 2026-10-01).
+  exigerDirectionPourSupprimer(user, "Fusionner des articles est réservé à la Direction.");
   const ids = [...new Set(articleIds.map(String))].filter(Boolean);
   if (ids.length < 2) throw new Error("Sélectionnez au moins deux articles à fusionner.");
   const arts = await prisma.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } });

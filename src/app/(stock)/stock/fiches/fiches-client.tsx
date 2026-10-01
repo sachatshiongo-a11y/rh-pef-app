@@ -67,7 +67,11 @@ function motifIncomplet(f: FicheRow): { badge: string; cause: string } {
  * remonte ce composant à chaque changement d'onglet (clé = onglet) : une sélection faite dans
  * « Boissons » ne survit pas au passage dans « Plats ».
  */
-export function FichesClient({ fiches, etatInitial, vue = "plats" }: { fiches: FicheRow[]; etatInitial?: EtatDispo; vue?: OngletFiches }) {
+export function FichesClient({ fiches, etatInitial, vue = "plats", peutSupprimer = false }: {
+  fiches: FicheRow[]; etatInitial?: EtatDispo; vue?: OngletFiches;
+  /** Direction seulement : « Supprimer » dans les actions groupées. */
+  peutSupprimer?: boolean;
+}) {
   const boissons = vue === "boissons";
   const router = useRouter();
   const [isPending, start] = useTransition();
@@ -213,13 +217,15 @@ export function FichesClient({ fiches, etatInitial, vue = "plats" }: { fiches: F
           >
             ⧉ Dupliquer ({sel.size})
           </button>
-          <button
-            disabled={isPending}
-            onClick={() => { if (confirm(`Supprimer ${sel.size} fiche(s) et leurs ingrédients ? Action irréversible.`)) run(() => supprimerFiches(ids)); }}
-            className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
-          >
-            ✕ Supprimer ({sel.size})
-          </button>
+          {peutSupprimer && (
+            <button
+              disabled={isPending}
+              onClick={() => { if (confirm(`Supprimer ${sel.size} fiche(s) et leurs ingrédients ? Action irréversible.`)) run(() => supprimerFiches(ids)); }}
+              className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              ✕ Supprimer ({sel.size})
+            </button>
+          )}
           <button onClick={clear} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">Désélectionner</button>
         </BulkBar>
       )}

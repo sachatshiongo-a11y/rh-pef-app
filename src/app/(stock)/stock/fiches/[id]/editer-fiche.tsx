@@ -44,7 +44,7 @@ const decoderSource = (v: string) => ({
  * même fonction que côté serveur — un seul chiffre possible pour une même fiche.
  */
 export function EditerFiche({
-  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui,
+  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui, peutSupprimer = false,
 }: {
   vue: FicheVue;
   articles: ArticleOption[];
@@ -56,6 +56,8 @@ export function EditerFiche({
   stocks: Record<string, StockArticle>;
   /** Jour civil de Kinshasa (AAAA-MM-JJ), fixé par le serveur : référence du stock figé. */
   aujourdhui: string;
+  /** Direction seulement : supprimer la fiche, retirer la photo ou des ingrédients (règle de Sacha, 2026-10-01). */
+  peutSupprimer?: boolean;
 }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
@@ -210,7 +212,7 @@ export function EditerFiche({
           <BoutonPdfFiche id={vue.id} nom={vue.nom} avecPrix nonEnregistre={nonEnregistre} />
           <BoutonPdfFiche id={vue.id} nom={vue.nom} avecPrix={false} nonEnregistre={nonEnregistre} />
           <button onClick={dupliquer} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">⧉ Dupliquer</button>
-          <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>
+          {peutSupprimer && <button onClick={supprimer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer</button>}
         </div>
       </div>
 
@@ -224,7 +226,7 @@ export function EditerFiche({
         onChoisir={choisirPhoto}
         onEnvoyer={envoyerPhoto}
         onAnnuler={annulerPhoto}
-        onRetirer={retirerPhoto}
+        onRetirer={peutSupprimer ? retirerPhoto : undefined}
       />
 
       {/* ── Entête ───────────────────────────────────────────────────────── */}
@@ -311,7 +313,7 @@ export function EditerFiche({
           )}
         </div>
 
-        {lignes.length > 0 && (
+        {lignes.length > 0 && peutSupprimer && (
           <BulkBar count={sel.size} total={lignes.length} onAll={(on) => setAll(lignes.map((l) => l.id), on)}>
             <button
               disabled={isPending || modifiees.length > 0}
@@ -350,7 +352,7 @@ export function EditerFiche({
                   autresFiches={autresFiches}
                   modifiee={ligneModifiee(l)}
                   selectionnee={sel.has(l.id)}
-                  onToggle={() => toggle(l.id)}
+                  onToggle={peutSupprimer ? () => toggle(l.id) : undefined}
                   onChange={(patch) => majLigne(l.id, patch)}
                   dispoLigne={dispo.lignes[i]}
                   detailsArticles={detailsArticles}
@@ -520,7 +522,8 @@ function PhotoPlat({
   onChoisir: (e: ChangeEvent<HTMLInputElement>) => void;
   onEnvoyer: () => void;
   onAnnuler: () => void;
-  onRetirer: () => void;
+  /** Absent hors Direction : pas de bouton « Retirer la photo » (la remplacer reste possible). */
+  onRetirer?: () => void;
 }) {
   // Aperçu local de la sélection en cours (avant envoi) : révoqué à chaque changement pour ne pas
   // accumuler d'URL objet en mémoire.
@@ -553,7 +556,7 @@ function PhotoPlat({
               <button onClick={onAnnuler} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50">Annuler</button>
             </>
           ) : (
-            photoUrl && (
+            photoUrl && onRetirer && (
               <button onClick={onRetirer} disabled={isPending} className="rounded-md border border-destructive/40 px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">
                 Retirer la photo
               </button>
@@ -577,7 +580,8 @@ function LigneIngredient({
   autresFiches: AutreFiche[];
   modifiee: boolean;
   selectionnee: boolean;
-  onToggle: () => void;
+  /** Absent hors Direction : la sélection ne sert qu'à « Retirer », réservé à la Direction. */
+  onToggle?: () => void;
   onChange: (patch: Partial<LigneFiche>) => void;
   dispoLigne: DetailLigneDispo | undefined;
   detailsArticles: Map<string, DetailArticleDispo>;
@@ -587,7 +591,7 @@ function LigneIngredient({
     <tr className={`border-t align-top ${selectionnee ? "bg-primary/10" : modifiee ? "bg-amber-50/60" : ""}`}>
       {/* La ligne limitante est marquée d'un filet à gauche : il reste visible même sélectionnée. */}
       <td className={`px-2 py-1.5 ${limitante ? "border-l-4 border-l-amber-500" : ""}`}>
-        <input type="checkbox" checked={selectionnee} onChange={onToggle} aria-label="Sélectionner cet ingrédient" />
+        {onToggle && <input type="checkbox" checked={selectionnee} onChange={onToggle} aria-label="Sélectionner cet ingrédient" />}
       </td>
       <td className="px-2 py-1.5">
         <select value={valeurSource(ligne)} onChange={(e) => onChange(decoderSource(e.target.value))} className={`${inp} w-full min-w-56`}>

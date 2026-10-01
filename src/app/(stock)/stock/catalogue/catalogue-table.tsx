@@ -77,8 +77,10 @@ const TRIS_MOBILE: readonly (readonly [string, string])[] = [
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, actionsPlus }: {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, actionsPlus, estDirection = true }: {
   articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte;
+  /** Hors Direction : pas de « Fusionner » — fusionner supprime des articles (règle de Sacha, 2026-10-01). */
+  estDirection?: boolean;
   /** Téléphone : boutons de l'en-tête de page (Exporter…) rangés dans le menu « Plus » du bloc du haut. */
   actionsPlus?: ReactNode;
 }) {
@@ -370,14 +372,14 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <button disabled={isPending} onClick={() => run(async () => { await basculerFicheCommande([...sel], true); setSel(new Set()); })} className="rounded-md border border-primary/40 px-3 py-1 text-xs font-medium hover:bg-primary/10 disabled:opacity-50">Mettre sur la fiche commande</button>
           <button disabled={isPending} onClick={() => run(async () => { await basculerFicheCommande([...sel], false); setSel(new Set()); })} className="rounded-md border px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50">Retirer de la fiche commande</button>
           <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Annuler</button>
-          {sel.size >= 2 && (
+          {sel.size >= 2 && estDirection && (
             <button disabled={isPending} onClick={() => setFusionKeep([...sel][0])} className="ml-auto rounded-md border border-amber-400 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50">Fusionner en 1…</button>
           )}
         </div>
       )}
 
       {/* Panneau de fusion : choix explicite de l'article à CONSERVER ; les autres sont supprimés. */}
-      {fusionKeep && sel.size >= 2 && (() => {
+      {fusionKeep && sel.size >= 2 && estDirection && (() => {
         const selectionnes = articles.filter((a) => sel.has(a.id));
         const keepOk = selectionnes.some((a) => a.id === fusionKeep) ? fusionKeep : selectionnes[0]?.id;
         return (

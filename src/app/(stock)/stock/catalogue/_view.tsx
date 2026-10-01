@@ -4,6 +4,7 @@ import { articlesEnHausse } from "@/lib/stock-prix";
 import { type ArticleRow } from "./catalogue-table";
 import { CatalogueEcran } from "./catalogue-ecran";
 import type { Prisma } from "@prisma/client";
+import { verifySession } from "@/lib/auth";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string };
@@ -16,6 +17,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
   const domFiltre: Domaine | undefined = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
+  const user = await verifySession(); // mis en cache par requête : la page l'a déjà vérifié (exigerPageStock)
   const [articles, categories, fournisseurs, lignes, entreesPayees] = await Promise.all([
     prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
@@ -57,5 +59,5 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
     };
   });
 
-  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} />;
+  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} estDirection={user.role === "ADMIN"} />;
 }

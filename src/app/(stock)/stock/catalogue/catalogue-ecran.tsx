@@ -18,13 +18,15 @@ const DOMAINES: { cle: Domaine | ""; label: string }[] = [
  * pour montrer les articles dès l'ouverture. La valeur du stock, le compteur et l'export y passent
  * dans le menu « Plus ». Sur ordinateur, rien ne change.
  */
-export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte }: {
+export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, estDirection = true }: {
   rows: ArticleRow[];
   categories: { id: string; nom: string; domaine: string }[];
   fournisseurs: { id: string; nom: string }[];
   domaine?: Domaine;
   q: string;
   alerte?: "URGENT" | "APPRO" | "OK";
+  /** Hors Direction : pas de « Fusionner » (voir CatalogueTable). */
+  estDirection?: boolean;
 }) {
   // Bascule de domaine en conservant recherche et filtre d'alerte.
   const lienDomaine = (cle: Domaine | "") => {
@@ -57,7 +59,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
         </div>
       </div>
 
-      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} actionsPlus={exporter} />
+      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} actionsPlus={exporter} estDirection={estDirection} />
     </div>
   );
 }
