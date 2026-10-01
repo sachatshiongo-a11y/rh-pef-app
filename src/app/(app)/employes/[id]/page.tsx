@@ -653,7 +653,7 @@ export default async function FicheEmployePage({
         />
         {peutModifier && (
           <p className="mt-3 text-xs text-muted-foreground">
-            Pour ajouter ou retirer un membre : <Link href={`/employes/${employee.id}/modifier`} className="text-primary hover:underline">modifier la fiche</Link>.
+            {estAdmin ? "Pour ajouter ou retirer un membre : " : "Pour ajouter un membre (le retrait est réservé à la Direction) : "}<Link href={`/employes/${employee.id}/modifier`} className="text-primary hover:underline">modifier la fiche</Link>.
           </p>
         )}
       </Section>

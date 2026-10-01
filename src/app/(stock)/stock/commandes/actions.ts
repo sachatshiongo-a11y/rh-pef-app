@@ -9,6 +9,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
+import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { envoyerPush } from "@/lib/push";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { usd } from "@/lib/stock";
@@ -227,6 +228,13 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
   const totalUSD = lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const taux = config ? Number(config.tauxChangeCDF) : null;
+
+  // Les lignes sont REMPLACÉES (modification) ; mais un formulaire qui en compte MOINS en retire une :
+  // c'est une suppression, réservée à la Direction (règle de Sacha, 2026-10-01), même sur un brouillon.
+  const nbAvant = await prisma.ligneBonDeCommande.count({ where: { bonDeCommandeId: id } });
+  if (lignes.length < nbAvant) {
+    exigerDirectionPourSupprimer(user, "Retirer une ligne d'un bon de commande est réservé à la Direction : mettez sa quantité à jour, ou demandez à la Direction.");
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.ligneBonDeCommande.deleteMany({ where: { bonDeCommandeId: id } });

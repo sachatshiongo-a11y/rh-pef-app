@@ -228,6 +228,17 @@ const CAS: Cas[] = [
     existe: async (poste) => !!(await prisma.fichePoste.findUnique({ where: { poste } })),
   },
   {
+    nature: "créneau saisi à la main, effacé par « Écraser » de la génération automatique",
+    creer: async () => {
+      const e = await creerEmploye();
+      const sh = await prisma.shift.create({ data: { nom: unique("Midi") } });
+      await prisma.planningCreneau.create({ data: { employeeId: e, date: new Date("2026-03-10"), shiftId: sh.id, genereAuto: false } });
+      return e;
+    },
+    supprimer: () => PLAN.genererPlanningAuto("2026-03-09", "2026-03-15", fd({ ecraser: "on" })),
+    existe: async (e) => !!(await prisma.planningCreneau.findFirst({ where: { employeeId: e, date: new Date("2026-03-10") } })),
+  },
+  {
     nature: "jour férié",
     creer: async () => String((await prisma.jourFerie.create({ data: { date: new Date(`2027-0${(seq % 8) + 1}-1${seq % 9}`), designation: unique("Férié"), annee: 2027 } })).id),
     supprimer: (id) => PARAM.supprimerJourFerie(Number(id)),
@@ -325,6 +336,19 @@ const CAS: Cas[] = [
     creer: async () => creerBC(),
     supprimer: (id) => BC.supprimerBonCommande(id, new FormData()),
     existe: async (id) => !!(await prisma.bonDeCommande.findUnique({ where: { id } })),
+  },
+  {
+    nature: "ligne d'un bon de commande BROUILLON (formulaire avec une ligne de moins)",
+    creer: async () => {
+      const id = await creerBC();
+      await prisma.ligneBonDeCommande.createMany({ data: [
+        { bonDeCommandeId: id, designation: "Farine", quantite: 10, prixUnitaireUSD: 1, totalLigneUSD: 10 },
+        { bonDeCommandeId: id, designation: "Sucre", quantite: 5, prixUnitaireUSD: 2, totalLigneUSD: 10 },
+      ] });
+      return id;
+    },
+    supprimer: (id) => BC.modifierBonCommande(id, fd({ ligne_articleId: "", ligne_designation: "Farine", ligne_quantite: "10", ligne_prix: "1", ligne_uniteParCarton: "" })),
+    existe: async (id) => (await prisma.ligneBonDeCommande.count({ where: { bonDeCommandeId: id } })) === 2,
   },
   {
     nature: "bons de commande en lot",

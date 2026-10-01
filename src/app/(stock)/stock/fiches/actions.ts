@@ -306,7 +306,7 @@ export const remplacerIngredients = actionLisible(async (ficheId: string, lignes
   // Une ligne absente du lot serait SUPPRIMÉE : réservé à la Direction, comme « Retirer »
   // (`supprimerIngredients`) — sinon ce chemin le contournerait. L'écran n'envoie jamais de lot
   // amputé (il renvoie toutes les lignes) : rien ne change pour le responsable.
-  if (aRetirer.length > 0) exigerDirectionPourSupprimer(user, "Retirer un ingrédient d'une fiche est réservé à la Direction.");
+  if (aRetirer.length > 0) exigerDirectionPourSupprimer(user, "Retirer un ingrédient d'une fiche est réservé à la Direction. Si la fiche a changé entre-temps, rechargez la page.");
 
   // 2. Écriture : une seule transaction, tout ou rien.
   await prisma.$transaction([

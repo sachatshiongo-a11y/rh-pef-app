@@ -21,8 +21,10 @@ import path from "node:path";
  * contient une (liste calculée ci-dessous, pas tenue à la main : une suppression ajoutée dans une
  * bibliothèque est vue d'office chez tous ses appelants).
  *
- * LIMITE ASSUMÉE (comme `actions-gardees.test.ts`) : le test prouve qu'une garde Direction est
- * APPELÉE dans l'action, pas qu'elle précède l'écriture ni qu'elle couvre la bonne branche. Il
+ * LIMITES ASSUMÉES (comme `actions-gardees.test.ts`) : le test prouve qu'une garde Direction est
+ * APPELÉE dans l'action, pas qu'elle précède l'écriture ni qu'elle couvre la bonne branche (une garde
+ * dans un `if` compte). Il ne voit pas les suppressions « douces » : désactivation (`actif: false`),
+ * statut ANNULE/RESILIE, URL de document remise à null, cascades Prisma (`onDelete: Cascade`). Il
  * attrape l'oubli pur ; les tests d'intégration (`suppressions-direction.integration.test.ts`)
  * prouvent le refus sans effet sur les suppressions importantes.
  */
@@ -85,13 +87,11 @@ const EXCEPTIONS: Record<string, string> = {
   "(app)/planning/actions.ts#saisirCreneau": "Créneau du planning remis à vide : modification du planning, journalisée.",
   "(app)/planning/actions.ts#saisirCreneauxEnLot": "Idem en lot (« Vider » la sélection).",
   "(app)/planning/actions.ts#saisirModele": "Modèle hebdo : jour remis à vide, journalisé.",
-  "(app)/planning/actions.ts#genererPlanningAuto": "La génération automatique réécrit les créneaux qu'elle a générés (journalisé).",
   "(app)/planning/actions.ts#approuverChangementShift": "Validation d'une demande : le créneau est REMPLACÉ par le shift demandé.",
   "(app)/planning/actions.ts#approuverEchange": "Validation d'un échange : les deux créneaux sont permutés.",
   "espace/actions.ts#repondreEchange": "Le collègue accepte l'échange ; s'il était déjà validé, les créneaux sont permutés.",
   "(app)/planning/actions.ts#depublierSemaine": "Dépublier = retirer la marque « publiée » de la semaine (le planning reste).",
   // ── « Remplacer les lignes » d'un document qu'on a le droit de modifier ─────────────────────
-  "(stock)/stock/commandes/actions.ts#modifierBonCommande": "Bon de commande BROUILLON : ses lignes sont remplacées par celles du formulaire (modification).",
   "(stock)/stock/fiches/photo-actions.ts#envoyerPhotoFiche": "Remplacer la photo d'une fiche : l'ancien fichier est retiré du stockage (remplacement, pas retrait).",
 };
 
