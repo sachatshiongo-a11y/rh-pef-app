@@ -8,15 +8,15 @@ import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } fr
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
-import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { nombreDeBase } from "@/lib/saisie-nombre-stock";
 import { formaterNombre } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 
-/** Valeur d'une case numérique à partir du texte reçu du serveur (« 12.5 », « » → null). */
-const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
-/** Texte envoyé à `modifierArticle` (lu par `dec`) : vide = effacer. */
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+/** Texte envoyé à `modifierArticle` (lu à la française par `decSaisiOptionnel`) : vide = effacer. Les
+ *  valeurs venues de la base (« 12.5 ») pré-remplissent les cases par `nombreDeBase`, jamais par la lecture française. */
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.prix) || 0) * (Number(a.quantite) || 0);
 
@@ -580,7 +580,7 @@ const LigneArticle = memo(function LigneArticle({
       <td><input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} w-40`} placeholder="—" title="Nom court (fiche Commande journalière)" aria-label={`Nom court — ${a.designation}`} /></td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
       <td>
         <select disabled={lectureSeule} defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
@@ -597,8 +597,8 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td><input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
       <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreDeBase(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
     </tr>
   );
 });
@@ -705,7 +705,7 @@ export const CarteArticle = memo(function CarteArticle({
           </label>
           <div className="mt-2 grid grid-cols-2 gap-2 [&>*]:min-w-0">
             <label className={champLabel}>Stock min.
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreOuNull(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
             </label>
             <label className={champLabel}>Unité
               <input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
@@ -728,10 +728,10 @@ export const CarteArticle = memo(function CarteArticle({
               <input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
             </label>
             <label className={champLabel}>Prix USD
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreOuNull(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreDeBase(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
             </label>
             <label className={champLabel}>Unités / carton
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreOuNull(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
             </label>
             <label className={champLabel}>Valeur du stock
               <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>

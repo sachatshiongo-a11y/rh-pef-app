@@ -13,7 +13,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { verrouillerStocks } from "./comptage";
-import { dec } from "@/lib/nombre";
+import { decSaisi } from "@/lib/nombre";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import type { NiveauAlerte } from "@/lib/stock";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -38,7 +38,7 @@ export const ORIGINE_RETOUR_RESTAURANT = "Retour restaurant";
 export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   const type = String(formData.get("type") ?? "SORTIE") === "ENTREE" ? "ENTREE" : "SORTIE";
   const ids = formData.getAll("articleId").map(String);
-  const qtes = formData.getAll("quantite").map(dec);
+  const qtes = formData.getAll("quantite").map((v, i) => decSaisi(v, `quantité, ligne ${i + 1}`)); // illisible : refus lisible, jamais un zéro
   const dateStr = String(formData.get("date") ?? "").trim();
   const date = dateStr ? new Date(dateStr) : jourCivilKinshasa(new Date()); // jour civil de Kinshasa
   if (Number.isNaN(date.getTime())) throw new Error("Date du mouvement invalide.");

@@ -28,15 +28,11 @@ const TABLEURS: Record<string, string> = {
 };
 
 /**
- * Tableaux de FORMULAIRE restés hors périmètre (décision de la Direction du 2026-09-24 : seuls
- * le bon de commande et la facture passent au comportement « Excel ») : lignes d'une fiche
- * technique ; un formulaire par type de congé. Tant qu'ils sont ici, ils gardent leurs champs
- * `type=number`.
+ * Tableaux de FORMULAIRE restés hors périmètre des tableurs « Excel » (décision de la Direction du
+ * 2026-09-24) ET gardant des champs `type=number`. Vide depuis le 2026-10-01 : les lignes d'une
+ * fiche technique et les types de congé sont passés en `ChampNombre` (plus aucun `type=number`).
  */
-const FORMULAIRES_HORS_PERIMETRE: Record<string, string> = {
-  "src/app/(stock)/stock/fiches/[id]/editer-fiche.tsx": "lignes d'une fiche technique",
-  "src/app/(app)/parametres/types-conges-admin.tsx": "un formulaire « Enregistrer » par type de congé",
-};
+const FORMULAIRES_HORS_PERIMETRE: Record<string, string> = {};
 
 /**
  * Les LISTES DU JOUR du téléphone (demande de la Direction, 2026-09-30) : la saisie d'UN jour à la

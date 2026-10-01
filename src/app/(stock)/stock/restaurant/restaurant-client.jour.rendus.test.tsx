@@ -93,7 +93,7 @@ describe("Stock restaurant sur téléphone — le comptage du jour", () => {
     const c = caseJour("Farine — Mer 30 sept.");
     act(() => c.focus()); taper(c, "4,5"); await act(async () => { c.blur(); });
     expect(viaGrille).toEqual(["farine", "2026-09-30", "4"]);
-    expect(m.majComptage.mock.calls).toEqual([["farine", "2026-09-30", "4.5"]]);
+    expect(m.majComptage.mock.calls).toEqual([["farine", "2026-09-30", "4,5"]]);
   });
 
   it("changer de jour : autre titre, autres valeurs, autres libellés", () => {

@@ -3,8 +3,9 @@
 // Lignes d'un nouveau bon de commande et d'une nouvelle facture, passées au comportement « Excel »
 // (décision de la Direction du 2026-09-24) :
 //  - mêmes MONTANTS qu'avant pour une même saisie — la virgule française comprise. L'ancien champ
-//    number rendait « 2.5 » (écriture à point) ; les calculs `Number(q) * Number(p)` et les champs
-//    envoyés au serveur doivent donc rester ceux d'une saisie à point ;
+//    number rendait « 2.5 » ; les montants (`nombreDeSaisie(q) * nombreDeSaisie(p)`) restent donc les
+//    mêmes. Depuis le 2026-10-01 les champs envoyés au serveur sont écrits à la FRANÇAISE (« 2,5 »,
+//    lus par `decSaisi`) : le point n'est plus une décimale ;
 //  - Entrée descend dans la colonne, n'envoie JAMAIS le formulaire, et sur la dernière ligne en
 //    ajoute une et y place le curseur.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -105,10 +106,10 @@ describe.each(Object.entries(ECRANS))("lignes — %s", (_nom, ecran) => {
       expect(totalLigne(k + 1), `${s.q} × ${s.p}`).toBe(`${fmt(avant)} $`);
     }
     expect(totalGeneral()).toBe(`${fmt(totalAvant)} $`);
-    // Et le serveur reçoit exactement ce que l'ancien champ number envoyait.
+    // Et le serveur reçoit les mêmes nombres, écrits à la française (virgule décimale).
     const fd = new FormData(conteneur.querySelector("form")!);
-    expect(fd.getAll("ligne_quantite").slice(0, SAISIES.length)).toEqual(SAISIES.map((s) => s.qAvant));
-    expect(fd.getAll("ligne_prix").slice(0, SAISIES.length)).toEqual(SAISIES.map((s) => s.pAvant));
+    expect(fd.getAll("ligne_quantite").slice(0, SAISIES.length)).toEqual(SAISIES.map((s) => s.qAvant.replace(".", ",")));
+    expect(fd.getAll("ligne_prix").slice(0, SAISIES.length)).toEqual(SAISIES.map((s) => s.pAvant.replace(".", ",")));
     expect(totalAvant).toBeCloseTo(10 + 125 + 59.97 + 0.999, 9);
   });
 
@@ -134,7 +135,7 @@ describe.each(Object.entries(ECRANS))("lignes — %s", (_nom, ecran) => {
     expect(qte(4)).not.toBeNull();
     expect(document.activeElement).toBe(pu(4));
     expect(pu(3).value).toBe("7,5"); // la case quittée est bien validée…
-    expect(new FormData(conteneur.querySelector("form")!).getAll("ligne_prix")[2]).toBe("7.5"); // … et part au serveur
+    expect(new FormData(conteneur.querySelector("form")!).getAll("ligne_prix")[2]).toBe("7,5"); // … et part au serveur
     expect(envois.bc).not.toHaveBeenCalled();
     expect(envois.facture).not.toHaveBeenCalled();
   });
@@ -162,7 +163,7 @@ describe("lignes — bon de commande, prix fixé au catalogue", () => {
     act(() => pu(1).focus());
     await entree(pu(1));
     expect(document.activeElement).toBe(pu(3)); // ligne 2 sautée
-    expect(new FormData(conteneur.querySelector("form")!).getAll("ligne_prix")[1]).toBe("12.5");
+    expect(new FormData(conteneur.querySelector("form")!).getAll("ligne_prix")[1]).toBe("12,5");
   });
 
   it("Entrée n'ajoute une ligne que depuis la DERNIÈRE ligne (pas quand les cases du dessous sont en lecture seule)", async () => {

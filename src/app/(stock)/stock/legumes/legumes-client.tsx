@@ -8,7 +8,8 @@ import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
-import { lireSaisieNombre } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
+import { nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { formaterNombre, formaterUSD } from "@/lib/montant";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
@@ -17,10 +18,10 @@ import type { OptionChoix } from "@/lib/recherche-options";
 
 type Ligne = { legume: string; unite: string; quantite: string; montantCDF: string };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
-/** Texte de ligne → valeur de case ; valeur de case → texte à POINT (ce que produisait l'ancien champ
- *  number) : ce qui part au serveur (champs quantite / montantCDF) est inchangé. */
+/** Texte de ligne → valeur de case ; valeur de case → texte à la FRANÇAISE (« 2,5 ») : ce qui part au
+ *  serveur (champs quantite / montantCDF, lus par `decSaisi`) et les totaux (`nombreDeSaisie`). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 const vide = (): Ligne => ({ legume: "", unite: "", quantite: "", montantCDF: "" });
 const NB_LIGNES = 3;
 /** Liste figée des légumes, partagée par toutes les lignes : la valeur envoyée est le nom (texte libre en base). */
@@ -66,8 +67,8 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
     const l = LEGUMES.find((x) => x.nom === nom);
     maj(i, { legume: nom, unite: l?.unite ?? "" });
   };
-  const usdDe = (cdf: string) => (taux && Number(cdf) ? Number(cdf) / taux : 0);
-  const totalCDF = lignes.reduce((t, l) => t + (Number(l.montantCDF) || 0), 0);
+  const usdDe = (cdf: string) => (taux && nombreDeSaisie(cdf) ? nombreDeSaisie(cdf) / taux : 0);
+  const totalCDF = lignes.reduce((t, l) => t + nombreDeSaisie(l.montantCDF), 0);
   const totalUSD = taux ? totalCDF / taux : 0;
 
   const submit = (fd: FormData) => {
@@ -110,7 +111,7 @@ export function AchatLegumesForm({ taux, estDirection = false }: { taux: number;
                 <ChoixRecherche options={OPTIONS_LEGUMES} name="legume" value={l.legume} vide="— légume —" onChange={(nom) => choisir(i, nom)} aria-label={`Légume, ligne ${i + 1}`} className={`${champ} ${PLACE.legume}`} />
                 <input name="unite" value={l.unite} onChange={(e) => maj(i, { unite: e.target.value })} placeholder="Unité" aria-label={`Unité, ligne ${i + 1}`} className={`${champ} ${PLACE.unite}`} />
                 {/* Quantité et montant : cases du tableur (sans flèches, Entrée descend). Ce qui part au serveur
-                    est le champ caché, à point. */}
+                    est le champ caché, écrit à la française. */}
                 <input type="hidden" name="quantite" value={l.quantite} />
                 <CelluleNombre ligne={String(i)} col={0} valeur={nombreOuNull(l.quantite)} onEnregistrer={(v) => maj(i, { quantite: texteDe(v) })} onEntreeDerniereLigne={onEntreeDerniereLigne}
                   min={0} quantite placeholder="Qté" className={`${champ} ${PLACE.qte} text-right`} aria-label={`Quantité, ligne ${i + 1}`} />

@@ -10,12 +10,14 @@ import { ZoneTableur } from "@/components/tableur/messages";
 import { useJourAffiche } from "@/components/selecteur-jour";
 import { VueJourOuSemaine } from "@/components/vue-jour-semaine";
 import { CASE_JOUR, LigneJour, RubriqueJour, TitreJour } from "@/components/liste-jour";
-import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { ecrireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { nombreDeBase } from "@/lib/saisie-nombre-stock";
 import { formaterNombre } from "@/lib/montant";
 import { MENTION_AUCUN_COMPTAGE } from "@/lib/stock-restaurant";
 
-const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+/** Valeur de case → texte envoyé au serveur (`decSaisiOptionnel`) : à la FRANÇAISE (« 2,5 »). Les valeurs de
+ *  la base (`ligne.base`, `comptages`, texte canonique « 2.125 ») pré-remplissent les cases par `nombreDeBase`. */
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 export type Jour = JourResto;
 export type LigneResto = {
@@ -210,10 +212,10 @@ const LigneR = memo(function LigneR({ ligne, jours, estDirection, catalogue, sel
       </td>
       <td><input defaultValue={ligne.unite ?? ""} onBlur={(e) => write("unite", e.target.value, ligne.unite ?? "")} className={inp} /></td>
       {/* Cases du tableur partagé (Entrée ↓, Tab →, pas de flèches d'incrément) : colonne 0 = base, puis un jour par colonne. */}
-      <td className="text-right"><CelluleNombre ligne={ligne.id} col={0} groupe={ligne.categorie ?? ""} quantite valeur={nombreOuNull(ligne.base)} onEnregistrer={(v) => onSave(ligne.id, "stockBaseJournalier", texteDe(v))} className={cell} aria-label={`Stock de base — ${ligne.designation}`} /></td>
+      <td className="text-right"><CelluleNombre ligne={ligne.id} col={0} groupe={ligne.categorie ?? ""} quantite valeur={nombreDeBase(ligne.base)} onEnregistrer={(v) => onSave(ligne.id, "stockBaseJournalier", texteDe(v))} className={cell} aria-label={`Stock de base — ${ligne.designation}`} /></td>
       {jours.map((j, i) => (
         <td key={j.iso} className="text-center">
-          <CelluleNombre ligne={ligne.id} col={i + 1} groupe={ligne.categorie ?? ""} quantite disabled={inactif} valeur={nombreOuNull(ligne.comptages[j.iso] ?? "")} onEnregistrer={(v) => onSaveComptage(ligne.id, j.iso, texteDe(v))} className={cell} aria-label={`${ligne.designation} — ${j.label} ${j.num}`} />
+          <CelluleNombre ligne={ligne.id} col={i + 1} groupe={ligne.categorie ?? ""} quantite disabled={inactif} valeur={nombreDeBase(ligne.comptages[j.iso])} onEnregistrer={(v) => onSaveComptage(ligne.id, j.iso, texteDe(v))} className={cell} aria-label={`${ligne.designation} — ${j.label} ${j.num}`} />
           {/* Reçu du dépôt : texte dérivé des sorties, jamais une case (le comptage reste la seule saisie). */}
           {ligne.recus[j.iso] !== undefined && (
             <div className="mt-0.5 whitespace-nowrap text-[10px] font-medium text-emerald-800" aria-label={`Reçu du dépôt — ${ligne.designation} — ${j.label} ${j.num}`} title="Reçu du dépôt (lecture seule)">
@@ -298,7 +300,7 @@ function ListeRestoJour({ lignes, jours, estDirection, selection, onSelection, o
               droite={
                 // Clé = le jour : changer de jour remonte la case (une frappe en attente part à sa date d'origine).
                 <CelluleNombre key={jour.iso} ligne={l.id} col={0} groupe={l.categorie ?? ""} donnee={jour.iso} quantite disabled={inactif}
-                  valeur={nombreOuNull(l.comptages[jour.iso] ?? "")} onEnregistrer={(v, c) => onSaveComptage(l.id, c.donnee ?? jour.iso, texteDe(v))}
+                  valeur={nombreDeBase(l.comptages[jour.iso])} onEnregistrer={(v, c) => onSaveComptage(l.id, c.donnee ?? jour.iso, texteDe(v))}
                   placeholder="—" className={CASE_JOUR} aria-label={`${l.designation} — ${nomJour}`} />
               }
             />

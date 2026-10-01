@@ -65,7 +65,7 @@ describe("actions fiches techniques", () => {
       .toContain("Choisissez");
     expect(await prisma.ingredientFiche.count({ where: { ficheId: f.id } })).toBe(0);
 
-    ok(await ajouterIngredient(f.id, fd({ articleId: art.id, unite: "kg", quantite: "0.2" })));
+    ok(await ajouterIngredient(f.id, fd({ articleId: art.id, unite: "kg", quantite: "0,2" }))); // à la française : « 0.2 » est illisible depuis le 2026-10-01
     expect(await prisma.ingredientFiche.count({ where: { ficheId: f.id } })).toBe(1);
   }, 60_000);
 
@@ -87,7 +87,7 @@ describe("actions fiches techniques", () => {
 
   it("refuse un rendement à moitié saisi (quantité sans unité) — l'erreur d'échelle silencieuse", async () => {
     const f = ok(await creerFiche(fd({ nom: "Sauce sans unité", nbPortions: "1", estSousRecette: "on" })));
-    const base = { nom: "Sauce sans unité", nbPortions: "1", tauxTVA: "0.16", estSousRecette: "on", actif: "on" };
+    const base = { nom: "Sauce sans unité", nbPortions: "1", tauxTVA: "0,16", estSousRecette: "on", actif: "on" };
     expect(erreurDe(await modifierFiche(f.id, fd({ ...base, rendementQuantite: "4600" })))).toContain("unité du rendement");
     expect(erreurDe(await modifierFiche(f.id, fd({ ...base, rendementUnite: "g" })))).toContain("quantité du rendement");
     ok(await modifierFiche(f.id, fd({ ...base, rendementQuantite: "4600", rendementUnite: "g" })));
@@ -98,7 +98,7 @@ describe("actions fiches techniques", () => {
 
   it("une sous-recette n'exige aucun prix de vente ; la TVA se saisit en décimal", async () => {
     const f = ok(await creerFiche(fd({ nom: "Sous-recette sans prix", nbPortions: "1", estSousRecette: "on" })));
-    const base = { nom: "Sous-recette sans prix", nbPortions: "1", tauxTVA: "0.16", estSousRecette: "on", actif: "on" };
+    const base = { nom: "Sous-recette sans prix", nbPortions: "1", tauxTVA: "0,16", estSousRecette: "on", actif: "on" };
     ok(await modifierFiche(f.id, fd(base))); // ni prix de vente ni coefficient : accepté
     expect(erreurDe(await modifierFiche(f.id, fd({ ...base, tauxTVA: "16" })))).toContain("0,16 pour 16 %");
     expect(erreurDe(await modifierFiche(f.id, fd({ ...base, nbPortions: "0" })))).toContain("portions");

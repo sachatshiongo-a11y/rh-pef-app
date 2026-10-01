@@ -7,6 +7,7 @@ import { useBulkSelection, BulkBar } from "@/components/bulk-bar";
 import { VignettePlat } from "@/components/vignette-plat";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { ChoixRecherche } from "@/components/choix-recherche";
+import { ChampNombre } from "@/components/champ-nombre";
 import { estErreur } from "@/lib/action-lisible";
 import { optionsArticles, type OptionChoix } from "@/lib/recherche-options";
 import { arrondirCentime, calculerCout, type FicheCalc, type LigneCout } from "@/lib/fiches/cout";
@@ -18,7 +19,8 @@ import { usd, qte } from "@/lib/stock";
 import { ongletFiche } from "@/lib/fiches/famille-boisson";
 import {
   MOTIF_LABEL, coef, pct, etiquettePrix as etiquette, noteCoutIncomplet, versFicheCalc, versFicheDispo, resumerDispo,
-  type ArticleOption, type FicheVue, type LigneFiche,
+  vueDepuisSaisie, vueEnSaisie,
+  type ArticleOption, type FicheSaisie, type FicheVue, type LigneFiche,
 } from "../_data/fiche-calc";
 import { BlocDisponibilite, CellulePortions, CelluleStock } from "./disponibilite-fiche";
 import { ajouterIngredient, dupliquerFiches, modifierFiche, remplacerIngredients, supprimerFiches, supprimerIngredients } from "../actions";
@@ -64,8 +66,11 @@ export function EditerFiche({
   const router = useRouter();
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
-  const [ent, setEnt] = useState(vue);
-  const [lignes, setLignes] = useState<LigneFiche[]>(vue.lignes);
+  // L'écran travaille sur du TEXTE saisi à la française (« 2,5 ») ; les moteurs et le serveur de
+  // calcul lisent la notation canonique (`calc`, ci-dessous). `vue` reste la fiche enregistrée.
+  const vueSaisie = useMemo(() => vueEnSaisie(vue), [vue]);
+  const [ent, setEnt] = useState<FicheSaisie>(vueSaisie);
+  const [lignes, setLignes] = useState<LigneFiche[]>(vueSaisie.lignes);
   const [nouvelle, setNouvelle] = useState({ source: "", unite: "", quantite: "" });
   const [photoFichier, setPhotoFichier] = useState<File | null>(null);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
@@ -80,12 +85,13 @@ export function EditerFiche({
   ]);
 
   // Recalcul en direct sur l'état du formulaire (valeurs non encore enregistrées comprises).
-  const resultat = calculerCout(versFicheCalc({ ...ent, lignes }, mapArticles, mapNoms), {
+  const calc = vueDepuisSaisie({ ...ent, lignes });
+  const resultat = calculerCout(versFicheCalc(calc, mapArticles, mapNoms), {
     fiches: new Map(contexte.map((f) => [f.id, f])),
   });
   // Disponibilité : même principe que le coût, recalculée à chaque frappe sur l'état du formulaire.
   // La fiche courante entre dans son propre contexte pour qu'une boucle passant par elle soit vue.
-  const ficheDispo = versFicheDispo({ ...ent, lignes }, mapArticles, mapNoms);
+  const ficheDispo = versFicheDispo(calc, mapArticles, mapNoms);
   const dispo = calculerDisponibilite(ficheDispo, {
     fiches: new Map([...contexteDispo.map((f) => [f.id, f] as const), [vue.id, ficheDispo] as const]),
     articles: mapArticles,
@@ -99,13 +105,13 @@ export function EditerFiche({
   // inconnu, pas nul) et un nombre de portions inexploitable (le coût total, lui, reste juste).
   // On les distingue pour ne pas écrire « ≥ » sur un chiffre exact, ni un motif faux.
   const coutPartiel = resultat.ingredientsSansPrix.length > 0 || resultat.cycle;
-  const portionsInvalides = !Number.isFinite(ent.nbPortions) || ent.nbPortions <= 0;
+  const portionsInvalides = !Number.isFinite(calc.nbPortions) || calc.nbPortions <= 0;
   // Troisième cause d'incomplétude, distincte des deux autres : la fiche n'a AUCUN ingrédient.
   // Son coût n'est pas 0, il est inconnu — et aucun ingrédient n'est là pour être nommé.
   const aucunIngredient = lignes.length === 0;
   const noteCout = noteCoutIncomplet(resultat.incomplet, lignes.length);
 
-  const initiales = new Map(vue.lignes.map((l) => [l.id, l]));
+  const initiales = new Map(vueSaisie.lignes.map((l) => [l.id, l]));
   const ligneModifiee = (l: LigneFiche) => {
     const o = initiales.get(l.id);
     return !o || o.articleId !== l.articleId || o.sousFicheId !== l.sousFicheId || o.unite !== l.unite || o.quantite !== l.quantite;
@@ -113,8 +119,8 @@ export function EditerFiche({
   const modifiees = lignes.filter(ligneModifiee);
   // Le PDF est celui de la fiche ENREGISTRÉE : tant qu'une modification (entête ou ingrédient) n'est
   // pas enregistrée, il ne montrerait pas ce que l'on voit à l'écran — les boutons PDF attendent.
-  const enteteModifiee = CHAMPS_ENTETE.some((k) => ent[k] !== vue[k]);
-  const nonEnregistre = modifiees.length > 0 || enteteModifiee || lignes.length !== vue.lignes.length;
+  const enteteModifiee = CHAMPS_ENTETE.some((k) => ent[k] !== vueSaisie[k]);
+  const nonEnregistre = modifiees.length > 0 || enteteModifiee || lignes.length !== vueSaisie.lignes.length;
 
   const run = (fn: () => Promise<unknown>, apres?: () => void) => {
     setErreur(null);
@@ -250,16 +256,16 @@ export function EditerFiche({
             </select>
           </label>
           <label className={champ}>Portions
-            <input name="nbPortions" type="number" min="1" step="1" value={ent.nbPortions} onChange={(e) => setEnt({ ...ent, nbPortions: Number(e.target.value) })} className={`${inp} w-full text-foreground`} />
+            <ChampNombre name="nbPortions" value={ent.nbPortions} onChange={(e) => setEnt({ ...ent, nbPortions: e.target.value })} className={`${inp} w-full text-foreground`} classeConteneur="w-full" />
           </label>
           <label className={champ}>TVA (décimal : 0,16 = 16 %)
-            <input name="tauxTVA" type="number" min="0" max="1" step="0.0001" value={ent.tauxTVA} onChange={(e) => setEnt({ ...ent, tauxTVA: e.target.value })} className={`${inp} w-full text-foreground`} />
+            <ChampNombre name="tauxTVA" value={ent.tauxTVA} onChange={(e) => setEnt({ ...ent, tauxTVA: e.target.value })} className={`${inp} w-full text-foreground`} classeConteneur="w-full" />
           </label>
           <label className={champ} title="Mode par défaut : prix de vente HT = coût de revient × coefficient">Coefficient cible
-            <input name="coefficientMargeCible" type="number" min="0" step="0.01" value={ent.coefficientMargeCible} onChange={(e) => setEnt({ ...ent, coefficientMargeCible: e.target.value })} placeholder="ex. 8" className={`${inp} w-full text-foreground`} />
+            <ChampNombre name="coefficientMargeCible" value={ent.coefficientMargeCible} onChange={(e) => setEnt({ ...ent, coefficientMargeCible: e.target.value })} placeholder="ex. 8" className={`${inp} w-full text-foreground`} classeConteneur="w-full" />
           </label>
           <label className={champ} title="Laissez vide pour laisser le coefficient conduire le prix">Prix de vente TTC décidé
-            <input name="prixVenteTTC" type="number" min="0" step="0.01" value={ent.prixVenteTTC} onChange={(e) => setEnt({ ...ent, prixVenteTTC: e.target.value })} placeholder="—" className={`${inp} w-full text-foreground`} />
+            <ChampNombre name="prixVenteTTC" value={ent.prixVenteTTC} onChange={(e) => setEnt({ ...ent, prixVenteTTC: e.target.value })} placeholder="—" suffixe="USD" className={`${inp} w-full text-foreground`} classeConteneur="w-full" />
           </label>
 
           <label className="col-span-2 flex items-center gap-2 text-xs md:col-span-2">
@@ -291,7 +297,7 @@ export function EditerFiche({
           {ent.estSousRecette && (
             <>
               <label className={champ}>Rendement (quantité)
-                <input name="rendementQuantite" type="number" min="0" step="0.001" value={ent.rendementQuantite} onChange={(e) => setEnt({ ...ent, rendementQuantite: e.target.value })} placeholder="ex. 4600" className={`${inp} w-full text-foreground`} />
+                <ChampNombre name="rendementQuantite" value={ent.rendementQuantite} onChange={(e) => setEnt({ ...ent, rendementQuantite: e.target.value })} placeholder="ex. 4600" alerteMilliers className={`${inp} w-full text-foreground`} classeConteneur="w-full" />
               </label>
               <label className={champ} title="Unité de BASE uniquement : « g » ou « ml ». Le coût d'une sous-recette se calcule sans conversion.">Rendement (unité)
                 <input name="rendementUnite" value={ent.rendementUnite} onChange={(e) => setEnt({ ...ent, rendementUnite: e.target.value })} placeholder="g" className={`${inp} w-full text-foreground`} />
@@ -312,7 +318,7 @@ export function EditerFiche({
       </form>
 
       {/* ── Disponibilité selon le stock ──────────────────────────────────── */}
-      <BlocDisponibilite dispo={dispo} estSousRecette={ent.estSousRecette} rendement={resumerDispo(dispo, ent).rendement} />
+      <BlocDisponibilite dispo={dispo} estSousRecette={ent.estSousRecette} rendement={resumerDispo(dispo, calc).rendement} />
 
       {/* ── Ingrédients ──────────────────────────────────────────────────── */}
       <section className="space-y-2">
@@ -386,7 +392,7 @@ export function EditerFiche({
             <input name="unite" required value={nouvelle.unite} onChange={(e) => setNouvelle({ ...nouvelle, unite: e.target.value })} placeholder="g, cl, pièce…" className={`${inp} w-28 text-foreground`} />
           </label>
           <label className={champ}>Quantité
-            <input name="quantite" type="number" min="0" step="0.001" required value={nouvelle.quantite} onChange={(e) => setNouvelle({ ...nouvelle, quantite: e.target.value })} className={`${inp} w-28 text-right text-foreground`} />
+            <ChampNombre name="quantite" required value={nouvelle.quantite} onChange={(e) => setNouvelle({ ...nouvelle, quantite: e.target.value })} alerteMilliers className={`${inp} w-28 text-right text-foreground`} classeConteneur="w-28" />
           </label>
           <button disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">+ Ajouter l&apos;ingrédient</button>
         </form>
@@ -406,8 +412,8 @@ export function EditerFiche({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Kpi label={coutPartiel ? "Coût total HT (partiel)" : "Coût total HT"} valeur={coutConnu ? `${coutPartiel ? "≥ " : ""}${usd(arrondirCentime(resultat.coutTotal))}` : "—"} accent={coutPartiel ? "amber" : undefined} />
           <Kpi label={coutPartiel ? "Coût / portion (partiel)" : "Coût / portion"} valeur={coutConnu ? `${coutPartiel ? "≥ " : ""}${usd(arrondirCentime(resultat.coutParPortion))}` : "—"} accent={coutPartiel || portionsInvalides ? "amber" : undefined} />
-          <Kpi label="Portions" valeur={portionsInvalides ? "—" : `${ent.nbPortions}`} accent={portionsInvalides ? "amber" : undefined} />
-          {ent.estSousRecette && <Kpi label="Rendement" valeur={ent.rendementQuantite ? `${qte(ent.rendementQuantite)} ${ent.rendementUnite || "?"}` : "—"} accent={ent.rendementQuantite ? undefined : "amber"} />}
+          <Kpi label="Portions" valeur={portionsInvalides ? "—" : `${calc.nbPortions}`} accent={portionsInvalides ? "amber" : undefined} />
+          {ent.estSousRecette && <Kpi label="Rendement" valeur={calc.rendementQuantite ? `${qte(calc.rendementQuantite)} ${ent.rendementUnite || "?"}` : "—"} accent={calc.rendementQuantite ? undefined : "amber"} />}
         </div>
 
         {!coutConnu && (
@@ -485,7 +491,7 @@ export function EditerFiche({
 const CHAMPS_ENTETE = [
   "nom", "categorie", "type", "nbPortions", "tauxTVA", "coefficientMargeCible", "prixVenteTTC",
   "estSousRecette", "actif", "rendementQuantite", "rendementUnite", "recette",
-] as const satisfies readonly (keyof FicheVue)[];
+] as const satisfies readonly (keyof FicheSaisie)[];
 
 /**
  * Bouton PDF de la fiche (chiffré ou sans prix). Modification en cours : bouton désactivé et
@@ -622,7 +628,7 @@ function LigneIngredient({
         <input value={ligne.unite} onChange={(e) => onChange({ unite: e.target.value })} className={`${inp} w-24`} placeholder="g, cl…" />
       </td>
       <td className="px-2 py-1.5">
-        <input type="number" min="0" step="0.001" value={ligne.quantite} onChange={(e) => onChange({ quantite: e.target.value })} className={`${inp} w-28 text-right`} />
+        <ChampNombre value={ligne.quantite} onChange={(e) => onChange({ quantite: e.target.value })} alerteMilliers aria-label="Quantité" className={`${inp} w-28 text-right`} classeConteneur="w-28" />
       </td>
       <td className="px-2 py-1.5 text-right">
         {cout?.cout ? (

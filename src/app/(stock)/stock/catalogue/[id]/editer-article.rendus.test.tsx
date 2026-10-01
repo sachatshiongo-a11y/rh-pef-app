@@ -118,7 +118,7 @@ describe("fiche article — bouton Modifier", () => {
     expect(fd.get("unite")).toBe("Kg");
     expect(fd.get("categorieId")).toBe("cat1");
     expect(fd.get("fournisseurId")).toBe("f1");
-    expect(fd.get("prixUnitaireUSD")).toBe("2.5");
+    expect(fd.get("prixUnitaireUSD")).toBe("2,5"); // la base dit « 2.5 », le champ est écrit à la française
     expect(fd.get("uniteParCarton")).toBe("24");
     expect(fd.get("stockMinimum")).toBe("10");
     expect(fd.get("seuilUrgent")).toBe("3");
@@ -140,7 +140,7 @@ describe("fiche article — bouton Modifier", () => {
     expect(fd.has("quantite")).toBe(false);
     expect(fd.get("designation")).toBe("Farine de blé");
     expect(fd.get("fournisseurId")).toBe("f2");
-    expect(fd.get("prixUnitaireUSD")).toBe("3.2");
+    expect(fd.get("prixUnitaireUSD")).toBe("3,2");
     expect(fd.get("seuilUrgent")).toBe("5");
     // Les champs non touchés restent ceux de l'article.
     expect(fd.get("code")).toBe("137");

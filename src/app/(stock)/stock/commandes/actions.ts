@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { dec } from "@/lib/nombre";
+import { decSaisi } from "@/lib/nombre";
 import { cleAlnum as normNom } from "@/lib/texte";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { redirect } from "next/navigation";
@@ -106,6 +106,8 @@ export const importerBonsCommandePDF = actionLisible(async (formData: FormData):
   revalidatePath("/stock/commandes");
   return { importes, ignores, fournisseursCrees, erreurs };
 });
+/** Une colonne de nombres d'un tableau de lignes : illisible → refus lisible qui nomme la colonne et la ligne. */
+const colonne = (fd: FormData, nom: string, libelle: string) => fd.getAll(nom).map((v, i) => decSaisi(v, `${libelle}, ligne ${i + 1}`));
 const STATUTS = ["BROUILLON", "ENVOYE", "RECU_PARTIEL", "RECU", "ANNULE"] as const;
 type Statut = (typeof STATUTS)[number];
 
@@ -130,9 +132,9 @@ export const creerBonCommande = actionLisible(async (formData: FormData) => {
 
   const ids = formData.getAll("ligne_articleId").map(String);
   const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
-  const qtes = formData.getAll("ligne_quantite").map(dec);
-  const prixs = formData.getAll("ligne_prix").map(dec);
-  const cartons = formData.getAll("ligne_uniteParCarton").map(dec);
+  const qtes = colonne(formData, "ligne_quantite", "quantité");
+  const prixs = colonne(formData, "ligne_prix", "prix");
+  const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
 
   const lignes = desigs
     .map((designation, i) => ({
@@ -219,9 +221,9 @@ export const modifierBonCommande = actionLisible(async (id: string, formData: Fo
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
   const ids = formData.getAll("ligne_articleId").map(String);
   const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
-  const qtes = formData.getAll("ligne_quantite").map(dec);
-  const prixs = formData.getAll("ligne_prix").map(dec);
-  const cartons = formData.getAll("ligne_uniteParCarton").map(dec);
+  const qtes = colonne(formData, "ligne_quantite", "quantité");
+  const prixs = colonne(formData, "ligne_prix", "prix");
+  const cartons = colonne(formData, "ligne_uniteParCarton", "unités par carton");
 
   const lignes = desigs
     .map((designation, i) => ({ articleId: ids[i] || null, designation, quantite: qtes[i] ?? 0, prixUnitaireUSD: prixs[i] ?? 0, uniteParCarton: cartons[i] || null }))
@@ -330,7 +332,7 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
   const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, include: { lignes: true } });
 
   const ligneIds = formData.getAll("recu_ligneId").map(String);
-  const qtes = formData.getAll("recu_quantite").map(dec);
+  const qtes = formData.getAll("recu_quantite").map((v, i) => decSaisi(v, `quantité reçue, ligne ${i + 1}`)); // illisible : refus lisible
   const recu = new Map<string, number>();
   ligneIds.forEach((lid, i) => recu.set(lid, qtes[i] ?? 0));
 

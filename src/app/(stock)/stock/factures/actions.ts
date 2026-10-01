@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
-import { dec } from "@/lib/nombre";
+import { decSaisi } from "@/lib/nombre";
 import { cleAlnum as normNom } from "@/lib/texte";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -226,8 +226,8 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const ids = formData.getAll("ligne_articleId").map(String);
   const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
   const unites = formData.getAll("ligne_unite").map((v) => String(v).trim());
-  const qtes = formData.getAll("ligne_quantite").map(dec);
-  const prixs = formData.getAll("ligne_prix").map(dec);
+  const qtes = formData.getAll("ligne_quantite").map((v, i) => decSaisi(v, `quantité, ligne ${i + 1}`));
+  const prixs = formData.getAll("ligne_prix").map((v, i) => decSaisi(v, `prix, ligne ${i + 1}`));
 
   const lignes = desigs
     .map((designation, i) => ({
@@ -245,7 +245,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const montantUSD = lignes.reduce((t, l) => t + l.totalLigneUSD, 0);
   const dateStr = String(formData.get("date") ?? "").trim() || null;
   const echeanceStr = String(formData.get("dateEcheance") ?? "").trim() || null;
-  const montantRegleUSD = dec(formData.get("montantRegleUSD"));
+  const montantRegleUSD = decSaisi(formData.get("montantRegleUSD"), "montant déjà réglé");
   // Un montant déjà réglé à la création EST un paiement : hors Direction, il passe par une demande
   // (fiche de la facture → « Marquer payée » ou « + Paiement »), jamais par ce raccourci.
   if (montantRegleUSD !== 0 && !estDirection(user)) {
@@ -425,7 +425,7 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
   const user = await garde();
   const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
   const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
-  const saisi = dec(formData.get("montant"));
+  const saisi = decSaisi(formData.get("montant"), "montant");
   if (saisi <= 0) throw new Error("Le montant doit être supérieur à 0.");
   const dateStr = String(formData.get("date") ?? "").trim() || undefined; // validé/défaulté dans reglerFactureTx
   const mode = String(formData.get("modePaiement") ?? "").trim() || null;

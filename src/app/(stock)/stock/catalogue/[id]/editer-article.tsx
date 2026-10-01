@@ -5,7 +5,8 @@ import { modifierArticle } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
-import { lireSaisieNombre } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
+import { canoniqueVersSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
@@ -33,10 +34,11 @@ export type ArticleEdit = {
 };
 
 const inp = "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm";
-/** Texte (venu du serveur) → valeur de case ; l'inverse pour le champ caché envoyé au serveur —
- *  même lecture/écriture que la Liste d'achat de légumes (`legumes-client.tsx`). */
+/** Texte de saisie (français) → valeur de case ; l'inverse pour le champ caché envoyé au serveur
+ *  (`decSaisiOptionnel`) — même lecture/écriture que la Liste d'achat de légumes. Les valeurs venues de
+ *  la base (« 2.125 ») sont écrites à la française par `canoniqueVersSaisie` AVANT d'entrer dans le state. */
 const nombreOuNull = (s: string | null) => { const l = lireSaisieNombre(s ?? ""); return l.ok ? l.valeur : null; };
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 /**
  * Bouton « Modifier » de la fiche article, et son formulaire. RÉUTILISE `modifierArticle` (même
@@ -56,12 +58,12 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
   const [isPending, start] = useTransition();
   // Cases numériques : valeur tenue en state (texte), portée par un champ caché du même nom que
   // lit `modifierArticle` — comme les lignes de la Liste d'achat de légumes.
-  const [prix, setPrix] = useState(a.prixUnitaireUSD ?? "");
-  const [parCarton, setParCarton] = useState(a.uniteParCarton ?? "");
-  const [contenance, setContenance] = useState(a.contenance ?? "");
+  const [prix, setPrix] = useState(canoniqueVersSaisie(a.prixUnitaireUSD));
+  const [parCarton, setParCarton] = useState(canoniqueVersSaisie(a.uniteParCarton));
+  const [contenance, setContenance] = useState(canoniqueVersSaisie(a.contenance));
   const lue = contenanceDansNom(a.designation);
-  const [seuilMin, setSeuilMin] = useState(a.stockMinimum);
-  const [seuilUrgent, setSeuilUrgent] = useState(a.seuilUrgent);
+  const [seuilMin, setSeuilMin] = useState(canoniqueVersSaisie(a.stockMinimum));
+  const [seuilUrgent, setSeuilUrgent] = useState(canoniqueVersSaisie(a.seuilUrgent));
   // Catégories du domaine de l'article — PLUS sa catégorie actuelle si elle est d'un autre domaine
   // (import, reclassement) : absente de la liste, le select retomberait sur « à classer » et
   // l'enregistrement effacerait la catégorie sans que personne l'ait demandé.
@@ -109,13 +111,13 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
             <div className="flex gap-1">
               <input type="hidden" name="contenance" value={contenance} />
               <CelluleNombre ligne="article" col={4} valeur={nombreOuNull(contenance)} onEnregistrer={(v) => setContenance(texteDe(v))} min={0} quantite
-                placeholder={lue ? `lu dans le nom : ${lue.quantite.toString()}` : "ex. 75"} className={`${inp} text-right`} aria-label="Contenance" />
+                placeholder={lue ? `lu dans le nom : ${canoniqueVersSaisie(lue.quantite.toString())}` : "ex. 75"} className={`${inp} text-right`} aria-label="Contenance" />
               <select name="contenanceUnite" defaultValue={a.contenanceUnite ?? ""} className={`${inp} w-20`} aria-label="Unité de contenance">
                 <option value="">—</option>
                 {UNITES_CONTENANCE.map((u) => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
-            <span className="text-[11px]">Sert au coût des fiches consommées en cl ou en g{lue && !a.contenance ? ` — le nom indique ${lue.quantite.toString()} ${lue.unite}` : ""}.</span>
+            <span className="text-[11px]">Sert au coût des fiches consommées en cl ou en g{lue && !a.contenance ? ` — le nom indique ${canoniqueVersSaisie(lue.quantite.toString())} ${lue.unite}` : ""}.</span>
           </div>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Unités / carton
             <input type="hidden" name="uniteParCarton" value={parCarton} />

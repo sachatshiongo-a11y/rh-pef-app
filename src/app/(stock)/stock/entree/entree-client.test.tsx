@@ -268,13 +268,13 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
   // nouvelles lignes et n'envoie RIEN ; chaque ligne envoie SA `devise`, juste après son `montant`, dans
   // l'ordre des lignes — comme `articleId`, `quantite`… que le serveur lit par position (un ancien envoi,
   // à devise unique, retombe sur elle : voir entree.integration.test.ts). Tout le reste est inchangé :
-  // mêmes noms, même ordre, nombres à POINT, PU jamais envoyé, une valeur par ligne et par nom.
+  // mêmes noms, même ordre, nombres à la française (virgule décimale, depuis le 2026-10-01), PU jamais envoyé, une valeur par ligne et par nom.
   // Le scénario MÉLANGE les devises : la ligne 1 passe en FC (son PU repris du catalogue est converti
   // au taux, 1,70 $ × 2 800 = 4 760 FC), la ligne 2 reste en USD, la ligne 3 est saisie en FC.
   const ATTENDU = [
     ["date", "2026-09-30"], ["origine", ""],
-    ["articleId", "a2"], ["designation", "Huile de palme"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2.5"], ["montant", "11900"], ["devise", "CDF"], ["fournisseurNom", "Maman Épiphanie"], ["fournisseurId", "f0"],
-    ["articleId", ""], ["designation", "Sel gris"], ["unite", "Kg"], ["domaine", "BOISSON"], ["quantite", "4"], ["montant", "10.5"], ["devise", "USD"], ["fournisseurNom", "Nouveau Fournisseur"], ["fournisseurId", ""],
+    ["articleId", "a2"], ["designation", "Huile de palme"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["fournisseurNom", "Maman Épiphanie"], ["fournisseurId", "f0"],
+    ["articleId", ""], ["designation", "Sel gris"], ["unite", "Kg"], ["domaine", "BOISSON"], ["quantite", "4"], ["montant", "10,5"], ["devise", "USD"], ["fournisseurNom", "Nouveau Fournisseur"], ["fournisseurId", ""],
     ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", "7"], ["montant", "24500"], ["devise", "CDF"], ["fournisseurNom", ""], ["fournisseurId", ""],
     ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", ""], ["montant", ""], ["devise", "USD"], ["fournisseurNom", ""], ["fournisseurId", ""],
   ];
@@ -283,14 +283,14 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
   async function scenario() {
     const L = (i: number) => lignes()[i];
     await choisirOption(champArticle(L(0)), "a2");
-    await saisir(cas("Quantité, ligne 1"), "2.5");
+    await saisir(cas("Quantité, ligne 1"), "2,5");
     act(() => deviseDe(0).click()); // PU du catalogue (1,70 $) → 4 760 FC ; montant = 2,5 × 4 760
     taper(cas("Fournisseur de la ligne 1"), "Maman Épiphanie");
     taper(L(1).querySelector<HTMLInputElement>("input[name=designation]")!, "Sel gris");
     taper(L(1).querySelector<HTMLInputElement>("input[name=unite]")!, "Kg");
     choisir(L(1).querySelector("select[name=domaine]")!, "BOISSON");
     await saisir(cas("Quantité, ligne 2"), "4");
-    await saisir(cas("Montant USD, ligne 2"), "10.5");
+    await saisir(cas("Montant USD, ligne 2"), "10,5");
     taper(cas("Fournisseur de la ligne 2"), "Nouveau Fournisseur");
     act(() => deviseDe(2).click());
     await saisir(cas("Quantité, ligne 3"), "7");
@@ -310,12 +310,12 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
     expect(noms).toHaveLength(2 + 4 * NOMS_PAR_LIGNE.length);
   });
 
-  it("les montants partent avec un POINT décimal, même tapés à la virgule ou avec un espace de milliers", async () => {
+  it("les montants partent à la FRANÇAISE (virgule décimale, sans espace), même tapés avec un espace de milliers", async () => {
     await saisir(cas("Quantité, ligne 1"), "1 250,5");
     await saisir(cas("Montant USD, ligne 1"), "3,75");
     const d = donnees();
-    expect(d.filter(([n]) => n === "quantite")[0][1]).toBe("1250.5");
-    expect(d.filter(([n]) => n === "montant")[0][1]).toBe("3.75");
+    expect(d.filter(([n]) => n === "quantite")[0][1]).toBe("1250,5");
+    expect(d.filter(([n]) => n === "montant")[0][1]).toBe("3,75");
   });
 
   it("un clic sur « Valider » envoie le formulaire à l'action, une seule fois", async () => {

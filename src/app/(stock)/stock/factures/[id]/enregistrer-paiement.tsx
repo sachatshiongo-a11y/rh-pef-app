@@ -5,6 +5,8 @@ import { enregistrerPaiement } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonValider } from "@/components/action-buttons";
+import { ChampNombre } from "@/components/champ-nombre";
+import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
@@ -33,7 +35,8 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
     return <BoutonValider onClick={() => setOuvert(true)}>{estDirection ? "+ Paiement / Avoir" : "+ Demander un paiement / avoir"}</BoutonValider>;
   }
 
-  const equivalent = devise === "CDF" && taux > 0 && Number(montant) > 0 ? (Number(montant) / taux).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
+  const saisi = lireNombreSaisi(montant); // null = vide ou illisible (le champ le dit en rouge)
+  const equivalent = devise === "CDF" && taux > 0 && saisi !== null && saisi > 0 ? (saisi / taux).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
 
   return (
     <form action={submit} className="flex w-full flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
@@ -56,7 +59,7 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
       </div>
 
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Montant ({devise}) *
-        <input name="montant" value={montant} onChange={(e) => setMontant(e.target.value)} type="number" step={devise === "USD" ? "0.01" : "1"} min="0.01" max={devise === "USD" ? reste : undefined} required autoFocus placeholder={devise === "USD" ? reste.toFixed(2) : taux > 0 ? String(Math.round(reste * taux)) : ""} className={`${inp} w-32 text-right`} />
+        <ChampNombre name="montant" value={montant} onChange={(e) => setMontant(e.target.value)} required autoFocus suffixe={devise === "USD" ? "$" : "FC"} placeholder={devise === "USD" ? versSaisie(Math.round(reste * 100) / 100) : taux > 0 ? versSaisie(Math.round(reste * taux)) : ""} className={`${inp} w-32 text-right`} classeConteneur="w-32" />
       </label>
       {equivalent && <span className="pb-2 text-xs text-muted-foreground">≈ {equivalent} $ (taux {taux.toLocaleString("fr-FR")})</span>}
 

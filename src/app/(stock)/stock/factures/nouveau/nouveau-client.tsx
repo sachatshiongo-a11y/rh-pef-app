@@ -6,7 +6,8 @@ import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { useLigneSuivante } from "@/components/tableur/ligne-suivante";
 import { ZoneTableur } from "@/components/tableur/messages";
-import { lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { ecrireSaisieNombre, lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
+import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { ChoixRecherche } from "@/components/choix-recherche";
@@ -15,11 +16,13 @@ import { optionsArticles, optionsFournisseurs } from "@/lib/recherche-options";
 /** Texte de ligne → valeur de case (« 12.500 » reçu du serveur ou du PDF → 12,5 affiché). */
 const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok ? l.valeur : null; };
 /**
- * Valeur de case → texte de ligne : écriture à POINT (« 2.5 »), celle que produisait l'ancien
- * champ number. Les montants (`Number(l.quantite) * Number(l.prix)`) et ce qui part au serveur
- * (champs cachés ligne_quantite / ligne_prix) sont donc inchangés, virgule tapée ou non.
+ * Valeur de case → texte de ligne : écriture à la FRANÇAISE (« 2,5 »), relisible par `nombreOuNull`
+ * et par le serveur (champs cachés ligne_quantite / ligne_prix lus par `decSaisi`). Les montants se
+ * calculent par `nombreDeSaisie`, jamais par `Number()` (qui lirait « 2,5 » comme NaN). Tout ce que
+ * le PROGRAMME écrit dans une ligne (PDF analysé, bon de commande, catalogue) passe par
+ * `canoniqueVersSaisie`.
  */
-const texteDe = (v: number | null) => (v === null ? "" : String(v));
+const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
 type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; unite: string | null };
 type Four = { id: string; nom: string; delaiJours: number | null };
@@ -36,7 +39,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const bon0 = bons.find((b) => b.id === bcInitial) ?? null;
   const lignesDeBon = (b: Bon | null): Ligne[] =>
-    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: l.quantite, prix: l.prix })) : [vide(), vide(), vide()];
+    b && b.lignes.length ? b.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prix) })) : [vide(), vide(), vide()];
 
   const [erreur, setErreur] = useState<string | null>(null);
   const [doublon, setDoublon] = useState<string | null>(null);
@@ -71,9 +74,9 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
         // Lignes détaillées lues sur la facture (article rapproché du catalogue + quantité + prix) ;
         // à défaut, une ligne unique avec le montant total.
         if (r.lignes.length > 0) {
-          setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: String(l.quantite), prix: String(l.prixUnitaireUSD) })));
+          setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prixUnitaireUSD) })));
         } else if (r.montant != null) {
-          setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: String(r.montant) }]);
+          setLignes([{ articleId: "", designation: "Facture (voir PDF joint)", unite: "", quantite: "1", prix: canoniqueVersSaisie(r.montant) }]);
         }
         // Fournisseur : proche existant → on l'associe ; sinon on prépare la création automatique.
         if (r.match) { setFournisseurId(r.match.id); setFournisseurNom(r.match.nom); setCoord(null); }
@@ -88,7 +91,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
   const { racine, onEntreeDerniereLigne } = useLigneSuivante(lignes.length, ajouterLigne);
   const choisirArticle = (i: number, articleId: string) => {
     const a = articles.find((x) => x.id === articleId);
-    maj(i, { articleId, designation: a?.designation ?? "", unite: a?.unite ?? "", prix: a?.prix ?? "" });
+    maj(i, { articleId, designation: a?.designation ?? "", unite: a?.unite ?? "", prix: canoniqueVersSaisie(a?.prix) });
   };
 
   const calcEcheance = (dateStr: string, delai: number | null) => {
@@ -115,7 +118,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
     if (f) { setFournisseurNom(f.nom); calcEcheance(date, f.delaiJours); }
   };
 
-  const total = lignes.reduce((t, l) => t + (Number(l.quantite) || 0) * (Number(l.prix) || 0), 0);
+  const total = lignes.reduce((t, l) => t + nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix), 0);
 
   const submit = (fd: FormData) => {
     setErreur(null); setDoublon(null);
@@ -280,7 +283,7 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
                   <CelluleNombre ligne={String(i)} col={1} valeur={nombreOuNull(l.prix)} onEnregistrer={(v) => maj(i, { prix: texteDe(v) })}
                     onEntreeDerniereLigne={onEntreeDerniereLigne} min={0} className={`${inp} w-24 text-right`} aria-label={`Prix unitaire, ligne ${i + 1}`} />
                 </td>
-                <td className="px-2 py-1 text-right text-muted-foreground">{((Number(l.quantite) || 0) * (Number(l.prix) || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
+                <td className="px-2 py-1 text-right text-muted-foreground">{(nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
                 <td className="px-2 py-1 text-right">
                   <button type="button" onClick={() => setLignes((ls) => ls.filter((_, j) => j !== i))} className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent" title="Retirer">✕</button>
                 </td>
