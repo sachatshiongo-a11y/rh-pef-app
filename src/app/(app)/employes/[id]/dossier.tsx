@@ -209,7 +209,7 @@ export function DossierEmploye({
   peutModifier: boolean;
   estAdmin: boolean;
 }) {
-  const aujourdhui = new Date();
+  const aujourdhui = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : les échéances sont des dates pures
   const dans30j = new Date(aujourdhui.getTime() + 30 * 86400000);
 
   return (

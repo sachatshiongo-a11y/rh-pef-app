@@ -35,7 +35,9 @@ export default async function AccueilPage() {
   const moi = await prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } });
   const maPhoto = moi?.employe?.photoUrl ?? null;
   const maintenant = new Date();
-  const dans30j = new Date(maintenant.getTime() + 30 * 86_400_000);
+  // Dates stockées à minuit UTC (jour civil) : les échéances et congés se comparent au JOUR de Kinshasa.
+  const aujourdhui = jourCivilKinshasa(maintenant);
+  const dans30j = new Date(aujourdhui.getTime() + 30 * 86_400_000);
   const config = await prisma.config.findUnique({ where: { id: "singleton" } });
   const { mois, annee } = moisDePaie(config, maintenant);
   const filtreRun = config ? { payrollRun: { mois, annee } } : {};
@@ -61,10 +63,10 @@ export default async function AccueilPage() {
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.payrollLine.count({ where: { statutPaiement: "PAS_VALIDE", ...filtreRun } }),
     prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
-    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: maintenant }, dateFin: { gte: maintenant } } }),
+    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: aujourdhui }, dateFin: { gte: aujourdhui } } }),
     calculerAlertes().then((l) => l.filter((a) => a.espace === "RH")), // les alertes STOCK restent dans leur espace
     prisma.leaveRequest.findMany({
-      where: { statut: "APPROUVE", dateFin: { gte: maintenant }, dateDebut: { lte: dans30j } },
+      where: { statut: "APPROUVE", dateFin: { gte: aujourdhui }, dateDebut: { lte: dans30j } },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
       orderBy: { dateDebut: "asc" },
       take: 10,
@@ -74,8 +76,8 @@ export default async function AccueilPage() {
       where: {
         statut: "ACTIF",
         OR: [
-          { dateFin: { gte: maintenant, lte: dans30j } },
-          { finPeriodeEssai: { gte: maintenant, lte: dans30j } },
+          { dateFin: { gte: aujourdhui, lte: dans30j } },
+          { finPeriodeEssai: { gte: aujourdhui, lte: dans30j } },
         ],
       },
       include: { employee: { select: { id: true, nom: true, photoUrl: true } } },

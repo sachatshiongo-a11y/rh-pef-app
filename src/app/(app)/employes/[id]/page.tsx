@@ -338,7 +338,7 @@ export default async function FicheEmployePage({
       : Number(employee.transportMoisUSD);
   const transportMoisCDF = transportMoisUSD * parametres.tauxChangeCDF;
 
-  const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(annee, mois - 1, 1));
+  const anciennete = ancienneteEnMois(new Date(employee.dateEmbauche), new Date(Date.UTC(annee, mois - 1, 1)));
   // Solde de congé : LA source unique de l'espace salarié, à l'HORLOGE (règle maison : le mois RH
   // vient de l'horloge, jamais de Config.moisCourant, qui peut rester figé). Avant, la fiche partait
   // du mois de Config et des 15 dernières demandes seulement : la Direction et le salarié pouvaient
@@ -347,7 +347,9 @@ export default async function FicheEmployePage({
 
   // Notifications de la fiche : échéances contrat / période d'essai / documents, congé en attente.
   const notifications: string[] = [];
-  const maintenant = new Date();
+  // Échéances stockées à minuit UTC (jour civil) : on les compare au JOUR de Kinshasa — un contrat qui
+  // finit aujourd'hui court jusqu'au soir (avant : « expiré » dès minuit UTC).
+  const maintenant = jourCivilKinshasa(new Date());
   const dans30j = new Date(maintenant.getTime() + 30 * 86400000);
   for (const c of contrats) {
     if (c.dateFin && new Date(c.dateFin) >= maintenant && new Date(c.dateFin) <= dans30j) {

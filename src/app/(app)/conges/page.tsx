@@ -11,6 +11,7 @@ import { chargerSignatures, etatSignature } from "@/lib/signature";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { faireSignerDocument } from "../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -63,7 +64,7 @@ export default async function CongesPage({
   // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant.
   const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q };
 
-  const now = new Date();
+  const now = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : un congé du 12 au 12 est « en cours » le 12
   const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
   const enCours = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) <= now && new Date(d.dateFin) >= now).length;
   const dans30 = new Date(now.getTime() + 30 * 86_400_000);

@@ -26,15 +26,17 @@ function joursAvant(date: Date): number {
 export async function calculerAlertes(): Promise<Alerte[]> {
   const alertes: Alerte[] = [];
   const maintenant = new Date();
-  const dans30j = new Date(Date.now() + 30 * 86_400_000);
+  // Échéances stockées à minuit UTC (jour civil) : comparées au JOUR de Kinshasa, pas à l'instant.
+  const aujourdhui = jourCivilKinshasa(maintenant);
+  const dans30j = new Date(aujourdhui.getTime() + 30 * 86_400_000);
 
   // Toutes ces requêtes sont indépendantes : on les lance EN PARALLÈLE (Promise.all) au lieu de
   // les enchaîner. Sur un lien à forte latence, cela transforme ~5 allers-retours séquentiels en
   // un seul temps d'attente.
-  const dans7j = new Date(Date.now() + 7 * 86_400_000);
+  const dans7j = new Date(aujourdhui.getTime() + 7 * 86_400_000);
   const [congesEnAttente, contrats, documents, runsRecents, declarationsCnss, facturesDues] = await Promise.all([
     prisma.leaveRequest.findMany({
-      where: { statut: "EN_ATTENTE", dateDebut: { gte: maintenant, lte: dans30j } },
+      where: { statut: "EN_ATTENTE", dateDebut: { gte: aujourdhui, lte: dans30j } },
       include: { employee: { select: { nom: true } } },
       orderBy: { dateDebut: "asc" },
     }),
@@ -42,14 +44,14 @@ export async function calculerAlertes(): Promise<Alerte[]> {
       where: {
         statut: "ACTIF",
         OR: [
-          { dateFin: { gte: maintenant, lte: dans30j } },
-          { finPeriodeEssai: { gte: maintenant, lte: dans30j } },
+          { dateFin: { gte: aujourdhui, lte: dans30j } },
+          { finPeriodeEssai: { gte: aujourdhui, lte: dans30j } },
         ],
       },
       include: { employee: { select: { id: true, nom: true } } },
     }),
     prisma.documentEmploye.findMany({
-      where: { dateExpiration: { gte: maintenant, lte: dans30j } },
+      where: { dateExpiration: { gte: aujourdhui, lte: dans30j } },
       include: { employee: { select: { id: true, nom: true } } },
     }),
     prisma.payrollRun.findMany({
@@ -82,10 +84,9 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   }
 
   // 2. Rappel du jour de paie (le 29). Fenêtre d'anticipation : 5 jours avant.
-  const aujourdhuiKinshasa = jourCivilKinshasa(maintenant); // le jour et le mois en cours : à Kinshasa
-  const auj = aujourdhuiKinshasa.getUTCDate();
-  const dansLeMois = aujourdhuiKinshasa.getUTCMonth();
-  const annee = aujourdhuiKinshasa.getUTCFullYear();
+  const auj = aujourdhui.getUTCDate();
+  const dansLeMois = aujourdhui.getUTCMonth();
+  const annee = aujourdhui.getUTCFullYear();
   const dernierJourMois = new Date(Date.UTC(annee, dansLeMois + 1, 0)).getUTCDate();
   const jourPaieEffectif = Math.min(JOUR_PAIE, dernierJourMois); // si le mois n'a pas 29 jours
   if (auj >= jourPaieEffectif - 5 && auj <= jourPaieEffectif) {
@@ -104,7 +105,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
 
   // 3. Contrats / périodes d'essai qui expirent sous 30 jours.
   for (const c of contrats) {
-    if (c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= maintenant) {
+    if (c.dateFin && new Date(c.dateFin) <= dans30j && new Date(c.dateFin) >= aujourdhui) {
       alertes.push({
         type: "CONTRAT",
         espace: "RH",
@@ -121,7 +122,7 @@ export async function calculerAlertes(): Promise<Alerte[]> {
     if (
       c.finPeriodeEssai &&
       new Date(c.finPeriodeEssai) <= dans30j &&
-      new Date(c.finPeriodeEssai) >= maintenant
+      new Date(c.finPeriodeEssai) >= aujourdhui
     ) {
       alertes.push({
         type: "PERIODE_ESSAI",
