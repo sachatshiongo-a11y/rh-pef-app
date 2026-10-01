@@ -136,7 +136,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
                 </TelechargerLien>
                 {peutValider && (
                   <div className="ml-auto">
-                    <StatusActions payrollLineId={r.id} statut={r.statutPaiement} peutValider={peutValider} modePaiementDefaut={r.modePaiementDefaut} avertissements={r.avertissements} nom={r.nom} />
+                    <StatusActions payrollLineId={r.id} statut={r.statutPaiement} peutValider={peutValider} modePaiementDefaut={r.modePaiementDefaut} avertissements={r.avertissements} nom={r.nom} jeton={r.jeton} />
                   </div>
                 )}
               </div>
@@ -223,7 +223,7 @@ export function BulletinsValidation({ rows, peutValider }: { rows: PaieRow[]; pe
               </TelechargerLien>
             )}
             {sel && peutValider && (
-              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} peutValider={peutValider} modePaiementDefaut={sel.modePaiementDefaut} avertissements={sel.avertissements} nom={sel.nom} />
+              <StatusActions payrollLineId={sel.id} statut={sel.statutPaiement} peutValider={peutValider} modePaiementDefaut={sel.modePaiementDefaut} avertissements={sel.avertissements} nom={sel.nom} jeton={sel.jeton} />
             )}
           </div>
         </div>

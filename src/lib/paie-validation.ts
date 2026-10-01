@@ -19,6 +19,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { calculerLignesPaie, type DonneesLignePaie } from "@/lib/paie-batch";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
+import { jetonLigne } from "@/lib/paie-jeton";
 
 /** Délai des transactions de validation (une ligne, un lot, la clôture) : recalcul du mois compris. */
 export const DELAI_VALIDATION_PAIE = 120_000;
@@ -33,6 +34,12 @@ export const MESSAGE_VALIDATION_OCCUPEE =
 
 export const MESSAGE_LIGNE_RECALCULEE =
   "La paie a été recalculée depuis l'affichage de cette page : rechargez la page Paie avant de valider.";
+
+/** Salarié qui n'est plus calculé (fiche désactivée, passé en intérim) mais dont la ligne rouverte
+ *  reste (le recalcul ne supprime jamais une ligne qui a un historique) : dire comment en sortir. */
+export function messageNonCalcules(noms: string[]): string {
+  return `${noms.join(", ")} ${noms.length > 1 ? "ne sont" : "n'est"} plus dans le calcul de la paie (fiche désactivée ou passage en intérim) : sa ligne ne peut pas être validée. Rechargez la page Paie ; si la ligne reste (déjà validée puis rouverte, elle garde son historique), réactivez la fiche le temps de valider la paie du mois, ou la Direction réinitialise la paie du mois.`;
+}
 
 export function messagePaieChangee(noms: string[]): string {
   return `La paie de ${noms.join(", ")} a changé depuis son calcul (planning ou heures modifiés) : rechargez la page Paie avant de valider.`;
@@ -103,7 +110,7 @@ export async function verrouillerRunExclusif(tx: Prisma.TransactionClient, runId
 export async function controlerLignesAValider(
   tx: Prisma.TransactionClient,
   payrollLineIds: string[],
-  opts: { verrouRun?: "PARTAGE" | "EXCLUSIF" } = {},
+  opts: { verrouRun?: "PARTAGE" | "EXCLUSIF"; jetons?: Record<string, string | undefined> } = {},
 ): Promise<Set<string>> {
   const ids = [...new Set(payrollLineIds)];
   if (ids.length === 0) return new Set();
@@ -139,9 +146,14 @@ export async function controlerLignesAValider(
       payrollRun: { select: { mois: true, annee: true } },
     },
   });
-  // Une ligne demandée qui n'existe plus a été supprimée puis recréée par un recalcul (/paie) :
-  // l'écran qui la montrait est périmé. L'ignorer validerait moins de lignes que prévu, en silence.
+  // Une ligne demandée qui n'existe plus a été remplacée par un recalcul (/paie : brouillon sans
+  // historique) : l'écran qui la montrait est périmé. L'ignorer validerait moins de lignes que prévu.
   if (lignes.length < ids.length) throw new ValidationPaieRefuseeError(MESSAGE_LIGNE_RECALCULEE);
+  // Une ligne ROUVERTE garde son identifiant quand le recalcul la met à jour (paie-refresh.ts) : le
+  // jeton de l'écran (montants affichés) dit alors si elle a changé depuis l'affichage.
+  if (opts.jetons && lignes.some((l) => opts.jetons![l.id] !== undefined && opts.jetons![l.id] !== jetonLigne(l))) {
+    throw new ValidationPaieRefuseeError(MESSAGE_LIGNE_RECALCULEE);
+  }
 
   const aValider = lignes.filter((l) => l.statutPaiement === "PAS_VALIDE");
 
@@ -152,19 +164,24 @@ export async function controlerLignesAValider(
     (parMois.get(k) ?? parMois.set(k, []).get(k)!).push(l);
   }
   const changees: string[] = [];
+  const nonCalcules: string[] = [];
   for (const groupe of parMois.values()) {
     const { mois, annee } = groupe[0].payrollRun;
     const { lignes: recalculees } = await calculerLignesPaie(mois, annee, tx);
     const parSalarie = new Map(recalculees.map((r) => [r.employee.id, r.data]));
-    // 3. Comparaison. Un salarié absent du recalcul (fiche désactivée, passé en intérim) n'aurait
-    // plus de ligne au prochain recalcul : son montant a changé, lui aussi.
+    // 3. Comparaison. Un salarié absent du recalcul (fiche désactivée, passé en intérim) ne peut pas
+    // être validé : son brouillon disparaîtra au prochain recalcul, sa ligne rouverte restera (avec
+    // son historique) — le message dit comment en sortir.
     for (const l of groupe) {
       const r = parSalarie.get(l.employeeId);
-      if (!r || ligneDiffere(l, r)) changees.push(l.employee.nom);
+      if (!r) nonCalcules.push(l.employee.nom);
+      else if (ligneDiffere(l, r)) changees.push(l.employee.nom);
     }
   }
+  const trier = (noms: string[]) => [...new Set(noms)].sort((a, b) => a.localeCompare(b, "fr"));
+  if (nonCalcules.length > 0) throw new ValidationPaieRefuseeError(messageNonCalcules(trier(nonCalcules)));
   if (changees.length > 0) {
-    throw new ValidationPaieRefuseeError(messagePaieChangee([...new Set(changees)].sort((a, b) => a.localeCompare(b, "fr"))));
+    throw new ValidationPaieRefuseeError(messagePaieChangee(trier(changees)));
   }
   return new Set(aValider.map((l) => l.id));
 }

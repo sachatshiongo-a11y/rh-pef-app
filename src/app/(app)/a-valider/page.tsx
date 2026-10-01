@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
+import { jetonLigne } from "@/lib/paie-jeton";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
 import { LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
@@ -123,6 +124,7 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
     montant: money(salaireNetUSD(l)),
     statutPaiement: l.statutPaiement,
     avertissements: lireAvertissements(l.avertissementsPaie),
+    jeton: jetonLigne(l),
   });
   const prepareRows = prepare.map(toRow);
   const valideRows = valide.map(toRow);

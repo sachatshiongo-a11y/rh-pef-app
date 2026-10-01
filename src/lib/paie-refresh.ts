@@ -105,9 +105,12 @@ export async function rafraichirPaieDuMois(opts: { creerRun: boolean; userId?: s
     const brouillons = existantes.filter((l) => !aHistorique(l)).map((l) => l.id);
 
     if (brouillons.length) await tx.payrollLine.deleteMany({ where: { id: { in: brouillons } } });
-    for (const { payrollRunId: _run, employeeId, ...donnees } of nouvellesLignes) {
-      const id = conservees.get(employeeId);
-      if (id) await tx.payrollLine.update({ where: { id }, data: { ...donnees, datePaiement: null, modePaiement: null, payeParId: null } });
+    // Dans l'ordre des identifiants, comme les verrous de la validation : jamais d'interblocage.
+    const enPlace = nouvellesLignes
+      .filter((l) => conservees.has(l.employeeId))
+      .sort((a, b) => conservees.get(a.employeeId)!.localeCompare(conservees.get(b.employeeId)!));
+    for (const { payrollRunId: _run, employeeId, ...donnees } of enPlace) {
+      await tx.payrollLine.update({ where: { id: conservees.get(employeeId)! }, data: { ...donnees, datePaiement: null, modePaiement: null, payeParId: null } });
     }
     // Écriture en masse des autres (remplace ~100 requêtes par ~4).
     await tx.payrollLine.createMany({ data: nouvellesLignes.filter((l) => !conservees.has(l.employeeId)) });

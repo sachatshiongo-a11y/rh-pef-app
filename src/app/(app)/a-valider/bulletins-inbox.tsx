@@ -22,6 +22,8 @@ export type BulletinRow = {
   statutPaiement: PaymentStatus;
   // Rappelés avant de valider, comme sur l'écran Paie (jamais bloquants).
   avertissements: AvertissementPaie[];
+  /** Montants affichés (paie-jeton.ts) : renvoyés à la validation. */
+  jeton?: string;
 };
 
 const MODES = [
@@ -66,7 +68,8 @@ export function BulletinsInbox({
     }
     setErreur(null);
     startTransition(async () => {
-      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? (mode as ModePaiement) : null);
+      const jetons = Object.fromEntries(rows.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
+      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? (mode as ModePaiement) : null, jetons);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });

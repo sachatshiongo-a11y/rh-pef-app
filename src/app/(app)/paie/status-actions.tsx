@@ -36,6 +36,7 @@ export function StatusActions({
   modePaiementDefaut = "ESPECES",
   avertissements = [],
   nom = "",
+  jeton,
 }: {
   payrollLineId: string;
   statut: PaymentStatus;
@@ -44,6 +45,8 @@ export function StatusActions({
   modePaiementDefaut?: ModePaiement; // pré-rempli depuis la fiche employé
   avertissements?: AvertissementPaie[]; // montrés avant de valider, jamais bloquants
   nom?: string;
+  /** Montants affichés (paie-jeton.ts) : renvoyés à la validation, qui refuse une ligne recalculée depuis. */
+  jeton?: string;
 }) {
   if (!peutValider) return null;
   const cibles = prochainsEtats(statut);
@@ -58,6 +61,7 @@ export function StatusActions({
         return (
           <form key={vers} action={changerStatutPaie.bind(null, payrollLineId)} className="inline-flex items-center gap-1">
             <input type="hidden" name="versStatut" value={vers} />
+            {jeton && <input type="hidden" name="jeton" value={jeton} />}
             {/* Au paiement : moyen de paiement pré-rempli depuis la fiche, modifiable. */}
             {vers === "PAYE" && !reouverture && (
               <select

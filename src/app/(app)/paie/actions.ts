@@ -230,6 +230,8 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   const modePaiement = (formData.get("modePaiement") as ModePaiement | null) || null;
   const preuveUrl = String(formData.get("preuveUrl") ?? "").trim() || null;
   const commentaire = String(formData.get("commentaire") ?? "").trim() || null;
+  // Montants que l'écran a montrés (paie-jeton.ts) : une ligne recalculée depuis est refusée.
+  const jeton = String(formData.get("jeton") ?? "").trim() || undefined;
 
   requireRole(user, roleRequisPour(versStatut));
 
@@ -239,7 +241,7 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   let refus: string | null = null;
   try {
     ok = await prisma.$transaction(async (tx) => {
-      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId]) : undefined;
+      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton } }) : undefined;
       return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees }, user.id);
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
@@ -263,7 +265,9 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
 export const changerStatutEnLot = actionLisible(async (
   payrollLineIds: string[],
   versStatut: PaymentStatus,
-  modePaiement?: ModePaiement | null
+  modePaiement?: ModePaiement | null,
+  /** Montants affichés par ligne (paie-jeton.ts) : une ligne recalculée depuis l'affichage refuse le lot. */
+  jetons?: Record<string, string>,
 ): Promise<number> => {
   const user = await verifySession();
   requireRole(user, roleRequisPour(versStatut));
@@ -275,7 +279,7 @@ export const changerStatutEnLot = actionLisible(async (
   let modifiees: number;
   try {
     modifiees = await prisma.$transaction(async (tx) => {
-      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds) : undefined;
+      const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds, { jetons }) : undefined;
       let n = 0;
       for (const id of payrollLineIds) {
         if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees }, user.id)) n++;
