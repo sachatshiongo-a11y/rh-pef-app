@@ -119,6 +119,10 @@ describe("contenance saisie au catalogue", () => {
     expect(() => lireContenanceSaisie("abc", "cl")).toThrow(/illisible/);
     expect(() => lireContenanceSaisie("0.0005", "l")).toThrow(/3 décimales/);
     // Notations que Decimal accepterait : refusées, jamais interprétées.
-    for (const n of ["1e5", "0x10", "Infinity", "7.", ".7", "1 000", "+5"]) expect(() => lireContenanceSaisie(n, "cl")).toThrow(/illisible/);
+    for (const n of ["1e5", "0x10", "Infinity", "7.", ".7"]) expect(() => lireContenanceSaisie(n, "cl")).toThrow(/illisible/);
+    // Règle commune de saisie (2026-10-01) : l'espace sépare les milliers, la virgule est la décimale ;
+    // un point de milliers AMBIGU (« 1.500 » : 1,5 ou 1 500 ?) est refusé.
+    expect(lireContenanceSaisie("1 000", "ml")).toEqual({ contenance: "1000", contenanceUnite: "ml" });
+    expect(() => lireContenanceSaisie("1.500", "g")).toThrow(/ambigu/);
   });
 });
