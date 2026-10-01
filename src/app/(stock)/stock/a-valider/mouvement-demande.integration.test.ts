@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
+import { ecrireSaisieNombre } from "@/lib/nombre";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : entrées/sorties manuelles soumises à la
 // Direction (décisions du 2026-10-01). Seules les sorties « Livraison restaurant » et « Perte » restent
@@ -64,7 +65,7 @@ const mvt = (o: { type: "ENTREE" | "SORTIE"; lignes: [string, number][]; categor
   if (o.raisonSortie) f.set("raisonSortie", o.raisonSortie);
   if (o.motifEntree) f.set("motifEntree", o.motifEntree);
   if (o.origine) f.set("origine", o.origine);
-  for (const [id, q] of o.lignes) { f.append("articleId", id); f.append("quantite", String(q)); }
+  for (const [id, q] of o.lignes) { f.append("articleId", id); f.append("quantite", typeof q === "number" ? ecrireSaisieNombre(q) : String(q)); } // écrite comme à l'écran : virgule décimale
   return f;
 };
 const stock = async (id: string) => Number((await prisma.stock.findUniqueOrThrow({ where: { articleId: id } })).quantite);
