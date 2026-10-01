@@ -1,8 +1,8 @@
 // Sélection d'un lot de paie — module PUR, partagé par /paie (paie-bulk.tsx) et « À valider »
 // (bulletins-inbox.tsx). Correction 1 (2026-09-24), point 2.
 //
-// Chaque ouverture de /paie supprime puis recrée les lignes non figées (paie-refresh.ts) : leurs
-// IDENTIFIANTS changent, alors que l'état de l'écran (la sélection) survit au nouveau rendu. Une
+// Chaque ouverture de /paie remplace les lignes non figées SANS historique (paie-refresh.ts ; une
+// ligne rouverte, elle, est mise à jour en place) : leurs IDENTIFIANTS changent, alors que l'état de l'écran (la sélection) survit au nouveau rendu. Une
 // sélection d'identifiants envoyait donc au serveur des lignes disparues, et le lot était refusé
 // (« La paie a été recalculée depuis l'affichage ») sans qu'aucun montant ait changé.
 //

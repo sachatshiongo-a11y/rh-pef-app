@@ -59,7 +59,7 @@ const TECHNIQUES_LIB: Record<string, string> = {
   envoyerPush: "Purge les abonnements push expirés (410) renvoyés par le service.",
   effacerEchecs: "Remet à zéro le compteur d'échecs de connexion d'un compte (anti-force brute).",
   supprimerUtilisateurAuth: "Annule la création d'un compte d'authentification quand la suite a échoué (rien d'existant).",
-  rafraichirPaieDuMois: "Recalcul de la paie : les lignes NON figées sont recalculées (supprimées puis recréées) ; les figées ne bougent pas.",
+  rafraichirPaieDuMois: "Recalcul de la paie : seuls les brouillons SANS historique sont remplacés ; une ligne avec historique est mise à jour en place (voir le test « paie » plus bas).",
 };
 
 /**
@@ -205,6 +205,36 @@ describe("seule la Direction supprime : chaque action qui supprime appelle une g
       expect(FICHIERS, cle).toContain(rel);
       expect(nonGardees(lire(rel), DELETEURS), cle).toContain(nom);
     }
+  });
+});
+
+/** Suppressions de paie (ligne, run, bulletin émis, transition) : jamais hors des deux endroits permis. */
+const SUPPRESSION_PAIE = /\.(payrollLine|payrollRun|versionBulletin|transitionPaie)\.(delete|deleteMany)\s*\(/;
+const PAIE_PERMIS: Record<string, string> = {
+  "lib/paie-refresh.ts": "Recalcul : remplace les seuls brouillons SANS historique (bulletin émis, transition, attestation, signature, journal).",
+  "app/(app)/paie/actions.ts": "reinitialiserPaieDuMois : geste explicite de la Direction (requireRole ADMIN).",
+};
+function fichiersSupprimantLaPaie(): string[] {
+  return lister(SRC, (p) => /\.(ts|tsx)$/.test(p) && !/\.test\./.test(p))
+    .filter((p) => SUPPRESSION_PAIE.test(sansCommentaires(fs.readFileSync(p, "utf8"))))
+    .map((p) => path.relative(SRC, p).split(path.sep).join("/"))
+    .sort();
+}
+
+describe("l'historique de paie ne disparaît jamais hors geste de la Direction", () => {
+  it("seuls le recalcul (brouillons) et la réinitialisation par la Direction suppriment une paie", () => {
+    expect(fichiersSupprimantLaPaie()).toEqual(Object.keys(PAIE_PERMIS).sort());
+  });
+  it("le recalcul ne supprime que des brouillons sans historique (le filtre est écrit, pas supposé)", () => {
+    const src = sansCommentaires(fs.readFileSync(path.join(LIB, "paie-refresh.ts"), "utf8"));
+    const appels = [...src.matchAll(/\.payrollLine\.(?:delete|deleteMany)\s*\(([^;]*)/g)].map((m) => m[1]);
+    expect(appels).toEqual([expect.stringContaining("brouillons")]);
+    expect(src).toMatch(/const brouillons = existantes\.filter\(\(l\) => !aHistorique\(l\)\)/);
+  });
+  it("la réinitialisation est gardée Direction", () => {
+    const src = fs.readFileSync(path.join(APP, "(app)/paie/actions.ts"), "utf8");
+    expect(nonGardees(src, DELETEURS)).not.toContain("reinitialiserPaieDuMois");
+    expect(declarations(sansCommentaires(src)).find((d) => d.nom === "reinitialiserPaieDuMois")!.corps).toMatch(/requireRole\(user, \["ADMIN"\]\)/);
   });
 });
 

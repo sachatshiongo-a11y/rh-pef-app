@@ -163,8 +163,8 @@ function controlerOperations(operations: OperationCreneau[]): void {
  * verrou tombe à la fin de la requête ; seul un vrai `tx` protège de la course.
  *
  * AVANT les lignes, la `PayrollRun` de chaque mois touché est lue `FOR SHARE` (revue finale du
- * 2026-09-24, point 4) : le recalcul de la paie (paie-refresh.ts) SUPPRIME puis recrée les lignes non
- * figées, un verrou sur elles ne le retient donc pas ; la run, elle, ne disparaît pas, et le recalcul
+ * 2026-09-24, point 4) : le recalcul de la paie (paie-refresh.ts) REMPLACE les lignes non figées sans
+ * historique (supprimées puis recréées), un verrou sur elles ne le retient donc pas ; la run, elle, ne disparaît pas, et le recalcul
  * la prend `FOR UPDATE`. Il attend ainsi la fin de l'écriture du planning (et la voit), ou
  * l'inverse. Toujours la run d'abord, puis les lignes, comme la validation et le recalcul : jamais
  * d'interblocage entre eux.
