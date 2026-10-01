@@ -1,4 +1,4 @@
-import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 // RÈGLE UNIQUE DE LA DATE DE PAIEMENT — source unique pour les trois chemins qui datent un
 // règlement de facture fournisseur : le formulaire détaillé (« + Paiement / Avoir »),
@@ -15,7 +15,7 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 // autre type de retour, piège garanti à la fusion. Celle-ci reste une chaîne `YYYY-MM-DD`.
 /** Aujourd'hui, heure de Kinshasa, en `YYYY-MM-DD`. */
 export function jourKinshasaISO(maintenant: Date = new Date()): string {
-  return jourCivilKinshasa(maintenant).toISOString().slice(0, 10);
+  return jourCourantKinshasaISO(maintenant);
 }
 
 function commeJourISO(d: Date | string): string {

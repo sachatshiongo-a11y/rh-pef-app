@@ -58,3 +58,33 @@ export function jourCivilKinshasa(d: Date): Date {
   const p = morceauxKinshasa(d, false);
   return new Date(Date.UTC(Number(p("year")), Number(p("month")) - 1, Number(p("day"))));
 }
+
+// ── Le « MAINTENANT » civil : jour, mois, année courants à Kinshasa ───────────────────────────────
+//
+// Un écran qui demande « le mois courant », « aujourd'hui » ou « l'année en cours » à l'horloge du
+// serveur (UTC) se trompe entre 00 h et 01 h à Kinshasa : le 1er octobre à 00 h 19 WAT, il est
+// encore le 30 septembre 23 h 19 UTC — l'écran affichait septembre, alors que les sorties de stock,
+// les pointages et le journal sont déjà datés du 1er octobre (jour civil de Kinshasa). Ces trois
+// fonctions sont l'UNIQUE façon de déduire le jour/mois/année courants de l'horloge ; elles ne
+// touchent PAS aux dates STOCKÉES (minuit UTC d'un jour civil), qui se lisent toujours en UTC.
+// Garde-fou : `lib/horloge-kinshasa.garde-fou.test.ts`.
+
+/** Aujourd'hui, heure de Kinshasa, en `AAAA-MM-JJ`. */
+export function jourCourantKinshasaISO(maintenant: Date = new Date()): string {
+  return jourCivilKinshasa(maintenant).toISOString().slice(0, 10);
+}
+
+/** Le mois civil de Kinshasa en cours, en `AAAA-MM` (valeur d'un input type="month"). */
+export function moisCourantKinshasa(maintenant: Date = new Date()): string {
+  return jourCourantKinshasaISO(maintenant).slice(0, 7);
+}
+
+/** L'année civile de Kinshasa en cours. */
+export function anneeCouranteKinshasa(maintenant: Date = new Date()): number {
+  return jourCivilKinshasa(maintenant).getUTCFullYear();
+}
+
+/** Le numéro du mois civil de Kinshasa en cours (1 à 12) — le repli d'un `Config` absent. */
+export function numeroMoisCourantKinshasa(maintenant: Date = new Date()): number {
+  return jourCivilKinshasa(maintenant).getUTCMonth() + 1;
+}

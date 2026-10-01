@@ -1,5 +1,10 @@
 // Helpers de dates partagés (avant : `lundiDe` copié dans 4 fichiers, tableaux de mois dans 13).
 // Tout est en UTC : les dates métier (plannings, mouvements, semaines) sont des dates « pures ».
+// Seule exception, nommée « Kinshasa » : le « maintenant » (mois / lundi courants), qui passe par
+// `heure-kinshasa.ts` — l'horloge du serveur est en UTC, le jour civil des données est celui de
+// Kinshasa (UTC+1).
+
+import { jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
 
 export const JOURS_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 export const MOIS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
@@ -14,17 +19,19 @@ export function moisAdjacent(moisValue: string, delta: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-/** Mois civil (UTC) de `d` au format "AAAA-MM" — la valeur d'un input type="month". */
+/** Mois civil (UTC) de `d` au format "AAAA-MM" — la valeur d'un input type="month". `d` est une date
+ *  PURE (minuit UTC d'un jour civil, comme les dates stockées) ; pour le mois COURANT, déduit de
+ *  l'horloge, utiliser `moisCourantKinshasa(new Date())`. */
 export function moisDe(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 /** Lit `?mois=AAAA-MM` : valeur normalisée "AAAA-MM" si le mois est valide (01 à 12), sinon le
- *  mois civil (UTC) de `maintenant`. Un mois futur est accepté (même règle que l'Exploitation). */
+ *  mois civil de Kinshasa de `maintenant` (l'instant présent). Un mois futur est accepté (même règle que l'Exploitation). */
 export function moisDuParametre(param: string | undefined, maintenant: Date): string {
   const m = typeof param === "string" ? /^(\d{4})-(\d{1,2})$/.exec(param) : null;
   if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) return `${m[1]}-${m[2].padStart(2, "0")}`;
-  return moisDe(maintenant);
+  return moisCourantKinshasa(maintenant);
 }
 
 /** Lundi (UTC) de la semaine contenant `d`. */
@@ -32,6 +39,12 @@ export function lundiDe(d: Date): Date {
   const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   x.setUTCDate(x.getUTCDate() - ((x.getUTCDay() + 6) % 7));
   return x;
+}
+
+/** Lundi de la semaine EN COURS à Kinshasa (date pure, minuit UTC) — `lundiDe` de « maintenant »
+ *  lu à l'heure de Kinshasa : entre dimanche 23 h et minuit UTC, la semaine a déjà changé. */
+export function lundiCourantKinshasa(maintenant: Date = new Date()): Date {
+  return lundiDe(jourCivilKinshasa(maintenant));
 }
 
 /**

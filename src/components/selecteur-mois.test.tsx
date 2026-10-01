@@ -6,10 +6,13 @@ import { moisDe, moisDuParametre } from "@/lib/dates-fr";
 // Sélecteur de mois partagé (Exploitation, Stock) et lecture de `?mois=`.
 
 describe("moisDuParametre — le mois lu dans l'URL", () => {
-  const maintenant = new Date("2026-09-30T23:30:00Z");
-  it("mois courant (UTC) par défaut", () => {
+  const maintenant = new Date("2026-09-30T21:30:00Z"); // 22 h 30 à Kinshasa : septembre des deux côtés
+  it("mois courant par défaut", () => {
     expect(moisDe(maintenant)).toBe("2026-09");
     expect(moisDuParametre(undefined, maintenant)).toBe("2026-09");
+  });
+  it("le 1er du mois à 00 h 30 (Kinshasa) : déjà le mois neuf (l'horloge UTC dit encore la veille)", () => {
+    expect(moisDuParametre(undefined, new Date("2026-09-30T23:30:00Z"))).toBe("2026-10");
   });
   it("mois valide : normalisé sur deux chiffres", () => {
     expect(moisDuParametre("2026-08", maintenant)).toBe("2026-08");
