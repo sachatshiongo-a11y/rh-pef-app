@@ -9,6 +9,7 @@ import { journaliser } from "@/lib/audit";
 import { envoyerPush } from "@/lib/push";
 import { SEUIL_TOLERANCE_PCT, niveauAlerte, type NiveauAlerte } from "@/lib/stock";
 import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 const num = (s: string) => Number(String(s).replace(",", ".").trim());
 
@@ -26,7 +27,7 @@ export const appliquerComptage = actionLisible(async (formData: FormData) => {
   const expl = formData.getAll("recon_explication").map((v) => String(v).trim());
   const domaineRaw = String(formData.get("domaine") ?? "").trim();
   const domaine = ["NOURRITURE", "BOISSON", "AUTRE"].includes(domaineRaw) ? domaineRaw : null;
-  const origine = String(formData.get("origine") ?? "").trim() || `Comptage ${new Date().toLocaleDateString("fr-FR")}`;
+  const origine = String(formData.get("origine") ?? "").trim() || `Comptage ${jourKinshasa(new Date())}`;
 
   const comptes = ids
     .map((articleId, i) => ({ articleId, physique: phys[i], explication: expl[i] ?? "" }))
@@ -100,7 +101,7 @@ export const appliquerComptage = actionLisible(async (formData: FormData) => {
   // Notifie Direction + responsable stock si des écarts dépassent la tolérance.
   if (nbHorsTol > 0) {
     const cibles = await prisma.user.findMany({ where: { role: { in: ["ADMIN", "STOCK"] }, actif: true }, select: { id: true } });
-    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Comptage du ${new Date().toLocaleDateString("fr-FR")} : ${nbHorsTol} écart(s) supérieur(s) à ${SEUIL_TOLERANCE_PCT} %.`, lien: `/stock/archives/${session.id}`, refId: session.id } });
+    await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `Comptage du ${jourKinshasa(new Date())} : ${nbHorsTol} écart(s) supérieur(s) à ${SEUIL_TOLERANCE_PCT} %.`, lien: `/stock/archives/${session.id}`, refId: session.id } });
     await envoyerPush(cibles.map((c) => c.id), { title: "Écart d'inventaire", body: `${nbHorsTol} écart(s) > ${SEUIL_TOLERANCE_PCT} % lors du comptage.`, url: `/stock/archives/${session.id}`, tag: `comptage-${session.id}` });
   }
 

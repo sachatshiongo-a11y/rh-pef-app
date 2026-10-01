@@ -4,6 +4,7 @@ import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox } from "./layou
 import { pdfColors, formatCDF, entreprise as entrepriseDefaut } from "./theme";
 import type { LigneDeclaration } from "@/lib/declarations";
 import { formaterNombre } from "@/lib/montant";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
 
@@ -137,7 +138,7 @@ export function BordereauDeclarationsDocument({
           l’exercice et doivent être validés par un comptable congolais avant tout usage officiel.
         </Text>
 
-        <Text style={styles.fait}>Fait à Kinshasa, le {new Date().toLocaleDateString("fr-FR")}</Text>
+        <Text style={styles.fait}>Fait à Kinshasa, le {jourKinshasa(new Date())}</Text>
 
         <View style={styles.signatures}>
           <PdfSignatureBox label="La Direction" signe={false} />

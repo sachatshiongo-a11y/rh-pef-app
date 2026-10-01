@@ -2,6 +2,7 @@ import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter } from "./layout";
 import { pdfColors } from "./theme";
+import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 registerPdfFonts();
 
@@ -111,7 +112,7 @@ export function TableauDocument({
   paysage?: boolean; // orientation paysage (tableaux larges, ex. grille hebdo)
   pied?: string;
 }) {
-  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>
       <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
@@ -136,7 +137,7 @@ export type TableSpec = { sousTitre?: string; colonnes: Colonne[]; lignes: Cellu
 
 /** Document PDF à PLUSIEURS tableaux sur une même page (ex. synthèse + détail jour par jour). */
 export function TablesDocument({ titre, sousTitre, tables, paysage = false }: { titre: string; sousTitre: string; tables: TableSpec[]; paysage?: boolean }) {
-  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>
       <Page size="A4" orientation={paysage ? "landscape" : "portrait"} style={styles.page}>
@@ -191,7 +192,7 @@ export function TableauxParPartieDocument({
   paysage?: boolean;
   pied?: string; // mention en bas de la DERNIÈRE partie
 }) {
-  const exporteLe = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+  const exporteLe = jourCivilKinshasa(new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
   return (
     <Document>
       {parties.map((p, pi) => (

@@ -4,6 +4,7 @@ import { articlesEnHausse } from "@/lib/stock-prix";
 import { PrintDoc } from "../../_print/print-doc";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 type SP = { q?: string; domaine?: string };
 
@@ -50,7 +51,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
   return (
     <PrintDoc
       titre="Inventaire — Stock & Achats"
-      sousTitre={new Date().toLocaleDateString("fr-FR")}
+      sousTitre={jourKinshasa(new Date())}
       entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix USD", "Valeur USD"]}
       aligneDroite={[1, 3, 6, 7]}
       lignes={lignes}

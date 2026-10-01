@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
 import { PrintDoc } from "../../_print/print-doc";
 import { exigerPageStock } from "@/lib/garde-page";
+import { jourKinshasa } from "@/lib/heure-kinshasa";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "");
 const u = (v: unknown) => Number(v).toFixed(2);
@@ -27,7 +28,7 @@ export default async function FacturesImprimerPage() {
   return (
     <PrintDoc
       titre="Factures fournisseurs"
-      sousTitre={new Date().toLocaleDateString("fr-FR")}
+      sousTitre={jourKinshasa(new Date())}
       entete={["Fournisseur", "N°", "Date", "Échéance", "Montant USD", "Reste USD", "Statut", "Mode"]}
       aligneDroite={[4, 5]}
       lignes={lignes}

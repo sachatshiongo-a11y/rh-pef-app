@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 /**
  * Export Excel du journal d'audit (qui / quand / quoi : avant → après) — réservé Admin.
@@ -48,14 +49,14 @@ export async function GET(request: Request) {
 
   const buf = await classeurExcel({
     titre: "Journal d'audit",
-    periode: `Extrait le ${new Date().toLocaleDateString("fr-FR")} — ${entrees.length} entrée(s)`,
+    periode: `Extrait le ${jourKinshasa(new Date())} — ${entrees.length} entrée(s)`,
     feuilles: [{ nom: "Audit", entete, lignes: rows }],
   });
 
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="Journal_audit_${new Date().toISOString().slice(0, 10)}.xlsx"`,
+      "Content-Disposition": `attachment; filename="Journal_audit_${jourCourantKinshasaISO()}.xlsx"`,
     },
   });
 }

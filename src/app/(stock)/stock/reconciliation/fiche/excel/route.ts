@@ -4,6 +4,7 @@ import { classeurExcel } from "@/lib/export-excel";
 import { DOMAINE_LABEL } from "@/lib/stock";
 import { lignesFicheComptage, ENTETE_FICHE } from "../comptage-data";
 import type { Prisma } from "@prisma/client";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 /** Fiche de comptage en Excel téléchargeable (par domaine) — génération instantanée, à imprimer/compter. */
 export async function GET(req: Request) {
@@ -31,7 +32,7 @@ export async function GET(req: Request) {
   const label = domaine ? DOMAINE_LABEL[domaine] : "Inventaire";
   const buf = await classeurExcel({
     titre: `Fiche de comptage — ${label}`,
-    periode: new Date().toLocaleDateString("fr-FR"),
+    periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: label.slice(0, 30),
       entete: ENTETE_FICHE,
@@ -40,7 +41,7 @@ export async function GET(req: Request) {
     }],
   });
 
-  const fichier = `Fiche_comptage_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const fichier = `Fiche_comptage_${label}_${jourCourantKinshasaISO()}.xlsx`;
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

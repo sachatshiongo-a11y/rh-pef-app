@@ -5,6 +5,7 @@ import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/
 import { articlesEnHausse } from "@/lib/stock-prix";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import type { Prisma } from "@prisma/client";
+import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 // Fonds de ligne selon le niveau d'alerte (codes couleur repris à l'écran).
 const ALERTE_BG: Record<NiveauAlerte, string> = { URGENT: "#fbe0e0", APPRO: "#fbf0d4", OK: "#e9f6ee" };
@@ -72,14 +73,14 @@ export async function GET(req: Request) {
   const buffer = await renderPdfBuffer(
     TableauDocument({
       titre: `Inventaire — ${label}`,
-      sousTitre: new Date().toLocaleDateString("fr-FR"),
+      sousTitre: jourKinshasa(new Date()),
       colonnes, lignes, sectionRows,
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_BG[alerteRow[r]!] : undefined),
       pied: "Fond rouge = urgent (rupture) · orange = à réapprovisionner · vert = satisfaisant. ↑ = hausse du dernier prix d'achat.",
     }),
   );
 
-  const fichier = `Inventaire${domaine ? `_${label}` : ""}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const fichier = `Inventaire${domaine ? `_${label}` : ""}_${jourCourantKinshasaISO()}.pdf`;
   return new Response(new Uint8Array(buffer), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fichier}"` },
   });
