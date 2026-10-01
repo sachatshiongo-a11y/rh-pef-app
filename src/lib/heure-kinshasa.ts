@@ -18,14 +18,16 @@ import { normaliserEspaces } from "@/lib/montant";
 // barre noire en travers. La sortie repasse malgré tout par `normaliserEspaces` : ceinture ET
 // bretelles, un changement de version d'ICU peut réintroduire l'espace fine.
 
+// Deux formatteurs partagés, construits une fois : `Intl.DateTimeFormat` coûte cher à créer, et
+// `jourCivilKinshasa` est appelée à chaque rendu d'écran et dans des boucles.
+const FORMAT_JOUR = new Intl.DateTimeFormat("fr-FR", { timeZone: "Africa/Kinshasa", day: "2-digit", month: "2-digit", year: "numeric" });
+const FORMAT_JOUR_HEURE = new Intl.DateTimeFormat("fr-FR", {
+  timeZone: "Africa/Kinshasa", day: "2-digit", month: "2-digit", year: "numeric",
+  hour: "2-digit", minute: "2-digit", hourCycle: "h23", // minuit = « 00 h 00 »
+});
+
 function morceauxKinshasa(d: Date, avecHeure: boolean) {
-  const morceaux = new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Africa/Kinshasa",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    ...(avecHeure ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : {}), // minuit = « 00 h 00 »
-  }).formatToParts(d);
+  const morceaux = (avecHeure ? FORMAT_JOUR_HEURE : FORMAT_JOUR).formatToParts(d);
   return (type: Intl.DateTimeFormatPartTypes) => morceaux.find((m) => m.type === type)?.value ?? "";
 }
 
