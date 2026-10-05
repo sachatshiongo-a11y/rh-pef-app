@@ -15,10 +15,9 @@ describe("notifications de paie : les textes", () => {
     expect(messageBulletinsAPayer(2, 9, 2026, 7)).toBe("2 bulletins de septembre 2026 validés — à payer (7 en attente de paiement)");
   });
 
-  it("payés : jour civil de Kinshasa (23 h 30 UTC le 30 = le 1er à Kinshasa), total à la française", () => {
-    const minuitPasse = new Date("2026-09-30T23:30:00Z");
-    expect(messageBulletinsPayes(2, 9, 2026, minuitPasse, 1234.5)).toBe("2 bulletins de septembre 2026 payés le 01/10/2026 — 1 234,50 $");
-    expect(messageBulletinsPayes(1, 9, 2026, new Date("2026-09-30T10:00:00Z"), 270)).toBe("1 bulletin de septembre 2026 payé le 30/09/2026 — 270,00 $");
+  it("payés : la date de versement choisie (date pure, lue en UTC — jamais décalée), total à la française", () => {
+    expect(messageBulletinsPayes(2, 9, 2026, new Date("2026-10-01T00:00:00Z"), 1234.5)).toBe("2 bulletins de septembre 2026 payés le 01/10/2026 — 1 234,50 $");
+    expect(messageBulletinsPayes(1, 9, 2026, new Date("2026-09-30T00:00:00Z"), 270)).toBe("1 bulletin de septembre 2026 payé le 30/09/2026 — 270,00 $");
   });
 
   it("clôture par la RH : qui, et les lignes hors calcul laissées de côté", () => {

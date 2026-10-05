@@ -7,6 +7,7 @@ import type { PaymentStatus, ModePaiement, Role } from "@prisma/client";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import type { AvertissementPaie } from "@/lib/paie-reference";
 import { messageConfirmationValidation } from "./avertissements-validation";
+import { ChampDateVersement } from "./champ-date-versement";
 
 // Libellé d'une transition « en avant » (validation / paiement).
 const LABEL_AVANT: Record<PaymentStatus, string> = {
@@ -83,6 +84,8 @@ export function StatusActions({
                 ))}
               </select>
             )}
+            {/* Date de versement : aujourd'hui par défaut, jamais future (le serveur revérifie). */}
+            {vers === "PAYE" && !reouverture && <ChampDateVersement name="dateVersement" />}
             {reouverture ? (
               <button type="submit" className={BTN_NEUTRE}>↩ Rouvrir</button>
             ) : vers === "VALIDE" && confirmation ? (

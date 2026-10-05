@@ -10,6 +10,8 @@ import type { ModePaiement, PaymentStatus } from "@prisma/client";
 import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie } from "@/lib/paie-reference";
 import { lignesAValiderDuLot, messageConfirmationValidation } from "../paie/avertissements-validation";
+import { ChampDateVersement } from "../paie/champ-date-versement";
+import { jourKinshasaISO } from "@/lib/date-paiement";
 import { cleSelection, lignesSelectionnees, messageEcartes } from "../paie/selection-paie";
 
 export type BulletinRow = {
@@ -55,6 +57,8 @@ export function BulletinsInbox({
   const { ids: idsSelection, ecartes } = lignesSelectionnees(rows, selection);
   const avisEcartes = messageEcartes(ecartes);
   const [mode, setMode] = useState("");
+  // Date de versement (« Marquer payé », lot ou ligne) : aujourd'hui à Kinshasa par défaut, jamais future.
+  const [dateVersement, setDateVersement] = useState(() => jourKinshasaISO());
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -76,7 +80,7 @@ export function BulletinsInbox({
     setErreur(null);
     startTransition(async () => {
       const jetons = Object.fromEntries(rows.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
-      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons);
+      const r = await changerStatutEnLot(ids, cible, cible === "PAYE" ? ((mode || null) as ModePaiement | null) : null, jetons, cible === "PAYE" ? dateVersement : null);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });
@@ -107,6 +111,12 @@ export function BulletinsInbox({
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+        )}
+        {/* Toujours visible au paiement : le bouton de chaque ligne s'en sert aussi, sans sélection. */}
+        {cible === "PAYE" && (
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">Versement le
+            <ChampDateVersement value={dateVersement} onChange={setDateVersement} />
+          </label>
         )}
         {idsSelection.length > 0 && (
           <>

@@ -15,7 +15,6 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
 import { MOIS_FR } from "@/lib/dates-fr";
-import { jourKinshasa } from "@/lib/heure-kinshasa";
 import { formaterUSD } from "@/lib/montant";
 import { totalVerseUSD } from "@/lib/paie-net";
 
@@ -30,9 +29,14 @@ export function messageBulletinsAPayer(n: number, mois: number, annee: number, e
   return enAttente > n ? `${base} (${enAttente} en attente de paiement)` : base;
 }
 
-/** Message à la Direction après un paiement par la RH (pur, testé). */
-export function messageBulletinsPayes(n: number, mois: number, annee: number, date: Date, totalUSD: number): string {
-  return `${pluriel(n, "bulletin")} de ${libelleMoisPaie(mois, annee)} ${n > 1 ? "payés" : "payé"} le ${jourKinshasa(date)} — ${formaterUSD(totalUSD)}`;
+/**
+ * Message à la Direction après un paiement par la RH (pur, testé). `jour` = la date de VERSEMENT
+ * choisie au paiement (date PURE, minuit UTC du jour civil, celle qui est écrite sur les lignes) — pas
+ * l'heure du clic : elle se lit en UTC, comme toute date civile stockée.
+ */
+export function messageBulletinsPayes(n: number, mois: number, annee: number, jour: Date, totalUSD: number): string {
+  const j = `${String(jour.getUTCDate()).padStart(2, "0")}/${String(jour.getUTCMonth() + 1).padStart(2, "0")}/${jour.getUTCFullYear()}`;
+  return `${pluriel(n, "bulletin")} de ${libelleMoisPaie(mois, annee)} ${n > 1 ? "payés" : "payé"} le ${j} — ${formaterUSD(totalUSD)}`;
 }
 
 /** Message à la Direction quand la RH clôture (pur, testé). La RH ne clôture qu'une paie déjà
@@ -105,7 +109,7 @@ export async function notifierBulletinsValides(payrollLineIds: string[], auteurI
  * versé). Dans tous les cas, quand plus rien n'est à payer dans le mois, le rappel « à payer » non lu
  * de la RH disparaît (il annoncerait un travail déjà fait).
  */
-export async function notifierBulletinsPayes(payrollLineIds: string[], payeur: { role: string }, datePaiement: Date): Promise<void> {
+export async function notifierBulletinsPayes(payrollLineIds: string[], payeur: { role: string }, jourVersement: Date): Promise<void> {
   if (payrollLineIds.length === 0) return;
   await sansEchec("bulletins payés", async () => {
     const groupes = await parPaie(payrollLineIds);
@@ -113,9 +117,9 @@ export async function notifierBulletinsPayes(payrollLineIds: string[], payeur: {
     for (const [runId, lignes] of groupes) {
       const { mois, annee } = lignes[0].payrollRun;
       if (direction.length > 0) {
-        // Date : l'instant du paiement passé par l'action (celui écrit sur les lignes), jamais relu.
+        // Date : le jour de versement passé par l'action (celui écrit sur les lignes, choisi à l'écran), jamais relu.
         const total = lignes.reduce((s, l) => s + totalVerseUSD(l), 0);
-        await notifierComptes(direction, { message: messageBulletinsPayes(lignes.length, mois, annee, datePaiement, total), lien: LIEN_PAYES, refId: `paie-payes:${runId}` });
+        await notifierComptes(direction, { message: messageBulletinsPayes(lignes.length, mois, annee, jourVersement, total), lien: LIEN_PAYES, refId: `paie-payes:${runId}` });
       }
       await retirerRappelSansObjet(runId);
     }

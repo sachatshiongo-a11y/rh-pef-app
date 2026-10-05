@@ -25,6 +25,7 @@ import {
   verrouillerRunExclusif,
 } from "@/lib/paie-validation";
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
+import { jourDuVersement, lireDateVersementPaie } from "@/lib/date-paiement";
 import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH, notifierPaiementAnnule, retirerRappelSiRienAPayer } from "@/lib/paie-notifications";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
@@ -87,7 +88,7 @@ async function appliquerTransitionPaie(
   tx: Prisma.TransactionClient,
   payrollLineId: string,
   versStatut: PaymentStatus,
-  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean; controlees?: Set<string>; payables?: Set<string>; maintenant?: Date },
+  opts: { modePaiement?: ModePaiement | null; preuveUrl?: string | null; commentaire?: string | null; enLot?: boolean; controlees?: Set<string>; payables?: Set<string>; maintenant?: Date; dateVersement?: string | null },
   acteur: { id: string; role: Role }
 ): Promise<PaymentStatus | null> {
   const userId = acteur.id;
@@ -106,6 +107,18 @@ async function appliquerTransitionPaie(
     throw new Error(`appliquerTransitionPaie : ligne ${payrollLineId} payée sans contrôle des montants affichés (controlerLignesAPayer)`);
   }
 
+  // Date de versement : celle que l'écran a choisie (aujourd'hui par défaut), revérifiée ICI contre le
+  // mois de CETTE ligne (pas avant le 1er du mois de la paie) — dans la transaction : une date refusée
+  // sur une seule ligne annule tout le lot. Stockée en date PURE (minuit UTC du jour civil).
+  let datePaiement = ligne.datePaiement;
+  if (versStatut === "PAYE") {
+    try {
+      datePaiement = jourDuVersement(lireDateVersementPaie(opts.dateVersement, { mois: ligne.payrollRun.mois, annee: ligne.payrollRun.annee }, opts.maintenant));
+    } catch (e) {
+      throw new ValidationPaieRefuseeError(opts.enLot ? `${ligne.employee.nom} : ${(e as Error).message}` : (e as Error).message);
+    }
+  }
+
   const deStatut = ligne.statutPaiement;
   // Moyen de paiement : celui explicitement choisi, sinon le moyen de paiement de la fiche employé
   // — plus jamais « espèces » imposé par défaut, y compris pour les actions groupées.
@@ -115,7 +128,7 @@ async function appliquerTransitionPaie(
     where: { id: payrollLineId },
     data: {
       statutPaiement: versStatut,
-      datePaiement: versStatut === "PAYE" ? (opts.maintenant ?? new Date()) : ligne.datePaiement,
+      datePaiement,
       modePaiement: versStatut === "PAYE" ? modePaiement : ligne.modePaiement,
       payeParId: versStatut === "PAYE" ? userId : ligne.payeParId,
     },
@@ -260,7 +273,19 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   // (jeton, taux de change compris).
   let de: PaymentStatus | null = null;
   let refus: string | null = null;
-  const maintenant = new Date(); // l'instant du paiement (et de sa notification)
+  const maintenant = new Date(); // l'instant du geste : fixe « aujourd'hui » (Kinshasa) pour la date de versement
+  // Date de versement choisie sur l'écran (vide = aujourd'hui) : lue et refusée AVANT toute écriture si
+  // elle est illisible ou future ; le plancher (1er du mois de la paie) est revérifié dans la transaction.
+  const dateSaisie = String(formData.get("dateVersement") ?? "").trim() || null;
+  let dateVersement: string | null = null;
+  if (versStatut === "PAYE") {
+    try {
+      dateVersement = lireDateVersementPaie(dateSaisie, null, maintenant);
+    } catch (e) {
+      refus = (e as Error).message;
+    }
+  }
+  if (refus) redirect(`/paie?erreur=${encodeURIComponent(refus)}`);
   try {
     de = await prisma.$transaction(async (tx) => {
       if (versStatut === "PAS_VALIDE") await verrouillerLignesPaie(tx, [payrollLineId]); // attente bornée
@@ -268,7 +293,7 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
       // toujours ; sans lui, personne n'a lu le montant. (Annuler un paiement n'en exige pas.)
       const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: true }) : undefined;
       const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, [payrollLineId], { jetons: { [payrollLineId]: jeton }, jetonObligatoire: true }) : undefined;
-      return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees, payables, maintenant }, user);
+      return appliquerTransitionPaie(tx, payrollLineId, versStatut, { modePaiement, preuveUrl, commentaire, controlees, payables, maintenant, dateVersement }, user);
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
     refus = messageErreurValidation(e);
@@ -292,7 +317,7 @@ export async function changerStatutPaie(payrollLineId: string, formData: FormDat
   // que la RH a payé ; un rappel « à payer » devenu sans objet disparaît.
   if (versStatut === "VALIDE" && de === "PAS_VALIDE") await notifierBulletinsValides([payrollLineId], user.id);
   if (versStatut === "VALIDE" && de === "PAYE") await notifierPaiementAnnule([payrollLineId], user.id);
-  if (versStatut === "PAYE") await notifierBulletinsPayes([payrollLineId], user, maintenant);
+  if (versStatut === "PAYE") await notifierBulletinsPayes([payrollLineId], user, jourDuVersement(dateVersement!));
   if (versStatut === "PAS_VALIDE") await retirerRappelSiRienAPayer([payrollLineId]);
 
   revalidatePath("/paie");
@@ -311,6 +336,8 @@ export const changerStatutEnLot = actionLisible(async (
   modePaiement?: ModePaiement | null,
   /** Montants affichés par ligne (paie-jeton.ts) : une ligne recalculée depuis l'affichage refuse le lot. */
   jetons?: Record<string, string>,
+  /** Date de versement choisie (`YYYY-MM-DD`, vide = aujourd'hui à Kinshasa) : la même pour tout le lot, au « Payé » seulement. */
+  dateVersement?: string | null,
 ): Promise<number> => {
   const user = await verifySession();
   // Payer : Direction ET RH ; valider, rouvrir : Direction seule (paie-etats.ts).
@@ -323,7 +350,17 @@ export const changerStatutEnLot = actionLisible(async (
   // changée refuse le lot entier (message lisible via `actionLisible`). Valider et payer exigent les
   // montants affichés de chaque ligne concernée (jeton, taux de change compris).
   const modifiees: string[] = [];
-  const maintenant = new Date(); // UN instant de paiement pour tout le lot
+  const maintenant = new Date(); // UN « aujourd'hui » (Kinshasa) pour tout le lot
+  // Date illisible ou future : le lot est refusé en entier, avant toute écriture (message lisible).
+  // Le plancher de chaque ligne (1er du mois de SA paie) est revérifié dans la transaction.
+  let jourVersement: string | null = null;
+  if (versStatut === "PAYE") {
+    try {
+      jourVersement = lireDateVersementPaie(dateVersement, null, maintenant);
+    } catch (e) {
+      throw new ValidationPaieRefuseeError((e as Error).message);
+    }
+  }
   try {
     await prisma.$transaction(async (tx) => {
       modifiees.length = 0; // une transaction rejouée repart de zéro
@@ -333,7 +370,7 @@ export const changerStatutEnLot = actionLisible(async (
       const controlees = versStatut === "VALIDE" ? await controlerLignesAValider(tx, payrollLineIds, { jetons, jetonObligatoire: true }) : undefined;
       const payables = versStatut === "PAYE" ? await controlerLignesAPayer(tx, payrollLineIds, { jetons, jetonObligatoire: true }) : undefined;
       for (const id of payrollLineIds) {
-        if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees, payables, maintenant }, user)) modifiees.push(id);
+        if (await appliquerTransitionPaie(tx, id, versStatut, { modePaiement, enLot: true, controlees, payables, maintenant, dateVersement: jourVersement }, user)) modifiees.push(id);
       }
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
@@ -343,7 +380,7 @@ export const changerStatutEnLot = actionLisible(async (
 
   // Après la transaction (jamais avant : une notification n'annonce pas un lot annulé).
   if (versStatut === "VALIDE") await notifierBulletinsValides(modifiees, user.id); // en lot : jamais depuis « Payé »
-  if (versStatut === "PAYE") await notifierBulletinsPayes(modifiees, user, maintenant);
+  if (versStatut === "PAYE") await notifierBulletinsPayes(modifiees, user, jourDuVersement(jourVersement!));
   if (versStatut === "PAS_VALIDE") await retirerRappelSiRienAPayer(modifiees);
 
   revalidatePath("/paie");

@@ -12,6 +12,8 @@ import { estErreur } from "@/lib/action-lisible";
 import type { AvertissementPaie, SourceReference } from "@/lib/paie-reference";
 import { BadgeReference } from "./avertissements-paie";
 import { lignesAValiderDuLot, messageConfirmationValidation } from "./avertissements-validation";
+import { ChampDateVersement } from "./champ-date-versement";
+import { jourKinshasaISO } from "@/lib/date-paiement";
 import { cleSelection, lignesSelectionnees, messageEcartes, messageEcarteesPaiement, partagerPourPaiement } from "./selection-paie";
 
 export type PaieRow = {
@@ -75,6 +77,9 @@ export function PaieBulk({
   const [info, setInfo] = useState<string | null>(null);
   // "" = automatique (suit la fiche de chaque employé) ; sinon on force ce mode pour tout le lot.
   const [modeBulk, setModeBulk] = useState<"" | ModePaiement>("");
+  // Date de versement du lot : aujourd'hui (Kinshasa) par défaut ; le serveur refuse tout le lot si elle
+  // est illisible, future, ou avant le 1er du mois d'une des paies du lot.
+  const [dateVersement, setDateVersement] = useState(() => jourKinshasaISO());
 
   const STATUTS: PaymentStatus[] = ["PAS_VALIDE", "VALIDE", "PAYE"];
   const MODES_PAIEMENT: { valeur: ModePaiement; label: string }[] = [
@@ -118,7 +123,7 @@ export function PaieBulk({
     startTransition(async () => {
       // Montants affichés (paie-jeton.ts) : une ligne recalculée depuis l'affichage refuse le lot.
       const jetons = Object.fromEntries([...brigade, ...backoffice].filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
-      const r = await changerStatutEnLot(ids, versStatut, mode, jetons);
+      const r = await changerStatutEnLot(ids, versStatut, mode, jetons, versStatut === "PAYE" ? dateVersement : null);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       setSelection(new Set());
     });
@@ -140,7 +145,7 @@ export function PaieBulk({
     setInfo(null);
     startTransition(async () => {
       const jetons = Object.fromEntries(toutesLignes.filter((x) => ids.includes(x.id) && x.jeton).map((x) => [x.id, x.jeton!]));
-      const r = await changerStatutEnLot(ids, "PAYE", modeBulk || null, jetons);
+      const r = await changerStatutEnLot(ids, "PAYE", modeBulk || null, jetons, dateVersement);
       if (estErreur(r)) { setErreur(`Lot annulé (aucune ligne modifiée) : ${r.erreur}`); return; }
       if (r < ids.length) setInfo(`${ids.length - r} bulletin(s) non payé(s) : ils ne sont plus « validé » (rouverts par la Direction ou déjà payés entre-temps). Rechargez la page.`);
       setSelection(new Set());
@@ -179,6 +184,7 @@ export function PaieBulk({
                     <option key={m.valeur} value={m.valeur}>{m.label}</option>
                   ))}
                 </select>
+                <label className="flex items-center gap-1 text-xs text-muted-foreground">Versement le <ChampDateVersement value={dateVersement} onChange={setDateVersement} /></label>
                 <BoutonValider onClick={() => lancer("PAYE")} disabled={isPending}>Marquer payé</BoutonValider>
               </span>
               <BoutonNeutre onClick={() => lancer("PAS_VALIDE")} disabled={isPending}>
@@ -199,6 +205,7 @@ export function PaieBulk({
                   <option key={m.valeur} value={m.valeur}>{m.label}</option>
                 ))}
               </select>
+              <label className="flex items-center gap-1 text-xs text-muted-foreground">Versement le <ChampDateVersement value={dateVersement} onChange={setDateVersement} /></label>
               <BoutonValider onClick={payerCommeRH} disabled={isPending || aPayer.length === 0}>
                 Marquer payé ({aPayer.length})
               </BoutonValider>
