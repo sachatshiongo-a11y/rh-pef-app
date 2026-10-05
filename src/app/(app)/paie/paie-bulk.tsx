@@ -172,7 +172,7 @@ export function PaieBulk({
           {estAdmin && (
             <>
               <BoutonValider onClick={() => lancer("VALIDE")} disabled={isPending} />
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex flex-wrap items-center gap-1">
                 <select
                   value={modeBulk}
                   onChange={(e) => setModeBulk(e.target.value as "" | ModePaiement)}
@@ -193,7 +193,7 @@ export function PaieBulk({
             </>
           )}
           {estRH && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex flex-wrap items-center gap-1">
               <select
                 value={modeBulk}
                 onChange={(e) => setModeBulk(e.target.value as "" | ModePaiement)}
