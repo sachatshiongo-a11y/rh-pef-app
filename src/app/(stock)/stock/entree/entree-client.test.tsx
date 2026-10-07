@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 //
 // Liste d'achat (Stock → Achats & mouvements) : mise en page « tableur » sur ordinateur (UNE rangée
-// par ligne, en-tête de colonnes unique), carte compacte sur téléphone, cases de nombres sans
-// flèches, Entrée qui descend sans jamais envoyer, DEVISE PAR LIGNE (2026-09-30) et envoi (mêmes champs,
-// même ordre, plus la devise de chaque ligne).
+// par ligne, en-tête de colonnes unique), cases de nombres sans flèches, Entrée qui descend sans
+// jamais envoyer, DEVISE PAR LIGNE (2026-09-30) et envoi (mêmes champs, même ordre, plus la devise de
+// chaque ligne). La vue TÉLÉPHONE (récapitulatif + panneau plein écran, même état, même envoi) est
+// testée dans entree-telephone.test.tsx ; l'identité des deux envois, ici (dernier bloc).
 //
 // Ce que ce fichier ne voit pas : les pixels. Happy-dom n'applique pas les requêtes de conteneur
 // (`@4xl:`) ; on vérifie donc les classes posées, et la mise en page réelle se contrôle à l'œil
@@ -140,74 +141,6 @@ describe("Liste d'achat — ordinateur : un tableur, une rangée par ligne", () 
   });
 });
 
-describe("Liste d'achat — téléphone : une carte compacte par ligne", () => {
-  it("chaque ligne est une carte (bordure arrondie) de 5 pistes, réordonnée : article + montant (et sa devise) + ✕, puis qté × PU, unité, ⋯", () => {
-    for (const l of lignes()) {
-      expect(classes(l)).toMatch(/\brounded-lg\b/);
-      expect(classes(l)).toMatch(/\bborder\b/);
-      expect(classes(l)).toContain("grid-cols-[3.5rem_0.75rem_4rem_minmax(0,1fr)_2.75rem]");
-    }
-    const l = lignes()[0];
-    const ordre = (nom: string) => Number(/\border-(\d+)\b/.exec(classes(cas(nom)))?.[1]);
-    const art = Number(/\border-(\d+)\b/.exec(classes(champArticle(l)))?.[1]);
-    // Rangée 1 : article (1), montant (2), ✕ (3) — rangée 2 : qté (4), × (5), PU (6), unité (7), ⋯ (8).
-    expect(art).toBe(1);
-    // Le montant et sa devise partagent la même cellule (rangée 1).
-    expect(Number(/\border-(\d+)\b/.exec(classes(cas("Montant USD, ligne 1").parentElement!))?.[1])).toBe(2);
-    expect(ordre("Retirer la ligne 1")).toBe(3);
-    expect(ordre("Quantité, ligne 1")).toBe(4);
-    expect(ordre("Prix unitaire USD, ligne 1")).toBe(6);
-    expect(ordre("Unité, ligne 1")).toBe(7);
-    expect(ordre("Fournisseur et détails, ligne 1")).toBe(8);
-    // Le montant est mis en évidence, et sa devise se lit à côté, en gras.
-    expect(classes(cas("Montant USD, ligne 1"))).toContain("font-semibold");
-    const devise = l.querySelector("button[data-devise-ligne]")!;
-    expect(devise.textContent).toBe("USD");
-    expect(classes(devise)).toContain("font-bold");
-    expect(devise.previousElementSibling?.getAttribute("name")).toBe("devise"); // champ caché juste après le montant
-  });
-
-  it("toutes les cibles de la carte font 44 px (h-11) ; ✕ et ⋯ sont des carrés de 44 px", () => {
-    const l = lignes()[0];
-    for (const c of l.querySelectorAll("input:not([type=hidden]), select, button")) expect(classes(c), c.getAttribute("aria-label") ?? c.getAttribute("name") ?? "").toMatch(/\bh-11\b/);
-    for (const nom of ["Retirer la ligne 1", "Fournisseur et détails, ligne 1"]) expect(classes(cas(nom))).toMatch(/\bh-11 w-11\b/);
-    expect(classes(l.querySelector("button[data-devise-ligne]")!)).toMatch(/\bh-11 w-11\b/); // la devise se change en UN appui de 44 px
-  });
-
-  it("ligne libre : désignation et domaine à saisir sont visibles ; article du catalogue : ils se replient (simple recopie)", async () => {
-    const l = lignes()[0];
-    const des = l.querySelector<HTMLInputElement>("input[name=designation]")!;
-    const dom = l.querySelector<HTMLSelectElement>("select[name=domaine]")!;
-    expect(classes(des)).not.toMatch(/\bhidden\b/);
-    expect(classes(dom)).not.toMatch(/\bhidden\b/);
-    await choisirOption(champArticle(l), "a2");
-    expect(des.value).toBe("Huile de palme");
-    expect(classes(des)).toMatch(/\bhidden @4xl:block\b/);
-    expect(classes(l.querySelector("select[name=domaine]")!)).toMatch(/\bhidden @4xl:block\b/);
-    // …mais restent dans le formulaire : l'envoi est le même.
-    expect(donnees().filter(([n]) => n === "designation")[0][1]).toBe("Huile de palme");
-  });
-
-  it("le fournisseur est replié sur la carte, et ⋯ le déplie (aria-expanded) ; jamais replié sur la liste large", () => {
-    const four = conteneur.querySelectorAll<HTMLInputElement>("input[name=fournisseurNom]")[0];
-    expect(classes(four)).toMatch(/\bhidden @4xl:block\b/);
-    const plus = cas("Fournisseur et détails, ligne 1") as unknown as HTMLButtonElement;
-    expect(plus.getAttribute("aria-expanded")).toBe("false");
-    expect(classes(plus)).toMatch(/@4xl:hidden/); // bouton de la carte seulement
-    act(() => plus.click());
-    expect(plus.getAttribute("aria-expanded")).toBe("true");
-    expect(classes(four)).not.toMatch(/\bhidden\b/);
-    expect(classes(four)).toContain("order-11");
-  });
-
-  it("un fournisseur renseigné se signale sur ⋯ (le nom est lu à l'écran)", () => {
-    taper(cas("Fournisseur de la ligne 1"), "Grossiste Kin");
-    const plus = conteneur.querySelector("button[aria-expanded]")!;
-    expect(plus.getAttribute("aria-label")).toContain("Grossiste Kin");
-    expect(classes(plus)).toContain("text-primary");
-  });
-});
-
 describe("Liste d'achat — cases de nombres du tableur", () => {
   it("quantité, PU et montant sont des CelluleNombre : champs texte au pavé décimal, aucun type=number (pas de flèches)", () => {
     expect(conteneur.querySelector('input[type="number"]')).toBeNull();
@@ -316,6 +249,15 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
     const d = donnees();
     expect(d.filter(([n]) => n === "quantite")[0][1]).toBe("1250,5");
     expect(d.filter(([n]) => n === "montant")[0][1]).toBe("3,75");
+  });
+
+  it("l'envoi construit depuis l'état est IDENTIQUE aux champs que porte le tableur (même ordre, mêmes valeurs) — c'est lui que la vue téléphone envoie aussi", async () => {
+    await scenario();
+    const duTableur = donnees(); // relevé AVANT l'envoi : l'enregistrement vide la liste
+    await act(async () => { form().requestSubmit(); });
+    const fd = (entree.mock.calls[0] as unknown as [FormData])[0];
+    expect([...fd.entries()].map(([n, v]) => [n, String(v)])).toEqual(duTableur);
+    expect(duTableur).toEqual(ATTENDU);
   });
 
   it("un clic sur « Valider » envoie le formulaire à l'action, une seule fois", async () => {

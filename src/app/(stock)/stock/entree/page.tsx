@@ -86,6 +86,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
         aujourdhui={jourKinshasaISO()}
         taux={taux}
         estDirection={estDirection}
+        compteId={user.id}
       />
 
       <div>
