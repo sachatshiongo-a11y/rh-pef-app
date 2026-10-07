@@ -11,7 +11,7 @@ import type { ApercuDemande } from "@/lib/validations-stock/apercu";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const A = vi.hoisted(() => ({
-  valider: vi.fn(async (_ids: string[], _dates?: Record<string, string>, _versions?: Record<string, string>): Promise<unknown> => ({ traitees: [], echecs: [] })),
+  valider: vi.fn(async (_ids: string[], _dates?: Record<string, string>, _versions?: Record<string, string>, _motifs?: Record<string, unknown>): Promise<unknown> => ({ traitees: [], echecs: [] })),
   refuser: vi.fn(async (_ids: string[], _motif: string, _versions?: Record<string, string>): Promise<unknown> => ({ traitees: [], echecs: [] })),
   retirer: vi.fn(async (_id: string): Promise<unknown> => undefined),
 }));
@@ -69,7 +69,7 @@ describe("File de la Direction", () => {
     expect(cases).toHaveLength(3);
     await clic(cases[0]); await clic(cases[2]);
     await clic(boutons("Valider (2)")[0]);
-    expect(A.valider).toHaveBeenCalledWith(["p1", "m1"], { p1: "2026-09-29" }, { p1: "2026-09-30T08:00:00.000Z", m1: "2026-09-30T08:00:00.000Z" }); // la version VUE part avec la décision
+    expect(A.valider).toHaveBeenCalledWith(["p1", "m1"], { p1: "2026-09-29" }, { p1: "2026-09-30T08:00:00.000Z", m1: "2026-09-30T08:00:00.000Z" }, {}); // la version VUE part avec la décision
     expect(conteneur.textContent).toContain("1 demande validée.");
     expect(conteneur.textContent).toContain("« « Riz » : Prix unitaire USD 2 → 3 » : Prix changé — rien n'a été écrit");
   });
@@ -96,6 +96,48 @@ describe("Vue du demandeur", () => {
     (window as unknown as { confirm: () => boolean }).confirm = () => true;
     await clic(boutons("Retirer ma demande")[0]);
     expect(A.retirer).toHaveBeenCalledWith("p1");
+  });
+});
+
+describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour la valider (2026-10-07)", () => {
+  const sortie: ApercuDemande = { ...base, id: "s1", nature: "MOUVEMENT_MANUEL", resume: "Sortie manuelle « Sortie / consommation » : Riz 3 Kg",
+    mouvement: { type: "SORTIE", origine: "Sortie / consommation", date: "2026-10-05T00:00:00.000Z", saisisDepuis: [], lignes: [{ articleId: "a1", designation: "Riz", unite: "Kg", quantite: "3", actuel: "10", apres: "7", valeur: -6 }] } };
+  const entree: ApercuDemande = { ...sortie, id: "e1", resume: "Entrée manuelle « Correction » : Riz 3 Kg", mouvement: { ...sortie.mouvement!, type: "ENTREE", origine: "Correction", saisisDepuis: ["Riz"] } };
+
+  it("« Valider » reste grisé tant que le motif (et la raison d'une perte) manque ; puis le motif part avec la décision", async () => {
+    monter(h(DemandesAValider, { demandes: [sortie, entree], estDirection: true }));
+    const select = conteneur.querySelector<HTMLSelectElement>("select")!;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["— motif —", "Livraison restaurant", "Perte"]);
+    expect(conteneur.querySelectorAll("select")).toHaveLength(1); // l'entrée n'a pas de motif de sortie
+    const [validerSortie, validerEntree] = boutons("Valider").filter((b) => /^\W*Valider\s*$/.test(b.textContent ?? ""));
+    expect(validerSortie.disabled).toBe(true);
+    expect(validerEntree.disabled).toBe(false);
+    act(() => { select.value = "PERTE"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(validerSortie.disabled).toBe(true); // raison de la perte manquante
+    taper(conteneur.querySelector<HTMLInputElement>('input[placeholder="Obligatoire"]')!, "Moisi");
+    expect(validerSortie.disabled).toBe(false);
+    await clic(validerSortie);
+    expect(A.valider).toHaveBeenCalledWith(["s1"], {}, { s1: base.version }, { s1: { categorie: "PERTE", raison: "Moisi" } });
+  });
+
+  it("double saisie possible : la carte prévient (sans bloquer)", () => {
+    monter(h(DemandesAValider, { demandes: [entree], estDirection: true }));
+    expect(conteneur.textContent).toContain("Une entrée manuelle a été saisie en direct depuis cette demande sur « Riz »");
+  });
+
+  it("actions groupées : « Valider (n) » grisé tant qu'une sortie cochée n'a pas de motif ; le motif en lot part pour chacune", async () => {
+    const sortie2: ApercuDemande = { ...sortie, id: "s2" };
+    monter(h(DemandesAValider, { demandes: [sortie, sortie2, entree], estDirection: true }));
+    const cases = [...conteneur.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].filter((c) => c.getAttribute("aria-label")?.startsWith("Sélectionner :"));
+    for (const c of cases) await clic(c);
+    const lot = () => boutons("Valider (3)")[0];
+    expect(lot().disabled).toBe(true);
+    const motifLot = conteneur.querySelector<HTMLSelectElement>('select[aria-label^="Motif des 2 sortie"]')!;
+    act(() => { motifLot.value = "LIVRAISON_RESTAURANT"; motifLot.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(lot().disabled).toBe(false);
+    await clic(lot());
+    const motifs = A.valider.mock.calls[0]![3];
+    expect(motifs).toEqual({ s1: { categorie: "LIVRAISON_RESTAURANT", raison: "" }, s2: { categorie: "LIVRAISON_RESTAURANT", raison: "" } });
   });
 });
 

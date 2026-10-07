@@ -6,9 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
-import { lireMouvementSaisi } from "@/lib/validations-stock/mouvement";
-import { apresCommit, appliquerOuDemanderMouvement } from "@/lib/validations-stock/demandes";
+import { appliquerMouvementManuel, lireMouvementSaisi } from "@/lib/validations-stock/mouvement";
+import { apresCommit } from "@/lib/validations-stock/demandes";
 import { Prisma } from "@prisma/client";
+import { MESSAGE_MOTIF_SORTIE, estMotifSortie } from "@/lib/motif-sortie";
 import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 
 
@@ -16,26 +17,26 @@ import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneM
  * Mouvement de stock manuel (entrée ou sortie), multi-lignes. ENTRÉE incrémente l'inventaire,
  * SORTIE le décrémente. Trace un MouvementStock par ligne.
  *
- * Décision de la Direction (2026-10-01) : les SORTIES « Livraison restaurant » et « Perte » restent
- * libres ; hors Direction, toute autre sortie et TOUTE entrée manuelle (retour restaurant compris)
- * n'écrivent rien et deviennent une demande à valider (voir lib/validations-stock/mouvement.ts).
+ * Décision de Sacha (2026-10-07) : plus de validation par la Direction. Toute entrée/sortie manuelle,
+ * quel que soit le motif, est écrite tout de suite pour tout compte Stock ; la Direction est
+ * NOTIFIÉE du geste d'un autre compte (lib/validations-stock/mouvement.ts → appliquerMouvementManuel).
  */
-export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: boolean; message: string }> => {
+export const mouvementManuel = actionLisible(async (formData: FormData): Promise<{ demande: false; message: string }> => {
   const user = await verifySession();
   requireModule(user, "stock");
   const m = lireMouvementSaisi(formData);
-  const r = await appliquerOuDemanderMouvement(user, m);
-  if (r.applique) {
-    await apresCommit(() => journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id }));
-  }
+  const { demandesEnAttente } = await appliquerMouvementManuel(user, m);
+  await apresCommit(() => journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id }));
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
-  revalidatePath("/stock/a-valider");
   revalidatePath("/stock");
-  return r.applique
-    ? { demande: false, message: m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté." }
-    : { demande: true, message: `${m.type === "ENTREE" ? "Entrée" : "Sortie"} envoyée à la Direction : le stock ne bouge qu'après sa validation.` };
+  const fait = m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.";
+  // Une ancienne demande en attente vise aussi ces articles : si c'est le même mouvement, la valider le compterait deux fois.
+  const avertissement = demandesEnAttente.length
+    ? ` Attention : une ancienne demande en attente de la Direction vise aussi ${demandesEnAttente.map((d) => `« ${d} »`).join(", ")}. S'il s'agit du même mouvement, retirez-la dans « Demandes à valider » (sinon elle serait comptée deux fois).`
+    : "";
+  return { demande: false, message: fait + avertissement };
 });
 
 /**
@@ -161,8 +162,8 @@ const estOrigineAutomatique = (o: string | null) =>
 const libelleMotif = (motif: string | null, raison: string | null) => `${motif ?? "sans motif"}${raison ? ` (${raison})` : ""}`;
 
 /**
- * Change le motif des SORTIES sélectionnées (id cochés, ou tout le filtre de la colonne Sorties) : « Livraison restaurant », « Perte » (raison
- * obligatoire) ou sans motif (`""`). Une REQUALIFICATION, pas un mouvement : ni la quantité ni
+ * Change le motif des SORTIES sélectionnées (id cochés, ou tout le filtre de la colonne Sorties) : « Livraison restaurant » ou « Perte » (raison
+ * obligatoire). Plus jamais « sans motif » (motif obligatoire depuis le 2026-10-07). Une REQUALIFICATION, pas un mouvement : ni la quantité ni
  * `Stock.quantite` ne bougent. Chaque changement est journalisé. Période clôturée : refus lisible.
  * Le libellé d'origine n'est réécrit que s'il était le libellé automatique d'une saisie manuelle.
  */
@@ -170,7 +171,10 @@ export const requalifierSorties = actionLisible(async (selection: SelectionMouve
   const user = await verifySession();
   requireModule(user, "stock");
   requireRole(user, ["ADMIN"]); // décision de la Direction
-  const cible: MotifSortie | undefined = motif === "LIVRAISON_RESTAURANT" || motif === "PERTE" ? motif : motif === "" ? null : undefined;
+  // Motif OBLIGATOIRE pour toute sortie (décision du 2026-10-07) : on ne requalifie plus « sans motif ».
+  // Les anciennes sorties sans motif restent visibles (filtre « Sorties : sans motif ») pour être requalifiées.
+  if (motif === "") return { erreur: MESSAGE_MOTIF_SORTIE };
+  const cible: MotifSortie | undefined = estMotifSortie(motif) ? motif : undefined;
   if (cible === undefined) return { erreur: "Motif inconnu." };
   const raisonPerte = cible === "PERTE" ? (raison ?? "").trim() || null : null;
   if (cible === "PERTE" && !raisonPerte) return { erreur: "Indiquez la raison de la perte." };

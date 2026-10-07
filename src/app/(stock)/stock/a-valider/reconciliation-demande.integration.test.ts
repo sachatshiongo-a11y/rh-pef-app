@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
+import { deposerAncienneDemandeMouvement } from "@/lib/test/ancienne-demande-mouvement";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 
 // Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : réconciliation du stock soumise à la
@@ -135,7 +136,7 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     await prisma.demandeValidationStock.update({ where: { id: d.id }, data: { createdAt: new Date(Date.now() - 2 * 86_400_000) } });
     // Datés du jour à Kinshasa, comme les saisit l'écran (une sortie datée d'un jour antérieur serait une saisie tardive).
     const mvt = (type: string, q: number) => { const f = new FormData(); f.set("date", jourKinshasaISO()); f.set("type", type); f.append("articleId", riz); f.append("quantite", String(q)); if (type === "SORTIE") f.set("categorieSortie", "LIVRAISON_RESTAURANT"); return f; };
-    en("dir"); // la Direction saisit en direct (une entrée manuelle d'un autre compte serait une demande)
+    en("dir"); // la Direction saisit en direct
     await mouvementManuel(mvt("ENTREE", 5)); // 15
     await mouvementManuel(mvt("SORTIE", 1)); // 14
     expect(await stock(riz)).toBe(14);
@@ -202,14 +203,14 @@ describe("Validation = l'écriture du comptage direct de la Direction", () => {
     expect(await stock(riz)).toBe(8); // jamais 6
   }, 60_000);
 
-  it("une sortie manuelle validée APRÈS un comptage en attente, datée du jour du comptage : le comptage devient un conflit", async () => {
+  it("une ANCIENNE sortie manuelle validée APRÈS un comptage en attente, datée du jour du comptage : le comptage devient un conflit", async () => {
     const riz = await article("Riz", 10);
     en("resp"); await appliquerComptage(comptage([[riz, 8, "casse"]]));
-    const f = new FormData(); f.set("type", "SORTIE"); f.set("origine", "Inventaire"); f.append("articleId", riz); f.append("quantite", "2"); f.set("date", jourKinshasaISO());
-    await mouvementManuel(f); // demande de sortie manuelle (pas encore un mouvement)
+    // Demande de sortie manuelle restée en attente (l'application n'en crée plus depuis le 2026-10-07).
+    await deposerAncienneDemandeMouvement(prisma, { auteur: { id: U.resp.id, nom: U.resp.nom }, type: "SORTIE", date: jourKinshasaISO(), origine: "Inventaire", lignes: [[riz, 2]] });
     const [comptageD, sortieD] = await demandes();
     en("dir");
-    expect(await validerDemandes([sortieD.id], {}, await v([sortieD.id]))).toMatchObject({ traitees: [sortieD.id] }); // stock 8
+    expect(await validerDemandes([sortieD.id], {}, await v([sortieD.id]), { [sortieD.id]: { categorie: "PERTE", raison: "Inventaire" } })).toMatchObject({ traitees: [sortieD.id] }); // stock 8
     expect(await validerDemandes([comptageD.id], {}, await v([comptageD.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/datée du jour du comptage ou d'avant/) }] });
     expect(await stock(riz)).toBe(8);
   }, 60_000);

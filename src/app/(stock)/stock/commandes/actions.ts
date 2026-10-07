@@ -8,6 +8,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
+import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { journaliser } from "@/lib/audit";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
@@ -329,7 +330,7 @@ export async function changerStatutBonCommande(id: string, formData: FormData) {
  */
 export const receptionnerBonCommande = actionLisible(async (bcId: string, formData: FormData) => {
   const user = await garde();
-  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, include: { lignes: true } });
+  const bc = await prisma.bonDeCommande.findUniqueOrThrow({ where: { id: bcId }, include: { lignes: true, fournisseur: { select: { nom: true } } } });
 
   const ligneIds = formData.getAll("recu_ligneId").map(String);
   const qtes = formData.getAll("recu_quantite").map((v, i) => decSaisi(v, `quantité reçue, ligne ${i + 1}`)); // illisible : refus lisible
@@ -339,13 +340,16 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
   const aRecevoir = bc.lignes.filter((l) => l.articleId && (recu.get(l.id) ?? 0) > 0);
   if (aRecevoir.length === 0) throw new Error("Renseignez au moins une quantité reçue (sur une ligne liée à un article).");
 
-  await prisma.$transaction(async (tx) => {
+  const complet = await prisma.$transaction(async (tx) => {
     await tx.reception.create({ data: { bonDeCommandeId: bcId, date: jourCivilKinshasa(new Date()), creeParId: user.id } }); // date explicite : le défaut de la base est le jour UTC
     const articleLines = bc.lignes.filter((l) => l.articleId);
     const complet = articleLines.every((l) => (recu.get(l.id) ?? 0) >= Number(l.quantite));
     await tx.bonDeCommande.update({ where: { id: bcId }, data: { statut: complet ? "RECU" : "RECU_PARTIEL" } });
+    return complet;
   });
 
+  // Arrivée de marchandise par un compte non-Direction : notifiée à la Direction (2026-10-07), jamais bloquante.
+  await notifierGesteStock(user, { genre: "RECEPTION", bonDeCommandeId: bcId, numero: bc.numero, fournisseurNom: bc.fournisseur?.nom ?? null, nbLignes: aRecevoir.length, complete: complet });
   await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");

@@ -60,7 +60,7 @@ describe("sorties et entrées de stock sans date saisie : le jour civil de Kinsh
     const { mouvementManuel } = await import("@/app/(stock)/stock/mouvements/actions");
     const art = await article("Farine");
     const fd = new FormData();
-    fd.set("type", "SORTIE"); fd.append("articleId", art.id); fd.append("quantite", "2");
+    fd.set("type", "SORTIE"); fd.set("categorieSortie", "LIVRAISON_RESTAURANT"); fd.append("articleId", art.id); fd.append("quantite", "2");
     a(PREMIER_00H30);
     const res = await mouvementManuel(fd);
     if (res && "erreur" in res) throw new Error(res.erreur);

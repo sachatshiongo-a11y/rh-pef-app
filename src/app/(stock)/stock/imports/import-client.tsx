@@ -13,7 +13,6 @@ export function ImportInventaireClient() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [isPending, start] = useTransition();
-  const [sortiesLivraison, setSortiesLivraison] = useState(true);
 
   const analyser = () => {
     setErreur(null); setSucces(null); setPreview(null);
@@ -27,7 +26,7 @@ export function ImportInventaireClient() {
   const appliquer = () => {
     setErreur(null);
     const fd = new FormData(formRef.current!);
-    fd.set(CHAMP_SORTIES_LIVRAISON, sortiesLivraison ? "1" : "0");
+    fd.set(CHAMP_SORTIES_LIVRAISON, "1"); // motif obligatoire : toujours « Livraison restaurant »
     start(async () => {
       const r = await appliquerInventaireAction(fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
@@ -62,7 +61,7 @@ export function ImportInventaireClient() {
           <input name="libelle" placeholder="Inventaire Juillet 2026" className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
         </label>
         <button type="button" onClick={analyser} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">{isPending && !preview ? "Analyse…" : "Analyser"}</button>
-        <div className="basis-full"><CaseSortiesLivraison coche={sortiesLivraison} onChange={setSortiesLivraison} /></div>
+        <div className="basis-full"><CaseSortiesLivraison /></div>
       </form>
 
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
@@ -71,7 +70,7 @@ export function ImportInventaireClient() {
       {preview && (
         <div className="space-y-3 rounded-lg border p-4">
           <h3 className="font-semibold">Aperçu — rien n&apos;est encore écrit</h3>
-          <MotifSortiesApercu coche={sortiesLivraison} />
+          <MotifSortiesApercu />
           <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
             <Kpi label="Articles mis à jour" val={preview.resume.maj} />
             <Kpi label="Articles créés" val={preview.resume.crees} accent={preview.resume.crees > 0} />

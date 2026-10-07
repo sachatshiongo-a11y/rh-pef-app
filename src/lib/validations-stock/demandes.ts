@@ -22,16 +22,16 @@ import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { envoyerPush } from "@/lib/push";
-import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
+import { formaterFC, formaterUSD } from "@/lib/montant";
 import { jourKinshasaISO, lireDatePaiement } from "@/lib/date-paiement";
 import {
   CHAMPS_ARTICLE, NATURE_LIBELLE, cleMouvement, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
   type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargePaiement, type NatureDemande, type ReglementDemande,
 } from "./charge";
 import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit } from "./reglement";
-import { apresMouvements, ecrireMouvementsTx, estMouvementLibre, type MouvementSaisi } from "./mouvement";
+import { apresMouvements, ecrireMouvementsTx, type MouvementSaisi } from "./mouvement";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
-import { niveauxActuels } from "@/lib/alerte-stock";
+import { MESSAGE_RAISON_PERTE, estMotifSortie, origineDuMotif, type MotifSortieObligatoire } from "@/lib/motif-sortie";
 import {
   aUnEcart, apresComptage, calculerLignes, ecrireComptageTx, etatLigneAValider, exigerExplications, mouvementsDepuis,
   niveauxDe, verrouillerStocks, type CompteSaisi, type Domaine,
@@ -78,7 +78,7 @@ async function exigerCiblesLibres(tx: Tx, cles: string[], quoi: (cle: string) =>
   }
 }
 
-async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string; charge: ChargePaiement | ChargeComptage | ChargeArticle | ChargeMouvement; cles: string[]; auteur: Acteur }) {
+async function creerDemandeTx(tx: Tx, p: { nature: NatureDemande; resume: string; charge: ChargePaiement | ChargeComptage | ChargeArticle; cles: string[]; auteur: Acteur }) {
   // La charge doit se relire EXACTEMENT comme elle sera relue à la validation : une charge que
   // `lireCharge` refuserait ne doit jamais être enregistrée (elle bloquerait sa cible pour rien).
   lireCharge(p.nature, JSON.parse(JSON.stringify(p.charge)));
@@ -234,7 +234,8 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
     // cette demande inapplicable (« autre ajustement depuis ») sans qu'elle le sache — elle la tranche d'abord.
     // Même règle pour un MOUVEMENT MANUEL en attente : validé après ce comptage, il retrancherait une
     // quantité que le comptage a peut-être déjà constatée (stock 10, sortie de 3 demandée, comptage
-    // à 7, puis validation de la sortie → 4). La Direction tranche d'abord la demande.
+    // à 7, puis validation de la sortie → 4). La Direction tranche d'abord la demande. (Depuis le
+    // 2026-10-07, plus aucune demande de mouvement n'est créée : la règle ne vise que les anciennes.)
     if (estDirection(user)) {
       const cles = [...ids.map(cleComptage), ...ids.map(cleMouvement)];
       const prises = await tx.cibleDemandeStock.findMany({ where: { cle: { in: cles } }, include: { demande: { select: { resume: true, auteurNom: true, nature: true } } } });
@@ -459,54 +460,32 @@ async function executerModifArticleTx(tx: Tx, decideur: Acteur, c: ChargeArticle
   }
 }
 
-// ── Entrée / sortie manuelle ────────────────────────────────────────────────
-export type ResultatMouvement = { applique: true } | { applique: false; demandeId: string };
+// ── Entrée / sortie manuelle (ANCIENNES demandes) ──────────────────────────────
+// Depuis le 2026-10-07, une entrée/sortie manuelle est écrite tout de suite pour tout compte Stock et
+// notifiée à la Direction (mouvement.ts → appliquerMouvementManuel) : plus aucune demande
+// MOUVEMENT_MANUEL n'est créée. Celles déposées avant restent en attente et se décident comme avant
+// (valider = le même mouvement que le geste direct ; refuser = rien d'écrit) : rien ne les efface.
+
+/** Motif choisi par la Direction en validant une ancienne demande de SORTIE (elles n'en portaient pas). */
+export type MotifValidation = { categorie: string; raison?: string | null };
 
 /**
- * Applique un mouvement manuel (Direction, ou flux libre : livraison restaurant, perte, retour
- * restaurant) ou le soumet à la Direction (autre compte, tout autre motif). Mêmes contrôles que le
- * geste direct AVANT de créer la demande (période ouverte, lignes) ; rien n'est écrit sur le stock.
- * Un article qui a déjà un mouvement manuel en attente est refusé : un double envoi ne doit pas
- * devenir deux sorties validées.
+ * Validation : le MÊME mouvement que le geste direct (quantités telles que saisies, date saisie).
+ * Une SORTIE prend le motif choisi par la Direction à la validation : depuis le 2026-10-07, aucune
+ * sortie ne s'écrit sans motif, et les anciennes demandes de sortie n'en portaient jamais.
  */
-export async function appliquerOuDemanderMouvement(user: Acteur, m: MouvementSaisi): Promise<ResultatMouvement> {
-  await exigerPeriodeOuverte(m.date);
-  const ids = m.lignes.map((l) => l.articleId);
-  // Articles vérifiés DÈS LA SAISIE, chemin libre compris (un id forgé ne crée pas une ligne de stock).
-  const connus = new Set((await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((a) => a.id));
-  if (ids.some((id) => !connus.has(id))) throw new Error("Article introuvable : rechargez la page.");
-  if (estDirection(user) || estMouvementLibre(m)) {
-    // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
-    const niveauxAvant = m.type === "SORTIE" ? await niveauxActuels(ids) : new Map();
-    await prisma.$transaction((tx) => ecrireMouvementsTx(tx, user.id, m));
-    await apresCommit(() => apresMouvements(m, niveauxAvant));
-    return { applique: true };
+async function executerMouvementTx(tx: Tx, d: { auteurId: string; createdAt: Date }, c: ChargeMouvement, motifChoisi?: MotifValidation) {
+  let categorieSortie: MotifSortieObligatoire | null = null;
+  let raisonSortie = c.raisonSortie;
+  let origine = c.origine;
+  if (c.type === "SORTIE") {
+    if (!motifChoisi || !estMotifSortie(motifChoisi.categorie)) throw new Error("Choisissez le motif de cette sortie (« Livraison restaurant » ou « Perte ») avant de la valider : une sortie sans motif n'est plus acceptée. Rien n'a été écrit.");
+    categorieSortie = motifChoisi.categorie;
+    raisonSortie = categorieSortie === "PERTE" ? String(motifChoisi.raison ?? "").trim() || null : null;
+    if (categorieSortie === "PERTE" && !raisonSortie) throw new Error(MESSAGE_RAISON_PERTE);
+    // Le libellé automatique d'une sortie sans motif devient celui du motif choisi ; un libellé saisi reste.
+    if (origine === "Sortie / consommation") origine = origineDuMotif(categorieSortie, raisonSortie);
   }
-  const d = await prisma.$transaction(async (tx) => {
-    const arts = await tx.articleStock.findMany({ where: { id: { in: ids } }, include: { stock: true } });
-    const parId = new Map(arts.map((a) => [a.id, a]));
-    const manquant = ids.find((id) => !parId.has(id));
-    if (manquant) throw new Error("Article introuvable : rechargez la page.");
-    const dejaVu = ids.find((id, i) => ids.indexOf(id) !== i);
-    if (dejaVu) throw new Error(`« ${parId.get(dejaVu)!.designation} » apparaît deux fois : regroupez la quantité sur une seule ligne.`);
-    await exigerCiblesLibres(tx, ids.map(cleMouvement), (cle) => `« ${parId.get(cle.slice(cleMouvement("").length))?.designation ?? "Article"} »`);
-    const charge: ChargeMouvement = {
-      v: 1, type: m.type, date: m.date.toISOString(), origine: m.origine, raisonSortie: m.raisonSortie,
-      lignes: m.lignes.map((l) => {
-        const a = parId.get(l.articleId)!;
-        return { articleId: l.articleId, designation: a.designation, unite: a.unite, quantite: texteDecimal(l.quantite), stockAvant: a.stock?.quantite.toString() ?? "0", prixUnitaireUSD: a.prixUnitaireUSD?.toString() ?? null };
-      }),
-    };
-    const detail = charge.lignes.map((l) => `${l.designation} ${formaterNombre(Number(l.quantite), { maximumFractionDigits: 3 })}${l.unite ? ` ${l.unite}` : ""}`).join(", ");
-    const resume = `${m.type === "ENTREE" ? "Entrée" : "Sortie"} manuelle « ${m.origine} » : ${detail}`;
-    return creerDemandeTx(tx, { nature: "MOUVEMENT_MANUEL", resume, charge, cles: ids.map(cleMouvement), auteur: user });
-  }).catch(traduireConflitCible);
-  await apresCommit(() => notifierNouvelleDemande(d));
-  return { applique: false, demandeId: d.id };
-}
-
-/** Validation : le MÊME mouvement que le geste direct (quantités telles que saisies, date saisie). */
-async function executerMouvementTx(tx: Tx, d: { auteurId: string; createdAt: Date }, c: ChargeMouvement) {
   const date = new Date(c.date);
   await exigerPeriodeOuverte(date);
   const ids = c.lignes.map((l) => l.articleId);
@@ -521,7 +500,7 @@ async function executerMouvementTx(tx: Tx, d: { auteurId: string; createdAt: Dat
   if (recomptes.length > 0) throw new ConflitDemande(`Un comptage ou ajustement a eu lieu depuis la demande sur ${recomptes.map((l) => `« ${l.designation} »`).join(", ")} : refusez la demande, ou faites-la refaire si le mouvement n'a pas été compté`);
   const niveauxAvant = niveauxDe(stocks);
   const saisi: MouvementSaisi = {
-    type: c.type, date, categorieSortie: null, raisonSortie: c.raisonSortie, origine: c.origine, retourRestaurant: false,
+    type: c.type, date, categorieSortie, raisonSortie, origine, retourRestaurant: false,
     lignes: c.lignes.map((l) => ({ articleId: l.articleId, quantite: Number(l.quantite) })),
   };
   // Le mouvement est celui du demandeur (il l'a constaté) ; la validation est au journal et sur la demande.
@@ -583,9 +562,10 @@ export type ResultatValidation = { id: string; nature: NatureDemande; resume: st
 
 /**
  * Valide une demande : exécute son effet par le cœur commun, puis la passe à VALIDEE — dans la même
- * transaction. `date` : date de paiement corrigée par la Direction (paiements seulement).
+ * transaction. `date` : date de paiement corrigée par la Direction (paiements seulement). `motif` :
+ * motif d'une ancienne demande de SORTIE, choisi par la Direction (obligatoire pour elle).
  */
-export async function validerDemande(decideur: Acteur, id: string, opts: { date?: string; version: string }): Promise<ResultatValidation> {
+export async function validerDemande(decideur: Acteur, id: string, opts: { date?: string; version: string; motif?: MotifValidation }): Promise<ResultatValidation> {
   if (!estDirection(decideur)) throw new Error(MESSAGE_RESERVE_DIRECTION);
   const r = await prisma.$transaction(async (tx) => {
     if (!opts?.version) throw new Error("Version de la demande inconnue : rechargez la page avant de décider.");
@@ -596,7 +576,7 @@ export async function validerDemande(decideur: Acteur, id: string, opts: { date?
     let mouvement: Awaited<ReturnType<typeof executerMouvementTx>> | null = null;
     if (d.nature === "PAIEMENT_FACTURE") reglements = await executerPaiementTx(tx, decideur, d, lireCharge("PAIEMENT_FACTURE", d.charge), opts.date);
     else if (d.nature === "RECONCILIATION") comptage = await executerComptageTx(tx, decideur, d, lireCharge("RECONCILIATION", d.charge));
-    else if (d.nature === "MOUVEMENT_MANUEL") mouvement = await executerMouvementTx(tx, d, lireCharge("MOUVEMENT_MANUEL", d.charge));
+    else if (d.nature === "MOUVEMENT_MANUEL") mouvement = await executerMouvementTx(tx, d, lireCharge("MOUVEMENT_MANUEL", d.charge), opts.motif);
     else await executerModifArticleTx(tx, decideur, lireCharge("MODIF_ARTICLE", d.charge));
     await tx.demandeValidationStock.update({ where: { id }, data: { statut: "VALIDEE", decideurId: decideur.id, decideurNom: decideur.nom, decideLe: new Date() } });
     await tx.cibleDemandeStock.deleteMany({ where: { demandeId: id } });

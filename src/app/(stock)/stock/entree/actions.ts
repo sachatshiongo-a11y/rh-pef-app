@@ -11,6 +11,7 @@ import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { cleAlnum } from "@/lib/texte";
 import { lireDateAchat, ORIGINE_LISTE_ACHAT } from "@/lib/achats-liste";
 import { avertissementsListeAchat, type LigneAVerifier } from "@/lib/achats-liste-serveur";
+import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 
 /**
  * Résultat d'une Liste d'achat enregistrée : nouveaux articles créés au catalogue, nouveaux
@@ -202,6 +203,10 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
       });
     }
   });
+
+  // Un achat d'un compte non-Direction est NOTIFIÉ à la Direction (décision du 2026-10-07) : une
+  // notification pour toute la liste, après l'écriture, jamais bloquante.
+  await notifierGesteStock(user, { genre: "ACHAT", nbLignes: lignes.length, montants: lignes.map((l) => ({ devise: l.devise, montant: l.montant })) });
 
   await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} entrées`, champ: "entree (liste d'achat)", nouvelleValeur: origine, userId: user.id });
   // Un article créé à la volée hors Direction reste permis (la Liste d'achat ne doit jamais bloquer

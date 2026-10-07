@@ -36,6 +36,8 @@ export type ApercuDemande = {
   article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
   mouvement: null | {
     type: "ENTREE" | "SORTIE"; origine: string; date: string;
+    /** Articles sur lesquels un mouvement manuel du même sens a été saisi DEPUIS la demande (double saisie possible). */
+    saisisDepuis: string[];
     lignes: { articleId: string; designation: string; unite: string | null; quantite: string; actuel: string; apres: string; valeur: number | null }[];
   };
 };
@@ -94,8 +96,11 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
       const actuel = new Map(stocks.map((x) => [x.articleId, new Decimal(x.quantite.toString())]));
       const vivants = new Set(existants.map((a) => a.id));
       const signe = charge.type === "ENTREE" ? 1 : -1;
+      // Depuis le 2026-10-07 le demandeur saisit en direct : il a peut-être ressaisi ce même mouvement.
+      const depuis = await prisma.mouvementStock.findMany({ where: { articleId: { in: ids }, type: charge.type, createdAt: { gt: d.createdAt }, factureId: null }, select: { articleId: true }, distinct: ["articleId"] });
+      const saisisDepuis = charge.lignes.filter((l) => depuis.some((x) => x.articleId === l.articleId)).map((l) => l.designation);
       base.mouvement = {
-        type: charge.type, origine: charge.origine, date: charge.date,
+        type: charge.type, origine: charge.origine, date: charge.date, saisisDepuis,
         lignes: charge.lignes.map((l) => {
           if (!vivants.has(l.articleId)) base.alertes.push(`« ${l.designation} » n'existe plus.`);
           const a = actuel.get(l.articleId) ?? new Decimal(0);

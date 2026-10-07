@@ -6,11 +6,13 @@ import { estErreur } from "@/lib/action-lisible";
 import type { FiltreMouvements } from "@/lib/filtre-mouvements";
 
 // « Changer le motif » des sorties cochées (Direction, décision du 2026-09-28) : Livraison restaurant,
-// Perte (raison obligatoire) ou sans motif. Une requalification : le stock du dépôt ne change pas.
+// Perte (raison obligatoire). Une requalification : le stock du dépôt ne change pas. Plus de « sans
+// motif » depuis le 2026-10-07 (motif obligatoire pour toute sortie) : les anciennes sorties sans motif
+// se retrouvent par le filtre « Sorties : sans motif » et se requalifient ici.
 
 const inp = "rounded border border-input bg-background px-2 py-1 text-xs";
 const AUCUN = "__";
-const LIBELLES: Record<string, string> = { LIVRAISON_RESTAURANT: "Livraison restaurant", PERTE: "Perte", "": "Sans motif" };
+const LIBELLES: Record<string, string> = { LIVRAISON_RESTAURANT: "Livraison restaurant", PERTE: "Perte" };
 
 export function ChangerMotif({ ids, toutLeFiltre, onFait, onRecompte }: {
   ids: string[];
@@ -55,7 +57,6 @@ export function ChangerMotif({ ids, toutLeFiltre, onFait, onRecompte }: {
         <option value={AUCUN}>Motif…</option>
         <option value="LIVRAISON_RESTAURANT">Livraison restaurant</option>
         <option value="PERTE">Perte</option>
-        <option value="">Sans motif</option>
       </select>
       {motif === "PERTE" && (
         <input aria-label="Raison de la perte" value={raison} onChange={(e) => setRaison(e.target.value)} placeholder="Raison (obligatoire)" className={`${inp} w-40 min-w-0`} />

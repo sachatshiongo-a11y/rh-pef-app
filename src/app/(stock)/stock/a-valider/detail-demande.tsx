@@ -109,6 +109,11 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
     return (
       <div className="space-y-1.5 text-sm">
         <p className="text-xs text-muted-foreground">{m.type === "ENTREE" ? "Entrée" : "Sortie"} manuelle « {m.origine} » · datée du {new Date(m.date).toLocaleDateString("fr-FR", { timeZone: "UTC" })}</p>
+        {m.saisisDepuis.length > 0 && (
+          <p role="status" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {m.type === "ENTREE" ? "Une entrée" : "Une sortie"} manuelle a été saisie en direct depuis cette demande sur {m.saisisDepuis.map((d) => `« ${d} »`).join(", ")} : s&apos;il s&apos;agit du même mouvement, refusez la demande (sinon il serait compté deux fois).
+          </p>
+        )}
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full min-w-[30rem] text-xs">
             <thead className="bg-muted text-left">

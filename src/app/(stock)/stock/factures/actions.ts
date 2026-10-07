@@ -17,6 +17,7 @@ import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, stat
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
+import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 import { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
@@ -350,6 +351,13 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
       }
     }
     return f;
+  });
+
+  // Facture enregistrée par un compte non-Direction : notifiée à la Direction (2026-10-07), après
+  // l'écriture et avant la redirection, jamais bloquante.
+  await notifierGesteStock(user, {
+    genre: "FACTURE", factureId: fac.id, numero, fournisseurNom, montantUSD, nbLignes: lignes.length,
+    entreeEnStock: entrerEnStock, nbEntrees: entrerEnStock ? lignes.filter((l) => l.articleId).length : 0,
   });
 
   await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });

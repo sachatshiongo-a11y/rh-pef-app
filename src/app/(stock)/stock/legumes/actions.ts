@@ -8,6 +8,7 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 
 
 /**
@@ -43,6 +44,9 @@ export const creerAchatsLegumes = actionLisible(async (formData: FormData) => {
       creeParId: user.id,
     })),
   });
+  // Achat d'un compte non-Direction : notifié à la Direction (2026-10-07), une fois pour la saisie, jamais bloquant.
+  await notifierGesteStock(user, { genre: "ACHAT_LEGUMES", nbLignes: lignes.length, montantsCDF: lignes.map((l) => (l.montantCDF > 0 ? l.montantCDF : null)) });
+
   await journaliser(prisma, { entite: "AchatLegume", entiteId: `${lignes.length} ligne(s)`, champ: "achat legumes", nouvelleValeur: date.toISOString().slice(0, 10), userId: user.id });
   revalidatePath("/stock/legumes");
 });

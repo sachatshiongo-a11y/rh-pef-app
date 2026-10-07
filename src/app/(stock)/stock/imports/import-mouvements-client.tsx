@@ -20,7 +20,6 @@ export function ImportMouvementsClient() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [isPending, start] = useTransition();
-  const [sortiesLivraison, setSortiesLivraison] = useState(true);
 
   // Sélection : période (sur la date effective = date de la ligne, sinon date par défaut)
   // + lignes décochées à la main. Par défaut : tout ce qui est rapproché est sélectionné.
@@ -62,7 +61,7 @@ export function ImportMouvementsClient() {
     setErreur(null);
     const fd = new FormData(formRef.current!);
     fd.set("lignes", JSON.stringify(selection.map((l) => l.ligne)));
-    fd.set(CHAMP_SORTIES_LIVRAISON, sortiesLivraison ? "1" : "0");
+    fd.set(CHAMP_SORTIES_LIVRAISON, "1"); // motif obligatoire : toujours « Livraison restaurant »
     start(async () => {
       const r = await appliquerMouvementsAction(fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
@@ -95,7 +94,7 @@ export function ImportMouvementsClient() {
           <input name="dateDefaut" type="date" value={dateDefaut} onChange={(e) => setDateDefaut(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm" />
         </label>
         <button type="button" onClick={analyser} disabled={isPending} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">{isPending && !preview ? "Analyse…" : "Analyser"}</button>
-        <div className="basis-full"><CaseSortiesLivraison coche={sortiesLivraison} onChange={setSortiesLivraison} /></div>
+        <div className="basis-full"><CaseSortiesLivraison /></div>
       </form>
       <p className="text-xs text-muted-foreground">Le fichier doit contenir des colonnes Date, Désignation (et/ou Code article), Entrées et Sorties. L&apos;analyse n&apos;écrit rien : choisissez ensuite la période et les lignes à importer. Réversible depuis le journal ci-dessous.</p>
 
@@ -107,7 +106,7 @@ export function ImportMouvementsClient() {
 
       {preview && preview.lignes.length > 0 && (
         <div className="space-y-2">
-          <MotifSortiesApercu coche={sortiesLivraison} />
+          <MotifSortiesApercu />
           {/* Période + sélection */}
           <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3 text-sm">
             <label className="flex flex-col gap-1 text-xs">

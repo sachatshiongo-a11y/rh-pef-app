@@ -60,12 +60,14 @@ describe("changer le motif des sorties sélectionnées", () => {
     expect(requalifier).toHaveBeenCalledWith(["a"], "PERTE", "cassé");
   });
 
-  it("Sans motif : envoie le motif vide ; une erreur du serveur s'affiche telle quelle", async () => {
+  it("plus d'option « Sans motif » (motif obligatoire, 2026-10-07) ; une erreur du serveur s'affiche telle quelle", async () => {
     requalifier.mockResolvedValueOnce({ erreur: "La période 07/2026 est clôturée." });
     monter(["a"]);
-    choisir("");
+    const options = [...conteneur.querySelectorAll<HTMLOptionElement>('select[aria-label="Nouveau motif"] option')].map((o) => o.textContent);
+    expect(options).toEqual(["Motif…", "Livraison restaurant", "Perte"]);
+    choisir("LIVRAISON_RESTAURANT");
     await act(async () => { bouton().click(); });
-    expect(requalifier).toHaveBeenCalledWith(["a"], "", undefined);
+    expect(requalifier).toHaveBeenCalledWith(["a"], "LIVRAISON_RESTAURANT", undefined);
     expect(conteneur.textContent).toContain("La période 07/2026 est clôturée.");
     expect(fait).not.toHaveBeenCalled();
   });

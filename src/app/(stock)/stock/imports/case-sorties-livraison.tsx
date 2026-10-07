@@ -1,28 +1,23 @@
-"use client";
+// Motif des sorties importées — commun aux deux imports (CSV de mouvements, classeur d'inventaire).
+// Décision de la Direction (2026-09-28) : les sorties importées sont des livraisons au restaurant.
+// Décision de Sacha (2026-10-07) : le motif est OBLIGATOIRE pour toute sortie — la case « sans motif »
+// a disparu ; l'écran envoie toujours « 1 » (voir `lib/motif-sorties-import.ts`).
 
-// Case « Les sorties sont des livraisons au restaurant » — commune aux deux imports (CSV de
-// mouvements, classeur d'inventaire). Cochée par défaut (décision Direction du 2026-09-28).
-// Pas d'attribut `name` : l'écran envoie toujours « 1 » ou « 0 » explicitement (voir
-// `lib/motif-sorties-import.ts`), une case décochée n'étant pas transmise par un formulaire.
-
-export function CaseSortiesLivraison({ coche, onChange }: { coche: boolean; onChange: (v: boolean) => void }) {
+export function CaseSortiesLivraison() {
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input type="checkbox" className="mt-0.5" checked={coche} onChange={(e) => onChange(e.target.checked)} />
-      <span className="min-w-0">
-        <span className="font-medium">Les sorties sont des livraisons au restaurant</span>
-        <span className="block text-xs text-muted-foreground">Décochée : les sorties importées n&apos;ont pas de motif. Les sorties déjà en base ne changent pas.</span>
-      </span>
-    </label>
+    <p className="text-sm">
+      <span className="font-medium">Les sorties importées reçoivent le motif « Livraison restaurant ».</span>
+      <span className="block text-xs text-muted-foreground">Le motif est obligatoire pour toute sortie. Une sortie qui n&apos;est pas une livraison se requalifie ensuite dans Mouvements (« Changer le motif »). Les sorties déjà en base ne changent pas.</span>
+    </p>
   );
 }
 
-/** Rappel du choix dans l'aperçu. */
-export function MotifSortiesApercu({ coche }: { coche: boolean }) {
+/** Rappel dans l'aperçu. */
+export function MotifSortiesApercu() {
   return (
     <p className="text-sm">
       <span className="text-muted-foreground">Motif des sorties importées : </span>
-      {coche ? <b>Livraison restaurant</b> : <b>aucun motif</b>}
+      <b>Livraison restaurant</b>
     </p>
   );
 }

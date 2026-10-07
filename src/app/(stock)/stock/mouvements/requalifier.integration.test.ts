@@ -86,11 +86,20 @@ describe("requalifier le motif des sorties", () => {
     expect(await stock()).toBe("7");
   }, 60_000);
 
-  it("« Sans motif » retire le motif et la raison", async () => {
+  it("« Sans motif » est refusé (motif obligatoire depuis le 2026-10-07) : rien n'est écrit", async () => {
     const s = await prisma.mouvementStock.create({ data: { articleId, type: "SORTIE", quantite: "1", date: new Date("2026-07-10"), categorieSortie: "PERTE", raisonSortie: "cassé", origine: "Perte — cassé" } });
-    expect(await requalifierSorties([s.id], "")).toEqual({ n: 1 });
+    expect(erreurDe(await requalifierSorties([s.id], ""))).toMatch(/motif de la sortie/);
     const m = await lire(s.id);
-    expect([m.categorieSortie, m.raisonSortie, m.origine]).toEqual([null, null, "Sortie / consommation"]);
+    expect([m.categorieSortie, m.raisonSortie, m.origine]).toEqual(["PERTE", "cassé", "Perte — cassé"]);
+  }, 60_000);
+
+  it("une ANCIENNE sortie sans motif reste visible par le filtre « sans motif » et se requalifie", async () => {
+    const s = await prisma.mouvementStock.create({ data: { articleId, type: "SORTIE", quantite: "1", date: new Date("2026-07-10"), origine: "Sortie / consommation" } });
+    const { whereColonne, lireFiltreMouvements } = await import("@/lib/filtre-mouvements");
+    const where = whereColonne(lireFiltreMouvements({ mois: "2026-7", motif: "sans" }, new Date()), "SORTIES");
+    expect((await prisma.mouvementStock.findMany({ where, select: { id: true } })).map((x) => x.id)).toContain(s.id);
+    expect(await requalifierSorties([s.id], "LIVRAISON_RESTAURANT")).toEqual({ n: 1 });
+    expect((await lire(s.id)).categorieSortie).toBe("LIVRAISON_RESTAURANT");
   }, 60_000);
 
   it("refuse une entrée dans la sélection, une période clôturée, un non-Direction — sans rien écrire", async () => {
