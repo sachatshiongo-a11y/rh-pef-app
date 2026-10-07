@@ -33,6 +33,13 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
   const motifsDe = (liste: string[]) => Object.fromEntries(liste.flatMap((id) => (motifs[id] ? [[id, motifs[id]]] : [])));
   const estSortie = (d: ApercuDemande) => d.nature === "MOUVEMENT_MANUEL" && d.mouvement?.type === "SORTIE";
   const motifIncomplet = (d: ApercuDemande) => estSortie(d) && (!motifs[d.id]?.categorie || (motifs[d.id].categorie === "PERTE" && !motifs[d.id].raison.trim()));
+  // Motif en LOT : appliqué à toutes les anciennes sorties cochées (actions groupées).
+  const [motifLotSorties, setMotifLotSorties] = useState({ categorie: "", raison: "" });
+  const sortiesCochees = demandes.filter((d) => sel.has(d.id) && estSortie(d));
+  const poserMotifLot = (m: { categorie: string; raison: string }) => {
+    setMotifLotSorties(m);
+    setMotifs((x) => ({ ...x, ...Object.fromEntries(sortiesCochees.map((d) => [d.id, m])) }));
+  };
   const [erreur, setErreur] = useState<string | null>(null);
   const [bilan, setBilan] = useState<{ ok: string; echecs: string[] } | null>(null);
 
@@ -82,7 +89,18 @@ export function DemandesAValider({ demandes, estDirection }: { demandes: ApercuD
         <BulkBar count={sel.size} total={demandes.length} onAll={(on) => setAll(demandes.map((d) => d.id), on)}>
           {!refusLot ? (
             <>
-              <BoutonApprouver disabled={isPending} onClick={() => decider(() => validerDemandes(ids, datesDe(ids), versionsDe(ids), motifsDe(ids)), "validée")}>Valider ({sel.size})</BoutonApprouver>
+              {sortiesCochees.length > 0 && (
+                <>
+                  <select value={motifLotSorties.categorie} onChange={(e) => poserMotifLot({ categorie: e.target.value, raison: motifLotSorties.raison })} aria-label={`Motif des ${sortiesCochees.length} sortie(s) cochée(s)`} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+                    <option value="">Motif des sorties…</option>
+                    {Object.entries(MOTIFS_SORTIE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                  {motifLotSorties.categorie === "PERTE" && (
+                    <input value={motifLotSorties.raison} onChange={(e) => poserMotifLot({ categorie: "PERTE", raison: e.target.value })} placeholder="Raison de la perte" aria-label="Raison de la perte (sorties cochées)" className="min-w-0 rounded-md border border-input bg-background px-2 py-1.5 text-sm sm:w-40" />
+                  )}
+                </>
+              )}
+              <BoutonApprouver disabled={isPending || sortiesCochees.some(motifIncomplet)} title={sortiesCochees.some(motifIncomplet) ? "Choisissez le motif des sorties cochées" : undefined} onClick={() => decider(() => validerDemandes(ids, datesDe(ids), versionsDe(ids), motifsDe(ids)), "validée")}>Valider ({sel.size})</BoutonApprouver>
               <BoutonRefuser disabled={isPending} onClick={() => setRefusLot(true)}>Refuser ({sel.size})</BoutonRefuser>
               <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
             </>

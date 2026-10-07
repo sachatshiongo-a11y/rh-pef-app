@@ -101,8 +101,8 @@ describe("Vue du demandeur", () => {
 
 describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour la valider (2026-10-07)", () => {
   const sortie: ApercuDemande = { ...base, id: "s1", nature: "MOUVEMENT_MANUEL", resume: "Sortie manuelle « Sortie / consommation » : Riz 3 Kg",
-    mouvement: { type: "SORTIE", origine: "Sortie / consommation", date: "2026-10-05T00:00:00.000Z", lignes: [{ articleId: "a1", designation: "Riz", unite: "Kg", quantite: "3", actuel: "10", apres: "7", valeur: -6 }] } };
-  const entree: ApercuDemande = { ...sortie, id: "e1", resume: "Entrée manuelle « Correction » : Riz 3 Kg", mouvement: { ...sortie.mouvement!, type: "ENTREE", origine: "Correction" } };
+    mouvement: { type: "SORTIE", origine: "Sortie / consommation", date: "2026-10-05T00:00:00.000Z", saisisDepuis: [], lignes: [{ articleId: "a1", designation: "Riz", unite: "Kg", quantite: "3", actuel: "10", apres: "7", valeur: -6 }] } };
+  const entree: ApercuDemande = { ...sortie, id: "e1", resume: "Entrée manuelle « Correction » : Riz 3 Kg", mouvement: { ...sortie.mouvement!, type: "ENTREE", origine: "Correction", saisisDepuis: ["Riz"] } };
 
   it("« Valider » reste grisé tant que le motif (et la raison d'une perte) manque ; puis le motif part avec la décision", async () => {
     monter(h(DemandesAValider, { demandes: [sortie, entree], estDirection: true }));
@@ -118,6 +118,26 @@ describe("Ancienne demande de SORTIE manuelle : motif obligatoire pour la valide
     expect(validerSortie.disabled).toBe(false);
     await clic(validerSortie);
     expect(A.valider).toHaveBeenCalledWith(["s1"], {}, { s1: base.version }, { s1: { categorie: "PERTE", raison: "Moisi" } });
+  });
+
+  it("double saisie possible : la carte prévient (sans bloquer)", () => {
+    monter(h(DemandesAValider, { demandes: [entree], estDirection: true }));
+    expect(conteneur.textContent).toContain("Une entrée manuelle a été saisie en direct depuis cette demande sur « Riz »");
+  });
+
+  it("actions groupées : « Valider (n) » grisé tant qu'une sortie cochée n'a pas de motif ; le motif en lot part pour chacune", async () => {
+    const sortie2: ApercuDemande = { ...sortie, id: "s2" };
+    monter(h(DemandesAValider, { demandes: [sortie, sortie2, entree], estDirection: true }));
+    const cases = [...conteneur.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].filter((c) => c.getAttribute("aria-label")?.startsWith("Sélectionner :"));
+    for (const c of cases) await clic(c);
+    const lot = () => boutons("Valider (3)")[0];
+    expect(lot().disabled).toBe(true);
+    const motifLot = conteneur.querySelector<HTMLSelectElement>('select[aria-label^="Motif des 2 sortie"]')!;
+    act(() => { motifLot.value = "LIVRAISON_RESTAURANT"; motifLot.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(lot().disabled).toBe(false);
+    await clic(lot());
+    const motifs = A.valider.mock.calls[0]![3];
+    expect(motifs).toEqual({ s1: { categorie: "LIVRAISON_RESTAURANT", raison: "" }, s2: { categorie: "LIVRAISON_RESTAURANT", raison: "" } });
   });
 });
 

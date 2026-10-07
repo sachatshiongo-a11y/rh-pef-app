@@ -353,13 +353,14 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
     return f;
   });
 
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });
   // Facture enregistrée par un compte non-Direction : notifiée à la Direction (2026-10-07), après
   // l'écriture et avant la redirection, jamais bloquante.
   await notifierGesteStock(user, {
     genre: "FACTURE", factureId: fac.id, numero, fournisseurNom, montantUSD, nbLignes: lignes.length,
     entreeEnStock: entrerEnStock, nbEntrees: entrerEnStock ? lignes.filter((l) => l.articleId).length : 0,
   });
+
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");

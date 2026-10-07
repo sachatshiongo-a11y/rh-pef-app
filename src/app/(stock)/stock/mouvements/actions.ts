@@ -25,13 +25,18 @@ export const mouvementManuel = actionLisible(async (formData: FormData): Promise
   const user = await verifySession();
   requireModule(user, "stock");
   const m = lireMouvementSaisi(formData);
-  await appliquerMouvementManuel(user, m);
+  const { demandesEnAttente } = await appliquerMouvementManuel(user, m);
   await apresCommit(() => journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id }));
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-  return { demande: false, message: m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté." };
+  const fait = m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.";
+  // Une ancienne demande en attente vise aussi ces articles : si c'est le même mouvement, la valider le compterait deux fois.
+  const avertissement = demandesEnAttente.length
+    ? ` Attention : une ancienne demande en attente de la Direction vise aussi ${demandesEnAttente.map((d) => `« ${d} »`).join(", ")}. S'il s'agit du même mouvement, retirez-la dans « Demandes à valider » (sinon elle serait comptée deux fois).`
+    : "";
+  return { demande: false, message: fait + avertissement };
 });
 
 /**

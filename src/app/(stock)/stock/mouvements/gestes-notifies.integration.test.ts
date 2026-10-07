@@ -210,18 +210,18 @@ describe("Motif OBLIGATOIRE pour toute sortie (tous les rôles, Direction compri
 });
 
 describe("Anti-avalanche : une rafale du même auteur met à jour la notification non lue", () => {
-  it("deux livraisons de suite → une notification « 2 sorties » par Direction ; lue → la suivante est nouvelle", async () => {
+  it("deux livraisons de suite → une notification « 2 saisies de sorties » par Direction ; lue → la suivante est nouvelle", async () => {
     const riz = await article("Riz"); const sel = await article("Sel");
     en("resp");
     await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 1]] }));
     await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[sel, 2]] }));
     let n = await uneParDirection();
-    expect(n.message).toMatch(/^2 sorties \(Livraison restaurant\) par Jean depuis \d{1,2} h \d{2} — dernière : 2 Kg — Sel$/);
+    expect(n.message).toMatch(/^2 saisies de sorties \(Livraison restaurant\) par Jean depuis \d{1,2} h \d{2} — dernière : 2 Kg — Sel$/);
     expect(n.lien).toBe(`/stock/mouvements?mois=${MOIS}&motif=livraison`);
     expect(PUSH.appels.map((a) => a.payload.tag)).toEqual([PUSH.appels[0].payload.tag, PUSH.appels[0].payload.tag]); // l'appareil remplace
     await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[sel, 1]] }));
     n = await uneParDirection();
-    expect(n.message).toMatch(/^3 sorties/);
+    expect(n.message).toMatch(/^3 saisies de sorties/);
     // La Direction a lu : le geste suivant fait une notification neuve.
     await prisma.notification.updateMany({ data: { lu: true } });
     await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 1]] }));
@@ -252,6 +252,19 @@ describe("Une notification qui échoue n'annule rien et ne renvoie pas d'erreur"
     expect(await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 9.5]] }))).toMatchObject({ demande: false });
     expect(await stock(riz)).toBe(0.5);
     await uneParDirection();
+  }, 60_000);
+
+  it("échec pour UN compte Direction : les autres sont quand même notifiés (cloche et push)", async () => {
+    const riz = await article("Riz", 10);
+    const vraie = prisma.notification.create.bind(prisma.notification);
+    const espion = vi.spyOn(prisma.notification, "create").mockImplementation(((args: { data: { destinataireUserId?: string } }) =>
+      args.data.destinataireUserId === U.dir.id ? Promise.reject(new Error("panne")) : vraie(args as never)) as never);
+    const console_ = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      en("resp"); await mouvementManuel(mvt({ type: "ENTREE", origine: "Correction", lignes: [[riz, 1]] }));
+    } finally { espion.mockRestore(); console_.mockRestore(); }
+    expect((await gestes()).map((x) => x.destinataireUserId)).toEqual([U.dir2.id]);
+    expect(PUSH.appels.map((a) => a.userIds)).toEqual([[U.dir2.id]]);
   }, 60_000);
 
   it("base indisponible pour la cloche : le geste est écrit et annoncé écrit (mouvement, achat, facture)", async () => {

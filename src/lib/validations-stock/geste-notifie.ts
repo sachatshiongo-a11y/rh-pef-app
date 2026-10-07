@@ -17,7 +17,7 @@ import "server-only";
 // Anti-avalanche (mouvements manuels seulement) : le même auteur qui enchaîne des gestes de même nature
 // (les livraisons de la semaine saisies en rafale) ne fait pas sonner la Direction dix fois. Tant que
 // la notification de son premier geste est NON LUE et date de moins de FENETRE_REGROUPEMENT_MS, elle
-// est MISE À JOUR (« 3 sorties (Livraison restaurant) par Jean depuis 9 h 05 — dernière : … ») au lieu
+// est MISE À JOUR (« 3 saisies de sorties (Livraison restaurant) par Jean depuis 9 h 05 — dernière : … ») au lieu
 // d'en empiler une nouvelle. Le compteur vit dans `refId` (`geste:<auteur>:<clé>:<n>`), seul champ
 // libre du modèle (pas de changement de schéma). Factures, achats et réceptions ont chacun leur lien
 // propre : jamais regroupés.
@@ -41,6 +41,8 @@ export type GesteStock =
       /** Date du mouvement (date pure : minuit UTC du jour civil de Kinshasa). */
       date: Date;
       lignes: LigneGeste[];
+      /** Articles visés aussi par une ANCIENNE demande de mouvement en attente (double saisie possible). */
+      demandesEnAttente?: string[];
     }
   | { genre: "FACTURE"; factureId: string; numero: string | null; fournisseurNom: string; montantUSD: number; nbLignes: number; entreeEnStock: boolean; nbEntrees: number }
   | { genre: "ACHAT"; nbLignes: number; montants: { devise: "USD" | "CDF"; montant: number }[] }
@@ -103,7 +105,8 @@ export function texteGeste(auteurNom: string, g: GesteStock): TexteGeste {
       const tete = g.lignes.length === 1
         ? `${nomType(g.type)} de ${quantiteEtUnite(g.lignes[0].quantite, g.lignes[0].unite)} — ${g.lignes[0].designation} (${g.origine}) par ${auteurNom}`
         : `${nomType(g.type)} de ${pluriel(g.lignes.length, "article")} (${g.origine}) par ${auteurNom} : ${g.lignes.map((l) => `${l.designation} ${quantiteEtUnite(l.quantite, l.unite)}`).join(", ")}`;
-      return { message: borne(tete), lien: lienMouvements(g), titre: g.type === "ENTREE" ? "Entrée de stock" : "Sortie de stock", cle: `${g.type}:${g.categorieSortie ?? g.origine}` };
+      const alerte = g.demandesEnAttente?.length ? ` — attention : une ancienne demande en attente vise aussi ${g.demandesEnAttente.map((d) => `« ${d} »`).join(", ")} (double saisie ?)` : "";
+      return { message: borne(tete + alerte), lien: lienMouvements(g), titre: g.type === "ENTREE" ? "Entrée de stock" : "Sortie de stock", cle: alerte ? null : `${g.type}:${g.categorieSortie ?? g.origine}` }; // un doublon possible n'est jamais noyé dans une rafale
     }
     case "FACTURE": {
       const nom = `${g.numero ? `Facture n° ${g.numero}` : "Facture sans numéro"} de ${g.fournisseurNom}`;
@@ -139,7 +142,8 @@ export function texteGeste(auteurNom: string, g: GesteStock): TexteGeste {
 /** Texte d'une notification de mouvements regroupés (n ≥ 2). PURE. */
 export function texteRegroupe(auteurNom: string, g: Extract<GesteStock, { genre: "MOUVEMENT" }>, n: number, depuis: Date): string {
   const motif = g.categorieSortie ? LIBELLE_MOTIF[g.categorieSortie] : g.origine;
-  const quoi = g.type === "ENTREE" ? "entrées" : "sorties";
+  // « saisies » : chaque geste peut porter plusieurs lignes ; le compteur compte les gestes.
+  const quoi = g.type === "ENTREE" ? "saisies d'entrées" : "saisies de sorties";
   const s = `${formaterNombre(n)} ${quoi} (${motif}) par ${auteurNom} depuis ${heureKinshasa(depuis)} — dernière : ${detailLignes(g.lignes)}`;
   return s.length > LONGUEUR_MAX ? `${s.slice(0, LONGUEUR_MAX - 1)}…` : s;
 }
@@ -150,27 +154,42 @@ async function livrer(auteur: AuteurGeste, g: GesteStock, maintenant: Date) {
   if (admins.length === 0) return;
   const t = texteGeste(auteur.nom, g);
   const prefixe = t.cle ? `geste:${auteur.id}:${t.cle}:` : null;
+  // Un destinataire en échec ne prive pas les autres : chacun dans son try/catch.
+  const pushs = new Map<string, string[]>(); // corps du push → destinataires
   for (const a of admins) {
-    if (prefixe && g.genre === "MOUVEMENT") {
-      const recente = await prisma.notification.findFirst({
-        where: { domaine: "STOCK", destinataireUserId: a.id, lu: false, refId: { startsWith: prefixe }, createdAt: { gte: new Date(maintenant.getTime() - FENETRE_REGROUPEMENT_MS) } },
-        orderBy: { createdAt: "desc" },
-      });
-      const n = recente ? Number(recente.refId!.slice(prefixe.length)) : NaN;
-      if (recente && Number.isInteger(n) && n >= 1) {
-        await prisma.notification.update({
-          where: { id: recente.id },
-          data: { message: texteRegroupe(auteur.nom, g, n + 1, recente.createdAt), lien: lienMouvements({ ...g, lignes: [] }), refId: `${prefixe}${n + 1}` },
+    try {
+      let corps = t.message;
+      let regroupe = false;
+      if (prefixe && g.genre === "MOUVEMENT") {
+        const recente = await prisma.notification.findFirst({
+          where: { domaine: "STOCK", destinataireUserId: a.id, lu: false, refId: { startsWith: prefixe }, createdAt: { gte: new Date(maintenant.getTime() - FENETRE_REGROUPEMENT_MS) } },
+          orderBy: { createdAt: "desc" },
         });
-        continue;
+        const n = recente ? Number(recente.refId!.slice(prefixe.length)) : NaN;
+        if (recente && Number.isInteger(n) && n >= 1) {
+          corps = texteRegroupe(auteur.nom, g, n + 1, recente.createdAt);
+          // Mise à jour CONDITIONNELLE sur le compteur lu : deux gestes simultanés ne l'écrasent pas.
+          const maj = await prisma.notification.updateMany({
+            where: { id: recente.id, refId: recente.refId, lu: false },
+            data: { message: corps, lien: lienMouvements({ ...g, lignes: [] }), refId: `${prefixe}${n + 1}` },
+          });
+          regroupe = maj.count === 1;
+          if (!regroupe) corps = t.message;
+        }
       }
+      if (!regroupe) {
+        await prisma.notification.create({
+          data: { domaine: "STOCK", destinataireUserId: a.id, type: "AUTRE", message: t.message, lien: t.lien, refId: prefixe ? `${prefixe}1` : `geste:${auteur.id}:${g.genre}` },
+        });
+      }
+      pushs.set(corps, [...(pushs.get(corps) ?? []), a.id]);
+    } catch (e) {
+      console.error("[stock] notification d'un compte Direction en échec :", e);
     }
-    await prisma.notification.create({
-      data: { domaine: "STOCK", destinataireUserId: a.id, type: "AUTRE", message: t.message, lien: t.lien, refId: prefixe ? `${prefixe}1` : `geste:${auteur.id}:${g.genre}` },
-    });
   }
-  // Même étiquette pour une rafale : l'appareil remplace la précédente au lieu d'empiler.
-  await envoyerPush(admins.map((a) => a.id), { title: t.titre, body: t.message.slice(0, 180), url: t.lien, tag: prefixe ? `geste-${auteur.id}-${t.cle}` : `geste-${auteur.id}-${g.genre}-${maintenant.getTime()}` });
+  // Même étiquette pour une rafale : l'appareil remplace la précédente (texte regroupé) au lieu d'empiler.
+  const tag = prefixe ? `geste-${auteur.id}-${t.cle}` : `geste-${auteur.id}-${g.genre}-${maintenant.getTime()}`;
+  for (const [corps, ids] of pushs) await envoyerPush(ids, { title: t.titre, body: corps.slice(0, 180), url: t.lien, tag });
 }
 
 /**

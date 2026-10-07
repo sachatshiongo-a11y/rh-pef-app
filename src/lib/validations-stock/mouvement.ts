@@ -20,6 +20,7 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { prisma } from "@/lib/prisma";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { notifierGesteStock, type AuteurGeste } from "./geste-notifie";
+import { cleMouvement } from "./charge";
 import { MESSAGE_RAISON_PERTE, exigerMotifSortie, origineDuMotif } from "@/lib/motif-sortie";
 
 type Tx = Prisma.TransactionClient;
@@ -101,8 +102,13 @@ export async function apresMouvements(m: Pick<MouvementSaisi, "type" | "lignes">
  * Geste direct d'une entrée/sortie manuelle, pour TOUT compte Stock (décision du 2026-10-07) : contrôles,
  * écriture en une transaction, puis — APRÈS, jamais bloquant — alertes de seuil et notification de la
  * Direction (rien si l'auteur est la Direction).
+ *
+ * Une ANCIENNE demande de mouvement encore en attente sur un de ces articles ne bloque pas le geste
+ * (Sacha : plus de validation des mouvements), mais c'est peut-être le même mouvement ressaisi : la
+ * Direction validerait alors deux fois la même sortie. Le geste est donc écrit, et l'auteur comme la
+ * Direction sont AVERTIS en nommant les articles (`demandesEnAttente`).
  */
-export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSaisi): Promise<void> {
+export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSaisi): Promise<{ demandesEnAttente: string[] }> {
   await exigerPeriodeOuverte(m.date);
   const ids = m.lignes.map((l) => l.articleId);
   // Articles vérifiés DÈS LA SAISIE : un id forgé ne crée pas une ligne de stock.
@@ -112,9 +118,15 @@ export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSa
   // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
   const niveauxAvant = m.type === "SORTIE" ? await niveauxActuels(ids) : new Map<string, NiveauAlerte>();
   await prisma.$transaction((tx) => ecrireMouvementsTx(tx, user.id, m));
+  let demandesEnAttente: string[] = [];
+  try {
+    const prises = await prisma.cibleDemandeStock.findMany({ where: { cle: { in: [...new Set(ids)].map(cleMouvement) } }, select: { cle: true } });
+    demandesEnAttente = [...new Set(prises.map((p) => parId.get(p.cle.slice(cleMouvement("").length))?.designation).filter((d): d is string => !!d))];
+  } catch (e) { console.error("[stock] lecture des anciennes demandes en échec :", e); }
   try { await apresMouvements(m, niveauxAvant); } catch (e) { console.error("[stock] alertes après mouvement en échec :", e); }
   await notifierGesteStock(user, {
-    genre: "MOUVEMENT", type: m.type, categorieSortie: m.categorieSortie, origine: m.origine, date: m.date,
+    genre: "MOUVEMENT", type: m.type, categorieSortie: m.categorieSortie, origine: m.origine, date: m.date, demandesEnAttente,
     lignes: m.lignes.map((l) => ({ articleId: l.articleId, designation: parId.get(l.articleId)!.designation, unite: parId.get(l.articleId)!.unite, quantite: l.quantite })),
   });
+  return { demandesEnAttente };
 }

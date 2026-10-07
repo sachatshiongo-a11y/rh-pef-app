@@ -204,15 +204,16 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
     }
   });
 
+  // Un achat d'un compte non-Direction est NOTIFIÉ à la Direction (décision du 2026-10-07) : une
+  // notification pour toute la liste, après l'écriture, jamais bloquante.
+  await notifierGesteStock(user, { genre: "ACHAT", nbLignes: lignes.length, montants: lignes.map((l) => ({ devise: l.devise, montant: l.montant })) });
+
   await journaliser(prisma, { entite: "MouvementStock", entiteId: `${lignes.length} entrées`, champ: "entree (liste d'achat)", nouvelleValeur: origine, userId: user.id });
   // Un article créé à la volée hors Direction reste permis (la Liste d'achat ne doit jamais bloquer
   // un achat), mais il est SIGNALÉ sur la cloche de l'espace Stock.
   if (crees.length > 0 && user.role !== "ADMIN") {
     await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `${crees.length > 1 ? `${crees.length} nouveaux articles créés` : "Nouvel article créé"} par ${user.nom} (Liste d'achat) : ${crees.map((d) => `« ${d} »`).join(", ")}`.slice(0, 480), lien: "/stock/catalogue", refId: "article-cree:liste-achat" } });
   }
-  // Un achat d'un compte non-Direction est NOTIFIÉ à la Direction (décision du 2026-10-07) : une
-  // notification pour toute la liste, après l'écriture, jamais bloquante.
-  await notifierGesteStock(user, { genre: "ACHAT", nbLignes: lignes.length, montants: lignes.map((l) => ({ devise: l.devise, montant: l.montant })) });
   revalidatePath("/stock/entree");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/fournisseurs", "layout");

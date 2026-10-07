@@ -99,6 +99,23 @@ describe("Plus aucune demande créée : le geste du responsable est écrit tout 
   }, 60_000);
 });
 
+describe("Double saisie possible : ancienne demande en attente + même article saisi en direct", () => {
+  it("le geste est écrit (rien n'est bloqué), l'auteur et la Direction sont avertis, la carte de la demande le signale", async () => {
+    const riz = await article("Riz", 10);
+    const d = await ancienne({ type: "SORTIE", origine: "Sortie / consommation", lignes: [[riz, 3]] });
+    en("resp");
+    const r = await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 3]] }));
+    expect(r).toMatchObject({ demande: false, message: expect.stringMatching(/Sortie enregistrée.*Attention : une ancienne demande en attente de la Direction vise aussi « Riz »/) });
+    expect(await stock(riz)).toBe(7);
+    const n = await prisma.notification.findFirstOrThrow({ where: { destinataireUserId: U.dir.id, refId: { startsWith: "geste:" } } });
+    expect(n.message).toBe("Sortie de 3 Kg — Riz (Livraison restaurant) par Jean — attention : une ancienne demande en attente vise aussi « Riz » (double saisie ?)");
+    const { apercusDemandes } = await import("@/lib/validations-stock/apercu");
+    const [a] = await apercusDemandes({ id: d.id }, { detail: true });
+    expect(a.mouvement?.saisisDepuis).toEqual(["Riz"]);
+    expect(a.alertes).toEqual([]); // une alerte, pas un conflit : la Direction tranche
+  }, 60_000);
+});
+
 describe("Anciennes demandes en attente : toujours décidables", () => {
   it.each([["SORTIE" as const, "Sortie / consommation"], ["ENTREE" as const, "Correction"]])("%s « %s » validée = EXACTEMENT le geste direct (stock, date, origine, motif)", async (type, origine) => {
     const direct = await article("Riz A", 10);

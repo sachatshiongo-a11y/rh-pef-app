@@ -348,9 +348,9 @@ export const receptionnerBonCommande = actionLisible(async (bcId: string, formDa
     return complet;
   });
 
-  await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
   // Arrivée de marchandise par un compte non-Direction : notifiée à la Direction (2026-10-07), jamais bloquante.
   await notifierGesteStock(user, { genre: "RECEPTION", bonDeCommandeId: bcId, numero: bc.numero, fournisseurNom: bc.fournisseur?.nom ?? null, nbLignes: aRecevoir.length, complete: complet });
+  await journaliser(prisma, { entite: "BonDeCommande", entiteId: bcId, champ: "reception", nouvelleValeur: `${aRecevoir.length} ligne(s)`, userId: user.id });
   revalidatePath(`/stock/commandes/${bcId}`);
   revalidatePath("/stock/commandes");
 });

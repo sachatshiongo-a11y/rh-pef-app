@@ -27,7 +27,7 @@ const NATIFS_RECENSES: Record<string, { n: number; raison: string }> = {
   "src/app/(stock)/stock/journalier/import-classeur.tsx": { n: 1, raison: "« créer » ou « c'est telle fiche » parmi les 1 à 3 fiches proches déjà repérées" },
   "src/app/(stock)/stock/journalier/import-commande.tsx": { n: 1, raison: "6 propositions au plus (articles déjà rapprochés du classeur), pas le catalogue" },
   "src/app/(stock)/stock/journalier/menu-fiches-conso.tsx": { n: 1, raison: "jour de la fiche (7 jours)" },
-  "src/app/(stock)/stock/a-valider/demandes-client.tsx": { n: 1, raison: "motif d'une ancienne demande de sortie (Livraison restaurant / Perte) : liste fixe de 2 motifs, obligatoire depuis le 2026-10-07" },
+  "src/app/(stock)/stock/a-valider/demandes-client.tsx": { n: 2, raison: "motif des anciennes demandes de sortie (Livraison restaurant / Perte), en lot et par demande : liste fixe de 2 motifs, obligatoire depuis le 2026-10-07" },
   "src/app/(stock)/stock/mouvements/mouvements-client.tsx": { n: 2, raison: "motif de sortie (Perte / Livraison restaurant) et nature de l'entrée (Retour restaurant / autre) : listes fixes de 2-3 motifs" },
   "src/app/(stock)/stock/mouvements/page.tsx": { n: 2, raison: "filtres mois et motif" },
   "src/app/(stock)/stock/mouvements/changer-motif.tsx": { n: 1, raison: "motif" },
