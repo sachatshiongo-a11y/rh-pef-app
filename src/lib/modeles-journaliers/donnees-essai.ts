@@ -15,7 +15,7 @@ const gabarit = (nom: string) => new Uint8Array(fs.readFileSync(path.join(proces
 export const SEMAINE_ESSAI = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"];
 
 /** Rapport de la semaine 40 : `dimanche` ajoute une vente le dimanche. */
-export async function fichesRapportEssai(options: { dimanche?: boolean; ajouts?: boolean } = {}): Promise<Fiche[]> {
+export async function fichesRapportEssai(options: { dimanche?: boolean; ajouts?: boolean; desactive?: string } = {}): Promise<Fiche[]> {
   const lu = await lireClasseurVentes(gabarit("rapport-journalier.xlsx"));
   if (!lu.ok) throw new Error(lu.erreur);
   const fiches: FicheVendue[] = lu.lignes
@@ -30,6 +30,8 @@ export async function fichesRapportEssai(options: { dimanche?: boolean; ajouts?:
       { id: "new3", nom: "Jus de bissap", categorie: "Jus de fruit", type: "BAR", actif: true },
     );
   }
+  // Plat désactivé depuis, qui porte des ventes cette semaine.
+  for (const f of fiches) if (options.desactive && f.nom === options.desactive) f.actif = false;
   const ventes = new Map<string, number>();
   const vendre = (id: string, j: number, q: number) => ventes.set(cleCase(`fiche:${id}`, SEMAINE_ESSAI[j]!), q);
   fiches.forEach((f, i) => {

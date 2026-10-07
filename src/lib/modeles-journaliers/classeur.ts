@@ -96,7 +96,9 @@ export async function ecrireClasseur(g: Gabarit, feuilles: FeuilleSortie[]): Pro
     const apres = f.gabarit.apres
       // Tri mémorisé par Excel sur d'anciennes rangées : sans objet.
       .replace(/<sortState\b[\s\S]*?<\/sortState>/g, "").replace(/<sortState\b[^>]*\/>/g, "")
-      .replace(/<brk id="(\d+)"/g, (_, id: string) => `<brk id="${f.nouvelleLigne(Number(id))}"`)
+      // Saut APRÈS la rangée `id` : il suit la rangée qui ouvre la page suivante, de sorte que les
+      // lignes ajoutées en fin de bloc restent sur la page de leur bloc.
+      .replace(/<brk id="(\d+)"/g, (_, id: string) => `<brk id="${f.nouvelleLigne(Number(id) + 1) - 1}"`)
       .replace(/<mergeCell ref="([^"]+)"/g, (_, ref: string) => `<mergeCell ref="${ref.replace(/(\d+)/g, (l) => String(f.nouvelleLigne(Number(l))))}"`);
     zip.file(`xl/worksheets/sheet${n}.xml`, `${avant}<sheetData>${lignes.join("")}</sheetData>${apres}`);
 
@@ -124,6 +126,8 @@ export async function ecrireClasseur(g: Gabarit, feuilles: FeuilleSortie[]): Pro
     .replace(/\sactiveTab="\d+"/, "").replace(/\sfirstSheet="\d+"/, "")
     // Chemin du fichier de la Direction sur son ordinateur : rien à faire dans un export.
     .replace(/<mc:AlternateContent\b[\s\S]*?<\/mc:AlternateContent>/g, "")
+    // Données propres à Google Sheets (classeur Commande), dont la partie n'est pas dans le paquet.
+    .replace(/<ext uri="GoogleSheetsCustomData[^"]*">[\s\S]*?<\/ext>/g, "")
     .replace(/<calcPr\b([^>]*?)\s*\/>/, (_, a: string) => `<calcPr${a.replace(/\sfullCalcOnLoad="\d"/, "")} fullCalcOnLoad="1"/>`);
   const noms = feuillesXml.flatMap((x, i) => (x.zone ? [`<definedName name="_xlnm.Print_Area" localSheetId="${i}">'${echapperNom(x.nom)}'!${x.zone}</definedName>`] : []));
   if (noms.length) classeur = classeur.replace("</sheets>", `</sheets><definedNames>${noms.join("")}</definedNames>`);

@@ -52,6 +52,11 @@ export type FeuilleSortie = {
   entetesRepetes: number[][];
   /** Lignes de l'application absentes du classeur, et où elles ont été mises (pour le contrôle). */
   ajouts: { libelle: string; rubrique: string; rubriqueAjoutee: boolean }[];
+  /**
+   * Lignes posées sur une rangée du classeur par leur NOM seul (rubrique différente dans
+   * l'application) : jamais une perte, mais un rattachement à savoir (pour le contrôle).
+   */
+  rattacheesParNom: { libelle: string; rubrique: string; rubriqueClasseur: string }[];
 };
 
 /** Une ligne de l'application à placer sur la feuille. */
@@ -64,6 +69,8 @@ export type LigneDonnees = {
   legume?: boolean;
   /** Libellé imprimé quand la ligne n'est pas dans le classeur. */
   libelle: string;
+  /** Mention ajoutée au libellé du classeur quand la ligne y trouve sa rangée (« (désactivé) »). */
+  mention?: string;
   /** Une valeur par colonne de données, dans l'ordre (cf. `ValeurFiche`). */
   valeurs: ValeurFiche[];
 };
@@ -128,6 +135,7 @@ export function remplirFeuille(g: Gabarit, f: FeuilleGabarit, sq: Squelette, d: 
       ? cleTexte(cle.rubrique) === RUBRIQUE_LEGUMES_CLE && l.noms.some((n) => cleLegume(n) === cleLegume(cle.nom))
       : l.noms.some((n) => cleTexte(n) === cleTexte(cle.nom));
   // D'abord nom ET rubrique ; puis le nom seul, s'il ne désigne qu'UNE ligne restante du classeur.
+  const rattacheesParNom: FeuilleSortie["rattacheesParNom"] = [];
   for (const exige of [true, false]) {
     for (const l of d.lignes) {
       if (place.has(l)) continue;
@@ -135,6 +143,7 @@ export function remplirFeuille(g: Gabarit, f: FeuilleGabarit, sq: Squelette, d: 
       if (candidates.length === 0 || (!exige && candidates.length > 1)) continue;
       place.set(l, candidates[0]![0]);
       libres.delete(candidates[0]![0]);
+      if (!exige) rattacheesParNom.push({ libelle: l.libelle, rubrique: l.rubrique, rubriqueClasseur: candidates[0]![1].rubrique });
     }
   }
 
@@ -323,6 +332,10 @@ export function remplirFeuille(g: Gabarit, f: FeuilleGabarit, sq: Squelette, d: 
       const col = colsDonnees[i];
       if (col !== undefined) ecrire(r, col, contenuValeur(v), styleColonne.get(col));
     });
+    if (l.mention && place.has(l)) {
+      const d = cellule(r, sq.colDesignation);
+      ecrire(r, sq.colDesignation, { genre: "texte", texte: `${propre(texteDe(d) ?? "")}${l.mention}` });
+    }
     r.donnees = true;
   }
 
@@ -337,6 +350,7 @@ export function remplirFeuille(g: Gabarit, f: FeuilleGabarit, sq: Squelette, d: 
     zone: zoneFinale,
     entetesRepetes: sq.entetesRepetes.map((gr) => gr.map(nouvelleLigne)),
     ajouts,
+    rattacheesParNom,
   };
 }
 
@@ -378,6 +392,6 @@ function fixerLargeur(colonnes: FeuilleGabarit["colonnes"], col: number, largeur
 export function feuilleTelleQuelle(f: FeuilleGabarit): FeuilleSortie {
   return {
     nom: f.nom, gabarit: f, squelette: null, rangees: f.rangees.map((r) => copieRangee(r, "hors")), nouvelleLigne: (r) => r,
-    colonnes: f.colonnes, colsDonnees: [], zone: f.zone, entetesRepetes: [], ajouts: [],
+    colonnes: f.colonnes, colsDonnees: [], zone: f.zone, entetesRepetes: [], ajouts: [], rattacheesParNom: [],
   };
 }

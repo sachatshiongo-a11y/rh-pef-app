@@ -5,7 +5,7 @@ import ExcelJS from "exceljs";
 import { pagesDuPdf, policesDeRepli } from "@/lib/test/pdf-lecture";
 import { lireGabarit, lettreColonne, texteCellule, type FeuilleGabarit, type Gabarit, type RangeeBrute } from "./gabarit";
 import { chargerModele, excelModele, feuillesCommande, feuillesRapport, pdfModele, type Modele } from "./index";
-import { serieExcel, type FeuilleSortie } from "./remplir";
+import { remplirFeuille, serieExcel, type FeuilleSortie } from "./remplir";
 import { fichesCommandeEssai, fichesRapportEssai } from "./donnees-essai";
 
 /**
@@ -307,4 +307,36 @@ it("les squelettes des deux modèles : en-têtes, corps, rubriques, lignes de l'
   expect([cc!.ligneEntete, cc!.finCorps, cc!.colsDonnees]).toEqual([9, 210, [2, 3, 4]]);
   expect([cb!.ligneEntete, cb!.finCorps, cb!.colsDonnees]).toEqual([10, 164, [2, 3]]);
   expect(c.feuilles[2]!.squelette).toBeNull();
+});
+
+describe("relecture : mentions, rattachements, sauts de page, restes Google", () => {
+  it("un plat désactivé depuis garde « (désactivé) » sur la rangée du classeur, ses chiffres compris", async () => {
+    const p = await produire(feuillesRapport(await fichesRapportEssai({ desactive: "Carbonara" }), "2026-09-28"));
+    const r = rangeeDe(p.sortie.feuilles[0]!, p.modele.gabarit, 2, "Carbonara (désactivé)");
+    expect(r).toBeDefined();
+    expect(rangeeDe(p.sortie.feuilles[0]!, p.modele.gabarit, 2, "Carbonara")).toBeUndefined();
+    expect(r!.cellules.filter((c) => c.col >= 3 && c.v !== null).length).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("rattachement par le NOM seul (autre rubrique dans l'application) : posé sur la rangée du classeur, et tracé", async () => {
+    const m = await chargerModele("RAPPORT");
+    const f = m.feuilles[0]!;
+    const s = remplirFeuille(m.gabarit, f.feuille, f.squelette!, {
+      semaine: 40, lundi: "2026-09-28",
+      lignes: [{ rubrique: "Desserts", noms: ["Frite"], libelle: "Frite", valeurs: [3, null, null, null, null, null] }],
+    });
+    expect(s.rattacheesParNom).toEqual([{ libelle: "Frite", rubrique: "Desserts", rubriqueClasseur: "Autres accompagnements" }]);
+    expect(s.ajouts).toEqual([]);
+  });
+
+  it("sauts de page manuels : décalés avec les lignes ajoutées, une ligne ajoutée reste sur la page de son bloc ; aucune donnée Google Sheets", async () => {
+    const p = await produire(feuillesCommande([{ date: "2026-09-29", fiches: await fichesCommandeEssai() }]));
+    const sauts = [...p.sortie.feuilles[0]!.apres.matchAll(/<brk id="(\d+)"/g)].map((x) => Number(x[1]));
+    // « Burrata » ajoutée après « Parmesan » (rangée 52 du modèle) : les sauts suivants avancent d'une rangée.
+    expect(sauts.slice(0, 2)).toEqual([42, 66]);
+    expect(sauts[1]).toBe(rangeeDe(p.sortie.feuilles[0]!, p.modele.gabarit, 1, "Spaghetti Everyday")!.r);
+    const classeur = new TextDecoder().decode(p.sortie.parties.get("xl/workbook.xml"));
+    expect(classeur).not.toContain("GoogleSheets");
+    expect(classeur).toContain("calcFeatures"); // le reste des extensions, tel quel
+  }, 60_000);
 });

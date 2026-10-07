@@ -67,6 +67,7 @@ export function lignesDonnees(fiche: Fiche): LigneDonnees[] {
       rubrique: l.cle?.rubrique ?? s.titre,
       noms: l.cle?.noms ?? [l.designation],
       legume: l.cle?.legume,
+      mention: l.cle?.mention,
       libelle: l.designation,
       valeurs: l.cases.map((c) => c.valeur),
     })),

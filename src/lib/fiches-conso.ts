@@ -33,7 +33,7 @@ export type RoleColonne = "cmd" | "liv" | "conso" | "vente" | null;
  * l'écrit sur la rangée du classeur qui porte ce nom (lib/modeles-journaliers). `legume` : ligne de
  * la liste des légumes frais, rapprochée sans pluriel ni ponctuation.
  */
-export type CleLigne = { rubrique: string; noms: string[]; legume?: boolean };
+export type CleLigne = { rubrique: string; noms: string[]; legume?: boolean; mention?: string };
 export type LigneFiche = { designation: string; cases: CaseFiche[]; cle?: CleLigne };
 export type SectionFiche = { titre: string; lignes: LigneFiche[] };
 
@@ -127,7 +127,8 @@ export function ficheRapportJournalier(p: {
       (l) => ({
         designation: l.inactif ? `${l.designation} (désactivé)` : l.designation,
         cases: jours.map((j) => ({ valeur: p.ventes.get(cleCase(l.cle, j)) ?? null })),
-        cle: { rubrique: l.rubrique, noms: [l.designation] },
+        // « (désactivé) » suit la ligne jusque sur la rangée du classeur (son libellé y est celui du classeur).
+        cle: { rubrique: l.rubrique, noms: [l.designation], ...(l.inactif ? { mention: " (désactivé)" } : {}) },
       }),
     ),
   };
