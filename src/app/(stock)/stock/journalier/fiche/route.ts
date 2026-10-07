@@ -6,6 +6,7 @@ import { lundiDe } from "@/lib/dates-fr";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { dateCourte, dateLongue, feuilleExcel, fichesCommandeSemaine, partiePdf, semaineIso, type EspaceFiche, type Fiche } from "@/lib/fiches-conso";
 import { formaterNombre } from "@/lib/montant";
+import { excelModele, feuillesCommande, feuillesRapport, pdfModele } from "@/lib/modeles-journaliers";
 import { chargerCommandesJournalieres, chargerCommandesSemaine, chargerConsommationsReelles, chargerRapportsJournaliers } from "../fiches-data";
 
 /**
@@ -19,6 +20,10 @@ import { chargerCommandesJournalieres, chargerCommandesSemaine, chargerConsommat
  *   jour par jour (lundi → samedi, le dimanche s'il porte une commande ou une livraison), la fiche
  *   cuisine puis la fiche bar, chacune sur sa page (PDF) ou sa feuille « Lun 29 Cuisine » (Excel).
  * `domaine` (NOURRITURE / BOISSON), comme le filtre de l'écran : une seule fiche ; sinon les deux.
+ *
+ * Rapport et commande sortent sur les MODÈLES de la Direction (lib/modeles-journaliers) : l'Excel
+ * est son classeur rempli, le PDF l'imprime comme Excel. La consommation réelle, qui n'a pas de
+ * classeur, garde la mise en page générique.
  */
 
 const JOUR = /^\d{4}-\d{2}-\d{2}$/;
@@ -45,6 +50,8 @@ export async function GET(req: Request) {
 
   let titre: string, periode: string, fichier: string, pied: string;
   let fiches: Fiche[];
+  // Rapport et commande : sur le MODÈLE de la Direction (son classeur, rempli ; le PDF l'imprime).
+  let modele: (() => ReturnType<typeof feuillesRapport>) | null = null;
   if (type === "rapport" || type === "consommation") {
     const brut = sp.get("semaine");
     const choisi = brut === null ? jourKinshasaISO() : datePure(brut);
@@ -53,6 +60,7 @@ export async function GET(req: Request) {
     const lundiIso = lundi.toISOString().slice(0, 10);
     const ventes = type === "rapport";
     fiches = ventes ? await chargerRapportsJournaliers(lundi, espaces) : await chargerConsommationsReelles(lundi, espaces);
+    if (ventes) { const f = fiches; modele = () => feuillesRapport(f, lundiIso); }
     // Du lundi au samedi comme le classeur ; au dimanche quand une fiche l'a ajouté.
     const dernier = new Date(lundi); dernier.setUTCDate(dernier.getUTCDate() + (fiches.some((f) => f.colonnes.length === 7) ? 6 : 5));
     periode = `semaine ${semaineIso(lundiIso)}, du ${JJMM(lundiIso)} au ${JJMM(dernier.toISOString().slice(0, 10))}`;
@@ -73,6 +81,7 @@ export async function GET(req: Request) {
     const tous = await chargerCommandesSemaine(new Date(`${lundiIso}T00:00:00Z`), espaces);
     const jours = fichesCommandeSemaine(tous, espaces);
     fiches = jours.flatMap((j) => j.fiches);
+    modele = () => feuillesCommande(jours);
     titre = "Commande journalière";
     periode = `semaine ${semaineIso(lundiIso)}, du ${JJMM(lundiIso)} au ${JJMM(jours[jours.length - 1]!.date)}`;
     fichier = `Commande_journaliere${suffixe}_semaine_${lundiIso}`;
@@ -87,6 +96,7 @@ export async function GET(req: Request) {
     if (!date) return new Response("Date invalide (attendu : AAAA-MM-JJ).", { status: 400 });
     const r = await chargerCommandesJournalieres(date, espaces);
     fiches = r.fiches;
+    modele = () => feuillesCommande([{ date, fiches: r.fiches }]);
     titre = "Commande journalière";
     periode = `${dateLongue(date)} (semaine ${semaineIso(date)})`;
     fichier = `Commande_journaliere${suffixe}_${date}`;
@@ -95,7 +105,7 @@ export async function GET(req: Request) {
   }
 
   if (format === "excel") {
-    const buf = await classeurExcel({ titre, periode, feuilles: fiches.map(feuilleExcel) });
+    const buf = modele ? await excelModele(await modele()) : await classeurExcel({ titre, periode, feuilles: fiches.map(feuilleExcel) });
     return new Response(new Uint8Array(buf), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -104,7 +114,9 @@ export async function GET(req: Request) {
     });
   }
 
-  const pdf = await renderPdfBuffer(TableauxParPartieDocument({ titre, sousTitre: periode, parties: fiches.map(partiePdf), ...(pied ? { pied } : {}) }));
+  const pdf = modele
+    ? await pdfModele(await modele(), `${titre} — ${periode}`, pied || undefined)
+    : await renderPdfBuffer(TableauxParPartieDocument({ titre, sousTitre: periode, parties: fiches.map(partiePdf), ...(pied ? { pied } : {}) }));
   return new Response(new Uint8Array(pdf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fichier}.pdf"` },
   });
