@@ -1,22 +1,26 @@
 import "server-only";
 
-// CŒUR DES ENTRÉES / SORTIES MANUELLES — un seul chemin d'écriture pour le geste direct (Direction, ou
-// flux libre) ET pour la validation d'une demande. Hors fichier « use server » (voir reglement.ts).
+// CŒUR DES ENTRÉES / SORTIES MANUELLES — un seul chemin d'écriture pour le geste direct (tout compte
+// Stock) ET pour la validation d'une ANCIENNE demande. Hors fichier « use server » (voir reglement.ts).
 //
-// Décision de la Direction (2026-10-01) :
-//  - SORTIE « Livraison restaurant » ou « Perte » : libre pour tout compte Stock (flux du restaurant) ;
-//  - toute AUTRE sortie manuelle (sans motif : inventaire, correction, consommation…) : hors Direction,
-//    une demande à valider ;
-//  - ENTRÉE manuelle, « Retour restaurant » COMPRIS (décision de Sacha, 2026-10-01 : « Retours à
-//    valider ») : hors Direction, une demande à valider. Les vrais achats (Liste d'achat, entrée en
-//    stock d'une facture), rattachés à un fournisseur et à un montant, restent libres.
+// Décision de Sacha (2026-10-07), qui remplace celle du 2026-10-01 : « je ne veux pas que la direction
+// ait à valider les sorties de stock, je veux juste recevoir les notifications ». Toute entrée ou
+// sortie manuelle, quel que soit le motif (inventaire, correction, retour restaurant, livraison,
+// perte…), est ÉCRITE tout de suite, pour tout compte Stock, avec les mêmes contrôles qu'avant
+// (période ouverte, article existant, quantité bornée, jour civil de Kinshasa par défaut). Un compte
+// non-Direction déclenche une notification à la Direction (geste-notifie.ts). Plus aucune demande
+// MOUVEMENT_MANUEL n'est créée ; celles déjà en attente restent décidables (demandes.ts).
 
 import type { Prisma } from "@prisma/client";
 import { verrouillerStocks } from "./comptage";
 import { decSaisi } from "@/lib/nombre";
-import { notifierNouvellesAlertes } from "@/lib/alerte-stock";
+import { niveauxActuels, notifierNouvellesAlertes } from "@/lib/alerte-stock";
 import type { NiveauAlerte } from "@/lib/stock";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { prisma } from "@/lib/prisma";
+import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
+import { notifierGesteStock, type AuteurGeste } from "./geste-notifie";
+import { MESSAGE_RAISON_PERTE, exigerMotifSortie, origineDuMotif } from "@/lib/motif-sortie";
 
 type Tx = Prisma.TransactionClient;
 
@@ -27,7 +31,7 @@ export type MouvementSaisi = {
   categorieSortie: MotifSortie;
   raisonSortie: string | null;
   origine: string;
-  /** Entrée déclarée « Retour restaurant » (libellé seulement : à valider hors Direction, comme toute entrée manuelle). */
+  /** Entrée déclarée « Retour restaurant » (libellé seulement : écrite et notifiée comme toute entrée manuelle). */
   retourRestaurant: boolean;
   lignes: { articleId: string; quantite: number }[];
 };
@@ -48,11 +52,12 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   let retourRestaurant = false;
   let origine = String(formData.get("origine") ?? "").trim();
   if (type === "SORTIE") {
-    const cat = String(formData.get("categorieSortie") ?? "").trim();
-    categorieSortie = cat === "PERTE" || cat === "LIVRAISON_RESTAURANT" ? cat : null;
+    // Motif OBLIGATOIRE pour toute sortie, quel que soit le compte (décision du 2026-10-07).
+    const motif = exigerMotifSortie("SORTIE", String(formData.get("categorieSortie") ?? "").trim());
+    categorieSortie = motif;
     raisonSortie = String(formData.get("raisonSortie") ?? "").trim() || null;
-    if (categorieSortie === "PERTE" && !raisonSortie) throw new Error("Indiquez la raison de la perte.");
-    origine = origine || (categorieSortie === "PERTE" ? `Perte${raisonSortie ? ` — ${raisonSortie}` : ""}` : categorieSortie === "LIVRAISON_RESTAURANT" ? "Livraison restaurant" : "Sortie / consommation");
+    if (motif === "PERTE" && !raisonSortie) throw new Error(MESSAGE_RAISON_PERTE);
+    origine = origine || origineDuMotif(motif!, raisonSortie);
   } else {
     retourRestaurant = String(formData.get("motifEntree") ?? "") === "RETOUR_RESTAURANT";
     origine = origine || (retourRestaurant ? ORIGINE_RETOUR_RESTAURANT : "Entrée manuelle");
@@ -70,12 +75,11 @@ export function lireMouvementSaisi(formData: FormData): MouvementSaisi {
   return { type, date, categorieSortie, raisonSortie, origine, retourRestaurant, lignes };
 }
 
-/** Flux libre (aucune validation, quel que soit le compte) : SORTIE « Livraison restaurant » ou « Perte » seulement. */
-export const estMouvementLibre = (m: Pick<MouvementSaisi, "type" | "categorieSortie">) =>
-  m.type === "SORTIE" && m.categorieSortie !== null;
-
 /** Écrit les mouvements et met le stock à jour (ENTRÉE incrémente, SORTIE décrémente). */
 export async function ecrireMouvementsTx(tx: Tx, userId: string, m: MouvementSaisi) {
+  // Défense en profondeur : aucune SORTIE sans motif, d'où qu'elle vienne (geste direct ou demande).
+  exigerMotifSortie(m.type, m.categorieSortie);
+  if (m.categorieSortie === "PERTE" && !m.raisonSortie?.trim()) throw new Error(MESSAGE_RAISON_PERTE);
   // Lignes de stock verrouillées d'abord, dans un ordre fixe : pas d'interblocage avec un comptage.
   await verrouillerStocks(tx, [...new Set(m.lignes.map((l) => l.articleId))]);
   for (const l of m.lignes) {
@@ -91,4 +95,26 @@ export async function ecrireMouvementsTx(tx: Tx, userId: string, m: MouvementSai
 /** Après l'écriture (hors transaction) : articles passés sous leur seuil après une sortie. */
 export async function apresMouvements(m: Pick<MouvementSaisi, "type" | "lignes">, niveauxAvant: Map<string, NiveauAlerte>) {
   if (m.type === "SORTIE") await notifierNouvellesAlertes(m.lignes.map((l) => l.articleId), niveauxAvant);
+}
+
+/**
+ * Geste direct d'une entrée/sortie manuelle, pour TOUT compte Stock (décision du 2026-10-07) : contrôles,
+ * écriture en une transaction, puis — APRÈS, jamais bloquant — alertes de seuil et notification de la
+ * Direction (rien si l'auteur est la Direction).
+ */
+export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSaisi): Promise<void> {
+  await exigerPeriodeOuverte(m.date);
+  const ids = m.lignes.map((l) => l.articleId);
+  // Articles vérifiés DÈS LA SAISIE : un id forgé ne crée pas une ligne de stock.
+  const arts = await prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, unite: true } });
+  const parId = new Map(arts.map((a) => [a.id, a]));
+  if (ids.some((id) => !parId.has(id))) throw new Error("Article introuvable : rechargez la page.");
+  // Niveaux d'alerte AVANT la sortie, pour ne notifier que les articles qui viennent de passer bas.
+  const niveauxAvant = m.type === "SORTIE" ? await niveauxActuels(ids) : new Map<string, NiveauAlerte>();
+  await prisma.$transaction((tx) => ecrireMouvementsTx(tx, user.id, m));
+  try { await apresMouvements(m, niveauxAvant); } catch (e) { console.error("[stock] alertes après mouvement en échec :", e); }
+  await notifierGesteStock(user, {
+    genre: "MOUVEMENT", type: m.type, categorieSortie: m.categorieSortie, origine: m.origine, date: m.date,
+    lignes: m.lignes.map((l) => ({ articleId: l.articleId, designation: parId.get(l.articleId)!.designation, unite: parId.get(l.articleId)!.unite, quantite: l.quantite })),
+  });
 }

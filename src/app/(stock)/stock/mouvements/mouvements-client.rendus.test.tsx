@@ -249,6 +249,7 @@ describe("mouvements — choisir l'article d'une sortie en tapant son nom", () =
 describe("mouvements — après l'envoi, les articles des lignes sont remis à zéro avec la quantité", () => {
   it("le formulaire se vide : article (texte ET champ caché) revient à « — article — », comme le reste du formulaire", async () => {
     monter();
+    choisir(motif(), "LIVRAISON_RESTAURANT");
     await choisirArticle(0, "sel");
     await choisirArticle(1, "vin");
     await act(async () => { conteneur.querySelector("form")!.requestSubmit(); });
@@ -262,3 +263,29 @@ describe("mouvements — après l'envoi, les articles des lignes sont remis à z
   });
 });
 
+
+describe("mouvements — motif OBLIGATOIRE pour toute sortie (2026-10-07)", () => {
+  it("sortie sans motif : rien n'est envoyé, le champ est en erreur avec un message lisible ; choisir le motif lève l'erreur", async () => {
+    mouvementManuel.mockClear();
+    monter();
+    expect([...motif().options].map((o) => o.textContent)).toEqual(["— motif (obligatoire) —", "Livraison restaurant", "Perte"]);
+    await choisirArticle(0, "farine");
+    await act(async () => { conteneur.querySelector("form")!.requestSubmit(); });
+    expect(mouvementManuel).not.toHaveBeenCalled();
+    expect(motif().getAttribute("aria-invalid")).toBe("true");
+    expect(conteneur.textContent).toContain("Choisissez le motif de la sortie");
+    choisir(motif(), "LIVRAISON_RESTAURANT");
+    expect(motif().getAttribute("aria-invalid")).toBeNull();
+    await act(async () => { conteneur.querySelector("form")!.requestSubmit(); });
+    await vi.waitFor(() => expect(mouvementManuel).toHaveBeenCalledTimes(1));
+    expect((mouvementManuel.mock.calls[0]![0] as FormData).get("categorieSortie")).toBe("LIVRAISON_RESTAURANT");
+  });
+
+  it("plus aucune mention « à valider par la Direction » / « Envoyer à la Direction »", () => {
+    monter();
+    expect(conteneur.textContent).not.toMatch(/Direction/);
+    act(() => bouton("Entrée").click());
+    expect(conteneur.textContent).not.toMatch(/Direction/);
+    expect(bouton("Valider l'entrée")).toBeTruthy();
+  });
+});

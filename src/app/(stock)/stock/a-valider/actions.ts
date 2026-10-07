@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { actionLisible, messageDe } from "@/lib/action-lisible";
 import { verifySession, requireModule } from "@/lib/auth";
-import { MESSAGE_RESERVE_DIRECTION, estDirection, refuserDemande, retirerDemande, validerDemande } from "@/lib/validations-stock/demandes";
+import { MESSAGE_RESERVE_DIRECTION, estDirection, refuserDemande, retirerDemande, validerDemande, type MotifValidation } from "@/lib/validations-stock/demandes";
 
 // Décisions de la Direction sur les demandes de l'espace Stock (paiement de facture, réconciliation,
 // modification d'article). Une action serveur est un point d'entrée HTTP à part entière : elle ne
@@ -32,17 +32,20 @@ const versionDe = (versions: Record<string, string> | undefined, id: string) => 
 /**
  * Valide les demandes sélectionnées, une par une (chacune dans SA transaction : une demande périmée
  * n'empêche pas les autres d'aboutir, et elle est nommée dans le bilan). `dates` : date de paiement
- * corrigée par la Direction, par demande (facultatif). `versions` : la version de chaque demande
+ * corrigée par la Direction, par demande (facultatif). `motifs` : motif choisi pour une ancienne
+ * demande de SORTIE (obligatoire pour elle depuis le 2026-10-07). `versions` : la version de chaque demande
  * telle que l'écran l'a affichée — une demande retouchée depuis est refusée (« rechargez »).
  */
-export const validerDemandes = actionLisible(async (ids: string[], dates: Record<string, string> = {}, versions: Record<string, string> = {}): Promise<BilanDecision> => {
+export const validerDemandes = actionLisible(async (ids: string[], dates: Record<string, string> = {}, versions: Record<string, string> = {}, motifs: Record<string, MotifValidation> = {}): Promise<BilanDecision> => {
   const user = await gardeDirection();
   const bilan: BilanDecision = { traitees: [], echecs: [] };
   for (const id of uniques(ids)) {
     const version = versionDe(versions, id);
     if (!version) { bilan.echecs.push({ id, erreur: MESSAGE_SANS_VERSION }); continue; }
     try {
-      await validerDemande(user, id, { date: typeof dates?.[id] === "string" ? dates[id] : undefined, version });
+      const m = motifs?.[id];
+      const motif = m && typeof m === "object" ? { categorie: String(m.categorie ?? ""), raison: typeof m.raison === "string" ? m.raison : null } : undefined;
+      await validerDemande(user, id, { date: typeof dates?.[id] === "string" ? dates[id] : undefined, version, motif });
       bilan.traitees.push(id);
     } catch (e) {
       bilan.echecs.push({ id, erreur: messageDe(e) });

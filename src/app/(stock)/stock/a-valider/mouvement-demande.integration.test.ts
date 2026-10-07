@@ -2,11 +2,14 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 import { ecrireSaisieNombre } from "@/lib/nombre";
+import { deposerAncienneDemandeMouvement } from "@/lib/test/ancienne-demande-mouvement";
 
-// Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : entrées/sorties manuelles soumises à la
-// Direction (décisions du 2026-10-01). Seules les sorties « Livraison restaurant » et « Perte » restent
-// libres ; toute autre sortie et TOUTE entrée manuelle (retour restaurant compris) d'un compte
-// non-Direction deviennent une demande.
+// Test d'INTÉGRATION (Postgres éphémère, jamais la prod) : les demandes MOUVEMENT_MANUEL restées EN
+// ATTENTE en production. Du 2026-10-01 au 2026-10-07, une entrée/sortie manuelle hors Direction devenait
+// une demande ; depuis le 2026-10-07 (décision de Sacha), elle est écrite tout de suite et notifiée
+// (voir mouvements/gestes-notifies.integration.test.ts). Les anciennes demandes, déposées ici comme
+// l'application le faisait (lib/test/ancienne-demande-mouvement.ts), restent décidables par la
+// Direction. Une SORTIE ne s'écrit plus sans motif : la Direction le choisit en la validant.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "seed", role: "ADMIN" as string, nom: "Direction", accesStock: false } }));
 vi.mock("@/lib/prisma", () => ({
@@ -76,78 +79,35 @@ const ecrit = async (id: string) => ({
   mouvements: (await prisma.mouvementStock.findMany({ where: { articleId: id } })).map((m) => ({ type: m.type, quantite: m.quantite.toString(), origine: m.origine, date: m.date.toISOString(), categorieSortie: m.categorieSortie, raisonSortie: m.raisonSortie })),
 });
 
-describe("Flux libres : aucune validation, quel que soit le compte", () => {
+const ancienne = (o: { type: "ENTREE" | "SORTIE"; origine: string; lignes: [string, number][]; date?: string }) =>
+  deposerAncienneDemandeMouvement(prisma, { auteur: { id: U.resp.id, nom: U.resp.nom }, date: o.date ?? DATE, ...o });
+const motif = (id: string, categorie: string, raison?: string) => ({ [id]: { categorie, raison } });
+
+describe("Plus aucune demande créée : le geste du responsable est écrit tout de suite", () => {
   it.each([
-    ["livraison restaurant", { type: "SORTIE" as const, categorieSortie: "LIVRAISON_RESTAURANT" }, 7],
-    ["perte (raison)", { type: "SORTIE" as const, categorieSortie: "PERTE", raisonSortie: "Moisi" }, 7],
-  ])("%s : écrit tout de suite", async (_n, o, attendu) => {
+    ["sortie « Perte » (motif obligatoire)", { type: "SORTIE" as const, categorieSortie: "PERTE", raisonSortie: "Inventaire" }, 7],
+    ["sortie « Livraison restaurant »", { type: "SORTIE" as const, categorieSortie: "LIVRAISON_RESTAURANT" }, 7],
+    ["entrée (correction)", { type: "ENTREE" as const, origine: "Correction" }, 13],
+    ["entrée « Retour restaurant »", { type: "ENTREE" as const, motifEntree: "RETOUR_RESTAURANT" }, 13],
+  ])("%s", async (_n, o, attendu) => {
     const riz = await article("Riz");
     en("resp");
     expect(await mouvementManuel(mvt({ ...o, lignes: [[riz, 3]] }))).toMatchObject({ demande: false });
     expect(await stock(riz)).toBe(attendu);
     expect(await demandes()).toEqual([]);
+    expect(await prisma.notification.count({ where: { lien: "/stock/a-valider" } })).toBe(0);
   }, 60_000);
 });
 
-describe("Saisie contrôlée et effets après écriture (chemin libre compris)", () => {
-  it("article inconnu, quantité hors limites ou à 4 décimales, date illisible : refus lisible, rien d'écrit", async () => {
-    const riz = await article("Riz");
-    en("resp");
-    const libre = { type: "SORTIE" as const, categorieSortie: "LIVRAISON_RESTAURANT" };
-    expect(await mouvementManuel(mvt({ ...libre, lignes: [["inexistant", 1]] }))).toMatchObject({ erreur: expect.stringMatching(/Article introuvable/) });
-    expect(await mouvementManuel(mvt({ ...libre, lignes: [[riz, 1e12]] }))).toMatchObject({ erreur: expect.stringMatching(/hors limites/) });
-    expect(await mouvementManuel(mvt({ ...libre, lignes: [[riz, 1.2345]] }))).toMatchObject({ erreur: expect.stringMatching(/3 décimales au plus/) });
-    const f = mvt({ ...libre, lignes: [[riz, 1]] }); f.set("date", "2026-13-45");
-    expect(await mouvementManuel(f)).toMatchObject({ erreur: expect.stringMatching(/Date du mouvement invalide/) });
-    expect(await prisma.mouvementStock.count()).toBe(0);
-    expect(await stock(riz)).toBe(10);
-  }, 60_000);
-
-  it("une alerte qui échoue après une sortie libre ne la fait pas passer pour un échec", async () => {
-    const riz = await article("Riz", 10);
-    PUSH.casser = true;
-    try {
-      en("resp"); expect(await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 9.5]] }))).toMatchObject({ demande: false });
-    } finally { PUSH.casser = false; }
-    expect(await stock(riz)).toBe(0.5);
-  }, 60_000);
-});
-
-describe("Autre mouvement manuel du responsable : une demande, rien d'écrit", () => {
-  it.each([
-    ["sortie sans motif (inventaire, correction…)", { type: "SORTIE" as const, origine: "Inventaire" }],
-    ["entrée hors retour restaurant (correction)", { type: "ENTREE" as const, origine: "Correction" }],
-    ["entrée « Retour restaurant » (décision « Retours à valider »)", { type: "ENTREE" as const, motifEntree: "RETOUR_RESTAURANT", origine: "Retour restaurant" }],
-  ])("%s", async (_n, o) => {
-    const riz = await article("Riz");
-    en("resp");
-    expect(await mouvementManuel(mvt({ ...o, lignes: [[riz, 3]] }))).toMatchObject({ demande: true });
-    expect(await stock(riz)).toBe(10);
-    expect(await prisma.mouvementStock.count()).toBe(0);
-    const [d] = await demandes();
-    expect(d).toMatchObject({ nature: "MOUVEMENT_MANUEL", statut: "EN_ATTENTE" });
-    expect(d.cibles.map((c) => c.cle)).toEqual([`MOUVEMENT:${riz}`]);
-    expect(d.resume).toBe(`${o.type === "ENTREE" ? "Entrée" : "Sortie"} manuelle « ${o.origine} » : Riz 3 Kg`);
-    expect(await prisma.notification.count({ where: { refId: d.id, lien: "/stock/a-valider" } })).toBe(1);
-  }, 60_000);
-
-  it("double envoi sur le même article : refusé (pas deux sorties validées pour une)", async () => {
-    const riz = await article("Riz");
-    en("resp");
-    await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
-    expect(await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }))).toMatchObject({ erreur: expect.stringMatching(/« Riz ».*déjà en attente/) });
-    expect(await demandes()).toHaveLength(1);
-  }, 60_000);
-});
-
-describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
-  it.each([["SORTIE" as const, "Inventaire"], ["ENTREE" as const, "Correction"]])("%s « %s » : même stock, même mouvement (date, origine, motif)", async (type, origine) => {
+describe("Anciennes demandes en attente : toujours décidables", () => {
+  it.each([["SORTIE" as const, "Sortie / consommation"], ["ENTREE" as const, "Correction"]])("%s « %s » validée = EXACTEMENT le geste direct (stock, date, origine, motif)", async (type, origine) => {
     const direct = await article("Riz A", 10);
     const demande = await article("Riz B", 10);
-    en("dir"); await mouvementManuel(mvt({ type, origine, lignes: [[direct, 2.5]] }));
-    en("resp"); await mouvementManuel(mvt({ type, origine, lignes: [[demande, 2.5]] }));
-    const [d] = await demandes();
-    en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toEqual({ traitees: [d.id], echecs: [] });
+    en("dir");
+    const directe = type === "SORTIE" ? { type, categorieSortie: "PERTE", raisonSortie: "Inventaire" } : { type, origine };
+    await mouvementManuel(mvt({ ...directe, lignes: [[direct, 2.5]] }));
+    const d = await ancienne({ type, origine, lignes: [[demande, 2.5]] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]), type === "SORTIE" ? motif(d.id, "PERTE", "Inventaire") : {})).toEqual({ traitees: [d.id], echecs: [] });
     expect(await ecrit(demande)).toEqual(await ecrit(direct));
     expect(await stock(demande)).toBe(type === "SORTIE" ? 7.5 : 12.5);
     const m = await prisma.mouvementStock.findFirstOrThrow({ where: { articleId: demande } });
@@ -155,22 +115,37 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     const relue = await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id }, include: { cibles: true } });
     expect(relue).toMatchObject({ statut: "VALIDEE", decideurId: U.dir.id });
     expect(relue.cibles).toEqual([]);
+    expect(await prisma.notification.count({ where: { refId: d.id } })).toBe(0); // la cloche « À valider » est retirée
     expect(await prisma.notification.count({ where: { refId: `decision:${d.id}` } })).toBe(1);
+  }, 60_000);
+
+  it("ancienne SORTIE sans motif : la valider exige un motif (rien d'écrit sans lui), « Perte » exige sa raison", async () => {
+    const riz = await article("Riz", 10);
+    const d = await ancienne({ type: "SORTIE", origine: "Sortie / consommation", lignes: [[riz, 3]] });
+    en("dir");
+    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/Choisissez le motif de cette sortie/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]), motif(d.id, ""))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/Choisissez le motif/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]), motif(d.id, "PERTE", "  "))).toMatchObject({ echecs: [{ erreur: "Indiquez la raison de la perte." }] });
+    expect(await stock(riz)).toBe(10);
+    expect(await prisma.mouvementStock.count()).toBe(0);
+    expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
+    expect(await validerDemandes([d.id], {}, await v([d.id]), motif(d.id, "LIVRAISON_RESTAURANT"))).toEqual({ traitees: [d.id], echecs: [] });
+    const m = await prisma.mouvementStock.findFirstOrThrow({ where: { articleId: riz } });
+    expect([m.type, m.categorieSortie, m.raisonSortie, m.origine]).toEqual(["SORTIE", "LIVRAISON_RESTAURANT", null, "Livraison restaurant"]);
+    expect(await stock(riz)).toBe(7);
   }, 60_000);
 
   it("le stock a bougé entre-temps : la quantité saisie s'applique telle quelle (un mouvement, pas un stock final)", async () => {
     const riz = await article("Riz", 10);
-    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
-    const [d] = await demandes();
-    await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 2]] })); // 8
-    en("dir"); await validerDemandes([d.id], {}, await v([d.id]));
+    const d = await ancienne({ type: "SORTIE", origine: "Sortie / consommation", lignes: [[riz, 3]] });
+    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", categorieSortie: "LIVRAISON_RESTAURANT", lignes: [[riz, 2]] })); // 8
+    en("dir"); await validerDemandes([d.id], {}, await v([d.id]), motif(d.id, "LIVRAISON_RESTAURANT"));
     expect(await stock(riz)).toBe(5);
   }, 60_000);
 
   it("refus : rien n'est écrit, la cible est libérée, le demandeur est notifié", async () => {
     const riz = await article("Riz");
-    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
-    const [d] = await demandes();
+    const d = await ancienne({ type: "SORTIE", origine: "Sortie / consommation", lignes: [[riz, 3]] });
     en("dir"); expect(await refuserDemandes([d.id], "Faites un comptage", await v([d.id]))).toMatchObject({ traitees: [d.id] });
     expect(await stock(riz)).toBe(10);
     expect(await prisma.mouvementStock.count()).toBe(0);
@@ -178,19 +153,18 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
     expect((await prisma.notification.findFirstOrThrow({ where: { refId: `decision:${d.id}` } })).message).toMatch(/refusée.*Faites un comptage/);
   }, 60_000);
 
-  it("droits : le responsable ne valide pas ; un salarié avec accès Stock est traité comme lui", async () => {
+  it("droits : le responsable ne valide pas ; un salarié avec accès Stock non plus", async () => {
     const riz = await article("Riz");
+    const d = await ancienne({ type: "ENTREE", origine: "Correction", lignes: [[riz, 3]] });
     A.user = { id: U.resp.id, role: "EMPLOYE", nom: "Jean", accesStock: true };
-    expect(await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }))).toMatchObject({ demande: true });
-    const [d] = await demandes();
     expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     en("resp"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ erreur: "Réservé à la Direction." });
     expect(await stock(riz)).toBe(10);
   }, 60_000);
 
-  it("D1 — la Direction ne compte pas en direct un article dont une sortie manuelle attend sa décision", async () => {
+  it("D1 — la Direction ne compte pas en direct un article dont une ancienne sortie manuelle attend sa décision", async () => {
     const riz = await article("Riz", 10);
-    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
+    await ancienne({ type: "SORTIE", origine: "Sortie / consommation", lignes: [[riz, 3]] });
     en("dir");
     const f = new FormData(); f.append("recon_articleId", riz); f.append("recon_physique", "7"); f.append("recon_explication", "sortie non saisie"); f.set("origine", "Comptage");
     expect(await appliquerComptage(f)).toMatchObject({ erreur: expect.stringMatching(/« Riz » fait partie d'un mouvement manuel en attente/) });
@@ -199,13 +173,11 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
 
   it("D1 — un comptage/ajustement intervenu depuis la demande : la sortie n'est pas retranchée une 2e fois (jamais 4 au lieu de 7)", async () => {
     const riz = await article("Riz", 10);
-    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3]] }));
-    const [d] = await demandes();
-    // Comptage appliqué par un autre chemin (import d'inventaire…) : stock 7, ajustement tracé.
+    const d = await ancienne({ type: "SORTIE", origine: "Sortie / consommation", lignes: [[riz, 3]] });
     await prisma.mouvementStock.create({ data: { articleId: riz, type: "AJUSTEMENT", quantite: 3, origine: "Inventaire importé" } });
     await prisma.stock.update({ where: { articleId: riz }, data: { quantite: 7 } });
     en("dir");
-    expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/comptage ou ajustement a eu lieu depuis la demande sur « Riz »/) }] });
+    expect(await validerDemandes([d.id], {}, await v([d.id]), motif(d.id, "LIVRAISON_RESTAURANT"))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/comptage ou ajustement a eu lieu depuis la demande sur « Riz »/) }] });
     expect(await stock(riz)).toBe(7);
     expect((await prisma.demandeValidationStock.findUniqueOrThrow({ where: { id: d.id } })).statut).toBe("EN_ATTENTE");
   }, 60_000);
@@ -213,8 +185,7 @@ describe("Validation = EXACTEMENT le geste direct de la Direction", () => {
   it("article supprimé entre la demande et la validation : conflit, rien d'écrit", async () => {
     const riz = await article("Riz");
     const sel = await article("Sel");
-    en("resp"); await mouvementManuel(mvt({ type: "SORTIE", origine: "Inventaire", lignes: [[riz, 3], [sel, 1]] }));
-    const [d] = await demandes();
+    const d = await ancienne({ type: "ENTREE", origine: "Correction", lignes: [[riz, 3], [sel, 1]] });
     await prisma.stock.deleteMany({ where: { articleId: sel } });
     await prisma.articleStock.delete({ where: { id: sel } });
     en("dir"); expect(await validerDemandes([d.id], {}, await v([d.id]))).toMatchObject({ echecs: [{ erreur: expect.stringMatching(/« Sel » n'existe/) }] });

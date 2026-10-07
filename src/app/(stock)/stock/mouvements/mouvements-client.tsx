@@ -13,6 +13,7 @@ import { ChampNombre } from "@/components/champ-nombre";
 import { optionsArticles } from "@/lib/recherche-options";
 import { BORNE_TOUT_LE_FILTRE, type ColonneMouvements as Colonne, type FiltreMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { MESSAGE_MOTIF_SORTIE } from "@/lib/motif-sortie";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
@@ -278,15 +279,23 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [motifEntree, setMotifEntree] = useState<"RETOUR_RESTAURANT" | "">("");
-  // Hors Direction, toute entrée manuelle (retour restaurant compris) et toute sortie hors livraison
-  // restaurant et perte sont des DEMANDES (décision de la Direction du 2026-10-01).
-  const soumis = !estDirection && (type === "SORTIE" ? motif === "" : true);
+  // Depuis le 2026-10-07 (décision de Sacha), toute entrée/sortie manuelle est écrite tout de suite,
+  // quel que soit le compte : la Direction en est notifiée, elle ne la valide plus.
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMsg(null); setChoix({}); setCle((c) => c + 1); };
+  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMotifManquant(false); setMsg(null); setChoix({}); setCle((c) => c + 1); };
 
+  // Motif OBLIGATOIRE pour toute sortie (décision du 2026-10-07), pour tous les comptes : refus à
+  // l'écran (champ en erreur, rien d'envoyé) ET côté serveur.
+  const [motifManquant, setMotifManquant] = useState(false);
   const submit = (fd: FormData) => {
     setMsg(null);
+    if (type === "SORTIE" && !String(fd.get("categorieSortie") ?? "")) {
+      setMotifManquant(true);
+      setMsg({ ok: false, texte: MESSAGE_MOTIF_SORTIE });
+      return;
+    }
+    setMotifManquant(false);
     setChoix({}); // le formulaire se vide après l'envoi : l'avertissement suit les listes
     startTransition(async () => {
       const r = await mouvementManuel(fd);
@@ -303,23 +312,27 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex overflow-hidden rounded-md border text-sm">
-          <button type="button" onClick={() => setType("ENTREE")} className={`px-3 py-1.5 ${type === "ENTREE" ? "bg-success text-success-foreground" : "hover:bg-accent"}`}>Entrée</button>
+          <button type="button" onClick={() => { setType("ENTREE"); setMotifManquant(false); }} className={`px-3 py-1.5 ${type === "ENTREE" ? "bg-success text-success-foreground" : "hover:bg-accent"}`}>Entrée</button>
           <button type="button" onClick={() => setType("SORTIE")} className={`px-3 py-1.5 ${type === "SORTIE" ? "bg-destructive text-destructive-foreground" : "hover:bg-accent"}`}>Sortie</button>
         </div>
         <input type="hidden" name="type" value={type} />
         {type === "ENTREE" && <span className="text-xs text-muted-foreground">Entrées hors achat (ex. retour restaurant → dépôt). Les achats passent par la Liste d&apos;achat ou une facture.</span>}
         <label className="flex items-center gap-1 text-xs text-muted-foreground">Date<input name="date" type="date" defaultValue={jourCourantKinshasaISO()} className={inp} /></label>
         {type === "SORTIE" ? (
-          <select name="categorieSortie" value={motif} onChange={(e) => setMotif(e.target.value as typeof motif)} className={inp}>
-            <option value="">Autre sortie (inventaire, correction…)</option>
-            <option value="PERTE">Perte</option>
-            <option value="LIVRAISON_RESTAURANT">Livraison restaurant</option>
-          </select>
+          <label className="flex items-center gap-1 text-xs text-muted-foreground">Motif
+            <select name="categorieSortie" value={motif} aria-required aria-invalid={motifManquant || undefined} aria-label="Motif de la sortie (obligatoire)"
+              onChange={(e) => { setMotif(e.target.value as typeof motif); if (e.target.value) { setMotifManquant(false); setMsg(null); } }}
+              className={`${inp} ${motifManquant ? "border-destructive ring-1 ring-destructive" : ""}`}>
+              <option value="">— motif (obligatoire) —</option>
+              <option value="LIVRAISON_RESTAURANT">Livraison restaurant</option>
+              <option value="PERTE">Perte</option>
+            </select>
+          </label>
         ) : (
           <>
             <select name="motifEntree" value={motifEntree} onChange={(e) => setMotifEntree(e.target.value as typeof motifEntree)} className={inp} aria-label="Nature de l'entrée">
-              <option value="">Autre entrée (correction, don…){estDirection ? "" : " — à valider par la Direction"}</option>
-              <option value="RETOUR_RESTAURANT">Retour restaurant{estDirection ? "" : " — à valider par la Direction"}</option>
+              <option value="">Autre entrée (correction, don…)</option>
+              <option value="RETOUR_RESTAURANT">Retour restaurant</option>
             </select>
             <input name="origine" placeholder="Motif (achat direct, don…)" className={`${inp} min-w-56 flex-1`} />
           </>
@@ -328,12 +341,6 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
           <input name="raisonSortie" placeholder="Raison de la perte (obligatoire)" required className={`${inp} min-w-56 flex-1`} />
         )}
       </div>
-
-      {soumis && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          {type === "SORTIE" ? "Une sortie hors « Livraison restaurant » et « Perte »" : "Une entrée manuelle (retour restaurant compris)"} est à valider par la Direction : le stock ne bouge qu&apos;après sa validation. Les achats passent par la Liste d&apos;achat ou une facture.
-        </p>
-      )}
 
       {type === "SORTIE" && motif === "LIVRAISON_RESTAURANT" && (
         <AvertissementLivraison ids={Object.values(choix).filter(Boolean)} articles={articles} conseils={conseilsLivraison} />
@@ -347,7 +354,7 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
       ))}
       <div className="flex items-center gap-3 pt-1">
         <button type="button" onClick={() => setNb((n) => n + 1)} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
-        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : soumis ? "Envoyer à la Direction" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
+        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Fermer</button>
       </div>
