@@ -11,6 +11,7 @@ import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { cleAlnum } from "@/lib/texte";
 import { lireDateAchat, ORIGINE_LISTE_ACHAT } from "@/lib/achats-liste";
 import { avertissementsListeAchat, type LigneAVerifier } from "@/lib/achats-liste-serveur";
+import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 
 /**
  * Résultat d'une Liste d'achat enregistrée : nouveaux articles créés au catalogue, nouveaux
@@ -209,6 +210,9 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   if (crees.length > 0 && user.role !== "ADMIN") {
     await prisma.notification.create({ data: { domaine: "STOCK", type: "AUTRE", message: `${crees.length > 1 ? `${crees.length} nouveaux articles créés` : "Nouvel article créé"} par ${user.nom} (Liste d'achat) : ${crees.map((d) => `« ${d} »`).join(", ")}`.slice(0, 480), lien: "/stock/catalogue", refId: "article-cree:liste-achat" } });
   }
+  // Un achat d'un compte non-Direction est NOTIFIÉ à la Direction (décision du 2026-10-07) : une
+  // notification pour toute la liste, après l'écriture, jamais bloquante.
+  await notifierGesteStock(user, { genre: "ACHAT", nbLignes: lignes.length, montants: lignes.map((l) => ({ devise: l.devise, montant: l.montant })) });
   revalidatePath("/stock/entree");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/fournisseurs", "layout");
