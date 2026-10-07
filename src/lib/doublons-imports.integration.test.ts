@@ -346,19 +346,24 @@ describe("Motif des sorties importées — « Livraison restaurant » par défau
     expect(await motifs(a)).toEqual(["ENTREE:—", "SORTIE:LIVRAISON_RESTAURANT"]);
   }, 60_000);
 
-  it("import de mouvements, case décochée : les sorties n'ont pas de motif", async () => {
+  it("import de mouvements, « sans motif » demandé (ancien écran) : refus, rien d'importé — motif obligatoire (2026-10-07)", async () => {
     const a = await article("Crème motif", 10);
-    await appliquerMouvements(ENTETE + "24/09/2026,,Crème motif,0,2", "M sans motif", "2026-09-24", userId, undefined, { sortiesLivraisonRestaurant: false });
-    expect(await motifs(a)).toEqual(["SORTIE:—"]);
+    await expect(appliquerMouvements(ENTETE + "24/09/2026,,Crème motif,0,2", "M sans motif", "2026-09-24", userId, undefined, { sortiesLivraisonRestaurant: false })).rejects.toThrow(/motif est obligatoire/);
+    expect(await motifs(a)).toEqual([]);
+    expect(await prisma.importBatch.count({ where: { libelle: "M sans motif" } })).toBe(0);
+    // Un fichier sans aucune sortie s'importe toujours (une entrée n'a pas de motif de sortie).
+    await appliquerMouvements(ENTETE + "24/09/2026,,Crème motif,2,0", "M entrées", "2026-09-24", userId, undefined, { sortiesLivraisonRestaurant: false });
+    expect(await motifs(a)).toEqual(["ENTREE:—"]);
   }, 60_000);
 
-  it("import d'inventaire : par défaut livraisons ; case décochée, sans motif", async () => {
+  it("import d'inventaire : sorties = livraisons ; « sans motif » demandé : refus, rien d'importé", async () => {
     const a = await article("Basilic motif", 0, "801");
     const b = await article("Persil motif", 0, "802");
     await appliquerInventaire(await classeur([{ code: "801", nom: "Basilic motif", sinit: 5 }], [{ date: "2026-09-25", code: "801", e: 1, s: 2 }]), "Inv motif", userId);
     expect(await motifs(a)).toEqual(["ENTREE:—", "SORTIE:LIVRAISON_RESTAURANT"]);
-    await appliquerInventaire(await classeur([{ code: "802", nom: "Persil motif", sinit: 5 }], [{ date: "2026-09-25", code: "802", e: 0, s: 2 }]), "Inv sans motif", userId, { sortiesLivraisonRestaurant: false });
-    expect(await motifs(b)).toEqual(["SORTIE:—"]);
+    await expect(appliquerInventaire(await classeur([{ code: "802", nom: "Persil motif", sinit: 5 }], [{ date: "2026-09-25", code: "802", e: 0, s: 2 }]), "Inv sans motif", userId, { sortiesLivraisonRestaurant: false })).rejects.toThrow(/motif est obligatoire/);
+    expect(await motifs(b)).toEqual([]);
+    expect(Number((await prisma.stock.findUniqueOrThrow({ where: { articleId: b } })).quantite)).toBe(0); // stock final non posé : tout est annulé
   }, 60_000);
 
   it("les sorties déjà en base ne sont pas requalifiées (ni par un réimport, ni ailleurs)", async () => {
