@@ -17,7 +17,7 @@ import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 import {
-  aEnregistrer, avecArticle, avecChangement, avecDevise, construireFormData, indexFournisseurs, quatreVides, vide, vierge,
+  aEnregistrer, avecArticle, avecChangement, avecDevise, construireFormData, indexFournisseurs, quatreVides, sansArticleDisparu, vide, vierge,
   type Art, type Brouillon, type Devise, type Fourn, type Ligne,
 } from "@/lib/liste-achat-saisie";
 
@@ -56,12 +56,15 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   const [lignes, setLignes] = useState<Ligne[]>(() => quatreVides("USD"));
   // Date de l'achat : aujourd'hui (Kinshasa) par défaut ; jamais dans le futur (contrôlé au serveur).
   const [date, setDate] = useState(aujourdhui);
+  // La date n'entre dans le brouillon que si la personne l'a CHANGÉE : « aujourd'hui » d'hier ne doit pas être reprise un autre jour.
+  const [dateChangee, setDateChangee] = useState(false);
+  const choisirDate = (d: string) => { setDate(d); setDateChangee(true); };
   const [origine, setOrigine] = useState("");
   // Avertissements de la saisie, rattachés à l'état vérifié : périmés dès que la saisie change.
   const [verif, setVerif] = useState<{ cle: string; liste: string[] }>({ cle: "", liste: [] });
   const [avertissementsEnregistres, setAvertissementsEnregistres] = useState<string[]>([]); // du dernier enregistrement
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setMsg(null); deviseDefautRef.current = "USD"; setDeviseDefaut("USD"); setLignes(quatreVides("USD")); setDate(aujourdhui); setOrigine(""); setAvertissementsEnregistres([]); setCle((c) => c + 1); };
+  const reinitialiser = () => { setMsg(null); deviseDefautRef.current = "USD"; setDeviseDefaut("USD"); setLignes(quatreVides("USD")); setDate(aujourdhui); setDateChangee(false); setOrigine(""); setAvertissementsEnregistres([]); setCle((c) => c + 1); };
 
   // Nom tapé → fournisseur connu (même clé que le serveur : casse et accents ignorés).
   const fournParCle = useMemo(() => indexFournisseurs(fournisseurs), [fournisseurs]);
@@ -112,15 +115,17 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
 
   // Brouillon local (téléphone) : repris tel quel si la liste est encore vide, sinon AJOUTÉ à ce qui est déjà saisi.
   const reprendreBrouillon = useCallback((b: Brouillon) => {
-    setLignes((ls) => (ls.every(vierge) ? b.lignes : [...ls.filter((l) => !vierge(l)), ...b.lignes]));
+    // Un article disparu du catalogue depuis devient une ligne libre (la désignation est gardée).
+    const reprises = b.lignes.map((l) => sansArticleDisparu(l, (id) => articles.some((a) => a.id === id)));
+    setLignes((ls) => (ls.every(vierge) ? reprises : [...ls.filter((l) => !vierge(l)), ...reprises]));
     if (lignes.every(vierge)) {
-      if (b.date && b.date <= aujourdhui) setDate(b.date);
+      if (b.date && b.date <= aujourdhui) { setDate(b.date); setDateChangee(true); }
       setOrigine(b.origine);
       deviseDefautRef.current = b.deviseDefaut;
       setDeviseDefaut(b.deviseDefaut);
     }
-  }, [lignes, aujourdhui]);
-  const brouillon = useBrouillonListe({ compteId, lignes, date, origine, deviseDefaut, appliquer: reprendreBrouillon });
+  }, [lignes, aujourdhui, articles]);
+  const brouillon = useBrouillonListe({ compteId, lignes, date: dateChangee ? date : "", origine, deviseDefaut, appliquer: reprendreBrouillon });
 
   // Total : en USD, au taux qu'appliquera l'enregistrement (Config, le même que `taux`), sur les lignes
   // qui seront enregistrées (article ou désignation, quantité > 0, montant > 0). Les francs saisis se
@@ -142,6 +147,9 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   const submit = () => {
     setMsg(null);
     setAvertissementsEnregistres([]);
+    // Validation maison (le formulaire n'a pas de contrôle natif : un champ masqué par la mise en page bloquerait l'envoi en silence).
+    if (!date) { setMsg({ ok: false, texte: "Choisissez la date de l'achat." }); return; }
+    if (date > aujourdhui) { setMsg({ ok: false, texte: "La date de l'achat ne peut pas être dans le futur." }); return; }
     const fd = construireFormData({ date, origine, lignes, idFourn });
     startTransition(async () => {
       const r = await entreeListeAchat(fd);
@@ -150,6 +158,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         ok: true,
         texte: `Entrées enregistrées : le stock a été mis à jour.${r.crees.length ? ` ${r.crees.length} nouvel(aux) article(s) créé(s) au catalogue : ${r.crees.join(", ")}.` : ""}${r.fournisseursCrees.length ? ` Nouveau(x) fournisseur(s) créé(s) : ${r.fournisseursCrees.join(", ")}.` : ""}`,
       });
+      brouillon.apresEnregistrement(); // le brouillon n'a plus lieu d'être, même si son bandeau est encore ouvert
       setLignes(quatreVides(deviseDefautRef.current));
       setOrigine("");
       setCle((c) => c + 1);
@@ -160,7 +169,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
 
   return (
     // Entrée n'envoie jamais l'entrée en stock : seul un clic sur « Valider » l'enregistre.
-    <form key={cle} action={submit} onKeyDown={empecherEnvoiParEntree}>
+    <form key={cle} noValidate action={submit} onKeyDown={empecherEnvoiParEntree}>
       {/* Le conteneur : la liste suit SA largeur (≥ 56 rem : tableur ; en dessous : vue téléphone). */}
       <div className="@container space-y-3">
       {msg && (
@@ -171,7 +180,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
 
       <VueTelephone
         lignes={lignes} setLignes={setLignes} articles={articles} optionsArt={optionsArt} fournisseurs={fournisseurs} idFourn={idFourn}
-        taux={taux} aujourdhui={aujourdhui} date={date} setDate={setDate} origine={origine} setOrigine={setOrigine}
+        taux={taux} aujourdhui={aujourdhui} date={date} setDate={choisirDate} origine={origine} setOrigine={setOrigine}
         deviseDefaut={deviseDefaut} changerDeviseDefaut={changerDeviseDefaut}
         stats={{ nb: lignes.filter(aEnregistrer).length, saisiUSD, saisiFC, aFrancs, fcEnUSD, totalUSD }}
         enCours={isPending} brouillon={brouillon}
@@ -181,7 +190,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
       <div className="flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Date de l&apos;achat</span>
-          <input type="date" name="date" value={date} max={aujourdhui} required onChange={(e) => setDate(e.target.value)} className={inp} />
+          <input type="date" name="date" value={date} max={aujourdhui} onChange={(e) => choisirDate(e.target.value)} className={inp} />
         </label>
         {/* Largeur plancher (hors téléphone) : sinon la devise par défaut et le taux l'écrasent à 1280 px. */}
         <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm sm:min-w-[16rem]">

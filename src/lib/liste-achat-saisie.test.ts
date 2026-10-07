@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   avecArticle, avecChangement, avecDevise, construireFormData, erreursDe, fournisseursProches, indexFournisseurs, jourCourt, lireBrouillon, produit,
-  serialiserBrouillon, vide, vierge, aEnregistrer, type Art, type Ligne,
+  serialiserBrouillon, vide, vierge, aEnregistrer, lignesAConfirmer, montantNonConverti, phraseDevise, sansArticleDisparu, type Art, type Ligne,
 } from "./liste-achat-saisie";
 
 const HUILE: Art = { id: "a2", designation: "Huile de palme", unite: "pièce", domaine: "NOURRITURE", prix: "1.70" };
@@ -95,5 +95,29 @@ describe("jourCourt", () => {
     expect(jourCourt("2026-10-07")).toBe("7 oct. 2026");
     expect(jourCourt("2026-01-01")).toBe("1 janv. 2026");
     expect(jourCourt("n'importe quoi")).toBe("n'importe quoi");
+  });
+});
+
+describe("changement de devise : quels montants ne sont pas convertis", () => {
+  const catalogue = avecChangement(avecArticle(vide("USD"), HUILE, 2800), { qte: "2" });
+  it("montant automatique d'un PU du catalogue : converti, rien à confirmer ; montant tapé ou PU tapé : à confirmer", () => {
+    expect(montantNonConverti(catalogue, 2800)).toBe(false);
+    expect(montantNonConverti(avecChangement(catalogue, { montant: "9" }), 2800)).toBe(true);
+    expect(montantNonConverti(avecChangement({ ...vide("USD"), qte: "2" }, { pu: "3" }), 2800)).toBe(true);
+    expect(montantNonConverti(catalogue, 0)).toBe(true); // sans taux, rien n'est converti
+    expect(montantNonConverti(vide("USD"), 2800)).toBe(false); // pas de montant : rien à perdre
+  });
+  it("ne vise que les lignes qui changent réellement de devise, et se dit en clair", () => {
+    const tapee = avecChangement(catalogue, { montant: "28" });
+    expect(lignesAConfirmer([catalogue, tapee, { ...tapee, devise: "CDF" }], "CDF", 2800)).toEqual([tapee]);
+    expect(phraseDevise(tapee, "CDF")).toBe("28,00 $ deviendra 28 FC");
+  });
+});
+
+describe("brouillon repris : article disparu", () => {
+  it("devient une ligne libre, désignation gardée ; un article connu reste", () => {
+    const l = { ...vide("USD"), articleId: "zz", designation: "Vieux", puCatalogue: "1.5" };
+    expect(sansArticleDisparu(l, () => false)).toMatchObject({ articleId: "", designation: "Vieux", puCatalogue: null });
+    expect(sansArticleDisparu(l, () => true)).toBe(l);
   });
 });

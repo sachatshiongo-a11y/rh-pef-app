@@ -195,6 +195,10 @@ describe("Liste d'achat — téléphone : ajouter par le panneau", () => {
     expect(panneau()!.querySelector<HTMLInputElement>('[aria-label="Montant total FC"]')!.value).toBe("9520");
     taper(panneau()!.querySelector<HTMLInputElement>('[aria-label="Montant total FC"]')!, "9000");
     cliquer(texteBouton(panneau()!, "Dollars ($)"));
+    // Le montant tapé ne serait pas converti : le panneau demande confirmation avant de changer la devise.
+    expect(norm(panneau()!.querySelector("[data-confirmer-devise]")!.textContent)).toContain("9 000 FC deviendra 9 000,00 $");
+    expect(panneau()!.querySelector('[aria-label="Montant total FC"]')).not.toBeNull();
+    cliquer(texteBouton(panneau()!, "Changer la devise"));
     expect(panneau()!.querySelector<HTMLInputElement>('[aria-label="Montant total USD"]')!.value).toBe("9000"); // le ticket reste le ticket
   });
 
@@ -349,14 +353,32 @@ describe("Liste d'achat — téléphone : modifier, retirer, actions groupées",
     expect(resume(cartes()[2])).toBe("Sel gris 1 Kg · 28 000 FC");
   });
 
-  it("actions groupées : « Passer en FC » sur deux cartes cochées — chacune garde ses nombres, sa devise change", () => {
+  it("actions groupées : « Passer en FC » — un montant TAPÉ n'est pas converti : confirmation qui nomme chaque ligne ; seul le PU du catalogue l'est", () => {
     act(() => cartes()[0].querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
     act(() => cartes()[1].querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
     cliquer(texteBouton(tel(), "Passer en FC"));
+    const c = tel().querySelector("[data-confirmer-devise]")!;
+    expect(norm(c.textContent)).toContain("1 montant saisi n'est pas converti");
+    expect(norm(c.textContent)).toContain("Farine T55 : 30,00 $ deviendra 30 FC");
+    expect(norm(c.textContent)).not.toContain("Huile");
+    expect(resume(cartes()[0])).toBe("Farine T55 2 Kg · 30,00 $"); // rien n'a bougé
+    cliquer(texteBouton(c, "Garder la devise"));
+    expect(tel().querySelector("[data-confirmer-devise]")).toBeNull();
+    expect(resume(cartes()[0])).toBe("Farine T55 2 Kg · 30,00 $");
+    cliquer(texteBouton(tel(), "Passer en FC"));
+    cliquer(texteBouton(tel().querySelector("[data-confirmer-devise]")!, "Changer la devise"));
     expect(resume(cartes()[0])).toBe("Farine T55 2 Kg · 30 FC");
     expect(resume(cartes()[1])).toBe("Huile de palme 3 pièce × 4 760 FC = 14 280 FC"); // PU du catalogue converti au taux
-    cliquer(texteBouton(tel(), "Passer en USD"));
+    cliquer(texteBouton(tel(), "Passer en USD")); // le montant tapé de la farine est celui du ticket : confirmation à nouveau
+    cliquer(texteBouton(tel().querySelector("[data-confirmer-devise]")!, "Changer la devise"));
     expect(resume(cartes()[0])).toBe("Farine T55 2 Kg · 30,00 $");
+  });
+
+  it("actions groupées sans montant tapé (PU du catalogue seul) : appliquée tout de suite, sans confirmation", () => {
+    act(() => cartes()[1].querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    cliquer(texteBouton(tel(), "Passer en FC"));
+    expect(tel().querySelector("[data-confirmer-devise]")).toBeNull();
+    expect(resume(cartes()[1])).toBe("Huile de palme 3 pièce × 4 760 FC = 14 280 FC");
   });
 
   it("la barre de total : nombre d'articles, dollars et francs À PART, équivalent au taux", () => {
@@ -449,7 +471,7 @@ describe("Liste d'achat — brouillon local", () => {
     expect(b.v).toBe(1);
     expect(b.lignes).toHaveLength(1);
     expect(b.lignes[0]).toMatchObject({ articleId: "a0", qte: "2", montant: "30", devise: "USD" });
-    expect(b.date).toBe("2026-09-30");
+    expect(b.date).toBe(""); // la date n'est gardée que si on l'a changée
     expect(window.localStorage.getItem(cleBrouillon("autre"))).toBeNull();
   });
 
@@ -536,5 +558,111 @@ describe("Liste d'achat — brouillon local", () => {
     await ajouter({ article: "a0", qte: "2" });
     expect(tel().querySelector("[data-brouillon]")).toBeNull();
     expect(window.localStorage.getItem(CLE)).toBe(brouillon());
+  });
+});
+
+describe("Liste d'achat — suites de relecture", () => {
+  const brouillon = (lignes: Partial<Ligne>[], date = "2026-09-29") =>
+    serialiserBrouillon({ jour: "2026-09-29", date, origine: "", deviseDefaut: "USD", lignes: lignes.map((l) => ({ ...vide("USD"), ...l })) });
+  const remonter = () => { act(() => racine.unmount()); racine = createRoot(conteneur); monter(); };
+  const L1 = { articleId: "a0", designation: "Farine T55", unite: "Kg", qte: "2" };
+
+  it("B — la date n'est reprise que si elle avait été changée ; sinon on garde aujourd'hui", () => {
+    window.localStorage.setItem(CLE, brouillon([L1], ""));
+    remonter();
+    expect(tel().querySelector("[data-brouillon]")!.textContent).not.toContain("date de l'achat");
+    cliquer(texteBouton(tel(), "Reprendre"));
+    expect(tel().querySelector("[data-date-resume]")!.textContent).toContain("Aujourd'hui · 30 sept. 2026");
+  });
+
+  it("B — une date reprise est montrée dans le bandeau puis, bien visible, sur la ligne de résumé", () => {
+    window.localStorage.setItem(CLE, brouillon([L1]));
+    remonter();
+    expect(tel().querySelector("[data-brouillon]")!.textContent).toContain("date de l'achat : 29 sept. 2026");
+    cliquer(texteBouton(tel(), "Reprendre"));
+    const r = tel().querySelector("[data-date-resume]")!;
+    expect(r.textContent).toContain("29 sept. 2026");
+    expect(r.textContent).toContain("pas aujourd'hui");
+  });
+
+  it("B — une date changée à la main est gardée dans le brouillon", async () => {
+    cliquer(tel().querySelector<HTMLElement>("button[aria-expanded]")!);
+    taper(tel().querySelector<HTMLInputElement>("#tel-date")!, "2026-09-28");
+    await ajouter({ article: "a0", qte: "1" });
+    expect(JSON.parse(window.localStorage.getItem(CLE)!).date).toBe("2026-09-28");
+  });
+
+  it("1 — un article absent du catalogue devient une ligne libre (désignation gardée)", async () => {
+    window.localStorage.setItem(CLE, brouillon([{ articleId: "disparu", designation: "Vieil article", unite: "kg", qte: "3" }]));
+    remonter();
+    cliquer(texteBouton(tel(), "Reprendre"));
+    expect(cartes()[0].textContent).toContain("Vieil article");
+    cliquer(texteBouton(tel(), "Enregistrer la liste"));
+    await act(async () => {});
+    const fd = (entree.mock.calls[0] as unknown as [FormData])[0];
+    expect([fd.getAll("articleId")[0], fd.getAll("designation")[0]]).toEqual(["", "Vieil article"]);
+  });
+
+  it("2 — le brouillon est effacé à l'enregistrement réussi même si le bandeau est encore ouvert", async () => {
+    window.localStorage.setItem(CLE, brouillon([L1]));
+    remonter();
+    await ajouter({ article: "a9", qte: "1" });
+    expect(tel().querySelector("[data-brouillon]")).not.toBeNull();
+    cliquer(texteBouton(tel(), "Enregistrer la liste"));
+    await act(async () => {});
+    expect(window.localStorage.getItem(CLE)).toBeNull();
+    expect(tel().querySelector("[data-brouillon]")).toBeNull();
+  });
+
+  it("4 — Tab reste dans le panneau (il boucle) et le focus revient au bouton d'ouverture à la fermeture", () => {
+    const ouvreur = texteBouton(tel(), "Ajouter un article")!;
+    act(() => ouvreur.focus());
+    cliquer(ouvreur);
+    const focalisables = [...panneau()!.querySelectorAll<HTMLElement>("input:not([type=hidden]):not([readonly]), button")];
+    const dernier = focalisables.at(-1)!;
+    act(() => dernier.focus());
+    const ev = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => { dernier.dispatchEvent(ev); });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(focalisables[0]);
+    const premier = focalisables[0];
+    const inv = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    act(() => { premier.dispatchEvent(inv); });
+    expect(document.activeElement).toBe(dernier);
+    cliquer(texteBouton(panneau()!, "Terminé"));
+    expect(document.activeElement).toBe(ouvreur);
+  });
+
+  it("5 — date vidée : message lisible à l'enregistrement, rien n'est envoyé (aucun champ masqué ne bloque en silence)", async () => {
+    await ajouter({ article: "a0", qte: "1" });
+    cliquer(tel().querySelector<HTMLElement>("button[aria-expanded]")!);
+    const date = tel().querySelector<HTMLInputElement>("#tel-date")!;
+    expect(date.required).toBe(false);
+    taper(date, "");
+    cliquer(texteBouton(tel(), "Enregistrer la liste"));
+    await act(async () => {});
+    expect(conteneur.querySelector("[role=alert]")!.textContent).toBe("Choisissez la date de l'achat.");
+    expect(entree).not.toHaveBeenCalled();
+    expect(form().noValidate).toBe(true);
+  });
+
+  it("6 — la sélection est vidée quand on reprend un brouillon", async () => {
+    window.localStorage.setItem(CLE, brouillon([L1]));
+    remonter();
+    await ajouter({ article: "a9", qte: "1" });
+    act(() => cartes()[0].querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+    expect(tel().textContent).toContain("1 sélectionné(s)");
+    cliquer(texteBouton(tel(), "Reprendre")); // le brouillon s'ajoute à la liste : la sélection d'avant ne vise plus rien de sûr
+    expect(cartes()).toHaveLength(2);
+    expect(tel().textContent).toContain("0 sélectionné(s)");
+  });
+
+  it("8 — « 1.250 » en prix unitaire ou en montant : l'alerte « milliers ? » est visible avant d'ajouter", () => {
+    ouvrir();
+    taper(panneau()!.querySelector<HTMLInputElement>('[aria-label^="Prix unitaire"]')!, "1.250");
+    expect(norm(panneau()!.textContent)).toContain("milliers ?");
+    taper(panneau()!.querySelector<HTMLInputElement>('[aria-label^="Prix unitaire"]')!, "");
+    taper(panneau()!.querySelector<HTMLInputElement>('[aria-label^="Montant total"]')!, "1.250");
+    expect(norm(panneau()!.textContent)).toContain("milliers ?");
   });
 });

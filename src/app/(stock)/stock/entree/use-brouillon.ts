@@ -50,5 +50,12 @@ export function useBrouillonListe({ compteId, lignes, date, origine, deviseDefau
     setPret(true);
   }, [compteId]);
 
-  return { trouve, reprendre, ignorer };
+  /** Enregistrement réussi : le brouillon est effacé, et son bandeau fermé s'il était encore ouvert. */
+  const apresEnregistrement = useCallback(() => {
+    if (compteId) brouillonLocal.effacer(compteId);
+    setTrouve(null);
+    setPret(true);
+  }, [compteId]);
+
+  return { trouve, reprendre, ignorer, apresEnregistrement };
 }

@@ -12,7 +12,7 @@
 // recadre un `position: fixed` sur Safari iOS) et se cale sur la zone VISIBLE (le clavier la réduit).
 //
 // Non vérifié sur un vrai appareil : le clavier virtuel d'iOS et le calage du panneau (voir le compte rendu).
-import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type Dispatch, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
@@ -24,7 +24,7 @@ import { formaterFC, formaterMontant, formaterNombre, formaterUSD } from "@/lib/
 import { nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import type { OptionChoix } from "@/lib/recherche-options";
 import {
-  avecArticle, avecChangement, avecDevise, erreursDe, fournisseursProches, jourCourt, rangee, sansErreur, vide, vierge,
+  avecArticle, avecChangement, avecDevise, erreursDe, fournisseursProches, jourCourt, lignesAConfirmer, montantNonConverti, phraseDevise, rangee, sansErreur, vide, vierge,
   type Art, type Brouillon, type Devise, type Fourn, type Ligne,
 } from "@/lib/liste-achat-saisie";
 
@@ -87,6 +87,26 @@ function useZoneVisible() {
   return zone;
 }
 
+/**
+ * Confirmation d'un changement de devise : un montant TAPÉ est celui du ticket, il n'est pas converti — seule sa devise change
+ * (« 28 $ deviendra 28 FC »). Seul un PU du catalogue est converti au taux. Rien n'est appliqué sans cet accord.
+ */
+function ConfirmerDevise({ lignes, devise, titres, onOui, onNon }: { lignes: Ligne[]; devise: Devise; titres: string[]; onOui: () => void; onNon: () => void }) {
+  const n = lignes.length;
+  return (
+    <div role="alertdialog" aria-label="Confirmer le changement de devise" data-confirmer-devise className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+      <p className="font-medium">{n} montant{n > 1 ? "s saisis ne sont" : " saisi n'est"} pas converti{n > 1 ? "s" : ""} : le nombre reste, seule la devise change.</p>
+      <ul className="list-disc space-y-0.5 pl-5">
+        {lignes.map((l, k) => <li key={k}>{titres[k]} : {phraseDevise(l, devise)}</li>)}
+      </ul>
+      <div className="flex gap-2">
+        <button type="button" onClick={onOui} className="min-h-11 flex-1 rounded-md bg-primary px-3 font-medium text-primary-foreground">Changer la devise</button>
+        <button type="button" onClick={onNon} className="min-h-11 flex-1 rounded-md border bg-background px-3 font-medium text-foreground">Garder la devise</button>
+      </div>
+    </div>
+  );
+}
+
 const titreDe = (l: Ligne, parId: Map<string, Art>) => l.designation.trim() || parId.get(l.articleId)?.designation || "Article sans nom";
 
 /** « 3 kg × 18,00 $ = 54,00 $ » — ce que la ligne enregistrera ; alerte si elle serait ignorée (quantité absente). */
@@ -125,6 +145,7 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
   const [essaye, setEssaye] = useState(false); // les refus ne s'affichent qu'après une tentative de validation
   const [dernier, setDernier] = useState<string | null>(null); // « X ajouté » après « Ajouter et suivant »
   const [confirmer, setConfirmer] = useState(false);
+  const [changerDevise, setChangerDevise] = useState<Devise | null>(null); // devise demandée, en attente d'accord
   // Un article hors catalogue se saisit à part (nom + domaine) : ces champs n'encombrent pas le cas courant, le choix dans la liste.
   const [libreOuvert, setLibreOuvert] = useState(!initial.articleId && !!initial.designation.trim());
   const erreurs = essaye ? erreursDe(l) : {};
@@ -173,6 +194,15 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-labelledby={idTitre} data-panneau-achat
+      onKeyDown={(e) => {
+        // Le focus reste dans le panneau : Tab boucle du dernier champ au premier (et Maj+Tab à l'inverse).
+        if (e.key !== "Tab") return;
+        const f = [...e.currentTarget.querySelectorAll<HTMLElement>("input:not([type=hidden]):not([disabled]):not([readonly]), button:not([disabled])")];
+        if (f.length === 0) return;
+        const premier = f[0], dernier = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === premier) { e.preventDefault(); dernier.focus(); }
+        else if (!e.shiftKey && document.activeElement === dernier) { e.preventDefault(); premier.focus(); }
+      }}
       style={zone ? { top: zone.top, height: zone.height } : undefined}
       className="fixed inset-x-0 top-0 z-[60] flex h-dvh flex-col bg-background">
       <div className="flex shrink-0 items-center gap-2 border-b px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
@@ -239,7 +269,14 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
 
           <div>
             <span className={ETIQUETTE}>Payé en</span>
-            <Segments label="Devise de la ligne" valeur={l.devise} options={DEVISES} onChange={(d) => setL((x) => avecDevise(x, d, taux))} />
+            <Segments label="Devise de la ligne" valeur={l.devise} options={DEVISES}
+              onChange={(d) => { if (d !== l.devise && montantNonConverti(l, taux)) setChangerDevise(d); else { setChangerDevise(null); setL((x) => avecDevise(x, d, taux)); } }} />
+            {changerDevise && (
+              <div className="mt-2">
+                <ConfirmerDevise lignes={[l]} devise={changerDevise} titres={[titreDe(l, parId)]} onNon={() => setChangerDevise(null)}
+                  onOui={() => { setL((x) => avecDevise(x, changerDevise, taux)); setChangerDevise(null); }} />
+              </div>
+            )}
           </div>
 
           <div>
@@ -247,14 +284,14 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
               <div className="min-w-0">
                 <label className={ETIQUETTE} htmlFor={`${idTitre}-pu`}>Prix unitaire ({COURT[l.devise]})</label>
                 <ChampNombre id={`${idTitre}-pu`} value={l.pu} onChange={(e) => maj({ pu: e.target.value })} placeholder="facultatif" aria-label={`Prix unitaire ${COURT[l.devise]}`} aria-invalid={!!erreurs.pu || undefined}
-                  suffixe={COURT[l.devise]} classeConteneur="w-full" className={`${CHAMP} text-right`} />
+                  suffixe={COURT[l.devise]} alerteMilliers classeConteneur="w-full" className={`${CHAMP} text-right`} />
                 {erreurs.pu && <p role="alert" className={ERREUR}>{erreurs.pu}</p>}
               </div>
               <div className="min-w-0">
                 <label className={ETIQUETTE} htmlFor={`${idTitre}-montant`}>Montant total ({COURT[l.devise]})</label>
                 {/* Taper le montant détache le PU : le montant tapé est celui du ticket, jamais recalculé ensuite. */}
                 <ChampNombre id={`${idTitre}-montant`} value={l.montant} onChange={(e) => maj({ montant: e.target.value, pu: "" })} placeholder="facultatif" aria-label={`Montant total ${COURT[l.devise]}`} aria-invalid={!!erreurs.montant || undefined}
-                  suffixe={COURT[l.devise]} classeConteneur="w-full" className={`${CHAMP} text-right font-semibold`} />
+                  suffixe={COURT[l.devise]} alerteMilliers classeConteneur="w-full" className={`${CHAMP} text-right font-semibold`} />
                 {erreurs.montant && <p role="alert" className={ERREUR}>{erreurs.montant}</p>}
               </div>
             </div>
@@ -306,6 +343,8 @@ type Panneau = null | { mode: "ajout" } | { mode: "modif"; index: number };
 
 export function VueTelephone({ lignes, setLignes, articles, optionsArt, fournisseurs, idFourn, taux, aujourdhui, date, setDate, origine, setOrigine, deviseDefaut, changerDeviseDefaut, stats, enCours, brouillon }: Props) {
   const [panneau, setPanneau] = useState<Panneau>(null);
+  const ouvreur = useRef<HTMLElement | null>(null); // le bouton qui a ouvert le panneau : le focus lui revient à la fermeture
+  const [confirmerGroupe, setConfirmerGroupe] = useState<{ devise: Devise; cibles: number[]; aConfirmer: number[] } | null>(null);
   const [reglages, setReglages] = useState(false); // ligne « date · origine » dépliée
   const [retire, setRetire] = useState<{ ligne: Ligne; index: number }[] | null>(null); // dernier retrait, pour « Annuler »
   const { sel, toggle, clear, setAll } = useBulkSelection();
@@ -322,7 +361,8 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
     return () => clearTimeout(t);
   }, [retire]);
 
-  const ouvrirAjout = () => { setRetire(null); setPanneau({ mode: "ajout" }); };
+  const ouvrirAjout = (e: ReactMouseEvent<HTMLElement>) => { ouvreur.current = e.currentTarget; setRetire(null); setPanneau({ mode: "ajout" }); };
+  useEffect(() => { if (!panneau && ouvreur.current?.isConnected) ouvreur.current.focus(); }, [panneau]);
 
   const valider = (ligne: Ligne, suite: boolean) => {
     if (panneau?.mode === "modif") {
@@ -360,7 +400,14 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
     });
     setRetire(null);
   };
-  const passerEn = (d: Devise) => setLignes((ls) => ls.map((x, j) => (cochees.includes(j) ? avecDevise(x, d, taux) : x)));
+  const appliquerDevise = (d: Devise, cibles: number[]) => { setLignes((ls) => ls.map((x, j) => (cibles.includes(j) ? avecDevise(x, d, taux) : x))); setConfirmerGroupe(null); };
+  // Les montants TAPÉS ne sont pas convertis : on fait confirmer, en nommant chaque ligne concernée.
+  const passerEn = (d: Devise) => {
+    const aConfirmer = cochees.filter((j) => lignesAConfirmer([lignes[j]], d, taux).length > 0);
+    if (aConfirmer.length > 0) setConfirmerGroupe({ devise: d, cibles: cochees, aConfirmer });
+    else appliquerDevise(d, cochees);
+  };
+  const reprendre = () => { clear(); setConfirmerGroupe(null); brouillon.reprendre(); };
 
   const totaux = [stats.saisiUSD > 0 ? formaterUSD(stats.saisiUSD) : null, stats.saisiFC > 0 ? formaterFC(stats.saisiFC) : null].filter(Boolean).join(" + ");
   const b = brouillon.trouve;
@@ -371,7 +418,9 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
       <div className="rounded-lg border">
         <button type="button" onClick={() => setReglages((o) => !o)} aria-expanded={reglages} className="flex min-h-12 w-full items-center gap-2 px-3 py-1.5 text-left">
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">{date === aujourdhui ? "Aujourd'hui · " : ""}{date ? jourCourt(date) : "Date à choisir"}</span>
+            <span data-date-resume className={`block text-sm font-medium ${date && date !== aujourdhui ? "font-semibold text-amber-800" : ""}`}>
+              {date === aujourdhui ? "Aujourd'hui · " : date ? "Achat du " : ""}{date ? jourCourt(date) : "Date à choisir"}{date && date !== aujourdhui ? " · pas aujourd'hui" : ""}
+            </span>
             <span className="block truncate text-xs text-muted-foreground">{origine.trim() || "Liste d'achat"} · devise par défaut {COURT[deviseDefaut]}</span>
           </span>
           <span aria-hidden className="text-sm text-muted-foreground">{reglages ? "Fermer" : "Modifier"}</span>
@@ -380,7 +429,7 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
           <div className="space-y-4 border-t p-3">
             <div>
               <label className={ETIQUETTE} htmlFor="tel-date">Date de l&apos;achat</label>
-              <input id="tel-date" type="date" value={date} max={aujourdhui} required onChange={(e) => setDate(e.target.value)} className={CHAMP} />
+              <input id="tel-date" type="date" value={date} max={aujourdhui} onChange={(e) => setDate(e.target.value)} className={CHAMP} />
             </div>
             <div>
               <label className={ETIQUETTE} htmlFor="tel-origine">Origine / libellé <span className="font-normal text-muted-foreground">(facultatif)</span></label>
@@ -398,8 +447,9 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
       {b && (
         <div role="status" data-brouillon className="space-y-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <p><b>Brouillon{b.jour ? ` du ${jourCourt(b.jour)}` : ""} retrouvé</b> : {b.lignes.length} article{b.lignes.length > 1 ? "s" : ""} non enregistré{b.lignes.length > 1 ? "s" : ""}.</p>
+          {b.date && <p>Elle sera reprise avec la date de l&apos;achat : <b>{jourCourt(b.date)}</b>.</p>}
           <div className="flex gap-2">
-            <button type="button" onClick={brouillon.reprendre} className="min-h-11 flex-1 rounded-md bg-primary px-3 font-medium text-primary-foreground">Reprendre</button>
+            <button type="button" onClick={reprendre} className="min-h-11 flex-1 rounded-md bg-primary px-3 font-medium text-primary-foreground">Reprendre</button>
             <button type="button" onClick={brouillon.ignorer} className="min-h-11 flex-1 rounded-md border border-destructive bg-background px-3 font-medium text-destructive">Effacer</button>
           </div>
         </div>
@@ -418,6 +468,11 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
             <BoutonNeutre type="button" className="min-h-11" onClick={() => passerEn("CDF")}>Passer en FC</BoutonNeutre>
             <BoutonDanger type="button" className="min-h-11" onClick={() => retirer(cochees)}>✕ Retirer ({cochees.length})</BoutonDanger>
           </BulkBar>
+          {confirmerGroupe && (
+            <ConfirmerDevise lignes={confirmerGroupe.aConfirmer.map((j) => lignes[j])} devise={confirmerGroupe.devise}
+              titres={confirmerGroupe.aConfirmer.map((j) => titreDe(lignes[j], parId))}
+              onOui={() => appliquerDevise(confirmerGroupe.devise, confirmerGroupe.cibles)} onNon={() => setConfirmerGroupe(null)} />
+          )}
           <ul className="space-y-2">
             {visibles.map(({ l, i }) => {
               const titre = titreDe(l, parId);
@@ -429,7 +484,7 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
                     <input type="checkbox" checked={sel.has(String(i))} onChange={() => toggle(String(i))} className="h-5 w-5" aria-label={`Sélectionner ${titre}`} />
                   </label>
                   <div className="min-w-0 flex-1 py-1.5">
-                    <button type="button" data-modifier onClick={() => setPanneau({ mode: "modif", index: i })} className="block w-full text-left">
+                    <button type="button" data-modifier onClick={(e) => { ouvreur.current = e.currentTarget; setPanneau({ mode: "modif", index: i }); }} className="block w-full text-left">
                       <span className="block truncate font-medium">{titre}</span>
                       <span className={`block text-sm tabular-nums ${c.alerte ? "text-amber-800" : "text-muted-foreground"}`}>{c.texte}</span>
                     </button>

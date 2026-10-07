@@ -10,6 +10,7 @@ import { ecrireSaisieNombre, lireSaisieNombre } from "@/lib/nombre";
 import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { decisionSortie, type Regles } from "@/components/tableur/navigation";
 import { MOIS_FR_COURT } from "@/lib/dates-fr";
+import { formaterMontant } from "@/lib/montant";
 
 export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null };
 export type Fourn = { id: string; nom: string };
@@ -95,6 +96,23 @@ export function avecDevise(l: Ligne, d: Devise, taux: number): Ligne {
   }
   return avecChangement(l, { devise: d });
 }
+
+/**
+ * Le changement de devise laisserait tel quel le montant de cette ligne : il est TAPÉ (celui du ticket), ou issu d'un
+ * PU tapé. Seul un montant encore automatique à partir d'un PU du catalogue est converti au taux (`avecDevise`).
+ */
+export function montantNonConverti(l: Ligne, taux: number): boolean {
+  if (!(nombreDeSaisie(l.montant) > 0)) return false;
+  const prix = l.puCatalogue !== null ? Number(l.puCatalogue) : NaN;
+  return !(taux > 0 && prix > 0 && l.montant === produit(l.qte, l.pu));
+}
+/** Lignes qui changeraient de devise SANS que leur montant soit converti — ce que l'on fait confirmer. */
+export const lignesAConfirmer = (lignes: readonly Ligne[], d: Devise, taux: number) => lignes.filter((l) => l.devise !== d && montantNonConverti(l, taux));
+/** « 28,00 $ deviendra 28 FC » : le nombre reste, seule la devise change. */
+export const phraseDevise = (l: Ligne, d: Devise) => `${formaterMontant(nombreDeSaisie(l.montant), l.devise)} deviendra ${formaterMontant(nombreDeSaisie(l.montant), d)}`;
+
+/** Brouillon repris : un article qui n'est plus au catalogue devient une ligne LIBRE (la désignation est gardée). */
+export const sansArticleDisparu = (l: Ligne, existe: (id: string) => boolean): Ligne => (l.articleId && !existe(l.articleId) ? { ...l, articleId: "", puCatalogue: null } : l);
 
 /**
  * L'ENVOI AU SERVEUR — le même pour les deux vues, construit depuis l'état (jamais relu dans le DOM) :
