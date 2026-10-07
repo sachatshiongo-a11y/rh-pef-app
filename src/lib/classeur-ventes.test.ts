@@ -115,7 +115,7 @@ describe("lecture du classeur", () => {
     expect([...new Set(cuisine.map((l) => l.rubrique))]).toEqual([
       "Entrées Froides", "Entrées chaudes", "Pâtes classiques", "Pâtes en Folie", "Pâtes", "Autres accompagnements", "Desserts",
     ]);
-    expect(cuisine[0]).toEqual({ feuille: "CUISINE", rubrique: "Entrées Froides", nom: "Duo de capitaine et saumon fumé et vinaigrette maracuja", rang: 1 });
+    expect(cuisine[0]).toEqual({ feuille: "CUISINE", rubrique: "Entrées Froides", nom: "Duo de capitaine et saumon fumé et vinaigrette maracuja", rang: 1, ligne: 14 });
     expect(bar.map((l) => l.nom)).toContain("Vin blanc maison — Verre");
     expect(bar.map((l) => l.nom)).not.toContain("Vin blanc maison"); // intitulé de formats, pas une vente
     expect(bar.find((l) => l.nom === "Tour Prignac")!.rubrique).toBe("Vin rouge — Français");

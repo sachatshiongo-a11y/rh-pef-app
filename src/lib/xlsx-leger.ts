@@ -17,8 +17,9 @@ export const cleTexte = (s: string) => normTexte(propre(s));
  * Cellule lue : colonne (« B »), texte (null pour un nombre, une date, une case vide), gras, fond,
  * et `nombre` : la valeur numérique d'une cellule nombre — y compris le RÉSULTAT d'une formule
  * (valeur en cache du classeur), null sinon. Une date Excel est un nombre : à l'appelant de savoir.
+ * `ligne` : numéro de la rangée dans la feuille (1 = première ligne d'Excel).
  */
-export type CelluleXlsx = { col: string; texte: string | null; gras: boolean; fond: number; nombre: number | null };
+export type CelluleXlsx = { col: string; ligne: number; texte: string | null; gras: boolean; fond: number; nombre: number | null };
 /** `feuilles` : clé = nom NORMALISÉ ; `noms` : clé normalisée → nom tel qu'écrit sur l'onglet. */
 export type LectureXlsx = { ok: true; feuilles: Map<string, CelluleXlsx[][]>; noms: Map<string, string> } | { ok: false; erreur: string };
 
@@ -98,9 +99,13 @@ export async function lireFeuillesXlsx(donnees: ArrayBuffer | Uint8Array, garder
     const xml = await lireFichier(zip, chemin);
     if (!xml) continue;
     const rangees: CelluleXlsx[][] = [];
-    for (const r of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    let precedente = 0;
+    for (const r of xml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+      // `r` est facultatif dans le format : à défaut, la rangée suit la précédente.
+      const ligne = Number(attributs(r[1] ?? "").r ?? precedente + 1);
+      precedente = ligne;
       const cellules: CelluleXlsx[] = [];
-      for (const c of (r[1] ?? "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      for (const c of (r[2] ?? "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const a = attributs(c[1]!);
         const contenu = c[2] ?? "";
         const v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(contenu)?.[1]; // <v xml:space="preserve"> compris
@@ -114,6 +119,7 @@ export async function lireFeuillesXlsx(donnees: ArrayBuffer | Uint8Array, garder
         const xf = xfs[Number(a.s ?? 0)] ?? {};
         cellules.push({
           col: lettres(a.r ?? ""),
+          ligne,
           texte: texte !== null && propre(texte) ? propre(texte) : null,
           gras: policesGras[Number(xf.fontId ?? 0)] ?? false,
           fond: Number(xf.fillId ?? 0),
