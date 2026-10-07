@@ -128,8 +128,10 @@ describe("import du classeur Commande journalière", () => {
     expect(i("1. Viande Rouge")).toBeLessThan(i("Carré d'agneau Kg")); // nom court posé par l'import
     expect(i("Carré d'agneau Kg")).toBeLessThan(i("Côtes de porc Kg"));
     expect(lignes).toContain("Agneau entier (hors fiche) Kg 2"); // commandé ce jour : jamais perdu
-    // Ni coché, ni commandé : absent, comme dans le classeur (« Viande Hachée » s'imprimerait sous son nom court).
-    expect(lignes.some((l) => l.startsWith("Haché maison") || l.startsWith("Viande Hachée"))).toBe(false);
+    // Ni coché, ni commandé : l'article n'est pas imprimé ; la ligne « Viande Hachée » du classeur
+    // reste, vide (le document est le classeur rempli : une ligne sans donnée ne disparaît pas).
+    expect(lignes.some((l) => l.startsWith("Haché maison"))).toBe(false);
+    expect(lignes).toContain("Viande Hachée Kg");
     expect(lignes.filter((l) => l.startsWith("Carré d'agneau"))).toHaveLength(1); // l'article « Carré d'agneau » non coché n'y est pas
     expect(lignes.some((l) => l.includes("Lamb Rack"))).toBe(false);
   }, 120_000);
@@ -140,7 +142,8 @@ describe("import du classeur Commande journalière", () => {
     const r = await fiche(new Request("http://pef.test/stock/journalier/fiche?type=commande&date=2026-09-22&domaine=NOURRITURE&format=pdf"));
     const pages = await pagesDuPdf(Buffer.from(await r.arrayBuffer()));
     const lignes = pages.flatMap((p) => p.lignes);
-    for (const n of ["Carré d'agneau", "Haché maison", "Lamb Rack NZ Frozen", "Côte de porc", "Agneau entier (hors fiche)"]) expect(lignes.some((l) => l.startsWith(n)), n).toBe(true);
+    // « Viande Hachée » (nom court « Haché maison ») : sur la ligne du classeur qui porte sa désignation.
+    for (const n of ["Carré d'agneau", "Viande Hachée", "Lamb Rack NZ Frozen", "Côte de porc", "Agneau entier (hors fiche)"]) expect(lignes.some((l) => l.startsWith(n)), n).toBe(true);
     expect(pages.map((p) => p.plat).join(" ")).not.toMatch(/calée|Importer les lignes/);
     // Dès qu'un article est coché, la règle du classeur s'applique.
     await basculerFicheCommande([ids.porc!], true);

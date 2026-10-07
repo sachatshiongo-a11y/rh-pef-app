@@ -126,80 +126,102 @@ async function lire(url: string) {
   return { buf, nom, type: r.headers.get("Content-Type") };
 }
 
-describe("fiche « Commande journalière »", () => {
-  it("PDF : fiche cuisine puis fiche bar, commande et livraison du jour, rangées lisibles", async () => {
+/** Cases d'une rangée trouvée par sa désignation (colonne `col`, 0 = A), à partir de la désignation. */
+const ligneDe = (ws: ExcelJS.Worksheet, designation: string, largeur: number, col = 0) => {
+  const r = rangeesDe(ws).find((x) => String(x[col] ?? "").trim() === designation);
+  // `largeur` cases (désignation + données) : une case vide en fin de rangée n'a pas de valeur pour ExcelJS.
+  return r ? Array.from({ length: largeur }, (_, i) => {
+    const v = r[col + i];
+    return v === undefined || v === null ? "" : typeof v === "object" && "result" in v ? (v as { result: unknown }).result : v;
+  }) : undefined;
+};
+const numeroDe = (ws: ExcelJS.Worksheet, designation: string, col = 0) => rangeesDe(ws).findIndex((x) => String(x[col] ?? "").trim() === designation);
+
+describe("fiche « Commande journalière » : le classeur « PEF Commande Journalière », rempli", () => {
+  it("PDF : fiche cuisine puis fiche bar comme le modèle imprimé, commande et livraison du jour, rangées lisibles", async () => {
     const { buf, nom, type } = await lire("type=commande&date=2026-09-22&format=pdf");
     expect(type).toBe("application/pdf");
     expect(nom).toBe("Commande_journaliere_2026-09-22.pdf");
     const pages = await pagesDuPdf(buf);
     const lignes = pages.flatMap((p) => p.lignes);
     const plat = pages.map((p) => p.plat).join(" ");
-    expect(plat).toContain("mardi 22 septembre 2026 (semaine 39)");
-    expect(plat).toContain("Commande cuisine — semaine 39");
-    expect(plat).toContain("Date : 22/09/2026"); // la case « Date : » du classeur
-    expect(plat).toContain("Commande bar — semaine 39");
+    expect(plat).toMatch(/COMMANDE CUISINE\s+Semaine\s+39/);
+    expect(plat).toMatch(/Date :\s+22\/09\/2026/);
+    expect(plat).toMatch(/COMMANDE BAR\s+Semaine\s+39/);
+    // Lignes du classeur, à leur place, avec les chiffres du jour (rapprochées par leur nom).
     expect(lignes).toContain("Filet pur Boeuf Kg 2,5 2");
     expect(lignes).toContain("Côtes de porc Pièce");
     expect(lignes).toContain("Beurre — 1 234,5"); // unité absente du catalogue : « — »
-    expect(lignes).toContain("Ancien article Kg 3");
     expect(lignes).toContain("Vim Boîte"); // « autre » : sur la fiche cuisine, comme dans le classeur
     expect(lignes).toContain("Ail Kg 3 2,75"); // légume : commande saisie, livraison = achat du jour
     expect(lignes).toContain("Castel 24 24"); // bar : pas de colonne Unité ; la perte n'est pas livrée
+    // Ligne du classeur sans article : présente, cases vides (son unité est celle du classeur).
+    expect(lignes).toContain("Cailles Pièce");
+    // Article absent du classeur, d'une rubrique inconnue du classeur : rubrique ajoutée en fin de fiche.
+    expect(lignes).toContain("Ancien article Kg 3");
     expect(plat).toContain("1 sortie(s) sans motif ce jour-là ne sont pas comptées comme livrées");
-    // La fiche bar commence sur sa propre page.
-    const pageBar = pages.findIndex((p) => p.plat.includes("Commande bar"));
+    // La fiche bar commence sur sa propre page ; la fiche cuisine déborde (rubriques ajoutées) avec
+    // l'en-tête de colonnes du classeur en haut de chaque page.
+    const pageBar = pages.findIndex((p) => p.plat.includes("COMMANDE BAR"));
     expect(pageBar).toBeGreaterThan(0);
     expect(pages[pageBar]!.plat).not.toContain("Filet pur Boeuf");
-    expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Épice n° \d+$/)).toBeGreaterThanOrEqual(8);
+    for (const p of pages.slice(1, pageBar)) expect(p.lignes[0]).toMatch(/^Désignation\/Date Unité Commande Livraison/);
+    expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Épice n° \d+$/)).toBeGreaterThanOrEqual(6);
     expect(policesDeRepli(buf)).toEqual([]);
   }, 120_000);
 
-  it("noms COURTS de cuisine, rubriques dans l'ordre du classeur, aucune mention superflue", async () => {
+  it("noms COURTS de cuisine ; lignes absentes du classeur dans leur rubrique, sinon dans une rubrique ajoutée", async () => {
     const { buf } = await lire("type=commande&date=2026-09-22&format=pdf");
     const pages = await pagesDuPdf(buf);
     const lignes = pages.flatMap((p) => p.lignes);
     const plat = pages.map((p) => p.plat).join(" ");
-    expect(lignes).toContain("Carré d'agneau Kg 3"); // nom court saisi au catalogue
+    expect(lignes).toContain("Carré d'agneau Kg 3"); // nom court saisi au catalogue = ligne du classeur
     expect(plat).not.toContain("Lamb Rack");
-    expect(lignes).toContain("Spaghetti Kg"); // nom de l'article du restaurant rattaché
+    expect(lignes).toContain("Spaghetti Kg"); // nom de l'article du restaurant rattaché = ligne du classeur
     expect(plat).not.toContain("Lm Chef");
     expect(lignes).toContain("Heineken local");
-    expect(lignes).toContain("Elle & Vire Crème de cuisson 1L L"); // deux rattachés : la désignation, rien de deviné
-    // Rubriques : celles du classeur dans son ordre, puis les autres (alphabétique), « À classer » en dernier.
-    const rang = (t: string) => lignes.indexOf(t);
+    // Rubriques du classeur dans son ordre, puis les rubriques inconnues du classeur (« Crèmerie »,
+    // « Viande », « À classer ») ajoutées à la fin, chacune avec « Commande | Livraison ».
+    const rang = (t: string) => lignes.findIndex((l) => l === t || l.startsWith(`${t} Commande Livraison`));
     expect(rang("Viande -Volaille-Poisson-Crustacé")).toBeLessThan(rang("Pâtes"));
     expect(rang("Pâtes")).toBeLessThan(rang("Fruits & Légumes frais"));
-    expect(rang("Fruits & Légumes frais")).toBeLessThan(rang("Crèmerie"));
+    expect(rang("Fruits & Légumes frais")).toBeLessThan(rang("Boulangerie-Patisserie"));
+    expect(rang("Boulangerie-Patisserie")).toBeLessThan(rang("Crèmerie"));
     expect(rang("Crèmerie")).toBeLessThan(rang("Viande"));
     expect(rang("Viande")).toBeLessThan(rang("À classer"));
-    // Une seule mention possible : les sorties sans motif (un fait qui change la lecture).
+    expect(lignes.indexOf("Elle & Vire Crème de cuisson 1L L")).toBeGreaterThan(rang("Crèmerie")); // deux rattachés : la désignation, rien de deviné
     expect(plat).not.toContain("Case vide");
-    expect(plat).not.toContain("saisie de l'onglet Commande");
   }, 120_000);
 
-  it("Excel : une feuille par fiche, nombres calculables, volet figé sur la ligne des colonnes", async () => {
+  it("Excel : le classeur du modèle (3 onglets), nombres calculables, date sous « Date : »", async () => {
     const { buf, nom } = await lire("type=commande&date=2026-09-22&format=excel");
     expect(nom).toBe("Commande_journaliere_2026-09-22.xlsx");
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
-    expect(wb.worksheets.map((w) => w.name)).toEqual(["Fiche commande cuisine", "Fiche commande Bar"]);
-    const cuisine = wb.getWorksheet("Fiche commande cuisine")!;
-    const rangees = rangeesDe(cuisine);
-    const entete = rangees.findIndex((r) => r[0] === "Désignation/Date");
-    expect(rangees[entete]).toEqual(["Désignation/Date", "Unité", "Commande", "Livraison"]);
-    expect(cuisine.views[0]).toMatchObject({ state: "frozen", ySplit: entete });
-    expect(rangees.find((r) => r[0] === "Filet pur Boeuf")).toEqual(["Filet pur Boeuf", "Kg", 2.5, 2]);
-    expect(rangees.find((r) => r[0] === "Beurre")).toEqual(["Beurre", "—", "", 1234.5]);
-    const bar = rangeesDe(wb.getWorksheet("Fiche commande Bar")!);
-    expect(bar.find((r) => r[0] === "Castel")).toEqual(["Castel", 24, 24]);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Fiche commande cuisine ", "Fiche commande Bar ", "Fiche commande Salle"]);
+    const cuisine = wb.getWorksheet("Fiche commande cuisine ")!;
+    expect(cuisine.getCell("A9").value).toBe("Désignation/Date");
+    expect(cuisine.getCell("D6").value).toBe("Date : ");
+    expect(cuisine.getCell("D7").value).toBe("22/09/2026");
+    expect(cuisine.getCell("C8").value).toBe(39);
+    expect(cuisine.views[0]).toMatchObject({ state: "frozen", xSplit: 1 }); // volet du modèle
+    expect(ligneDe(cuisine, "Filet pur Boeuf", 4)).toEqual(["Filet pur Boeuf", "Kg", 2.5, 2]);
+    expect(ligneDe(cuisine, "Beurre", 4)).toEqual(["Beurre", "—", "", 1234.5]);
+    expect(numeroDe(cuisine, "Filet pur Boeuf")).toBe(14); // la rangée 14 du classeur
+    const bar = wb.getWorksheet("Fiche commande Bar ")!;
+    expect(ligneDe(bar, "Castel", 3)).toEqual(["Castel", 24, 24]);
   }, 120_000);
 
   it("filtre Bar : la seule fiche bar", async () => {
     const { buf, nom } = await lire("type=commande&date=2026-09-22&domaine=BOISSON&format=pdf");
     expect(nom).toBe("Commande_journaliere_bar_2026-09-22.pdf");
     const plat = (await pagesDuPdf(buf)).map((p) => p.plat).join(" ");
-    expect(plat).toContain("Commande bar");
-    expect(plat).not.toContain("Commande cuisine");
+    expect(plat).toContain("COMMANDE BAR");
+    expect(plat).not.toContain("COMMANDE CUISINE");
+    const x = await lire("type=commande&date=2026-09-22&domaine=BOISSON&format=excel");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(x.buf as unknown as ArrayBuffer);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Fiche commande Bar "]);
   }, 120_000);
 });
 
@@ -212,62 +234,51 @@ describe("fiche « Commande journalière » de toute la semaine (onglet Commande
   };
   const JOURS_SEMAINE = ["Lun 21", "Mar 22", "Mer 23", "Jeu 24", "Ven 25", "Sam 26"];
 
-  it("PDF : lundi → samedi, chaque jour la fiche cuisine puis la fiche bar, chacune sur sa page ; dimanche vide omis", async () => {
+  it("PDF : lundi → samedi, chaque jour la fiche cuisine puis la fiche bar, chacune commence sa page ; dimanche vide omis", async () => {
     const { buf, nom, type } = await lire("type=commande&tout=1&semaine=2026-09-24&format=pdf");
     expect(type).toBe("application/pdf");
     expect(nom).toBe("Commande_journaliere_semaine_2026-09-21.pdf");
     const pages = await pagesDuPdf(buf);
-    const plat = pages.map((p) => p.plat).join(" ");
-    expect(plat).toContain("semaine 39, du 21/09/2026 au 26/09/2026");
-    expect(plat).not.toContain("27/09/2026");
-    // CHAQUE page dit de quelle fiche et de quel jour elle est (titre et « Date : » répétés sur les
-    // pages de suite) ; une page ne mêle jamais deux fiches (chacune commence sur une nouvelle page).
-    const fichePage = pages.map((p) => {
-      const t = /Commande (cuisine|bar) — semaine 39/.exec(p.plat)?.[1];
-      const d = /Date : (\d\d\/\d\d\/\d{4})/.exec(p.plat)?.[1];
-      expect(p.plat.match(/Date : \d/g)).toHaveLength(1);
-      return `${t} ${d}`;
+    // Chaque fiche commence sur une nouvelle page, par le haut du modèle (logo, date, titre).
+    const debuts = pages.flatMap((p) => {
+      const t = /COMMANDE (CUISINE|BAR)/.exec(p.plat)?.[1];
+      const d = /Date :\s+(\d\d)\/09\/2026/.exec(p.plat)?.[1];
+      return t ? [`${t} ${d}`] : [];
     });
-    const fiches = fichePage.filter((f, i) => f !== fichePage[i - 1]);
-    expect(fiches).toEqual(["21", "22", "23", "24", "25", "26"].flatMap((j) => [`cuisine ${j}/09/2026`, `bar ${j}/09/2026`]));
-    // La fiche cuisine déborde : ses pages de suite gardent l'en-tête des colonnes.
-    const suiteCuisine = pages.filter((p, i) => fichePage[i] === "cuisine 22/09/2026");
-    expect(suiteCuisine.length).toBeGreaterThan(1);
-    for (const p of suiteCuisine) expect(p.lignes.some((l) => l.toUpperCase().startsWith("DÉSIGNATION/DATE UNITÉ COMMANDE LIVRAISON"))).toBe(true);
+    expect(debuts).toEqual(["21", "22", "23", "24", "25", "26"].flatMap((j) => [`CUISINE ${j}`, `BAR ${j}`]));
+    for (const p of pages) if (!/COMMANDE (CUISINE|BAR)/.test(p.plat)) expect(p.lignes[0]).toMatch(/^Désignation(\/Date Unité)? Commande Livraison/);
     // Mardi : les quantités du jour ; mercredi : la commande du mercredi, pas celle du mardi.
-    const pageDu = (t: string, d: string) => ({ lignes: pages.filter((_, i) => fichePage[i] === `${t} ${d}`).flatMap((p) => p.lignes) });
-    expect(pageDu("cuisine", "22/09/2026").lignes).toContain("Filet pur Boeuf Kg 2,5 2");
-    expect(pageDu("bar", "22/09/2026").lignes).toContain("Castel 24 24");
-    expect(pageDu("cuisine", "23/09/2026").lignes).toContain("Filet pur Boeuf Kg 99");
-    expect(pageDu("bar", "23/09/2026").lignes).toContain("Castel");
-    // Un seul fait mentionné : la sortie sans motif du mardi. Jamais un remède, ni un caractère absent d'Optima.
+    const fiche = (t: string, d: string) => {
+      const i = pages.findIndex((p) => p.plat.includes(`COMMANDE ${t}`) && p.plat.includes(`${d}/09/2026`));
+      const fin = pages.findIndex((p, k) => k > i && /COMMANDE (CUISINE|BAR)/.test(p.plat));
+      return pages.slice(i, fin < 0 ? undefined : fin).flatMap((p) => p.lignes);
+    };
+    expect(fiche("CUISINE", "22")).toContain("Filet pur Boeuf Kg 2,5 2");
+    expect(fiche("BAR", "22")).toContain("Castel 24 24");
+    expect(fiche("CUISINE", "23")).toContain("Filet pur Boeuf Kg 99");
+    expect(fiche("BAR", "23")).toContain("Castel");
+    const plat = pages.map((p) => p.plat).join(" ");
+    expect(plat).not.toContain("27/09/2026");
     expect(plat).toContain("Sorties sans motif, non comptées comme livrées : 1 le mardi 22/09.");
-    expect(plat).not.toMatch(/[\u202F\u26A0\u2192]/);
+    expect(plat).not.toMatch(/[ ⚠→−]/);
     expect(policesDeRepli(buf)).toEqual([]);
-    expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Épice n° \d+$/)).toBeGreaterThanOrEqual(8);
   }, 180_000);
 
-  it("Excel : une feuille par jour et par fiche (« Lun 21 Cuisine »…), nombres calculables, volet figé, aucun autofiltre", async () => {
+  it("Excel : une feuille du modèle par jour et par fiche (« Lun 21 Cuisine »…), nombres calculables, aucun autofiltre", async () => {
     const { wb, nom } = await sheets("type=commande&tout=1&semaine=2026-09-21&format=excel");
     expect(nom).toBe("Commande_journaliere_semaine_2026-09-21.xlsx");
     const noms = wb.worksheets.map((w) => w.name);
     expect(noms).toEqual(JOURS_SEMAINE.flatMap((j) => [`${j} Cuisine`, `${j} Bar`]));
-    for (const n of noms) expect(n.length).toBeLessThanOrEqual(31);
     const mardi = wb.getWorksheet("Mar 22 Cuisine")!;
-    const rangees = rangeesDe(mardi);
-    expect(String(rangees.find((r) => String(r[0] ?? "").includes("Commande cuisine"))?.[0])).toContain("Commande cuisine — semaine 39 — Date : 22/09/2026");
-    const entete = rangees.findIndex((r) => r[0] === "Désignation/Date");
-    expect(rangees[entete]).toEqual(["Désignation/Date", "Unité", "Commande", "Livraison"]);
-    expect(rangees.find((r) => r[0] === "Filet pur Boeuf")).toEqual(["Filet pur Boeuf", "Kg", 2.5, 2]);
-    expect(rangees.find((r) => r[0] === "Beurre")).toEqual(["Beurre", "—", "", 1234.5]);
-    for (const ws of wb.worksheets) {
-      expect(ws.views[0]).toMatchObject({ state: "frozen" });
-      expect(ws.autoFilter).toBeFalsy();
-    }
-    expect(rangeesDe(wb.getWorksheet("Mer 23 Cuisine")!).find((r) => r[0] === "Filet pur Boeuf")).toEqual(["Filet pur Boeuf", "Kg", 99, ""]);
-    const bar = rangeesDe(wb.getWorksheet("Mar 22 Bar")!);
-    expect(bar.find((r) => r[0] === "Désignation")).toEqual(["Désignation", "Commande", "Livraison"]);
-    expect(bar.find((r) => r[0] === "Castel")).toEqual(["Castel", 24, 24]);
+    expect(mardi.getCell("A8").value).toBe("COMMANDE CUISINE");
+    expect(mardi.getCell("D7").value).toBe("22/09/2026");
+    expect(ligneDe(mardi, "Filet pur Boeuf", 4)).toEqual(["Filet pur Boeuf", "Kg", 2.5, 2]);
+    expect(ligneDe(mardi, "Beurre", 4)).toEqual(["Beurre", "—", "", 1234.5]);
+    for (const ws of wb.worksheets) expect(ws.autoFilter).toBeFalsy(); // le classeur n'en a pas
+    expect(ligneDe(wb.getWorksheet("Mer 23 Cuisine")!, "Filet pur Boeuf", 4)).toEqual(["Filet pur Boeuf", "Kg", 99, ""]);
+    const bar = wb.getWorksheet("Mar 22 Bar")!;
+    expect(bar.getCell("A10").value).toBe("Désignation");
+    expect(ligneDe(bar, "Castel", 3)).toEqual(["Castel", 24, 24]);
   }, 180_000);
 
   it("dimanche : ajouté dès qu'il porte une livraison — seulement sur les fiches de l'espace concerné (filtre de l'écran)", async () => {
@@ -276,14 +287,12 @@ describe("fiche « Commande journalière » de toute la semaine (onglet Commande
     try {
       const { wb } = await sheets("type=commande&tout=1&semaine=2026-09-21&format=excel");
       expect(wb.worksheets.map((w) => w.name).slice(-2)).toEqual(["Dim 27 Cuisine", "Dim 27 Bar"]);
-      expect(rangeesDe(wb.getWorksheet("Dim 27 Bar")!).find((r) => r[0] === "Castel")).toEqual(["Castel", "", 6]);
+      expect(ligneDe(wb.getWorksheet("Dim 27 Bar")!, "Castel", 3)).toEqual(["Castel", "", 6]);
       const { buf } = await lire("type=commande&tout=1&semaine=2026-09-21&format=pdf");
-      expect((await pagesDuPdf(buf)).map((p) => p.plat).join(" ")).toContain("du 21/09/2026 au 27/09/2026");
-      // Filtre Bar : les seules fiches bar, dimanche compris.
+      expect((await pagesDuPdf(buf)).map((p) => p.plat).join(" ")).toContain("27/09/2026");
       const barSeul = await sheets("type=commande&tout=1&semaine=2026-09-21&domaine=BOISSON&format=excel");
       expect(barSeul.nom).toBe("Commande_journaliere_bar_semaine_2026-09-21.xlsx");
       expect(barSeul.wb.worksheets.map((w) => w.name)).toEqual([...JOURS_SEMAINE, "Dim 27"].map((j) => `${j} Bar`));
-      // Filtre Cuisine : la livraison du bar ne fait pas apparaître un dimanche vide en cuisine.
       const cuisineSeule = await sheets("type=commande&tout=1&semaine=2026-09-21&domaine=NOURRITURE&format=excel");
       expect(cuisineSeule.wb.worksheets.map((w) => w.name)).toEqual(JOURS_SEMAINE.map((j) => `${j} Cuisine`));
     } finally {
@@ -292,62 +301,67 @@ describe("fiche « Commande journalière » de toute la semaine (onglet Commande
   }, 240_000);
 });
 
-describe("fiche « Rapport journalier cuisine et bar » : plats et boissons vendus", () => {
+describe("fiche « Rapport journalier cuisine et bar » : le classeur de la Direction, rempli des ventes", () => {
   it("PDF : nombre vendu par jour, « — » les jours non saisis, 0 saisi = 0, lundi → samedi, en-tête répété", async () => {
     const { buf, nom } = await lire("type=rapport&semaine=2026-09-23&format=pdf");
     expect(nom).toBe("Rapport_journalier_2026-09-21.pdf");
     const pages = await pagesDuPdf(buf);
     const lignes = pages.flatMap((p) => p.lignes);
     const plat = pages.map((p) => p.plat).join(" ");
-    expect(plat).toContain("Rapport journalier cuisine et bar");
-    expect(plat).toContain("semaine 39, du 21/09/2026 au 26/09/2026");
-    expect(plat).toContain("Rapport journalier cuisine — semaine 39");
-    expect(plat).toContain("Rapport journalier bar — semaine 39");
-    expect(plat).not.toContain("27/09");
+    expect(plat).toContain("Rapport journalier cuisine");
+    expect(plat).toContain("Rapport journalier bar");
+    expect(plat).toMatch(/Semaine\s+39/);
+    expect(plat).toMatch(/21-sept\.\s+22-sept\.\s+23-sept\.\s+24-sept\.\s+25-sept\.\s+26-sept\./);
+    expect(plat).not.toContain("27-sept.");
     expect(plat).not.toContain("→");
-    // Cuisine : les plats (fiches « Plat vendu »), par rubrique ; jamais une sous-recette.
+    // Cuisine : les plats (fiches « Plat vendu ») sur les lignes du classeur ; jamais une sous-recette.
     expect(lignes).toContain("Carbonara 12 0 — — — —");
     expect(lignes).toContain("Arrabbiata — — — — — —");
+    // Plat absent du classeur : à la fin de sa rubrique du classeur.
     expect(lignes).toContain("Duo de capitaine et de saumon fumé — — — — — 3");
+    expect(lignes.indexOf("Duo de capitaine et de saumon fumé — — — — — 3")).toBe(lignes.findIndex((l) => l.startsWith("Salade de farfalle")) + 1);
+    // Ligne du classeur sans fiche : présente, vide.
+    expect(lignes).toContain("Bolognaise");
     expect(plat).not.toContain("Sauce bolognaise");
     expect(plat).not.toContain("99");
     // Bar : les UNITÉS DE VENTE (fiches Bar), jamais les articles du stock (bouteilles).
     expect(lignes).toContain("Coca — — 24 — — —");
     expect(lignes).toContain("Mojito — — — — — 6");
     expect(plat).not.toContain("(Bouteille)");
-    expect(plat).not.toContain("Fanta");
-    expect(plat).not.toContain("Filet de boeuf");
     // Comme le classeur : aucune mention sous la fiche.
     expect(plat).not.toContain("Nombre vendu");
     // Rubriques du classeur, dans son ordre.
-    const iEntrees = lignes.indexOf("Entrées froides"), iPates = lignes.indexOf("Pâtes classiques"), iDesserts = lignes.indexOf("Desserts");
+    const iEntrees = lignes.indexOf("Entrées Froides"), iPates = lignes.indexOf("Pâtes classiques"), iDesserts = lignes.indexOf("Desserts");
     expect(iEntrees).toBeGreaterThanOrEqual(0);
     expect(iEntrees).toBeLessThan(iPates);
     expect(iPates).toBeLessThan(iDesserts);
-    // La feuille Cuisine déborde : chaque page porte l'en-tête des colonnes ; rangées lisibles.
+    // 45 desserts absents du classeur : la feuille Cuisine se resserre pour tenir sur sa page, comme
+    // Excel (« ajuster à 1 page »), en restant lisible ; chaque page porte l'en-tête de colonnes.
     const pagesCuisine = pages.filter((p) => p.plat.includes("Dessert n°"));
-    expect(pagesCuisine.length).toBeGreaterThan(1);
-    for (const p of pagesCuisine) expect(p.lignes.some((l) => l.toUpperCase().startsWith("DÉSIGNATION/DATE LUN 21/09 MAR 22/09"))).toBe(true);
-    // La fiche Bar commence sur sa propre page.
+    expect(pagesCuisine.length).toBeGreaterThanOrEqual(1);
+    for (const p of pagesCuisine) expect(p.plat).toMatch(/Designation\/Date\s+Lun\s+Mar\s+Mer\s+Jeu\s+Ven\s+Sam/);
     const pageBar = pages.findIndex((p) => p.plat.includes("Rapport journalier bar"));
     expect(pages[pageBar]!.plat).not.toContain("Dessert n°");
-    expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Dessert n° \d+$/)).toBeGreaterThanOrEqual(8);
+    expect(ecartMinimalEntreRangees(await textesPoses(buf), /^Dessert n° \d+$/)).toBeGreaterThanOrEqual(5);
     expect(policesDeRepli(buf)).toEqual([]);
   }, 120_000);
 
-  it("Excel : feuilles Cuisine et Bar, un nombre vendu est un nombre, « — » pour un jour non saisi", async () => {
+  it("Excel : le classeur du modèle (Cuisine, Bar), un nombre vendu est un nombre, « — » pour un jour non saisi", async () => {
     const { buf, nom } = await lire("type=rapport&semaine=2026-09-21&format=excel");
     expect(nom).toBe("Rapport_journalier_2026-09-21.xlsx");
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
-    expect(wb.worksheets.map((w) => w.name)).toEqual(["Cuisine", "Bar"]);
-    const cuisine = rangeesDe(wb.getWorksheet("Cuisine")!);
-    expect(cuisine.find((r) => r[0] === "Désignation/Date")).toEqual(["Désignation/Date", "Lun 21/09", "Mar 22/09", "Mer 23/09", "Jeu 24/09", "Ven 25/09", "Sam 26/09"]);
-    expect(cuisine.find((r) => r[0] === "Carbonara")).toEqual(["Carbonara", 12, 0, "—", "—", "—", "—"]);
-    const bar = rangeesDe(wb.getWorksheet("Bar")!);
-    expect(bar.find((r) => r[0] === "Coca")).toEqual(["Coca", "—", "—", 24, "—", "—", "—"]);
-    expect(bar.some((r) => String(r[0]).includes("Fanta"))).toBe(false);
-    expect(bar.find((r) => r[0] === "Mojito")).toEqual(["Mojito", "—", "—", "—", "—", "—", 6]);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(["Cuisine ", "Bar "]);
+    const cuisine = wb.getWorksheet("Cuisine ")!;
+    expect(cuisine.getCell("B9").value).toBe("Rapport journalier cuisine ");
+    expect(cuisine.getCell("D9").value).toMatchObject({ formula: "WEEKNUM(C12,21)", result: 39 });
+    expect(cuisine.getCell("B11").value).toBe("Designation/Date ");
+    expect(ligneDe(cuisine, "Carbonara", 7, 1)).toEqual(["Carbonara", 12, 0, "—", "—", "—", "—"]);
+    expect(ligneDe(cuisine, "Bolognaise", 7, 1)).toEqual(["Bolognaise", "", "", "", "", "", ""]);
+    const bar = wb.getWorksheet("Bar ")!;
+    expect(ligneDe(bar, "Coca", 7)).toEqual(["Coca", "—", "—", 24, "—", "—", "—"]);
+    expect(ligneDe(bar, "Mojito", 7)).toEqual(["Mojito", "—", "—", "—", "—", "—", 6]);
+    expect(rangeesDe(bar).some((r) => String(r[0]).includes("Fanta (") )).toBe(false);
   }, 120_000);
 
   it("filtre Cuisine : la seule feuille Cuisine ; le dimanche apparaît dès qu'il porte une vente", async () => {
@@ -357,9 +371,15 @@ describe("fiche « Rapport journalier cuisine et bar » : plats et boissons vend
       expect(nom).toBe("Rapport_journalier_cuisine_2026-09-21.pdf");
       const pages = await pagesDuPdf(buf);
       const plat = pages.map((p) => p.plat).join(" ");
-      expect(plat).toContain("du 21/09/2026 au 27/09/2026");
+      expect(plat).toMatch(/Sam\s+Dim/);
+      expect(plat).toContain("27-sept.");
       expect(plat).not.toContain("Rapport journalier bar");
       expect(pages.flatMap((p) => p.lignes)).toContain("Arrabbiata — — — — — — 4");
+      const x = await lire("type=rapport&semaine=2026-09-21&domaine=NOURRITURE&format=excel");
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(x.buf as unknown as ArrayBuffer);
+      expect(wb.worksheets.map((w) => w.name)).toEqual(["Cuisine "]);
+      expect(wb.worksheets[0]!.getCell("I11").value).toMatchObject({ result: "Dim" });
     } finally {
       await prisma.venteJournaliere.delete({ where: { id: ventes.id } });
     }

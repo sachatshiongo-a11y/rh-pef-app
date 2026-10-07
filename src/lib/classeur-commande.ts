@@ -24,6 +24,8 @@ export type LigneCommandeClasseur = {
   /** Unité écrite dans le classeur (feuille cuisine), pour information. */
   unite: string | null;
   rang: number;
+  /** Numéro de la rangée dans la feuille Excel (lecture d'un classeur ; le document du jour s'y cale, lib/modeles-journaliers). */
+  ligne?: number;
 };
 
 export type LectureCommande = { ok: true; lignes: LigneCommandeClasseur[] } | { ok: false; erreur: string };
@@ -72,7 +74,7 @@ export async function lireClasseurCommande(donnees: ArrayBuffer | Uint8Array): P
       if (vues.has(k)) continue;
       vues.add(k);
       const unite = feuille === "CUISINE" ? cs.find((c) => c.col === colonneSuivante(col))?.texte ?? null : null;
-      lignes.push({ feuille, rubrique: r, nom: d.texte, unite, rang: ++rang });
+      lignes.push({ feuille, rubrique: r, nom: d.texte, unite, rang: ++rang, ligne: d.ligne });
     }
   }
   if (!lignes.some((l) => l.feuille === "CUISINE") || !lignes.some((l) => l.feuille === "BAR")) return { ok: false, erreur: REFUS };
@@ -108,7 +110,7 @@ export type PropositionCommande = {
 /** Domaines du catalogue repris sur chaque feuille (comme la fiche : cuisine = nourriture ET « autre »). */
 const DOMAINES: Record<EspaceVente, ArticleCatalogueImport["domaine"][]> = { CUISINE: ["NOURRITURE", "AUTRE"], BAR: ["BOISSON"] };
 /** Clé d'un légume : sans casse, accents, ponctuation ni pluriel (« Courgette » = « Courgettes »). */
-const cleLegume = (s: string) => cleTexte(s).split(/[^a-z0-9]+/).filter(Boolean).map((m) => (m.length > 3 && m.endsWith("s") ? m.slice(0, -1) : m)).join("");
+export const cleLegume = (s: string) => cleTexte(s).split(/[^a-z0-9]+/).filter(Boolean).map((m) => (m.length > 3 && m.endsWith("s") ? m.slice(0, -1) : m)).join("");
 const libelle = (a: ArticleCatalogueImport) => (a.nomCourt ? `${a.designation} (nom court « ${a.nomCourt} »)` : a.designation);
 
 /** Propose, pour chaque ligne du classeur, l'article correspondant — jamais deviné. */

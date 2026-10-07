@@ -25,6 +25,8 @@ export function registerPdfFonts() {
       { src: path.join(dir, "Optima-Regular.ttf"), fontWeight: 400 },
       { src: path.join(dir, "Optima-Bold.ttf"), fontWeight: 700 },
       { src: path.join(dir, "Optima-Italic.ttf"), fontWeight: 400, fontStyle: "italic" },
+      // Rubriques de la « Commande journalière » : gras, italique et souligné, comme le classeur.
+      { src: path.join(dir, "Optima-BoldItalic.ttf"), fontWeight: 700, fontStyle: "italic" },
     ],
   });
 }

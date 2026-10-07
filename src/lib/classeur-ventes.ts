@@ -37,6 +37,8 @@ export type LigneClasseur = {
   nom: string;
   /** Rang dans la feuille (1, 2, 3…) : l'ordre du classeur. */
   rang: number;
+  /** Numéro de la rangée dans la feuille Excel (lecture d'un classeur ; le document du jour s'y cale, lib/modeles-journaliers). */
+  ligne?: number;
 };
 
 export type LectureClasseur = { ok: true; lignes: LigneClasseur[] } | { ok: false; erreur: string };
@@ -75,9 +77,9 @@ export async function lireClasseurVentes(donnees: ArrayBuffer | Uint8Array): Pro
       if (FORMATS_DE_VENTE.includes(cleTexte(c.texte))) {
         const parent = base !== null ? lignes[base.index]!.nom : r;
         if (base !== null) { base.aDesFormats = true; aRetirer.add(base.index); }
-        lignes.push({ feuille, rubrique: r, nom: `${parent}${SEPARATEUR_SOUS_RUBRIQUE}${c.texte}`, rang: 0 });
+        lignes.push({ feuille, rubrique: r, nom: `${parent}${SEPARATEUR_SOUS_RUBRIQUE}${c.texte}`, rang: 0, ligne: c.ligne });
       } else {
-        lignes.push({ feuille, rubrique: r, nom: c.texte, rang: 0 });
+        lignes.push({ feuille, rubrique: r, nom: c.texte, rang: 0, ligne: c.ligne });
         base = { index: lignes.length - 1, aDesFormats: false };
       }
     }
