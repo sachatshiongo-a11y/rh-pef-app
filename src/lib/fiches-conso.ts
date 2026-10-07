@@ -28,11 +28,19 @@ export type ValeurFiche = number | string | null;
 export type CaseFiche = { valeur: ValeurFiche; ecart?: boolean };
 export type RoleColonne = "cmd" | "liv" | "conso" | "vente" | null;
 
-export type LigneFiche = { designation: string; cases: CaseFiche[] };
+/**
+ * Clé de la ligne dans le classeur de la Direction (rubrique, noms possibles) : le document du jour
+ * l'écrit sur la rangée du classeur qui porte ce nom (lib/modeles-journaliers). `legume` : ligne de
+ * la liste des légumes frais, rapprochée sans pluriel ni ponctuation.
+ */
+export type CleLigne = { rubrique: string; noms: string[]; legume?: boolean };
+export type LigneFiche = { designation: string; cases: CaseFiche[]; cle?: CleLigne };
 export type SectionFiche = { titre: string; lignes: LigneFiche[] };
 
 /** Fiche prête à rendre en PDF et en Excel. */
 export type Fiche = {
+  /** Espace (feuille cuisine ou bar du classeur). */
+  espace: EspaceFiche;
   /** Nom de la feuille Excel (celui du classeur). */
   feuille: string;
   /** Titre de la fiche (partie du PDF, titre de la feuille Excel). */
@@ -108,6 +116,7 @@ export function ficheRapportJournalier(p: {
   const dimancheVendu = p.jours[6] !== undefined && p.lignes.some((l) => p.ventes.has(cleCase(l.cle, p.jours[6]!)));
   const jours = p.jours.slice(0, dimancheVendu ? 7 : 6);
   return {
+    espace: p.espace,
     feuille: p.espace === "CUISINE" ? "Cuisine" : "Bar",
     titre: `Rapport journalier ${p.espace === "CUISINE" ? "cuisine" : "bar"} — semaine ${semaineIso(p.jours[0]!)}`,
     enteteDesignation: "Désignation/Date",
@@ -118,6 +127,7 @@ export function ficheRapportJournalier(p: {
       (l) => ({
         designation: l.inactif ? `${l.designation} (désactivé)` : l.designation,
         cases: jours.map((j) => ({ valeur: p.ventes.get(cleCase(l.cle, j)) ?? null })),
+        cle: { rubrique: l.rubrique, noms: [l.designation] },
       }),
     ),
   };
@@ -151,6 +161,7 @@ export function ficheConsommationReelle(p: {
   const nbJours = dimancheConnu ? 7 : 6;
   const libelle = p.espace === "CUISINE" ? "cuisine" : "bar";
   return {
+    espace: p.espace,
     feuille: p.espace === "CUISINE" ? "Conso. réelle cuisine" : "Conso. réelle bar",
     titre: `Consommation réelle ${libelle} — semaine ${semaineIso(p.jours[0]!)}`,
     enteteDesignation: "Désignation/Date",
@@ -233,9 +244,10 @@ export function ficheCommandeJournaliere(p: {
     { entete: "Livraison", role: "liv" },
   ];
   // Unité : celle du catalogue, « — » quand elle n'y est pas renseignée.
-  const ligne = (designation: string, unite: string | null, cmd: ValeurFiche, liv: ValeurFiche): LigneFiche => ({
+  const ligne = (designation: string, unite: string | null, cmd: ValeurFiche, liv: ValeurFiche, cle: CleLigne): LigneFiche => ({
     designation,
     cases: [...(cuisine ? [{ valeur: unite?.trim() || null }] : []), { valeur: cmd }, { valeur: liv }],
+    cle,
   });
   // Ordre du CLASSEUR : ses rubriques dans son ordre (puis les autres, alphabétiques ; « À classer »
   // en dernier) ; dans une rubrique, les lignes au rang du classeur, puis celles sans rang par nom ;
@@ -274,10 +286,16 @@ export function ficheCommandeJournaliere(p: {
   const groupes = enSections(
     tries,
     (x) => x.rubrique,
-    (x) => ligne(x.nom, x.a.unite, quantite(p.commandes.get(x.a.id)), quantite(p.livraisons.get(x.a.id))),
+    (x) => ligne(x.nom, x.a.unite, quantite(p.commandes.get(x.a.id)), quantite(p.livraisons.get(x.a.id)), {
+      // Sous son nom imprimé (nom court importé du classeur), sa désignation ou son nom court.
+      rubrique: x.rubrique, noms: [x.nom, x.a.designation, ...(x.a.nomCourt?.trim() ? [x.a.nomCourt] : [])],
+    }),
   );
   if (cuisine && p.legumes?.length) {
-    const legumes = { titre: RUBRIQUE_LEGUMES, lignes: p.legumes.map((l) => ligne(l.designation, l.unite, quantite(l.commande), quantite(l.livraison))) };
+    const legumes = {
+      titre: RUBRIQUE_LEGUMES,
+      lignes: p.legumes.map((l) => ligne(l.designation, l.unite, quantite(l.commande), quantite(l.livraison), { rubrique: RUBRIQUE_LEGUMES, noms: [l.designation], legume: true })),
+    };
     // Des articles déjà rangés sous « Fruits & Légumes frais » : une seule rubrique, légumes à la suite.
     const meme = groupes.find((g) => cleRubrique(g.titre) === cleRubrique(RUBRIQUE_LEGUMES));
     if (meme) meme.lignes.push(...legumes.lignes);
@@ -297,6 +315,7 @@ export function ficheCommandeJournaliere(p: {
     parentPrecedent = parent;
   }
   return {
+    espace: p.espace,
     feuille: cuisine ? "Fiche commande cuisine" : "Fiche commande Bar",
     titre: `Commande ${cuisine ? "cuisine" : "bar"} — semaine ${semaineIso(p.date)}`,
     sousTitre: `Date : ${dateCourte(p.date)}`,
