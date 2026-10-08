@@ -4,17 +4,23 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { exigerPageStock } from "@/lib/garde-page";
+import { Pagination } from "@/components/pagination";
+import { fenetrePage, lirePagination } from "@/lib/pagination";
 
-export default async function ArchiveDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ArchiveDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; par?: string }> }) {
   await exigerPageStock();
   const { id } = await params;
-  const session = await prisma.sessionComptage.findUnique({
-    where: { id },
-    include: { lignes: { orderBy: { designation: "asc" } } },
-  });
+  const sp = await searchParams;
+  const demande = lirePagination(sp);
+  const session = await prisma.sessionComptage.findUnique({ where: { id } });
   if (!session) notFound();
+  // Un comptage compte des centaines d'articles : les lignes sont lues par PAGE (skip/take + count) ; les
+  // chiffres de l'en-tête (articles, écarts, hors tolérance) sont ceux de la fiche, donc de TOUT le comptage.
+  const nbLignes = await prisma.ligneComptage.count({ where: { sessionId: id } });
+  const fen = fenetrePage(nbLignes, demande.page, demande.par);
+  const lignes = await prisma.ligneComptage.findMany({ where: { sessionId: id }, orderBy: [{ designation: "asc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
 
-  const horsTol = (l: (typeof session.lignes)[number]) =>
+  const horsTol = (l: (typeof lignes)[number]) =>
     Math.abs(Number(l.ecart)) > 0.0001 && (Number(l.theorique) === 0 ? Number(l.physique) !== 0 : Math.abs(Number(l.ecartPct ?? 0)) > SEUIL_TOLERANCE_PCT);
 
   return (
@@ -45,7 +51,7 @@ export default async function ArchiveDetailPage({ params }: { params: Promise<{ 
             </tr>
           </thead>
           <tbody>
-            {session.lignes.map((l) => {
+            {lignes.map((l) => {
               const e = Number(l.ecart);
               const ht = horsTol(l);
               return (
@@ -62,6 +68,7 @@ export default async function ArchiveDetailPage({ params }: { params: Promise<{ 
           </tbody>
         </table>
       </div>
+      <Pagination total={nbLignes} page={fen.page} par={demande.par} chemin={`/stock/archives/${id}`} params={sp} libelle="articles comptés" />
     </div>
   );
 }

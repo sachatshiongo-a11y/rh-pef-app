@@ -23,6 +23,7 @@ vi.mock("@/lib/auth", async () => {
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
+let idSession = "";
 const texte = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/[\s  ]+/g, " ");
 async function rendre(sp: Record<string, string> = {}) {
   const { default: Page } = await import("./page");
@@ -47,6 +48,12 @@ beforeAll(async () => {
     ],
   });
   await prisma.sessionComptage.createMany({ data: Array.from({ length: 120 }, (_, i) => ({ date: jour(i), nbArticles: i })) });
+  // Un comptage de 120 lignes pour la page de détail.
+  const session = await prisma.sessionComptage.create({ data: { date: jour(0), nbArticles: 120, nbEcarts: 3, nbHorsTol: 1 } });
+  idSession = session.id;
+  await prisma.ligneComptage.createMany({
+    data: Array.from({ length: 120 }, (_, i) => ({ sessionId: session.id, designation: `Article ${String(i + 1).padStart(3, "0")}`, theorique: 10, physique: 9, ecart: -1 })),
+  });
   await prisma.rapport.createMany({ data: Array.from({ length: 30 }, (_, i) => ({ titre: `R${i}`, type: "FACTURES", createdAt: jour(i) })) });
   await prisma.bonDeCommande.createMany({
     data: Array.from({ length: 120 }, (_, i) => ({ numero: `${i + 1}/PEF/X/26`, sequence: i + 1, annee: 2026, mois: 1 + (i % 12), date: jour(i), statut: "VALIDE" as const, totalUSD: 10 })),
@@ -96,11 +103,11 @@ describe("Archives — journal d'activité", () => {
 });
 
 describe("Archives — comptages, bons, rapports", () => {
-  it("comptages : 50 par page sur 120, compteur et page 3", async () => {
+  it("comptages : 50 par page sur 121 (120 + celui du détail), compteur et page 3", async () => {
     const html = await rendre({ vue: "comptages" });
     expect((html.match(/hors tol\./g) ?? [])).toHaveLength(50);
-    expect(texte(html)).toContain("1–50 sur 120");
-    expect((await rendre({ vue: "comptages", page: "3" }).then((h) => h.match(/hors tol\./g) ?? []))).toHaveLength(20);
+    expect(texte(html)).toContain("1–50 sur 121");
+    expect((await rendre({ vue: "comptages", page: "3" }).then((h) => h.match(/hors tol\./g) ?? []))).toHaveLength(21);
   });
   it("bons validés : 50 par page, total du mois coupé annoncé « (cette page) »", async () => {
     const html = await rendre({ vue: "bons" });
@@ -112,5 +119,31 @@ describe("Archives — comptages, bons, rapports", () => {
     const html = await rendre({ vue: "rapports" });
     expect((html.match(/Télécharger/g) ?? [])).toHaveLength(30);
     expect(html).not.toContain('data-pagination=""');
+  });
+});
+
+describe("Archives — détail d'un comptage (lignes paginées côté serveur)", () => {
+  async function rendreDetail(sp: Record<string, string> = {}) {
+    const { default: Page } = await import("./[id]/page");
+    const flux = await renderToReadableStream(await Page({ params: Promise.resolve({ id: idSession }), searchParams: Promise.resolve(sp) }));
+    await flux.allReady;
+    return await new Response(flux).text();
+  }
+  const articles = (html: string) => [...html.matchAll(/>(Article \d{3})</g)].map((m) => m[1]);
+
+  it("50 articles par page, l'en-tête garde les chiffres de TOUT le comptage", async () => {
+    const html = await rendreDetail();
+    const a = articles(html);
+    expect(a).toHaveLength(50);
+    expect(a[0]).toBe("Article 001");
+    expect(texte(html)).toContain("Articles : 120");
+    expect(texte(html)).toContain("1–50 sur 120");
+  });
+  it("page 3 = 101–120 ; 100 par page ; Tout", async () => {
+    const p3 = articles(await rendreDetail({ page: "3" }));
+    expect(p3).toHaveLength(20);
+    expect(p3[19]).toBe("Article 120");
+    expect(articles(await rendreDetail({ par: "100" }))).toHaveLength(100);
+    expect(articles(await rendreDetail({ par: "tout" }))).toHaveLength(120);
   });
 });
