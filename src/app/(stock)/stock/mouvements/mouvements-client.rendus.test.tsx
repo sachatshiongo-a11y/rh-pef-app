@@ -11,6 +11,7 @@ const { mouvementManuel } = vi.hoisted(() => ({ mouvementManuel: vi.fn(async (..
 vi.mock("./actions", () => ({
   mouvementManuel, supprimerMouvement: vi.fn(async () => undefined), supprimerMouvementsEnLot: vi.fn(async () => undefined),
   requalifierSorties: vi.fn(async () => ({ n: 0 })),
+  changerDateSorties: vi.fn(async (..._a: unknown[]): Promise<{ n: number; deja: number; date: string } | { erreur: string }> => ({ n: 1, deja: 0, date: "2026-07-08" })),
 }));
 
 import { champsParNom, choisirOption, libellesOuverts, taperChoix, toucheChoix, valeurChoisie } from "@/lib/test/choix-recherche";
@@ -134,6 +135,89 @@ describe("colonne des sorties — motif et requalification groupée", () => {
   });
 });
 
+describe("changer la date d'une sortie (2026-10-08) — à l'unité et en lot", () => {
+  const M = (id: string, type = "SORTIE") => ({
+    id, articleId: "farine", designation: `Farine ${id}`, dateISO: "2026-07-10", origine: "Livraison restaurant", type, quantite: 1,
+    valeur: null, valeurEstimee: false, facture: null, bc: null, fournId: null, fournNom: null, motif: type === "SORTIE" ? "LIVRAISON_RESTAURANT" : undefined,
+  });
+  function monterColonne({ requalifiable = true, estDirection = true, type = "SORTIE" } = {}) {
+    conteneur = document.createElement("div");
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    act(() => racine.render(createElement(ColonneMouvements, {
+      titre: requalifiable ? "Sorties" : "Entrées", signe: "−", couleur: "", estDirection, requalifiable,
+      mouvements: [M("a", type), M("b", type), M("c", type)],
+    })));
+  }
+  const calendrier = (id: string) => conteneur.querySelector<HTMLButtonElement>(`button[aria-label="Changer la date de la sortie Farine ${id}"]`);
+  const champDate = () => conteneur.querySelector<HTMLInputElement>('input[aria-label="Nouvelle date de la sortie"]')!;
+  function saisirDate(v: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(champDate(), v);
+      champDate().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("à l'unité : 📅 sur la ligne ouvre la date actuelle ; la nouvelle date part pour CETTE sortie, le compte rendu la nomme", async () => {
+    const actions = await import("./actions");
+    const changer = vi.mocked(actions.changerDateSorties);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monterColonne();
+    act(() => calendrier("b")!.click());
+    expect(conteneur.querySelector('[data-date-sortie="b"]')).not.toBeNull();
+    expect(champDate().value).toBe("2026-07-10");
+    expect(champDate().max).toMatch(/^\d{4}-\d{2}-\d{2}$/); // aujourd'hui à Kinshasa : pas de date future
+    expect(bouton("Changer la date").disabled).toBe(true); // même date : rien à changer
+    saisirDate("2026-07-08");
+    await act(async () => { bouton("Changer la date").click(); });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/^Dater cette sortie \(du 10\/07\/2026\) du 08\/07\/2026 \? Ni la quantité, ni le motif, ni le stock du dépôt ne changent/));
+    expect(changer).toHaveBeenLastCalledWith(["b"], "2026-07-08");
+    expect(conteneur.textContent).toContain("Farine b : 1 sortie(s) datée(s) du 08/07/2026.");
+    expect(conteneur.querySelector('[data-date-sortie="b"]')).toBeNull(); // panneau refermé
+  });
+
+  it("date future : bouton désactivé et message ; refus du serveur affiché tel quel", async () => {
+    const actions = await import("./actions");
+    const changer = vi.mocked(actions.changerDateSorties);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monterColonne();
+    act(() => calendrier("a")!.click());
+    saisirDate("2099-01-01");
+    expect(bouton("Changer la date").disabled).toBe(true);
+    expect(conteneur.textContent).toContain("Pas de date dans le futur");
+    saisirDate("2026-07-01");
+    changer.mockResolvedValueOnce({ erreur: "La période 07/2026 est clôturée : …" });
+    await act(async () => { bouton("Changer la date").click(); });
+    expect(conteneur.querySelector('[role="alert"]')?.textContent).toBe("La période 07/2026 est clôturée : …");
+    expect(conteneur.querySelector('[data-date-sortie="a"]')).not.toBeNull(); // reste ouvert pour corriger
+  });
+
+  it("en lot : « Changer la date (n) » dans la barre d'actions groupées, avec les sorties cochées", async () => {
+    const actions = await import("./actions");
+    const changer = vi.mocked(actions.changerDateSorties);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monterColonne();
+    act(() => conteneur.querySelector<HTMLInputElement>('input[aria-label="Tout sélectionner (3 affichés)"]')!.click());
+    expect(bouton("Changer la date (3)").disabled).toBe(true); // pas encore de date
+    saisirDate("2026-07-05");
+    changer.mockResolvedValueOnce({ n: 2, deja: 1, date: "2026-07-05" });
+    await act(async () => { bouton("Changer la date (3)").click(); });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/^Dater 3 sortie\(s\) du 05\/07\/2026 \?/));
+    expect(changer).toHaveBeenLastCalledWith(["a", "b", "c"], "2026-07-05");
+    expect(conteneur.textContent).toContain("2 sortie(s) datée(s) du 05/07/2026 · 1 déjà à cette date.");
+  });
+
+  it("ni 📅 ni « Changer la date » hors Direction, ni sur la colonne des entrées", () => {
+    monterColonne({ estDirection: false });
+    expect(calendrier("a")).toBeNull();
+    act(() => racine.unmount()); conteneur.remove();
+    monterColonne({ requalifiable: false, type: "ENTREE" });
+    expect(calendrier("a")).toBeNull();
+    act(() => conteneur.querySelector<HTMLInputElement>('input[aria-label="Sélectionner"]')!.click());
+    expect(bouton("Changer la date")).toBeUndefined();
+  });
+});
+
 describe("sélectionner TOUT le filtre (décision du 2026-09-29)", () => {
   const M = (id: string) => ({
     id, articleId: "farine", designation: `Farine ${id}`, dateISO: "2026-09-20", origine: "Import Excel", type: "SORTIE", quantite: 1,
@@ -190,6 +274,20 @@ describe("sélectionner TOUT le filtre (décision du 2026-09-29)", () => {
     act(() => conteneur.querySelector<HTMLInputElement>('input[aria-label="Sélectionner"]')!.click());
     expect(conteneur.querySelector('[data-tout-le-filtre="actif"]')).toBeNull();
     expect(conteneur.textContent).toContain("2 sélectionné(s)");
+  });
+
+  it("« Changer la date » en mode filtre : envoie le filtre et le nombre confirmé", async () => {
+    const actions = await import("./actions");
+    const changer = vi.mocked(actions.changerDateSorties);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monterFiltre(467);
+    toutCocher();
+    act(() => lien()!.click());
+    const champ = conteneur.querySelector<HTMLInputElement>('input[aria-label="Nouvelle date de la sortie"]')!;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(champ, "2026-09-01"); champ.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { bouton("Changer la date (467)").click(); });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/^Dater 467 sorties \(septembre 2026, sans motif\) du 01\/09\/2026 \?/));
+    expect(changer).toHaveBeenLastCalledWith({ filtre: FILTRE, colonne: "SORTIES", attendu: 467 }, "2026-09-01");
   });
 
   it("« Supprimer la sélection » en mode filtre : confirmation qui nomme le nombre et le filtre, puis le filtre est envoyé", async () => {
