@@ -29,12 +29,12 @@ export type BCRow = {
  * bons du filtre sont chargés : les mois gardent leur compteur et leur total sur TOUT le filtre et ne montrent que
  * les lignes de la page ; « Tout sélectionner » = la page, un lien prend tout le filtre.
  */
-export function CommandesListe({ commandes, estDirection, sansFournisseur = false, suffixeRetour = "", paginer = false, pageInit = 1, parInit = 50 }: { commandes: BCRow[]; estDirection: boolean; sansFournisseur?: boolean; suffixeRetour?: string; paginer?: boolean; pageInit?: number; parInit?: ParPage }) {
+export function CommandesListe({ commandes, estDirection, sansFournisseur = false, suffixeRetour = "", paginer = false, pageInit = 1, parInit = 50, cleFiltre = "" }: { commandes: BCRow[]; estDirection: boolean; sansFournisseur?: boolean; suffixeRetour?: string; paginer?: boolean; pageInit?: number; parInit?: ParPage; /** Filtres de la page : la page repart à 1 quand ils changent, pas après une action groupée. */ cleFiltre?: string }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
-  const pagination = usePagination({ total: commandes.length, pageInit, parInit: paginer ? parInit : "tout", cleFiltre: `${commandes.length}|${commandes[0]?.id}|${commandes[commandes.length - 1]?.id}`, synchroUrl: paginer });
+  const pagination = usePagination({ total: commandes.length, pageInit, parInit: paginer ? parInit : "tout", cleFiltre, synchroUrl: paginer });
   const { debut: debutPage, fin: finPage } = pagination;
   const pageCommandes = useMemo(() => (paginer ? tranche(commandes, { debut: debutPage, fin: finPage }) : commandes), [paginer, commandes, debutPage, finPage]);
   const idsPage = new Set(pageCommandes.map((c) => c.id));

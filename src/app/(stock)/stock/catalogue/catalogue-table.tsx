@@ -127,7 +127,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null); // proposition envoyée à la Direction
-  const [sel, setSel] = useState<Set<string>>(new Set());
+  // Cases cochées, TOUTES pages et tous filtres confondus ; `sel` (plus bas) n'en garde que ce qui est dans le filtre affiché.
+  const [selBrute, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
   const [ajout, setAjout] = useState(false);
@@ -163,6 +164,10 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)),
     );
   }, [articles, q, dom, alerte, manque, hausseSeule]);
+
+  // La sélection EFFECTIVE = cochées ∩ filtre affiché : c'est elle qui se compte et qui part aux actions groupées.
+  // Cocher la page 1 puis filtrer « Urgent » ne laisse pas 50 articles invisibles recevoir « Désactiver » (relecture du 2026-10-08).
+  const sel = useMemo(() => new Set(visibles.filter((a) => selBrute.has(a.id)).map((a) => a.id)), [visibles, selBrute]);
 
   // Liste affichée : triée par colonne si un tri est actif, sinon ordre d'origine (groupé par catégorie).
   const affichees = useMemo(() => {
@@ -420,6 +425,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
           <span className="font-medium">{sel.size} sélectionné(s)</span>
+          {selBrute.size > sel.size && <span data-hors-filtre="" className="text-xs text-muted-foreground">({selBrute.size - sel.size} autre(s) coché(s) hors filtre : non concerné(s))</span>}
           {filtreDepasseLaPage && pageToutCochee && nbFiltreCoches < visibles.length && (
             <button type="button" data-tout-le-filtre="proposer" onClick={() => setSel(new Set(visibles.map((a) => a.id)))} className="text-xs font-medium text-primary underline">
               Sélectionner les {visibles.length} articles du filtre

@@ -111,4 +111,17 @@ describe("Factures paginées", () => {
     expect(texte()).toContain("SENEVE · 70 facture(s) · 20 affichée(s)");
     expect(texte()).toContain("AUTRE · 10 facture(s)");
   });
+
+  it("« Marquer payée » (une facture sort de la liste) ne ramène pas à la page 1 : la clé est le filtre", () => {
+    monter({ pageInit: 2, cleFiltre: "du" });
+    expect(texte()).toContain("51–100 sur 120");
+    const sans = [{ annee: 2026, mois: ANNEES[0].mois.map((m, i) => (i === 0 ? { ...m, factures: m.factures.slice(1) } : m)) }];
+    act(() => racine.render(createElement(FacturesUI, { annees: sans, estDirection: true, paginer: true, pageInit: 2, cleFiltre: "du" })));
+    expect(texte()).toContain("51–100 sur 119");
+  });
+  it("un autre filtre ramène à la page 1", () => {
+    monter({ pageInit: 2, cleFiltre: "du" });
+    act(() => racine.render(createElement(FacturesUI, { annees: ANNEES, estDirection: true, paginer: true, pageInit: 2, cleFiltre: "REGLEE" })));
+    expect(texte()).toContain("1–50 sur 120");
+  });
 });

@@ -142,6 +142,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     for (const a of annees) a.mois.sort((x, y) => y.cle.localeCompare(x.cle));
   }
 
+  const cleListe = [f, anneeSel, tri, vue].join("|");
   const lien = (params: Partial<SP>) => {
     const p = new URLSearchParams();
     const s = { statut: f, tri, vue, annee: sp.annee, ...params };
@@ -262,8 +263,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
           {tri === "mois"
-            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} paginer pageInit={page} parInit={par} />
-            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} paginer pageInit={page} parInit={par} />}
+            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} paginer pageInit={page} parInit={par} cleFiltre={cleListe} />
+            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} paginer pageInit={page} parInit={par} cleFiltre={cleListe} />}
         </>
       )}
     </div>

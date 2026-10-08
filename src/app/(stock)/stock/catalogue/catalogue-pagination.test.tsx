@@ -152,4 +152,25 @@ describe("Inventaire paginé", () => {
     expect(entetes[0]).toMatch(/^Farines \(60\)/); // le compteur est celui de la catégorie dans TOUT le filtre
     expect(entetes[1]).toMatch(/^Huiles \(60\)/);
   });
+
+  it("cocher la page 1 puis filtrer « Urgent » : les 50 cochés invisibles ne comptent pas et ne partent pas", async () => {
+    monter();
+    act(() => { caseTout().click(); });
+    expect(conteneur.textContent).toContain("50 sélectionné(s)");
+    const urgent = [...conteneur.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Urgent" && !b.closest("[data-filtres-mobile]"))!;
+    clic(urgent);
+    expect(conteneur.textContent).not.toContain("50 sélectionné(s)");
+    expect(conteneur.querySelector('[data-tout-le-filtre="proposer"]')).toBeNull(); // plus de barre : rien de coché dans le filtre
+    // On coche UN urgent visible : le compteur dit 1, l'action reçoit 1 identifiant, et la note nomme les 50 autres.
+    act(() => { conteneur.querySelector<HTMLInputElement>("tbody tr input[type=checkbox]")!.click(); });
+    expect(conteneur.textContent).toContain("1 sélectionné(s)");
+    expect(conteneur.querySelector("[data-hors-filtre]")!.textContent).toContain("50 autre(s) coché(s) hors filtre");
+    const choix = conteneur.querySelector<HTMLSelectElement>("select:not([aria-label])")!;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!;
+    act(() => { setter.call(choix, "c2"); choix.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => { [...conteneur.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Appliquer")!.click(); });
+    const [ids] = categoriserEnMasse.mock.calls[0] as [string[]];
+    expect(ids).toHaveLength(1);
+    expect(ids[0] >= "a114").toBe(true); // un des 7 urgents (n° 114 à 120)
+  });
 });

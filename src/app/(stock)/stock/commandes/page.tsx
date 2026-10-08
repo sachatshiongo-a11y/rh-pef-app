@@ -63,6 +63,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
       <CommandesListe
         estDirection={estDirection}
         paginer
+        cleFiltre={[annee, mois, fournisseurId].join("|")}
         pageInit={page}
         parInit={par}
         commandes={commandes.map((c) => ({

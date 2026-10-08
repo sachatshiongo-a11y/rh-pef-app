@@ -77,7 +77,7 @@ function messageEcartLot(reglees: number, demandees: number): string {
  * entière reste chargée : les groupes (année, mois, fournisseur) gardent leurs compteurs et leurs « dû » sur
  * TOUT le filtre et ne montrent que les lignes de la page ; un groupe sans ligne sur la page disparaît.
  */
-export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false, taux = 0, paginer = false, pageInit = 1, parInit = 50 }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean; /** Taux du jour (Paramètres) : paiement en francs ; 0 = non défini. */ taux?: number; paginer?: boolean; pageInit?: number; parInit?: ParPage }) {
+export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false, taux = 0, paginer = false, pageInit = 1, parInit = 50, cleFiltre = "" }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean; /** Taux du jour (Paramètres) : paiement en francs ; 0 = non défini. */ taux?: number; paginer?: boolean; pageInit?: number; parInit?: ParPage; /** Filtres de la page (statut, année, groupement) : la page repart à 1 quand ils changent, pas après « Marquer payée ». */ cleFiltre?: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -117,7 +117,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
     return acc;
   }, [annees, groupes, moisPlats]);
   // Pagination : une tranche de la liste à plat (dans l'ordre d'affichage) ; sans `paginer`, tout s'affiche.
-  const pagination = usePagination({ total: toutes.length, pageInit, parInit: paginer ? parInit : "tout", cleFiltre: `${toutes.length}|${toutes[0]?.id}|${toutes[toutes.length - 1]?.id}`, synchroUrl: paginer });
+  const pagination = usePagination({ total: toutes.length, pageInit, parInit: paginer ? parInit : "tout", cleFiltre, synchroUrl: paginer });
   const { debut: debutPage, fin: finPage } = pagination;
   const idsPage = useMemo(() => (paginer ? new Set(tranche(toutes, { debut: debutPage, fin: finPage }).map((f) => f.id)) : null), [paginer, toutes, debutPage, finPage]);
   const surPage = (fs: FactureRow[]) => (idsPage ? fs.filter((f) => idsPage.has(f.id)) : fs);

@@ -81,4 +81,13 @@ describe("Bons de commande paginés", () => {
     expect(lignes()).toBe(120);
     expect(conteneur.querySelector("nav[data-pagination]")).toBeNull();
   });
+
+  it("une action groupée (bons qui sortent de la liste) ne ramène pas à la page 1 ; un autre filtre, si", () => {
+    monter({ pageInit: 2, cleFiltre: "2026" });
+    expect(texte()).toContain("51–100 sur 120");
+    act(() => racine.render(createElement(CommandesListe, { commandes: COMMANDES.slice(1), estDirection: true, paginer: true, pageInit: 2, cleFiltre: "2026" })));
+    expect(texte()).toContain("51–100 sur 119");
+    act(() => racine.render(createElement(CommandesListe, { commandes: COMMANDES, estDirection: true, paginer: true, pageInit: 2, cleFiltre: "2025" })));
+    expect(texte()).toContain("1–50 sur 120");
+  });
 });
