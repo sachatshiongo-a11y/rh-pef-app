@@ -18,6 +18,8 @@ describe("lireNouvelleDateSortie", () => {
     expect(() => lireNouvelleDateSortie("08/10/2026", midi)).toThrow(/Date invalide/);
     expect(() => lireNouvelleDateSortie("2026-02-30", midi)).toThrow(/Date invalide/);
     expect(() => lireNouvelleDateSortie(20261001, midi)).toThrow("Choisissez la nouvelle date de la sortie.");
+    expect(() => lireNouvelleDateSortie("0026-10-01", midi)).toThrow("Date invalide : 01/10/0026 est antérieure au 01/01/2020 (année mal saisie ?). Rien n'a été modifié.");
+    expect(lireNouvelleDateSortie("2020-01-01", midi)).toBe("2020-01-01");
   });
   it("futur : refus, « aujourd'hui » lu à Kinshasa (UTC+1)", () => {
     expect(() => lireNouvelleDateSortie("2026-10-09", midi)).toThrow("La date d'une sortie ne peut pas être dans le futur (aujourd'hui à Kinshasa : 08/10/2026). Rien n'a été modifié.");

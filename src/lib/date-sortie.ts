@@ -12,6 +12,8 @@ import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 
 export const MESSAGE_DATE_SORTIE_VIDE = "Choisissez la nouvelle date de la sortie.";
 export const MESSAGE_DATE_SORTIE_INVALIDE = "Date invalide : choisissez un jour du calendrier (JJ/MM/AAAA).";
+/** Plus ancienne date acceptée (garde contre une année mal tapée ; le logiciel n'existe pas avant). */
+export const PLANCHER_DATE_SORTIE = "2020-01-01";
 export const MESSAGE_SORTIES_SEULES =
   "Seules les sorties changent de date : la date d'une entrée ou d'un ajustement est portée par son document (facture, bon de commande, Liste d'achat, comptage). Rien n'a été modifié.";
 
@@ -44,6 +46,8 @@ export function lireNouvelleDateSortie(saisie: unknown, maintenant: Date = new D
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error(MESSAGE_DATE_SORTIE_INVALIDE);
   const d = datePureDe(s);
   if (Number.isNaN(d.getTime()) || jourISO(d) !== s) throw new Error(MESSAGE_DATE_SORTIE_INVALIDE);
+  // Plancher : une année tapée de travers (« 0026 », « 1926 ») n'est pas une correction de date.
+  if (s < PLANCHER_DATE_SORTIE) throw new Error(`Date invalide : ${jjmmaaaa(s)} est antérieure au ${jjmmaaaa(PLANCHER_DATE_SORTIE)} (année mal saisie ?). Rien n'a été modifié.`);
   const aujourdHui = jourCourantKinshasaISO(maintenant);
   if (s > aujourdHui) throw new Error(`La date d'une sortie ne peut pas être dans le futur (aujourd'hui à Kinshasa : ${jjmmaaaa(aujourdHui)}). Rien n'a été modifié.`);
   return s;

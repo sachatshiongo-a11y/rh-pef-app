@@ -207,6 +207,25 @@ describe("changer la date d'une sortie (2026-10-08) — à l'unité et en lot", 
     expect(conteneur.textContent).toContain("2 sortie(s) datée(s) du 05/07/2026 · 1 déjà à cette date.");
   });
 
+  it("déjà à la date : « Aucune sortie à changer » ; avertissement du restaurant : compte rendu en ambre", async () => {
+    const actions = await import("./actions");
+    const changer = vi.mocked(actions.changerDateSorties);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monterColonne();
+    act(() => conteneur.querySelector<HTMLInputElement>('input[aria-label="Tout sélectionner (3 affichés)"]')!.click());
+    saisirDate("2026-07-10");
+    changer.mockResolvedValueOnce({ n: 0, deja: 3, date: "2026-07-10" });
+    await act(async () => { bouton("Changer la date (3)").click(); });
+    expect(conteneur.textContent).toContain("Aucune sortie à changer : déjà datée(s) du 10/07/2026.");
+    act(() => calendrier("a")!.click());
+    saisirDate("2026-07-01");
+    changer.mockResolvedValueOnce({ n: 1, deja: 0, date: "2026-07-01", avertissement: "Attention, stock du restaurant : …" } as never);
+    await act(async () => { bouton("Changer la date").click(); });
+    const statut = [...conteneur.querySelectorAll('p[role="status"]')].find((p) => p.textContent?.includes("Attention, stock du restaurant"));
+    expect(statut?.textContent).toBe("Farine a : 1 sortie(s) datée(s) du 01/07/2026. Attention, stock du restaurant : …");
+    expect(statut?.className).toContain("bg-amber-50");
+  });
+
   it("ni 📅 ni « Changer la date » hors Direction, ni sur la colonne des entrées", () => {
     monterColonne({ estDirection: false });
     expect(calendrier("a")).toBeNull();

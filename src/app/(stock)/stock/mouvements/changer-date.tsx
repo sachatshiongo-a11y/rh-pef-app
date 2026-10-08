@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { changerDateSorties } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
-import { jjmmaaaa } from "@/lib/date-sortie";
+import { PLANCHER_DATE_SORTIE, jjmmaaaa } from "@/lib/date-sortie";
 import type { FiltreMouvements } from "@/lib/filtre-mouvements";
 
 // « Changer la date » des sorties (Direction, demande de Sacha du 2026-10-08) — même patron que
@@ -21,7 +21,8 @@ export function ChangerDate({ ids, toutLeFiltre, dateActuelle, onFait, onRecompt
   toutLeFiltre?: { filtre: FiltreMouvements; attendu: number; libelle: string };
   /** À l'unité : la date actuelle de la sortie (AAAA-MM-JJ), proposée au départ. */
   dateActuelle?: string;
-  onFait: (compteRendu: string) => void;
+  /** `alerte` : le compte rendu porte un avertissement non bloquant (comptage du restaurant traversé). */
+  onFait: (compteRendu: string, alerte?: boolean) => void;
   /** Le serveur a recompté un autre nombre : rien n'est écrit, la colonne affiche le nouveau. */
   onRecompte?: (n: number) => void;
   /** À l'unité : bouton « Annuler » qui referme le panneau de la ligne. */
@@ -29,11 +30,11 @@ export function ChangerDate({ ids, toutLeFiltre, dateActuelle, onFait, onRecompt
 }) {
   const aujourdHui = jourCourantKinshasaISO();
   const [date, setDate] = useState(dateActuelle ?? "");
-  const [message, setMessage] = useState<{ texte: string; erreur: boolean } | null>(null);
+  const [message, setMessage] = useState<{ texte: string; erreur: boolean; alerte?: boolean } | null>(null);
   const [isPending, start] = useTransition();
   const nb = toutLeFiltre ? toutLeFiltre.attendu : ids.length;
   const future = date > aujourdHui;
-  const incomplet = !date || future || (dateActuelle !== undefined && date === dateActuelle);
+  const incomplet = !date || future || date < PLANCHER_DATE_SORTIE || (dateActuelle !== undefined && date === dateActuelle);
 
   const envoyer = () => {
     if (incomplet) return;
@@ -51,15 +52,17 @@ export function ChangerDate({ ids, toutLeFiltre, dateActuelle, onFait, onRecompt
         if (typeof nouveau === "number") onRecompte?.(nouveau);
         return;
       }
-      const texte = `${r.n} sortie(s) datée(s) du ${jjmmaaaa(r.date)}${r.deja > 0 ? ` · ${r.deja} déjà à cette date` : ""}.`;
-      setMessage({ texte, erreur: false });
-      onFait(texte);
+      const texte = r.n === 0
+        ? `Aucune sortie à changer : déjà datée(s) du ${jjmmaaaa(r.date)}.`
+        : `${r.n} sortie(s) datée(s) du ${jjmmaaaa(r.date)}${r.deja > 0 ? ` · ${r.deja} déjà à cette date` : ""}.${r.avertissement ? ` ${r.avertissement}` : ""}`;
+      setMessage({ texte, erreur: false, alerte: !!r.avertissement });
+      onFait(texte, !!r.avertissement);
     });
   };
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <input type="date" aria-label="Nouvelle date de la sortie" value={date} max={aujourdHui}
+      <input type="date" aria-label="Nouvelle date de la sortie" value={date} min={PLANCHER_DATE_SORTIE} max={aujourdHui}
         onChange={(e) => { setDate(e.target.value); setMessage(null); }}
         aria-invalid={future || undefined}
         className={`${inp} ${future ? "border-destructive ring-1 ring-destructive" : ""}`} />
@@ -68,7 +71,7 @@ export function ChangerDate({ ids, toutLeFiltre, dateActuelle, onFait, onRecompt
       </button>
       {onAnnuler && <button type="button" onClick={onAnnuler} className="text-xs text-muted-foreground underline">Annuler</button>}
       {future && <span className="basis-full text-xs text-destructive">Pas de date dans le futur (aujourd&apos;hui : {jjmmaaaa(aujourdHui)}).</span>}
-      {message && <span role={message.erreur ? "alert" : "status"} className={`basis-full text-xs ${message.erreur ? "text-destructive" : "text-emerald-800"}`}>{message.texte}</span>}
+      {message && <span role={message.erreur ? "alert" : "status"} className={`basis-full text-xs ${message.erreur ? "text-destructive" : message.alerte ? "text-amber-900" : "text-emerald-800"}`}>{message.texte}</span>}
     </div>
   );
 }

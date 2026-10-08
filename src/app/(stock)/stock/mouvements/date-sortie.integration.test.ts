@@ -61,6 +61,8 @@ beforeEach(async () => {
   await prisma.demandeValidationStock.deleteMany();
   await prisma.clotureStock.deleteMany();
   await prisma.sessionComptage.deleteMany();
+  await prisma.comptageResto.deleteMany();
+  await prisma.articleResto.deleteMany();
   await prisma.mouvementStock.deleteMany();
   await prisma.ligneFacture.deleteMany();
   await prisma.factureFournisseur.deleteMany();
@@ -256,6 +258,36 @@ describe("réconciliation : comptage entre l'ancienne et la nouvelle date", () =
     expect(msg).toMatch(/Une réconciliation de l'article attend la décision de la Direction/);
     expect(msg).toContain("Riz du 05/10");
     await rienEcrit({ [a.id]: "2026-10-05", [b.id]: "2026-10-05" });
+  }, 60_000);
+});
+
+describe("comptage du RESTAURANT entre les deux dates : écrit, mais l'écart est nommé (non bloquant)", () => {
+  const compteResto = async (articleStockId: string, date: string) => {
+    const a = await prisma.articleResto.create({ data: { espace: "CUISINE", designation: "Riz (resto)", unite: "kg", articleStockId } });
+    await prisma.comptageResto.create({ data: { articleRestoId: a.id, date: jour(date), quantite: "5" } });
+  };
+
+  it.each([
+    ["vers une date plus ancienne", "2026-10-05", "2026-10-01", "Riz du 05/10"],
+    ["vers une date plus récente", "2026-10-01", "2026-10-05", "Riz du 01/10"],
+  ])("livraison restaurant %s, en travers d'un comptage résto : redatée, avertissement qui la nomme", async (_s, de, vers, nom) => {
+    const a = await sortie(riz, de);
+    await compteResto(riz, "2026-10-03");
+    const r = await changerDateSorties([a.id], vers);
+    expect(r).toMatchObject({ n: 1, deja: 0, date: vers });
+    expect((r as { avertissement?: string }).avertissement).toBe(
+      `Attention, stock du restaurant : la livraison passe de l'autre côté d'un comptage du restaurant — ${nom} (compté au restaurant le 03/10). Le stock théorique du restaurant et la consommation réelle de ces jours changent en conséquence (vérifiez-les dans Conso. journalière).`,
+    );
+    expect(await dateDe(a.id)).toBe(vers);
+  }, 60_000);
+
+  it("perte, comptage résto hors intervalle ou d'un autre article : aucun avertissement", async () => {
+    const p = await sortie(riz, "2026-10-05", "PERTE");
+    const l = await sortie(sel, "2026-10-05");
+    await compteResto(riz, "2026-10-03");
+    await compteResto(sel, "2026-09-20");
+    const r = await changerDateSorties([p.id, l.id], "2026-10-01");
+    expect(r).toEqual({ n: 2, deja: 0, date: "2026-10-01" });
   }, 60_000);
 });
 

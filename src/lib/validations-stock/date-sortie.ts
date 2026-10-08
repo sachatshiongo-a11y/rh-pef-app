@@ -34,7 +34,7 @@ import { notifierGesteStock, type AuteurGeste, type SortieRedatee } from "./gest
 
 type Tx = Prisma.TransactionClient;
 
-export type ResultatDateSorties = { n: number; deja: number; date: string } | { erreur: string; nouveauNombre?: number };
+export type ResultatDateSorties = { n: number; deja: number; date: string; avertissement?: string } | { erreur: string; nouveauNombre?: number };
 
 const RIEN = "Date non changée : rien n'a été modifié.";
 const periodeDe = (b: { annee: number; mois: number }) => `${String(b.mois).padStart(2, "0")}/${b.annee}`;
@@ -45,7 +45,7 @@ const sortieNommee = (m: MvtSelection) => `${m.article.designation} du ${jjmm(m.
  * notification) et le nombre déjà à cette date, ou un refus lisible (rien d'écrit).
  */
 export async function changerDateSortiesTx(tx: Tx, userId: string, selection: SelectionMouvements, nouvelle: Date):
-  Promise<{ changees: SortieRedatee[]; deja: number } | { erreur: string; nouveauNombre?: number }> {
+  Promise<{ changees: SortieRedatee[]; deja: number; avertissement?: string } | { erreur: string; nouveauNombre?: number }> {
   const res = await resoudreSelectionMouvements(tx, selection, "sorties", "Cochez au moins une sortie.");
   if ("erreur" in res) return res;
   if (res.mvs.length !== res.nbDemandes) return { erreur: "Certaines sorties n'existent plus : rechargez la page." };
@@ -115,7 +115,30 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
     return { erreur: `${RIEN} ${parties.join(" ")}` };
   }
 
-  // 5. Écriture : la date seule (quantité, motif, id inchangés), puis le journal (avant → après).
+  // 5. Comptage du RESTAURANT entre les deux dates (avertissement, NON bloquant). Le stock théorique du
+  //    restaurant = dernier comptage résto + livraisons du dépôt datées APRÈS lui : une livraison redatée
+  //    de l'autre côté d'un comptage résto change ce stock (et la consommation réelle). C'est souvent
+  //    précisément la correction voulue (livraison saisie au mauvais jour, le restaurant compte chaque
+  //    jour) : refuser la rendrait impossible. Le geste est donc écrit, et l'écart est NOMMÉ.
+  const livraisons = aChanger.filter((m) => m.categorieSortie === "LIVRAISON_RESTAURANT");
+  let avertissement: string | undefined;
+  if (livraisons.length > 0) {
+    const comptesResto = await tx.comptageResto.findMany({
+      where: { date: { gte: lo, lte: hi }, article: { articleStockId: { in: [...new Set(livraisons.map((m) => m.articleId))] } } },
+      select: { date: true, article: { select: { articleStockId: true } } },
+      orderBy: { date: "asc" },
+    });
+    const touchees = livraisons.flatMap((m) => {
+      const [a, b] = bornesDe(m);
+      const c = comptesResto.find((x) => x.article.articleStockId === m.articleId && x.date >= a && x.date <= b);
+      return c ? [`${sortieNommee(m)} (compté au restaurant le ${jjmm(c.date)})`] : [];
+    });
+    if (touchees.length > 0) {
+      avertissement = `Attention, stock du restaurant : la livraison passe de l'autre côté d'un comptage du restaurant — ${nomsBornes(touchees)}. Le stock théorique du restaurant et la consommation réelle de ces jours changent en conséquence (vérifiez-les dans Conso. journalière).`;
+    }
+  }
+
+  // 6. Écriture : la date seule (quantité, motif, id inchangés), puis le journal (avant → après).
   const maj = await tx.mouvementStock.updateMany({ where: { id: { in: aChanger.map((m) => m.id) }, type: "SORTIE" }, data: { date: nouvelle } });
   if (maj.count !== aChanger.length) throw new Error("Une de ces sorties vient d'être modifiée : rechargez la page.");
   await journaliserPlusieurs(tx, aChanger.map((m) => ({
@@ -127,6 +150,7 @@ export async function changerDateSortiesTx(tx: Tx, userId: string, selection: Se
       ancienne: m.date, categorieSortie: m.categorieSortie,
     })),
     deja,
+    ...(avertissement ? { avertissement } : {}),
   };
 }
 
@@ -142,5 +166,5 @@ export async function appliquerChangementDateSorties(auteur: AuteurGeste, select
   const r = await prisma.$transaction((tx) => changerDateSortiesTx(tx, auteur.id, selection, nouvelle), { timeout: DELAI_TOUT_LE_FILTRE });
   if ("erreur" in r) return r;
   if (r.changees.length > 0) await notifierGesteStock(auteur, { genre: "DATE_SORTIE", nouvelle, sorties: r.changees }, maintenant);
-  return { n: r.changees.length, deja: r.deja, date: iso };
+  return { n: r.changees.length, deja: r.deja, date: iso, ...(r.avertissement ? { avertissement: r.avertissement } : {}) };
 }
