@@ -5,13 +5,16 @@ import { ImportInventaireClient } from "../imports/import-client";
 import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { ChampTaillePage } from "@/components/pagination";
+import { lirePagination } from "@/lib/pagination";
 
-type SP = { domaine?: string };
+type SP = { domaine?: string; page?: string; par?: string };
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
+  const { page, par } = lirePagination(sp);
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 
   const where: Prisma.ArticleStockWhereInput = { actif: true, ...(domaine ? { domaine } : {}) };
@@ -61,6 +64,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
           <option value="BOISSON">Boisson</option>
           <option value="AUTRE">Autre</option>
         </select>
+        <ChampTaillePage />
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Charger</button>
       </form>
 
@@ -88,7 +92,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         </div>
       )}
 
-      <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} />
+      <ReconciliationForm articles={rows} domaine={domaine} estDirection={estDirection} pageInit={page} parInit={par} />
 
       {comptages.length > 0 && (
         <div>

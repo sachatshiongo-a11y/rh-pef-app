@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/link", () => ({ default: (p: { href: string; children: unknown; className?: string; "aria-label"?: string; "aria-current"?: string }) => createElement("a", { href: p.href, className: p.className, "aria-label": p["aria-label"], "aria-current": p["aria-current"] }, p.children as never) }));
 
-import { Pagination, usePagination } from "./pagination";
+import { ChampTaillePage, LienGardantTaille, Pagination, usePagination } from "./pagination";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -85,5 +85,46 @@ describe("usePagination — mode état + URL", () => {
   it("page hors limites dans l'URL : ramenée à la dernière", () => {
     const c = monter(createElement(Essai, { total: 120, cle: "a", pageInit: 99 }));
     expect(c.querySelector("#etat")!.textContent).toBe("3|101-120|3");
+  });
+});
+
+describe("la taille de page survit à un changement de filtre", () => {
+  afterEach(() => { window.history.replaceState(null, "", "/"); document.body.innerHTML = ""; });
+
+  it("LienGardantTaille : au clic, le lien reprend la taille de l'adresse affichée (et supprime la page)", () => {
+    window.history.replaceState(null, "", "/stock/catalogue?par=100&page=3");
+    const c = document.createElement("div"); document.body.appendChild(c);
+    const r = createRoot(c);
+    act(() => r.render(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=BOISSON" }, "Boissons")));
+    const a = c.querySelector("a")!;
+    act(() => { a.addEventListener("click", (e) => e.preventDefault()); a.click(); });
+    expect(a.getAttribute("href")).toBe("/stock/catalogue?domaine=BOISSON&par=100");
+    act(() => r.unmount());
+  });
+
+  it("LienGardantTaille : taille par défaut dans l'adresse = rien à reporter", () => {
+    window.history.replaceState(null, "", "/stock/catalogue");
+    const c = document.createElement("div"); document.body.appendChild(c);
+    const r = createRoot(c);
+    act(() => r.render(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=AUTRE" }, "Autre")));
+    const a = c.querySelector("a")!;
+    act(() => { a.addEventListener("click", (e) => e.preventDefault()); a.click(); });
+    expect(a.getAttribute("href")).toBe("/stock/catalogue?domaine=AUTRE");
+    act(() => r.unmount());
+  });
+
+  it("ChampTaillePage : à l'envoi du formulaire GET, copie la taille affichée ; absent si 50", () => {
+    window.history.replaceState(null, "", "/stock/reconciliation?par=tout");
+    const c = document.createElement("div"); document.body.appendChild(c);
+    const r = createRoot(c);
+    act(() => r.render(createElement("form", { method: "GET" }, createElement("input", { name: "domaine", defaultValue: "AUTRE" }), createElement(ChampTaillePage))));
+    const form = c.querySelector("form")!;
+    form.addEventListener("submit", (e) => e.preventDefault());
+    act(() => { form.dispatchEvent(new Event("submit", { cancelable: true })); });
+    expect(new URLSearchParams(new FormData(form) as unknown as Record<string, string>).toString()).toBe("domaine=AUTRE&par=tout");
+    window.history.replaceState(null, "", "/stock/reconciliation");
+    act(() => { form.dispatchEvent(new Event("submit", { cancelable: true })); });
+    expect(new URLSearchParams(new FormData(form) as unknown as Record<string, string>).toString()).toBe("domaine=AUTRE");
+    act(() => r.unmount());
   });
 });

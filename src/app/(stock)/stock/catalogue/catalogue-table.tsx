@@ -177,7 +177,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   // compteurs de catégorie, « Remettre à 0 », sélection du filtre) restent ceux de TOUT le filtre.
   // Un autre filtre, une autre recherche ou un autre tri ramène à la page 1.
   const pagination = usePagination({ total: affichees.length, pageInit, parInit, cleFiltre: [q, dom, alerte, manque, hausseSeule, tri?.col, tri?.dir].join("|") });
-  const page = useMemo(() => tranche(affichees, pagination), [affichees, pagination]);
+  const { debut: debutPage, fin: finPage } = pagination;
+  const page = useMemo(() => tranche(affichees, { debut: debutPage, fin: finPage }), [affichees, debutPage, finPage]);
 
   // Compteurs « À compléter » (sur le domaine courant) — dette de saisie qui bride alertes/valorisation.
   const incomplets = useMemo(() => {

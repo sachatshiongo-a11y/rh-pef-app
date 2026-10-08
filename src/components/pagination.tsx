@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   appliquerPagination, compteurPage, fenetrePage, hrefPagination, numerosPages, pageApresChangementTaille,
   PAR_DEFAUT, PARAM_PAR, PLUS_PETITE_PAGE, TAILLES_PAGE, type FenetrePage, type ParPage,
@@ -117,4 +117,25 @@ export function LienGardantTaille({ href, onClick, ...reste }: React.AnchorHTMLA
       }}
     />
   );
+}
+
+/**
+ * Champ caché `par` d'un formulaire GET de filtres : au moment de l'envoi, il recopie la taille de page
+ * AFFICHÉE dans l'adresse (50 : rien n'est envoyé). Un nouveau filtre repart à la page 1 mais garde la taille.
+ */
+export function ChampTaillePage() {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const champ = ref.current;
+    const form = champ?.form;
+    if (!champ || !form) return;
+    const recopier = () => {
+      const par = new URL(window.location.href).searchParams.get(PARAM_PAR);
+      champ.disabled = !par;
+      if (par) champ.value = par;
+    };
+    form.addEventListener("submit", recopier);
+    return () => form.removeEventListener("submit", recopier);
+  }, []);
+  return <input ref={ref} type="hidden" name={PARAM_PAR} disabled />;
 }

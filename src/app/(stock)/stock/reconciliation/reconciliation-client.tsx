@@ -8,6 +8,8 @@ import { appliquerComptage } from "./actions";
 import { qte, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { estErreur } from "@/lib/action-lisible";
+import { Pagination, usePagination } from "@/components/pagination";
+import { tranche, type ParPage } from "@/lib/pagination";
 
 type Art = { id: string; code: string | null; designation: string; categorie: string; theorique: number };
 type TriCol = "code" | "designation" | "categorie" | "theorique";
@@ -35,8 +37,9 @@ function ThTri({ col, tri, onTri, align, className, children }: {
 }
 
 // Ligne mémoïsée à état propre : une frappe ne re-rend rien, valider une case ne re-rend que sa
-// ligne. Une ligne écartée par la recherche est MASQUÉE (attribut hidden), pas démontée : le
-// comptage déjà tapé n'est plus perdu, et il part avec le formulaire.
+// ligne. Une ligne écartée par la recherche ou par la PAGE (50 / 100 / Tout, 2026-10-08) est MASQUÉE
+// (attribut hidden), pas démontée : le comptage déjà tapé n'est plus perdu, et il part avec le formulaire.
+// Changer de page ne perd donc rien, et un seul « Appliquer le comptage » envoie les quantités de toutes les pages.
 const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache }: { a: Art; montrerCat: boolean; cache: boolean }) {
   const [num, setNum] = useState<number | null>(null);
   const [expl, setExpl] = useState("");
@@ -70,7 +73,7 @@ const LigneComptage = memo(function LigneComptage({ a, montrerCat, cache }: { a:
   );
 });
 
-export function ReconciliationForm({ articles, domaine, estDirection = false }: { articles: Art[]; domaine?: string; estDirection?: boolean }) {
+export function ReconciliationForm({ articles, domaine, estDirection = false, pageInit = 1, parInit = 50 }: { articles: Art[]; domaine?: string; estDirection?: boolean; pageInit?: number; parInit?: ParPage }) {
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const [cle, setCle] = useState(0);
@@ -89,17 +92,23 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
     if (!tri) return articles;
     return [...articles].sort((a, b) => { const x = valeurTri(a, tri.col), y = valeurTri(b, tri.col); return (x < y ? -1 : x > y ? 1 : 0) * tri.dir; });
   }, [articles, tri]);
-  // En-tête de catégorie devant la première ligne VISIBLE de chaque catégorie (sans tri).
+  // Pagination : une tranche des lignes que la recherche laisse voir (dans l'ordre affiché). Le compteur,
+  // lui, parle de tout le filtre ; une autre recherche ou un autre tri ramène à la page 1.
+  const visiblesOrdonnees = useMemo(() => ordonnees.filter((a) => idsVisibles.has(a.id)), [ordonnees, idsVisibles]);
+  const pagination = usePagination({ total: visiblesOrdonnees.length, pageInit, parInit, cleFiltre: [q, tri?.col, tri?.dir].join("|") });
+  const { debut, fin } = pagination;
+  const idsPage = useMemo(() => new Set(tranche(visiblesOrdonnees, { debut, fin }).map((a) => a.id)), [visiblesOrdonnees, debut, fin]);
+  // En-tête de catégorie devant la première ligne AFFICHÉE de chaque catégorie, et en tête de page (sans tri).
   const lignes = useMemo(() => {
     const res: { a: Art; cache: boolean; enTete: boolean }[] = [];
     let derniereCat: string | null = null;
     for (const a of ordonnees) {
-      const cache = !idsVisibles.has(a.id);
+      const cache = !idsPage.has(a.id);
       res.push({ a, cache, enTete: !tri && !cache && a.categorie !== derniereCat });
       if (!cache) derniereCat = a.categorie;
     }
     return res;
-  }, [ordonnees, idsVisibles, tri]);
+  }, [ordonnees, idsPage, tri]);
 
   const submit = (fd: FormData) => {
     setMsg(null);
@@ -161,6 +170,8 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
         </table>
       </div>
       </ZoneTableur>
+      <Pagination total={visiblesOrdonnees.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="articles" />
+      {pagination.nbPages > 1 && <p data-pagination-note="" className="text-xs text-muted-foreground">Les quantités tapées sur toutes les pages sont conservées et envoyées ensemble par « {estDirection ? "Appliquer le comptage" : "Soumettre le comptage"} ».</p>}
     </form>
   );
 }
