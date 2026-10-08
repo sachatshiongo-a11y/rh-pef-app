@@ -7,6 +7,7 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser, journaliserPlusieurs } from "@/lib/audit";
 import { exigerPeriodeOuverte, exigerPeriodesOuvertes } from "@/lib/cloture-stock";
 import { appliquerMouvementManuel, lireMouvementSaisi } from "@/lib/validations-stock/mouvement";
+import { resumeCompteRendu } from "@/lib/rattachement-auto";
 import { apresCommit } from "@/lib/validations-stock/demandes";
 import { Prisma } from "@prisma/client";
 import { MESSAGE_MOTIF_SORTIE, estMotifSortie } from "@/lib/motif-sortie";
@@ -25,13 +26,17 @@ export const mouvementManuel = actionLisible(async (formData: FormData): Promise
   const user = await verifySession();
   requireModule(user, "stock");
   const m = lireMouvementSaisi(formData);
-  const { demandesEnAttente } = await appliquerMouvementManuel(user, m);
+  const { demandesEnAttente, rattachementResto } = await appliquerMouvementManuel(user, m);
   await apresCommit(() => journaliser(prisma, { entite: "MouvementStock", entiteId: `${m.lignes.length} ${m.type.toLowerCase()}(s)`, champ: m.type.toLowerCase(), nouvelleValeur: m.origine, userId: user.id }));
   revalidatePath("/stock/restaurant");
   revalidatePath("/stock/mouvements");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock");
-  const fait = m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.";
+  // Rattachement automatique au restaurant (sortie « Livraison restaurant ») : dit, jamais bloquant.
+  const resume = rattachementResto ? resumeCompteRendu(rattachementResto) : "";
+  if (rattachementResto && rattachementResto.rattaches.length + rattachementResto.crees.length > 0) revalidatePath("/stock/fiches");
+  const rattache = rattachementResto?.erreur ? ` ${rattachementResto.erreur}` : resume ? ` Restaurant : ${resume}.` : "";
+  const fait = (m.type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.") + rattache;
   // Une ancienne demande en attente vise aussi ces articles : si c'est le même mouvement, la valider le compterait deux fois.
   const avertissement = demandesEnAttente.length
     ? ` Attention : une ancienne demande en attente de la Direction vise aussi ${demandesEnAttente.map((d) => `« ${d} »`).join(", ")}. S'il s'agit du même mouvement, retirez-la dans « Demandes à valider » (sinon elle serait comptée deux fois).`
