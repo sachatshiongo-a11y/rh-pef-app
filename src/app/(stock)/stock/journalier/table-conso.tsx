@@ -112,7 +112,7 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
           {vide && <tr><td colSpan={colSpan} className="px-3 py-6 text-center text-muted-foreground">Aucune sortie ni comptage cette semaine.</td></tr>}
         </tbody>
         {sorties.livraisons.length > 0 && (
-          <tfoot className="sticky bottom-0"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
+          <tfoot className="sticky bottom-0 z-20 bg-background"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
             <td className="sticky left-0 bg-muted/60">Total livré au restaurant</td>
             {totauxLivres.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
             <td className="text-right">{qte(totauxLivres.reduce((a, b) => a + b, 0))}</td>

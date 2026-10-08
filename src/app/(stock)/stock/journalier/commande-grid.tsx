@@ -118,7 +118,7 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
             {visibles.length === 0 && <tr><td colSpan={jours.length + 2} className="px-3 py-6 text-center text-muted-foreground">Aucun article pour cette recherche.</td></tr>}
           </tbody>
           {visibles.length > 0 && (
-            <tfoot className="sticky bottom-0">
+            <tfoot className="sticky bottom-0 z-20 bg-background">
               <tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
                 <td className="sticky left-0 z-10 bg-muted/60">Total jour</td>
                 {totauxJour.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}

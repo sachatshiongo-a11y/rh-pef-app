@@ -66,7 +66,7 @@ export function StatusActions({
       {cibles.map((vers) => {
         const reouverture = ORDRE[vers] < ORDRE[statut];
         return (
-          <form key={vers} action={changerStatutPaie.bind(null, payrollLineId)} className="inline-flex items-center gap-1">
+          <form key={vers} action={changerStatutPaie.bind(null, payrollLineId)} className="inline-flex items-center justify-end gap-1 xl:flex-wrap">
             <input type="hidden" name="versStatut" value={vers} />
             {jeton && <input type="hidden" name="jeton" value={jeton} />}
             {/* Au paiement : moyen de paiement pré-rempli depuis la fiche, modifiable. */}

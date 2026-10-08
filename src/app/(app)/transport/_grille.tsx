@@ -82,9 +82,9 @@ export function GrilleTransport({ employes, jours, taux }: { employes: Employee[
       </div>
 
       {/* Ordinateur : tableau complet. */}
-      <div className="tableau-normal hidden rounded-lg border lg:block">
+      <div className="tableau-normal-xl hidden rounded-lg border lg:block">
         <table className="w-full text-sm">
-          <thead className="en-tete-collante bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <thead className="en-tete-collante-xl bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Matricule</th>
               <th className="px-3 py-2 font-medium">Nom</th>
