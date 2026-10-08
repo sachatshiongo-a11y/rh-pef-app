@@ -3,8 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import { creerBaseTest } from "@/lib/test/db";
 
 // « Changer la date » d'une sortie de stock (demande de Sacha, 2026-10-08) — test d'INTÉGRATION
-// (Postgres éphémère, jamais la prod). À l'unité et en lot ; Direction seule (mêmes comptes que
-// « Changer le motif ») ; SORTIES seules ; tout ou rien avec les sorties fautives nommées ; période
+// (Postgres éphémère, jamais la prod). À l'unité et en lot ; tout compte de l'espace Stock (décision
+// Direction du 2026-10-08 : mêmes comptes que la saisie d'une sortie, le motif reste à la Direction) ; SORTIES seules ; tout ou rien avec les sorties fautives nommées ; période
 // clôturée (ancienne ET nouvelle date), comptage entre les deux dates (bornes incluses), réconciliation
 // en attente, date future ou invalide ; journal avant → après ; notification d'un non-Direction ; la
 // Conso. journalière et la Comparaison relisent la sortie au nouveau jour.
@@ -18,16 +18,22 @@ vi.mock("@/lib/prisma", () => ({
     },
   }),
 }));
-vi.mock("@/lib/auth", () => ({
+vi.mock("@/lib/auth", async () => {
+  // La VRAIE règle d'accès à l'espace Stock (lib/espaces) : le droit de changer la date en dépend.
+  const { estStock } = await import("@/lib/espaces");
+  return {
   verifySession: async () => A.user,
-  requireModule: () => {},
+  requireModule: (u: Parameters<typeof estStock>[0], espace: string) => {
+    if (espace === "stock" && !estStock(u)) throw new Error("Accès refusé : module non autorisé.");
+  },
   requireRole: (u: { role: string }, roles: string[]) => { if (!roles.includes(u.role)) throw new Error("Accès refusé : rôle insuffisant."); },
-}));
+  };
+});
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 const PUSH = vi.hoisted(() => ({ appels: [] as { userIds: string[]; payload: { title: string; body: string; url?: string } }[] }));
 vi.mock("@/lib/push", () => ({ envoyerPush: async (userIds: string[], payload: { title: string; body: string }) => { PUSH.appels.push({ userIds, payload }); } }));
 
-const { changerDateSorties } = await import("./actions");
+const { changerDateSorties, requalifierSorties } = await import("./actions");
 const { appliquerChangementDateSorties } = await import("@/lib/validations-stock/date-sortie");
 const { chargerDonneesRestaurant } = await import("../journalier/donnees-restaurant");
 
@@ -38,6 +44,8 @@ const U = {
   dir2: { id: "", role: "ADMIN", nom: "Associée", accesStock: false },
   resp: { id: "", role: "STOCK", nom: "Jean", accesStock: false },
   rh: { id: "", role: "MANAGER", nom: "RH", accesStock: true },
+  magasinier: { id: "", role: "EMPLOYE", nom: "Paul", accesStock: true },
+  salarie: { id: "", role: "EMPLOYE", nom: "Marie", accesStock: false },
 };
 const en = (u: keyof typeof U) => { A.user = { ...U[u] }; };
 let riz: string;
@@ -47,7 +55,7 @@ beforeAll(async () => {
   const db = await creerBaseTest();
   prisma = db.prisma; fermer = db.fermer; H.client = prisma;
   for (const k of Object.keys(U) as (keyof typeof U)[]) {
-    const u = await prisma.user.create({ data: { email: `${k}@pef.cd`, nom: U[k].nom, role: U[k].role as "ADMIN" | "STOCK" | "MANAGER" } });
+    const u = await prisma.user.create({ data: { email: `${k}@pef.cd`, nom: U[k].nom, role: U[k].role as "ADMIN" | "STOCK" | "MANAGER" | "EMPLOYE", accesStock: U[k].accesStock } });
     U[k].id = u.id;
   }
 }, 120_000);
@@ -126,12 +134,46 @@ describe("changer la date d'une sortie — à l'unité et en lot", () => {
   }, 60_000);
 });
 
-describe("droits : mêmes comptes que « Changer le motif » (Direction)", () => {
-  it.each(["resp", "rh"] as const)("refus pour un compte %s, appel direct de l'action : rien d'écrit", async (qui) => {
+describe("droits : tout compte de l'espace Stock (décision Direction du 2026-10-08)", () => {
+  it.each(["resp", "magasinier"] as const)("compte Stock %s, par l'ACTION : la date change, et la Direction est réellement notifiée", async (qui) => {
+    const s = await sortie(riz, "2026-10-03");
+    en(qui);
+    expect(await changerDateSorties([s.id], "2026-10-01")).toEqual({ n: 1, deja: 0, date: "2026-10-01" });
+    expect(await dateDe(s.id)).toBe("2026-10-01");
+    const notifs = await prisma.notification.findMany();
+    expect(notifs.map((n) => n.destinataireUserId).sort()).toEqual([U.dir.id, U.dir2.id].sort());
+    expect(notifs.every((n) => n.message === `Date d'une sortie changée par ${U[qui].nom} : 03/10 → 01/10 — Riz`)).toBe(true);
+    expect(PUSH.appels).toHaveLength(1);
+    expect(PUSH.appels[0]!.userIds).not.toContain(U[qui].id);
+    const j = await prisma.journalAudit.findFirstOrThrow({ where: { entiteId: s.id, champ: "date" } });
+    expect([j.ancienneValeur, j.nouvelleValeur, j.userId]).toEqual(["2026-10-03", "2026-10-01", U[qui].id]);
+  }, 60_000);
+
+  it.each(["rh", "salarie"] as const)("refus pour un compte sans accès au Stock (%s), appel direct de l'action : rien d'écrit", async (qui) => {
     const s = await sortie(riz, "2026-10-03");
     en(qui);
     expect(erreurDe(await changerDateSorties([s.id], "2026-10-01"))).toMatch(/Accès refusé/);
     await rienEcrit({ [s.id]: "2026-10-03" });
+  }, 60_000);
+
+  it("compte Stock : toutes les gardes restent (période clôturée, comptage entre les deux dates, entrées refusées)", async () => {
+    const s = await sortie(riz, "2026-10-03");
+    en("resp");
+    await prisma.clotureStock.create({ data: { annee: 2026, mois: 9 } });
+    expect(erreurDe(await changerDateSorties([s.id], "2026-09-30"))).toMatch(/clôturée/);
+    const session = await prisma.sessionComptage.create({ data: { date: jour("2026-10-02"), nbArticles: 1 } });
+    await prisma.ligneComptage.create({ data: { sessionId: session.id, articleId: riz, designation: "Riz", theorique: "10", physique: "10", ecart: "0" } });
+    expect(erreurDe(await changerDateSorties([s.id], "2026-10-01"))).toMatch(/Un comptage du même article/);
+    const e = await prisma.mouvementStock.create({ data: { articleId: sel, type: "ENTREE", quantite: "1", date: jour("2026-10-03"), origine: "Entrée manuelle", creeParId: U.resp.id } });
+    expect(erreurDe(await changerDateSorties([e.id], "2026-10-04"))).toMatch(/Seules les sorties changent de date/);
+    await rienEcrit({ [s.id]: "2026-10-03", [e.id]: "2026-10-03" });
+  }, 60_000);
+
+  it("la requalification du MOTIF reste réservée à la Direction", async () => {
+    const s = await sortie(riz, "2026-10-03");
+    en("resp");
+    expect(erreurDe(await requalifierSorties([s.id], "PERTE", "moisi"))).toMatch(/Accès refusé/);
+    expect((await lire(s.id)).categorieSortie).toBe("LIVRAISON_RESTAURANT");
   }, 60_000);
 });
 

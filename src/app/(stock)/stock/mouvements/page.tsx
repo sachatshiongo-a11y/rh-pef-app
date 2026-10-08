@@ -9,6 +9,7 @@ import type { Prisma } from "@prisma/client";
 import { conseilLivraison, etatRattachementLivraison } from "@/lib/stock-restaurant";
 import type { ConseilLivraison } from "./mouvements-client";
 import { exigerPageStock } from "@/lib/garde-page";
+import { estStock } from "@/lib/espaces";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 
@@ -58,6 +59,9 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
   const user = await exigerPageStock();
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
+  // Changer la date d'une sortie : tout compte de l'espace Stock (décision Direction du 2026-10-08) —
+  // même règle que l'action `changerDateSorties` (requireModule « stock »).
+  const peutChangerDate = estStock(user);
   // Liste BORNÉE : mois courant par défaut (« tous » = tout l'historique, plafonné et signalé).
   // Le filtre et son `where` viennent de `lib/filtre-mouvements` : les actions « tout le filtre »
   // reconstruisent EXACTEMENT le même ensemble côté serveur.
@@ -126,7 +130,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       <div className="grid gap-4 lg:grid-cols-2">
         <ColonneMouvements titre="Entrées" mouvements={entrees} signe="+" couleur="bg-emerald-50 text-emerald-800" estDirection={estDirection}
           toutLeFiltre={{ filtre, colonne: "ENTREES", libelle, total: nbEntreesFiltre }} />
-        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} requalifiable
+        <ColonneMouvements titre="Sorties" mouvements={sorties} signe="−" couleur="bg-red-50 text-red-800" estDirection={estDirection} requalifiable peutChangerDate={peutChangerDate}
           toutLeFiltre={{ filtre, colonne: "SORTIES", libelle, total: nbSortiesFiltre }} />
       </div>
     </div>

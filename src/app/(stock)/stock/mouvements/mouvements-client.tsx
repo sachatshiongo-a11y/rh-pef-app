@@ -75,12 +75,20 @@ export type ToutLeFiltre = { filtre: FiltreMouvements; colonne: Colonne; libelle
  * Quand tout l'affiché est coché et que le filtre compte davantage, la barre propose de
  * sélectionner TOUT le filtre (à la Gmail) : les actions visent alors l'ensemble, recompté par le serveur.
  */
-export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection, requalifiable = false, toutLeFiltre }: {
+export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection, requalifiable = false, peutChangerDate = false, toutLeFiltre }: {
   titre: string; mouvements: MvtLite[]; signe: string; couleur: string; estDirection: boolean;
-  /** Sorties : la Direction peut changer le motif et la date des lignes cochées, ou la date d'une ligne (sans toucher au stock). */
+  /** Sorties : la Direction peut changer le motif des lignes cochées (sans toucher au stock). */
   requalifiable?: boolean;
+  /**
+   * Sorties : changer la date des lignes cochées, ou d'une ligne (📅) — tout compte de l'espace Stock
+   * (décision Direction du 2026-10-08) ; la Direction l'a toujours sur une colonne requalifiable.
+   */
+  peutChangerDate?: boolean;
   toutLeFiltre?: ToutLeFiltre;
 }) {
+  // Qui peut cocher : la Direction (supprimer, motif, date) ; un compte Stock sur les sorties (date seule).
+  const dateOuverteAuCompte = requalifiable && (estDirection || peutChangerDate);
+  const cochable = estDirection || dateOuverteAuCompte;
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [modeFiltre, setModeFiltre] = useState(false);
   // Nombre recompté par le serveur (refus « le nombre a changé ») : vaut tant que le total reçu ne change pas.
@@ -138,7 +146,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
     <div className="overflow-hidden rounded-lg border">
       <div className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-sm font-semibold ${couleur}`}>
         <span className="flex items-center gap-2">
-          {estDirection && mouvements.length > 0 && (
+          {cochable && mouvements.length > 0 && (
             <input type="checkbox" checked={toutAfficheCoche} onChange={(e) => { if (e.target.checked) setSel(new Set(mouvements.map((m) => m.id))); else vider(); }} aria-label={`Tout sélectionner (${mouvements.length} affichés)`} />
           )}
           {titre} <span className="font-normal opacity-70">· {mouvements.length}{filtreDepasse ? ` affichées sur ${totalFiltre}` : ""}</span>
@@ -146,17 +154,17 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
         <span className="text-xs font-normal opacity-80">≈ {usd(totalValeur(mouvements))}{filtreDepasse ? " (affichées)" : ""}</span>
       </div>
 
-      {/* Barre d'actions groupées (Direction) */}
-      {estDirection && sel.size > 0 && (
+      {/* Barre d'actions groupées (Direction ; date des sorties : tout compte Stock) */}
+      {cochable && sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2 text-sm">
           {enModeFiltre && toutLeFiltre ? (
             <span data-tout-le-filtre="actif" className="font-medium">Les {totalFiltre} {nom} du filtre ({toutLeFiltre.libelle}) sont sélectionnées</span>
           ) : (
             <span className="font-medium">{sel.size} sélectionné(s)</span>
           )}
-          <button disabled={isPending} onClick={supprimerSel} className="rounded-md border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer la sélection</button>
+          {estDirection && <button disabled={isPending} onClick={supprimerSel} className="rounded-md border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50">Supprimer la sélection</button>}
           <button onClick={vider} className="text-xs text-muted-foreground underline">Annuler</button>
-          {requalifiable && (
+          {requalifiable && estDirection && (
             <ChangerMotif
               ids={[...sel]}
               toutLeFiltre={enModeFiltre && toutLeFiltre ? { filtre: toutLeFiltre.filtre, attendu: totalFiltre, libelle: toutLeFiltre.libelle } : undefined}
@@ -164,7 +172,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
               onRecompte={surRecompte}
             />
           )}
-          {requalifiable && (
+          {dateOuverteAuCompte && (
             <ChangerDate
               ids={[...sel]}
               toutLeFiltre={enModeFiltre && toutLeFiltre ? { filtre: toutLeFiltre.filtre, attendu: totalFiltre, libelle: toutLeFiltre.libelle } : undefined}
@@ -191,12 +199,12 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
 
       <div className="max-h-[70vh] divide-y overflow-auto">
         {jours.map((j, ji) => {
-          const tousSel = estDirection && j.lignes.every((m) => sel.has(m.id));
+          const tousSel = cochable && j.lignes.every((m) => sel.has(m.id));
           return (
             <details key={j.cle} open={ji === 0} className="group">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/40 px-3 py-1.5 text-xs font-semibold capitalize [&::-webkit-details-marker]:hidden">
                 <span className="flex items-center gap-1.5">
-                  {estDirection && <input type="checkbox" checked={tousSel} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleJour(j.lignes, e.target.checked)} aria-label="Tout sélectionner ce jour" />}
+                  {cochable && <input type="checkbox" checked={tousSel} onClick={(e) => e.stopPropagation()} onChange={(e) => toggleJour(j.lignes, e.target.checked)} aria-label="Tout sélectionner ce jour" />}
                   <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{j.titre}
                 </span>
                 <span className="font-normal text-muted-foreground">{j.lignes.length} mouvement(s) · {signe}{qte(j.lignes.reduce((t, m) => t + m.quantite, 0))} · ≈ {usd(totalValeur(j.lignes))}</span>
@@ -206,7 +214,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                   <div key={m.id} className={sel.has(m.id) ? "bg-primary/10" : ""}>
                   <div className="flex items-center justify-between gap-3 px-3 py-1.5">
                     <div className="flex min-w-0 items-start gap-2">
-                      {estDirection && <input type="checkbox" checked={sel.has(m.id)} onChange={() => toggle(m.id)} className="mt-1 shrink-0" aria-label="Sélectionner" />}
+                      {cochable && <input type="checkbox" checked={sel.has(m.id)} onChange={() => toggle(m.id)} className="mt-1 shrink-0" aria-label="Sélectionner" />}
                       <div className="min-w-0">
                         <Link href={`/stock/catalogue/${m.articleId}`} className="truncate font-medium text-primary hover:underline">{m.designation}</Link>
                         {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
@@ -228,7 +236,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                         <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
                         <div className="text-[11px] tabular-nums text-muted-foreground">{m.valeur !== null ? `${m.valeurEstimee ? "≈ " : ""}${usd(m.valeur)}` : "—"}</div>
                       </div>
-                      {estDirection && requalifiable && m.type === "SORTIE" && (
+                      {dateOuverteAuCompte && m.type === "SORTIE" && (
                         <button type="button" onClick={() => { setDateOuverte(dateOuverte === m.id ? null : m.id); setInfo(null); }}
                           aria-expanded={dateOuverte === m.id} aria-label={`Changer la date de la sortie ${m.designation}`} title="Changer la date de cette sortie"
                           className="rounded border px-1.5 py-0.5 text-xs hover:bg-accent">📅</button>

@@ -7,7 +7,7 @@ import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { PLANCHER_DATE_SORTIE, jjmmaaaa } from "@/lib/date-sortie";
 import type { FiltreMouvements } from "@/lib/filtre-mouvements";
 
-// « Changer la date » des sorties (Direction, demande de Sacha du 2026-10-08) — même patron que
+// « Changer la date » des sorties (comptes Stock, demande de Sacha du 2026-10-08) — même patron que
 // « Changer le motif » : dans la barre d'actions groupées (id cochés ou tout le filtre), ou à l'unité
 // depuis la ligne d'une sortie. Une CORRECTION de date : ni la quantité, ni le motif, ni le stock du
 // dépôt ne changent. Pas de date future (jour de Kinshasa) ; le serveur refait tous les contrôles

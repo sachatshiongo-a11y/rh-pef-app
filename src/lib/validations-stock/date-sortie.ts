@@ -2,8 +2,8 @@ import "server-only";
 
 // CŒUR DU CHANGEMENT DE DATE D'UNE SORTIE DE STOCK (demande de Sacha, 2026-10-08) — à l'unité ou en
 // lot (id cochés, ou tout le filtre de la colonne Sorties). Hors fichier « use server » (voir
-// reglement.ts) : l'action de l'écran Mouvements le garde (mêmes comptes que « Changer le motif ») puis
-// l'appelle.
+// reglement.ts) : l'action de l'écran Mouvements le garde (tout compte de l'espace Stock, comme la
+// saisie d'une sortie manuelle — décision Direction du 2026-10-08) puis l'appelle.
 //
 // Une CORRECTION de date, pas un mouvement : ni la quantité, ni le motif, ni `Stock.quantite` ne
 // bougent ; la sortie garde son id. Tout ou rien : la moindre sortie fautive refuse le lot entier, en
@@ -18,9 +18,8 @@ import "server-only";
 //    comptage a été calculé avec la sortie à sa date d'origine ; la déplacer de l'autre côté fausserait
 //    le stock reconstitué ;
 //  - une RÉCONCILIATION en attente de la Direction sur l'article (`COMPTAGE:<articleId>`).
-// Chaque changement est journalisé (avant → après, auteur). Un compte non-Direction notifie la
-// Direction (une notification par geste) — aujourd'hui l'action est réservée à la Direction, comme la
-// requalification du motif : la notification ne part donc pas ; elle est prête si le droit s'ouvre.
+// Chaque changement est journalisé (avant → après, auteur). Un compte non-Direction (responsable du
+// stock) notifie la Direction (une notification par geste) ; la Direction elle-même ne se notifie pas.
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";

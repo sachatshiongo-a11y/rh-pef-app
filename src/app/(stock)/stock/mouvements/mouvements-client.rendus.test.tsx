@@ -140,12 +140,12 @@ describe("changer la date d'une sortie (2026-10-08) — à l'unité et en lot", 
     id, articleId: "farine", designation: `Farine ${id}`, dateISO: "2026-07-10", origine: "Livraison restaurant", type, quantite: 1,
     valeur: null, valeurEstimee: false, facture: null, bc: null, fournId: null, fournNom: null, motif: type === "SORTIE" ? "LIVRAISON_RESTAURANT" : undefined,
   });
-  function monterColonne({ requalifiable = true, estDirection = true, type = "SORTIE" } = {}) {
+  function monterColonne({ requalifiable = true, estDirection = true, peutChangerDate = false, type = "SORTIE" } = {}) {
     conteneur = document.createElement("div");
     document.body.appendChild(conteneur);
     racine = createRoot(conteneur);
     act(() => racine.render(createElement(ColonneMouvements, {
-      titre: requalifiable ? "Sorties" : "Entrées", signe: "−", couleur: "", estDirection, requalifiable,
+      titre: requalifiable ? "Sorties" : "Entrées", signe: "−", couleur: "", estDirection, requalifiable, peutChangerDate,
       mouvements: [M("a", type), M("b", type), M("c", type)],
     })));
   }
@@ -226,9 +226,32 @@ describe("changer la date d'une sortie (2026-10-08) — à l'unité et en lot", 
     expect(statut?.className).toContain("bg-amber-50");
   });
 
-  it("ni 📅 ni « Changer la date » hors Direction, ni sur la colonne des entrées", () => {
+  it("responsable du stock (décision du 2026-10-08) : 📅 et « Changer la date (n) », mais ni suppression ni changement de motif", async () => {
+    const actions = await import("./actions");
+    const changer = vi.mocked(actions.changerDateSorties);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monterColonne({ estDirection: false, peutChangerDate: true });
+    expect(calendrier("a")).not.toBeNull();
+    expect(conteneur.querySelector('button[title^="Supprimer ce mouvement"]')).toBeNull();
+    act(() => conteneur.querySelector<HTMLInputElement>('input[aria-label="Tout sélectionner (3 affichés)"]')!.click());
+    expect(conteneur.textContent).toContain("3 sélectionné(s)");
+    expect(bouton("Supprimer la sélection")).toBeUndefined();
+    expect(bouton("Changer le motif (3)")).toBeUndefined();
+    saisirDate("2026-07-05");
+    changer.mockClear();
+    changer.mockResolvedValueOnce({ n: 3, deja: 0, date: "2026-07-05" });
+    await act(async () => { bouton("Changer la date (3)").click(); });
+    expect(changer).toHaveBeenCalledWith(["a", "b", "c"], "2026-07-05");
+  });
+
+  it("ni 📅 ni « Changer la date » sans le droit (ni Direction ni compte Stock), ni sur la colonne des entrées", () => {
     monterColonne({ estDirection: false });
     expect(calendrier("a")).toBeNull();
+    expect(conteneur.querySelector('input[aria-label^="Tout sélectionner"]')).toBeNull();
+    act(() => racine.unmount()); conteneur.remove();
+    monterColonne({ requalifiable: false, type: "ENTREE", estDirection: false, peutChangerDate: true });
+    expect(calendrier("a")).toBeNull();
+    expect(conteneur.querySelector('input[aria-label^="Tout sélectionner"]')).toBeNull(); // entrées : rien à cocher hors Direction
     act(() => racine.unmount()); conteneur.remove();
     monterColonne({ requalifiable: false, type: "ENTREE" });
     expect(calendrier("a")).toBeNull();
