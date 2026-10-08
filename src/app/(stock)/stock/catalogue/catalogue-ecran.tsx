@@ -1,6 +1,8 @@
 import { usd } from "@/lib/stock";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { CatalogueTable, type ArticleRow } from "./catalogue-table";
+import { PAR_DEFAUT, type ParPage } from "@/lib/pagination";
+import { LienGardantTaille } from "@/components/pagination";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 
@@ -18,17 +20,20 @@ const DOMAINES: { cle: Domaine | ""; label: string }[] = [
  * pour montrer les articles dès l'ouverture. La valeur du stock, le compteur et l'export y passent
  * dans le menu « Plus ». Sur ordinateur, rien ne change.
  */
-export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, estDirection = true }: {
+export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, pageInit = 1, parInit = PAR_DEFAUT, estDirection = true }: {
   rows: ArticleRow[];
   categories: { id: string; nom: string; domaine: string }[];
   fournisseurs: { id: string; nom: string }[];
   domaine?: Domaine;
   q: string;
   alerte?: "URGENT" | "APPRO" | "OK";
+  /** Page et taille de page lues dans l'URL (le tableau pagine les lignes déjà chargées). */
+  pageInit?: number;
+  parInit?: ParPage;
   /** Hors Direction : Inventaire en lecture, modifications proposées (voir CatalogueTable). */
   estDirection?: boolean;
 }) {
-  // Bascule de domaine en conservant recherche et filtre d'alerte.
+  // Bascule de domaine en conservant recherche et filtre d'alerte (la page repart à 1, la taille de page est gardée par le lien).
   const lienDomaine = (cle: Domaine | "") => {
     const p = new URLSearchParams({ ...(q ? { q } : {}), ...(alerte ? { alerte } : {}), ...(cle ? { domaine: cle } : {}) });
     return `/stock/catalogue${p.toString() ? `?${p}` : ""}`;
@@ -47,7 +52,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
               (domaine ?? "") === d.cle ? (
                 <span key={d.label} className="bg-primary px-2.5 py-1.5 font-medium text-primary-foreground lg:px-3">{d.label}</span>
               ) : (
-                <a key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</a>
+                <LienGardantTaille key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</LienGardantTaille>
               )
             )}
           </div>
@@ -59,7 +64,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
         </div>
       </div>
 
-      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} actionsPlus={exporter} estDirection={estDirection} />
+      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} pageInit={pageInit} parInit={parInit} actionsPlus={exporter} estDirection={estDirection} />
     </div>
   );
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   appliquerPagination, compteurPage, fenetrePage, hrefPagination, numerosPages, pageApresChangementTaille,
-  PAR_DEFAUT, PLUS_PETITE_PAGE, TAILLES_PAGE, type FenetrePage, type ParPage,
+  PAR_DEFAUT, PARAM_PAR, PLUS_PETITE_PAGE, TAILLES_PAGE, type FenetrePage, type ParPage,
 } from "@/lib/pagination";
 
 // BARRE DE PAGINATION UNIQUE (décision de la Direction, 2026-10-08) — « 51–100 sur 342 », Précédent /
@@ -96,4 +96,25 @@ export function usePagination({ total, pageInit, parInit, cleFiltre }: { total: 
 
   const aller = useCallback((page: number, par: ParPage) => setEtat({ page, par, cle: cleFiltre }), [cleFiltre]);
   return { ...f, aller };
+}
+
+/**
+ * Lien d'une page serveur qui change de filtre (la page repart à 1) mais GARDE la taille de page choisie
+ * depuis : la taille changée sans rechargement n'est connue que de l'adresse affichée, pas du rendu serveur.
+ * Sans JavaScript, c'est un lien ordinaire (taille de l'adresse d'origine).
+ */
+export function LienGardantTaille({ href, onClick, ...reste }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+  return (
+    <a
+      {...reste}
+      href={href}
+      onClick={(e) => {
+        onClick?.(e);
+        const par = new URL(window.location.href).searchParams.get(PARAM_PAR);
+        const u = new URL(href, window.location.href);
+        if (par) u.searchParams.set(PARAM_PAR, par); else u.searchParams.delete(PARAM_PAR);
+        e.currentTarget.href = `${u.pathname}${u.search}${u.hash}`;
+      }}
+    />
+  );
 }

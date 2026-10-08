@@ -8,14 +8,16 @@ import { verifySession } from "@/lib/auth";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
+import { lirePagination } from "@/lib/pagination";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
-export type CatalogueSP = { q?: string; domaine?: string; alerte?: string };
+export type CatalogueSP = { q?: string; domaine?: string; alerte?: string; page?: string; par?: string };
 
 /** Vue catalogue unique : le domaine se choisit par pilules (?domaine=), plus d'onglets dédiés. */
 export async function CatalogueView({ searchParams }: { searchParams: Promise<CatalogueSP> }) {
   const sp = await searchParams;
   const q = (sp.q ?? "").trim();
+  const { page, par } = lirePagination(sp); // page/taille de l'URL ; le filtrage se fait dans le tableau (tout est chargé : totaux sur tout le filtre)
   const alerteInit = sp.alerte === "URGENT" || sp.alerte === "APPRO" || sp.alerte === "OK" ? sp.alerte : undefined;
   const domFiltre: Domaine | undefined = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
 
@@ -71,5 +73,5 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
     };
   });
 
-  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} estDirection={user.role === "ADMIN"} />;
+  return <CatalogueEcran rows={rows} categories={categories} fournisseurs={fournisseurs} domaine={domFiltre} q={q} alerte={alerteInit} pageInit={page} parInit={par} estDirection={user.role === "ADMIN"} />;
 }

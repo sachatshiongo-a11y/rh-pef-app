@@ -13,6 +13,8 @@ import { nombreDeBase } from "@/lib/saisie-nombre-stock";
 import { formaterFC, formaterNombre } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
+import { Pagination, usePagination } from "@/components/pagination";
+import { tranche, type ParPage } from "@/lib/pagination";
 
 /** Texte envoyé à `modifierArticle` (lu à la française par `decSaisiOptionnel`) : vide = effacer. Les
  *  valeurs venues de la base (« 12.5 ») pré-remplissent les cases par `nombreDeBase`, jamais par la lecture française. */
@@ -109,8 +111,10 @@ const TRIS_MOBILE: readonly (readonly [string, string])[] = [
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, actionsPlus, estDirection = true }: {
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
   articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte;
+  /** Page et taille de page de l'URL (50 par défaut) : tout est chargé ici, la page est une tranche du filtre. */
+  pageInit?: number; parInit?: ParPage;
   /**
    * Direction : les cases s'enregistrent tout de suite. Autre compte : l'Inventaire est en LECTURE
    * (une modification se PROPOSE depuis la fiche article), et les actions groupées créent une
@@ -168,6 +172,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       return (x < y ? -1 : x > y ? 1 : 0) * tri.dir;
     });
   }, [visibles, tri, catNom, fourNom]);
+
+  // Pagination (50 / 100 / Tout) : une TRANCHE de la liste filtrée et triée. Les totaux (valeur du stock,
+  // compteurs de catégorie, « Remettre à 0 », sélection du filtre) restent ceux de TOUT le filtre.
+  // Un autre filtre, une autre recherche ou un autre tri ramène à la page 1.
+  const pagination = usePagination({ total: affichees.length, pageInit, parInit, cleFiltre: [q, dom, alerte, manque, hausseSeule, tri?.col, tri?.dir].join("|") });
+  const page = useMemo(() => tranche(affichees, pagination), [affichees, pagination]);
 
   // Compteurs « À compléter » (sur le domaine courant) — dette de saisie qui bride alertes/valorisation.
   const incomplets = useMemo(() => {
@@ -230,7 +240,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   // Téléphone : un seul article déplié à la fois (ses champs éditables), un nouvel appui le replie.
   const [ouvert, setOuvert] = useState<string | null>(null);
   const basculerOuvert = useCallback((id: string) => setOuvert((o) => (o === id ? null : id)), []);
-  const toutSel = (on: boolean) => setSel(on ? new Set(visibles.map((a) => a.id)) : new Set());
+  // « Tout sélectionner » coche la PAGE affichée ; « Sélectionner les N du filtre » (barre d'actions) coche tout le filtre.
+  // Les actions groupées reçoivent des listes d'identifiants, comme avant : rien de nouveau côté serveur.
+  const toutSel = (on: boolean) => setSel((s) => { const n = new Set(s); for (const a of page) { if (on) n.add(a.id); else n.delete(a.id); } return n; });
+  const pageToutCochee = page.length > 0 && page.every((a) => sel.has(a.id));
+  const nbFiltreCoches = visibles.reduce((t, a) => t + (sel.has(a.id) ? 1 : 0), 0);
+  const filtreDepasseLaPage = visibles.length > page.length;
 
   return (
     <div className="space-y-2 lg:space-y-3">
@@ -404,6 +419,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
           <span className="font-medium">{sel.size} sélectionné(s)</span>
+          {filtreDepasseLaPage && pageToutCochee && nbFiltreCoches < visibles.length && (
+            <button type="button" data-tout-le-filtre="proposer" onClick={() => setSel(new Set(visibles.map((a) => a.id)))} className="text-xs font-medium text-primary underline">
+              Sélectionner les {visibles.length} articles du filtre
+            </button>
+          )}
+          {filtreDepasseLaPage && nbFiltreCoches === visibles.length && <span data-tout-le-filtre="actif" className="text-xs text-muted-foreground">tout le filtre ({visibles.length}) est sélectionné</span>}
           <span className="text-muted-foreground">→ catégoriser :</span>
           <select value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
             <option value="">Choisir une catégorie…</option>
@@ -497,9 +518,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       <ZoneTableur>
       {/* Mobile : une rangée compacte par article (stock en gros), groupée par catégorie ; un appui déplie les champs éditables. */}
       <div data-tableur="" data-tableur-tab="natif" data-vue="rangees-mobile" className="space-y-1.5 lg:hidden">
-        {affichees.map((a, i) => (
+        {page.map((a, i) => (
           <Fragment key={a.id}>
-            {!tri && (i === 0 || affichees[i - 1].categorieId !== a.categorieId) && (
+            {!tri && (i === 0 || page[i - 1].categorieId !== a.categorieId) && (
               <div className="px-1 pt-2 text-sm font-semibold text-amber-900">
                 {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
               </div>
@@ -520,7 +541,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         <table data-tableur="" data-tableur-tab="natif" className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
           <thead className="bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
-              <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
+              <th className="w-8"><input type="checkbox" checked={pageToutCochee} ref={(el) => { if (el) el.indeterminate = !pageToutCochee && page.some((a) => sel.has(a.id)); }} onChange={(e) => toutSel(e.target.checked)} aria-label={`Tout sélectionner (${page.length} de cette page)`} title="Sélectionne les articles de cette page" /></th>
               <ThTri col="code" tri={tri} onTri={trierPar} className="w-14">Code</ThTri>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>
               <th className="w-40" title="Nom imprimé sur la fiche Commande journalière">Nom court</th>
@@ -536,9 +557,9 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             </tr>
           </thead>
           <tbody className="[&>tr>td]:border-b [&>tr>td]:px-2 [&>tr>td]:py-1">
-            {affichees.map((a, i) => (
+            {page.map((a, i) => (
               <Fragment key={a.id}>
-                {!tri && (i === 0 || affichees[i - 1].categorieId !== a.categorieId) && (
+                {!tri && (i === 0 || page[i - 1].categorieId !== a.categorieId) && (
                   <tr>
                     <td colSpan={13} className="bg-amber-100 !py-2 text-sm font-bold uppercase tracking-wide text-amber-900">
                       {a.categorieId ? catNom.get(a.categorieId) ?? "Catégorie" : "À classer"} ({visibles.filter((x) => x.categorieId === a.categorieId).length})
@@ -553,7 +574,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           {visibles.length > 0 && (
             <tfoot className="bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
-                <td colSpan={10} className="text-right">Valeur totale du stock affiché</td>
+                <td colSpan={10} className="text-right">Valeur totale du stock filtré{pagination.nbPages > 1 ? ` (${affichees.length} articles, toutes les pages)` : ""}</td>
                 <td className="text-right tabular-nums" title={horsSansTaux(affichees).trim() || undefined}>{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(affichees) ? " *" : ""}</td>
                 <td colSpan={2}></td>
               </tr>
@@ -562,6 +583,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         </table>
       </div>
       </ZoneTableur>
+      <Pagination total={affichees.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="articles" />
     </div>
   );
 }
