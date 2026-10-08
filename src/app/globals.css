@@ -291,6 +291,49 @@ textarea,
   }
 }
 
+/* TABLEAU « NORMAL » (décision de la Direction, 2026-10-08) : plus aucun tableau n'est enfermé dans une
+   boîte à défilement interne — c'est la PAGE qui défile et le tableau prend sa hauteur naturelle.
+   `tableau-normal` se pose sur le conteneur (avec `rounded-lg border`) d'un tableau qui TIENT en largeur
+   dès `lg` (≥ 1024 px) : `overflow: clip` coupe les coins arrondis SANS créer de zone de défilement,
+   donc l'en-tête `en-tete-collante` se colle au défilement de la page. Sous `lg`, seul le défilement
+   HORIZONTAL subsiste (jamais de hauteur bornée). `tableau-normal-xl` + `en-tete-collante-xl` : même
+   chose pour un tableau qui ne tient qu'à partir de `xl` (≥ 1280 px) — entre les deux, défilement
+   horizontal. Un tableau trop large même pour `xl` n'emploie ni l'une ni l'autre : il garde
+   `overflow-x-auto` (et perd l'en-tête collant, qu'un défilement horizontal casse). */
+@utility tableau-normal {
+  overflow: clip;
+  @media (width < 64rem) {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+@utility tableau-normal-xl {
+  overflow: clip;
+  @media (width < 80rem) {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+/* En-tête de colonnes (`<thead>`) collé au défilement de la PAGE, à partir du seuil où le conteneur
+   cesse de défiler en largeur (`lg` / `xl`, cf. ci-dessus) : en deçà, un collant y serait décalé à tort.
+   Il se colle SOUS la barre d'actions groupées de la page quand il y en a une : la barre publie sa
+   hauteur dans `--hauteur-barre-actions` (components/bulk-bar.tsx), repli 0px. Jamais `sticky top-0`. */
+@utility en-tete-collante {
+  @media (width >= 64rem) {
+    position: sticky;
+    top: var(--hauteur-barre-actions, 0px);
+    z-index: 20;
+  }
+}
+@utility en-tete-collante-xl {
+  @media (width >= 80rem) {
+    position: sticky;
+    top: var(--hauteur-barre-actions, 0px);
+    z-index: 20;
+  }
+}
+
 /* Sur mobile, les champs de saisie < 16px déclenchent un zoom automatique iOS (effet saccadé) :
    on force 16px pour les champs où l'on tape. */
 @media (max-width: 640px) {
