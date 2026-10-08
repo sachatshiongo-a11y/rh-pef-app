@@ -313,3 +313,24 @@ export async function supprimerFichePoste(poste: string) {
 
   });
 }
+
+/**
+ * Supprime en une fois les fiches cochées (barre d'actions groupées) — même effet que
+ * `supprimerFichePoste` fiche par fiche : la description et le lien partent, le poste, ses employés
+ * et le fichier dans Storage restent. Direction seulement. Chaque fiche est journalisée.
+ */
+export async function supprimerFichesPoste(formData: FormData) {
+  await formulaireLisible("/fiches-poste", async () => {
+    const user = await verifySession();
+    requireRole(user, ["ADMIN"]);
+    const ids = [...new Set(formData.getAll("ficheId").map(String).filter(Boolean))];
+    if (ids.length === 0) redirect(`/fiches-poste?erreur=${encodeURIComponent("Aucune fiche sélectionnée.")}`);
+    const existantes = await prisma.fichePoste.findMany({ where: { id: { in: ids } }, select: { id: true, poste: true, fichierNom: true } });
+    await prisma.fichePoste.deleteMany({ where: { id: { in: existantes.map((f) => f.id) } } });
+    for (const f of existantes) {
+      await journaliser(prisma, { entite: "FichePoste", entiteId: f.poste, champ: "suppression", ancienneValeur: f.fichierNom ?? "fiche", userId: user.id });
+    }
+    revalidatePath("/fiches-poste");
+    redirect(`/fiches-poste?msg=${encodeURIComponent(`${existantes.length} fiche(s) de poste supprimée(s).`)}`);
+  });
+}

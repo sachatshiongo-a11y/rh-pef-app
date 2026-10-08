@@ -11,7 +11,8 @@ const GENERIQUE = new Set(["services", "service", "business", "center", "centre"
 const jetons = (s: string) => strip(s).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
 const cle = (s: string) => jetons(s).join("");
 
-function lev(a: string, b: string): number {
+/** Distance d'édition (Levenshtein) entre deux chaînes — aussi utilisée par le rapprochement des fiches employés (employe-doublon). */
+export function lev(a: string, b: string): number {
   const m = a.length, n = b.length;
   if (!m) return n; if (!n) return m;
   let prev = Array.from({ length: n + 1 }, (_, j) => j);

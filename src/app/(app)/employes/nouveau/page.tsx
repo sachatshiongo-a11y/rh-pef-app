@@ -8,12 +8,14 @@ import { chargerPostes } from "@/lib/postes";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { exigerPageRH } from "@/lib/garde-page";
+import { chargerFichesIdentite } from "@/lib/employe-doublon-serveur";
+import { fichesPourEcran } from "../fiches-doublon";
 
 export default async function NouvelEmployePage({ searchParams }: { searchParams: Promise<{ erreur?: string }> }) {
   const user = await exigerPageRH();
   requireRole(user, ["ADMIN", "MANAGER"]);
   const sp = await searchParams;
-  const [parametres, postes, dernierRun] = await Promise.all([
+  const [parametres, postes, dernierRun, identites] = await Promise.all([
     chargerParametresPaie(),
     chargerPostes(),
     // Dernière paie calculée : sert de référence à la simulation d'impact (masse, coût).
@@ -21,6 +23,8 @@ export default async function NouvelEmployePage({ searchParams }: { searchParams
       orderBy: [{ annee: "desc" }, { mois: "desc" }],
       include: { lignes: { select: { id: true, employeeId: true, statutPaiement: true, salNetUSD: true, transportUSD: true, coutEmployeurUSD: true } } },
     }),
+    // Anti-doublon : toutes les fiches (actives et inactives), rapprochées pendant la saisie.
+    chargerFichesIdentite(),
   ]);
   // Lignes hors calcul (ligne rouverte d'un salarié sorti du calcul) : hors de la masse de référence (paie-hors-calcul.ts).
   if (dernierRun) dernierRun.lignes = await lignesComptees(prisma, dernierRun.lignes);
@@ -44,6 +48,7 @@ export default async function NouvelEmployePage({ searchParams }: { searchParams
         postes={postes}
         parametres={parametres}
         impact={impact}
+        doublons={{ fiches: fichesPourEcran(identites), ecartees: [], peutReactiver: user.role === "ADMIN" }}
       />
     </div>
   );
