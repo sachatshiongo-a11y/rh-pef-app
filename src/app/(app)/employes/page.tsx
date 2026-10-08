@@ -8,6 +8,9 @@ import { GrilleTransport } from "@/app/(app)/transport/_grille";
 import { filtrerEmployes } from "./_donnees";
 import type { Employee } from "@prisma/client";
 import { exigerPageRH } from "@/lib/garde-page";
+import { doublonsProbables } from "@/lib/employe-doublon";
+import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
+import { DoublonsProbables } from "./doublons-probables";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -21,15 +24,20 @@ export default async function EmployesPage({
   const user = await exigerPageRH();
   const sp = await searchParams;
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
+  // Doublons probables déjà en base : encadré réservé à la Direction (toutes les fiches, actives et inactives).
+  const estDirection = user.role === "ADMIN";
   const vue = sp.vue === "transport" ? "transport" : "rh";
   // Actifs par défaut ; « inactifs » = ex-employés (fin de contrat) ; « tous » = registre complet.
   const statut = sp.statut === "inactifs" ? "inactifs" : sp.statut === "tous" ? "tous" : "actifs";
   const whereActif = statut === "inactifs" ? { actif: false } : statut === "tous" ? {} : { actif: true };
 
-  const [tous, parametres] = await Promise.all([
+  const [tous, parametres, identites, ecartees] = await Promise.all([
     prisma.employee.findMany({ where: whereActif, orderBy: { nom: "asc" } }),
     vue === "transport" ? chargerParametresPaie() : Promise.resolve(null),
+    estDirection ? chargerFichesIdentite() : Promise.resolve([]),
+    estDirection ? chargerPairesEcartees() : Promise.resolve(new Set<string>()),
   ]);
+  const paires = estDirection ? doublonsProbables(identites, ecartees) : [];
 
   // Options de filtre dérivées de l'ensemble (stables quel que soit le filtre courant).
   const postes = [...new Set(tous.map((e) => e.poste))].sort();
@@ -85,6 +93,8 @@ export default async function EmployesPage({
           )}
         </div>
       </div>
+
+      {estDirection && <DoublonsProbables paires={paires} />}
 
       {/* Filtres */}
       <form method="GET" className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4">

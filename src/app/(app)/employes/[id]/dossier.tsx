@@ -333,13 +333,13 @@ export function DossierEmploye({
                 ) : fichePosteExiste ? (
                   <p className="text-sm text-muted-foreground">
                     La fiche de poste existe mais n&apos;a pas encore de description.{" "}
-                    <a href="/fiches-poste" className="text-primary underline">La renseigner</a>
+                    <a href={`/fiches-poste?poste=${encodeURIComponent(c.poste)}`} className="text-primary underline">La renseigner</a>
                     {fichePosteFichierUrl ? " ou consulter le document ci-dessous." : "."}
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Aucune fiche de poste pour «&nbsp;{c.poste}&nbsp;».{" "}
-                    <a href="/fiches-poste" className="text-primary underline">Créer la fiche de poste</a>
+                    <a href={`/fiches-poste?poste=${encodeURIComponent(c.poste)}`} className="text-primary underline">Créer la fiche de poste</a>
                   </p>
                 )}
                 {fichePosteFichierUrl && (
