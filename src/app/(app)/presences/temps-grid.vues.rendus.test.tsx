@@ -65,7 +65,7 @@ function rendre(opts: { vue?: VuePresences; semaine?: number; employe?: string |
     });
   act(() => racine.render(createElement(
     PresencesVueProvider,
-    { vueInitiale: opts.vue ?? "semaine", semaineInitiale: opts.semaine ?? 1, employeInitial: opts.employe ?? null, semaines },
+    { vueInitiale: opts.vue ?? "semaine", semaineInitiale: opts.semaine ?? 1, employeInitial: opts.employe ?? null, semaines } as never,
     createElement(BarreVuePresences, {
       semaines, semaineAujourdhui: 1,
       employes: [{ id: "e1", nom: "Alice", groupe: "Brigade" }, { id: "e2", nom: "Bruno", groupe: "Back-office" }],
