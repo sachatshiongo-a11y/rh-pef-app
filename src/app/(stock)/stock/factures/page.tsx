@@ -11,13 +11,16 @@ import { numeroMoisCourantKinshasa, anneeCouranteKinshasa, jourCivilKinshasa } f
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 import { versFactureRow } from "./facture-row";
 import { STATUTS_FACTURE_A_REGLER } from "@/lib/fiche-fournisseur";
+import { LienGardantTaille } from "@/components/pagination";
+import { lirePagination } from "@/lib/pagination";
 
-type SP = { statut?: string; tri?: string; vue?: string; annee?: string };
+type SP = { statut?: string; tri?: string; vue?: string; annee?: string; page?: string; par?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
 
 export default async function FacturesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
+  const { page, par } = lirePagination(sp);
   const estDirection = user.role === "ADMIN";
   const f = sp.statut;
   const tri = sp.tri === "fournisseur" ? "fournisseur" : "mois";
@@ -170,9 +173,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
       {/* Bascule de vue */}
       <div className="flex flex-wrap gap-1.5 text-sm">
-        <a href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</a>
-        <a href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</a>
-        <a href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</a>
+        <LienGardantTaille href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</LienGardantTaille>
+        <LienGardantTaille href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</LienGardantTaille>
+        <LienGardantTaille href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</LienGardantTaille>
       </div>
 
       {vue === "fournisseur" ? (
@@ -236,7 +239,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <div className="flex flex-wrap gap-1.5">
               {[["", "Toutes"], ["du", "À payer"], ["ECHUE_NON_REGLEE", "Échues"], ["REGLEE", "Réglées"]].map(([k, label]) => (
-                <a key={k} href={lien({ statut: k })} className={`rounded-full border px-3 py-1 ${(f ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
+                <LienGardantTaille key={k} href={lien({ statut: k })} className={`rounded-full border px-3 py-1 ${(f ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</LienGardantTaille>
               ))}
             </div>
             <span className="text-muted-foreground">·</span>
@@ -246,21 +249,21 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-muted-foreground">Année :</span>
                 {anneesDispo.map((a) => (
-                  <a key={a} href={lien({ annee: String(a) })} className={`rounded-full border px-3 py-1 ${anneeSel === a ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{a}</a>
+                  <LienGardantTaille key={a} href={lien({ annee: String(a) })} className={`rounded-full border px-3 py-1 ${anneeSel === a ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{a}</LienGardantTaille>
                 ))}
-                <a href={lien({ annee: "toutes" })} className={`rounded-full border px-3 py-1 ${anneeSel === null ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Toutes</a>
+                <LienGardantTaille href={lien({ annee: "toutes" })} className={`rounded-full border px-3 py-1 ${anneeSel === null ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Toutes</LienGardantTaille>
               </div>
             )}
             <span className="text-muted-foreground">·</span>
             <div className="flex gap-1.5">
               <span className="text-muted-foreground">Grouper :</span>
-              <a href={lien({ tri: "mois" })} className={`rounded-full border px-3 py-1 ${tri === "mois" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Mois</a>
-              <a href={lien({ tri: "fournisseur" })} className={`rounded-full border px-3 py-1 ${tri === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fournisseur</a>
+              <LienGardantTaille href={lien({ tri: "mois" })} className={`rounded-full border px-3 py-1 ${tri === "mois" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Mois</LienGardantTaille>
+              <LienGardantTaille href={lien({ tri: "fournisseur" })} className={`rounded-full border px-3 py-1 ${tri === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fournisseur</LienGardantTaille>
             </div>
           </div>
           {tri === "mois"
-            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} />
-            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} />}
+            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} paginer pageInit={page} parInit={par} />
+            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} paginer pageInit={page} parInit={par} />}
         </>
       )}
     </div>
@@ -277,6 +280,6 @@ function Kpi({ label, valeur, sous, accent, href }: { label: string; valeur: str
     </>
   );
   return href
-    ? <Link href={href} className={`block rounded-lg border p-3 transition-colors hover:border-primary ${cls}`} title="Filtrer la liste">{contenu}</Link>
+    ? <LienGardantTaille href={href} className={`block rounded-lg border p-3 transition-colors hover:border-primary ${cls}`} title="Filtrer la liste">{contenu}</LienGardantTaille>
     : <div className={`rounded-lg border p-3 ${cls}`}>{contenu}</div>;
 }

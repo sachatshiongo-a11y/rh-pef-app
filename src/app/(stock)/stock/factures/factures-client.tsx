@@ -15,6 +15,8 @@ import { MoisAccordeon } from "@/components/mois-accordeon";
 import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
 import { lireNombreSaisi } from "@/lib/nombre";
 import { BasculeDevise, SaisieFrancs, TotalLotFrancs, francsProposes, type DevisePaiement } from "./devise-paiement";
+import { Pagination, usePagination } from "@/components/pagination";
+import { tranche, type ParPage } from "@/lib/pagination";
 
 export type FactureRow = {
   id: string;
@@ -71,8 +73,11 @@ function messageEcartLot(reglees: number, demandees: number): string {
  *  - `groupes`  : par fournisseur (écran Factures) ;
  *  - `moisPlats`: Mois seuls, le plus récent ouvert (fiche d'un fournisseur — `sansFournisseur` : le
  *                 nom du fournisseur est celui de la page, on ne le répète pas à chaque ligne).
+ * `paginer` (écran Factures, 2026-10-08) : 50 / 100 / Tout factures par page, page et taille dans l'URL. La liste
+ * entière reste chargée : les groupes (année, mois, fournisseur) gardent leurs compteurs et leurs « dû » sur
+ * TOUT le filtre et ne montrent que les lignes de la page ; un groupe sans ligne sur la page disparaît.
  */
-export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false, taux = 0 }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean; /** Taux du jour (Paramètres) : paiement en francs ; 0 = non défini. */ taux?: number }) {
+export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false, taux = 0, paginer = false, pageInit = 1, parInit = 50 }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean; /** Taux du jour (Paramètres) : paiement en francs ; 0 = non défini. */ taux?: number; paginer?: boolean; pageInit?: number; parInit?: ParPage }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -111,6 +116,14 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
     else for (const g of groupes ?? []) acc.push(...g.factures);
     return acc;
   }, [annees, groupes, moisPlats]);
+  // Pagination : une tranche de la liste à plat (dans l'ordre d'affichage) ; sans `paginer`, tout s'affiche.
+  const pagination = usePagination({ total: toutes.length, pageInit, parInit: paginer ? parInit : "tout", cleFiltre: `${toutes.length}|${toutes[0]?.id}|${toutes[toutes.length - 1]?.id}`, synchroUrl: paginer });
+  const { debut: debutPage, fin: finPage } = pagination;
+  const idsPage = useMemo(() => (paginer ? new Set(tranche(toutes, { debut: debutPage, fin: finPage }).map((f) => f.id)) : null), [paginer, toutes, debutPage, finPage]);
+  const surPage = (fs: FactureRow[]) => (idsPage ? fs.filter((f) => idsPage.has(f.id)) : fs);
+  /** « · 12 affichées » : un groupe dont une partie seulement est sur cette page (compteur et « dû » restent ceux du groupe entier). */
+  const noteAffichees = (fs: FactureRow[]) => { const n = surPage(fs).length; return idsPage && n < fs.length ? ` · ${n} affichée(s)` : ""; };
+  const pageToutes = surPage(toutes);
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const clear = () => { setSel(new Set()); setLotDatePicker(false); };
   // Seulement ce qui est À L'ÉCRAN : après un changement de filtre, une case cochée avant ne doit
@@ -137,7 +150,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
 
   const liste = (factures: FactureRow[]) => (
     <ul className="divide-y border-t">
-      {factures.map((f) => {
+      {surPage(factures).map((f) => {
         const be = badgeEcheance(f);
         return (
           <li key={f.id} className={`flex gap-3 px-3 py-1.5 hover:bg-accent/30 sm:px-4 ${sel.has(f.id) ? "bg-primary/5" : ""}`}>
@@ -209,7 +222,16 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
       {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{info}</p>}
 
       {/* Barre d'actions groupées — sélection multiple par cases à cocher (BulkBar, commune à l'application). */}
-      <BulkBar count={selIds.length} total={toutes.length} onAll={(on) => setSel(on ? new Set(toutes.map((f) => f.id)) : new Set())}>
+      <BulkBar
+        count={selIds.length} total={pageToutes.length} cochesAffichees={pageToutes.filter((f) => sel.has(f.id)).length}
+        libelleTout={pageToutes.length < toutes.length ? "Tout sélectionner (cette page)" : "Tout sélectionner"}
+        onAll={(on) => setSel((s) => { const n = new Set(s); for (const f of pageToutes) { if (on) n.add(f.id); else n.delete(f.id); } return n; })}
+      >
+        {pageToutes.length < toutes.length && pageToutes.every((f) => sel.has(f.id)) && selIds.length < toutes.length && (
+          <button type="button" data-tout-le-filtre="proposer" onClick={() => setSel(new Set(toutes.map((f) => f.id)))} className="text-xs font-medium text-primary underline">
+            Sélectionner les {toutes.length} factures du filtre
+          </button>
+        )}
         {lotDatePicker ? (
           <span className="flex flex-wrap items-center gap-1.5">
             <label className="flex items-center gap-1 text-xs text-muted-foreground">Date de paiement
@@ -274,22 +296,22 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
         </>
       ) : annees ? (
         <>
-          {annees.map((a) => {
+          {annees.filter((a) => a.mois.some((m) => surPage(m.factures).length > 0)).map((a) => {
             const nbA = a.mois.reduce((n, m) => n + m.factures.length, 0);
             const duA = a.mois.reduce((n, m) => n + sumReste(m.factures), 0);
             return (
               <details key={a.annee} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
-                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{a.annee} <span className="font-normal text-muted-foreground">· {nbA} facture(s)</span></span>
+                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{a.annee} <span className="font-normal text-muted-foreground">· {nbA} facture(s){noteAffichees(a.mois.flatMap((m) => m.factures))}</span></span>
                   {duA > 0 ? <span className="text-red-700">dû {usd(duA)}</span> : <span className="text-emerald-700">soldé</span>}
                 </summary>
                 <div className="space-y-1.5 p-2">
-                  {a.mois.map((m) => {
+                  {a.mois.filter((m) => surPage(m.factures).length > 0).map((m) => {
                     const duM = sumReste(m.factures);
                     return (
                       <details key={m.cle} open={ouvert || undefined} className="group/m overflow-hidden rounded-lg border">
                         <summary className={`${sommaireCls} bg-muted/30 px-3 py-1 text-sm font-medium`}>
-                          <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open/m:rotate-90">▸</span>{m.label} <span className="font-normal text-muted-foreground">· {m.factures.length}</span></span>
+                          <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open/m:rotate-90">▸</span>{m.label} <span className="font-normal text-muted-foreground">· {m.factures.length}{noteAffichees(m.factures)}</span></span>
                           {duM > 0 ? <span className="text-xs text-red-700">dû {usd(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}
                         </summary>
                         {liste(m.factures)}
@@ -304,13 +326,13 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
         </>
       ) : (
         <>
-          {(groupes ?? []).map((g) => {
+          {(groupes ?? []).filter((g) => surPage(g.factures).length > 0).map((g) => {
             const total = g.factures.reduce((t, f) => t + Number(f.montant), 0);
             const regle = total - sumReste(g.factures);
             return (
               <details key={g.titre} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
-                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.factures.length} facture(s)</span></span>
+                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.factures.length} facture(s){noteAffichees(g.factures)}</span></span>
                   <span className="text-xs font-normal">Réglé <b className="text-emerald-700">{usd(regle)}</b> / {usd(total)}</span>
                 </summary>
                 {liste(g.factures)}
@@ -320,6 +342,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
           {(groupes ?? []).length === 0 && <p className="rounded-lg border px-3 py-6 text-center text-sm text-muted-foreground">Aucune facture.</p>}
         </>
       )}
+      {paginer && <Pagination className="pt-2" total={toutes.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="factures" />}
     </div>
   );
 }

@@ -8,13 +8,16 @@ import { MOIS_FR_MAJ as MOIS } from "@/lib/dates-fr";
 import { exigerPageStock } from "@/lib/garde-page";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
+import { ChampTaillePage, LienGardantTaille } from "@/components/pagination";
+import { lirePagination } from "@/lib/pagination";
 
-type SP = { annee?: string; mois?: string; fournisseurId?: string };
+type SP = { annee?: string; mois?: string; fournisseurId?: string; page?: string; par?: string };
 
 export default async function CommandesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
+  const { page, par } = lirePagination(sp);
   const annee = sp.annee && /^\d{4}$/.test(sp.annee) ? Number(sp.annee) : undefined;
   const mois = sp.mois && /^\d{1,2}$/.test(sp.mois) ? Number(sp.mois) : undefined;
   const fournisseurId = sp.fournisseurId || undefined;
@@ -43,6 +46,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
       </div>
 
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
+        <ChampTaillePage />
         <select name="annee" defaultValue={annee ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="">Toutes les années</option>
           {annees.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -53,11 +57,14 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         </select>
         <ChoixRecherche options={optionsFournisseurs(fournisseurs)} name="fournisseurId" defaultValue={fournisseurId ?? ""} vide="Tous les fournisseurs" aria-label="Fournisseur" className="rounded-md border border-input bg-background px-2 py-1.5" />
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {estDirection && <Link href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</Link>}
+        {estDirection && <LienGardantTaille href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</LienGardantTaille>}
       </form>
 
       <CommandesListe
         estDirection={estDirection}
+        paginer
+        pageInit={page}
+        parInit={par}
         commandes={commandes.map((c) => ({
           id: c.id, numero: c.numero, fournisseurId: c.fournisseurId ?? null, fournisseurNom: c.fournisseur?.nom ?? null,
           date: new Date(c.date).toISOString(), nbLignes: c._count.lignes, total: Number(c.totalUSD), statut: c.statut, documentUrl: c.documentUrl ?? null,
