@@ -84,7 +84,7 @@ describe("planning sur téléphone — actions groupées", () => {
     monter();
     cocher("Ana Kabila");
     await act(async () => { bouton("Vider")!.click(); });
-    expect(confirmer).toHaveBeenCalledWith("Vider le planning de 1 salarié(s) — jours : tous (7) ?");
+    expect(confirmer).toHaveBeenCalledWith("Vider 1 salarié sur 7 jours (lun. 5 → dim. 11 oct.) ?");
     expect(appels.saisirCreneauxEnLot).not.toHaveBeenCalled();
   });
 
@@ -118,5 +118,61 @@ describe("planning sur téléphone — actions groupées", () => {
     monter(false);
     expect(mobile().querySelector('input[type="checkbox"]')).toBeNull();
     expect(mobile().querySelector("[data-actions-groupees-mobile]")).toBeNull();
+  });
+});
+
+// ---- Ordinateur : « Vider » demande la même confirmation que sur téléphone (décision Direction du 2026-10-08) ----
+const bureau = () => conteneur.querySelector<HTMLElement>("div.hidden.lg\\:block")!;
+const boutonBureau = (texte: string) => [...bureau().querySelectorAll("button")].find((b) => b.textContent?.trim() === texte);
+const cocherBureau = (nom: string) => act(() => bureau().querySelector<HTMLInputElement>(`input[aria-label="Sélectionner ${nom}"]`)!.click());
+
+describe("planning sur ordinateur — « Vider » confirmé", () => {
+  it("la confirmation nomme les salariés ET les jours, avec le même texte que sur téléphone ; refusée : rien n'est envoyé", async () => {
+    const confirmer = vi.fn(() => false);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = confirmer;
+    monter();
+    cocherBureau("Ana Kabila");
+    cocherBureau("Ben Mbala");
+    cocherBureau("Céline Tshala");
+    await act(async () => { boutonBureau("Vider")!.click(); });
+    expect(confirmer).toHaveBeenCalledTimes(1);
+    expect(confirmer).toHaveBeenCalledWith("Vider 3 salariés sur 7 jours (lun. 5 → dim. 11 oct.) ?");
+    expect(appels.saisirCreneauxEnLot).not.toHaveBeenCalled();
+  });
+
+  it("confirmée : les 21 affectations (3 salariés × 7 jours) sont vidées (shift vide)", async () => {
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
+    monter();
+    cocherBureau("Ana Kabila");
+    cocherBureau("Ben Mbala");
+    cocherBureau("Céline Tshala");
+    await act(async () => { boutonBureau("Vider")!.click(); });
+    const entrees = appels.saisirCreneauxEnLot.mock.calls[0]![0];
+    expect(entrees).toHaveLength(21);
+    expect(entrees.every((e) => e.shiftId === "")).toBe(true);
+  });
+
+  it("jours choisis : seuls ceux-là sont nommés dans la confirmation (lun. 5, mer. 7, ven. 9)", async () => {
+    const confirmer = vi.fn(() => false);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = confirmer;
+    monter();
+    cocherBureau("Ana Kabila");
+    // La barre de bureau propose un bouton par jour : on décoche tout sauf lun., mer., ven.
+    for (const [i, lib] of LIBELLES.entries()) if (![0, 2, 4].includes(i)) act(() => boutonBureau(lib)!.click());
+    await act(async () => { boutonBureau("Vider")!.click(); });
+    expect(confirmer).toHaveBeenCalledWith("Vider 1 salarié sur 3 jours (lun. 5, mer. 7, ven. 9 oct.) ?");
+  });
+
+  it("aucun jour coché : « Vider » et « Affecter » désactivés, aucune confirmation", async () => {
+    const confirmer = vi.fn(() => true);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = confirmer;
+    monter();
+    cocherBureau("Ana Kabila");
+    for (const lib of LIBELLES) act(() => boutonBureau(lib)!.click());
+    expect(boutonBureau("Vider")!.disabled).toBe(true);
+    expect(boutonBureau("Affecter")!.disabled).toBe(true);
+    await act(async () => { boutonBureau("Vider")!.click(); });
+    expect(confirmer).not.toHaveBeenCalled();
+    expect(appels.saisirCreneauxEnLot).not.toHaveBeenCalled();
   });
 });

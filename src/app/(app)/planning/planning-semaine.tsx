@@ -10,6 +10,7 @@ import { useJourMobile } from "@/components/jour-mobile";
 import { saisirCreneau, saisirCreneauxEnLot } from "./actions";
 import { paletteDe, dureeShift, type ShiftDTO } from "./creneaux";
 import { abreviationsShifts } from "./abreviations";
+import { messageViderPlanning } from "./vider-message";
 import {
   grouperSalaries,
   pivoterParShift,
@@ -222,6 +223,11 @@ export function PlanningSemaine({
   // une barre collée) ; son résumé reste visible sur le bouton qui le déplie.
   const empsMobile = useMemo(() => groupes.flatMap((g) => g.employees), [groupes]);
   const [joursBulkOuverts, setJoursBulkOuverts] = useState(false);
+  // « Vider » efface des affectations posées : confirmation qui NOMME salariés et jours, la même sur ordinateur et téléphone.
+  const viderLaSelection = () => {
+    const joursVises = [...bulkJours].sort((a, b) => a - b).map((i) => jours[i]).filter((j): j is SemaineJour => !!j);
+    if (confirm(messageViderPlanning(sel.size, joursVises))) appliquerBulk("");
+  };
   const resumeJoursBulk = bulkJours.size === jours.length ? `tous (${jours.length})`
     : bulkJours.size === 0 ? "aucun"
     : bulkJours.size <= 2 ? [...bulkJours].sort((a, b) => a - b).map((i) => jours[i]?.label).join(", ")
@@ -330,8 +336,8 @@ export function PlanningSemaine({
                       className={`rounded border px-1.5 py-0.5 text-[11px] ${bulkJours.has(i) ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{j.label}</button>
                   ))}
                 </div>
-                <button onClick={() => appliquerBulk(bulkShift)} disabled={isPending} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Affecter</button>
-                <button onClick={() => appliquerBulk("")} disabled={isPending} className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive disabled:opacity-50">Vider</button>
+                <button onClick={() => appliquerBulk(bulkShift)} disabled={isPending || bulkJours.size === 0} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">Affecter</button>
+                <button type="button" onClick={viderLaSelection} disabled={isPending || bulkJours.size === 0} className="rounded-md border border-destructive px-3 py-1 text-xs font-medium text-destructive disabled:opacity-50">Vider</button>
                 <button onClick={() => setSel(new Set())} className="text-xs text-muted-foreground underline">Désélectionner</button>
               </div>
             )}
@@ -458,8 +464,8 @@ export function PlanningSemaine({
                 Jours : {resumeJoursBulk} <span aria-hidden>{joursBulkOuverts ? "▴" : "▾"}</span>
               </button>
               <button type="button" onClick={() => appliquerBulk(bulkShift)} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">Affecter</button>
-              {/* Sur téléphone les jours visés sont repliés : « Vider » les NOMME avant d'effacer (relecture du 2026-10-08). */}
-              <button type="button" onClick={() => { if (confirm(`Vider le planning de ${sel.size} salarié(s) — jours : ${resumeJoursBulk} ?`)) appliquerBulk(""); }} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md border border-destructive px-4 text-sm font-medium text-destructive disabled:opacity-50">Vider</button>
+              {/* Sur téléphone les jours visés sont repliés : « Vider » les NOMME avant d'effacer (relecture du 2026-10-08) — message commun avec l'ordinateur. */}
+              <button type="button" onClick={viderLaSelection} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md border border-destructive px-4 text-sm font-medium text-destructive disabled:opacity-50">Vider</button>
               {joursBulkOuverts && (
                 <div className="basis-full space-y-1">
                   <div className="flex gap-2">
