@@ -33,6 +33,8 @@ export type IndicateursStock = {
   facturesEchues: SommeComptee;
   legumesMois: SommeComptee;
   consoMois: { montant: number; nb: number };
+  /** Sorties du mois d'articles au prix en francs NON valorisées faute de taux (comptées dans `consoMois.nb`). */
+  consoFrancsSansTaux: number;
 };
 
 const somme = (agg: { _sum: Record<string, unknown>; _count: number }, champ: string): SommeComptee => {
@@ -73,8 +75,9 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
     // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue ; un
     // article en francs : quantité × francs ÷ taux du jour — rien sans taux, jamais 0).
-    prisma.$queryRaw<{ total: number; n: number }[]>`
-      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD", m."quantite" * a."prixUnitaireCDF" / ${taux}::numeric)), 0)::float AS total, COUNT(*)::int AS n
+    prisma.$queryRaw<{ total: number; n: number; nfc: number }[]>`
+      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD", m."quantite" * a."prixUnitaireCDF" / ${taux}::numeric)), 0)::float AS total, COUNT(*)::int AS n,
+        COUNT(*) FILTER (WHERE m."montantUSD" IS NULL AND a."prixUnitaireCDF" IS NOT NULL AND ${taux}::numeric IS NULL)::int AS nfc
       FROM "stock"."MouvementStock" m JOIN "stock"."ArticleStock" a ON a."id" = m."articleId"
       WHERE m."type" = 'SORTIE' AND m."date" >= ${debutMois} AND m."date" < ${debutMoisSuivant}`,
   ]);
@@ -108,5 +111,6 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     facturesEchues: somme(facturesEchues, "resteAPayerUSD"),
     legumesMois: somme(legumesMois, "montantUSD"),
     consoMois: { montant: consoMois[0]?.total ?? 0, nb: consoMois[0]?.n ?? 0 },
+    consoFrancsSansTaux: consoMois[0]?.nfc ?? 0,
   };
 }

@@ -6,7 +6,7 @@ import { CatalogueEcran } from "./catalogue-ecran";
 import type { Prisma } from "@prisma/client";
 import { verifySession } from "@/lib/auth";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
-import { libellesPrix, valeurEnUSD } from "@/lib/prix-article";
+import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
@@ -60,6 +60,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       devisePrix: a.devisePrix,
       prixCDF: a.prixUnitaireCDF !== null ? a.prixUnitaireCDF.toString() : null,
       prixAutre: libellesPrix(a, taux).autre,
+      prixEnUSD: prixArticleEnUSD(a, taux)?.valeur ?? null, // tri de la colonne Prix
       ...(() => { const v = valeurEnUSD(a, a.stock ? Number(a.stock.quantite) : 0, taux); return { valeurUSD: v ? v.valeur : null, valeurApprox: v?.approx ?? false }; })(),
       uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
       quantite: a.stock ? a.stock.quantite.toString() : "0",

@@ -93,6 +93,16 @@ describe("« Marquer payée » en francs (Direction)", () => {
     expect(await etat(f.id)).toMatchObject({ regle: "80", reste: "20", paiements: [{ montantUSD: "80", montantCDF: "280000", taux: "3500" }] });
   }, 60_000);
 
+  it("FC choisi mais montant vide : refusé — jamais un paiement en dollars à la place (relecture)", async () => {
+    const f = await facture(100);
+    expect(await marquerPayee(f.id, "2026-10-01", "")).toMatchObject({ erreur: "Saisissez le montant versé en francs." });
+    expect(await marquerPayee(f.id, "2026-10-01", "  ")).toMatchObject({ erreur: "Saisissez le montant versé en francs." });
+    expect(await etat(f.id)).toMatchObject({ statut: "A_REGLER", reste: "100", paiements: [] });
+    en("resp");
+    expect(await marquerPayee(f.id, "2026-10-01", "")).toMatchObject({ erreur: "Saisissez le montant versé en francs." });
+    expect(await prisma.demandeValidationStock.count()).toBe(0);
+  }, 60_000);
+
   it("taux absent : refus lisible, rien n'est écrit", async () => {
     const f = await facture(100);
     await taux(0);

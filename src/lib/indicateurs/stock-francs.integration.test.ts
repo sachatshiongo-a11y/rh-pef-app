@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 const { indicateursStock } = await import("./stock");
-const { inventaireActuel } = await import("@/lib/cloture-inventaire");
+const { inventaireActuel, snapshotActuel } = await import("@/lib/cloture-inventaire");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -51,6 +51,8 @@ describe("article en francs dans les indicateurs du Stock", () => {
     expect(ind.valeurStockApprox).toBe(true);
     expect(ind.articlesSansTaux).toBe(0);
     expect(ind.consoMois.montant).toBeCloseTo(10, 6);
+    expect(ind.consoFrancsSansTaux).toBe(0);
+    expect((await snapshotActuel()).valeurTotaleUSD).toBe(47);
   }, 60_000);
 
   it("inventaire de clôture : le franc converti au taux du jour, tracé (prix saisi + taux)", async () => {
@@ -67,6 +69,9 @@ describe("article en francs dans les indicateurs du Stock", () => {
     expect(ind.valeurStockApprox).toBe(false);
     expect(ind.articlesSansTaux).toBe(1);
     expect(ind.consoMois.montant).toBeCloseTo(5, 6); // la sortie en francs n'est pas comptée 0 : elle n'est pas valorisée
+    expect(ind.consoFrancsSansTaux).toBe(1); // …et c'est dit
+    // Clôture sans taux : refusée plutôt que de figer l'article en francs à 0 $.
+    await expect(snapshotActuel()).rejects.toThrow(/Taux de change non défini.*« Manioc »/);
     const inv = await inventaireActuel();
     expect(inv.lignes.find((l) => l.designation === "Manioc")).toMatchObject({ prixUnitaireUSD: 0, prixUnitaireCDF: 7000, tauxChange: null });
     await prisma.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF: 2800 } });

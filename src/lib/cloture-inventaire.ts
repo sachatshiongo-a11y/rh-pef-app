@@ -66,8 +66,17 @@ export async function inventaireActuel(): Promise<Inventaire> {
 /** Sérialise l'inventaire actuel pour le figer dans ClotureStock.snapshot. */
 export async function snapshotActuel() {
   const inv = await inventaireActuel();
+  // Un article au prix en FRANCS, en stock, sans taux du jour : sa valeur serait figée à 0 $ — refus
+  // lisible plutôt qu'une clôture fausse (2026-10-08).
+  const sansTaux = inv.lignes.filter((l) => l.prixUnitaireCDF !== undefined && l.tauxChange == null && l.quantite !== 0);
+  if (sansTaux.length > 0) {
+    throw new Error(`Taux de change non défini (Paramètres) : ${sansTaux.length} article(s) au prix en francs (${sansTaux.slice(0, 3).map((l) => `« ${l.designation} »`).join(", ")}${sansTaux.length > 3 ? "…" : ""}) ne peuvent pas être valorisés — renseignez le taux avant de clôturer.`);
+  }
   return { valeurTotaleUSD: inv.valeurTotaleUSD, lignes: inv.lignes };
 }
+
+/** L'inventaire (figé ou actuel) contient-il des prix en francs convertis au taux du jour (« ≈ ») ? */
+export const contientFrancsConvertis = (inv: Pick<Inventaire, "lignes">) => inv.lignes.some((l) => l.prixUnitaireCDF !== undefined && l.quantite !== 0);
 
 /**
  * Inventaire d'un mois : l'instantané figé à la clôture s'il existe (et contient le format enrichi),

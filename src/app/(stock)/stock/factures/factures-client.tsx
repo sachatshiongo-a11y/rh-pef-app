@@ -13,6 +13,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { BulkBar } from "@/components/bulk-bar";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
+import { lireNombreSaisi } from "@/lib/nombre";
 import { BasculeDevise, SaisieFrancs, TotalLotFrancs, francsProposes, type DevisePaiement } from "./devise-paiement";
 
 export type FactureRow = {
@@ -183,7 +184,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                       />
                       <BasculeDevise petit devise={devise} onDevise={(d) => { setDevise(d); if (d === "CDF") setFrancs(francsProposes(f.reste, taux)); }} taux={taux} />
                       {devise === "CDF" && <SaisieFrancs petit francs={francs} onFrancs={setFrancs} reste={f.reste} taux={taux} demande={!estDirection} />}
-                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie, devise === "CDF" ? francs : undefined), () => setDatePickerId(null))} disabled={isPending}>{libelleConfirmer}</BoutonValider>
+                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie, devise === "CDF" ? francs : undefined), () => setDatePickerId(null))} disabled={isPending || (devise === "CDF" && !((lireNombreSaisi(francs) ?? 0) > 0))}>{libelleConfirmer}</BoutonValider>
                       <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
                     </span>
                   ) : (

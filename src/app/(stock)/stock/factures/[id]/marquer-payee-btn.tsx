@@ -5,6 +5,7 @@ import { marquerPayee } from "../actions";
 import { estErreur } from "@/lib/action-lisible";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { lireNombreSaisi } from "@/lib/nombre";
 import { BasculeDevise, SaisieFrancs, francsProposes, type DevisePaiement } from "../devise-paiement";
 
 /**
@@ -51,7 +52,7 @@ export function MarquerPayeeBtn({ id, estDirection = true, reste = 0, taux = 0 }
         <BasculeDevise devise={devise} onDevise={choisirDevise} taux={taux} />
       </div>
       {devise === "CDF" && <SaisieFrancs francs={francs} onFrancs={setFrancs} reste={reste} taux={taux} demande={!estDirection} />}
-      <BoutonValider onClick={confirmer} disabled={isPending}>{isPending ? "…" : estDirection ? "Confirmer" : "Envoyer la demande"}</BoutonValider>
+      <BoutonValider onClick={confirmer} disabled={isPending || (devise === "CDF" && !((lireNombreSaisi(francs) ?? 0) > 0))}>{isPending ? "…" : estDirection ? "Confirmer" : "Envoyer la demande"}</BoutonValider>
       <BoutonNeutre onClick={() => { setOuvert(false); setErreur(null); }}>Annuler</BoutonNeutre>
       {erreur && <span className="w-full text-xs text-destructive">{erreur}</span>}
     </div>

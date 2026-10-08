@@ -112,6 +112,18 @@ describe("prix d'article en francs — saisie", () => {
     expect(d.resume).toBe("« Manioc » : Prix unitaire FC 7000 → 7200");
   }, 60_000);
 
+  it("prix en $ proposé sur un article SANS prix, passé en FC par la Direction entre-temps : conflit lisible (relecture)", async () => {
+    const a = await prisma.articleStock.create({ data: { designation: "Sel", domaine: "NOURRITURE", unite: "Kg" } });
+    en("resp");
+    await C.modifierArticle(a.id, fd({ prixUnitaireUSD: "1,5" }));
+    const [d] = await prisma.demandeValidationStock.findMany();
+    en("dir");
+    await C.modifierArticle(a.id, fd({ devisePrix: "CDF", prixUnitaireCDF: "4000" }));
+    const r = await validerDemandes([d.id], {}, await v([d.id]));
+    expect(JSON.stringify(r)).toMatch(/« Sel » — Cet article a son prix en francs.*rien n'a été écrit/);
+    expect(await prix(a.id)).toEqual({ devise: "CDF", usd: null, cdf: "4000" });
+  }, 60_000);
+
   it("proposition périmée : la Direction a changé la devise entre-temps → conflit, rien n'est écrit", async () => {
     const riz = await article("Riz", { usd: "2.5" });
     en("resp");

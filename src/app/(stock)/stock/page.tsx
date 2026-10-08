@@ -4,7 +4,7 @@ import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
 import { indicateursStock } from "@/lib/indicateurs/stock";
 import { exigerPageStock } from "@/lib/garde-page";
-import { inventaireFige } from "@/lib/cloture-inventaire";
+import { contientFrancsConvertis, inventaireFige } from "@/lib/cloture-inventaire";
 import { moisDuParametre, MOIS_FR } from "@/lib/dates-fr";
 import { SelecteurMois } from "@/components/selecteur-mois";
 import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
@@ -131,13 +131,13 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           <Kpi label="Articles" valeur={String(nbArticles)} sous={etiquette(AUJ)} href="/stock/catalogue" />
           <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} sous={etiquette(AUJ)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
           <Kpi label="À réapprovisionner" valeur={String(nbAppro)} sous={etiquette(AUJ)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
-          <Kpi label="Valeur du stock" valeur={`${!stockFige && ind.valeurStockApprox ? "≈ " : ""}${usd(valeurAffichee)}`} sous={!stockFige && ind.articlesSansTaux > 0 ? [sousValeur, `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)`].filter(Boolean).join(" · ") : sousValeur} />
+          <Kpi label="Valeur du stock" valeur={`${(stockFige ? contientFrancsConvertis(stockFige) : ind.valeurStockApprox) ? "≈ " : ""}${usd(valeurAffichee)}`} sous={!stockFige && ind.articlesSansTaux > 0 ? [sousValeur, `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)`].filter(Boolean).join(" · ") : sousValeur} />
           <Kpi label="Factures à payer" valeur={usd(facturesAPayer.montant)} sous={avecEtiquette(`${facturesAPayer.nb} facture(s)`, AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
           <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine.montant)} sous={avecEtiquette(`${facturesSemaine.nb} facture(s)`, "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Factures échues" valeur={usd(facturesEchues.montant)} sous={avecEtiquette(`${facturesEchues.nb} facture(s)`, AUJ)} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
           <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
-          <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées`} href={lienMouvements} />
+          <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées${ind.consoFrancsSansTaux > 0 ? ` · dont ${ind.consoFrancsSansTaux} en FC non valorisée(s) : taux non défini` : ""}`} href={lienMouvements} />
         </div>
       </section>
 

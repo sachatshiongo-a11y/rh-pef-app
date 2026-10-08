@@ -415,7 +415,9 @@ function rafraichirFactures(ids: string[]) {
  */
 export const marquerPayee = actionLisible(async (id: string, dateStr?: string, francs?: string): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
-  const enFrancs = francs !== undefined && francs !== null && String(francs).trim() !== "";
+  // `francs` présent = paiement EN FRANCS : un montant vide est refusé (jamais un repli silencieux en dollars).
+  const enFrancs = francs !== undefined && francs !== null;
+  if (enFrancs && String(francs).trim() === "") throw new Error("Saisissez le montant versé en francs.");
   const fc = enFrancs ? decSaisi(francs, "montant en francs") : null;
   if (fc !== null && !(fc > 0)) throw new Error("Le montant en francs doit être supérieur à 0.");
   if (!estDirection(user)) {

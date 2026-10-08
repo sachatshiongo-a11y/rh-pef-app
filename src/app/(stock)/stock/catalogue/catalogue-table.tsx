@@ -28,6 +28,8 @@ const valeurStock = (a: { prix: string | null; quantite: string; valeurUSD?: num
   a.valeurUSD !== undefined ? a.valeurUSD ?? 0 : (Number(a.prix) || 0) * (Number(a.quantite) || 0);
 /** « ≈ » devant une valeur (ou une somme) qui contient un article en francs converti au taux du jour. */
 const approx = (rows: readonly ArticleRow[]) => (rows.some((a) => a.valeurApprox) ? "≈ " : "");
+/** Articles en francs NON valorisés (taux du jour absent) : la somme le dit au lieu de les compter 0. */
+const horsSansTaux = (rows: readonly ArticleRow[]) => { const n = rows.filter((a) => a.devisePrix === "CDF" && a.prixCDF && a.valeurUSD === null).length; return n ? ` (hors ${n} article${n > 1 ? "s" : ""} en FC : taux non défini)` : ""; };
 /** Valeur d'UN article affichée : « — » sans prix (ou franc sans taux), « ≈ » pour un article en francs. */
 const texteValeur = (a: ArticleRow) => (a.valeurUSD === null ? "—" : `${a.valeurApprox ? "≈ " : ""}${usd(valeurStock(a))}`);
 /** Prix dans sa devise de saisie : le champ que la case modifie, la valeur et l'autre devise « ≈ ». */
@@ -347,7 +349,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {plus && (
         <div id="inventaire-plus" data-plus-mobile="" className="space-y-3 rounded-xl border bg-muted/30 p-3 text-sm lg:hidden">
           <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(articles)}{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}</span></span>
+            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(articles)}{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(articles)}</span></span>
             <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
           </p>
           {manquants.length > 0 && (
@@ -477,10 +479,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <div className="flex gap-1">
             {/* Prix de référence dans la devise choisie ($ ou FC) : c'est elle qui fera foi. */}
             <input name={deviseAjout === "CDF" ? "prixUnitaireCDF" : "prixUnitaireUSD"} type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder={deviseAjout === "CDF" ? "Prix FC" : "Prix USD"} className={`${cellCls} min-w-0 flex-1`} />
-            <select name="devisePrix" value={deviseAjout} onChange={(e) => setDeviseAjout(e.target.value === "CDF" ? "CDF" : "USD")} aria-label="Devise du prix" className={`${cellCls} w-16`}>
-              <option value="USD">$</option>
-              <option value="CDF">FC</option>
-            </select>
+            <input type="hidden" name="devisePrix" value={deviseAjout} />
+            {/* Même bascule $ / FC que la fiche article et le paiement des factures. */}
+            <div role="group" aria-label="Devise du prix" className="inline-flex shrink-0 overflow-hidden rounded border text-xs">
+              <button type="button" onClick={() => setDeviseAjout("USD")} aria-pressed={deviseAjout === "USD"} className={`px-2 ${deviseAjout === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>$</button>
+              <button type="button" onClick={() => setDeviseAjout("CDF")} aria-pressed={deviseAjout === "CDF"} className={`px-2 ${deviseAjout === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>FC</button>
+            </div>
           </div>
           <input name="uniteParCarton" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Unités / carton (ex. 24)" className={cellCls} />
           {/* Stock initial : Direction seulement (ailleurs, il entre par la Liste d'achat ou un comptage). */}
@@ -550,7 +554,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <tfoot className="sticky bottom-0 bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
                 <td colSpan={10} className="text-right">Valeur totale du stock affiché</td>
-                <td className="text-right tabular-nums">{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}</td>
+                <td className="text-right tabular-nums" title={horsSansTaux(affichees).trim() || undefined}>{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(affichees) ? " *" : ""}</td>
                 <td colSpan={2}></td>
               </tr>
             </tfoot>
