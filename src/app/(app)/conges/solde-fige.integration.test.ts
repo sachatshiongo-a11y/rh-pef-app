@@ -285,6 +285,15 @@ describe("écran Congés", () => {
     expect(url.searchParams.get("erreurDecision")).toBe("Demande de congé introuvable.");
     expect(url.searchParams.has("erreur")).toBe(false);
   });
+
+  it("échec d'une décision : la page et la taille de page de la liste sont gardées (pagination)", async () => {
+    const inexistante = "00000000-0000-0000-0000-000000000000";
+    const err = await approuverCongeFormulaire(inexistante, { statut: "APPROUVE", page: "2", par: "100" }).catch((e: Error) => e);
+    const url = new URL((err as Error).message.replace(/^REDIRECT /, ""), "http://x");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("par")).toBe("100");
+    expect(url.searchParams.get("statut")).toBe("APPROUVE");
+  });
 });
 
 describe("approbation d'office (demande saisie par la Direction)", () => {

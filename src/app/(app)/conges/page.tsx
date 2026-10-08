@@ -12,6 +12,8 @@ import { BoutonSigner } from "@/components/bouton-signer";
 import { faireSignerDocument } from "../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { ChampTaillePage, LienGardantTaille, Pagination } from "@/components/pagination";
+import { fenetrePage, lirePagination, tranche } from "@/lib/pagination";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -29,7 +31,7 @@ function chipDate(dt: Date) {
 export default async function CongesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string; erreurDecision?: string } & SPCalendrier>;
+  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string; erreurDecision?: string; page?: string; par?: string } & SPCalendrier>;
 }) {
   const user = await exigerPageRH();
   const sp = await searchParams;
@@ -62,7 +64,13 @@ export default async function CongesPage({
   );
   const filtreActif = !!(sp.statut || sp.type || q);
   // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant.
-  const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q };
+  const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q, page: sp.page, par: sp.par };
+
+  // Pagination (50 / 100 / Tout) de la liste filtrée : le filtre porte sur toutes les demandes chargées, les
+  // compteurs de synthèse aussi ; seules les signatures et les cartes de la PAGE sont lues / affichées.
+  const { page, par } = lirePagination(sp);
+  const fen = fenetrePage(demandes.length, page, par);
+  const demandesPage = tranche(demandes, fen);
 
   const now = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : un congé du 12 au 12 est « en cours » le 12
   const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
@@ -75,7 +83,7 @@ export default async function CongesPage({
   const sigConges = await chargerSignatures(
     prisma,
     "DEMANDE_CONGE",
-    demandes.filter((d) => d.statut === "APPROUVE").map((d) => d.id)
+    demandesPage.filter((d) => d.statut === "APPROUVE").map((d) => d.id)
   );
 
   return (
@@ -98,10 +106,10 @@ export default async function CongesPage({
           { label: "À venir (30 j)", value: aVenir, classe: "text-sky-600", lien: "?statut=APPROUVE" },
           { label: "Approuvés (total)", value: nbApprouve, classe: "text-foreground", lien: "?statut=APPROUVE" },
         ].map((c) => (
-          <Link key={c.label} href={`/conges${c.lien}`} className="rounded-xl border bg-card p-4 shadow-sm transition hover:border-primary">
+          <LienGardantTaille key={c.label} href={`/conges${c.lien}`} className="rounded-xl border bg-card p-4 shadow-sm transition hover:border-primary">
             <p className="text-xs text-muted-foreground">{c.label}</p>
             <p className={`mt-1 text-xl font-bold sm:text-2xl ${c.classe}`}>{c.value}</p>
-          </Link>
+          </LienGardantTaille>
         ))}
       </div>
 
@@ -189,6 +197,7 @@ export default async function CongesPage({
       )}
 
       <form method="GET" className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3">
+        <ChampTaillePage />
         <label className="flex flex-col gap-1 text-xs">
           Recherche (nom / matricule)
           <input name="q" defaultValue={sp.q ?? ""} placeholder="Rechercher…" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
@@ -211,7 +220,7 @@ export default async function CongesPage({
         </label>
         <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">Filtrer</button>
         {filtreActif && (
-          <Link href="/conges" className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
+          <LienGardantTaille href="/conges" className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</LienGardantTaille>
         )}
       </form>
 
@@ -227,7 +236,7 @@ export default async function CongesPage({
         </p>
       ) : (
         <div className="space-y-2">
-          {demandes.map((d) => {
+          {demandesPage.map((d) => {
             const cd = chipDate(d.dateDebut);
             const cf = chipDate(d.dateFin);
             return (
@@ -295,6 +304,7 @@ export default async function CongesPage({
           })}
         </div>
       )}
+      <Pagination className="mt-4" total={demandes.length} page={fen.page} par={par} chemin="/conges" params={sp} libelle="demandes" />
     </div>
   );
 }

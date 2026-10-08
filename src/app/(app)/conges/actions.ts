@@ -142,13 +142,13 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
 }
 
 /** Filtres de la liste des congés, conservés dans l'URL de retour d'une décision. */
-export type FiltresListeConges = { statut?: string; type?: string; q?: string };
+export type FiltresListeConges = { statut?: string; type?: string; q?: string; page?: string; par?: string };
 
 /**
  * `approuverConge` pour un `<form action>` (écran Congés). L'erreur revient par la page, dans
  * `?erreurDecision=` (affichée au-dessus de la liste, PAS dans le bloc « Nouvelle demande », qui
- * lit `?erreur=`), et les filtres actifs sont gardés. Le chemin est fixe et seuls les trois
- * filtres connus, en texte court, sont repris : les arguments liés reviennent du navigateur.
+ * lit `?erreur=`), et les filtres actifs sont gardés. Le chemin est fixe et seuls les filtres et
+ * paramètres de pagination connus, en texte court, sont repris : les arguments liés reviennent du navigateur.
  */
 export async function approuverCongeFormulaire(leaveRequestId: string, filtres: FiltresListeConges = {}): Promise<void> {
   const user = await verifySession();
@@ -157,10 +157,10 @@ export async function approuverCongeFormulaire(leaveRequestId: string, filtres: 
   if (erreur) redirect(urlRetourConges(filtres, erreur));
 }
 
-/** `/conges?statut=…&type=…&q=…&erreurDecision=…` */
+/** `/conges?statut=…&type=…&q=…&page=…&par=…&erreurDecision=…` (la page et la taille de page sont gardées aussi) */
 function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
   const p = new URLSearchParams();
-  for (const cle of ["statut", "type", "q"] as const) {
+  for (const cle of ["statut", "type", "q", "page", "par"] as const) {
     const v = filtres?.[cle];
     if (typeof v === "string" && v !== "") p.set(cle, v.slice(0, 200));
   }
