@@ -158,8 +158,9 @@ describe("recalcul de la paie : une ligne rouverte garde tout son historique", (
     // clôture la laisse de côté (ligne hors calcul, 2026-10-01) au lieu de rester bloquée sur elle.
     en("ADMIN");
     expect(await changerStatutEnLot([l.id], "VALIDE", null, await jetonsDe(prisma, [l.id]))).toEqual({ erreur: messageNonCalcules(["Ada Kalala"]) });
-    await expect(cloturerPaie()).resolves.toBeUndefined();
+    await expect(cloturerPaie(fd({ mois: "9", annee: "2026" }))).rejects.toThrow(/^REDIRECT \/paie\?msg=/); // clôturée, l'espace RH passe à octobre
     expect((await ligne(ids.ada)).statutPaiement).toBe("PAS_VALIDE");
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } }); // la suite travaille sur septembre
     // Sortie annoncée : fiche réactivée → recalcul → validation possible.
     await prisma.employee.update({ where: { id: ids.ada }, data: { actif: true } });
     await rafraichirPaieDuMois({ creerRun: false });

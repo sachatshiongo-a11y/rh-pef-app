@@ -27,6 +27,7 @@ import {
 import { estAttenteVerrouTropLongue, estInterblocage } from "@/lib/planning-ecriture";
 import { jourDuVersement, lireDateVersementPaie } from "@/lib/date-paiement";
 import { notifierBulletinsPayes, notifierBulletinsValides, notifierClotureParRH, notifierPaiementAnnule, retirerRappelSiRienAPayer } from "@/lib/paie-notifications";
+import { libellePeriode, memePeriode, messageClotureReussie, passerAuMoisSuivantApresCloture, revaliderApresChangementDeMois, verrouillerMoisCourant, type Periode } from "@/lib/changement-mois";
 
 const MESSAGE_CALCUL_OCCUPE = "Le planning ou la paie est en cours de modification : relancez le calcul dans un instant.";
 
@@ -399,14 +400,27 @@ export const changerStatutEnLot = actionLisible(async (
  *    compté « pas validé », refus lisible et rien d'écrit. Sa clôture ne valide rien : elle ferme la
  *    paie (PayrollRun « Validé » : pointage et import de présences du mois fermés). Les lignes hors
  *    calcul sont laissées de côté comme pour la Direction. La Direction en est prévenue.
- * Ne change PAS de mois (Paramètres > mois en cours : geste distinct, Direction seule).
+ *
+ * PASSAGE AU MOIS SUIVANT (demande de Sacha du 2026-10-08) : une clôture RÉUSSIE du mois courant fait
+ * passer l'espace RH au mois suivant (décembre → janvier), DANS LA MÊME TRANSACTION — même cœur que
+ * Paramètres > mois en cours (lib/changement-mois.ts : refus de quitter un mois qui garde un bulletin
+ * rouvert en attente, Config, journal « automatique (clôture de la paie) »). Tout ou rien : si le
+ * passage est refusé, rien n'est clôturé ni validé. Le changement de mois manuel reste à la Direction.
+ *
+ * La période clôturée est celle que l'écran a montrée (champs `mois`/`annee` du formulaire) : un
+ * double clic, un second onglet ou un écran resté ouvert sur le mois déjà clôturé ne clôture JAMAIS le
+ * mois suivant par ricochet — Config est verrouillée et relue d'abord, un écart ne fait rien.
  */
-export async function cloturerPaie(): Promise<void> {
+export async function cloturerPaie(formData: FormData): Promise<void> {
   const user = await verifySession();
   requireRole(user, ROLES_CLOTURE);
+  const close = periodeDuFormulaire(formData);
+  if (!close) redirect(`/paie?erreur=${encodeURIComponent("Mois de la paie à clôturer absent : rechargez la page.")}`);
   const config = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } });
+  const courant = { mois: config.moisCourant, annee: config.anneeCourante };
+  if (!memePeriode(close, courant)) redirect(await redirectionPeriodeDepassee(close, courant));
 
-  const taches = await tachesBloquantesCloture(config.moisCourant, config.anneeCourante);
+  const taches = await tachesBloquantesCloture(close.mois, close.annee);
   if (taches.length > 0) {
     // Message lisible via ?erreur= (un throw serait masqué par Next en production).
     redirect(
@@ -415,22 +429,30 @@ export async function cloturerPaie(): Promise<void> {
   }
 
   const run = await prisma.payrollRun.findUnique({
-    where: { mois_annee: { mois: config.moisCourant, annee: config.anneeCourante } },
+    where: { mois_annee: { mois: close.mois, annee: close.annee } },
     select: { id: true },
   });
   if (!run) return;
 
-  // ATOMIQUE : tous les bulletins et l'état du run basculent dans UNE transaction. Chaque montant
-  // est revérifié (run prise d'emblée en FOR UPDATE : la clôture la modifie ensuite) ; une seule
-  // ligne changée refuse la clôture entière.
+  // ATOMIQUE : tous les bulletins, l'état du run ET le passage au mois suivant basculent dans UNE
+  // transaction. Chaque montant est revérifié (run prise d'emblée en FOR UPDATE : la clôture la
+  // modifie ensuite) ; une seule ligne changée refuse la clôture entière.
   let refus: string | null = null;
   const validees: string[] = [];
   let horsCalculLaissees = 0;
   let dejaCloturee = false;
+  // Issue de la transaction : le mois courant avait déjà changé (rien fait), ou le passage effectué.
+  let issue: { depassee: Periode; passage?: undefined } | { depassee?: undefined; passage: Awaited<ReturnType<typeof passerAuMoisSuivantApresCloture>> } = { passage: null };
   const valideEnCloturant = cloturePeutValider(user.role);
   try {
-    await prisma.$transaction(async (tx) => {
+    issue = await prisma.$transaction(async (tx) => {
       validees.length = 0;
+      // Config verrouillée D'ABORD (puis la run) : deux clôtures concurrentes du même mois, ou une
+      // clôture et un changement de mois dans Paramètres, s'attendent ; la seconde relit le mois déjà
+      // passé et ne fait rien. Ordre unique Config → run → lignes : aucun autre geste ne prend la run
+      // puis Config.
+      const enCours = await verrouillerMoisCourant(tx);
+      if (!memePeriode(enCours, close)) return { depassee: enCours };
       // Lignes lues APRÈS le verrou de la run : un recalcul (/paie) ne peut plus les remplacer.
       await verrouillerRunExclusif(tx, run.id);
       dejaCloturee = (await tx.payrollRun.findUniqueOrThrow({ where: { id: run.id }, select: { statut: true } })).statut === "VALIDE";
@@ -453,6 +475,10 @@ export async function cloturerPaie(): Promise<void> {
         if (await appliquerTransitionPaie(tx, l.id, "VALIDE", { controlees }, user)) validees.push(l.id);
       }
       await tx.payrollRun.update({ where: { id: run.id }, data: { statut: "VALIDE" } });
+      // Passage au mois suivant, même cœur que Paramètres. Son refus (un bulletin compté resterait
+      // « pas validé » : réouverture concurrente) annule TOUTE la clôture — jamais une paie fermée
+      // sur un mois que l'espace RH ne peut pas quitter.
+      return { passage: await passerAuMoisSuivantApresCloture(tx, { close, userId: user.id }) };
     }, { timeout: DELAI_VALIDATION_PAIE });
   } catch (e) {
     refus = messageErreurValidation(e);
@@ -461,15 +487,44 @@ export async function cloturerPaie(): Promise<void> {
   if (refus) {
     redirect(`/paie?erreur=${encodeURIComponent(valideEnCloturant ? `Clôture annulée (aucun bulletin validé) : ${refus}` : `Clôture refusée : ${refus}`)}`);
   }
+  if (issue.depassee) redirect(await redirectionPeriodeDepassee(close, issue.depassee));
+  const passe = issue.passage ?? null;
 
   // Après la transaction, jamais bloquant : la clôture de la Direction valide → la RH apprend ce qui
-  // est à payer ; la RH a fermé la paie → la Direction le sait (une paie déjà close : rien à dire).
+  // est à payer ; la RH a fermé la paie (ou fait passer le mois) → la Direction le sait.
   await notifierBulletinsValides(validees, user.id);
-  if (!valideEnCloturant && !dejaCloturee) await notifierClotureParRH({ payrollRunId: run.id, nom: user.nom, horsCalcul: horsCalculLaissees });
+  if (!valideEnCloturant && (!dejaCloturee || passe)) {
+    await notifierClotureParRH({ payrollRunId: run.id, nom: user.nom, horsCalcul: horsCalculLaissees, versMois: passe?.vers ?? null });
+  }
 
   revalidatePath("/paie");
   revalidatePath("/a-valider");
   revalidatePath("/accueil");
+  if (passe) {
+    revaliderApresChangementDeMois();
+    redirect(`/paie?msg=${encodeURIComponent(messageClotureReussie(close, passe.vers))}`);
+  }
+}
+
+/** Le mois que l'écran de paie a montré (champs cachés du formulaire de clôture), ou null. */
+function periodeDuFormulaire(formData: FormData | undefined): Periode | null {
+  const mois = Number(formData?.get("mois"));
+  const annee = Number(formData?.get("annee"));
+  if (!Number.isInteger(mois) || mois < 1 || mois > 12 || !Number.isInteger(annee) || annee < 2000 || annee > 2100) return null;
+  return { mois, annee };
+}
+
+/**
+ * L'écran montrait un autre mois que le mois courant (double clic, second onglet, écran resté
+ * ouvert) : rien n'est clôturé. Le mois montré est-il déjà clos et dépassé ? On le dit simplement.
+ */
+async function redirectionPeriodeDepassee(montre: Periode, courant: Periode): Promise<string> {
+  const run = await prisma.payrollRun.findUnique({ where: { mois_annee: montre }, select: { statut: true } });
+  const apres = courant.annee * 12 + courant.mois > montre.annee * 12 + montre.mois;
+  if (run?.statut === "VALIDE" && apres) {
+    return `/paie?msg=${encodeURIComponent(`La paie de ${libellePeriode(montre)} est déjà clôturée — l'espace RH est passé à ${libellePeriode(courant)}.`)}`;
+  }
+  return `/paie?erreur=${encodeURIComponent(`Rien n'a été clôturé : l'espace RH est sur ${libellePeriode(courant)}, pas sur ${libellePeriode(montre)}. Rechargez la page.`)}`;
 }
 
 /**

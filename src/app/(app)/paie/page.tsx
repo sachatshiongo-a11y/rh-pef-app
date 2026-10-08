@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
+import { annonceCloture } from "@/lib/changement-mois";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { CLASSES_DANGER, CLASSES_GEOMETRIE } from "@/components/action-buttons";
@@ -339,9 +340,13 @@ export default async function PaiePage({
               — sinon le bouton est remplacé par la raison. */}
           {run && taches.length === 0 && ((estAdmin && (nbPasValide > 0 || run.statut !== "VALIDE")) || (estRHPaie && nbPasValide === 0 && run.statut !== "VALIDE")) && (
             <form action={cloturerPaie}>
+              {/* Le mois montré : c'est lui, et lui seul, que la clôture ferme (un écran resté ouvert
+                  après le passage au mois suivant ne clôture jamais le mois suivant par ricochet). */}
+              <input type="hidden" name="mois" value={mois} />
+              <input type="hidden" name="annee" value={annee} />
               <ConfirmSubmitButton
                 variante="valider"
-                message={`Clôturer la paie de ${periode} ?${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."}${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
+                message={`${annonceCloture({ mois, annee })}${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."}${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
                 {nbPasValide > 0 ? `Clôturer la paie (${nbPasValide})` : "Clôturer la paie"}
               </ConfirmSubmitButton>
