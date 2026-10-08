@@ -210,7 +210,7 @@ export function SimulationSalaire({
 
 function Panneau({ titre, children }: { titre: string; children: React.ReactNode }) {
   return (
-    <aside className="h-fit rounded-xl border bg-card p-4 lg:sticky lg:top-4">
+    <aside className="h-fit rounded-xl border bg-card p-4">
       <h2 className="mb-2 text-sm font-semibold">{titre}</h2>
       {children}
     </aside>
