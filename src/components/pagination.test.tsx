@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
 vi.mock("next/link", () => ({ default: (p: { href: string; children: unknown; className?: string; "aria-label"?: string; "aria-current"?: string }) => createElement("a", { href: p.href, className: p.className, "aria-label": p["aria-label"], "aria-current": p["aria-current"] }, p.children as never) }));
 
 import { ChampTaillePage, LienGardantTaille, Pagination, usePagination } from "./pagination";
@@ -90,41 +91,35 @@ describe("usePagination — mode état + URL", () => {
 
 describe("la taille de page survit à un changement de filtre", () => {
   afterEach(() => { window.history.replaceState(null, "", "/"); document.body.innerHTML = ""; });
-
-  it("LienGardantTaille : au clic, le lien reprend la taille de l'adresse affichée (et supprime la page)", () => {
-    window.history.replaceState(null, "", "/stock/catalogue?par=100&page=3");
+  const monter = (el: ReturnType<typeof createElement>) => {
     const c = document.createElement("div"); document.body.appendChild(c);
-    const r = createRoot(c);
-    act(() => r.render(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=BOISSON" }, "Boissons")));
-    const a = c.querySelector("a")!;
-    act(() => { a.addEventListener("click", (e) => e.preventDefault()); a.click(); });
-    expect(a.getAttribute("href")).toBe("/stock/catalogue?domaine=BOISSON&par=100");
+    const r = createRoot(c); act(() => r.render(el)); return { c, r };
+  };
+
+  it("LienGardantTaille : reprend la taille de l'adresse affichée et supprime la page du lien", () => {
+    window.history.replaceState(null, "", "/stock/catalogue?par=100&page=3");
+    const { c, r } = monter(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=BOISSON" }, "Boissons"));
+    expect(c.querySelector("a")!.getAttribute("href")).toBe("/stock/catalogue?domaine=BOISSON&par=100");
     act(() => r.unmount());
   });
 
   it("LienGardantTaille : taille par défaut dans l'adresse = rien à reporter", () => {
     window.history.replaceState(null, "", "/stock/catalogue");
-    const c = document.createElement("div"); document.body.appendChild(c);
-    const r = createRoot(c);
-    act(() => r.render(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=AUTRE" }, "Autre")));
-    const a = c.querySelector("a")!;
-    act(() => { a.addEventListener("click", (e) => e.preventDefault()); a.click(); });
-    expect(a.getAttribute("href")).toBe("/stock/catalogue?domaine=AUTRE");
+    const { c, r } = monter(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=AUTRE&par=100" }, "Autre"));
+    expect(c.querySelector("a")!.getAttribute("href")).toBe("/stock/catalogue?domaine=AUTRE");
     act(() => r.unmount());
   });
 
-  it("ChampTaillePage : à l'envoi du formulaire GET, copie la taille affichée ; absent si 50", () => {
+  it("ChampTaillePage : copie la taille affichée dans le formulaire GET ; désactivé (donc absent) à 50", () => {
     window.history.replaceState(null, "", "/stock/reconciliation?par=tout");
-    const c = document.createElement("div"); document.body.appendChild(c);
-    const r = createRoot(c);
-    act(() => r.render(createElement("form", { method: "GET" }, createElement("input", { name: "domaine", defaultValue: "AUTRE" }), createElement(ChampTaillePage))));
-    const form = c.querySelector("form")!;
-    form.addEventListener("submit", (e) => e.preventDefault());
-    act(() => { form.dispatchEvent(new Event("submit", { cancelable: true })); });
-    expect(new URLSearchParams(new FormData(form) as unknown as Record<string, string>).toString()).toBe("domaine=AUTRE&par=tout");
-    window.history.replaceState(null, "", "/stock/reconciliation");
-    act(() => { form.dispatchEvent(new Event("submit", { cancelable: true })); });
-    expect(new URLSearchParams(new FormData(form) as unknown as Record<string, string>).toString()).toBe("domaine=AUTRE");
+    const form = (): HTMLFormElement => document.querySelector("form")!;
+    const { r } = monter(createElement("form", { method: "GET" }, createElement("input", { name: "domaine", defaultValue: "AUTRE" }), createElement(ChampTaillePage)));
+    expect(new URLSearchParams(new FormData(form()) as unknown as Record<string, string>).toString()).toBe("domaine=AUTRE&par=tout");
     act(() => r.unmount());
+    document.body.innerHTML = "";
+    window.history.replaceState(null, "", "/stock/reconciliation");
+    const m2 = monter(createElement("form", { method: "GET" }, createElement("input", { name: "domaine", defaultValue: "AUTRE" }), createElement(ChampTaillePage)));
+    expect(new URLSearchParams(new FormData(form()) as unknown as Record<string, string>).toString()).toBe("domaine=AUTRE");
+    act(() => m2.r.unmount());
   });
 });

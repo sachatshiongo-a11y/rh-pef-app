@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   appliquerPagination, compteurPage, fenetrePage, hrefPagination, numerosPages, pageApresChangementTaille,
   PAR_DEFAUT, PARAM_PAR, PLUS_PETITE_PAGE, TAILLES_PAGE, type FenetrePage, type ParPage,
@@ -104,42 +105,21 @@ export function usePagination({ total, pageInit = 1, parInit = PAR_DEFAUT, cleFi
 
 /**
  * Lien d'une page serveur qui change de filtre (la page repart à 1) mais GARDE la taille de page choisie
- * depuis : la taille changée sans rechargement n'est connue que de l'adresse affichée, pas du rendu serveur.
- * Sans JavaScript, c'est un lien ordinaire (taille de l'adresse d'origine).
+ * depuis : la taille changée sans rechargement n'est connue que de l'adresse affichée (que `useSearchParams`
+ * suit après un `history.replaceState`), pas du rendu serveur. Navigation douce comme un `Link` ordinaire.
  */
-export function LienGardantTaille({ href, onClick, ...reste }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
-  return (
-    <a
-      {...reste}
-      href={href}
-      onClick={(e) => {
-        onClick?.(e);
-        const par = new URL(window.location.href).searchParams.get(PARAM_PAR);
-        const u = new URL(href, window.location.href);
-        if (par) u.searchParams.set(PARAM_PAR, par); else u.searchParams.delete(PARAM_PAR);
-        e.currentTarget.href = `${u.pathname}${u.search}${u.hash}`;
-      }}
-    />
-  );
+export function LienGardantTaille({ href, ...reste }: Omit<React.ComponentProps<typeof Link>, "href"> & { href: string }) {
+  const par = useSearchParams()?.get(PARAM_PAR) ?? null;
+  const u = new URL(href, "http://x");
+  if (par) u.searchParams.set(PARAM_PAR, par); else u.searchParams.delete(PARAM_PAR);
+  return <Link {...reste} href={`${u.pathname}${u.search}${u.hash}`} />;
 }
 
 /**
- * Champ caché `par` d'un formulaire GET de filtres : au moment de l'envoi, il recopie la taille de page
- * AFFICHÉE dans l'adresse (50 : rien n'est envoyé). Un nouveau filtre repart à la page 1 mais garde la taille.
+ * Champ caché `par` d'un formulaire GET de filtres : il reporte la taille de page AFFICHÉE dans l'adresse
+ * (50 : rien n'est envoyé). Un nouveau filtre repart à la page 1 mais garde la taille.
  */
 export function ChampTaillePage() {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const champ = ref.current;
-    const form = champ?.form;
-    if (!champ || !form) return;
-    const recopier = () => {
-      const par = new URL(window.location.href).searchParams.get(PARAM_PAR);
-      champ.disabled = !par;
-      if (par) champ.value = par;
-    };
-    form.addEventListener("submit", recopier);
-    return () => form.removeEventListener("submit", recopier);
-  }, []);
-  return <input ref={ref} type="hidden" name={PARAM_PAR} disabled />;
+  const par = useSearchParams()?.get(PARAM_PAR) ?? null;
+  return <input type="hidden" name={PARAM_PAR} value={par ?? ""} disabled={!par} />;
 }
