@@ -1410,9 +1410,19 @@ model ArticleStock {
   uniteParCarton  Decimal?        @db.Decimal(10, 2)
   fournisseurId   String?
   fournisseur     Fournisseur?    @relation(fields: [fournisseurId], references: [id])
-  prixUnitaireUSD Decimal?        @db.Decimal(12, 4) // prix de référence en USD
+  // Prix de référence (2026-10-08) : saisi en USD OU en francs — la devise de saisie FAIT FOI, jamais
+  // d'aller-retour. `devisePrix` = USD : le prix est `prixUnitaireUSD` (et `prixUnitaireCDF` est nul) ;
+  // CDF : le prix est `prixUnitaireCDF` (et `prixUnitaireUSD` est nul). L'autre devise ne se STOCKE
+  // jamais : elle s'affiche « ≈ » au taux du jour (Config.tauxChangeCDF) — src/lib/prix-article.ts,
+  // seule porte de lecture. Contrainte CHECK `ArticleStock_prix_devise_check` en base (non
+  // représentable ici).
+  devisePrix      DeviseSaisie    @default(USD)
+  prixUnitaireUSD Decimal?        @db.Decimal(12, 4) // prix de référence en USD (article en USD)
+  prixUnitaireCDF Decimal?        @db.Decimal(16, 2) // prix de référence en francs (article en FC)
   prixCartonUSD   Decimal?        @db.Decimal(12, 4)
-  prixOrigineCDF  Decimal?        @db.Decimal(16, 2) // provenance : préserve l'info d'origine
+  // Provenance d'un ancien import (jamais écrit par le logiciel, jamais lu) : PAS un prix de
+  // référence en francs — c'est `prixUnitaireCDF`. Gardé tel quel, jamais réécrit.
+  prixOrigineCDF  Decimal?        @db.Decimal(16, 2)
   tauxImportCDF   Decimal?        @db.Decimal(10, 2)
   codeBarres      String?
   poidsPaquet     Decimal?        @db.Decimal(10, 3) // historique, jamais lu : voir `contenance`
