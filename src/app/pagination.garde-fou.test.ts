@@ -68,7 +68,7 @@ describe("pagination — « Tout » ne lit jamais sans borne en base", () => {
   it("tout fichier qui lit une page en base (skip / take) donne le plafond de « Tout » à fenetrePage et à la barre", () => {
     const serveur = tous.filter((f) => /\bfen[a-zA-Z]*\.(skip|take)\b/.test(code(f.src)));
     expect(serveur.length).toBeGreaterThanOrEqual(7);
-    const sansPlafond = serveur.filter((f) => !/fenetrePage\([^)]*PLAFOND_TOUT\)/.test(code(f.src)) || !/plafondTout=\{[^}]*PLAFOND_TOUT/.test(code(f.src))).map((f) => f.chemin);
+    const sansPlafond = serveur.filter((f) => !/fenetrePage\([^;]*PLAFOND_TOUT/.test(code(f.src)) || !/plafondTout=\{[^}]*PLAFOND_TOUT/.test(code(f.src))).map((f) => f.chemin);
     expect(sansPlafond).toEqual([]);
   });
 });
