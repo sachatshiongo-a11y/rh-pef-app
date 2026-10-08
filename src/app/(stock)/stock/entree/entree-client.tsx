@@ -372,7 +372,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         </button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
       </div>
-      <p className="hidden text-xs text-muted-foreground @4xl:block">Article du catalogue OU désignation libre : un nouvel article est <b>créé automatiquement au catalogue</b> (domaine choisi, unité et prix de cet achat comme référence) — une désignation identique (aux accents, majuscules, espaces et écriture de la contenance près) retrouve l&apos;article existant ; un nom <b>proche</b> d&apos;un article existant (« Tomate » quand « Tomates » existe) demande de choisir. DLC facultative. Prix unitaire et montant sont facultatifs — le PU remplit le montant (quantité × PU), ajustable. Chaque ligne a sa devise (USD ou FC) ; une ligne en FC est convertie en USD au taux courant (nourrit l&apos;évolution du prix d&apos;achat).</p>
+      <p className="hidden text-xs text-muted-foreground @4xl:block">Article du catalogue OU désignation libre : un nouvel article est <b>créé automatiquement au catalogue</b> (domaine choisi, unité et prix de cet achat comme référence, dans la devise de la ligne) — une désignation identique (aux accents, majuscules, espaces et écriture de la contenance près) retrouve l&apos;article existant ; un nom <b>proche</b> d&apos;un article existant (« Tomate » quand « Tomates » existe) demande de choisir. DLC facultative. Prix unitaire et montant sont facultatifs — le PU remplit le montant (quantité × PU), ajustable. Chaque ligne a sa devise (USD ou FC) ; une ligne en FC est convertie en USD au taux courant (nourrit l&apos;évolution du prix d&apos;achat).</p>
       </div>
     </form>
   );

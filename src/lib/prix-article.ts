@@ -130,3 +130,17 @@ export function prixProposeEn(a: PrixArticleBrut, devise: DevisePrix, taux: numb
   if (!c.approx) return c.valeur;
   return devise === "CDF" ? Math.round(c.valeur) : Math.round(c.valeur * 10000) / 10000;
 }
+
+/**
+ * Prix de référence d'un article CRÉÉ à la volée par la Liste d'achat (décision Direction
+ * 2026-10-08) : le prix unitaire de la ligne (montant ÷ quantité) DANS SA DEVISE. Ligne en francs →
+ * article en francs (`devisePrix` CDF, `prixUnitaireCDF`, `prixUnitaireUSD` NULL : contrainte
+ * `ArticleStock_prix_devise_check`) ; ligne en dollars → article en dollars, comme avant. Arrondi à
+ * la précision de la colonne : 4 décimales en dollars (règle d'avant, inchangée), 2 en francs
+ * (Decimal(16, 2)). Sans montant : pas de prix (NULL, jamais 0), la devise de la ligne est retenue.
+ */
+export function prixReferenceNouvelArticle(devise: DevisePrix, montant: number | null, quantite: number): { devisePrix: DevisePrix; prixUnitaireUSD: number | null; prixUnitaireCDF: number | null } {
+  const pu = montant !== null && Number.isFinite(montant) && montant > 0 && quantite > 0 ? montant / quantite : null;
+  if (devise === "CDF") return { devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: pu === null ? null : Math.round(pu * 100) / 100 };
+  return { devisePrix: "USD", prixUnitaireUSD: pu === null ? null : Math.round(pu * 10000) / 10000, prixUnitaireCDF: null };
+}

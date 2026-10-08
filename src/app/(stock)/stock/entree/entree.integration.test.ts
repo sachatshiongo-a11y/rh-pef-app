@@ -342,15 +342,38 @@ describe("devise PAR LIGNE (décision Direction 2026-09-30)", () => {
     expect(Number((await prisma.stock.findUniqueOrThrow({ where: { articleId: a2.id } })).quantite)).toBe(5);
   });
 
-  it("ligne LIBRE en CDF : le nouvel article reçoit le PU converti en USD (règle inchangée, devise de SA ligne)", async () => {
+  it("ligne LIBRE en CDF : le nouvel article est créé EN FRANCS au PU de la ligne (décision 2026-10-08) ; ligne en USD : en dollars, comme avant", async () => {
     ok(await entreeListeAchat(fdParLigne([
       { designation: "Piment oiseau", unite: "sachet", quantite: 4, montant: 11200, devise: "CDF" },
       { designation: "Gingembre frais", unite: "kg", quantite: 2, montant: 9, devise: "USD" },
+      { designation: "Noix de muscade", unite: "kg", quantite: 3, montant: 10000, devise: "CDF" },
     ])));
     const piment = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Piment oiseau" } });
-    expect(Number(piment.prixUnitaireUSD)).toBe(1); // 11 200 FC ÷ 2 800 ÷ 4
+    expect([piment.devisePrix, piment.prixUnitaireUSD, Number(piment.prixUnitaireCDF)]).toEqual(["CDF", null, 2800]); // 11 200 FC ÷ 4
+    const muscade = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Noix de muscade" } });
+    expect([muscade.devisePrix, muscade.prixUnitaireUSD, Number(muscade.prixUnitaireCDF)]).toEqual(["CDF", null, 3333.33]); // 10 000 FC ÷ 3, au centime
     const gingembre = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Gingembre frais" } });
-    expect(Number(gingembre.prixUnitaireUSD)).toBe(4.5);
+    expect([gingembre.devisePrix, Number(gingembre.prixUnitaireUSD), gingembre.prixUnitaireCDF]).toEqual(["USD", 4.5, null]);
+    // Le mouvement d'entrée et sa valorisation ne changent pas : devise, montant saisi, taux, USD = montant ÷ taux.
+    const m = await mvt(piment.id);
+    expect([m.devise, Number(m.montantOrigine), Number(m.tauxChangeUtilise), Number(m.montantUSD)]).toEqual(["CDF", 11200, 2800, 4]);
+  });
+
+  it("ligne LIBRE sans montant : prix NULL dans la devise de la ligne (jamais 0) ; « Créer quand même » suit la même règle", async () => {
+    ok(await entreeListeAchat(fdParLigne([
+      { designation: "Citronnelle", unite: "botte", quantite: 2, devise: "CDF" },
+      { designation: "Sésame grillé", unite: "botte", quantite: 2, devise: "USD" },
+    ])));
+    const c = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Citronnelle" } });
+    expect([c.devisePrix, c.prixUnitaireUSD, c.prixUnitaireCDF]).toEqual(["CDF", null, null]);
+    const b = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Sésame grillé" } });
+    expect([b.devisePrix, b.prixUnitaireUSD, b.prixUnitaireCDF]).toEqual(["USD", null, null]);
+    // « Créer quand même » devant un nom proche (« Citronnelles ») : article créé en francs aussi.
+    const f = fdParLigne([{ designation: "Citronnelles", unite: "botte", quantite: 5, montant: 7500, devise: "CDF" }]);
+    f.append("creerNouveau", "1");
+    ok(await entreeListeAchat(f));
+    const cs = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Citronnelles" } });
+    expect([cs.devisePrix, cs.prixUnitaireUSD, Number(cs.prixUnitaireCDF)]).toEqual(["CDF", null, 1500]);
   });
 
   it("une ligne en CDF SANS taux défini : refus lisible qui nomme la ligne, RIEN n'est écrit (même la ligne USD)", async () => {

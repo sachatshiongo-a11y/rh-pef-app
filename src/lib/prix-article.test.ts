@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formaterPrix, libellePrixComplet, libellesPrix, prixArticleEnCDF, prixArticleEnUSD, prixArticleEnUSDTexte, prixProposeEn, prixSaisi, valeurEnUSD } from "./prix-article";
+import { formaterPrix, libellePrixComplet, libellesPrix, prixArticleEnCDF, prixArticleEnUSD, prixArticleEnUSDTexte, prixProposeEn, prixReferenceNouvelArticle, prixSaisi, valeurEnUSD } from "./prix-article";
 
 const usdA = { devisePrix: "USD" as const, prixUnitaireUSD: "2.5", prixUnitaireCDF: null };
 const fcA = { devisePrix: "CDF" as const, prixUnitaireUSD: null, prixUnitaireCDF: "7000" };
@@ -51,5 +51,21 @@ describe("prix de référence d'un article : la devise de saisie fait foi", () =
     expect(prixProposeEn(usdA, "CDF", 2850)).toBe(7125);
     expect(prixProposeEn(usdA, "USD", null)).toBe(2.5);
     expect(prixProposeEn(fcA, "USD", null)).toBeNull();
+  });
+});
+
+describe("prixReferenceNouvelArticle — article créé par la Liste d'achat (décision 2026-10-08)", () => {
+  it("ligne en francs → article en francs : PU = montant ÷ quantité, au centime ; aucun dollar stocké", () => {
+    expect(prixReferenceNouvelArticle("CDF", 11200, 4)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: 2800 });
+    expect(prixReferenceNouvelArticle("CDF", 10000, 3)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: 3333.33 });
+  });
+  it("ligne en dollars → article en dollars, règle d'avant (4 décimales)", () => {
+    expect(prixReferenceNouvelArticle("USD", 9, 2)).toEqual({ devisePrix: "USD", prixUnitaireUSD: 4.5, prixUnitaireCDF: null });
+    expect(prixReferenceNouvelArticle("USD", 5, 28)).toEqual({ devisePrix: "USD", prixUnitaireUSD: 0.1786, prixUnitaireCDF: null });
+  });
+  it("sans montant (vide, 0) : prix NULL dans la devise de la ligne — jamais 0", () => {
+    expect(prixReferenceNouvelArticle("CDF", null, 2)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: null });
+    expect(prixReferenceNouvelArticle("CDF", 0, 2)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: null });
+    expect(prixReferenceNouvelArticle("USD", null, 2)).toEqual({ devisePrix: "USD", prixUnitaireUSD: null, prixUnitaireCDF: null });
   });
 });

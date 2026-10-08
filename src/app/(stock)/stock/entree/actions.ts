@@ -14,6 +14,7 @@ import { analyserListeAchat, avertissementsListeAchat, catalogueCandidats, type 
 import { cleArticleExacte, lireDlc, memeDesignation, type AnalyseLigne } from "@/lib/achats-doublons";
 import { decisionArticle, prochesDansListe } from "@/lib/article-proche";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
+import { prixReferenceNouvelArticle } from "@/lib/prix-article";
 
 /**
  * Résultat d'une Liste d'achat enregistrée : nouveaux articles créés au catalogue, nouveaux
@@ -69,7 +70,7 @@ function lireDevisesParLigne(formData: FormData, nbLignes: number): Devise[] {
  * et incrémente le stock de l'article. Une ligne peut viser un article du CATALOGUE ou être en
  * ÉCRITURE LIBRE (nouvel article) : dans ce cas l'article est rapproché du catalogue (anti-doublon,
  * ci-dessous) ou CRÉÉ automatiquement (domaine Nourriture / Boissons / Autre choisi sur la ligne,
- * unité et prix de référence = prix unitaire de cet achat). Transactionnel : tout ou rien.
+ * unité et prix de référence = prix unitaire de cet achat, dans la devise de sa ligne). Transactionnel : tout ou rien.
  *
  * Décisions Direction 2026-09-28 :
  *  - DATE au choix (défaut : aujourd'hui à Kinshasa), jamais dans le futur, jamais dans une
@@ -255,10 +256,10 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
         }
         if (!articleId) {
           // Nouvel article : créé au catalogue dans le domaine choisi, avec l'unité saisie et
-          // le prix unitaire de CET achat comme prix de référence.
-          const prixRef = montantUSD !== null && l.quantite > 0 ? Math.round((montantUSD / l.quantite) * 10000) / 10000 : null;
+          // le prix unitaire de CET achat comme prix de référence, DANS LA DEVISE DE LA LIGNE
+          // (décision Direction 2026-10-08 : la devise de saisie fait foi — lib/prix-article.ts).
           const nouveau = await tx.articleStock.create({
-            data: { designation: l.designation, unite: l.unite || null, domaine: l.domaine, prixUnitaireUSD: prixRef },
+            data: { designation: l.designation, unite: l.unite || null, domaine: l.domaine, ...prixReferenceNouvelArticle(l.devise, aMontant ? l.montant : null, l.quantite) },
           });
           articleId = nouveau.id;
           crees.push(l.designation);
