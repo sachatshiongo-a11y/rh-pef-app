@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
-import { lignesComptees } from "@/lib/paie-hors-calcul";
+import { changerMoisCourant, revaliderApresChangementDeMois, verrouillerMoisCourant } from "@/lib/changement-mois";
+import { messageErreurValidation } from "@/lib/paie-validation";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 
 /** Téléverse une image (logo/signature) vers Supabase Storage (bucket privé). PNG/JPG, max 5 Mo. */
@@ -88,33 +89,25 @@ export async function mettreAJourConfig(formData: FormData) {
     const jourPaieSaisi = decSaisiOptionnel(formData.get("jourPaie"), "Jour de paie");
     if (jourPaieSaisi !== null && (!Number.isInteger(jourPaieSaisi) || jourPaieSaisi < 1 || jourPaieSaisi > 31)) throw new Error("Le jour de paie doit être un entier de 1 à 31.");
     const jourPaie = jourPaieSaisi ?? 30;
-    // Quitter un mois CLÔTURÉ qui garde une ligne rouverte (salarié toujours calculé) en attente de
-    // re-validation : elle deviendrait « hors calcul » (mois passé clôturé, paie-hors-calcul.ts),
-    // sortirait des totaux et des déclarations et ne serait plus validable depuis /paie. Refusé.
-    const avant = await prisma.config.findUnique({ where: { id: "singleton" }, select: { moisCourant: true, anneeCourante: true } });
-    if (avant && (avant.moisCourant !== moisCourant || avant.anneeCourante !== anneeCourante)) {
-      const run = await prisma.payrollRun.findUnique({
-        where: { mois_annee: { mois: avant.moisCourant, annee: avant.anneeCourante } },
-        select: { statut: true, lignes: { where: { statutPaiement: "PAS_VALIDE" }, select: { id: true, employeeId: true, statutPaiement: true, employee: { select: { nom: true } } } } },
+    // Changement du mois courant : le MÊME cœur que le passage automatique à la clôture de la paie
+    // (lib/changement-mois.ts) — Config verrouillée, refus de quitter un mois clôturé qui garde un
+    // bulletin rouvert en attente (il deviendrait « hors calcul », paie-hors-calcul.ts), journal.
+    // Reste ouvert à la Direction pour corriger une erreur, y compris revenir en arrière.
+    let passage: Awaited<ReturnType<typeof changerMoisCourant>> = null;
+    try {
+      passage = await prisma.$transaction(async (tx) => {
+        const de = await verrouillerMoisCourant(tx);
+        const change = await changerMoisCourant(tx, { de, vers: { mois: moisCourant, annee: anneeCourante }, userId: user.id, origine: "MANUEL" });
+        await tx.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF, jourPaie } });
+        return change;
       });
-      if (run?.statut === "VALIDE") {
-        const enAttente = await lignesComptees(prisma, run.lignes);
-        if (enAttente.length > 0) {
-          throw new Error(`La paie du mois en cours est clôturée mais ${enAttente.length} bulletin(s) rouvert(s) attendent d'être revalidés (${enAttente.map((l) => l.employee.nom).join(", ")}) : revalidez-les dans Paie avant de changer de mois.`);
-        }
-      }
+    } catch (e) {
+      // Refus du cœur ou verrou tenu trop longtemps (clôture en cours) : message lisible en tête de page.
+      const refus = messageErreurValidation(e);
+      throw refus ? new Error(refus) : e;
     }
 
-    await prisma.config.update({
-      where: { id: "singleton" },
-      data: {
-        tauxChangeCDF,
-        anneeCourante,
-        moisCourant,
-        jourPaie,
-      },
-    });
-
+    if (passage) revaliderApresChangementDeMois();
     revalidatePath("/parametres");
     revalidatePath("/accueil");
   });
