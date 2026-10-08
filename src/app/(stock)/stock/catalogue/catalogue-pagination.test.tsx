@@ -41,7 +41,6 @@ function monter(props: { pageInit?: number; parInit?: 50 | 100 | "tout" } = {}) 
 beforeEach(() => { categoriserEnMasse.mockClear(); window.history.replaceState(null, "", "/stock/catalogue"); });
 afterEach(() => { act(() => racine.unmount()); conteneur.remove(); });
 
-const lignesBureau = () => [...conteneur.querySelectorAll<HTMLElement>("table tbody tr")].filter((tr) => tr.querySelector('input[type="checkbox"]'));
 const cartes = () => [...conteneur.querySelectorAll<HTMLElement>('[data-vue="rangees-mobile"] [data-article]')].map((e) => e.dataset.article!);
 const compteur = () => conteneur.querySelector("[data-pagination-compteur]")?.textContent ?? "";
 const clic = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
