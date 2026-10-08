@@ -62,6 +62,31 @@ const DENSITES: Record<Densite, DensiteCfg> = {
 const DENSITE_LEGACY: DensiteCfg = { label: "", cellMinH: "min-h-[46px]", padCell: "p-1", caseTexte: "text-xs", avatarTaille: 30, padRow: "py-1.5", texteNom: "text-sm", texteMeta: "text-[10px]" };
 // Vue mois (31 jours) sur ordinateur : colonnes de ~25 px calculées par la grille, une abréviation par case.
 const DENSITE_MOIS: DensiteCfg = { label: "", compact: true, cellMinH: "min-h-[30px]", padCell: "p-px", caseTexte: "text-[10px]", avatarTaille: 22, padRow: "py-1", texteNom: "text-xs", texteMeta: "text-[9px]" };
+/** Un réglage d'affichage mémorisé dans le navigateur (densité, lecture, regroupement) : rendu avec sa
+ *  valeur par défaut au premier rendu (identique client/serveur, pas d'hydratation cassée), puis
+ *  corrigé depuis `localStorage` une fois monté — même motif que `NoteRepliable` (Atelier Dominique). */
+function usePersisted<T extends string>(cle: string, defaut: T): [T, (v: T) => void] {
+  const [valeur, setValeur] = useState<T>(defaut);
+  useEffect(() => {
+    try {
+      const stocke = window.localStorage.getItem(cle);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- lecture d'un réglage persistant (localStorage), pas un miroir de props/état dérivable au rendu
+      if (stocke) setValeur(stocke as T);
+    } catch {
+      // navigateur sans stockage : le réglage vaut pour la session
+    }
+  }, [cle]);
+  const setPersiste = (v: T) => {
+    setValeur(v);
+    try { window.localStorage.setItem(cle, v); } catch { /* sans stockage, sans conséquence */ }
+  };
+  return [valeur, setPersiste];
+}
+
+// Colonnes CALCULÉES : le nom prend 8,5 à 12 rem, les jours se partagent le reste de la page (`minmax(0,1fr)`).
+// Aucune largeur fixe, aucun défilement de côté à partir de `lg` : les blocs empilés (couverture,
+// totaux, employés) gardent leurs colonnes alignées parce qu'ils utilisent le même gabarit.
+const gridCols = (n: number, compact = false) => ({ display: "grid", gridTemplateColumns: `minmax(${compact ? "8.5rem,11rem" : "10rem,12rem"}) repeat(${n}, minmax(0, 1fr))` });
 const fmtH = (h: number) => (Number.isInteger(h) ? `${h}h` : `${h.toFixed(1).replace(".", ",")}h`);
 
 export function PlanningSemaine({
