@@ -6,6 +6,7 @@ import { estErreur } from "@/lib/action-lisible";
 import type { PreviewInventaire } from "@/lib/import-inventaire";
 import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
 import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
+import { ListePaginee } from "./liste-paginee";
 
 export function ImportInventaireClient() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -84,13 +85,13 @@ export function ImportInventaireClient() {
           {sansMatch.length > 0 && (
             <details className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
               <summary className="cursor-pointer font-medium">⚠ {sansMatch.length} article(s) sans correspondance — seront créés</summary>
-              <ul className="mt-1 list-disc pl-5">{sansMatch.slice(0, 50).map((a) => <li key={a.domaine + a.code}>{a.nom} [{a.domaine}] (code {a.code})</li>)}</ul>
+              <ListePaginee items={sansMatch} libelle="articles" ligne={(a) => <li key={a.domaine + a.code}>{a.nom} [{a.domaine}] (code {a.code})</li>} />
             </details>
           )}
           {parNom.length > 0 && (
             <details className="rounded-md border p-2 text-sm">
               <summary className="cursor-pointer font-medium">{parNom.length} rapprochement(s) par nom (à vérifier)</summary>
-              <ul className="mt-1 list-disc pl-5 text-muted-foreground">{parNom.slice(0, 50).map((a) => <li key={a.domaine + a.code}>{a.nom} → {a.articleNom}</li>)}</ul>
+              <ListePaginee items={parNom} libelle="rapprochements" className="mt-1 list-disc pl-5 text-muted-foreground" ligne={(a) => <li key={a.domaine + a.code}>{a.nom} → {a.articleNom}</li>} />
             </details>
           )}
 

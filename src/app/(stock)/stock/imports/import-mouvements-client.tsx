@@ -7,6 +7,8 @@ import type { PreviewMouvements } from "@/lib/import-mouvements";
 import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
 import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { Pagination, usePagination } from "@/components/pagination";
+import { tranche } from "@/lib/pagination";
 
 const RAPPRO_LABEL: Record<string, string> = { code: "Code", nom: "Nom", flou: "Approché", inconnu: "Inconnu" };
 const RAPPRO_CLASSE: Record<string, string> = {
@@ -38,7 +40,13 @@ export function ImportMouvementsClient() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview, du, au, dateDefaut]);
+  // Pagination de l'aperçu (50 / 100 / Tout) : une tranche de la période choisie. La sélection, les totaux et
+  // « Importer la sélection » portent sur TOUTES les lignes de la période, pas sur la page. Page en état local
+  // (un aperçu vient d'un fichier : il n'existe plus au rechargement).
+  const pagination = usePagination({ total: visibles.length, cleFiltre: [du, au, dateDefaut, preview?.lignes.length ?? 0].join("|"), synchroUrl: false });
+  const page = tranche(visibles, pagination);
   const selection = visibles.filter((l) => l.articleId && !decochees.has(l.ligne));
+  const nbRapprochees = visibles.filter((l) => l.articleId).length;
   // Les mouvements déjà présents en base seront ignorés : ils ne comptent pas dans le total.
   const selEntrees = Math.round(selection.reduce((t, l) => t + (l.entreeDejaPresente ? 0 : l.entree), 0) * 1000) / 1000;
   const selSorties = Math.round(selection.reduce((t, l) => t + (l.sortieDejaPresente ? 0 : l.sortie), 0) * 1000) / 1000;
@@ -77,6 +85,10 @@ export function ImportMouvementsClient() {
     setDecochees((s) => { const x = new Set(s); if (x.has(n)) x.delete(n); else x.add(n); return x; });
   const toutCocher = () => setDecochees(new Set());
   const toutDecocher = () => setDecochees(new Set(visibles.filter((l) => l.articleId).map((l) => l.ligne)));
+  // Case d'en-tête : coche / décoche les lignes rapprochées de la PAGE seulement.
+  const rapprocheesPage = page.filter((l) => l.articleId);
+  const pageToutCochee = rapprocheesPage.length > 0 && rapprocheesPage.every((l) => !decochees.has(l.ligne));
+  const cocherPage = (on: boolean) => setDecochees((s) => { const n = new Set(s); for (const l of rapprocheesPage) { if (on) n.delete(l.ligne); else n.add(l.ligne); } return n; });
 
   return (
     <div className="space-y-3">
@@ -117,10 +129,10 @@ export function ImportMouvementsClient() {
               Au
               <input type="date" value={au} onChange={(e) => setAu(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5" />
             </label>
-            <button type="button" onClick={toutCocher} className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout cocher</button>
-            <button type="button" onClick={toutDecocher} className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout décocher</button>
+            <button type="button" onClick={toutCocher} title="Toutes les lignes rapprochées de la période, sur toutes les pages" className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout cocher ({nbRapprochees})</button>
+            <button type="button" onClick={toutDecocher} title="Toutes les lignes de la période, sur toutes les pages" className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout décocher ({nbRapprochees})</button>
             <span className="text-xs text-muted-foreground">
-              <b className="text-foreground">{selection.length}</b> à importer ·{" "}
+              <b className="text-foreground">{selection.length}</b> à importer (toutes pages) ·{" "}
               <span className="text-emerald-700">{selEntrees} entrée(s)</span> ·{" "}
               <span className="text-red-700">{selSorties} sortie(s)</span>
               {preview.resume.inconnues > 0 && <> · <span className="text-red-700">{preview.resume.inconnues} inconnue(s) ignorée(s)</span></>}
@@ -133,11 +145,11 @@ export function ImportMouvementsClient() {
             <table className="w-full min-w-[44rem] text-sm">
               <thead className="en-tete-collante-xl bg-muted text-left text-xs">
                 <tr className="[&>th]:px-3 [&>th]:py-2">
-                  <th className="w-8" /><th>Date</th><th>CSV</th><th>Article rapproché</th><th>Lien</th><th className="text-right">Entrée</th><th className="text-right">Sortie</th>
+                  <th className="w-8"><input type="checkbox" checked={pageToutCochee} disabled={rapprocheesPage.length === 0} onChange={(e) => cocherPage(e.target.checked)} aria-label={`Cocher les lignes de cette page (${rapprocheesPage.length})`} title="Coche les lignes de cette page" /></th><th>Date</th><th>CSV</th><th>Article rapproché</th><th>Lien</th><th className="text-right">Entrée</th><th className="text-right">Sortie</th>
                 </tr>
               </thead>
               <tbody>
-                {visibles.map((l) => {
+                {page.map((l) => {
                   const rapprochee = !!l.articleId;
                   return (
                     <tr key={l.ligne} className={`border-t even:bg-muted/25 ${!rapprochee ? "opacity-60" : ""}`}>
@@ -165,6 +177,7 @@ export function ImportMouvementsClient() {
               </tbody>
             </table>
           </div>
+          <Pagination total={visibles.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="lignes" />
         </div>
       )}
     </div>

@@ -8,6 +8,9 @@ import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
 import { qte } from "@/lib/stock";
 import type { ApercuDoublons, LotImport, MvtDoublon } from "@/lib/doublons-imports";
+import { ListePaginee } from "./liste-paginee";
+import { Pagination, usePagination } from "@/components/pagination";
+import { tranche } from "@/lib/pagination";
 
 // Outil « Retirer les mouvements en double » (Direction). Règle : on GARDE la copie de l'import de
 // MOUVEMENTS, on RETIRE celle de l'import d'INVENTAIRE. Le stock ne bouge pas : l'inventaire l'a
@@ -34,11 +37,9 @@ function ListeSeuls({ titre, aide, mvts }: { titre: string; aide: string; mvts: 
     <details className="rounded-md border p-2 text-sm">
       <summary className="cursor-pointer font-medium">{titre} ({mvts.length})</summary>
       <p className="mt-1 text-xs text-muted-foreground">{aide}</p>
-      <ul className="mt-1 divide-y">
-        {mvts.map((m) => (
-          <li key={m.id} className="py-1.5"><Mouvement m={m} /><span className="block text-xs text-muted-foreground">{m.libelle}</span></li>
-        ))}
-      </ul>
+      <ListePaginee items={mvts} libelle="mouvements" className="mt-1 divide-y" ligne={(m) => (
+        <li key={m.id} className="py-1.5"><Mouvement m={m} /><span className="block text-xs text-muted-foreground">{m.libelle}</span></li>
+      )} />
     </details>
   );
 }
@@ -55,6 +56,10 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
   const [succes, setSucces] = useState<string | null>(null);
   const [isPending, start] = useTransition();
   const { sel, ids, toggle, clear, setAll } = useBulkSelection();
+
+  // Pagination des paires jumelles (50 / 100 / Tout). La page reste en état local : l'aperçu est éphémère.
+  const nbPaires = apercu?.paires.length ?? 0;
+  const pagination = usePagination({ total: nbPaires, cleFiltre: apercu ? `${apercu.inventaire.id}|${nbPaires}` : "", synchroUrl: false });
 
   const basculerLot = (id: string) => setMvIds((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -87,6 +92,9 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
   }
 
   const paires = apercu?.paires ?? [];
+  const pairesPage = tranche(paires, pagination);
+  const cocheesPage = pairesPage.reduce((t, p) => t + (sel.has(p.retire.id) ? 1 : 0), 0);
+  const cocheesFiltre = paires.reduce((t, p) => t + (sel.has(p.retire.id) ? 1 : 0), 0);
   return (
     <div className="space-y-3">
       <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
@@ -148,12 +156,19 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
             <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">Aucun mouvement en double entre ces imports.</p>
           ) : (
             <>
-              <BulkBar count={sel.size} total={paires.length} onAll={(on) => setAll(paires.map((p) => p.retire.id), on)}>
+              {/* « Tout sélectionner » = la page ; « Sélectionner les N paires » = toutes (la même liste d'identifiants part à l'action). */}
+              <BulkBar count={sel.size} total={pairesPage.length} cochesAffichees={cocheesPage} libelleTout={paires.length > pairesPage.length ? "Tout sélectionner (cette page)" : "Tout sélectionner"}
+                onAll={(on) => { if (on) setAll([...sel, ...pairesPage.map((p) => p.retire.id)], true); else setAll([...sel].filter((id) => !pairesPage.some((p) => p.retire.id === id)), true); }}>
+                {paires.length > pairesPage.length && cocheesPage === pairesPage.length && cocheesFiltre < paires.length && (
+                  <button type="button" data-tout-le-filtre="proposer" onClick={() => setAll(paires.map((p) => p.retire.id), true)} className="text-xs font-medium text-primary underline">
+                    Sélectionner les {paires.length} paires
+                  </button>
+                )}
                 <BoutonDanger disabled={isPending} onClick={retirer}>{isPending ? "Retrait…" : `✕ Retirer ${sel.size} mouvement(s) en double`}</BoutonDanger>
                 <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
               </BulkBar>
               <ul className="divide-y rounded-lg border">
-                {paires.map((p) => (
+                {pairesPage.map((p) => (
                   <li key={p.retire.id} className="flex items-start gap-2 px-3 py-2">
                     <input type="checkbox" className="mt-1" checked={sel.has(p.retire.id)} onChange={() => toggle(p.retire.id)} aria-label={`Retirer la copie de ${p.retire.article} du ${jj(p.retire.date)}`} />
                     <div className="min-w-0 flex-1 space-y-0.5">
@@ -165,6 +180,7 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
                   </li>
                 ))}
               </ul>
+              <Pagination total={paires.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="paires" />
             </>
           )}
 

@@ -40,19 +40,24 @@ export function useHauteurBarreCollante<T extends HTMLElement = HTMLDivElement>(
 
 /** Barre collante « Tout sélectionner · N sélectionné(s) · [actions] » : sous l'en-tête de la coquille sur
  *  téléphone (`colle-sous-entete`). N'affiche les actions
- *  qu'à la sélection → aucune surcharge visuelle quand rien n'est coché. */
-export function BulkBar({ count, total, onAll, children }: { count: number; total: number; onAll: (on: boolean) => void; children?: React.ReactNode }) {
+ *  qu'à la sélection → aucune surcharge visuelle quand rien n'est coché.
+ *  Liste PAGINÉE : `total` = lignes de la page, `cochesAffichees` = cochées parmi elles (la case d'en-tête
+ *  suit la page) et `count` reste le nombre total de cochées, toutes pages ; `libelleTout` nomme la case. */
+export function BulkBar({ count, total, onAll, cochesAffichees, libelleTout = "Tout sélectionner", children }: {
+  count: number; total: number; onAll: (on: boolean) => void; cochesAffichees?: number; libelleTout?: string; children?: React.ReactNode;
+}) {
   const ref = useHauteurBarreCollante();
+  const coches = cochesAffichees ?? count;
   return (
     <div ref={ref} className="sticky colle-sous-entete z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
       <label className="flex items-center gap-2 text-sm font-medium">
         <input
           type="checkbox"
-          checked={total > 0 && count === total}
-          ref={(el) => { if (el) el.indeterminate = count > 0 && count < total; }}
+          checked={total > 0 && coches === total}
+          ref={(el) => { if (el) el.indeterminate = coches > 0 && coches < total; }}
           onChange={(e) => onAll(e.target.checked)}
         />
-        Tout sélectionner
+        {libelleTout}
       </label>
       <span className="text-sm text-muted-foreground">{count} sélectionné(s)</span>
       {count > 0 && <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>}

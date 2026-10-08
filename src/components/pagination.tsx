@@ -21,7 +21,7 @@ const INACTIF = "hover:bg-accent";
 
 type Cible = { page: number; par: ParPage };
 
-export function Pagination({ total, page, par, chemin, params, onChange, libelle = "ligne(s)", className = "" }: {
+export function Pagination({ total, page, par, chemin, params, onChange, libelle = "ligne(s)", defiler = true, className = "" }: {
   total: number;
   page: number;
   par: ParPage;
@@ -32,6 +32,8 @@ export function Pagination({ total, page, par, chemin, params, onChange, libelle
   onChange?: (page: number, par: ParPage) => void;
   /** Ce que l'on compte, au pluriel : « 51–100 sur 342 articles ». */
   libelle?: string;
+  /** Mode état : remonter en haut de la page au changement (tableaux de page entière) ; faux pour une liste dans un volet. */
+  defiler?: boolean;
   className?: string;
 }) {
   const f = fenetrePage(total, page, par);
@@ -42,7 +44,7 @@ export function Pagination({ total, page, par, chemin, params, onChange, libelle
     const classe = `${BASE} ${opts.actif ? ACTIF : INACTIF} ${opts.classe ?? ""}`;
     if (opts.inactif) return <span aria-disabled="true" aria-label={opts.label} className={`${BASE} pointer-events-none opacity-40 ${opts.classe ?? ""}`}>{enfants}</span>;
     if (onChange) {
-      return <button type="button" onClick={() => { onChange(c.page, c.par); if (typeof window.scrollTo === "function") window.scrollTo({ top: 0 }); }} aria-label={opts.label} aria-current={opts.actif ? "page" : undefined} className={classe}>{enfants}</button>;
+      return <button type="button" onClick={() => { onChange(c.page, c.par); if (defiler && typeof window.scrollTo === "function") window.scrollTo({ top: 0 }); }} aria-label={opts.label} aria-current={opts.actif ? "page" : undefined} className={classe}>{enfants}</button>;
     }
     return <Link href={hrefPagination(chemin ?? "", params ?? {}, c.page, c.par)} aria-label={opts.label} aria-current={opts.actif ? "page" : undefined} className={classe}>{enfants}</Link>;
   };
@@ -81,18 +83,20 @@ export function Pagination({ total, page, par, chemin, params, onChange, libelle
  * viennent de l'URL (lues par la page serveur) ; chaque changement est RÉÉCRIT dans l'adresse
  * (`history.replaceState` : pas de rechargement, pas d'entrée d'historique) en gardant les autres paramètres.
  * `cleFiltre` résume les filtres/recherche : quand elle change, la page repart à 1 (sans effet de bord).
+ * `synchroUrl: false` pour un aperçu éphémère (fichier importé, jamais rechargeable) : la page reste en état local.
  */
-export function usePagination({ total, pageInit, parInit, cleFiltre }: { total: number; pageInit: number; parInit: ParPage; cleFiltre: string }) {
+export function usePagination({ total, pageInit = 1, parInit = PAR_DEFAUT, cleFiltre, synchroUrl = true }: { total: number; pageInit?: number; parInit?: ParPage; cleFiltre: string; synchroUrl?: boolean }) {
   const [etat, setEtat] = useState({ page: pageInit, par: parInit, cle: cleFiltre });
   const pageVoulue = etat.cle === cleFiltre ? etat.page : 1;
   const f: FenetrePage = fenetrePage(total, pageVoulue, etat.par);
 
   useEffect(() => {
+    if (!synchroUrl) return;
     const u = new URL(window.location.href);
     const voulu = appliquerPagination(u.searchParams, f.page, etat.par);
     if (voulu.toString() === u.searchParams.toString()) return;
     window.history.replaceState(null, "", `${u.pathname}${voulu.size ? `?${voulu}` : ""}${u.hash}`);
-  }, [f.page, etat.par]);
+  }, [f.page, etat.par, synchroUrl]);
 
   const aller = useCallback((page: number, par: ParPage) => setEtat({ page, par, cle: cleFiltre }), [cleFiltre]);
   return { ...f, aller };
