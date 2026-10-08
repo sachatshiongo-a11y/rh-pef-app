@@ -89,3 +89,25 @@ describe("Employés — fiche RH paginée", () => {
     expect(html).toContain('href="/employes?statut=tous&amp;q=Salari%C3%A9&amp;page=2"');
   });
 });
+
+describe("Employés — l'export exporte TOUT l'ensemble filtré, jamais la page", () => {
+  async function lireExcel(url: string): Promise<string[]> {
+    const { GET } = await import("./export/route");
+    const ExcelJS = (await import("exceljs")).default;
+    const res = await GET(new Request(url));
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+    const cellules: string[] = [];
+    wb.worksheets[0].eachRow((row) => row.eachCell((c) => cellules.push(String(c.value ?? ""))));
+    return cellules;
+  }
+  it("même avec ?page=2&par=50 dans l'adresse : les 120 actifs", async () => {
+    const c = await lireExcel("http://x/employes/export?page=2&par=50");
+    expect(c.filter((v) => /^M-\d{3}$/.test(v))).toHaveLength(120);
+    expect(c.some((v) => v.includes("120 employé(s) actif(s)"))).toBe(true);
+  });
+  it("le filtre s'applique à tout l'ensemble, pas à la page (recherche d'un employé de la page 3)", async () => {
+    const c = await lireExcel("http://x/employes/export?q=Salari%C3%A9%20115&page=1&par=50");
+    expect(c.filter((v) => /^M-\d{3}$/.test(v))).toEqual(["M-115"]);
+  });
+});
