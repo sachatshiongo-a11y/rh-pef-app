@@ -13,7 +13,8 @@ import { faireSignerDocument } from "../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { ChampTaillePage, LienGardantTaille, Pagination } from "@/components/pagination";
-import { fenetrePage, lirePagination, tranche } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, lirePagination } from "@/lib/pagination";
+import type { Prisma } from "@prisma/client";
 
 const COULEUR_CONGE: Record<string, string> = {
   APPROUVE: "bg-green-100 text-green-800",
@@ -41,43 +42,46 @@ export default async function CongesPage({
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const peutApprouver = user.role === "ADMIN";
 
-  const [employees, demandesAll, typesConge, feriesRows] = await Promise.all([
+  // La liste est lue PAR PAGE (count + skip/take) : plus de plafond silencieux à 300 demandes (qui faussait aussi la
+  // synthèse). Le filtre (statut, type, recherche) est une clause SQL : il porte sur TOUTES les demandes.
+  const q = (sp.q ?? "").trim();
+  const STATUTS = ["EN_ATTENTE", "APPROUVE", "REFUSE"] as const;
+  const whereListe: Prisma.LeaveRequestWhereInput = {
+    ...(sp.statut ? { statut: STATUTS.includes(sp.statut as (typeof STATUTS)[number]) ? (sp.statut as (typeof STATUTS)[number]) : undefined } : {}),
+    ...(sp.statut && !STATUTS.includes(sp.statut as (typeof STATUTS)[number]) ? { id: { in: [] } } : {}), // statut inconnu : aucune demande
+    ...(sp.type ? { type: sp.type } : {}),
+    ...(q ? { employee: { OR: [{ nom: { contains: q, mode: "insensitive" } }, { matricule: { contains: q, mode: "insensitive" } }] } } : {}),
+  };
+  const { page, par } = lirePagination(sp);
+  const now = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : un congé du 12 au 12 est « en cours » le 12
+  const dans30 = new Date(now.getTime() + 30 * 86_400_000);
+
+  const nbListe = await prisma.leaveRequest.count({ where: whereListe });
+  const fen = fenetrePage(nbListe, page, par, PLAFOND_TOUT);
+  const [employees, demandesPage, typesConge, feriesRows, typesGroupes, nbAttente, enCours, aVenir, nbApprouve] = await Promise.all([
     prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
     prisma.leaveRequest.findMany({
+      where: whereListe,
       include: { employee: true, approuvePar: true },
-      orderBy: { dateEnreg: "desc" },
-      take: 300,
+      orderBy: [{ dateEnreg: "desc" }, { id: "asc" }],
+      skip: fen.skip,
+      take: fen.take,
     }),
     prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
     prisma.jourFerie.findMany({ select: { date: true } }),
+    prisma.leaveRequest.groupBy({ by: ["type"] }),
+    // Synthèse : sur TOUTES les demandes, indépendante du filtre de la liste.
+    prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
+    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: now }, dateFin: { gte: now } } }),
+    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { gt: now, lte: dans30 } } }),
+    prisma.leaveRequest.count({ where: { statut: "APPROUVE" } }),
   ]);
   const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
   const TYPES_CONGE = typesConge.map((t) => t.nom);
-
-  const typesPresents = [...new Set(demandesAll.map((d) => d.type))].sort();
-  const q = (sp.q ?? "").trim().toLowerCase();
-  const demandes = demandesAll.filter(
-    (d) =>
-      (!sp.statut || d.statut === sp.statut) &&
-      (!sp.type || d.type === sp.type) &&
-      (!q || d.employee.nom.toLowerCase().includes(q) || d.employee.matricule.toLowerCase().includes(q))
-  );
+  const typesPresents = typesGroupes.map((g) => g.type).sort();
   const filtreActif = !!(sp.statut || sp.type || q);
-  // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant.
+  // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant (page et taille comprises).
   const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q, page: sp.page, par: sp.par };
-
-  // Pagination (50 / 100 / Tout) de la liste filtrée : le filtre porte sur toutes les demandes chargées, les
-  // compteurs de synthèse aussi ; seules les signatures et les cartes de la PAGE sont lues / affichées.
-  const { page, par } = lirePagination(sp);
-  const fen = fenetrePage(demandes.length, page, par);
-  const demandesPage = tranche(demandes, fen);
-
-  const now = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : un congé du 12 au 12 est « en cours » le 12
-  const nbAttente = demandesAll.filter((d) => d.statut === "EN_ATTENTE").length;
-  const enCours = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) <= now && new Date(d.dateFin) >= now).length;
-  const dans30 = new Date(now.getTime() + 30 * 86_400_000);
-  const aVenir = demandesAll.filter((d) => d.statut === "APPROUVE" && new Date(d.dateDebut) > now && new Date(d.dateDebut) <= dans30).length;
-  const nbApprouve = demandesAll.filter((d) => d.statut === "APPROUVE").length;
 
   // Signatures des demandes approuvées affichées : UNE requête, jamais une par ligne.
   const sigConges = await chargerSignatures(
@@ -230,7 +234,7 @@ export default async function CongesPage({
         <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreurDecision}</p>
       )}
 
-      {demandes.length === 0 ? (
+      {nbListe === 0 ? (
         <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
           Aucune demande de congé {filtreActif ? "pour ce filtre" : "enregistrée"}.
         </p>
@@ -304,7 +308,7 @@ export default async function CongesPage({
           })}
         </div>
       )}
-      <Pagination className="mt-4" total={demandes.length} page={fen.page} par={par} chemin="/conges" params={sp} libelle="demandes" />
+      <Pagination className="mt-4" plafondTout={PLAFOND_TOUT} total={nbListe} page={fen.page} par={par} chemin="/conges" params={filtresListe} libelle="demandes" />
     </div>
   );
 }
