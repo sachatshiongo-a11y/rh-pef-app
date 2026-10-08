@@ -69,7 +69,7 @@ export function ImportFacturesClient() {
           {preview.erreurs.length > 0 && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">{preview.erreurs.join(" · ")}</p>}
           <details className="rounded-md border p-2 text-sm">
             <summary className="cursor-pointer font-medium">Voir les {preview.factures.length} ligne(s) lue(s)</summary>
-            <ul className="mt-1 max-h-64 space-y-0.5 overflow-auto text-xs">
+            <ul className="mt-1 space-y-0.5 text-xs">
               {preview.factures.slice(0, 200).map((f, i) => (
                 <li key={i} className={f.nouvelle ? "" : "text-muted-foreground line-through"}>{f.fournisseurNom} · {f.numero ?? "sans n°"} · {f.periode} · {usd(f.montantUSD)}{f.nouvelle ? "" : " (doublon)"}</li>
               ))}

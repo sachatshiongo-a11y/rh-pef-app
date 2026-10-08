@@ -77,9 +77,9 @@ export function ComparaisonSemaine({ jours, lignes, sansMotif }: { jours: Jour[]
           {sansMotif}{" "}article(s) sorti(s) du dépôt sans motif cette semaine : ni livrés au restaurant, ni pertes, ils ne comptent pas dans « Livré » (voir l&apos;onglet Consommation).
         </p>
       )}
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border">
         <table className="w-full border-separate border-spacing-0 text-sm" data-table="comparaison">
-          <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
+          <thead className="bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b-0 [&>th]:px-2 [&>th]:pt-2 [&>th]:pb-0.5 [&>th]:font-semibold">
               <th rowSpan={2} className="sticky left-0 z-30 min-w-[13rem] border-r bg-muted px-3 align-bottom !pb-2">Article</th>
               {jours.map((j, i) => {

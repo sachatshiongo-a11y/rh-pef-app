@@ -129,9 +129,9 @@ export function ImportMouvementsClient() {
             <button type="button" onClick={appliquer} disabled={isPending || selection.length === 0} className="ml-auto rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : `Importer la sélection (${selection.length})`}</button>
           </div>
 
-          <div className="max-h-[50vh] overflow-auto rounded-lg border">
+          <div className="tableau-normal-xl rounded-lg border">
             <table className="w-full min-w-[44rem] text-sm">
-              <thead className="sticky top-0 bg-muted text-left text-xs">
+              <thead className="en-tete-collante-xl bg-muted text-left text-xs">
                 <tr className="[&>th]:px-3 [&>th]:py-2">
                   <th className="w-8" /><th>Date</th><th>CSV</th><th>Article rapproché</th><th>Lien</th><th className="text-right">Entrée</th><th className="text-right">Sortie</th>
                 </tr>

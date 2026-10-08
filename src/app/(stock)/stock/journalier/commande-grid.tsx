@@ -97,9 +97,9 @@ export function CommandeGrid({ articles, jours, commandes, peutModifier }: {
       <VueJourOuSemaine
         jour={<ListeCommandeJour visibles={visibles} total={articles.length} jours={jours} valeur={valeur} peutModifier={peutModifier} onEnregistrer={onEnregistrer} />}
         semaine={
-      <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
+      <div className="tableau-normal-xl rounded-lg border">
         <table data-tableur="" className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
+          <thead className="en-tete-collante-xl bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
               <th className="sticky left-0 z-30 bg-muted">Article</th>
               {jours.map((j) => <th key={j.iso} className="!text-right">{j.label}</th>)}

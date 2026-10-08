@@ -34,7 +34,7 @@ function ListeSeuls({ titre, aide, mvts }: { titre: string; aide: string; mvts: 
     <details className="rounded-md border p-2 text-sm">
       <summary className="cursor-pointer font-medium">{titre} ({mvts.length})</summary>
       <p className="mt-1 text-xs text-muted-foreground">{aide}</p>
-      <ul className="mt-1 max-h-[40vh] divide-y overflow-y-auto">
+      <ul className="mt-1 divide-y">
         {mvts.map((m) => (
           <li key={m.id} className="py-1.5"><Mouvement m={m} /><span className="block text-xs text-muted-foreground">{m.libelle}</span></li>
         ))}
@@ -152,7 +152,7 @@ export function DoublonsClient({ inventaires, mouvements, defaut }: {
                 <BoutonDanger disabled={isPending} onClick={retirer}>{isPending ? "Retrait…" : `✕ Retirer ${sel.size} mouvement(s) en double`}</BoutonDanger>
                 <BoutonNeutre onClick={clear}>Désélectionner</BoutonNeutre>
               </BulkBar>
-              <ul className="max-h-[60vh] divide-y overflow-y-auto rounded-lg border">
+              <ul className="divide-y rounded-lg border">
                 {paires.map((p) => (
                   <li key={p.retire.id} className="flex items-start gap-2 px-3 py-2">
                     <input type="checkbox" className="mt-1" checked={sel.has(p.retire.id)} onChange={() => toggle(p.retire.id)} aria-label={`Retirer la copie de ${p.retire.article} du ${jj(p.retire.date)}`} />

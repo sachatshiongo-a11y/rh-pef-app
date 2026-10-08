@@ -111,44 +111,28 @@ describe("la classe colle-sous-entete", () => {
 
 /**
  * EXCEPTIONS au garde-fou « aucun `sticky top-…` dans le contenu des pages » : les en-têtes de
- * tableau (ou de grille) qui vivent dans un conteneur `overflow-auto` à hauteur bornée. Leur
+ * tableau (ou de grille) qui vivent encore dans un conteneur `overflow-auto` à hauteur bornée. Leur
  * `top-0` est celui de CE conteneur, qui défile seul : ils ne passent jamais sous l'en-tête de la
- * coquille (c'est le conteneur entier qui défile avec la page). Y appliquer le décalage de
- * l'en-tête les décalerait à tort DANS leur conteneur. Nombre d'occurrences par fichier : en
- * ajouter une fait échouer ce test — décider alors, consciemment, entre `colle-sous-entete`
- * (barre de page) et une nouvelle exception ici.
+ * coquille. Y appliquer le décalage de l'en-tête les décalerait à tort DANS leur conteneur.
+ *
+ * DÉCISION DE LA DIRECTION (2026-10-08) : « tous les tableaux incrustés peuvent devenir des tableaux
+ * normaux » — la PAGE défile, plus de boîte à défilement interne. Les tableaux migrés emploient
+ * `tableau-normal(-xl)` + `en-tete-collante(-xl)` (globals.css), qui n'ont pas de `top-…` et se collent
+ * au défilement de la page SOUS la barre d'actions. Cette liste ne fait que SE VIDER : chaque entrée
+ * est un tableau restant à migrer (la migration est suivie par `tableaux-normaux.garde-fou.test.ts`).
+ * Nombre d'occurrences par fichier : en ajouter une fait échouer ce test.
  */
 const EXCEPTIONS: Record<string, number> = {
-  "app/(app)/conges/calendrier.tsx": 1,
-  "app/(app)/declarations/page.tsx": 1,
-  "app/(app)/documents/page.tsx": 1, // <Thead> partagé, tous les onglets dans le même conteneur
-  "app/(app)/employes/[id]/page.tsx": 2,
-  "app/(app)/employes/page.tsx": 1,
-  "app/(app)/heures-supp/weekly-breakdown-table.tsx": 1,
-  "app/(app)/historique/[id]/page.tsx": 1,
-  "app/(app)/paie/historique-paie.tsx": 1,
-  "app/(app)/paie/paie-bulk.tsx": 1,
-  "app/(app)/parametres/types-conges-admin.tsx": 1,
-  "app/(app)/parametres/users-admin.tsx": 1,
   "app/(app)/planning/modele-grid.tsx": 1,
   "app/(app)/planning/planning-semaine.tsx": 1,
   "app/(app)/presences/import-pointage.tsx": 1,
   "app/(app)/presences/temps-grid.tsx": 1,
-  "app/(app)/transport/_grille.tsx": 1,
-  "app/(stock)/stock/archives/[id]/page.tsx": 1,
   "app/(stock)/stock/catalogue/catalogue-table.tsx": 1,
   "app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": 1,
   "app/(stock)/stock/factures/[id]/page.tsx": 2,
   "app/(stock)/stock/factures/nouveau/nouveau-client.tsx": 1,
   "app/(stock)/stock/factures/page.tsx": 1,
   "app/(stock)/stock/fournisseurs/[id]/page.tsx": 1,
-  "app/(stock)/stock/imports/import-mouvements-client.tsx": 1,
-  "app/(stock)/stock/journalier/commande-grid.tsx": 1,
-  "app/(stock)/stock/journalier/comparaison-semaine.tsx": 1,
-  "app/(stock)/stock/journalier/table-conso.tsx": 1,
-  "app/(stock)/stock/journalier/ventes-grid.tsx": 1,
-  "app/(stock)/stock/reconciliation/reconciliation-client.tsx": 1,
-  "app/(stock)/stock/restaurant/restaurant-client.tsx": 1,
 };
 
 /** Occurrences de `sticky` NU (sans préfixe de variante) accompagné d'un `top-…` (même préfixé, sauf `lg:` seul : ordinateur) dans la même chaîne de classes. */

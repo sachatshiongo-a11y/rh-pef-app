@@ -189,7 +189,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
       {info && <p role="status" className={`border-b px-3 py-2 text-xs ${info.alerte ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>{info.texte}</p>}
       {erreur && <p className="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive">{erreur}</p>}
 
-      <div className="max-h-[70vh] divide-y overflow-auto">
+      <div className="divide-y">
         {jours.map((j, ji) => {
           const tousSel = estDirection && j.lignes.every((m) => sel.has(m.id));
           return (
