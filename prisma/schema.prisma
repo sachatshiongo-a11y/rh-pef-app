@@ -1717,7 +1717,8 @@ model ArticleResto {
   ordre               Int             @default(0)
   actif               Boolean         @default(true)
   // Article du catalogue dont cet article du restaurant est le comptage (disponibilité des plats,
-  // 2026-09-24). Posé UNIQUEMENT par un geste de la Direction (page Restaurant) : jamais deviné.
+  // 2026-09-24). Posé par un geste (page Restaurant) ou par le rattachement AUTOMATIQUE d'une
+  // livraison (2026-10-08, lib/rattachement-auto.ts : un seul candidat, sinon rien) : jamais deviné.
   articleStockId      String?
   articleStock        ArticleStock?   @relation(fields: [articleStockId], references: [id], onDelete: SetNull)
   comptages           ComptageResto[]

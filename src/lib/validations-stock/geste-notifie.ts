@@ -47,7 +47,9 @@ export type GesteStock =
   | { genre: "FACTURE"; factureId: string; numero: string | null; fournisseurNom: string; montantUSD: number; nbLignes: number; entreeEnStock: boolean; nbEntrees: number }
   | { genre: "ACHAT"; nbLignes: number; montants: { devise: "USD" | "CDF"; montant: number }[] }
   | { genre: "ACHAT_LEGUMES"; nbLignes: number; montantsCDF: (number | null)[] }
-  | { genre: "RECEPTION"; bonDeCommandeId: string; numero: string; fournisseurNom: string | null; nbLignes: number; complete: boolean };
+  | { genre: "RECEPTION"; bonDeCommandeId: string; numero: string; fournisseurNom: string | null; nbLignes: number; complete: boolean }
+  /** Rattachement AUTOMATIQUE au stock du restaurant par le bouton du bandeau (lib/rattachement-auto.ts). */
+  | { genre: "RATTACHEMENT_RESTO"; declencheur: "SORTIE" | "BOUTON"; rattaches: string[]; crees: string[] };
 
 /** Fenêtre de regroupement des mouvements d'un même auteur (voir l'en-tête). */
 export const FENETRE_REGROUPEMENT_MS = 10 * 60_000;
@@ -136,6 +138,15 @@ export function texteGeste(auteurNom: string, g: GesteStock): TexteGeste {
         message: borne(`Réception du bon de commande n° ${g.numero}${g.fournisseurNom ? ` (${g.fournisseurNom})` : ""} enregistrée par ${auteurNom} — ${pluriel(g.nbLignes, "ligne reçue", "lignes reçues")}, ${g.complete ? "complète" : "partielle"}`),
         lien: `/stock/commandes/${g.bonDeCommandeId}`, titre: "Réception de marchandise", cle: null,
       };
+    case "RATTACHEMENT_RESTO": {
+      const noms = (l: string[]) => l.map((d) => `« ${d} »`).join(", ");
+      const quoi = [
+        ...(g.rattaches.length ? [`${pluriel(g.rattaches.length, "article rattaché", "articles rattachés")} (${noms(g.rattaches)})`] : []),
+        ...(g.crees.length ? [`${pluriel(g.crees.length, "article créé", "articles créés")} (${noms(g.crees)})`] : []),
+      ].join(", ");
+      const par = g.declencheur === "SORTIE" ? `à la sortie « Livraison restaurant » de ${auteurNom}` : `par ${auteurNom}`;
+      return { message: borne(`Rattachement automatique au stock du restaurant ${par} — ${quoi}`), lien: "/stock/restaurant", titre: "Stock du restaurant", cle: null };
+    }
   }
 }
 
