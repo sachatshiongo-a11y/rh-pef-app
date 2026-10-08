@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { alerteUnite, cleDesignation, proposerRattachements } from "./rattachement-resto";
+import { alerteUnite, cleRattachement, planifierRattachementsAuto, proposerRattachements, type CibleAuto, type RestoAuto } from "./rattachement-resto";
 import { facteur } from "./conversion";
 
 const cat = (id: string, designation: string, actif = true, unite: string | null = "kg") => ({ id, designation, actif, unite });
@@ -15,8 +15,13 @@ describe("proposerRattachements — jamais de rattachement deviné", () => {
     ]);
   });
 
-  it("ne propose rien pour un nom seulement proche (accent, pluriel, mot en plus)", () => {
-    expect(proposerRattachements([resto("r1", "Creme"), resto("r2", "Tomates"), resto("r3", "Tomate cerise")], [cat("a1", "Crème"), cat("a2", "Tomate")])).toEqual([]);
+  it("ne propose rien pour un nom seulement proche (pluriel, mot en plus)", () => {
+    expect(proposerRattachements([resto("r2", "Tomates"), resto("r3", "Tomate cerise")], [cat("a2", "Tomate")])).toEqual([]);
+  });
+
+  it("même clé que le rattachement automatique (2026-10-08) : accents, ponctuation et nom court ne séparent plus", () => {
+    const p = proposerRattachements([resto("r1", "Creme"), resto("r2", "Carré d'agneau")], [cat("a1", "Crème"), { ...cat("a2", "AGNEAU CARRE FRANCE 1KG"), nomCourt: "Carré d'agneau" }]);
+    expect(p.map((x) => [x.articleRestoId, x.articleStockId])).toEqual([["r1", "a1"], ["r2", "a2"]]);
   });
 
   it("ignore un article du restaurant déjà rattaché", () => {
@@ -28,9 +33,20 @@ describe("proposerRattachements — jamais de rattachement deviné", () => {
     expect(proposerRattachements([resto("r1", "Sel")], [cat("a1", "Sel"), cat("a2", "SEL")])).toEqual([]);
   });
 
-  it("cleDesignation retire tous les espaces et la casse, garde les accents", () => {
-    expect(cleDesignation(" Crème  Fraîche ")).toBe("crèmefraîche");
-    expect(cleDesignation("Creme")).not.toBe(cleDesignation("Crème"));
+  it("cleRattachement : accents, casse, espaces, ponctuation, contenance canonique", () => {
+    expect(cleRattachement(" Crème  Fraîche ")).toBe("cremefraiche");
+    expect(cleRattachement("Creme")).toBe(cleRattachement("Crème"));
+    expect(cleRattachement("Coca-Cola 33 cl")).toBe(cleRattachement("coca cola 0,33L"));
+    expect(cleRattachement("Eau Vivreau 1L")).toBe(cleRattachement("EAU VIVREAU 100cl"));
+    expect(cleRattachement("Eau Vivreau 1L")).toBe(cleRattachement("Eau vivreau 1000 ml"));
+    expect(cleRattachement("Farfalle 500g")).toBe(cleRattachement("Farfalle 0,5 kg"));
+    expect(cleRattachement("Farfalle 500 gr")).toBe(cleRattachement("farfalle 500g"));
+    // Rien n'est confondu au-delà : contenance différente, pluriel, mot en plus, autre mot après le nombre.
+    expect(cleRattachement("Eau 1L")).not.toBe(cleRattachement("Eau 1,5L"));
+    expect(cleRattachement("Tomate")).not.toBe(cleRattachement("Tomates"));
+    expect(cleRattachement("2 lapins")).toBe("2lapins");
+    expect(cleRattachement("   ")).toBe("");
+    expect(cleRattachement(null)).toBe("");
   });
 });
 
@@ -67,5 +83,95 @@ describe("facteur — deux unités VIDES ne sont pas identiques", () => {
     expect(facteur("", "kg")).toBeNull();
     expect(facteur("kg", "")).toBeNull();
     expect(facteur("500 GR", "500 GR")!.toString()).toBe("1"); // l'identité d'une vraie unité reste 1
+  });
+});
+
+// ─── Rattachement automatique (2026-10-08) ─────────────────────────────────────────────────────
+
+const C = (id: string, designation: string, o: Partial<CibleAuto> = {}): CibleAuto => ({
+  id, designation, nomCourt: null, actif: true, domaine: "NOURRITURE", unite: "Paquet", contenance: null, contenanceUnite: null, categorie: "Pâtes", ...o,
+});
+const R = (id: string, designation: string, o: Partial<RestoAuto> = {}): RestoAuto => ({
+  id, designation, espace: "CUISINE", unite: "Paquet", actif: true, articleStockId: null, rattacheA: null, ...o,
+});
+
+describe("planifierRattachementsAuto — automatique, jamais deviné", () => {
+  it("(a) un seul article du restaurant libre au même nom : RATTACHER", () => {
+    expect(planifierRattachementsAuto([C("a1", "Farfalle Molisana")], [R("r1", "FARFALLE  molisana"), R("r2", "Penne")])).toEqual([
+      { action: "RATTACHER", articleStockId: "a1", articleRestoId: "r1", designationResto: "FARFALLE  molisana", espace: "CUISINE" },
+    ]);
+  });
+
+  it("(a) le nom court du catalogue vaut sa désignation ; la contenance s'écrit de plusieurs façons", () => {
+    const d = planifierRattachementsAuto(
+      [C("a1", "MOLISANA FARFALLE N°65 500G", { nomCourt: "Farfalle" }), C("a2", "Coca-Cola 33cl", { domaine: "BOISSON", unite: "Bouteille" })],
+      [R("r1", "Farfalle"), R("r2", "Coca Cola 0,33 L", { espace: "BAR", unite: "Bouteille" })],
+    );
+    expect(d.map((x) => [x.action, x.articleStockId, "articleRestoId" in x ? x.articleRestoId : null])).toEqual([["RATTACHER", "a1", "r1"], ["RATTACHER", "a2", "r2"]]);
+  });
+
+  it("(b) aucun candidat : CRÉER (nom court sinon désignation, unité et catégorie du catalogue, espace du domaine)", () => {
+    const d = planifierRattachementsAuto(
+      [C("a1", "Farfalle Molisana"), C("a2", "JACK DANIELS 70CL", { nomCourt: "Jack Daniel's", domaine: "BOISSON", unite: "Bouteille", contenance: "70", contenanceUnite: "cl", categorie: null })],
+      [R("r9", "Penne")],
+    );
+    expect(d).toEqual([
+      { action: "CREER", articleStockId: "a1", designation: "Farfalle Molisana", unite: "Paquet", categorie: "Pâtes", espace: "CUISINE" },
+      { action: "CREER", articleStockId: "a2", designation: "Jack Daniel's", unite: "Bouteille", categorie: "À classer", espace: "BAR" },
+    ]);
+  });
+
+  it("(c) plusieurs candidats libres : LAISSER avec le choix nommé — rien n'est créé", () => {
+    const [d] = planifierRattachementsAuto([C("a1", "Citron", { domaine: "AUTRE" })], [R("r1", "Citron"), R("r2", "citron", { espace: "BAR" })]);
+    expect(d).toMatchObject({ action: "LAISSER", motif: "PLUSIEURS_CANDIDATS" });
+    expect((d as { raison: string }).raison).toBe("2 articles du restaurant portent ce nom (« Citron », Cuisine ; « citron », Bar) : choisissez");
+  });
+
+  it("plusieurs candidats, mais un seul dans l'espace du domaine : c'est lui (même règle que les livraisons)", () => {
+    const d = planifierRattachementsAuto([C("a1", "Citron", { domaine: "BOISSON" })], [R("r1", "Citron"), R("r2", "Citron", { espace: "BAR" })]);
+    expect(d).toMatchObject([{ action: "RATTACHER", articleRestoId: "r2", espace: "BAR" }]);
+  });
+
+  it("un candidat aux unités inconvertibles ou absentes : LAISSER (jamais rattaché d'office), sans créer de doublon", () => {
+    const d = planifierRattachementsAuto([C("a1", "Vin rouge", { unite: "l" }), C("a2", "Sel", { unite: "kg" })], [R("r1", "Vin rouge", { unite: "bouteille" }), R("r2", "Sel", { unite: null })]);
+    expect(d.map((x) => [x.action, "motif" in x ? x.motif : null])).toEqual([["LAISSER", "UNITES"], ["LAISSER", "UNITES"]]);
+    expect((d[0] as { raison: string }).raison).toContain("restaurant : bouteille, catalogue : l");
+  });
+
+  it("homonyme déjà rattaché ailleurs ou désactivé dans l'espace : LAISSER pour ne pas créer de doublon", () => {
+    const d = planifierRattachementsAuto(
+      [C("a1", "Farfalle"), C("a2", "Penne")],
+      [R("r1", "Farfalle", { articleStockId: "a9", rattacheA: "Farfalle Barilla" }), R("r2", "Penne", { actif: false })],
+    );
+    expect(d.map((x) => (x as { raison: string }).raison)).toEqual([
+      "« Farfalle » existe déjà au restaurant (Cuisine, rattaché à « Farfalle Barilla ») : choisissez, pour ne pas créer de doublon",
+      "« Penne » existe déjà au restaurant (Cuisine, désactivé) : choisissez, pour ne pas créer de doublon",
+    ]);
+  });
+
+  it("homonyme dans l'AUTRE espace seulement : la création dans l'espace du domaine reste permise", () => {
+    expect(planifierRattachementsAuto([C("a1", "Citron")], [R("r1", "Citron", { espace: "BAR", articleStockId: "a9" })])).toMatchObject([{ action: "CREER", espace: "CUISINE" }]);
+  });
+
+  it("domaine « Autre », unité du catalogue manquante, catalogue désactivé, rattaché à un article désactivé : LAISSER", () => {
+    const d = planifierRattachementsAuto(
+      [C("a1", "Gaz", { domaine: "AUTRE" }), C("a2", "Sucre", { unite: " " }), C("a3", "Riz", { actif: false }), C("a4", "Thon")],
+      [R("r4", "Thon en boîte", { actif: false, articleStockId: "a4" })],
+    );
+    expect(d.map((x) => [x.articleStockId, (x as { motif: string }).motif])).toEqual([
+      ["a1", "DOMAINE_AUTRE"], ["a2", "UNITE_CATALOGUE"], ["a3", "CATALOGUE_INACTIF"], ["a4", "RATTACHE_DESACTIVE"],
+    ]);
+  });
+
+  it("déjà rattaché (actif) : rien à faire, absent du plan", () => {
+    expect(planifierRattachementsAuto([C("a1", "Sel")], [R("r1", "Autre nom", { articleStockId: "a1" })])).toEqual([]);
+  });
+
+  it("deux cibles pour un même article du restaurant, ou deux créations homonymes : la seconde est laissée", () => {
+    const d = planifierRattachementsAuto([C("a1", "Farfalle"), C("a2", "FARFALLE")], [R("r1", "Farfalle")]);
+    expect(d.map((x) => [x.action, x.articleStockId])).toEqual([["RATTACHER", "a1"], ["LAISSER", "a2"]]);
+    const e = planifierRattachementsAuto([C("a1", "Penne"), C("a2", "penne")], []);
+    expect(e.map((x) => [x.action, x.articleStockId])).toEqual([["CREER", "a1"], ["LAISSER", "a2"]]);
+    expect((e[1] as { motif: string }).motif).toBe("HOMONYME");
   });
 });
