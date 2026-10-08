@@ -8,7 +8,7 @@ import { exigerPageStock } from "@/lib/garde-page";
 import type { Prisma } from "@prisma/client";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { Pagination } from "@/components/pagination";
-import { fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT, type ParPage } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT, type ParPage } from "@/lib/pagination";
 
 const jfr = (d: Date | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 
@@ -62,12 +62,12 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 }
 
 function BarrePages({ total, pg, page, libelle }: { total: number; pg: Pg; page: number; libelle: string }) {
-  return <Pagination total={total} page={page} par={pg.par} chemin="/stock/archives" params={pg.sp} libelle={libelle} />;
+  return <Pagination plafondTout={PLAFOND_TOUT} total={total} page={page} par={pg.par} chemin="/stock/archives" params={pg.sp} libelle={libelle} />;
 }
 
 async function Comptages({ pg }: { pg: Pg }) {
   const nb = await prisma.sessionComptage.count();
-  const fen = fenetrePage(nb, pg.page, pg.par);
+  const fen = fenetrePage(nb, pg.page, pg.par, PLAFOND_TOUT);
   const sessions = await prisma.sessionComptage.findMany({ orderBy: [{ date: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
   if (nb === 0) return <EtatVide message="Aucun comptage archivé." />;
   const groupes = grouperParMois(sessions, (s) => s.date);
@@ -98,7 +98,7 @@ async function Comptages({ pg }: { pg: Pg }) {
 async function BonsValides({ pg }: { pg: Pg }) {
   const where = { statut: { notIn: ["BROUILLON", "ANNULE"] } } satisfies Prisma.BonDeCommandeWhereInput;
   const nb = await prisma.bonDeCommande.count({ where });
-  const fen = fenetrePage(nb, pg.page, pg.par);
+  const fen = fenetrePage(nb, pg.page, pg.par, PLAFOND_TOUT);
   const bcs = await prisma.bonDeCommande.findMany({
     where,
     orderBy: [{ annee: "desc" }, { date: "desc" }, { id: "asc" }],
@@ -140,7 +140,7 @@ const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${Stri
 
 async function Rapports({ pg }: { pg: Pg }) {
   const nb = await prisma.rapport.count();
-  const fen = fenetrePage(nb, pg.page, pg.par);
+  const fen = fenetrePage(nb, pg.page, pg.par, PLAFOND_TOUT);
   const rapports = await prisma.rapport.findMany({ orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
   if (nb === 0) return <EtatVide message="Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés." />;
   const groupes = grouperParMois(rapports, (r) => r.createdAt);
@@ -177,7 +177,7 @@ async function Journal({ entite, userId, pg }: { entite?: string; userId?: strin
   const where: Prisma.JournalAuditWhereInput = { entite: filtreEntite ? filtreEntite : { in: STOCK_ENTITES }, ...(filtreUser ? { userId: filtreUser } : {}) };
   // Le filtre (type, personne) porte sur TOUT le journal ; seule la tranche de la page est lue.
   const nb = await prisma.journalAudit.count({ where });
-  const fen = fenetrePage(nb, pg.page, pg.par);
+  const fen = fenetrePage(nb, pg.page, pg.par, PLAFOND_TOUT);
 
   const [entrees, users] = await Promise.all([
     prisma.journalAudit.findMany({

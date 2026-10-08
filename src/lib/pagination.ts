@@ -11,6 +11,8 @@ export const PAR_DEFAUT: ParPage = 50;
 export const TAILLES_PAGE: readonly ParPage[] = [50, 100, "tout"];
 /** Plus petite taille proposée : en dessous, un tableau tient sur une page et la barre de pagination disparaît. */
 export const PLUS_PETITE_PAGE = 50;
+/** « Tout » sur une page SERVEUR (lecture en base) ne lit jamais plus que cela : au-delà, la page le dit (« affinez le filtre »). */
+export const PLAFOND_TOUT = 2000;
 
 /** Paramètres d'URL de la pagination — à retirer d'un lien qui change de filtre (la page repart à 1). */
 export const PARAM_PAGE = "page";
@@ -51,17 +53,20 @@ export type FenetrePage = {
   /** Pour Prisma : `skip` et `take` (`take` absent pour « tout »). */
   skip: number;
   take: number | undefined;
+  /** « Tout » coupé par le plafond (`plafondTout`) : seules les premières lignes sont lues — l'écran doit le dire. */
+  tronque: boolean;
 };
 
 /** La fenêtre affichée pour `total` lignes. PURE. */
-export function fenetrePage(total: number, pageDemandee: number, par: ParPage): FenetrePage {
+export function fenetrePage(total: number, pageDemandee: number, par: ParPage, plafondTout?: number): FenetrePage {
   const n = Math.max(0, Math.floor(total));
-  const taille = par === "tout" ? Math.max(n, 1) : par;
-  const nbPages = Math.max(1, Math.ceil(n / taille));
+  const tronque = par === "tout" && plafondTout !== undefined && n > plafondTout;
+  const taille = par === "tout" ? Math.max(tronque ? plafondTout! : n, 1) : par;
+  const nbPages = tronque ? 1 : Math.max(1, Math.ceil(n / taille));
   const page = Math.min(Math.max(1, Math.floor(pageDemandee) || 1), nbPages);
   const debut = (page - 1) * taille;
   const fin = Math.min(n, debut + taille);
-  return { page, nbPages, par, total: n, de: n === 0 ? 0 : debut + 1, a: fin, debut, fin, skip: debut, take: par === "tout" ? undefined : par };
+  return { page, nbPages, par, total: n, de: n === 0 ? 0 : debut + 1, a: fin, debut, fin, skip: debut, take: tronque ? plafondTout : par === "tout" ? undefined : par, tronque };
 }
 
 /** « 51–100 sur 342 » (« 1 sur 1 » pour une seule ligne, « 0 » si rien). */

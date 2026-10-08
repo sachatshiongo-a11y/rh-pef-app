@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { qte, DOMAINE_LABEL, SEUIL_TOLERANCE_PCT } from "@/lib/stock";
 import { exigerPageStock } from "@/lib/garde-page";
 import { Pagination } from "@/components/pagination";
-import { fenetrePage, lirePagination } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, lirePagination } from "@/lib/pagination";
 
 export default async function ArchiveDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ page?: string; par?: string }> }) {
   await exigerPageStock();
@@ -17,7 +17,7 @@ export default async function ArchiveDetailPage({ params, searchParams }: { para
   // Un comptage compte des centaines d'articles : les lignes sont lues par PAGE (skip/take + count) ; les
   // chiffres de l'en-tête (articles, écarts, hors tolérance) sont ceux de la fiche, donc de TOUT le comptage.
   const nbLignes = await prisma.ligneComptage.count({ where: { sessionId: id } });
-  const fen = fenetrePage(nbLignes, demande.page, demande.par);
+  const fen = fenetrePage(nbLignes, demande.page, demande.par, PLAFOND_TOUT);
   const lignes = await prisma.ligneComptage.findMany({ where: { sessionId: id }, orderBy: [{ designation: "asc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
 
   const horsTol = (l: (typeof lignes)[number]) =>
@@ -68,7 +68,7 @@ export default async function ArchiveDetailPage({ params, searchParams }: { para
           </tbody>
         </table>
       </div>
-      <Pagination total={nbLignes} page={fen.page} par={demande.par} chemin={`/stock/archives/${id}`} params={sp} libelle="articles comptés" />
+      <Pagination plafondTout={PLAFOND_TOUT} total={nbLignes} page={fen.page} par={demande.par} chemin={`/stock/archives/${id}`} params={sp} libelle="articles comptés" />
     </div>
   );
 }

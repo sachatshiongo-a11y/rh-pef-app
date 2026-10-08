@@ -39,6 +39,13 @@ describe("Pagination — mode liens (page serveur)", () => {
   it("moins d'une page à 50 par page : aucune barre", () => {
     expect(rendre({ total: 30, page: 1 })).toBe("");
   });
+  it("« Tout » au-delà du plafond serveur : la barre dit « 2 000 premières lignes seulement sur 2 500 »", () => {
+    const h = rendre({ total: 2500, par: "tout", page: 1, plafondTout: 2000 });
+    expect(h).toContain("data-pagination-tronque");
+    expect(h).toMatch(/2[\s\u202f\u00a0]000 premières lignes seulement sur 2[\s\u202f\u00a0]500 : affinez le filtre/);
+    expect(h).toContain("1–2000 sur 2500");
+    expect(rendre({ total: 1500, par: "tout", page: 1, plafondTout: 2000 })).not.toContain("data-pagination-tronque");
+  });
   it("« Tout » : plus de numéros, mais le retour à 50 reste possible", () => {
     const h = rendre({ par: "tout", page: 1 });
     expect(h).toContain("1–342 sur 342");

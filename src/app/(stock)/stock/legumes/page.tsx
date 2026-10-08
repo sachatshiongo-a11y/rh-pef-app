@@ -9,7 +9,7 @@ import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien, TelechargerFormulaire } from "@/components/telecharger-lien";
 import { Pagination } from "@/components/pagination";
-import { fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
 import { bornesGroupe } from "@/lib/groupes-periode";
 
 const cdf = (n: number) => n.toLocaleString("fr-FR");
@@ -25,7 +25,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
   const demande = lirePagination(sp);
   // Historique paginé CÔTÉ SERVEUR (count + skip/take) : il s'arrêtait en silence aux 500 achats les plus récents.
   const nbAchats = await prisma.achatLegume.count();
-  const fen = fenetrePage(nbAchats, demande.page, demande.par);
+  const fen = fenetrePage(nbAchats, demande.page, demande.par, PLAFOND_TOUT);
 
   const [achats, config] = await Promise.all([
     prisma.achatLegume.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take }),
@@ -135,7 +135,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
                 </ul>
               </details>
             ))}
-            <Pagination total={nbAchats} page={fen.page} par={demande.par} chemin="/stock/legumes" params={sp} libelle="achats" />
+            <Pagination plafondTout={PLAFOND_TOUT} total={nbAchats} page={fen.page} par={demande.par} chemin="/stock/legumes" params={sp} libelle="achats" />
           </div>
         )}
       </div>

@@ -22,7 +22,7 @@ const INACTIF = "hover:bg-accent";
 
 type Cible = { page: number; par: ParPage };
 
-export function Pagination({ total, page, par, chemin, params, onChange, libelle = "ligne(s)", defiler = true, className = "" }: {
+export function Pagination({ total, page, par, chemin, params, onChange, libelle = "ligne(s)", defiler = true, plafondTout, className = "" }: {
   total: number;
   page: number;
   par: ParPage;
@@ -35,9 +35,11 @@ export function Pagination({ total, page, par, chemin, params, onChange, libelle
   libelle?: string;
   /** Mode état : remonter en haut de la page au changement (tableaux de page entière) ; faux pour une liste dans un volet. */
   defiler?: boolean;
+  /** Page serveur : « Tout » ne lit que les N premières lignes (même valeur que celle donnée à `fenetrePage`) ; la barre le dit. */
+  plafondTout?: number;
   className?: string;
 }) {
-  const f = fenetrePage(total, page, par);
+  const f = fenetrePage(total, page, par, plafondTout);
   // Rien à paginer : moins d'une page, et la taille n'a pas été relevée à la main.
   if (f.total <= PLUS_PETITE_PAGE && par === PAR_DEFAUT) return null;
 
@@ -55,6 +57,11 @@ export function Pagination({ total, page, par, chemin, params, onChange, libelle
       <p data-pagination-compteur="" className="text-muted-foreground max-sm:basis-full" aria-live="polite">
         <span className="font-medium tabular-nums text-foreground">{compteurPage(f)}</span> {libelle}
       </p>
+      {f.tronque && (
+        <p data-pagination-tronque="" role="status" className="basis-full rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+          {f.a.toLocaleString("fr-FR")} premières lignes seulement sur {f.total.toLocaleString("fr-FR")} : affinez le filtre pour voir le reste.
+        </p>
+      )}
 
       {f.nbPages > 1 && (
         <div className="flex flex-wrap items-center gap-1.5">

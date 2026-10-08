@@ -11,7 +11,7 @@ import { jjmmaaaa, WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { exigerPageStock } from "@/lib/garde-page";
 import { Pagination } from "@/components/pagination";
-import { fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
 import { bornesGroupe } from "@/lib/groupes-periode";
 
 type SP = { periode?: string; page?: string; par?: string };
@@ -25,7 +25,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const demande = lirePagination(sp);
   // Historique paginé CÔTÉ SERVEUR (count + skip/take) : il s'arrêtait en silence aux 400 achats les plus récents.
   const nbAchats = await prisma.mouvementStock.count({ where: WHERE_ACHATS_LISTE });
-  const fen = fenetrePage(nbAchats, demande.page, demande.par);
+  const fen = fenetrePage(nbAchats, demande.page, demande.par, PLAFOND_TOUT);
 
   const [articles, mouvements, config, fournisseurs] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
@@ -151,7 +151,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                 </ul>
               </details>
             ))}
-            <Pagination total={nbAchats} page={fen.page} par={demande.par} chemin="/stock/entree" params={sp} libelle="achats" />
+            <Pagination plafondTout={PLAFOND_TOUT} total={nbAchats} page={fen.page} par={demande.par} chemin="/stock/entree" params={sp} libelle="achats" />
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  appliquerPagination, compteurPage, fenetrePage, hrefPagination, lireNumeroPage, lireParPage, lirePagination,
+  PLAFOND_TOUT, appliquerPagination, compteurPage, fenetrePage, hrefPagination, lireNumeroPage, lireParPage, lirePagination,
   groupePartiel, numerosPages, pageApresChangementTaille, paramsSansPage, tranche,
 } from "./pagination";
 
@@ -93,5 +93,21 @@ describe("groupePartiel — mois coupés par une frontière de page", () => {
     expect(groupePartiel(1, 2, { page: 1, nbPages: 3 })).toBe(true);
     expect(groupePartiel(0, 2, { page: 3, nbPages: 3 })).toBe(true);
     expect(groupePartiel(1, 2, { page: 3, nbPages: 3 })).toBe(false);
+  });
+});
+
+describe("« Tout » borné sur une page serveur", () => {
+  it("sous le plafond : tout, sans mention", () => {
+    const f = fenetrePage(1500, 1, "tout", PLAFOND_TOUT);
+    expect(f).toMatchObject({ tronque: false, take: undefined, a: 1500 });
+  });
+  it("au-delà : les 2000 premières lignes seulement, une seule page, et le dit", () => {
+    const f = fenetrePage(2500, 3, "tout", PLAFOND_TOUT);
+    expect(f).toMatchObject({ tronque: true, take: 2000, skip: 0, de: 1, a: 2000, nbPages: 1, page: 1 });
+    expect(compteurPage(f)).toBe("1–2000 sur 2500");
+  });
+  it("sans plafond demandé (tableau déjà chargé) : jamais tronqué ; 50 / 100 non concernés", () => {
+    expect(fenetrePage(5000, 1, "tout").tronque).toBe(false);
+    expect(fenetrePage(5000, 1, 100, PLAFOND_TOUT).tronque).toBe(false);
   });
 });

@@ -8,7 +8,7 @@ import { DoublonsClient } from "./doublons-client";
 import { lotsPourDoublons, ACTION_DOUBLON_RETIRE } from "@/lib/doublons-imports";
 import { exigerPageStock } from "@/lib/garde-page";
 import { Pagination } from "@/components/pagination";
-import { fenetrePage, lirePagination } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, lirePagination } from "@/lib/pagination";
 
 export default async function ImportsPage({ searchParams }: { searchParams: Promise<{ page?: string; par?: string }> }) {
   const user = await exigerPageStock();
@@ -18,7 +18,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
 
   // Historique des imports paginé CÔTÉ SERVEUR (skip/take + count) : avant, il s'arrêtait en silence aux 50 plus récents.
   const nbImports = await prisma.importBatch.count();
-  const fen = fenetrePage(nbImports, demande.page, demande.par);
+  const fen = fenetrePage(nbImports, demande.page, demande.par, PLAFOND_TOUT);
   const [batches, lots] = await Promise.all([
     prisma.importBatch.findMany({
       orderBy: { createdAt: "desc" },
@@ -80,7 +80,7 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
             })}
           </ul>
         )}
-        <Pagination total={nbImports} page={fen.page} par={demande.par} chemin="/stock/imports" params={sp} libelle="imports" />
+        <Pagination plafondTout={PLAFOND_TOUT} total={nbImports} page={fen.page} par={demande.par} chemin="/stock/imports" params={sp} libelle="imports" />
       </section>
     </div>
   );

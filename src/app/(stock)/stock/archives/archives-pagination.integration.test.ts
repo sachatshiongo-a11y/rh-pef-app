@@ -147,3 +147,22 @@ describe("Archives — détail d'un comptage (lignes paginées côté serveur)",
     expect(articles(await rendreDetail({ par: "tout" }))).toHaveLength(120);
   });
 });
+
+describe("Archives — « Tout » borné à 2000 lignes", () => {
+  it("2 100 entrées de journal : « Tout » n'en lit que 2000 et le dit ; 50 par page reste exact", async () => {
+    const u = await prisma.user.findFirstOrThrow();
+    await prisma.journalAudit.createMany({
+      data: Array.from({ length: 2100 }, (_, i) => ({ entite: "LigneComptage", entiteId: `l${i}`, champ: `ligne n° ${i + 1}`, userId: u.id, date: new Date(Date.UTC(2025, 0, 1) + i * 60_000) })),
+    });
+    try {
+      const html = await rendre({ vue: "journal", entite: "LigneComptage", par: "tout" });
+      expect((html.match(/ligne n° \d+/g) ?? [])).toHaveLength(2000);
+      expect(html).toContain("data-pagination-tronque");
+      expect(texte(html)).toMatch(/2[\s\u202f\u00a0]000 premières lignes seulement sur 2[\s\u202f\u00a0]100/);
+      expect(texte(html)).toContain("1–2000 sur 2100");
+      expect(texte(await rendre({ vue: "journal", entite: "LigneComptage" }))).toContain("1–50 sur 2100");
+    } finally {
+      await prisma.journalAudit.deleteMany({ where: { entite: "LigneComptage" } });
+    }
+  }, 60_000);
+});
