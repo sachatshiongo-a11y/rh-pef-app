@@ -110,6 +110,16 @@ describe("la taille de page survit à un changement de filtre", () => {
     act(() => r.unmount());
   });
 
+  it("LienGardantTaille doux={false} : un vrai <a> (rechargement, état du tableau remis à zéro), même taille reportée", () => {
+    window.history.replaceState(null, "", "/stock/catalogue?par=tout");
+    const { c, r } = monter(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=AUTRE", doux: false, className: "pilule", prefetch: false }, "Autre"));
+    const a = c.querySelector("a")!;
+    expect(a.getAttribute("href")).toBe("/stock/catalogue?domaine=AUTRE&par=tout");
+    expect(a.className).toBe("pilule");
+    expect(a.hasAttribute("prefetch")).toBe(false);
+    act(() => r.unmount());
+  });
+
   it("ChampTaillePage : copie la taille affichée dans le formulaire GET ; désactivé (donc absent) à 50", () => {
     window.history.replaceState(null, "", "/stock/reconciliation?par=tout");
     const form = (): HTMLFormElement => document.querySelector("form")!;

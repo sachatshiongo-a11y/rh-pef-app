@@ -106,13 +106,22 @@ export function usePagination({ total, pageInit = 1, parInit = PAR_DEFAUT, cleFi
 /**
  * Lien d'une page serveur qui change de filtre (la page repart à 1) mais GARDE la taille de page choisie
  * depuis : la taille changée sans rechargement n'est connue que de l'adresse affichée (que `useSearchParams`
- * suit après un `history.replaceState`), pas du rendu serveur. Navigation douce comme un `Link` ordinaire.
+ * suit après un `history.replaceState`), pas du rendu serveur. Navigation douce comme un `Link` ordinaire ;
+ * `doux={false}` pour un lien qui rechargeait la page avant (`<a>`) : l'état du tableau (cases cochées…) repart
+ * alors à zéro comme avant, au lieu de survivre à un changement de filtre.
  */
-export function LienGardantTaille({ href, ...reste }: Omit<React.ComponentProps<typeof Link>, "href"> & { href: string }) {
+export function LienGardantTaille({ href, doux = true, ...reste }: Omit<React.ComponentProps<typeof Link>, "href"> & { href: string; doux?: boolean }) {
   const par = useSearchParams()?.get(PARAM_PAR) ?? null;
   const u = new URL(href, "http://x");
   if (par) u.searchParams.set(PARAM_PAR, par); else u.searchParams.delete(PARAM_PAR);
-  return <Link {...reste} href={`${u.pathname}${u.search}${u.hash}`} />;
+  const cible = `${u.pathname}${u.search}${u.hash}`;
+  if (!doux) {
+    // Les réglages propres à `Link` n'ont pas de sens sur un <a> ordinaire.
+    const attrs: Record<string, unknown> = { ...reste };
+    for (const k of ["prefetch", "replace", "scroll", "shallow", "passHref", "legacyBehavior", "onNavigate"]) delete attrs[k];
+    return <a {...(attrs as React.AnchorHTMLAttributes<HTMLAnchorElement>)} href={cible} />;
+  }
+  return <Link {...reste} href={cible} />;
 }
 
 /**

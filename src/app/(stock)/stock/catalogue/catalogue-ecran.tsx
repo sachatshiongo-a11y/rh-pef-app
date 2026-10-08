@@ -52,7 +52,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
               (domaine ?? "") === d.cle ? (
                 <span key={d.label} className="bg-primary px-2.5 py-1.5 font-medium text-primary-foreground lg:px-3">{d.label}</span>
               ) : (
-                <LienGardantTaille key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</LienGardantTaille>
+                <LienGardantTaille doux={false} key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</LienGardantTaille>
               )
             )}
           </div>

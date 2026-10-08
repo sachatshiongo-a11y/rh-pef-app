@@ -173,9 +173,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
       {/* Bascule de vue */}
       <div className="flex flex-wrap gap-1.5 text-sm">
-        <LienGardantTaille href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</LienGardantTaille>
-        <LienGardantTaille href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</LienGardantTaille>
-        <LienGardantTaille href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</LienGardantTaille>
+        <LienGardantTaille doux={false} href={lien({ vue: "detail" })} className={`rounded-full border px-3 py-1 ${vue === "detail" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Par mois</LienGardantTaille>
+        <LienGardantTaille doux={false} href={lien({ vue: "fournisseur" })} className={`rounded-full border px-3 py-1 ${vue === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Soldes par fournisseur</LienGardantTaille>
+        <LienGardantTaille doux={false} href={lien({ vue: "echeancier" })} className={`rounded-full border px-3 py-1 ${vue === "echeancier" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Échéancier</LienGardantTaille>
       </div>
 
       {vue === "fournisseur" ? (
@@ -239,7 +239,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <div className="flex flex-wrap gap-1.5">
               {[["", "Toutes"], ["du", "À payer"], ["ECHUE_NON_REGLEE", "Échues"], ["REGLEE", "Réglées"]].map(([k, label]) => (
-                <LienGardantTaille key={k} href={lien({ statut: k })} className={`rounded-full border px-3 py-1 ${(f ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</LienGardantTaille>
+                <LienGardantTaille doux={false} key={k} href={lien({ statut: k })} className={`rounded-full border px-3 py-1 ${(f ?? "") === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</LienGardantTaille>
               ))}
             </div>
             <span className="text-muted-foreground">·</span>
@@ -249,16 +249,16 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-muted-foreground">Année :</span>
                 {anneesDispo.map((a) => (
-                  <LienGardantTaille key={a} href={lien({ annee: String(a) })} className={`rounded-full border px-3 py-1 ${anneeSel === a ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{a}</LienGardantTaille>
+                  <LienGardantTaille doux={false} key={a} href={lien({ annee: String(a) })} className={`rounded-full border px-3 py-1 ${anneeSel === a ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{a}</LienGardantTaille>
                 ))}
-                <LienGardantTaille href={lien({ annee: "toutes" })} className={`rounded-full border px-3 py-1 ${anneeSel === null ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Toutes</LienGardantTaille>
+                <LienGardantTaille doux={false} href={lien({ annee: "toutes" })} className={`rounded-full border px-3 py-1 ${anneeSel === null ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Toutes</LienGardantTaille>
               </div>
             )}
             <span className="text-muted-foreground">·</span>
             <div className="flex gap-1.5">
               <span className="text-muted-foreground">Grouper :</span>
-              <LienGardantTaille href={lien({ tri: "mois" })} className={`rounded-full border px-3 py-1 ${tri === "mois" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Mois</LienGardantTaille>
-              <LienGardantTaille href={lien({ tri: "fournisseur" })} className={`rounded-full border px-3 py-1 ${tri === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fournisseur</LienGardantTaille>
+              <LienGardantTaille doux={false} href={lien({ tri: "mois" })} className={`rounded-full border px-3 py-1 ${tri === "mois" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Mois</LienGardantTaille>
+              <LienGardantTaille doux={false} href={lien({ tri: "fournisseur" })} className={`rounded-full border px-3 py-1 ${tri === "fournisseur" ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>Fournisseur</LienGardantTaille>
             </div>
           </div>
           {tri === "mois"

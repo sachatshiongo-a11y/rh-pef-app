@@ -57,7 +57,7 @@ export default async function CommandesPage({ searchParams }: { searchParams: Pr
         </select>
         <ChoixRecherche options={optionsFournisseurs(fournisseurs)} name="fournisseurId" defaultValue={fournisseurId ?? ""} vide="Tous les fournisseurs" aria-label="Fournisseur" className="rounded-md border border-input bg-background px-2 py-1.5" />
         <button type="submit" className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {estDirection && <LienGardantTaille href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</LienGardantTaille>}
+        {estDirection && <LienGardantTaille doux={false} href="/stock/commandes" className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50">Réinitialiser</LienGardantTaille>}
       </form>
 
       <CommandesListe
