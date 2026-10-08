@@ -143,9 +143,9 @@ export default async function DeclarationsPage({
           </div>
 
           <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Déclarations par organisme</div>
-          <div className="tableau-normal-xl rounded-lg border">
+          <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
-              <thead className="en-tete-collante-xl bg-muted text-left">
+              <thead className="bg-muted text-left">
                 <tr>
                   <th className="px-3 py-2">Organisme</th>
                   <th className="px-3 py-2">Nature</th>
