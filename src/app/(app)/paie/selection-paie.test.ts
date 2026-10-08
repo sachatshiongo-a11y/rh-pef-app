@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { lignesSelectionnees, messageEcartes, partagerPourPaiement, messageEcarteesPaiement } from "./selection-paie";
+import { cleSelection, lignesSelectionnees, messageEcartes, partagerPourPaiement, messageEcarteesPaiement } from "./selection-paie";
 
 // Chaque ouverture de /paie recrée les lignes non figées avec de NOUVEAUX identifiants, alors que la
 // sélection de l'écran survit au nouveau rendu. Elle retient donc des salariés, et le lot part avec
@@ -73,5 +73,22 @@ describe("« Marquer payé » par la RH : les lignes non validées sont écarté
     const { aPayer, ecartees } = partagerPourPaiement(lignes, ["a"]);
     expect(aPayer).toEqual(["a"]);
     expect(messageEcarteesPaiement(ecartees, 1)).toBeNull();
+  });
+});
+
+// Relecture du 2026-10-08 : « À valider » liste les bulletins validés de TOUS les mois depuis que la
+// clôture fait passer au mois suivant. Un même salarié peut y avoir septembre ET octobre.
+describe("sélection : un salarié sur deux mois", () => {
+  const lignes = [
+    { id: "sept", employeeId: "ada", periode: "septembre 2026" },
+    { id: "oct", employeeId: "ada", periode: null },
+  ];
+  it("cocher septembre ne coche pas octobre (et l'inverse)", () => {
+    expect(lignesSelectionnees(lignes, new Set([cleSelection(lignes[0])])).ids).toEqual(["sept"]);
+    expect(lignesSelectionnees(lignes, new Set([cleSelection(lignes[1])])).ids).toEqual(["oct"]);
+  });
+  it("le mois courant garde la clé « salarié » (stable d'un recalcul à l'autre)", () => {
+    expect(cleSelection({ employeeId: "ada" })).toBe("ada");
+    expect(cleSelection(lignes[1])).toBe("ada");
   });
 });
