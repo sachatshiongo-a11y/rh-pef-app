@@ -53,6 +53,18 @@ const d = (n: number) => new Date(Date.UTC(2026, 8, n));
 const SAISI = new Date("2026-10-01T08:00:00Z");
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
 const redirection = (message: string) => `REDIRECT /paie?erreur=${encodeURIComponent(message)}`;
+const information = (message: string) => `REDIRECT /paie?msg=${encodeURIComponent(message)}`;
+// Clôture depuis l'écran : le formulaire porte le mois montré (septembre 2026 par défaut).
+const clore = (mois = 9, annee = 2026) => cloturerPaie(fd({ mois: String(mois), annee: String(annee) }));
+const moisRH = async () => { const c = await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } }); return `${c.moisCourant}/${c.anneeCourante}`; };
+const passagesDeMois = () => prisma.journalAudit.findMany({ where: { entite: "Config", champ: "moisCourant" }, orderBy: { date: "asc" } });
+// La Direction corrige le mois dans Paramètres (geste manuel, toujours ouvert) pour poursuivre sur septembre.
+const revenirEnSeptembre = async () => {
+  const qui = A.user;
+  en("ADMIN");
+  await mettreAJourConfig(fd({ tauxChangeCDF: String((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).tauxChangeCDF), moisCourant: "9", anneeCourante: "2026", jourPaie: "30" }));
+  A.user = qui;
+};
 const ligne = (employeeId: string) => prisma.payrollLine.findFirstOrThrow({ where: { employeeId, payrollRun: { mois: 9, annee: 2026 } }, include: { payrollRun: { select: { tauxChangeUtilise: true } } } });
 const statut = async (employeeId: string) => (await ligne(employeeId)).statutPaiement;
 const en = (role: Role) => { A.user = { ...A.user, id: comptes[role].id, nom: comptes[role].nom, role }; };
@@ -319,18 +331,20 @@ describe("retours en arrière et réinitialisation : la Direction seule", () => 
   });
 });
 
-describe("clôturer : la Direction, et la RH seulement une paie entièrement validée", () => {
-  it.each(AUTRES)("%s : refusé", async (role) => {
+describe("clôturer : la Direction, et la RH seulement une paie entièrement validée — puis l'espace RH passe au mois suivant", () => {
+  it.each(AUTRES)("%s : refusé, le mois ne bouge pas", async (role) => {
     en(role);
-    await expect(cloturerPaie()).rejects.toThrow(REFUS);
+    await expect(clore()).rejects.toThrow(REFUS);
     expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId } })).statut).toBe("BROUILLON");
+    expect(await moisRH()).toBe("9/2026");
   });
 
   it("RH : refusée tant qu'un bulletin attend la Direction — rien de validé, rien d'écrit", async () => {
     // Ada, Esther, Fanny : pas validées.
     const avant = await transitions();
     en("MANAGER");
-    await expect(cloturerPaie()).rejects.toThrow(redirection(`Clôture refusée : ${messageAttenteDirection(3)}`));
+    await expect(clore()).rejects.toThrow(redirection(`Clôture refusée : ${messageAttenteDirection(3)}`));
+    expect(await moisRH()).toBe("9/2026"); // clôture refusée : le mois ne passe pas
     expect(messageAttenteDirection(3)).toBe("3 bulletins attendent encore la validation de la Direction : la RH ne clôture qu'une paie entièrement validée.");
     expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId } })).statut).toBe("BROUILLON");
     expect(await transitions()).toBe(avant);
@@ -351,7 +365,7 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
       await externe.query(`UPDATE "public"."PayrollLine" SET "statutPaiement" = 'PAS_VALIDE' WHERE "id" = $1`, [fanny.id]);
       let fini = false;
       en("MANAGER");
-      cloture = cloturerPaie().then(() => null, (e: unknown) => e).finally(() => { fini = true; });
+      cloture = clore().then(() => null, (e: unknown) => e).finally(() => { fini = true; });
       await new Promise((r) => setTimeout(r, 400));
       expect(fini).toBe(false); // elle attend le verrou de la ligne
       await externe.query("COMMIT");
@@ -362,12 +376,13 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
       await externe.end();
     }
     expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId } })).statut).toBe("BROUILLON");
+    expect(await moisRH()).toBe("9/2026");
     // La Direction revalide Fanny pour la suite.
     en("ADMIN");
     await changerStatutPaie(fanny.id, fd({ versStatut: "VALIDE", jeton: jetonLigne(await ligne(ids.fanny)) }));
   });
 
-  it("RH : paie entièrement validée (une ligne hors calcul laissée de côté) → fermée sans rien valider ; la Direction est notifiée une fois", async () => {
+  it("RH : paie entièrement validée (une ligne hors calcul laissée de côté) → fermée sans rien valider, l'espace RH passe à octobre ; la Direction est notifiée une fois", async () => {
     // Gaston : paiement annulé, ligne rouverte, puis fiche désactivée → sa ligne est HORS CALCUL.
     en("ADMIN");
     const g = await ligne(ids.gaston);
@@ -376,20 +391,35 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
     await prisma.employee.update({ where: { id: ids.gaston }, data: { actif: false } });
     const avant = await transitions();
     const avantDir = (await notifsDe("ADMIN")).length;
+    const passagesAvant = (await passagesDeMois()).length;
     en("MANAGER");
-    await expect(cloturerPaie()).resolves.toBeUndefined();
+    await expect(clore()).rejects.toThrow(information("Paie de septembre 2026 clôturée — l'espace RH est passé à octobre 2026."));
     expect((await prisma.payrollRun.findUniqueOrThrow({ where: { id: runId } })).statut).toBe("VALIDE");
+    expect(await moisRH()).toBe("10/2026");
+    // Journalisé comme le geste manuel : auteur (la RH), ancien mois, nouveau mois + origine.
+    const passages = await passagesDeMois();
+    expect(passages).toHaveLength(passagesAvant + 1);
+    expect(passages.at(-1)).toMatchObject({ entiteId: "singleton", userId: comptes.MANAGER.id, ancienneValeur: "septembre 2026", nouvelleValeur: "octobre 2026 — automatique (clôture de la paie)" });
     expect(await transitions()).toBe(avant); // aucun bulletin validé par la RH
     expect(await prisma.transitionPaie.count({ where: { userId: comptes.MANAGER.id, versStatut: { not: "PAYE" } } })).toBe(0);
     const dir = await notifsDe("ADMIN");
     expect(dir).toHaveLength(avantDir + 1);
-    expect(dir.at(-1)!.message).toBe(messageClotureParRH(9, 2026, "Responsable RH", 1));
-    expect(dir.at(-1)!.message).toBe("Paie de septembre 2026 clôturée par Responsable RH — 1 ligne(s) hors calcul laissée(s) de côté");
+    expect(dir.at(-1)!.message).toBe(messageClotureParRH(9, 2026, "Responsable RH", 1, { mois: 10, annee: 2026 }));
+    expect(dir.at(-1)!.message).toBe("Paie de septembre 2026 clôturée par Responsable RH — 1 ligne(s) hors calcul laissée(s) de côté — l'espace RH est passé à octobre 2026");
     expect(await statut(ids.gaston)).toBe("PAS_VALIDE"); // laissée de côté, jamais validée
     for (const role of AUTRES) expect(await notifsDe(role)).toEqual([]);
-    // Déjà close : une seconde clôture ne dit rien de plus.
-    await cloturerPaie();
+    // Double clic / second onglet resté sur septembre : rien de plus — ni clôture d'octobre par
+    // ricochet, ni second passage, ni notification.
+    await expect(clore()).rejects.toThrow(information("La paie de septembre 2026 est déjà clôturée — l'espace RH est passé à octobre 2026."));
+    expect(await moisRH()).toBe("10/2026");
+    expect(await passagesDeMois()).toHaveLength(passagesAvant + 1);
     expect(await notifsDe("ADMIN")).toHaveLength(avantDir + 1);
+    // Le changement de mois manuel reste à la Direction (corriger une erreur) : retour en septembre.
+    await expect(mettreAJourConfig(fd({ tauxChangeCDF: "2300", moisCourant: "9", anneeCourante: "2026", jourPaie: "30" }))).rejects.toThrow(`REDIRECT /parametres?erreur=${encodeURIComponent(REFUS)}`);
+    expect(await moisRH()).toBe("10/2026");
+    await revenirEnSeptembre();
+    expect(await moisRH()).toBe("9/2026");
+    expect((await passagesDeMois()).at(-1)).toMatchObject({ userId: comptes.ADMIN.id, ancienneValeur: "octobre 2026", nouvelleValeur: "septembre 2026 — manuel (Paramètres)" });
   });
 
   it("ADMIN : comportement inchangé — la clôture valide les « pas validé » restants ; la RH apprend qu'ils sont à payer", async () => {
@@ -397,11 +427,14 @@ describe("clôturer : la Direction, et la RH seulement une paie entièrement val
     const ada = await ligne(ids.ada);
     await changerStatutPaie(ada.id, fd({ versStatut: "PAS_VALIDE" })); // rouverte après la clôture
     await prisma.notification.deleteMany({ where: { destinataireUserId: comptes.MANAGER.id } });
-    await cloturerPaie();
+    await expect(clore()).rejects.toThrow(information("Paie de septembre 2026 clôturée — l'espace RH est passé à octobre 2026."));
     expect(await statut(ids.ada)).toBe("VALIDE");
+    expect(await moisRH()).toBe("10/2026");
+    expect((await passagesDeMois()).at(-1)).toMatchObject({ userId: comptes.ADMIN.id, ancienneValeur: "septembre 2026", nouvelleValeur: "octobre 2026 — automatique (clôture de la paie)" });
     expect((await prisma.transitionPaie.findFirstOrThrow({ where: { payrollLineId: ada.id }, orderBy: { date: "desc" } })).userId).toBe(comptes.ADMIN.id);
     // Validés restant à payer : Ada, Esther, Fanny.
     expect((await notifsDe("MANAGER")).map((n) => n.message)).toEqual([messageBulletinsAPayer(1, 9, 2026, 3)]);
+    await revenirEnSeptembre(); // la suite travaille sur septembre
   });
 });
 

@@ -1486,12 +1486,16 @@ model MouvementStock {
   fournisseurId     String?
   fournisseur       Fournisseur?       @relation(fields: [fournisseurId], references: [id], onDelete: SetNull)
   creeParId         String? // User.id (pas de FK cross-schéma)
+  // DLC (date limite de consommation) saisie sur une ligne de la Liste d'achat — facultative
+  // (Direction, 2026-10-08). Indicative : le stock n'est pas suivi par lot.
+  dlc               DateTime?          @db.Date
   createdAt         DateTime           @default(now())
 
   @@index([articleId, date])
   @@index([factureId])
   @@index([fournisseurId])
   @@index([categorieSortie, date])
+  @@index([dlc])
   @@schema("stock")
 }
 

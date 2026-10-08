@@ -19,7 +19,9 @@ async function chargerBadges(): Promise<Record<string, number>> {
   const [congesEnAttente, bulletinsPasValide, bulletinsValide, acomptesEnAttente, changementsShift] = await Promise.all([
     prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
     compterPasValideComptees(prisma, filtreRun), // hors calcul exclues (paie-hors-calcul.ts)
-    prisma.payrollLine.count({ where: { statutPaiement: "VALIDE", ...filtreRun } }),
+    // À payer : tous mois confondus — la clôture fait passer l'espace RH au mois suivant, les bulletins
+    // validés du mois clôturé restent dus (« À valider » les liste).
+    prisma.payrollLine.count({ where: { statutPaiement: "VALIDE" } }),
     prisma.acompteSalaire.count({ where: { statut: "EN_ATTENTE" } }),
     prisma.demandeChangementShift.count({ where: { statut: "EN_ATTENTE" } }),
   ]);

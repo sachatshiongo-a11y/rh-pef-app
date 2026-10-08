@@ -10,14 +10,20 @@
 // salarié = une ligne), et l'action reçoit les identifiants des lignes AFFICHÉES au moment du clic :
 // celles dont l'écran montre le montant. Le contrôle du montant côté serveur reste entier.
 
-/** Clé de sélection d'une ligne : le salarié, stable d'un recalcul à l'autre. */
-export const cleSelection = (l: { employeeId: string }) => l.employeeId;
+/**
+ * Clé de sélection d'une ligne : le salarié, stable d'un recalcul à l'autre — et, pour une ligne d'un
+ * AUTRE mois que le mois courant (« À valider » liste depuis le 2026-10-08 les bulletins validés des
+ * mois clôturés), le salarié ET ce mois : sinon cocher « Ada — septembre » cochait aussi « Ada —
+ * octobre » et le lot payait les deux. Les lignes du mois courant gardent la clé « salarié ».
+ */
+export const cleSelection = (l: { employeeId: string; periode?: string | null }) =>
+  l.periode ? `${l.employeeId}|${l.periode}` : l.employeeId;
 
 /**
  * Identifiants COURANTS des lignes sélectionnées, et nombre de salariés sélectionnés qui n'ont plus
  * de ligne affichée (fiche désactivée, ligne sortie de la liste) : écartés, et l'écran le dit.
  */
-export function lignesSelectionnees<T extends { id: string; employeeId: string }>(
+export function lignesSelectionnees<T extends { id: string; employeeId: string; periode?: string | null }>(
   lignes: readonly T[],
   selection: ReadonlySet<string>,
 ): { ids: string[]; ecartes: number } {

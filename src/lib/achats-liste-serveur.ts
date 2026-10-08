@@ -1,13 +1,50 @@
 import "server-only";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { cleAlnum } from "@/lib/texte";
 import { formaterNombre } from "@/lib/montant";
 import { jjmmaaaa, ORIGINE_LISTE_ACHAT, WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
+import type { AnalyseLigne, ArticleCandidat } from "@/lib/achats-doublons";
+import { decisionArticle } from "@/lib/article-proche";
+import { prixSaisi } from "@/lib/prix-article";
 
 /** Fenêtre de la double saisie : celle du contrôle des Factures. */
 const FENETRE_JOURS = 14;
 
+/** La base, ou une transaction. */
+type Client = Prisma.TransactionClient;
+
+/** Une ligne telle que l'écran la fait vérifier : article du catalogue OU désignation libre, et quantité. */
 export type LigneAVerifier = { articleId: string; designation: string; quantite: number };
+
+/** Le catalogue tel que la recherche des articles proches le lit (inactifs compris : voir `decisionArticle`). */
+export async function catalogueCandidats(client: Client = prisma): Promise<ArticleCandidat[]> {
+  const articles = await client.articleStock.findMany({
+    orderBy: { designation: "asc" },
+    select: { id: true, designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, actif: true },
+  });
+  // Prix de référence dans SA devise (2026-10-08) : un article en francs propose ses francs.
+  return articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, actif: a.actif }));
+}
+
+/**
+ * Analyse d'une liste À LA SAISIE : pour chaque ligne (même ordre), son sort au catalogue
+ * (`decisionArticle` : rattachement automatique, articles proches à choisir, nouvel article), plus
+ * les avertissements non bloquants de toujours. Une ligne sans article ni désignation, ou sans
+ * quantité, n'est pas analysée (null). N'écrit rien.
+ */
+export async function analyserListeAchat(dateISO: string, lignes: readonly LigneAVerifier[]): Promise<{ lignes: (AnalyseLigne | null)[]; avertissements: string[] }> {
+  const actives = lignes.map((l) => !!(l.articleId || l.designation.trim()) && l.quantite > 0);
+  const libres = lignes.some((l, i) => actives[i] && !l.articleId);
+  const catalogue = libres ? await catalogueCandidats() : [];
+  const decisions = lignes.map((l, i) => (!actives[i] ? null : l.articleId ? ({ type: "catalogue" } as const) : decisionArticle(l.designation, catalogue)));
+  const resolues = lignes.flatMap((l, i) => {
+    const d = decisions[i];
+    const articleId = !d ? "" : d.type === "catalogue" ? l.articleId : d.type === "auto" ? d.article.id : "";
+    return articleId ? [{ articleId, quantite: l.quantite }] : [];
+  });
+  const avertissements = await avertissementsListeAchat(dateISO, resolues);
+  return { lignes: decisions.map((d) => (d ? { article: d } : null)), avertissements };
+}
 
 /**
  * Avertissements NON bloquants d'une Liste d'achat, à la saisie comme à l'enregistrement.
@@ -17,22 +54,15 @@ export type LigneAVerifier = { articleId: string; designation: string; quantite:
  *    FACTURE, par la RÉCEPTION d'un bon de commande ou par une LISTE D'ACHAT déjà enregistrée
  *    (double envoi) : si c'est le même achat, le stock le compterait deux fois. C'est le contrôle
  *    des Factures (`creerFacture`, ±14 jours sur les entrées hors facture), pris dans l'autre sens.
+ *    (Décision Direction 2026-10-08 : il RESTE non bloquant — pas de case à cocher.)
  * 2. COMPTAGE POSTÉRIEUR — un achat daté AVANT un comptage d'inventaire de l'article : si la
  *    marchandise était au dépôt ce jour-là, le comptage l'a déjà mise dans le stock.
  *
- * Une ligne en désignation libre est rapprochée de l'article comme le fera l'enregistrement
- * (même clé `cleAlnum`) ; une désignation nouvelle n'a, par définition, rien à signaler.
+ * Les lignes arrivent RÉSOLUES (article du catalogue, ou ligne libre rattachée automatiquement) :
+ * une ligne qui créera un article n'a, par définition, rien à signaler.
  */
-export async function avertissementsListeAchat(dateISO: string, lignes: LigneAVerifier[]): Promise<string[]> {
-  const aVerifier = lignes.filter((l) => (l.articleId || l.designation.trim()) && l.quantite > 0);
-  if (aVerifier.length === 0) return [];
-
-  const sansId = aVerifier.some((l) => !l.articleId);
-  const catalogue = sansId ? await prisma.articleStock.findMany({ select: { id: true, designation: true } }) : [];
-  const parNom = new Map(catalogue.map((a) => [cleAlnum(a.designation), a.id]));
-  const resolues = aVerifier
-    .map((l) => ({ ...l, articleId: l.articleId || parNom.get(cleAlnum(l.designation)) || "" }))
-    .filter((l) => l.articleId);
+export async function avertissementsListeAchat(dateISO: string, lignes: readonly { articleId: string; quantite: number }[]): Promise<string[]> {
+  const resolues = lignes.filter((l) => l.articleId && l.quantite > 0);
   if (resolues.length === 0) return [];
   const ids = [...new Set(resolues.map((l) => l.articleId))];
   const date = new Date(`${dateISO}T00:00:00.000Z`);

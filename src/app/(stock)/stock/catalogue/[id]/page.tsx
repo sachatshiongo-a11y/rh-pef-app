@@ -15,6 +15,9 @@ import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
 import { DecisionDemande } from "../../a-valider/decision-demande";
 import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
+import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { jjmmaaaa } from "@/lib/achats-liste";
+import { classePastilleDlc, joursAvantDlc, libelleJoursDlc } from "@/lib/achats-doublons";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -106,6 +109,11 @@ export default async function ArticleFichePage({
   const mouvementsHorsPage = nbMouvements - a.mouvements.length; // au-delà des 200 chargés
   const prixRecents = [...prixHisto].reverse();
   const prixAffiches = tousPrix ? prixRecents : prixRecents.slice(0, PRIX_AFFICHES);
+
+  // DLC des dernières entrées (Liste d'achat, 2026-10-08) : les 5 plus récentes qui en portent une. Indicatif (pas de suivi par lot).
+  const isoPur = (d: Date) => new Date(d).toISOString().slice(0, 10); // colonne @db.Date : date PURE
+  const entreesDlc = a.mouvements.filter((m) => m.type === "ENTREE" && m.dlc).slice(0, 5);
+  const aujourdhuiISO = jourCourantKinshasaISO();
 
   const source = (m: (typeof a.mouvements)[number]) => {
     const bc = m.reception?.bonDeCommande;
@@ -267,6 +275,25 @@ export default async function ArticleFichePage({
         )}
       </section>
 
+      {entreesDlc.length > 0 && (
+        <section id="dlc" data-dlc-fiche className="rounded-xl border p-4">
+          <h2 className="text-base font-semibold">DLC des dernières entrées</h2>
+          <p className="mb-2 text-xs text-muted-foreground">Indicatif : le logiciel ne suit pas les lots, la quantité entrée n&apos;est peut-être plus en stock.</p>
+          <ul className="divide-y text-sm">
+            {entreesDlc.map((m) => {
+              const dlcISO = isoPur(m.dlc as Date);
+              const jours = joursAvantDlc(dlcISO, aujourdhuiISO);
+              return (
+                <li key={m.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <span className="min-w-0 truncate">Entrée du {jjmmaaaa(isoPur(m.date))} · +{qte(m.quantite)}{a.unite ? ` ${a.unite}` : ""}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${classePastilleDlc(jours)}`}>DLC {jjmmaaaa(dlcISO)} · {libelleJoursDlc(jours)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* Historique des mouvements */}
       <section id="mouvements">
         <h2 className="mb-2 text-base font-semibold">Mouvements ({nbMouvements})</h2>
@@ -290,6 +317,7 @@ export default async function ArticleFichePage({
                         {src.bc && <Link href={`/stock/commandes/${src.bc.id}`} className={chip}>📄 BC {src.bc.numero}</Link>}
                         {src.fournId && <Link href={`/stock/fournisseurs/${src.fournId}`} className={chip}>🏢 {src.fournNom ?? "Fournisseur"}</Link>}
                         {sortie && m.categorieSortie && <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">{m.categorieSortie === "PERTE" ? "Perte" : "Livraison restaurant"}</span>}
+                        {m.dlc && <span data-dlc className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">DLC {jjmmaaaa(isoPur(m.dlc))}</span>}
                       </div>
                     </div>
                     <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : "text-emerald-700"}`}>

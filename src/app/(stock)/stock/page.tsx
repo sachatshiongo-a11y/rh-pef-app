@@ -10,6 +10,8 @@ import { SelecteurMois } from "@/components/selecteur-mois";
 import { NATURE_LIBELLE } from "@/lib/validations-stock/charge";
 import { CartesEntreesStock, voitIndicateursEntrees } from "./_tableau-de-bord/cartes-entrees-stock";
 import { BlocDisponibilitePlats, voitDisponibilitePlats } from "./_tableau-de-bord/bloc-disponibilite-plats";
+import { BlocDlcProches } from "./_tableau-de-bord/bloc-dlc-proches";
+import { dlcProches } from "@/lib/dlc-stock";
 import { jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
@@ -48,7 +50,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     moi, config, nbArticles, nbFournisseurs, ind,
     derniersBC, dernieresFactures, mouvementsRecents, reconRecentes,
     commandesMois, topArticles, fournTop, fournisseursListe,
-    derniersComptages, pertesRecentes, bcAValider, stockFige, demandesParNature,
+    derniersComptages, pertesRecentes, bcAValider, stockFige, demandesParNature, dlc,
   ] = await Promise.all([
     prisma.user.findUnique({ where: { id: user.id }, select: { employe: { select: { photoUrl: true } } } }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -74,6 +76,8 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     // Demandes en attente de la Direction (paiements, réconciliations, articles) : toutes pour la
     // Direction, les siennes pour un autre compte.
     prisma.demandeValidationStock.groupBy({ by: ["nature"], where: { statut: "EN_ATTENTE", ...(estDirection ? {} : { auteurId: user.id }) }, _count: { _all: true } }),
+    // DLC proches : la situation d'AUJOURD'HUI (jour de Kinshasa), quel que soit le mois choisi.
+    dlcProches(now),
   ]);
   const nbDemandes = demandesParNature.reduce((t, g) => t + g._count._all, 0);
 
@@ -185,6 +189,8 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
             </ul>
           )}
         </Bloc>
+
+        <BlocDlcProches lignes={dlc.lignes} total={dlc.total} periode={etiquette(AUJ)} />
 
         <Bloc titre="Derniers bons de commande" periode={etiquette(libelleMois)} lien={estCourant ? "/stock/commandes" : lienCommandes}>
           {derniersBC.length === 0 ? <Vide t="Aucun bon de commande." /> : (
