@@ -8,20 +8,27 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien, TelechargerFormulaire } from "@/components/telecharger-lien";
+import { Pagination } from "@/components/pagination";
+import { fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
+import { bornesGroupe } from "@/lib/groupes-periode";
 
 const cdf = (n: number) => n.toLocaleString("fr-FR");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-type SP = { periode?: string };
+type SP = { periode?: string; page?: string; par?: string };
 
 export default async function LegumesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageStock();
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
+  const demande = lirePagination(sp);
+  // Historique paginé CÔTÉ SERVEUR (count + skip/take) : il s'arrêtait en silence aux 500 achats les plus récents.
+  const nbAchats = await prisma.achatLegume.count();
+  const fen = fenetrePage(nbAchats, demande.page, demande.par);
 
   const [achats, config] = await Promise.all([
-    prisma.achatLegume.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 500 }),
+    prisma.achatLegume.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
   ]);
   const taux = config ? Number(config.tauxChangeCDF) : 0;
@@ -46,6 +53,15 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
     if (!idx.has(cle)) { idx.set(cle, groupes.length); groupes.push({ cle, titre, lignes: [] }); }
     groupes[idx.get(cle)!].lignes.push(a);
   }
+  // Un groupe coupé par une frontière de page se relit sur sa tranche de dates ENTIÈRE (compteur et totaux exacts,
+  // « N affiché(s) » pour ce que la page en montre) — au plus deux groupes (le premier et le dernier de la page).
+  const totauxGroupes = new Map<string, { nb: number; cdf: number; usd: number }>();
+  await Promise.all(groupes.map(async (g, i) => {
+    if (!groupePartiel(i, groupes.length, fen)) return;
+    const { gte, lt } = bornesGroupe(periode, new Date(g.lignes[0].date));
+    const a = await prisma.achatLegume.aggregate({ where: { date: { gte, lt } }, _count: true, _sum: { montantCDF: true, montantUSD: true } });
+    totauxGroupes.set(g.cle, { nb: a._count, cdf: Number(a._sum.montantCDF ?? 0), usd: Number(a._sum.montantUSD ?? 0) });
+  }));
   const totCDF = (ls: typeof achats) => ls.reduce((t, l) => t + Number(l.montantCDF ?? 0), 0);
   const totUSD = (ls: typeof achats) => ls.reduce((t, l) => t + Number(l.montantUSD ?? 0), 0);
 
@@ -86,7 +102,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
           <span className="font-medium">Historique des achats</span>
           <span className="text-muted-foreground">·</span>
           {onglets.map((o) => (
-            <a key={o.k} href={`/stock/legumes?periode=${o.k}`} className={`rounded-full border px-3 py-1 ${periode === o.k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{o.label}</a>
+            <a key={o.k} href={`/stock/legumes?periode=${o.k}${demande.par !== PAR_DEFAUT ? `&par=${demande.par}` : ""}`} className={`rounded-full border px-3 py-1 ${periode === o.k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{o.label}</a>
           ))}
         </div>
 
@@ -97,8 +113,8 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
             {groupes.map((g) => (
               <details key={g.cle} className="group overflow-hidden rounded-lg border">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/50 px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} achat(s)</span></span>
-                  <span className="font-normal text-muted-foreground">{cdf(totCDF(g.lignes))} CDF · {usd(totUSD(g.lignes))}</span>
+                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {totauxGroupes.get(g.cle)?.nb ?? g.lignes.length} achat(s){totauxGroupes.has(g.cle) ? ` · ${g.lignes.length} affiché(s)` : ""}</span></span>
+                  <span className="font-normal text-muted-foreground">{cdf(totauxGroupes.get(g.cle)?.cdf ?? totCDF(g.lignes))} CDF · {usd(totauxGroupes.get(g.cle)?.usd ?? totUSD(g.lignes))}</span>
                 </summary>
                 <ul className="divide-y border-t text-sm">
                   {g.lignes.map((l) => (
@@ -119,6 +135,7 @@ export default async function LegumesPage({ searchParams }: { searchParams: Prom
                 </ul>
               </details>
             ))}
+            <Pagination total={nbAchats} page={fen.page} par={demande.par} chemin="/stock/legumes" params={sp} libelle="achats" />
           </div>
         )}
       </div>

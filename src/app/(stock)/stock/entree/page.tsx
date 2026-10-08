@@ -10,8 +10,11 @@ import { OngletsAchats } from "../_achats/onglets-achats";
 import { jjmmaaaa, WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { exigerPageStock } from "@/lib/garde-page";
+import { Pagination } from "@/components/pagination";
+import { fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT } from "@/lib/pagination";
+import { bornesGroupe } from "@/lib/groupes-periode";
 
-type SP = { periode?: string };
+type SP = { periode?: string; page?: string; par?: string };
 
 
 export default async function EntreePage({ searchParams }: { searchParams: Promise<SP> }) {
@@ -19,6 +22,10 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const estDirection = user.role === "ADMIN";
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
+  const demande = lirePagination(sp);
+  // Historique paginé CÔTÉ SERVEUR (count + skip/take) : il s'arrêtait en silence aux 400 achats les plus récents.
+  const nbAchats = await prisma.mouvementStock.count({ where: WHERE_ACHATS_LISTE });
+  const fen = fenetrePage(nbAchats, demande.page, demande.par);
 
   const [articles, mouvements, config, fournisseurs] = await Promise.all([
     prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
@@ -27,8 +34,9 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       // de commande (elles vivent dans « Mouvements » — sinon le même achat s'affichait deux
       // fois), ni les entrées manuelles ou de correction. Voir WHERE_ACHATS_LISTE.
       where: WHERE_ACHATS_LISTE,
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-      take: 400,
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+      skip: fen.skip,
+      take: fen.take,
       include: { article: { select: { designation: true } }, fournisseur: { select: { id: true, nom: true } } },
     }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
@@ -56,6 +64,16 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
     if (!idx.has(cle)) { idx.set(cle, groupes.length); groupes.push({ cle, titre, lignes: [] }); }
     groupes[idx.get(cle)!].lignes.push(m);
   }
+
+  // Un groupe coupé par une frontière de page se relit sur sa tranche de dates ENTIÈRE (compteur et total exacts,
+  // « N affichée(s) » pour ce que la page en montre) — au plus deux groupes (le premier et le dernier de la page).
+  const totauxGroupes = new Map<string, { nb: number; usd: number }>();
+  await Promise.all(groupes.map(async (g, i) => {
+    if (!groupePartiel(i, groupes.length, fen)) return;
+    const { gte, lt } = bornesGroupe(periode, new Date(g.lignes[0].date));
+    const a = await prisma.mouvementStock.aggregate({ where: { AND: [WHERE_ACHATS_LISTE, { date: { gte, lt } }] }, _count: true, _sum: { montantUSD: true } });
+    totauxGroupes.set(g.cle, { nb: a._count, usd: Number(a._sum.montantUSD ?? 0) });
+  }));
 
   const onglets: { k: string; label: string }[] = [
     { k: "jour", label: "Par jour" },
@@ -95,7 +113,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
           <span className="font-medium">Historique des achats</span>
           <span className="text-muted-foreground">·</span>
           {onglets.map((o) => (
-            <a key={o.k} href={`/stock/entree?periode=${o.k}`} className={`rounded-full border px-3 py-1 ${periode === o.k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{o.label}</a>
+            <a key={o.k} href={`/stock/entree?periode=${o.k}${demande.par !== PAR_DEFAUT ? `&par=${demande.par}` : ""}`} className={`rounded-full border px-3 py-1 ${periode === o.k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{o.label}</a>
           ))}
         </div>
 
@@ -106,9 +124,9 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
             {groupes.map((g) => (
               <details key={g.cle} className="group overflow-hidden rounded-lg border">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-2 bg-muted/50 px-3 py-1.5 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} ligne(s)</span></span>
+                  <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {totauxGroupes.get(g.cle)?.nb ?? g.lignes.length} ligne(s){totauxGroupes.has(g.cle) ? ` · ${g.lignes.length} affichée(s)` : ""}</span></span>
                   {(() => {
-                    const total = g.lignes.reduce((t, m) => t + Number(m.montantUSD ?? 0), 0);
+                    const total = totauxGroupes.get(g.cle)?.usd ?? g.lignes.reduce((t, m) => t + Number(m.montantUSD ?? 0), 0);
                     return total > 0 ? <span className="shrink-0 tabular-nums text-emerald-700">{usd(total)}</span> : null;
                   })()}
                 </summary>
@@ -133,6 +151,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                 </ul>
               </details>
             ))}
+            <Pagination total={nbAchats} page={fen.page} par={demande.par} chemin="/stock/entree" params={sp} libelle="achats" />
           </div>
         )}
       </div>
