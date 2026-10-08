@@ -118,19 +118,11 @@ describe("la classe colle-sous-entete", () => {
  * DÉCISION DE LA DIRECTION (2026-10-08) : « tous les tableaux incrustés peuvent devenir des tableaux
  * normaux » — la PAGE défile, plus de boîte à défilement interne. Les tableaux migrés emploient
  * `tableau-normal(-xl)` + `en-tete-collante(-xl)` (globals.css), qui n'ont pas de `top-…` et se collent
- * au défilement de la page SOUS la barre d'actions. Cette liste ne fait que SE VIDER : chaque entrée
- * est un tableau restant à migrer (la migration est suivie par `tableaux-normaux.garde-fou.test.ts`).
+ * au défilement de la page SOUS la barre d'actions. Cette liste est VIDE : il n'y a plus de tableau à
+ * défilement propre (suivi par `tableaux-normaux.garde-fou.test.ts`) ; un `sticky top-…` neuf doit être décidé consciemment.
  * Nombre d'occurrences par fichier : en ajouter une fait échouer ce test.
  */
-const EXCEPTIONS: Record<string, number> = {
-  "app/(app)/presences/import-pointage.tsx": 1,
-  "app/(stock)/stock/catalogue/catalogue-table.tsx": 1,
-  "app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": 1,
-  "app/(stock)/stock/factures/[id]/page.tsx": 2,
-  "app/(stock)/stock/factures/nouveau/nouveau-client.tsx": 1,
-  "app/(stock)/stock/factures/page.tsx": 1,
-  "app/(stock)/stock/fournisseurs/[id]/page.tsx": 1,
-};
+const EXCEPTIONS: Record<string, number> = {};
 
 /** Occurrences de `sticky` NU (sans préfixe de variante) accompagné d'un `top-…` (même préfixé, sauf `lg:` seul : ordinateur) dans la même chaîne de classes. */
 function collantsEnHaut(src: string): number {

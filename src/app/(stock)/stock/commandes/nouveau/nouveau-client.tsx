@@ -83,11 +83,11 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
       </div>
 
       <ZoneTableur>
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border">
         {/* Tableur : Entrée descend (et ajoute une ligne en bas) sans envoyer le bon ; Tab reste celui
             du navigateur, pour passer aussi par l'article et la désignation. */}
         <table ref={racine} data-tableur="" data-tableur-tab="natif" className="w-full min-w-[48rem] text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
+          <thead className="bg-muted text-left">
             <tr>
               <th className="px-2 py-2">Article (catalogue)</th>
               <th className="px-2 py-2">Désignation</th>

@@ -514,11 +514,11 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         {visibles.length === 0 && <EtatVide message="Aucun article." />}
       </div>
 
-      {/* Ordinateur — tableur : cellules éditables, en-tête figé, défilement interne */}
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
+      {/* Ordinateur — tableur : cellules éditables. Tableau « normal » : la page défile ; 13 colonnes ≥ 1085 px, donc défilement de côté seul (pas d'en-tête collant : un overflow-x le casse). */}
+      <div className="hidden overflow-x-auto rounded-lg border lg:block">
         {/* Tableur : Entrée descend dans la colonne ; Tab reste celui du navigateur (champs texte et listes dans la ligne). */}
         <table data-tableur="" data-tableur-tab="natif" className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
+          <thead className="bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               <th className="w-8"><input type="checkbox" checked={sel.size > 0 && sel.size === visibles.length} onChange={(e) => toutSel(e.target.checked)} /></th>
               <ThTri col="code" tri={tri} onTri={trierPar} className="w-14">Code</ThTri>
@@ -551,7 +551,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             {visibles.length === 0 && <tr><td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">Aucun article.</td></tr>}
           </tbody>
           {visibles.length > 0 && (
-            <tfoot className="sticky bottom-0 bg-muted">
+            <tfoot className="bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
                 <td colSpan={10} className="text-right">Valeur totale du stock affiché</td>
                 <td className="text-right tabular-nums" title={horsSansTaux(affichees).trim() || undefined}>{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(affichees) ? " *" : ""}</td>

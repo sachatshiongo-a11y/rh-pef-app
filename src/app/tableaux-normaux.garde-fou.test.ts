@@ -73,7 +73,8 @@ function boitesADefilement(src: string): number {
  */
 const ADMISES: Record<string, { n: number; raison: string }> = {
   "app/(app)/employes/employee-form.tsx": { n: 1, raison: "aperçu latéral collé du formulaire (aside sticky, borné à l'écran)" },
-  "app/(app)/planning/planning-semaine.tsx": { n: 1, raison: "menu flottant « Choisir un shift » (fixed, max-h-72) — la grille (hauteur bornée par `style` + ternaire) est À MIGRER en lot 2, branche presences-ecran" },
+  "app/(app)/planning/modele-grid.tsx": { n: 1, raison: "menu flottant « Choisir un shift » (fixed, max-h-72)" },
+  "app/(app)/planning/planning-semaine.tsx": { n: 1, raison: "menu flottant « Choisir un shift » (fixed, max-h-72)" },
   "app/(app)/paie/page.tsx": { n: 1, raison: "menu déroulant des filtres (absolute, max-h-[70vh])" },
   "app/(app)/paie/bulletins-validation.tsx": { n: 1, raison: "liste de navigation des bulletins à côté de la visionneuse (panneau maître-détail collé, borné à l'écran)" },
   "app/espace/cloche-salarie.tsx": { n: 1, raison: "fenêtre de la cloche de notifications" },
@@ -81,16 +82,6 @@ const ADMISES: Record<string, { n: number; raison: string }> = {
   "app/(stock)/stock/imports/doublons-client.tsx": { n: 1, raison: "cases des imports à comparer (sélecteur de 3-4 lots, pas un tableau)" },
   "app/(stock)/stock/restaurant/choix-article.tsx": { n: 1, raison: "liste déroulante de recherche d'un article du catalogue" },
   "components/notification-bell.tsx": { n: 1, raison: "fenêtre de la cloche de notifications" },
-  // À MIGRER — fichiers touchés par des branches en cours au moment du lot 1 ; cette rubrique doit se vider.
-  "app/(app)/planning/modele-grid.tsx": { n: 2, raison: "À MIGRER (lot 2, branche presences-ecran) : la grille + le menu flottant « Choisir un shift » (admis)" },
-  "app/(app)/presences/import-pointage.tsx": { n: 2, raison: "À MIGRER (lot 2, branche presences-ecran)" },
-  "app/(app)/presences/temps-grid.tsx": { n: 1, raison: "À MIGRER (lot 2, branche presences-ecran)" },
-  "app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 1, raison: "À MIGRER (lot 2, branche francs-prix-factures)" },
-  "app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": { n: 1, raison: "À MIGRER (lot 2, branche francs-prix-factures)" },
-  "app/(stock)/stock/factures/[id]/page.tsx": { n: 2, raison: "À MIGRER (lot 2, branche francs-prix-factures)" },
-  "app/(stock)/stock/factures/nouveau/nouveau-client.tsx": { n: 1, raison: "À MIGRER (lot 2, branche francs-prix-factures)" },
-  "app/(stock)/stock/factures/page.tsx": { n: 1, raison: "À MIGRER (lot 2, branche francs-prix-factures)" },
-  "app/(stock)/stock/fournisseurs/[id]/page.tsx": { n: 1, raison: "À MIGRER (lot 2, branche francs-prix-factures)" },
 };
 
 describe("aucun tableau dans une boîte à hauteur bornée qui défile", () => {

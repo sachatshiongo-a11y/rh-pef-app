@@ -122,9 +122,9 @@ export function ImportPointage() {
             </div>
 
             {/* Aperçu ligne par ligne */}
-            <div className="max-h-80 overflow-auto rounded-lg border">
+            <div className="tableau-normal rounded-lg border">
               <table className="w-full min-w-[34rem] text-sm">
-                <thead className="sticky top-0 z-10 bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <thead className="en-tete-collante bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
                     <th className="w-8" />
                     <th>Date</th>
@@ -172,7 +172,7 @@ export function ImportPointage() {
             {analyse.anomalies.length > 0 && (
               <div className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
                 <p className="font-semibold">Anomalies (jamais appliquées) :</p>
-                <ul className="mt-1 max-h-32 list-inside list-disc space-y-0.5 overflow-auto">
+                <ul className="mt-1 list-inside list-disc space-y-0.5">
                   {analyse.anomalies.map((a, i) => (
                     <li key={i}>{a.date} · {a.idExterne} · {a.type} — {a.detail}</li>
                   ))}
