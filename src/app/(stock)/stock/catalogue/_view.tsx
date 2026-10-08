@@ -6,6 +6,8 @@ import { CatalogueEcran } from "./catalogue-ecran";
 import type { Prisma } from "@prisma/client";
 import { verifySession } from "@/lib/auth";
 import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
+import { libellesPrix, valeurEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string };
@@ -19,7 +21,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
 
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const user = await verifySession(); // mis en cache par requête : la page l'a déjà vérifié (exigerPageStock)
-  const [articles, categories, fournisseurs, lignes, entreesPayees, enAttente] = await Promise.all([
+  const [articles, categories, fournisseurs, lignes, entreesPayees, enAttente, taux] = await Promise.all([
     prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
@@ -35,6 +37,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       select: { articleId: true, montantUSD: true, quantite: true, date: true, origine: true },
     }),
     ciblesEnAttente(),
+    tauxDuJour(),
   ]);
 
   // Pour chaque article, un éventuel % de hausse du dernier achat (badge dans le catalogue).
@@ -53,6 +56,11 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       fournisseurId: a.fournisseurId,
       unite: a.unite,
       prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
+      // Prix en francs (2026-10-08) : la devise de saisie fait foi, l'autre « ≈ » au taux du jour.
+      devisePrix: a.devisePrix,
+      prixCDF: a.prixUnitaireCDF !== null ? a.prixUnitaireCDF.toString() : null,
+      prixAutre: libellesPrix(a, taux).autre,
+      ...(() => { const v = valeurEnUSD(a, a.stock ? Number(a.stock.quantite) : 0, taux); return { valeurUSD: v ? v.valeur : null, valeurApprox: v?.approx ?? false }; })(),
       uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
       quantite: a.stock ? a.stock.quantite.toString() : "0",
       stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",

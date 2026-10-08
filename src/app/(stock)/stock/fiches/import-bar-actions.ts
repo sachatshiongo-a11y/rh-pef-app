@@ -8,6 +8,8 @@ import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { actionLisible } from "@/lib/action-lisible";
 import { journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { televerserPhotoFiche } from "@/lib/fiches/photo-fiche-serveur";
+import { prixArticleEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import {
   planifierImportBar, rattacherFiches, rattacherIngredients, validerChoix, validerFichesLues,
   type ArticleExistant, type FicheBarLue, type FicheExistanteBar, type FichePlan,
@@ -28,20 +30,21 @@ async function direction() {
   return user;
 }
 
-type Lecteur = Pick<Prisma.TransactionClient, "articleStock" | "ficheTechnique">;
+type Lecteur = Pick<Prisma.TransactionClient, "articleStock" | "ficheTechnique" | "config">;
 
 async function lireBase(db: Lecteur): Promise<{ articles: ArticleExistant[]; fiches: FicheExistanteBar[] }> {
-  const [articles, fiches] = await Promise.all([
-    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, prixUnitaireUSD: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
+  const [articles, fiches, taux] = await Promise.all([
+    db.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, domaine: true, contenance: true, contenanceUnite: true }, orderBy: { designation: "asc" } }),
     db.ficheTechnique.findMany({
       where: { type: "BAR", estSousRecette: false },
       select: { id: true, nom: true, categorie: true, type: true, estSousRecette: true, actif: true, recette: true, prixVenteTTC: true, photoUrl: true, _count: { select: { ingredients: true } } },
       orderBy: [{ categorie: "asc" }, { nom: "asc" }],
     }),
+    tauxDuJour(db as Prisma.TransactionClient),
   ]);
   return {
     articles: articles.map((a) => ({
-      id: a.id, designation: a.designation, unite: a.unite, prixUnitaireUSD: a.prixUnitaireUSD === null ? null : Number(a.prixUnitaireUSD), domaine: a.domaine,
+      id: a.id, designation: a.designation, unite: a.unite, prixUnitaireUSD: prixArticleEnUSD(a, taux)?.valeur ?? null, domaine: a.domaine, // article en francs : ≈ au taux du jour
       contenance: a.contenance === null ? null : a.contenance.toString(), contenanceUnite: a.contenanceUnite,
       nomCourt: a.nomCourt, code: a.code,
     })),

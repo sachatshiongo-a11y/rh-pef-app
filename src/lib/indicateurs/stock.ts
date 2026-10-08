@@ -1,5 +1,7 @@
 import "server-only";
 
+import { valeurEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte } from "@/lib/stock";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
@@ -15,6 +17,13 @@ export type SommeComptee = { montant: number | null; nb: number };
 
 export type IndicateursStock = {
   valeurStock: number;
+  /**
+   * Prix en francs (2026-10-08) : `valeurStockApprox` = au moins un article en francs y est converti
+   * au taux du jour (« ≈ ») ; `articlesSansTaux` = articles en francs NON valorisés faute de taux
+   * (jamais comptés 0 en silence : l'écran le dit). Les articles en dollars : calcul inchangé.
+   */
+  valeurStockApprox: boolean;
+  articlesSansTaux: number;
   nbUrgent: number;
   nbAppro: number;
   /** Urgents d'abord, puis à réapprovisionner ; tronqué à `nbAlertes`. */
@@ -52,8 +61,9 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
   const debutMois = new Date(Date.UTC(anneeP, mois0P, 1));
   const debutMoisSuivant = new Date(Date.UTC(anneeP, mois0P + 1, 1));
 
+  const taux = await tauxDuJour();
   const [stocks, facturesDues, facturesSemaine, facturesEchues, legumesMois, consoMois] = await Promise.all([
-    prisma.stock.findMany({ include: { article: { select: { designation: true, prixUnitaireUSD: true } } } }),
+    prisma.stock.findMany({ include: { article: { select: { designation: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } }),
     prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true }, _count: true }),
     // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
     prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true }, _count: true }),
@@ -61,9 +71,10 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
     // Achats de légumes frais du mois (en cours, ou celui de `options.mois`).
     prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
-    // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue).
+    // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue ; un
+    // article en francs : quantité × francs ÷ taux du jour — rien sans taux, jamais 0).
     prisma.$queryRaw<{ total: number; n: number }[]>`
-      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD")), 0)::float AS total, COUNT(*)::int AS n
+      SELECT COALESCE(SUM(COALESCE(m."montantUSD", m."quantite" * a."prixUnitaireUSD", m."quantite" * a."prixUnitaireCDF" / ${taux}::numeric)), 0)::float AS total, COUNT(*)::int AS n
       FROM "stock"."MouvementStock" m JOIN "stock"."ArticleStock" a ON a."id" = m."articleId"
       WHERE m."type" = 'SORTIE' AND m."date" >= ${debutMois} AND m."date" < ${debutMoisSuivant}`,
   ]);
@@ -73,7 +84,11 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     designation: s.article.designation,
     quantite: Number(s.quantite),
     niveau: niveauAlerte(s.quantite, s.stockMinimum),
-    valeur: s.article.prixUnitaireUSD ? Number(s.quantite) * Number(s.article.prixUnitaireUSD) : 0,
+    // Article en dollars : calcul d'avant, à l'identique ; en francs : au taux du jour (« ≈ »).
+    valeur: s.article.devisePrix === "CDF"
+      ? valeurEnUSD(s.article, Number(s.quantite), taux)?.valeur ?? 0
+      : s.article.prixUnitaireUSD ? Number(s.quantite) * Number(s.article.prixUnitaireUSD) : 0,
+    enFrancs: s.article.devisePrix === "CDF" && s.article.prixUnitaireCDF !== null,
   }));
   const alertes: ArticleEnAlerte[] = avecAlerte
     .filter((a) => a.niveau === "URGENT" || a.niveau === "APPRO")
@@ -83,6 +98,8 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
 
   return {
     valeurStock: avecAlerte.reduce((t, a) => t + a.valeur, 0),
+    valeurStockApprox: taux !== null && avecAlerte.some((a) => a.enFrancs),
+    articlesSansTaux: taux === null ? avecAlerte.filter((a) => a.enFrancs).length : 0,
     nbUrgent: avecAlerte.filter((a) => a.niveau === "URGENT").length,
     nbAppro: avecAlerte.filter((a) => a.niveau === "APPRO").length,
     alertes,

@@ -13,6 +13,8 @@ import { demandeSurCible } from "@/lib/validations-stock/apercu";
 import { cleArticle } from "@/lib/validations-stock/charge";
 import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
 import { DecisionDemande } from "../../a-valider/decision-demande";
+import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -36,7 +38,7 @@ export default async function ArticleFichePage({
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
 
-  const [a, categories, fournisseurs, proposition] = await Promise.all([
+  const [a, categories, fournisseurs, proposition, taux] = await Promise.all([
     prisma.articleStock.findUnique({
       where: { id },
       include: {
@@ -61,12 +63,19 @@ export default async function ArticleFichePage({
     prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     demandeSurCible(cleArticle(id)), // proposition de modification en attente de la Direction ?
+    tauxDuJour(),
   ]);
   if (!a) notFound();
 
   const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
   const stockQte = a.stock ? Number(a.stock.quantite) : 0;
-  const valeur = stockQte * (Number(a.prixUnitaireUSD) || 0);
+  // Prix de référence dans SA devise (2026-10-08) ; l'autre devise et la valeur en dollars d'un
+  // article en francs sont « ≈ » au taux du jour (src/lib/prix-article.ts), « — » sans taux.
+  const libPrix = libellesPrix(a, taux);
+  const valeurC = valeurEnUSD(a, stockQte, taux);
+  const refC = prixArticleEnUSD(a, taux);
+  const refUSD = refC && refC.valeur > 0 ? refC.valeur : null;
+  const ref$ = refC ? `${refC.approx ? "≈ " : ""}${usd(refC.valeur)}` : "—";
 
   // Évolution du prix : chaque ligne de facture porte un prix unitaire figé + la date de la facture.
   const analyse = analyserPrix([
@@ -137,6 +146,8 @@ export default async function ArticleFichePage({
               contenanceUnite: a.contenanceUnite,
               uniteParCarton: a.uniteParCarton !== null ? a.uniteParCarton.toString() : null,
               prixUnitaireUSD: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null,
+              devisePrix: a.devisePrix,
+              prixUnitaireCDF: a.prixUnitaireCDF !== null ? a.prixUnitaireCDF.toString() : null,
               categorieId: a.categorieId,
               fournisseurId: a.fournisseurId,
               stockMinimum: a.stock ? a.stock.stockMinimum.toString() : "0",
@@ -145,6 +156,7 @@ export default async function ArticleFichePage({
             categories={categories}
             fournisseurs={fournisseurs}
             estDirection={estDirection}
+            taux={taux}
           />
           {estDirection && (
             <form action={supprimerArticle.bind(null, a.id)}>
@@ -183,8 +195,8 @@ export default async function ArticleFichePage({
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Stock actuel" valeur={a.stock ? `${qte(a.stock.quantite)}${a.unite ? ` ${a.unite}` : ""}` : "—"} accent={stockQte < 0 ? "red" : undefined} />
-        <Kpi label="Valeur du stock" valeur={usd(valeur)} />
-        <Kpi label="Prix de référence" valeur={usd(a.prixUnitaireUSD)} />
+        <Kpi label="Valeur du stock" valeur={valeurC ? `${valeurC.approx ? "≈ " : ""}${usd(valeurC.valeur)}` : "—"} sous={valeurC?.approx ? "au taux du jour" : undefined} />
+        <Kpi label="Prix de référence" valeur={libPrix.principal} sous={libPrix.autre ? `${libPrix.autre} au taux du jour` : undefined} />
         <Kpi label="Alerte" valeur={niv ? ALERTE_LABEL[niv] : "—"} accent={niv === "URGENT" ? "red" : niv === "APPRO" ? "amber" : niv === "OK" ? "green" : undefined} />
       </div>
 
@@ -207,8 +219,8 @@ export default async function ArticleFichePage({
                   {variation > 0 ? "▲" : variation < 0 ? "▼" : ""} {Math.abs(variation).toFixed(1)}% vs achat précédent
                 </span>
               )}
-              {analyse.dernier && Number(a.prixUnitaireUSD) > 0 && (() => {
-                const ref = Number(a.prixUnitaireUSD);
+              {analyse.dernier && refUSD !== null && (() => {
+                const ref = refUSD;
                 const ecart = ((analyse.dernier.prix - ref) / ref) * 100;
                 return (
                   <span className={`ml-2 font-medium ${ecart > 0 ? "text-red-700" : ecart < 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
@@ -223,10 +235,10 @@ export default async function ArticleFichePage({
           <p className="text-sm text-muted-foreground">Aucun achat facturé pour cet article. Le prix évoluera au fil des factures.</p>
         ) : (
           <>
-            <Sparkline points={prixHisto.map((p) => p.prix)} reference={Number(a.prixUnitaireUSD) > 0 ? Number(a.prixUnitaireUSD) : null} />
-            {Number(a.prixUnitaireUSD) > 0 && (
+            <Sparkline points={prixHisto.map((p) => p.prix)} reference={refUSD} />
+            {refUSD !== null && (
               <p className="mt-1 text-[11px] text-muted-foreground">
-                <span className="mr-1 inline-block w-5 border-t-2 border-dashed border-amber-500 align-middle" /> prix de référence ({usd(a.prixUnitaireUSD)}) — un prix d&apos;achat de repère, lui aussi
+                <span className="mr-1 inline-block w-5 border-t-2 border-dashed border-amber-500 align-middle" /> prix de référence ({ref$}{refC?.approx ? ` = ${libPrix.principal} au taux du jour` : ""}) — un prix d&apos;achat de repère, lui aussi
               </p>
             )}
             <div id="prix" className="mt-3">
@@ -305,12 +317,13 @@ export default async function ArticleFichePage({
   );
 }
 
-function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?: "green" | "amber" | "red" }) {
+function Kpi({ label, valeur, accent, sous }: { label: string; valeur: string; accent?: "green" | "amber" | "red"; sous?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
   return (
     <div className={`min-w-0 rounded-lg border p-3 ${cls}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-0.5 break-words text-lg font-semibold tabular-nums">{valeur}</p>
+      {sous && <p className="text-xs tabular-nums text-muted-foreground">{sous}</p>}
     </div>
   );
 }

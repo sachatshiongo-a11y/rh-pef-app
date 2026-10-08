@@ -1,3 +1,5 @@
+import { valeurEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
 import { MouvementForm, ColonneMouvements, BandeauPlafond, type MvtLite } from "./mouvements-client";
 import { lireFiltreMouvements, whereMouvements, whereColonne, libelleFiltre, optionsMoisMouvements, moisCourantMouvements, FILTRES_MOTIF, PLAFOND_AFFICHAGE } from "@/lib/filtre-mouvements";
@@ -11,24 +13,25 @@ import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 
 const mvtInclude = {
-  article: { select: { designation: true, domaine: true, prixUnitaireUSD: true } },
+  article: { select: { designation: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
   facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
   reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
   fournisseur: { select: { id: true, nom: true } }, // achat direct de la Liste d'achat
 } satisfies Prisma.MouvementStockInclude;
 type Mvt = Prisma.MouvementStockGetPayload<{ include: typeof mvtInclude }>;
 
-// Valeur d'un mouvement : montant saisi, sinon ESTIMATION quantité × prix catalogue (affichée ≈).
-const valeurDe = (m: Mvt): { v: number; estime: boolean } | null => {
+// Valeur d'un mouvement : montant saisi, sinon ESTIMATION quantité × prix catalogue (affichée ≈) —
+// un article en francs converti au taux du jour (src/lib/prix-article.ts) ; sans prix ni taux : rien.
+const valeurDe = (m: Mvt, taux: number | null): { v: number; estime: boolean } | null => {
   if (m.montantUSD !== null) return { v: Number(m.montantUSD), estime: false };
-  if (m.article.prixUnitaireUSD === null) return null;
-  return { v: Number(m.quantite) * Number(m.article.prixUnitaireUSD), estime: true };
+  const c = valeurEnUSD(m.article, Number(m.quantite), taux);
+  return c === null ? null : { v: c.valeur, estime: true };
 };
 
 // Sérialise un mouvement Prisma (Decimal/Date) vers la forme légère consommée côté client.
-const versLite = (m: Mvt): MvtLite => {
+const versLite = (m: Mvt, taux: number | null): MvtLite => {
   const bc = m.reception?.bonDeCommande;
-  const va = valeurDe(m);
+  const va = valeurDe(m, taux);
   const fourn = fournisseurDuMouvement(m);
   return {
     id: m.id,
@@ -85,8 +88,9 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
       ?? (await prisma.articleStock.findUnique({ where: { id: articleId }, select: { designation: true } }))?.designation
     : null;
   const libelle = libelleFiltre(filtre, designation);
-  const entrees = mouvements.filter((m) => m.type !== "SORTIE").map(versLite);
-  const sorties = mouvements.filter((m) => m.type === "SORTIE").map(versLite);
+  const taux = await tauxDuJour();
+  const entrees = mouvements.filter((m) => m.type !== "SORTIE").map((m) => versLite(m, taux));
+  const sorties = mouvements.filter((m) => m.type === "SORTIE").map((m) => versLite(m, taux));
 
   // 12 derniers mois pour le filtre, plus le mois filtré s'il est plus ancien (lien d'une carte).
   const moisOptions = optionsMoisMouvements(now, mois);

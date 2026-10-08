@@ -16,6 +16,7 @@ import {
   type DetailArticleDispo, type DetailLigneDispo, type FicheDispo, type StockArticle,
 } from "@/lib/fiches/disponibilite";
 import { usd, qte } from "@/lib/stock";
+import { formaterFC } from "@/lib/montant";
 import { ongletFiche } from "@/lib/fiches/famille-boisson";
 import {
   MOTIF_LABEL, coef, pct, etiquettePrix as etiquette, noteCoutIncomplet, versFicheCalc, versFicheDispo, resumerDispo,
@@ -48,7 +49,7 @@ const decoderSource = (v: string) => ({
  * même fonction que côté serveur — un seul chiffre possible pour une même fiche.
  */
 export function EditerFiche({
-  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui, peutSupprimer = false,
+  vue, articles, autresFiches, contexte, contexteDispo, stocks, aujourdhui, peutSupprimer = false, fichesEnFrancs = [],
 }: {
   vue: FicheVue;
   articles: ArticleOption[];
@@ -62,6 +63,8 @@ export function EditerFiche({
   aujourdhui: string;
   /** Direction seulement : supprimer la fiche, retirer la photo ou des ingrédients (règle de Sacha, 2026-10-01). */
   peutSupprimer?: boolean;
+  /** Sous-recettes dont le coût passe par un article au prix en francs (coût « ≈ »). */
+  fichesEnFrancs?: string[];
 }) {
   const router = useRouter();
   const [isPending, start] = useTransition();
@@ -105,6 +108,8 @@ export function EditerFiche({
   // inconnu, pas nul) et un nombre de portions inexploitable (le coût total, lui, reste juste).
   // On les distingue pour ne pas écrire « ≥ » sur un chiffre exact, ni un motif faux.
   const coutPartiel = resultat.ingredientsSansPrix.length > 0 || resultat.cycle;
+  // Prix en francs converti au taux du jour (2026-10-08) : le coût en dollars est « ≈ ».
+  const coutApprox = lignes.some((l) => (l.articleId ? mapArticles.get(l.articleId)?.prixApprox === true : l.sousFicheId ? fichesEnFrancs.includes(l.sousFicheId) : false));
   const portionsInvalides = !Number.isFinite(calc.nbPortions) || calc.nbPortions <= 0;
   // Troisième cause d'incomplétude, distincte des deux autres : la fiche n'a AUCUN ingrédient.
   // Son coût n'est pas 0, il est inconnu — et aucun ingrédient n'est là pour être nommé.
@@ -403,6 +408,11 @@ export function EditerFiche({
         <h2 className="mb-3 text-base font-semibold">Coût de revient (recalculé, jamais stocké)</h2>
 
         {coutPartiel && <BandeauPartiel resultat={resultat} />}
+        {coutApprox && (
+          <p className="mb-3 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            ≈ Un ingrédient au moins a son prix en francs : il est converti en dollars au taux du jour (Paramètres). Son prix en francs, lui, ne bouge pas.
+          </p>
+        )}
         {portionsInvalides && (
           <p className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             ⚠ Nombre de portions inexploitable : le coût par portion est calculé sur <strong>1 portion</strong>. Corrigez l&apos;entête.
@@ -410,8 +420,8 @@ export function EditerFiche({
         )}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Kpi label={coutPartiel ? "Coût total HT (partiel)" : "Coût total HT"} valeur={coutConnu ? `${coutPartiel ? "≥ " : ""}${usd(arrondirCentime(resultat.coutTotal))}` : "—"} accent={coutPartiel ? "amber" : undefined} />
-          <Kpi label={coutPartiel ? "Coût / portion (partiel)" : "Coût / portion"} valeur={coutConnu ? `${coutPartiel ? "≥ " : ""}${usd(arrondirCentime(resultat.coutParPortion))}` : "—"} accent={coutPartiel || portionsInvalides ? "amber" : undefined} />
+          <Kpi label={coutPartiel ? "Coût total HT (partiel)" : "Coût total HT"} valeur={coutConnu ? `${coutPartiel ? "≥ " : coutApprox ? "≈ " : ""}${usd(arrondirCentime(resultat.coutTotal))}` : "—"} accent={coutPartiel ? "amber" : undefined} />
+          <Kpi label={coutPartiel ? "Coût / portion (partiel)" : "Coût / portion"} valeur={coutConnu ? `${coutPartiel ? "≥ " : coutApprox ? "≈ " : ""}${usd(arrondirCentime(resultat.coutParPortion))}` : "—"} accent={coutPartiel || portionsInvalides ? "amber" : undefined} />
           <Kpi label="Portions" valeur={portionsInvalides ? "—" : `${calc.nbPortions}`} accent={portionsInvalides ? "amber" : undefined} />
           {ent.estSousRecette && <Kpi label="Rendement" valeur={calc.rendementQuantite ? `${qte(calc.rendementQuantite)} ${ent.rendementUnite || "?"}` : "—"} accent={calc.rendementQuantite ? undefined : "amber"} />}
         </div>
@@ -613,7 +623,7 @@ function LigneIngredient({
         {article && (
           <div className="mt-0.5 text-[11px] text-muted-foreground">
             <Link href={`/stock/catalogue/${article.id}`} className="text-primary hover:underline">{article.designation}</Link>
-            {" · "}{usd(article.prixUnitaireUSD)} / {article.unite || "unité ?"}
+            {" · "}{article.prixSaisi?.devise === "CDF" ? `${formaterFC(Number(article.prixSaisi.montant))} (${article.prixUnitaireUSD === null ? "≈ — : taux du jour non défini" : `≈ ${usd(article.prixUnitaireUSD)}`})` : usd(article.prixUnitaireUSD)} / {article.unite || "unité ?"}
             {!article.actif && " · article inactif"}
           </div>
         )}

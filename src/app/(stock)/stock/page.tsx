@@ -127,7 +127,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           <Kpi label="Articles" valeur={String(nbArticles)} sous={etiquette(AUJ)} href="/stock/catalogue" />
           <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} sous={etiquette(AUJ)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
           <Kpi label="À réapprovisionner" valeur={String(nbAppro)} sous={etiquette(AUJ)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
-          <Kpi label="Valeur du stock" valeur={usd(valeurAffichee)} sous={sousValeur} />
+          <Kpi label="Valeur du stock" valeur={`${!stockFige && ind.valeurStockApprox ? "≈ " : ""}${usd(valeurAffichee)}`} sous={!stockFige && ind.articlesSansTaux > 0 ? [sousValeur, `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)`].filter(Boolean).join(" · ") : sousValeur} />
           <Kpi label="Factures à payer" valeur={usd(facturesAPayer.montant)} sous={avecEtiquette(`${facturesAPayer.nb} facture(s)`, AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
           <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine.montant)} sous={avecEtiquette(`${facturesSemaine.nb} facture(s)`, "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />

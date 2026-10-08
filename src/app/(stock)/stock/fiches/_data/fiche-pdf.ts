@@ -36,6 +36,14 @@ const montant = (n: number | null): string => (n === null ? "—" : montantSigne
  * ligne dit pourquoi) — jamais « 0,00 $ ».
  */
 function prixCatalogue(art: ArticleOption): string {
+  // Article au prix en FRANCS : le prix saisi, et son dollar « ≈ » au taux du jour (« — » sans taux).
+  if (art.prixSaisi?.devise === "CDF") {
+    const fc = Number(art.prixSaisi.montant);
+    if (!(fc > 0)) return "—";
+    const p = art.prixUnitaireUSD === null ? NaN : Number(art.prixUnitaireUSD);
+    const usd = Number.isFinite(p) ? `≈ ${formaterNombre(p, { minimumFractionDigits: 2, maximumFractionDigits: p < 1 ? 4 : 2 })} $` : "≈ —";
+    return `${formaterNombre(fc, { maximumFractionDigits: 0 })} FC (${usd}) / ${art.unite || "unité ?"}`;
+  }
   const p = art.prixUnitaireUSD === null ? NaN : Number(art.prixUnitaireUSD);
   if (!Number.isFinite(p) || p <= 0) return "—";
   return `${formaterNombre(p, { minimumFractionDigits: 2, maximumFractionDigits: p < 1 ? 4 : 2 })} $ / ${art.unite || "unité ?"}`;

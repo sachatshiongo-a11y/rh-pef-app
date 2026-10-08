@@ -1,6 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
+import { prixArticleEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 
 // Inventaire valorisé : chaque article avec sa catégorie, son fournisseur, son statut de
 // réapprovisionnement, sa quantité et sa valeur (quantité × prix de référence), regroupé par
@@ -9,6 +11,12 @@ import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
 export type LigneInventaire = {
   articleId: string; code: string; designation: string; domaine: string; unite: string;
   categorie: string; fournisseur: string; quantite: number; stockMinimum: number; prixUnitaireUSD: number;
+  /**
+   * Article dont le prix est en FRANCS (2026-10-08) : son prix tel que saisi et le taux du jour qui a
+   * servi à le valoriser en dollars (`prixUnitaireUSD`, figé avec l'instantané de clôture). Taux absent :
+   * `tauxChange` null et `prixUnitaireUSD` 0 — la ligne le dit (« taux non défini »), jamais en silence.
+   */
+  prixUnitaireCDF?: number; tauxChange?: number | null;
 };
 export type Inventaire = {
   fige: boolean; // true = instantané figé à la clôture ; false = état actuel du stock
@@ -30,12 +38,13 @@ export async function inventaireActuel(): Promise<Inventaire> {
     where: { actif: true },
     select: {
       id: true, code: true, designation: true, domaine: true, unite: true,
-      prixUnitaireUSD: true,
+      devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true,
       categorie: { select: { nom: true } },
       fournisseur: { select: { nom: true } },
       stock: { select: { quantite: true, stockMinimum: true } },
     },
   });
+  const taux = await tauxDuJour();
   const lignes: LigneInventaire[] = articles.map((a) => ({
     articleId: a.id,
     code: a.code ?? "",
@@ -46,7 +55,9 @@ export async function inventaireActuel(): Promise<Inventaire> {
     fournisseur: a.fournisseur?.nom ?? "",
     quantite: a.stock ? Number(a.stock.quantite) : 0,
     stockMinimum: a.stock ? Number(a.stock.stockMinimum) : 0,
-    prixUnitaireUSD: a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,
+    // Article en dollars : à l'identique d'avant. En francs : converti au taux du jour (tracé sur la ligne).
+    prixUnitaireUSD: a.devisePrix === "CDF" ? prixArticleEnUSD(a, taux)?.valeur ?? 0 : a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,
+    ...(a.devisePrix === "CDF" && a.prixUnitaireCDF !== null ? { prixUnitaireCDF: Number(a.prixUnitaireCDF), tauxChange: taux } : {}),
   }));
   const valeurTotaleUSD = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));
   return { fige: false, valeurTotaleUSD, lignes };

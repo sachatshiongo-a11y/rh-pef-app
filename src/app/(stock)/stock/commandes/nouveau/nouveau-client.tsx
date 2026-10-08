@@ -21,7 +21,8 @@ const nombreOuNull = (s: string) => { const l = lireSaisieNombre(s); return l.ok
  */
 const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
-type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; uniteParCarton: string | null };
+/** `prix` : en dollars (article en francs : converti au taux du jour) ; `prixFC` : « 7 000 FC » si le prix de référence est en francs. */
+type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; prix: string | null; prixFC?: string | null; uniteParCarton: string | null };
 type Four = { id: string; nom: string };
 type Ligne = { articleId: string; designation: string; quantite: string; prix: string; uniteParCarton: string };
 export type BonInitial = {
@@ -129,6 +130,7 @@ export function NouveauBonForm({ articles, fournisseurs, initial, estDirection =
                     className={`${inp} w-24 text-right ${l.articleId ? "bg-muted/50 text-muted-foreground" : ""}`}
                     aria-label={`Prix unitaire, ligne ${i + 1}`}
                   />
+                  {(() => { const fc = l.articleId ? articles.find((x) => x.id === l.articleId)?.prixFC : null; return fc ? <span className="block text-[10px] text-muted-foreground" title="Prix de référence en francs : converti en dollars au taux du jour">{fc} ≈</span> : null; })()}
                 </td>
                 <td className="px-2 py-1 text-right text-muted-foreground">{(nombreDeSaisie(l.quantite) * nombreDeSaisie(l.prix)).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $</td>
               </tr>
