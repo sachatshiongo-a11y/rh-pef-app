@@ -1,6 +1,6 @@
 import { RestaurantGrille, type Jour, type LigneResto } from "./restaurant-client";
 import { PropositionsRattachement } from "./propositions-rattachement";
-import type { Proposition } from "@/lib/fiches/rattachement-resto";
+import type { DecisionAuto, Proposition } from "@/lib/fiches/rattachement-resto";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { BandeauLivraisons } from "./bandeau-livraisons";
 import { MenuFichePdf, classeLienFiche } from "../_print/menu-fiche-pdf";
@@ -20,7 +20,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
  */
 export function RestaurantEcran({
   espace, jours, aujourdhui, estDirection, afficherDesactives, lignes, categories, catalogue,
-  livraisonsParJour, nonRattachees, signalements, articlesResto, propositions,
+  livraisonsParJour, nonRattachees, signalements, articlesResto, propositions, planAuto = [],
 }: {
   espace: "CUISINE" | "BAR"; jours: Jour[]; aujourdhui: string; estDirection: boolean; afficherDesactives: boolean;
   lignes: LigneResto[]; categories: string[]; catalogue: OptionCatalogue[];
@@ -28,6 +28,8 @@ export function RestaurantEcran({
   livraisonsParJour: [string, { designation: string; quantite: number }[]][];
   nonRattachees: LivraisonSR[]; signalements: SignalementLivraison[]; articlesResto: ArticleRestoSR[];
   propositions: Proposition[];
+  /** Plan du rattachement automatique des livraisons non rattachées (lecture seule). */
+  planAuto?: DecisionAuto[];
 }) {
   const semLien = (offset: number) => {
     const d = new Date(jours[0].iso); d.setUTCDate(d.getUTCDate() + offset * 7);
@@ -126,7 +128,7 @@ export function RestaurantEcran({
 
       <p className="text-sm text-muted-foreground max-lg:hidden">{note}</p>
 
-      <BandeauLivraisons nonRattachees={nonRattachees} signalements={signalements} articles={articlesResto} />
+      <BandeauLivraisons nonRattachees={nonRattachees} signalements={signalements} articles={articlesResto} planAuto={planAuto} />
 
       <PropositionsRattachement propositions={propositions} />
 
