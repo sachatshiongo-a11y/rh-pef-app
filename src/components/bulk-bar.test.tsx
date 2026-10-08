@@ -55,4 +55,11 @@ describe("BulkBar", () => {
     act(() => case_.click());
     expect(onAll).toHaveBeenCalledWith(true);
   });
+
+  it("publie sa hauteur sur son parent (l'en-tête du tableau se colle dessous) et la retire au démontage", () => {
+    monter(0, 5);
+    expect(conteneur.style.getPropertyValue("--hauteur-barre-actions")).toMatch(/^\d+(\.\d+)?px$/);
+    act(() => racine.render(createElement("span", null, "plus de barre")));
+    expect(conteneur.style.getPropertyValue("--hauteur-barre-actions")).toBe("");
+  });
 });

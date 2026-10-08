@@ -307,9 +307,9 @@ export async function CalendrierAbsences({ sp }: { sp: SPCalendrier }) {
 
       {/* Soldes de congés annuels */}
       <h2 className="mb-2 mt-8 text-base font-semibold">Soldes de congé annuel — à ce jour</h2>
-      <div className="max-h-[70vh] overflow-auto rounded-xl border">
+      <div className="tableau-normal rounded-xl border">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
+          <thead className="en-tete-collante bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Employé</th>
               <th className="px-3 py-2 text-center">Droits acquis</th>

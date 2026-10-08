@@ -135,9 +135,9 @@ export function ReconciliationForm({ articles, domaine, estDirection = false }: 
       </div>
 
       <ZoneTableur>
-      <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
-        <table data-tableur="" className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
+      <div className="tableau-normal rounded-lg border">
+        <table data-tableur="" className="w-full min-w-[40rem] border-separate border-spacing-0 text-sm">
+          <thead className="en-tete-collante bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
               <ThTri col="code" tri={tri} onTri={trierPar} className="w-16">Code</ThTri>
               <ThTri col="designation" tri={tri} onTri={trierPar}>Désignation</ThTri>

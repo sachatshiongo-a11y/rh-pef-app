@@ -78,9 +78,9 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
     <VueJourOuSemaine
       jour={<ConsoJour jours={jours} sorties={sorties} legumes={legumes} consoResto={consoResto} />}
       semaine={
-    <div className="max-h-[70vh] overflow-auto rounded-lg border">
+    <div className="tableau-normal-xl rounded-lg border">
       <table className="w-full min-w-[48rem] border-separate border-spacing-0 text-sm">
-        <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
+        <thead className="en-tete-collante-xl bg-muted text-left shadow-sm">
           <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
             <th className="sticky left-0 z-30 bg-muted">Article</th>
             {jours.map((j) => <th key={j.iso} className="!text-right">{j.label}</th>)}
@@ -112,7 +112,7 @@ export function TableConso({ jours, sorties, legumes, consoResto }: {
           {vide && <tr><td colSpan={colSpan} className="px-3 py-6 text-center text-muted-foreground">Aucune sortie ni comptage cette semaine.</td></tr>}
         </tbody>
         {sorties.livraisons.length > 0 && (
-          <tfoot className="sticky bottom-0"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
+          <tfoot className="sticky bottom-0 z-20 bg-background"><tr className="bg-muted/60 font-semibold [&>td]:px-3 [&>td]:py-2">
             <td className="sticky left-0 bg-muted/60">Total livré au restaurant</td>
             {totauxLivres.map((t, i) => <td key={i} className="text-right">{t > 0 ? qte(t) : ""}</td>)}
             <td className="text-right">{qte(totauxLivres.reduce((a, b) => a + b, 0))}</td>

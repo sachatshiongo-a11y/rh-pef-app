@@ -96,9 +96,9 @@ export async function HistoriquePaie({ sp }: { sp: SPHistorique }) {
       </div>
 
       {/* Ordinateur : tableau. */}
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
+      <div className="tableau-normal hidden rounded-lg border lg:block">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
+          <thead className="en-tete-collante bg-muted text-left">
             <tr>
               <th className="px-3 py-2">Période</th>
               <th className="px-3 py-2">Statut</th>

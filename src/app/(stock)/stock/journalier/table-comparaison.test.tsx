@@ -78,11 +78,15 @@ describe("onglet Comparaison, tableau de la semaine", () => {
     expect(sel[4]!.className).toContain("bg-muted/60");
   });
 
-  it("l'article est figé à gauche, l'en-tête en haut, le total à droite ; les rubriques se distinguent", () => {
+  it("l'article est figé à gauche, le total à droite ; la page défile (tableau normal : hauteur naturelle, défilement de côté seul) ; les rubriques se distinguent", () => {
     const div = monter([FARINE, L({ designation: "Coca", categorie: "Boissons" })]);
     const s = semaine(div);
-    expect(s.querySelector("thead")!.className).toContain("sticky");
-    expect(s.querySelector("thead")!.className).toContain("top-0");
+    // Décision de la Direction (2026-10-08) : plus de boîte à défilement interne. Tableau trop large (3 valeurs
+    // par jour) : défilement horizontal seul, donc pas d'en-tête collant (un overflow-x casse le collant vertical).
+    const boite = s.querySelector("table")!.parentElement!;
+    expect(boite.className).toContain("overflow-x-auto");
+    expect(boite.className).not.toMatch(/max-h-|overflow-y|overflow-auto/);
+    expect(s.querySelector("thead")!.className).not.toContain("sticky");
     expect(s.querySelector('tr[data-article="Farine"] td')!.className).toContain("sticky left-0");
     expect(s.querySelector("thead th")!.className).toContain("sticky left-0");
     const tds = [...s.querySelectorAll('tr[data-article="Farine"] td')];

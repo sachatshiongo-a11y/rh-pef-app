@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "./actions";
 import { StatusActions } from "./status-actions";
 import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { useHauteurBarreCollante } from "@/components/bulk-bar";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -153,6 +154,8 @@ export function PaieBulk({
   }
 
   const n = idsSelection.length;
+  // La barre n'existe qu'à la sélection : elle publie sa hauteur pour que l'en-tête des tableaux se colle dessous.
+  const refBarre = useHauteurBarreCollante(n > 0);
   const avisEcartes = messageEcartes(ecartes);
 
   return (
@@ -167,7 +170,7 @@ export function PaieBulk({
       )}
       {/* Barre d'actions groupées */}
       {n > 0 && (
-        <div className="sticky colle-sous-entete z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
+        <div ref={refBarre} className="sticky colle-sous-entete z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
           <span className="text-sm font-medium">{n} sélectionné(s) :</span>
           {estAdmin && (
             <>
@@ -268,11 +271,11 @@ function Groupe({
       <h2 className="mb-2 text-base font-semibold">
         {titre} <span className="font-normal text-muted-foreground">({rows.length})</span>
       </h2>
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      <div className="tableau-normal-xl rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
+          <thead className="en-tete-collante-xl bg-muted text-left">
             <tr>
-              <th className="w-8 px-3 py-2">
+              <th className="w-8 px-2 py-2">
                 <input
                   type="checkbox"
                   checked={tousCoches}
@@ -280,21 +283,21 @@ function Groupe({
                   aria-label={`Tout sélectionner — ${titre}`}
                 />
               </th>
-              <th className="px-3 py-2">Matricule</th>
-              <th className="px-3 py-2">Nom</th>
-              <th className="px-3 py-2 text-right">Brut $</th>
-              <th className="px-3 py-2 text-right">Salaire net $</th>
-              <th className="px-3 py-2 text-right">Salaire net CDF</th>
-              <th className="px-3 py-2 text-right">Total versé $</th>
-              <th className="px-3 py-2">Statut</th>
-              <th className="px-3 py-2">Bulletin</th>
-              <th className="px-3 py-2 text-right">Actions</th>
+              <th className="px-2 py-2">Matricule</th>
+              <th className="px-2 py-2">Nom</th>
+              <th className="px-2 py-2 text-right">Brut $</th>
+              <th className="px-2 py-2 text-right">Salaire net $</th>
+              <th className="px-2 py-2 text-right">Salaire net CDF</th>
+              <th className="px-2 py-2 text-right">Total versé $</th>
+              <th className="px-2 py-2">Statut</th>
+              <th className="px-2 py-2">Bulletin</th>
+              <th className="px-2 py-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((l) => (
               <tr key={l.id} className={`border-t ${selection.has(cleSelection(l)) ? "bg-primary/5" : ""}`}>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2">
                   <input
                     type="checkbox"
                     checked={selection.has(cleSelection(l))}
@@ -302,28 +305,28 @@ function Groupe({
                     aria-label={`Sélectionner ${l.nom}`}
                   />
                 </td>
-                <td className="px-3 py-2 font-mono text-xs">{l.matricule}</td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2 font-mono text-xs">{l.matricule}</td>
+                <td className="px-2 py-2">
                   <EmployeeName id={l.employeeId} nom={l.nom} photoUrl={l.photoUrl} />
                   <BadgeReference sourceReference={l.sourceReference} motifReference={l.motifReference} avertissements={l.avertissements} />
                 </td>
-                <td className="px-3 py-2 text-right">{money(l.salBrutUSD)}</td>
-                <td className="px-3 py-2 text-right">{money(l.salaireNetUSD)}</td>
-                <td className="px-3 py-2 text-right">
+                <td className="whitespace-nowrap px-2 py-2 text-right">{money(l.salBrutUSD)}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-right">{money(l.salaireNetUSD)}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-right">
                   {l.salaireNetCDF.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} CDF
                 </td>
-                <td className="px-3 py-2 text-right">{money(l.totalVerseUSD)}</td>
-                <td className="px-3 py-2">
+                <td className="whitespace-nowrap px-2 py-2 text-right">{money(l.totalVerseUSD)}</td>
+                <td className="px-2 py-2">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_STATUT[l.statutPaiement]}`}>
                     {LIBELLE_STATUT[l.statutPaiement]}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs">
+                <td className="whitespace-nowrap px-2 py-2 text-xs">
                   <TelechargerLien href={`/paie/bulletin/${l.id}?devise=USD&dl=1`} className="text-primary underline" title="Télécharger le bulletin en USD">$</TelechargerLien>
                   {" · "}
                   <TelechargerLien href={`/paie/bulletin/${l.id}?devise=CDF&dl=1`} className="text-primary underline" title="Télécharger le bulletin en CDF">CDF</TelechargerLien>
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2">
                   <StatusActions
                     payrollLineId={l.id}
                     statut={l.statutPaiement}

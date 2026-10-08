@@ -200,14 +200,14 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
       </div>
 
       {/* Ordinateur : tableau détaillé. */}
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
+      <div className="tableau-normal hidden rounded-lg border lg:block">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left">
+        <thead className="en-tete-collante bg-muted text-left">
           <tr>
             <th className="px-3 py-2">Matricule</th>
             <th className="px-3 py-2">Nom et prénom</th>
             <th className="px-3 py-2">Poste</th>
-            <th className="px-3 py-2">Secteur</th>
+            <th className="px-3 py-2 max-xl:hidden">Secteur</th>
             <th className="px-3 py-2 text-right">Salaire mensuel $</th>
             <th className="px-3 py-2 text-right">Heures hebdo.</th>
             <th className="px-3 py-2">Contrat</th>
@@ -226,7 +226,7 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
                 </Link>
               </td>
               <td className="px-3 py-2">{e.poste}</td>
-              <td className="px-3 py-2">{e.secteur}</td>
+              <td className="px-3 py-2 max-xl:hidden">{e.secteur}</td>
               <td className="px-3 py-2 text-right">{formatMoney(Number(e.salaireMensuel))}</td>
               <td className="px-3 py-2 text-right">{Number(e.heuresHebdomadaires)}</td>
               <td className="px-3 py-2">{e.contrat}</td>

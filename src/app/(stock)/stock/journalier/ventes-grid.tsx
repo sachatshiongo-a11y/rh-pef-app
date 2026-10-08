@@ -101,9 +101,9 @@ export function VentesGrid({ lignes, jours, ventes, peutModifier }: {
         <VueJourOuSemaine
           jour={<ListeVentesJour visibles={visibles} total={lignes.length} vide={lignes.length === 0} jours={jours} valeur={valeur} totalJour={totalJour} peutModifier={peutModifier} onEnregistrer={onEnregistrer} deuxEspaces={deuxEspaces} />}
           semaine={
-        <div className="max-h-[70vh] overflow-auto rounded-lg border [scrollbar-gutter:stable]">
+        <div className="tableau-normal-xl rounded-lg border">
           <table data-tableur="" className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm">
-            <thead className="sticky top-0 z-20 bg-muted text-left shadow-sm">
+            <thead className="en-tete-collante-xl bg-muted text-left shadow-sm">
               <tr className="[&>th]:border-b [&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
                 <th className="sticky left-0 z-30 bg-muted">Désignation</th>
                 {jours.map((j) => (

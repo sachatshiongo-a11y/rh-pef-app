@@ -132,7 +132,7 @@ export function RestaurantGrille({
         Sous chaque comptage : <span className="font-medium text-emerald-800">Reçu du dépôt</span> (sorties « Livraison restaurant » du jour, lecture seule). « Stock théorique » = dernier comptage + livraisons reçues depuis ; le jour d&apos;un comptage, le comptage fait foi.
       </p>
 
-      {/* Défilement interne (vertical + horizontal) avec en-tête figé, comme les catalogues. */}
+      {/* Tableau « normal » : la page défile, seul le défilement horizontal subsiste (grille large : 12 colonnes et plus). */}
       <ZoneTableur>
       <VueJourOuSemaine
         jour={
@@ -143,9 +143,9 @@ export function RestaurantGrille({
           />
         }
         semaine={
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[60rem] border-separate border-spacing-0 text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left shadow-sm">
+          <thead className="bg-muted text-left shadow-sm">
             <tr className="[&>th]:border-b [&>th]:px-2 [&>th]:py-2 [&>th]:font-semibold">
               {estDirection && (
                 <th className="w-8 max-lg:sticky max-lg:left-0 max-lg:z-20 max-lg:bg-muted">
