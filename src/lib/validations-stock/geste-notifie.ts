@@ -27,10 +27,14 @@ import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
+import { avantApres } from "@/lib/date-sortie";
 
 export type AuteurGeste = { id: string; nom: string; role: Role };
 
 export type LigneGeste = { articleId: string; designation: string; unite: string | null; quantite: number };
+
+/** Une sortie dont la date a été changée (date d'origine, motif inchangé). */
+export type SortieRedatee = LigneGeste & { ancienne: Date; categorieSortie: string | null };
 
 export type GesteStock =
   | {
@@ -49,7 +53,9 @@ export type GesteStock =
   | { genre: "ACHAT_LEGUMES"; nbLignes: number; montantsCDF: (number | null)[] }
   | { genre: "RECEPTION"; bonDeCommandeId: string; numero: string; fournisseurNom: string | null; nbLignes: number; complete: boolean }
   /** Rattachement AUTOMATIQUE au stock du restaurant par le bouton du bandeau (lib/rattachement-auto.ts). */
-  | { genre: "RATTACHEMENT_RESTO"; declencheur: "SORTIE" | "BOUTON"; rattaches: string[]; crees: string[] };
+  | { genre: "RATTACHEMENT_RESTO"; declencheur: "SORTIE" | "BOUTON"; rattaches: string[]; crees: string[] }
+  /** Date de sorties changée (2026-10-08) : `nouvelle` = date pure du jour retenu. */
+  | { genre: "DATE_SORTIE"; nouvelle: Date; sorties: SortieRedatee[] };
 
 /** Fenêtre de regroupement des mouvements d'un même auteur (voir l'en-tête). */
 export const FENETRE_REGROUPEMENT_MS = 10 * 60_000;
@@ -78,6 +84,20 @@ export function lienMouvements(g: Extract<GesteStock, { genre: "MOUVEMENT" }>): 
   p.set("mois", `${g.date.getUTCFullYear()}-${g.date.getUTCMonth() + 1}`);
   p.set("motif", g.type === "ENTREE" ? "autres" : g.categorieSortie === "LIVRAISON_RESTAURANT" ? "livraison" : g.categorieSortie === "PERTE" ? "perte" : "sans");
   if (g.lignes.length === 1) p.set("articleId", g.lignes[0].articleId);
+  return `/stock/mouvements?${p.toString()}`;
+}
+
+/** Lien d'un changement de date : Mouvements du mois de la NOUVELLE date ; motif et article s'ils sont communs. */
+export function lienDateSortie(g: Extract<GesteStock, { genre: "DATE_SORTIE" }>): string {
+  const p = new URLSearchParams();
+  p.set("mois", `${g.nouvelle.getUTCFullYear()}-${g.nouvelle.getUTCMonth() + 1}`);
+  const motifs = new Set(g.sorties.map((s) => s.categorieSortie));
+  if (motifs.size === 1) {
+    const m = [...motifs][0];
+    p.set("motif", m === "LIVRAISON_RESTAURANT" ? "livraison" : m === "PERTE" ? "perte" : "sans");
+  }
+  const articles = new Set(g.sorties.map((s) => s.articleId));
+  if (articles.size === 1) p.set("articleId", [...articles][0]!);
   return `/stock/mouvements?${p.toString()}`;
 }
 
@@ -131,6 +151,15 @@ export function texteGeste(auteurNom: string, g: GesteStock): TexteGeste {
       return {
         message: borne(`Achat de légumes enregistré par ${auteurNom} — ${pluriel(g.nbLignes, "ligne")}, ${total}${chiffres.length > 0 ? sansMontant(g.nbLignes - chiffres.length) : ""}`),
         lien: "/stock/legumes", titre: "Achat de légumes enregistré", cle: null,
+      };
+    }
+    case "DATE_SORTIE": {
+      const n = g.sorties.length;
+      const noms = [...new Set(g.sorties.map((x) => x.designation))].join(", ");
+      const tete = n === 1 ? "Date d'une sortie changée" : `Date de ${formaterNombre(n)} sorties changée`;
+      return {
+        message: borne(`${tete} par ${auteurNom} : ${avantApres(g.sorties.map((x) => x.ancienne), g.nouvelle)} — ${noms}`),
+        lien: lienDateSortie(g), titre: "Date de sortie changée", cle: null,
       };
     }
     case "RECEPTION":

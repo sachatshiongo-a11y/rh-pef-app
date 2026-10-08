@@ -109,7 +109,7 @@ describe("chemins d'écriture des factures et paiements", () => {
 });
 
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
-  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "rattacherAutomatiquement"];
+  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
     const fautifs: string[] = [];
     for (const p of fichiers(path.join(SRC, "app"))) {
@@ -149,7 +149,10 @@ const CLASSEMENT_NOTIFIE: Record<string, SortNotifie> = {
 };
 // Le geste manuel passe par le cœur : l'action de l'écran Mouvements doit l'appeler (jamais ecrireMouvementsTx en direct).
 const VIA_COEUR: Record<string, { nom: string; appel: string }[]> = {
-  "app/(stock)/stock/mouvements/actions.ts": [{ nom: "mouvementManuel", appel: "appliquerMouvementManuel(" }],
+  "app/(stock)/stock/mouvements/actions.ts": [
+    { nom: "mouvementManuel", appel: "appliquerMouvementManuel(" },
+    { nom: "changerDateSorties", appel: "appliquerChangementDateSorties(" }, // date d'une sortie (2026-10-08)
+  ],
 };
 
 const CREE_PRISMA = /\b(?:mouvementStock|achatLegume|factureFournisseur|reception)\.(?:create|createMany|createManyAndReturn|upsert)\s*\(/;
@@ -280,5 +283,84 @@ describe("toute sortie de stock porte un motif (2026-10-07)", () => {
     expect(fautesMotif(sans, { sort: "ENTREE_SEULE", pourquoi: "" })).toHaveLength(1);
     expect(fautesMotif('tx.mouvementStock.create({ data: { type: "ENTREE", x: f(1) } })', { sort: "ENTREE_SEULE", pourquoi: "" })).toEqual([]);
     expect(fautesMotif("export async function ecrireMouvementsTx(tx, u, m) {\n  await tx.mouvementStock.create({ data: { type: m.type } });\n}\n", { sort: "COEUR_GARDE", fonction: "ecrireMouvementsTx", pourquoi: "" })).toHaveLength(1);
+  });
+});
+
+// ── RÉÉCRITURE D'UN MOUVEMENT EXISTANT (et surtout de sa DATE) — demande de Sacha du 2026-10-08 ────────
+// Un mouvement déjà écrit ne se réécrit que par des chemins CONNUS, chacun avec la liste fermée des
+// champs qu'il touche. La DATE d'un mouvement ne change que par le cœur `date-sortie.ts` : sorties
+// seules, période figée (ancienne ET nouvelle date), comptage entre les deux dates, réconciliation en
+// attente, journal, et notification de la Direction pour un compte non-Direction. Un nouvel écran qui
+// redaterait un mouvement sans ces gardes fait échouer ce test.
+type SortReecriture = { champs: string[]; pourquoi: string };
+const CLASSEMENT_REECRITURE: Record<string, SortReecriture> = {
+  "app/(stock)/stock/mouvements/actions.ts": { champs: ["categorieSortie", "raisonSortie", "origine"], pourquoi: "Requalification du motif des sorties : Direction seule ; ni quantité ni date." },
+  "app/(stock)/stock/catalogue/actions.ts": { champs: ["articleId"], pourquoi: "Fusion d'articles : les mouvements suivent l'article conservé (Direction seule)." },
+  "app/(stock)/stock/fournisseurs/actions.ts": { champs: ["fournisseurId"], pourquoi: "Fusion de fournisseurs (Direction seule)." },
+  "lib/validations-stock/date-sortie.ts": { champs: ["date"], pourquoi: "Changer la date d'une sortie : cœur gardé (voir son en-tête), appelé par mouvements/actions.ts (Direction seule)." },
+};
+const REECRIT_MOUVEMENT = /\bmouvementStock\.(?:update|updateMany|upsert)\s*\(/g;
+const REECRIT_MOUVEMENT_SQL = /UPDATE\s+"stock"\."MouvementStock"/i;
+const reecrivains = () => fichiers(SRC).filter((p) => { const s = fs.readFileSync(p, "utf8"); return new RegExp(REECRIT_MOUVEMENT.source).test(s) || REECRIT_MOUVEMENT_SQL.test(s); }).map(rel).sort();
+
+/** Champs écrits par chaque appel de réécriture (`data: { a: …, b: … }`, clés de premier niveau). */
+function champsReecrits(source: string): string[][] {
+  const out: string[][] = [];
+  for (const m of source.matchAll(REECRIT_MOUVEMENT)) {
+    let i = m.index! + m[0].length, prof = 1;
+    while (i < source.length && prof > 0) { if (source[i] === "(") prof++; else if (source[i] === ")") prof--; i++; }
+    const appel = source.slice(m.index!, i);
+    const d = /\bdata:\s*\{/.exec(appel);
+    if (!d) { out.push(["<data illisible>"]); continue; }
+    // Segments de premier niveau du littéral `data`, séparés par les virgules de profondeur 1.
+    const segments: string[] = [];
+    let j = d.index + d[0].length, p = 1, debut = j;
+    for (; j < appel.length && p > 0; j++) {
+      const c = appel[j];
+      if (c === "{" || c === "(" || c === "[") p++;
+      else if (c === "}" || c === ")" || c === "]") p--;
+      if ((c === "," && p === 1) || p === 0) { segments.push(appel.slice(debut, j)); debut = j + 1; }
+    }
+    // « clé: valeur » → clé ; raccourci « { date } » → date ; décomposition « ...x » : illisible.
+    const cles = [...new Set(segments.map((x) => x.trim()).filter(Boolean).map((x) => (x.startsWith("...") ? "<décomposition>" : x.split(":")[0]!.trim())))];
+    out.push(cles);
+  }
+  return out;
+}
+
+describe("réécriture d'un mouvement existant : chemins et champs connus (2026-10-08)", () => {
+  it("chaque fichier qui réécrit un mouvement est classé, sans classement périmé", () => {
+    const trouves = reecrivains();
+    expect(trouves.filter((f) => !(f in CLASSEMENT_REECRITURE))).toEqual([]);
+    expect(Object.keys(CLASSEMENT_REECRITURE).filter((f) => !trouves.includes(f))).toEqual([]);
+    expect(trouves.length).toBeGreaterThanOrEqual(4);
+  });
+  it("chaque réécriture ne touche que les champs de son classement ; aucune en SQL brut", () => {
+    const fautes: string[] = [];
+    for (const [f, c] of Object.entries(CLASSEMENT_REECRITURE)) {
+      const src = fs.readFileSync(path.join(SRC, f), "utf8");
+      if (REECRIT_MOUVEMENT_SQL.test(src)) fautes.push(`${f} → UPDATE SQL brut (champs illisibles)`);
+      for (const cles of champsReecrits(src)) for (const k of cles) if (!c.champs.includes(k)) fautes.push(`${f} → ${k}`);
+    }
+    expect(fautes).toEqual([]);
+  });
+  it("seul le cœur date-sortie.ts change la DATE, et il porte toutes ses gardes et la notification", () => {
+    const redatent = Object.entries(CLASSEMENT_REECRITURE).filter(([, c]) => c.champs.includes("date")).map(([f]) => f);
+    expect(redatent).toEqual(["lib/validations-stock/date-sortie.ts"]);
+    const src = fs.readFileSync(path.join(SRC, "lib/validations-stock/date-sortie.ts"), "utf8");
+    const tx = corps(src, "changerDateSortiesTx") ?? "";
+    for (const garde of [/m\.type !== "SORTIE"/, /estDansPeriodeFigee\(nouvelle, borne\)/, /estDansPeriodeFigee\(m\.date, borne\)/, /ligneComptage\.findMany\(\{ where: \{ articleId: \{ in: idsChanger \}, session: \{ date: \{ gte: lo, lte: hi \} \} \}/, /type: "AJUSTEMENT", articleId: \{ in: idsChanger \}, date: \{ gte: lo, lte: hi \}/, /cibleDemandeStock\.findMany\(\{ where: \{ cle: \{ in: idsChanger\.map\(cleComptage\) \}/, /journaliserPlusieurs\(/, /type: "SORTIE" \}, data: \{ date: nouvelle \}/]) {
+      expect(tx, `garde manquante : ${garde}`).toMatch(garde);
+    }
+    const geste = corps(src, "appliquerChangementDateSorties") ?? "";
+    expect(geste).toContain("lireNouvelleDateSortie(");
+    expect(geste).toContain(NOTIFIE);
+  });
+  it("le détecteur lit les champs, raccourci compris (falsification en sens inverse)", () => {
+    expect(champsReecrits("tx.mouvementStock.updateMany({ where: { id }, data: { date: nouvelle, quantite: f(1, 2) } })")).toEqual([["date", "quantite"]]);
+    expect(champsReecrits("prisma.mouvementStock.update({ where: { id }, data: { date } })")).toEqual([["date"]]);
+    expect(champsReecrits("prisma.mouvementStock.findMany({ where: { date } })")).toEqual([]);
+    expect(champsReecrits("tx.mouvementStock.updateMany({ data: { origine: g(a, b), ...reste } })")).toEqual([["origine", "<décomposition>"]]);
+    expect(REECRIT_MOUVEMENT_SQL.test('UPDATE "stock"."MouvementStock" SET "date" = $1')).toBe(true);
   });
 });
