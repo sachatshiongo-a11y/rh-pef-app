@@ -16,7 +16,7 @@ const m = vi.hoisted(() => ({
   saisirHeures: vi.fn(async () => {}),
   saisirHeuresEnLot: vi.fn(async () => ({ ignores: [] as { employeeId: string; date: string }[] })),
   saisirPresence: vi.fn(async () => ({})),
-  saisirPresencesEnLot: vi.fn(async (_e: unknown[]) => ({ ignores: [] as { employeeId: string; date: string }[], erreur: undefined as string | undefined })),
+  saisirPresencesEnLot: vi.fn<(e: unknown[]) => Promise<{ ignores: { employeeId: string; date: string }[]; erreur?: string }>>(async () => ({ ignores: [] })),
 }));
 vi.mock("../heures-supp/actions", () => ({ saisirHeures: m.saisirHeures, saisirHeuresEnLot: m.saisirHeuresEnLot }));
 vi.mock("./actions", () => ({ saisirPresence: m.saisirPresence, saisirPresencesEnLot: m.saisirPresencesEnLot }));
