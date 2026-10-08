@@ -6,7 +6,7 @@ import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { ApercuDocumentBouton } from "@/components/apercu-document";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
-import type { PaymentStatus } from "@prisma/client";
+import { PaymentStatus, TypeDocument, LeaveStatus, type Prisma } from "@prisma/client";
 import { normTexte } from "@/lib/texte";
 import { salaireNetUSD } from "@/lib/paie-net";
 import { formaterNombre } from "@/lib/montant";
@@ -19,7 +19,7 @@ import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION } from "@/lib/atte
 import { chargerRegistre, filtresRegistre, ligneRegistre } from "../attestations/_registre";
 import { exigerPageRH } from "@/lib/garde-page";
 import { Pagination, ChampTaillePage } from "@/components/pagination";
-import { fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
+import { PLAFOND_TOUT, fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -70,16 +70,23 @@ export default async function DocumentsPage({
   const q = (sp.q ?? "").trim();
   const { page, par } = lirePagination(sp); // 50 / 100 / Tout, sur l'onglet affiché
 
-  const [bulletinsAll, contratsAll, documentsAll, congesAll, fichesAll] = await Promise.all([
-    prisma.payrollLine.findMany({
-      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: true },
-      orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }, { employee: { nom: "asc" } }],
-      take: 1000,
-    }),
-    prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: [{ dateDebut: "desc" }, { createdAt: "desc" }], take: 1000 }),
-    prisma.documentEmploye.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { createdAt: "desc" }, take: 1000 }),
-    prisma.leaveRequest.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: { dateEnreg: "desc" }, take: 1000 }),
-    prisma.fichePoste.findMany({ orderBy: { poste: "asc" }, take: 1000 }),
+  // Plus de plafond silencieux (`take: 1000`, qui cachait les plus anciens bulletins) : les trois listes qui
+  // grandissent (bulletins, documents RH, demandes de congé) sont filtrées EN SQL et lues PAR PAGE (count + skip/take) ;
+  // les contrats (leur classement dépend de ceux du même salarié) et les fiches de poste (une par poste) restent
+  // chargés en entier, ils sont petits.
+  const annees_ = (a: number) => ({ gte: new Date(Date.UTC(a, 0, 1)), lt: new Date(Date.UTC(a + 1, 0, 1)) });
+  const moisPlage = (a: number, m: number) => ({ gte: new Date(Date.UTC(a, m - 1, 1)), lt: new Date(Date.UTC(a, m, 1)) });
+  /** Statut ou type inconnu dans l'adresse : aucune ligne (comme l'ancien filtre en mémoire), jamais « tout ». */
+  const AUCUN = { id: { in: [] as string[] } };
+  const enumOk = (valeurs: readonly string[]) => (!statut || valeurs.includes(statut));
+
+  const [anneesRuns, bornesContrats, bornesDocs, bornesConges, contratsAll, fichesAll] = await Promise.all([
+    prisma.payrollRun.groupBy({ by: ["annee"] }),
+    prisma.contrat.aggregate({ _min: { dateDebut: true }, _max: { dateDebut: true } }),
+    prisma.documentEmploye.aggregate({ _min: { createdAt: true }, _max: { createdAt: true } }),
+    prisma.leaveRequest.aggregate({ _min: { dateDebut: true }, _max: { dateDebut: true } }),
+    prisma.contrat.findMany({ include: { employee: { select: { id: true, nom: true, photoUrl: true } } }, orderBy: [{ dateDebut: "desc" }, { createdAt: "desc" }, { id: "asc" }] }),
+    prisma.fichePoste.findMany({ orderBy: { poste: "asc" } }),
   ]);
 
   // Toutes les fiches de poste (le PDF est générable pour chacune), filtrées par la recherche texte.
@@ -87,33 +94,68 @@ export default async function DocumentsPage({
     (f) => !q || normTexte(f.poste).includes(normTexte(q)) || normTexte(f.fichierNom ?? "").includes(normTexte(q))
   );
 
-  const annees = [
-    ...new Set([
-      ...bulletinsAll.map((b) => b.payrollRun.annee),
-      ...contratsAll.map((c) => new Date(c.dateDebut).getFullYear()),
-      ...documentsAll.map((d) => new Date(d.createdAt).getFullYear()),
-      ...congesAll.map((c) => new Date(c.dateDebut).getFullYear()),
-    ]),
-  ].sort((a, b) => b - a);
+  // Années proposées : celles des paies, plus la plage couverte par les contrats, documents et congés.
+  const anneesSet = new Set<number>(anneesRuns.map((r) => r.annee));
+  for (const b of [bornesContrats._min.dateDebut, bornesContrats._max.dateDebut, bornesDocs._min.createdAt, bornesDocs._max.createdAt, bornesConges._min.dateDebut, bornesConges._max.dateDebut]) {
+    if (b) anneesSet.add(new Date(b).getUTCFullYear());
+  }
+  const bas = Math.min(...[bornesContrats._min.dateDebut, bornesDocs._min.createdAt, bornesConges._min.dateDebut].filter((d): d is Date => !!d).map((d) => new Date(d).getUTCFullYear()), Infinity);
+  const haut = Math.max(...[bornesContrats._max.dateDebut, bornesDocs._max.createdAt, bornesConges._max.dateDebut].filter((d): d is Date => !!d).map((d) => new Date(d).getUTCFullYear()), -Infinity);
+  if (Number.isFinite(bas) && Number.isFinite(haut)) for (let a = bas; a <= haut; a++) anneesSet.add(a);
+  const annees = [...anneesSet].sort((a, b) => b - a);
 
-  const bulletins = bulletinsAll.filter(
-    (b) =>
-      (!annee || b.payrollRun.annee === annee) &&
-      (!mois || b.payrollRun.mois === mois) &&
-      (!statut || b.statutPaiement === statut)
-  );
+  const whereBulletins: Prisma.PayrollLineWhereInput = {
+    ...(annee || mois ? { payrollRun: { ...(annee ? { annee } : {}), ...(mois ? { mois } : {}) } } : {}),
+    ...(statut ? (enumOk(Object.values(PaymentStatus)) ? { statutPaiement: statut as PaymentStatus } : AUCUN) : {}),
+  };
+  const whereDocuments: Prisma.DocumentEmployeWhereInput = {
+    ...(annee ? { createdAt: annees_(annee) } : {}),
+    ...(statut ? (enumOk(Object.values(TypeDocument)) ? { type: statut as TypeDocument } : AUCUN) : {}),
+  };
+  // Congés : l'année et/ou le mois portent sur la date de DÉBUT ; un mois sans année vaut pour toutes les années.
+  const plagesConges = mois ? (annee ? [moisPlage(annee, mois)] : annees.map((a) => moisPlage(a, mois))) : annee ? [annees_(annee)] : [];
+  const whereConges: Prisma.LeaveRequestWhereInput = {
+    ...(plagesConges.length > 0 ? { OR: plagesConges.map((r) => ({ dateDebut: r })) } : mois ? AUCUN : {}),
+    ...(statut ? (enumOk(Object.values(LeaveStatus)) ? { statut: statut as LeaveStatus } : AUCUN) : {}),
+  };
+  const [nbBulletins, nbDocuments, nbConges] = await Promise.all([
+    prisma.payrollLine.count({ where: whereBulletins }),
+    prisma.documentEmploye.count({ where: whereDocuments }),
+    prisma.leaveRequest.count({ where: whereConges }),
+  ]);
   const contrats = contratsAll.filter(
     (c) => (!annee || new Date(c.dateDebut).getFullYear() === annee) && (!statut || c.statut === statut)
   );
-  const documents = documentsAll.filter(
-    (d) => (!annee || new Date(d.createdAt).getFullYear() === annee) && (!statut || d.type === statut)
-  );
-  const conges = congesAll.filter(
-    (c) =>
-      (!annee || new Date(c.dateDebut).getFullYear() === annee) &&
-      (!mois || new Date(c.dateDebut).getMonth() + 1 === mois) &&
-      (!statut || c.statut === statut)
-  );
+  const nbListes = { bulletins: nbBulletins, contrats: contrats.length, documents: nbDocuments, conges: nbConges, fiches: fiches.length } as const;
+
+  // Pagination de l'onglet actif. Bulletins, documents et congés : lus par page en base ; contrats, fiches et
+  // attestations : tranche d'une liste déjà chargée. Les compteurs des onglets portent sur TOUT le filtre.
+  const enBase = onglet === "bulletins" || onglet === "documents" || onglet === "conges";
+  const totalActif = onglet === "bulletins" ? nbBulletins : onglet === "contrats" ? contrats.length : onglet === "documents" ? nbDocuments
+    : onglet === "conges" ? nbConges : onglet === "attestations" ? -1 : fiches.length;
+  const [attestations, nbAttestations] = await Promise.all([
+    onglet === "attestations" ? chargerRegistre(filtresRegistre({ get: (k: string) => (k === "type" ? sp.type ?? null : k === "statut" ? sp.statut ?? null : null) })) : Promise.resolve([]),
+    prisma.attestation.count(),
+  ]);
+  const totalOnglet = totalActif === -1 ? attestations.length : totalActif;
+  const fen = fenetrePage(totalOnglet, page, par, enBase ? PLAFOND_TOUT : undefined);
+  const [bulletinsP, documentsP, congesP] = await Promise.all([
+    onglet === "bulletins" ? prisma.payrollLine.findMany({
+      where: whereBulletins,
+      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: true },
+      orderBy: [{ payrollRun: { annee: "desc" } }, { payrollRun: { mois: "desc" } }, { employee: { nom: "asc" } }, { id: "asc" }],
+      skip: fen.skip, take: fen.take,
+    }) : Promise.resolve([]),
+    onglet === "documents" ? prisma.documentEmploye.findMany({
+      where: whereDocuments, include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take,
+    }) : Promise.resolve([]),
+    onglet === "conges" ? prisma.leaveRequest.findMany({
+      where: whereConges, include: { employee: { select: { id: true, nom: true, photoUrl: true } } },
+      orderBy: [{ dateEnreg: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take,
+    }) : Promise.resolve([]),
+  ]);
+  const contratsP = tranche(contrats, fen), fichesP = tranche(fiches, fen), attestationsP = tranche(attestations, fen);
 
   // Signatures des bulletins de la PAGE affichée : UNE requête (50 / 100 / Tout bulletins, pas toute la liste filtrée). La colonne
   // « Signature » lit l'état DÉRIVÉ du document — un bulletin recalculé y repasse en « À resigner »
@@ -122,7 +164,7 @@ export default async function DocumentsPage({
   const sigBulletins = await chargerSignatures(
     prisma,
     "BULLETIN",
-    onglet === "bulletins" ? tranche(bulletins, fenetrePage(bulletins.length, page, par)).filter((b) => b.statutPaiement !== "PAS_VALIDE").map((b) => b.id) : []
+    bulletinsP.filter((b) => b.statutPaiement !== "PAS_VALIDE").map((b) => b.id)
   );
 
   // Onglet Contrats : même classement que « Mes contrats » (un CDD échu s'y lit « expiré le … »),
@@ -163,20 +205,7 @@ export default async function DocumentsPage({
 
   // Onglet Attestations : le registre (mêmes filtres que son export Excel).
   const filtresAtt = filtresRegistre({ get: (k: string) => (k === "type" ? sp.type ?? null : k === "statut" ? sp.statut ?? null : null) });
-  const [attestations, nbAttestations] = await Promise.all([
-    onglet === "attestations" ? chargerRegistre(filtresAtt) : Promise.resolve([]),
-    prisma.attestation.count(),
-  ]);
   const qsExport = `/attestations/export?${new URLSearchParams({ ...(filtresAtt.type ? { type: filtresAtt.type } : {}), ...(filtresAtt.statut ? { statut: filtresAtt.statut } : {}) })}`;
-
-  // Pagination de l'onglet actif : les filtres ci-dessus portent sur TOUT l'ensemble (les compteurs des onglets
-  // aussi), on n'affiche que la tranche de la page. Les contrats gardent leurs signatures sur tout le filtre
-  // (le classement d'un contrat dépend de ceux du même salarié, qui peuvent être sur une autre page).
-  const totalOnglet = onglet === "bulletins" ? bulletins.length : onglet === "contrats" ? contrats.length : onglet === "documents" ? documents.length
-    : onglet === "conges" ? conges.length : onglet === "attestations" ? attestations.length : fiches.length;
-  const fen = fenetrePage(totalOnglet, page, par);
-  const bulletinsP = tranche(bulletins, fen), contratsP = tranche(contrats, fen), documentsP = tranche(documents, fen);
-  const congesP = tranche(conges, fen), fichesP = tranche(fiches, fen), attestationsP = tranche(attestations, fen);
 
   // Options du filtre statut selon l'onglet actif.
   const optionsStatut: { v: string; label: string }[] =
@@ -197,13 +226,13 @@ export default async function DocumentsPage({
               { v: "RESILIE", label: "Résilié" },
               { v: "TRANSFORME", label: "Transformé" },
             ]
-          : [...new Set(documentsAll.map((d) => d.type))].map((t) => ({ v: t, label: t }));
+          : Object.values(TypeDocument).map((t) => ({ v: t, label: t }));
 
   const onglets = [
-    { cle: "bulletins", label: "Bulletins de paie", n: bulletins.length },
+    { cle: "bulletins", label: "Bulletins de paie", n: nbBulletins },
     { cle: "contrats", label: "Contrats", n: contrats.length },
-    { cle: "documents", label: "Documents RH", n: documents.length },
-    { cle: "conges", label: "Demandes de congé", n: conges.length },
+    { cle: "documents", label: "Documents RH", n: nbDocuments },
+    { cle: "conges", label: "Demandes de congé", n: nbConges },
     { cle: "fiches", label: "Fiches de poste", n: fiches.length },
     { cle: "attestations", label: "Attestations", n: onglet === "attestations" ? attestations.length : nbAttestations },
   ];
@@ -394,7 +423,7 @@ export default async function DocumentsPage({
             )}
           </div>
         ))}
-        {((onglet === "attestations" && attestations.length === 0) || (onglet === "bulletins" && bulletins.length === 0) || (onglet === "contrats" && contrats.length === 0) || (onglet === "documents" && documents.length === 0) || (onglet === "conges" && conges.length === 0) || (onglet === "fiches" && fiches.length === 0)) && (
+        {((onglet === "attestations" && attestations.length === 0) || (onglet === "bulletins" && nbBulletins === 0) || (onglet === "contrats" && contrats.length === 0) || (onglet === "documents" && nbDocuments === 0) || (onglet === "conges" && nbConges === 0) || (onglet === "fiches" && fiches.length === 0)) && (
           <EtatVide message="Rien à afficher." />
         )}
       </div>
@@ -437,7 +466,7 @@ export default async function DocumentsPage({
                     </td>
                   </tr>
                 ))}
-                <Vide n={bulletins.length} cols={7} />
+                <Vide n={nbBulletins} cols={7} />
               </tbody>
             </>
           )}
@@ -481,7 +510,7 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2">{d.fichierUrl ? <ApercuDocumentBouton href={d.fichierUrl} titre={`${d.nom} — ${d.employee.nom}`} libelle="Ouvrir" className="text-primary underline" /> : "—"}</td>
                   </tr>
                 ))}
-                <Vide n={documents.length} cols={5} />
+                <Vide n={nbDocuments} cols={5} />
               </tbody>
             </>
           )}
@@ -500,7 +529,7 @@ export default async function DocumentsPage({
                     <td className="px-3 py-2"><TelechargerLien href={`/conges/demande/${c.id}`} className="text-primary underline">PDF</TelechargerLien></td>
                   </tr>
                 ))}
-                <Vide n={conges.length} cols={6} />
+                <Vide n={nbConges} cols={6} />
               </tbody>
             </>
           )}
@@ -564,7 +593,7 @@ export default async function DocumentsPage({
         </table>
       </div>
 
-      <Pagination className="mt-4" total={totalOnglet} page={fen.page} par={par} chemin="/documents" params={sp} libelle="documents" />
+      <Pagination className="mt-4" plafondTout={enBase ? PLAFOND_TOUT : undefined} total={totalOnglet} page={fen.page} par={par} chemin="/documents" params={sp} libelle="documents" />
     </div>
   );
 }

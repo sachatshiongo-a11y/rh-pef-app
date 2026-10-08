@@ -153,3 +153,43 @@ describe("Documents — autres onglets", () => {
     expect(html).not.toContain('data-pagination=""');
   });
 });
+
+describe("Documents — plus de plafond à 1000 (lecture par page, filtres en SQL)", () => {
+  it("1 100 documents anciens en plus : le compteur d'onglet les compte, la dernière page atteint le plus ancien, l'année les isole", async () => {
+    const emp = await prisma.employee.findFirstOrThrow({ orderBy: { matricule: "asc" } });
+    await prisma.documentEmploye.createMany({
+      data: Array.from({ length: 1100 }, (_, i) => ({ employeeId: emp.id, type: "AUTRE" as const, nom: `Doc ancien ${String(i + 1).padStart(4, "0")}`, fichierUrl: "/x.pdf", createdAt: new Date(Date.UTC(2024, 5, 1) - i * 1000) })),
+    });
+    try {
+      const p1 = await rendre({ onglet: "documents" });
+      expect(texte(p1)).toContain("Documents RH (1230)");
+      expect(texte(p1)).toContain("1–50 sur 1230");
+      const derniere = await rendre({ onglet: "documents", page: "25" });
+      const noms = [...derniere.matchAll(/<td class="px-3 py-2">(Doc[^<]*)<\/td>/g)].map((m) => m[1]);
+      expect(noms).toHaveLength(30);
+      expect(noms[29]).toBe("Doc ancien 1100"); // le plus ancien est atteignable
+      const an = await rendre({ onglet: "documents", annee: "2024" });
+      expect(texte(an)).toContain("Documents RH (1100)");
+      expect(texte(an)).toContain("1–50 sur 1100");
+      expect(an).toMatch(/<option value="2024"/); // l'année ancienne est proposée
+    } finally {
+      await prisma.documentEmploye.deleteMany({ where: { nom: { startsWith: "Doc ancien" } } });
+    }
+  }, 60_000);
+
+  it("demandes de congé : l'année et le mois filtrent en base (un mois sans année vaut pour toutes les années)", async () => {
+    const emp = await prisma.employee.findFirstOrThrow({ orderBy: { matricule: "asc" } });
+    const mk = (d: string) => ({ employeeId: emp.id, type: "Congé annuel", dateDebut: new Date(d), dateFin: new Date(d), nbJours: 1, statut: "APPROUVE" as const });
+    await prisma.leaveRequest.createMany({ data: [mk("2025-11-03"), mk("2026-11-02"), mk("2026-03-02")] });
+    try {
+      expect(texte(await rendre({ onglet: "conges" }))).toContain("Demandes de congé (3)");
+      expect(texte(await rendre({ onglet: "conges", mois: "11" }))).toContain("Demandes de congé (2)");
+      expect(texte(await rendre({ onglet: "conges", annee: "2026", mois: "11" }))).toContain("Demandes de congé (1)");
+      expect(texte(await rendre({ onglet: "conges", annee: "2026" }))).toContain("Demandes de congé (2)");
+      expect(texte(await rendre({ onglet: "conges", statut: "REFUSE" }))).toContain("Demandes de congé (0)");
+      expect(texte(await rendre({ onglet: "conges", statut: "INCONNU" }))).toContain("Demandes de congé (0)");
+    } finally {
+      await prisma.leaveRequest.deleteMany({});
+    }
+  }, 60_000);
+});

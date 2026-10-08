@@ -34,7 +34,7 @@ export default async function EmployesPage({
   const whereActif = statut === "inactifs" ? { actif: false } : statut === "tous" ? {} : { actif: true };
 
   const [tous, parametres, identites, ecartees] = await Promise.all([
-    prisma.employee.findMany({ where: whereActif, orderBy: { nom: "asc" } }),
+    prisma.employee.findMany({ where: whereActif, orderBy: [{ nom: "asc" }, { id: "asc" }] }),
     vue === "transport" ? chargerParametresPaie() : Promise.resolve(null),
     estDirection ? chargerFichesIdentite() : Promise.resolve([]),
     estDirection ? chargerPairesEcartees() : Promise.resolve(new Set<string>()),
