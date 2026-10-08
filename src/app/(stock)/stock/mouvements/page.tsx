@@ -45,6 +45,7 @@ const versLite = (m: Mvt): MvtLite => {
     fournId: fourn?.id ?? null,
     fournNom: fourn?.nom ?? null,
     motif: m.categorieSortie,
+    dlcISO: m.dlc ? new Date(m.dlc).toISOString().slice(0, 10) : null, // date PURE (colonne @db.Date)
   };
 };
 

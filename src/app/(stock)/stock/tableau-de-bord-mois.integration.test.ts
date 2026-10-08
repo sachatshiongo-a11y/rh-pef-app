@@ -133,8 +133,12 @@ describe("accueil Stock — mois courant inchangé", () => {
     // Le bloc « Plats (disponibilité selon le stock) » (demande du 2026-09-30) : repéré de même (un
     // rendu statique ne montre que le repli de son Suspense ; le contenu est testé plus bas) ; le
     // reste de la page n'a pas bougé.
-    const { reste, retire: blocPlats } = retirerElement(sansCartes, "data-bloc-disponibilite-plats");
+    const { reste: sansPlats, retire: blocPlats } = retirerElement(sansCartes, "data-bloc-disponibilite-plats");
     expect(texte(blocPlats)).toContain("Plats : chargement…");
+    // Le bloc « DLC proches » (demande du 2026-10-08) : repéré de même ; indicatif, et dit comme tel.
+    const { reste, retire: blocDlc } = retirerElement(sansPlats, "data-bloc-dlc-proches");
+    expect(texte(blocDlc)).toContain("DLC proches");
+    expect(texte(blocDlc)).toContain("le logiciel ne suit pas les lots");
     const t = texte(reste);
     expect(t).toContain(" Le mois · septembre 2026 Mois Afficher");
     // Tout le reste : le texte d'avant, à l'identique et dans le même ordre.

@@ -40,6 +40,8 @@ export type MvtLite = {
   fournNom: string | null;
   /** Sortie : motif (LIVRAISON_RESTAURANT | PERTE ; null = sans motif). */
   motif?: string | null;
+  /** Entrée de la Liste d'achat : DLC saisie (AAAA-MM-JJ), facultative. */
+  dlcISO?: string | null;
 };
 
 const MOTIF_CHIP: Record<string, { texte: string; classe: string }> = {
@@ -195,6 +197,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                       <div className="min-w-0">
                         <Link href={`/stock/catalogue/${m.articleId}`} className="truncate font-medium text-primary hover:underline">{m.designation}</Link>
                         {m.origine && <div className="truncate text-[11px] text-muted-foreground">{m.origine}</div>}
+                        {m.dlcISO && <div data-dlc className="text-[11px] text-muted-foreground">DLC {m.dlcISO.slice(8, 10)}/{m.dlcISO.slice(5, 7)}/{m.dlcISO.slice(0, 4)}</div>}
                         {m.type === "SORTIE" && m.motif !== undefined && (
                           <span className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${MOTIF_CHIP[m.motif ?? ""]?.classe ?? MOTIF_CHIP[""]!.classe}`}>{MOTIF_CHIP[m.motif ?? ""]?.texte ?? m.motif}</span>
                         )}
