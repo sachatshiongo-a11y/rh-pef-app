@@ -57,6 +57,12 @@ export type ChargePaiement = {
   date: string; // date de paiement proposée, AAAA-MM-JJ (la Direction peut la corriger)
   factures: FactureDemande[];
   reglement: ReglementDemande | null; // présent seulement pour REGLEMENT
+  /**
+   * LOT payé en FRANCS (2026-10-08) : chaque facture soldée par reste × taux francs, au taux des
+   * Paramètres À LA VALIDATION (comme un règlement en francs). Absent = en dollars, comme avant.
+   * (« Marquer payée » d'UNE facture en francs est un REGLEMENT avec `montantCDF`.)
+   */
+  enFrancs?: true;
 };
 
 // ── Réconciliation (comptage) ───────────────────────────────────────────────
@@ -194,7 +200,8 @@ function lirePaiement(o: Record<string, unknown>): ChargePaiement {
     throw new ChargeIllisible("règlement inattendu");
   }
   if (o.mode === "SOLDE" && factures.length !== 1) throw new ChargeIllisible("« marquer payée » porte sur une seule facture");
-  return { v: 1, mode: o.mode, date, factures, reglement };
+  if (o.enFrancs !== undefined && (o.enFrancs !== true || o.mode !== "LOT")) throw new ChargeIllisible("lot en francs");
+  return { v: 1, mode: o.mode, date, factures, reglement, ...(o.enFrancs === true ? { enFrancs: true as const } : {}) };
 }
 
 function lireComptage(o: Record<string, unknown>): ChargeComptage {

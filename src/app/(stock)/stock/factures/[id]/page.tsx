@@ -88,7 +88,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {/* Un paiement déjà demandé se DÉCIDE (bloc ci-dessous) : pas de second geste de paiement. */}
-          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} />}
+          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} />}
           {!demande && <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} estDirection={estDirection} />}
           <Link href={retour ?? "/stock/factures"} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>

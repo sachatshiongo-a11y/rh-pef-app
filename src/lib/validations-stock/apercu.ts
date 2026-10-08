@@ -11,6 +11,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleValeur, lireChargeOuNull, valeursEgales, type NatureDemande } from "./charge";
 import { aUnEcart, etatLigneAValider, mouvementsDepuis } from "./comptage";
+import { francsPourReste } from "./reglement";
 
 export type ApercuFacture = { id: string; nom: string; numero: string | null; resteDemande: number; resteActuel: number | null; reglee: boolean };
 export type ApercuLigneComptage = {
@@ -30,7 +31,9 @@ export type ApercuDemande = {
   paiement: null | {
     mode: "SOLDE" | "LOT" | "REGLEMENT"; date: string; total: number | null; factures: ApercuFacture[];
     /** En francs : `montantUSD` = équivalent au taux des Paramètres d'AUJOURD'HUI (`tauxActuel`, null s'il manque) — celui qui sera appliqué si la Direction valide maintenant. */
-    reglement: null | { type: string; montantUSD: number | null; montantCDF: number | null; tauxActuel: number | null; mode: string | null; note: string | null };
+    reglement: null | { type: string; montantUSD: number | null; montantCDF: number | null; tauxActuel: number | null; mode: string | null; note: string | null; resteApres: number | null };
+    /** LOT payé en francs : francs à verser au taux d'AUJOURD'HUI (null sans taux) — celui de la validation s'il a lieu maintenant. */
+    lotFrancs: null | { totalCDF: number | null; tauxActuel: number | null };
   };
   comptage: null | { origine: string; nbLignes: number; valeurTotale: number | null; lignes: ApercuLigneComptage[] };
   article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
@@ -81,10 +84,18 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
         }
         const reste = factures[0]?.resteActuel;
         if (usd !== null && reste !== null && reste !== undefined && usd > reste + 0.009) base.alertes.push(`Le montant dépasse aujourd'hui le reste à payer (${usd.toFixed(2)} $ > ${reste.toFixed(2)} $).`);
-        reglement = { type: r.type, montantUSD: usd, montantCDF: cdf, tauxActuel, mode: r.modePaiement, note: r.note };
+        const resteApres = usd !== null && reste !== null && reste !== undefined ? Math.max(0, Math.round((reste - usd) * 100) / 100) : null;
+        reglement = { type: r.type, montantUSD: usd, montantCDF: cdf, tauxActuel, mode: r.modePaiement, note: r.note, resteApres };
+      }
+      let lotFrancs: NonNullable<ApercuDemande["paiement"]>["lotFrancs"] = null;
+      if (charge.enFrancs) {
+        const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { tauxChangeCDF: true } });
+        const t = Number(config?.tauxChangeCDF ?? 0) || null;
+        if (!t) base.alertes.push("Taux de change non configuré (Paramètres) : le lot en francs ne peut pas être converti.");
+        lotFrancs = { tauxActuel: t, totalCDF: t ? factures.reduce((x, f) => x + francsPourReste(f.resteDemande, t), 0) : null };
       }
       base.paiement = {
-        mode: charge.mode, date: charge.date, factures, reglement,
+        mode: charge.mode, date: charge.date, factures, reglement, lotFrancs,
         total: reglement ? reglement.montantUSD : factures.reduce((t, f) => t + f.resteDemande, 0),
       };
     } else if (d.nature === "MOUVEMENT_MANUEL" && "type" in charge) {

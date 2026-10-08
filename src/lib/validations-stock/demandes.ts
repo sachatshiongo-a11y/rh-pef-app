@@ -22,15 +22,17 @@ import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import { creerNotification, supprimerNotificationsPour } from "@/lib/notifications";
 import { envoyerPush } from "@/lib/push";
-import { formaterFC, formaterUSD } from "@/lib/montant";
+import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { jourKinshasaISO, lireDatePaiement } from "@/lib/date-paiement";
 import {
   CHAMPS_ARTICLE, NATURE_LIBELLE, cleMouvement, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
   type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargePaiement, type NatureDemande, type ReglementDemande,
 } from "./charge";
-import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit } from "./reglement";
+import { convertirFrancs, lireTauxReglement, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit } from "./reglement";
 import { apresMouvements, ecrireMouvementsTx, type MouvementSaisi } from "./mouvement";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
+import { prixArticleEnUSDTexte } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { MESSAGE_RAISON_PERTE, estMotifSortie, origineDuMotif, type MotifSortieObligatoire } from "@/lib/motif-sortie";
 import {
   aUnEcart, apresComptage, calculerLignes, ecrireComptageTx, etatLigneAValider, exigerExplications, mouvementsDepuis,
@@ -110,7 +112,7 @@ async function notifierNouvelleDemande(d: { id: string; resume: string; auteurNo
 // ── Paiement de facture ─────────────────────────────────────────────────────
 export type DemandePaiementSaisie =
   | { mode: "SOLDE"; factureId: string; dateStr?: string }
-  | { mode: "LOT"; factureIds: string[]; dateStr?: string }
+  | { mode: "LOT"; factureIds: string[]; dateStr?: string; enFrancs?: boolean }
   | { mode: "REGLEMENT"; factureId: string; dateStr?: string; reglement: ReglementDemande };
 
 /**
@@ -151,10 +153,16 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
       v: 1, mode: s.mode, date,
       factures: aRegler.map((f) => ({ id: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, resteUSD: f.resteAPayerUSD.toString() })),
       reglement: s.mode === "REGLEMENT" ? s.reglement : null,
+      ...(s.mode === "LOT" && s.enFrancs ? { enFrancs: true as const } : {}),
     };
     const total = aRegler.reduce((t, f) => t + Number(f.resteAPayerUSD), 0);
+    const lotFC = s.mode === "LOT" && s.enFrancs;
+    // Lot en francs : le taux est celui de la VALIDATION ; il doit exister dès la demande (refus lisible).
+    if (lotFC) await lireTauxReglement(tx);
     const resume =
-      s.mode === "LOT" && aRegler.length > 1
+      lotFC
+        ? `Payer ${aRegler.length > 1 ? `${aRegler.length} factures` : `la ${nomFacture(aRegler[0])}`} en francs le ${dateFr(date)} — ${formaterUSD(total)} en FC au taux du jour de la validation${aRegler.length > 1 ? ` (${aRegler.map((f) => (f.numero ? `${f.fournisseurNom} n° ${f.numero}` : f.fournisseurNom)).join(", ")})` : ""}`
+        : s.mode === "LOT" && aRegler.length > 1
         ? `Payer ${aRegler.length} factures le ${dateFr(date)} — ${formaterUSD(total)} (${aRegler.map((f) => (f.numero ? `${f.fournisseurNom} n° ${f.numero}` : f.fournisseurNom)).join(", ")})`
         : s.mode === "REGLEMENT"
           ? `${s.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de ${s.reglement.montantCDF !== null ? formaterFC(Number(s.reglement.montantCDF)) : formaterUSD(Number(s.reglement.montantUSD))} sur la ${nomFacture(aRegler[0])} le ${dateFr(date)}`
@@ -194,13 +202,18 @@ async function executerPaiementTx(tx: Tx, decideur: Acteur, d: { auteurNom: stri
     return [await reglerFactureTx(tx, decideur.id, f.id, { montant: courantes.get(f.id)!, dateStr: date, note: `Marquée payée (${trace})` })];
   }
   if (c.mode === "LOT") {
-    const regs = await reglerLotTx(tx, decideur.id, c.factures.map((f) => f.id), date, `Marquée payée (lot — ${trace})`);
+    const regs = await reglerLotTx(tx, decideur.id, c.factures.map((f) => f.id), date, `Marquée payée (lot${c.enFrancs ? " en francs" : ""} — ${trace})`, { enFrancs: c.enFrancs === true });
     if (regs.length !== c.factures.length) throw new ConflitDemande("Une facture du lot n'est plus à régler");
     return regs;
   }
   const r = c.reglement!;
   // En francs : conversion au taux des Paramètres MAINTENANT, comme le paiement direct de ce jour.
   const enFrancs = r.montantCDF !== null ? await convertirFrancs(tx, Number(r.montantCDF)) : null;
+  // Au taux de CE jour, les francs demandés valent peut-être plus que le reste : la demande est périmée.
+  const resteActuel = courantes.get(c.factures[0].id)!;
+  if (enFrancs && enFrancs.montant > resteActuel + 0.009) {
+    throw new ConflitDemande(`Au taux de ce jour (${formaterNombre(enFrancs.taux)} FC/$), ${formaterFC(Number(r.montantCDF))} font ${formaterUSD(enFrancs.montant)} : plus que le reste à payer (${formaterUSD(resteActuel)})`);
+  }
   return [await reglerFactureTx(tx, decideur.id, c.factures[0].id, {
     montant: enFrancs ? enFrancs.montant : Number(r.montantUSD), montantCDF: r.montantCDF === null ? null : Number(r.montantCDF), taux: enFrancs ? enFrancs.taux : null,
     dateStr: date, mode: r.modePaiement, note: r.note, type: r.type,
@@ -224,7 +237,7 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
   const doublon = ids.find((id, i) => ids.indexOf(id) !== i);
   const r = await prisma.$transaction(async (tx) => {
     const stocks = await verrouillerStocks(tx, ids);
-    const articles = await tx.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, unite: true, prixUnitaireUSD: true } });
+    const articles = await tx.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } });
     const theo = new Map(stocks.map((s) => [s.articleId, Number(s.quantite)]));
     const theoTexte = new Map(stocks.map((s) => [s.articleId, s.quantite.toString()]));
     const noms = new Map(articles.map((a) => [a.id, a.designation]));
@@ -258,12 +271,14 @@ export async function appliquerOuDemanderComptage(user: Acteur, saisie: { compte
     }
 
     const parId = new Map(articles.map((a) => [a.id, a]));
+    const taux = await tauxDuJour(tx);
     const charge: ChargeComptage = {
       v: 1, domaine, origine,
       lignes: lignes.map((l) => ({
         articleId: l.articleId, designation: l.designation, unite: parId.get(l.articleId)?.unite ?? null,
         theorique: theoTexte.get(l.articleId) ?? "0", physique: texteDecimal(l.physique), explication: l.explication,
-        prixUnitaireUSD: parId.get(l.articleId)?.prixUnitaireUSD?.toString() ?? null,
+        // Valeur des écarts (affichage à la Direction) : un article en francs au taux du jour, « — » sans taux.
+        prixUnitaireUSD: (() => { const a = parId.get(l.articleId); return a ? prixArticleEnUSDTexte(a, taux)?.valeur ?? null : null; })(),
       })),
     };
     const avecEcart = lignes.filter(aUnEcart);
