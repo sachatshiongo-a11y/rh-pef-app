@@ -26,6 +26,9 @@ export type BulletinRow = {
   avertissements: AvertissementPaie[];
   /** Montants affichés (paie-jeton.ts) : renvoyés à la validation. */
   jeton?: string;
+  /** Mois de la paie quand ce n'est pas le mois courant (« septembre 2026 ») : bulletin validé d'un
+   *  mois clôturé, resté à payer après le passage de l'espace RH au mois suivant. */
+  periode?: string | null;
 };
 
 // "" = automatique : le moyen de paiement de la fiche de chaque salarié (comme l'écran Paie). Jusqu'au
@@ -138,7 +141,10 @@ export function BulletinsInbox({
                 <Link href={`/employes/${r.employeeId}`} className="font-semibold hover:underline">{r.nom}</Link>{" "}
                 <span className="font-mono text-xs text-muted-foreground">{r.matricule}</span>
               </p>
-              <p className="text-xs text-muted-foreground">Salaire net : {r.montant}</p>
+              <p className="text-xs text-muted-foreground">
+                Salaire net : {r.montant}
+                {r.periode && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">Paie de {r.periode}</span>}
+              </p>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <TelechargerLien href={`/paie/bulletin/${r.id}?devise=USD&dl=1`} className="text-primary underline">Bulletin $</TelechargerLien>

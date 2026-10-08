@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireRole } from "@/lib/auth";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { changerMoisCourant, revaliderApresChangementDeMois, verrouillerMoisCourant } from "@/lib/changement-mois";
-import { messageErreurValidation } from "@/lib/paie-validation";
+import { messageErreurValidation, ValidationPaieRefuseeError } from "@/lib/paie-validation";
 import { decSaisi, decSaisiOptionnel } from "@/lib/nombre";
 
 /** Téléverse une image (logo/signature) vers Supabase Storage (bucket privé). PNG/JPG, max 5 Mo. */
@@ -100,11 +100,13 @@ export async function mettreAJourConfig(formData: FormData) {
         const change = await changerMoisCourant(tx, { de, vers: { mois: moisCourant, annee: anneeCourante }, userId: user.id, origine: "MANUEL" });
         await tx.config.update({ where: { id: "singleton" }, data: { tauxChangeCDF, jourPaie } });
         return change;
-      });
+      }, { timeout: 30_000 });
     } catch (e) {
-      // Refus du cœur ou verrou tenu trop longtemps (clôture en cours) : message lisible en tête de page.
-      const refus = messageErreurValidation(e);
-      throw refus ? new Error(refus) : e;
+      // Refus du cœur : son message ; verrou tenu trop longtemps (une clôture de paie en cours tient
+      // Config) : message lisible en tête de page, rien de changé.
+      if (e instanceof ValidationPaieRefuseeError) throw new Error(e.message);
+      if (messageErreurValidation(e)) throw new Error("La paie est en cours de clôture ou de validation : rien n'a été changé, réessayez dans un instant.");
+      throw e;
     }
 
     if (passage) revaliderApresChangementDeMois();

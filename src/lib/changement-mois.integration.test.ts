@@ -8,7 +8,8 @@ import { jetonDe } from "@/lib/test/paie-jeton";
 // rejoué avec les VRAIES actions : clôture (Direction) → mois suivant, dans la transaction de la
 // clôture ; décembre → janvier ; jamais de recul ni de saut (mois passé, Config déjà au-delà) ;
 // idempotent (deux clôtures en parallèle : un seul passage) ; tout ou rien (passage refusé = rien de
-// clôturé) ; effets IDENTIQUES au changement de mois manuel de Paramètres (même cœur) ; journal.
+// clôturé) ; effets IDENTIQUES au changement de mois manuel de Paramètres (même cœur) ; journal ;
+// après le passage, les bulletins validés du mois clôturé restent payables par la RH (« À valider »).
 // Les tests s'enchaînent sur une même base : l'ordre compte.
 const H = vi.hoisted(() => ({ client: undefined as unknown as PrismaClient }));
 const A = vi.hoisted(() => ({ user: { id: "", role: "ADMIN", nom: "Direction", email: "d@pef.cd", accesStock: false, employeeId: null as string | null } }));
@@ -29,7 +30,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {}
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw Object.assign(new Error(`REDIRECT ${url}`), { digest: `NEXT_REDIRECT;${url}` }); } }));
 vi.mock("@/lib/push", () => ({ envoyerPush: async () => {} }));
 
-const { calculerPaieDuMois, changerStatutPaie, cloturerPaie } = await import("@/app/(app)/paie/actions");
+const { calculerPaieDuMois, changerStatutPaie, changerStatutEnLot, cloturerPaie } = await import("@/app/(app)/paie/actions");
 const { mettreAJourConfig } = await import("@/app/(app)/parametres/actions");
 const { passerAuMoisSuivantApresCloture } = await import("@/lib/changement-mois");
 const { separerHorsCalcul, compterPasValideComptees } = await import("@/lib/paie-hors-calcul");
@@ -252,5 +253,44 @@ describe("fin d'année", () => {
     expect(await moisRH()).toBe("1/2027");
     expect((await passages()).at(-1)).toMatchObject({ ancienneValeur: "décembre 2026", nouvelleValeur: "janvier 2027 — automatique (clôture de la paie)" });
     expect((await prisma.payrollRun.findFirstOrThrow({ where: { mois: 12, annee: 2026 } })).statut).toBe("VALIDE");
+  });
+});
+
+/** Les lignes passées à la liste « Bulletins à payer » d'un rendu de page (arbre React, sans DOM). */
+function rangeesAPayer(noeud: unknown): { id: string; nom: string; periode?: string | null; jeton?: string }[] | null {
+  if (!noeud || typeof noeud !== "object") return null;
+  if (Array.isArray(noeud)) {
+    for (const n of noeud) { const r = rangeesAPayer(n); if (r) return r; }
+    return null;
+  }
+  const props = (noeud as { props?: Record<string, unknown> }).props;
+  if (!props) return null;
+  if (props.cible === "PAYE" && Array.isArray(props.rows)) return props.rows as { id: string; nom: string; periode?: string | null; jeton?: string }[];
+  return rangeesAPayer(props.children);
+}
+
+describe("après le passage, les bulletins validés du mois clôturé restent payables par la RH", () => {
+  it("« À valider » liste les bulletins validés non payés de TOUS les mois, avec leur mois ; la RH paie septembre depuis janvier", async () => {
+    expect(await moisRH()).toBe("1/2027");
+    const rh = (await prisma.user.create({ data: { email: "rh@pef.cd", nom: "Responsable RH", role: "MANAGER" } })).id;
+    const direction = { ...A.user };
+    A.user = { ...A.user, id: rh, nom: "Responsable RH", role: "MANAGER" };
+    try {
+      const { default: AValiderPage } = await import("@/app/(app)/a-valider/page");
+      const rangees = rangeesAPayer(await AValiderPage({ searchParams: Promise.resolve({}) }))!;
+      // Septembre (Ada, Bob) puis décembre (Ada, Bob) : plus anciens d'abord, chacun avec son mois.
+      expect(rangees.map((r) => `${r.nom} · ${r.periode}`)).toEqual([
+        "Ada Kalala · septembre 2026", "Bob Banza · septembre 2026", "Ada Kalala · décembre 2026", "Bob Banza · décembre 2026",
+      ]);
+      // La RH paie Ada (septembre) avec les montants affichés : accepté, même deux mois après la clôture.
+      const ada = rangees[0];
+      expect(await changerStatutEnLot([ada.id], "PAYE", null, { [ada.id]: ada.jeton! })).toBe(1);
+      expect((await ligne(ids.ada)).statutPaiement).toBe("PAYE");
+      const apres = rangeesAPayer(await AValiderPage({ searchParams: Promise.resolve({}) }))!;
+      expect(apres.map((r) => r.id)).not.toContain(ada.id);
+      expect(apres).toHaveLength(3);
+    } finally {
+      A.user = direction;
+    }
   });
 });
