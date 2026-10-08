@@ -32,10 +32,10 @@ const JOURS = [
   { v: 0, l: "Dimanche", court: "Dim" },
 ];
 
-// Colonnes fixes → alignement en-tête / lignes. 7 jours + 3 colonnes de synthèse.
-const COLS = "190px repeat(7, 118px) 74px 102px 102px";
-const gridStyle = { display: "grid", gridTemplateColumns: COLS } as const;
-const LARGEUR = 190 + 7 * 118 + 74 + 102 + 102;
+// Colonnes CALCULÉES (aucun défilement de côté) : le nom, 7 jours qui se partagent le reste, puis la synthèse.
+// Dès `xl` la rémunération et l'estimation mensuelle s'affichent ; en dessous, seules les heures de la
+// semaine — sinon les cartes de shift deviendraient trop étroites pour lire leur horaire.
+const GRILLE = "grid grid-cols-[minmax(9rem,11rem)_repeat(7,minmax(0,1fr))_3.5rem] xl:grid-cols-[minmax(10rem,12rem)_repeat(7,minmax(0,1fr))_3.5rem_6rem_6rem]";
 
 export type ModeleEmployee = { id: string; nom: string; photoUrl?: string | null };
 
@@ -126,7 +126,7 @@ export function ModeleGrid({
   // Carte d'un jour.
   const carte = (empId: string, jour: number) => {
     const s = parId.get(shiftJour(empId, jour));
-    const base = "flex w-full flex-col justify-center rounded-lg px-2 py-1.5 text-left text-xs min-h-[44px] transition";
+    const base = "flex w-full flex-col justify-center rounded-lg px-1.5 py-1.5 text-left text-xs min-h-[44px] min-w-0 transition";
     const clic = peutModifier ? "cursor-pointer" : "cursor-default";
     if (s) {
       const pal = paletteDe(s.couleur);
@@ -149,27 +149,28 @@ export function ModeleGrid({
       {selecteurCouche}
 
       {/* ---------- BUREAU ---------- */}
-      <div className="hidden max-h-[74vh] overflow-auto rounded-2xl border bg-card [scrollbar-gutter:stable] lg:block">
-        <div style={{ minWidth: LARGEUR }}>
-          <div style={gridStyle} className="sticky top-0 z-10 border-b bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <div className="sticky left-0 z-[2] border-r bg-muted px-3 py-2">Employé</div>
+      {/* La page défile (plus de conteneur à défilement propre) ; l'en-tête des jours se colle sous celui de la coquille. */}
+      <div className="hidden rounded-2xl border bg-card lg:block">
+        <div>
+          <div className={`${GRILLE} sticky colle-sous-entete z-20 rounded-t-2xl border-b bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>
+            <div className="border-r bg-muted px-3 py-2">Employé</div>
             {JOURS.map((j) => <div key={j.v} className={`border-l px-1 py-2 text-center ${j.v === 0 ? "text-orange-700" : ""}`}>{j.court}</div>)}
             <div className="border-l px-1 py-2 text-right">H/sem</div>
-            <div className="border-l px-1 py-2 text-right">Rémun.</div>
-            <div className="border-l px-1 py-2 text-right">Estim./mois</div>
+            <div className="hidden border-l px-1 py-2 text-right xl:block">Rémun.</div>
+            <div className="hidden border-l px-1 py-2 text-right xl:block">Estim./mois</div>
           </div>
           {employees.map((e) => {
             const t = totalSemaine(e.id);
             return (
-              <div key={e.id} style={gridStyle} className="border-b last:border-0 hover:bg-accent/20">
-                <div className="sticky left-0 z-[1] flex items-center gap-2 border-r bg-card px-3 py-1.5">
+              <div key={e.id} className={`${GRILLE} border-b last:border-0 hover:bg-accent/20`}>
+                <div className="flex min-w-0 items-center gap-2 border-r bg-card px-3 py-1.5">
                   <Avatar nom={e.nom} taille={30} photoUrl={e.photoUrl} />
                   <Link href={`/employes/${e.id}`} className="min-w-0 truncate text-sm font-medium hover:text-primary hover:underline">{e.nom}</Link>
                 </div>
-                {JOURS.map((j) => <div key={j.v} className={`border-l p-1 ${j.v === 0 ? "bg-orange-50/40" : ""}`}>{carte(e.id, j.v)}</div>)}
+                {JOURS.map((j) => <div key={j.v} className={`min-w-0 border-l p-1 ${j.v === 0 ? "bg-orange-50/40" : ""}`}>{carte(e.id, j.v)}</div>)}
                 <div className="flex items-center justify-end border-l px-1 text-xs font-semibold tabular-nums">{fmtH(t.heures)}</div>
-                <div className="flex items-center justify-end border-l px-1 text-xs font-medium tabular-nums">{money(t.montant)}</div>
-                <div className="flex items-center justify-end border-l px-1 text-[11px] tabular-nums text-muted-foreground">{money(t.montant * SEMAINES_PAR_MOIS)}</div>
+                <div className="hidden items-center justify-end border-l px-1 text-xs font-medium tabular-nums xl:flex">{money(t.montant)}</div>
+                <div className="hidden items-center justify-end border-l px-1 text-[11px] tabular-nums text-muted-foreground xl:flex">{money(t.montant * SEMAINES_PAR_MOIS)}</div>
               </div>
             );
           })}
