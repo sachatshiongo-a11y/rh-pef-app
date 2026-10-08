@@ -573,6 +573,32 @@ describe("article PROCHE au catalogue — choix obligatoire, revérifié par le 
     expect(await prisma.articleStock.count()).toBe(avant);
   });
 
+  it("deux noms NOUVEAUX et proches dans la même liste : refus qui nomme la ligne ; « Créer quand même » → deux articles ; même nom → un seul", async () => {
+    const avant = await prisma.articleStock.count();
+    const r = await entreeListeAchat(fd([{ designation: "Topinambours violets", unite: "kg", quantite: 2, creerNouveau: false }, { designation: "Topinambour violet", unite: "kg", quantite: 1, creerNouveau: false }]));
+    expect("erreur" in r && r.erreur).toMatch(/ligne 2 « Topinambour violet » → la ligne 1 « Topinambours violets » \(nouvel article de cette liste\)/);
+    expect("erreur" in r && r.erreur).not.toMatch(/Rechargez la page/);
+    expect(await prisma.articleStock.count()).toBe(avant);
+    // « Utiliser la ligne 1 » : l'écran recopie le nom → un seul article, deux entrées.
+    const meme = ok(await entreeListeAchat(fd([{ designation: "Topinambours violets", unite: "kg", quantite: 2, creerNouveau: false }, { designation: "Topinambours violets", unite: "kg", quantite: 1, creerNouveau: false }])));
+    expect(meme.crees).toEqual(["Topinambours violets"]);
+    const r2 = ok(await entreeListeAchat(fd([{ designation: "Rutabagas", unite: "kg", quantite: 2, creerNouveau: false }, { designation: "Rutabaga", unite: "kg", quantite: 1, creerNouveau: true }])));
+    expect(r2.crees).toEqual(["Rutabagas", "Rutabaga"]);
+  });
+
+  it("onglet d'avant (aucun champ creerNouveau) devant un nom proche : « Rechargez la page pour choisir… »", async () => {
+    await article("Navets ronds");
+    const r = await entreeListeAchat(fd([{ designation: "Navet rond", unite: "kg", quantite: 1 }]));
+    expect("erreur" in r && r.erreur).toMatch(/^Rechargez la page pour choisir l'article existant ou en créer un nouveau\. /);
+  });
+
+  it("article du catalogue disparu depuis l'ouverture de la page : message lisible, rien n'est écrit", async () => {
+    const a = await article("Sel de Guérande");
+    const r = await entreeListeAchat(fd([{ articleId: a.id, designation: "Sel de Guérande", quantite: 1 }, { articleId: "00000000-0000-0000-0000-000000000000", designation: "Article supprimé", quantite: 1 }]));
+    expect(r).toEqual({ erreur: "Ligne 2 (« Article supprimé ») : cet article n'existe plus au catalogue. Rechargez la page et choisissez-le à nouveau ; rien n'a été enregistré." });
+    expect(await prisma.mouvementStock.count({ where: { articleId: a.id } })).toBe(0);
+  });
+
   it("formulaire d'avant (sans champ creerNouveau) : un nom nouveau sans proche se crée comme avant", async () => {
     const r = ok(await entreeListeAchat(fd([{ designation: "Curcuma moulu", unite: "kg", quantite: 1 }])));
     expect(r.crees).toEqual(["Curcuma moulu"]);

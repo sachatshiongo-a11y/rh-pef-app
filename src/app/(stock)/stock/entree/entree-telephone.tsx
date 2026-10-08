@@ -60,6 +60,7 @@ type Props = {
   /** Anti-doublon et DLC de chaque ligne (même calcul que le tableur), et les choix qu'on y fait. */
   etats: EtatLigne[];
   utiliser: (i: number, c: ArticleCandidat) => void;
+  utiliserLigne: (i: number, k: number) => void;
   creerQuandMeme: (i: number, oui: boolean) => void;
 };
 
@@ -356,7 +357,7 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
 
 type Panneau = null | { mode: "ajout" } | { mode: "modif"; index: number };
 
-export function VueTelephone({ lignes, setLignes, articles, optionsArt, fournisseurs, idFourn, taux, aujourdhui, date, setDate, origine, setOrigine, deviseDefaut, changerDeviseDefaut, stats, enCours, brouillon, etats, utiliser, creerQuandMeme }: Props) {
+export function VueTelephone({ lignes, setLignes, articles, optionsArt, fournisseurs, idFourn, taux, aujourdhui, date, setDate, origine, setOrigine, deviseDefaut, changerDeviseDefaut, stats, enCours, brouillon, etats, utiliser, utiliserLigne, creerQuandMeme }: Props) {
   const [panneau, setPanneau] = useState<Panneau>(null);
   const ouvreur = useRef<HTMLElement | null>(null); // le bouton qui a ouvert le panneau : le focus lui revient à la fermeture
   const [confirmerGroupe, setConfirmerGroupe] = useState<{ devise: Devise; cibles: number[]; aConfirmer: number[] } | null>(null);
@@ -513,7 +514,8 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
                       <div className="pb-1 pr-1 pt-1">
                         <AlertesLigne ligne={l} etat={etats[i]} nom={titre} tactile
                           autres={(js) => (js.length > 1 ? `sur ${js.length} autres cartes` : "sur une autre carte")}
-                          onUtiliser={(c) => utiliser(i, c)} onCreer={(oui) => creerQuandMeme(i, oui)} />
+                          onUtiliser={(c) => utiliser(i, c)} onCreer={(oui) => creerQuandMeme(i, oui)}
+                          onUtiliserLigne={(k) => utiliserLigne(i, k)} nomLigne={(k) => `« ${lignes[k]?.designation.trim()} » (déjà dans la liste)`} />
                       </div>
                     )}
                   </div>

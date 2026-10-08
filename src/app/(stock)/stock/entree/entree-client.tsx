@@ -18,7 +18,7 @@ import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 import {
-  aEnregistrer, artDeCandidat, avecArticle, avecArticleChoisi, avecChangement, avecDevise, construireFormData, etatsLignes, indexFournisseurs, memeNomLibre, quatreVides, sansArticleDisparu, vide, vierge,
+  aEnregistrer, artDeCandidat, avecArticle, avecArticleChoisi, avecChangement, avecNomDeLigne, avecDevise, construireFormData, etatsLignes, indexFournisseurs, memeNomLibre, quatreVides, sansArticleDisparu, vide, vierge,
   type Art, type Brouillon, type Devise, type Fourn, type Ligne,
 } from "@/lib/liste-achat-saisie";
 import type { AnalyseLigne, ArticleCandidat } from "@/lib/achats-doublons";
@@ -50,7 +50,12 @@ const champ = `${inp} w-full min-w-0`;
 export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDirection = false, compteId }: { articles: Art[]; fournisseurs: Fourn[]; aujourdhui: string; taux: number; estDirection?: boolean; compteId?: string }) {
   const [isPending, startTransition] = useTransition();
   // UNE liste d'options pour toutes les lignes : on y cherche par désignation, nom court ou code.
-  const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
+  // Plus les articles HORS de cette liste (inactifs) choisis par « Utiliser … » : visibles dans le champ, marqués « (inactif) ».
+  const [horsListe, setHorsListe] = useState<ArticleCandidat[]>([]);
+  const optionsArt = useMemo(
+    () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, actif: c.actif })), { marquerInactifs: true })],
+    [articles, horsListe],
+  );
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const refMsg = useRef<HTMLParagraphElement>(null);
   // Devise par défaut des NOUVELLES lignes (sélecteur du haut). Aussi tenue par référence : « + Ligne »
@@ -101,7 +106,12 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // Choix faits sous une ligne. « Utiliser » et « Créer quand même » valent pour toutes les lignes du même nom libre.
   const utiliser = (i: number, c: ArticleCandidat) => {
     const cibles = memeNomLibre(lignes, i);
+    if (!articles.some((a) => a.id === c.id)) setHorsListe((h) => (h.some((x) => x.id === c.id) ? h : [...h, c]));
     setLignes((ls) => ls.map((l, j) => (cibles.includes(j) ? avecArticleChoisi(l, artDeCandidat(c), taux) : l)));
+  };
+  const utiliserLigne = (i: number, k: number) => {
+    const cibles = memeNomLibre(lignes, i);
+    setLignes((ls) => ls.map((l, j) => (cibles.includes(j) ? avecNomDeLigne(l, ls[k]) : l)));
   };
   const creerQuandMeme = (i: number, oui: boolean) => {
     const cibles = memeNomLibre(lignes, i);
@@ -214,7 +224,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         deviseDefaut={deviseDefaut} changerDeviseDefaut={changerDeviseDefaut}
         stats={{ nb: lignes.filter(aEnregistrer).length, saisiUSD, saisiFC, aFrancs, fcEnUSD, totalUSD }}
         enCours={isPending} brouillon={brouillon}
-        etats={etats} utiliser={utiliser} creerQuandMeme={creerQuandMeme}
+        etats={etats} utiliser={utiliser} utiliserLigne={utiliserLigne} creerQuandMeme={creerQuandMeme}
       />
 
       <div className="hidden space-y-3 @4xl:block">
@@ -313,7 +323,8 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
                     <div className="pb-1 pl-2 @4xl:col-span-full">
                       <AlertesLigne ligne={l} etat={etats[i]} nom={`ligne ${i + 1}`}
                         autres={(js) => (js.length > 1 ? `aux lignes ${js.map((j) => j + 1).join(", ")}` : `à la ligne ${js[0] + 1}`)}
-                        onUtiliser={(c) => utiliser(i, c)} onCreer={(oui) => creerQuandMeme(i, oui)} />
+                        onUtiliser={(c) => utiliser(i, c)} onCreer={(oui) => creerQuandMeme(i, oui)}
+                        onUtiliserLigne={(k) => utiliserLigne(i, k)} nomLigne={(k) => `la ligne ${k + 1} (« ${lignes[k]?.designation.trim()} »)`} />
                     </div>
                   )}
                 </div>

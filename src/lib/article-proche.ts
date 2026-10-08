@@ -81,3 +81,22 @@ export function decisionArticle(designation: string, articles: readonly ArticleC
   const proches = articlesProches(nom, articles.filter((a) => a.actif)).map((p) => p.article);
   return proches.length > 0 ? { type: "choix", candidats: proches, creationPossible: true } : { type: "nouveau" };
 }
+
+/**
+ * Noms PROCHES entre deux lignes NOUVELLES d'une même liste (relecture du 2026-10-08) : « Poivrons »
+ * puis « Poivron », aucun des deux au catalogue, créaient deux articles sans rien demander. Pour
+ * chaque ligne qui créera un article (`creera(i)`), les lignes PRÉCÉDENTES qui créeront aussi un
+ * article sous un nom proche (même règle que le catalogue) mais pas exactement le même (le même nom
+ * exact ne crée qu'un article). La seconde ligne demande alors « Utiliser la ligne n » ou « Créer
+ * quand même ». Rend, par indice de ligne, les indices des lignes proches qui la précèdent.
+ */
+export function prochesDansListe(designations: readonly string[], creera: (i: number) => boolean): Map<number, number[]> {
+  const res = new Map<number, number[]>();
+  designations.forEach((nom, i) => {
+    if (!creera(i) || !nom.trim()) return;
+    const avant = designations.slice(0, i).map((d, j) => ({ designation: d, j })).filter(({ designation, j }) => creera(j) && designation.trim() && !memeDesignation(nom, designation));
+    const proches = articlesProches(nom, avant, { max: MAX_PROCHES }).map((p) => p.article.j);
+    if (proches.length > 0) res.set(i, proches);
+  });
+  return res;
+}

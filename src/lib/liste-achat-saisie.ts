@@ -12,6 +12,7 @@ import { decisionSortie, type Regles } from "@/components/tableur/navigation";
 import { MOIS_FR_COURT } from "@/lib/dates-fr";
 import { formaterMontant } from "@/lib/montant";
 import { cleArticleExacte, doublonsDansListe, erreurDlc, type AnalyseLigne, type ArticleCandidat } from "@/lib/achats-doublons";
+import { prochesDansListe } from "@/lib/article-proche";
 
 export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null };
 export type Fourn = { id: string; nom: string };
@@ -160,7 +161,9 @@ export type EtatLigne = {
   analyse: AnalyseLigne | null;
   /** Autres lignes de la MÊME liste qui visent le même article (indices) — avertissement seulement. */
   memesLignes: number[];
-  /** Articles proches à départager avant l'enregistrement (faux si choisi, ou rien à choisir). */
+  /** Lignes PRÉCÉDENTES qui créeront un article au nom proche (« Poivrons » puis « Poivron ») — à départager. */
+  lignesProches: number[];
+  /** Articles (ou lignes) proches à départager avant l'enregistrement (faux si choisi, ou rien à choisir). */
   choixEnAttente: boolean;
   erreurDlc: string | null;
 };
@@ -177,13 +180,21 @@ export function etatsLignes(lignes: readonly Ligne[], analyses: readonly (Analys
     lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, ignoree: !aEnregistrer(l) })),
     (i) => { const d = a(i)?.article; return d?.type === "auto" ? d.article.id : null; },
   );
+  // Lignes qui CRÉERONT un article (même règle que le serveur) : nom nouveau, ou proche avec « Créer quand même ».
+  const creera = (i: number) => {
+    const l = lignes[i], d = a(i)?.article;
+    return aEnregistrer(l) && !l.articleId && (d?.type === "nouveau" || (d?.type === "choix" && d.creationPossible && l.creerNouveau));
+  };
+  const prochesListe = prochesDansListe(lignes.map((l) => l.designation), creera);
   return lignes.map((l, i) => {
     const an = a(i);
     const d = an?.article;
+    const lignesProches = prochesListe.get(i) ?? [];
     return {
       analyse: an,
       memesLignes: memes.get(i) ?? [],
-      choixEnAttente: aEnregistrer(l) && !l.articleId && d?.type === "choix" && !(d.creationPossible && l.creerNouveau),
+      lignesProches,
+      choixEnAttente: aEnregistrer(l) && !l.articleId && ((d?.type === "choix" && !(d.creationPossible && l.creerNouveau)) || (lignesProches.length > 0 && !l.creerNouveau)),
       erreurDlc: erreurDlc(l.dlc, dateAchat),
     };
   });
@@ -198,6 +209,12 @@ export function avecArticleChoisi(l: Ligne, a: Art, taux: number): Ligne {
   if (l.pu !== "" && l.puCatalogue === null) return { ...l, articleId: a.id, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, creerNouveau: false };
   return avecArticle(l, a, taux);
 }
+
+/**
+ * « Utiliser la ligne n » (deux noms nouveaux et proches dans la même liste) : la ligne reprend le nom,
+ * l'unité, le domaine et le choix « Créer quand même » de la ligne n — un seul article sera créé.
+ */
+export const avecNomDeLigne = (l: Ligne, modele: Ligne): Ligne => ({ ...l, designation: modele.designation, unite: modele.unite, domaine: modele.domaine, creerNouveau: modele.creerNouveau });
 
 /** Le candidat proposé, en article de l'écran (pour « Utiliser … ») : la ligne devient une ligne du catalogue. */
 export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, unite: c.unite, domaine: c.domaine, prix: c.prix });

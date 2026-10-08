@@ -557,3 +557,47 @@ describe("Liste d'achat — ordinateur : DLC facultative", () => {
     expect(envoye().getAll("dlc")[0]).toBe("2026-10-20");
   });
 });
+
+describe("Liste d'achat — ordinateur : suites de relecture de l'anti-doublon", () => {
+  afterEach(() => { verifier.mockImplementation(async () => ({ avertissements: [] })); });
+
+  it("deux noms NOUVEAUX et proches (« Poivrons » puis « Poivron ») : la ligne 2 propose « Utiliser la ligne 1 » ; un appui recopie le nom", async () => {
+    verifier.mockImplementation((async (_d: string, ls: LigneVerif[]) => ({
+      avertissements: [],
+      lignes: ls.map((l) => (l.quantite > 0 && (l.articleId || l.designation) ? { article: { type: l.articleId ? "catalogue" : "nouveau" } } : null)),
+    })) as never);
+    taper(cas("Désignation, ligne 1"), "Poivrons");
+    await saisir(cas("Quantité, ligne 1"), "2");
+    taper(cas("Désignation, ligne 2"), "Poivron");
+    await saisir(cas("Quantité, ligne 2"), "1");
+    await attendreAnalyse();
+    expect(lignes()[0].querySelector("[data-choix-article]")).toBeNull();
+    const bouton = lignes()[1].querySelector<HTMLButtonElement>("[data-utiliser-ligne='0']")!;
+    expect(bouton.textContent).toBe("Utiliser la ligne 1 (« Poivrons »)");
+    await act(async () => { form().requestSubmit(); });
+    expect(entree).not.toHaveBeenCalled();
+    act(() => bouton.click());
+    expect(cas("Désignation, ligne 2").value).toBe("Poivrons");
+    await attendreAnalyse();
+    expect(lignes()[1].querySelector("[data-choix-article]")).toBeNull();
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("designation").slice(0, 2)).toEqual(["Poivrons", "Poivrons"]);
+  });
+
+  it("« Utiliser » un article INACTIF (plusieurs exacts) : il apparaît dans le champ de la ligne, marqué « (inactif) »", async () => {
+    const VIEUX = { ...TOMATES, id: "v1", designation: "Tomates séchées", actif: false };
+    verifier.mockImplementation((async (_d: string, ls: LigneVerif[]) => ({
+      avertissements: [],
+      lignes: ls.map((l) => (l.quantite > 0 && !l.articleId && l.designation ? { article: { type: "choix", candidats: [TOMATES, VIEUX], creationPossible: false } } : null)),
+    })) as never);
+    taper(cas("Désignation, ligne 1"), "Tomates sechees");
+    await saisir(cas("Quantité, ligne 1"), "1");
+    await attendreAnalyse();
+    const bouton = lignes()[0].querySelector<HTMLButtonElement>("[data-utiliser='v1']")!;
+    expect(bouton.textContent).toContain("(inactif)");
+    expect(lignes()[0].querySelector("[data-creer]")).toBeNull(); // plusieurs exacts : pas de création
+    act(() => bouton.click());
+    expect(valeurChoisie(champArticle(lignes()[0]))).toBe("v1");
+    expect(champArticle(lignes()[0]).value).toBe("Tomates séchées (inactif)");
+  });
+});

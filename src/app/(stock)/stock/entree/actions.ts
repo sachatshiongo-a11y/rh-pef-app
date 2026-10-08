@@ -12,7 +12,7 @@ import { cleAlnum } from "@/lib/texte";
 import { lireDateAchat, ORIGINE_LISTE_ACHAT } from "@/lib/achats-liste";
 import { analyserListeAchat, avertissementsListeAchat, catalogueCandidats, type LigneAVerifier } from "@/lib/achats-liste-serveur";
 import { cleArticleExacte, lireDlc, memeDesignation, type AnalyseLigne } from "@/lib/achats-doublons";
-import { decisionArticle } from "@/lib/article-proche";
+import { decisionArticle, prochesDansListe } from "@/lib/article-proche";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 
 /**
@@ -135,6 +135,15 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   // DLC facultative : vide autorisé ; illisible ou antérieure à la date de l'achat → refus qui nomme la ligne.
   for (const l of lignes) l.dlc = lireDlc(l.dlcSaisie, dateISO, l);
 
+  // Article du catalogue disparu depuis l'ouverture de la page (supprimé, fusionné) : refus lisible,
+  // jamais l'erreur brute de la base.
+  const idsCatalogue = [...new Set(lignes.map((l) => l.articleId).filter(Boolean))];
+  if (idsCatalogue.length > 0) {
+    const existent = new Set((await prisma.articleStock.findMany({ where: { id: { in: idsCatalogue } }, select: { id: true } })).map((a) => a.id));
+    const disparue = lignes.find((l) => l.articleId && !existent.has(l.articleId));
+    if (disparue) throw new Error(`Ligne ${disparue.rang}${disparue.designation ? ` (« ${disparue.designation} »)` : ""} : cet article n'existe plus au catalogue. Rechargez la page et choisissez-le à nouveau ; rien n'a été enregistré.`);
+  }
+
   // Taux CDF/USD partagé avec la RH (Config) — lu SEULEMENT si une ligne payée en francs doit être
   // convertie. Sans taux, ces lignes sont nommées et rien n'est écrit : jamais un montant en francs
   // compté comme des dollars, ni une ligne perdue en silence.
@@ -156,17 +165,27 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   // désignation : posé sur une ligne, il vaut pour les autres lignes du même nom (un seul article créé).
   const libres = lignes.filter((l) => !l.articleId);
   const catalogue = libres.length > 0 ? await catalogueCandidats() : [];
-  const creationVoulue = new Set(libres.filter((l) => l.creerNouveau).map((l) => cleArticleExacte(l.designation) || l.designation));
+  const cleNom = (d: string) => cleArticleExacte(d) || d;
+  const creationVoulue = new Set(libres.filter((l) => l.creerNouveau).map((l) => cleNom(l.designation)));
   const aChoisir: string[] = [];
+  const creera = new Set<(typeof lignes)[number]>();
   for (const l of libres) {
     const d = decisionArticle(l.designation, catalogue);
     if (d.type === "auto") l.rattache = d.article.id;
-    else if (d.type === "choix" && !(d.creationPossible && creationVoulue.has(cleArticleExacte(l.designation) || l.designation))) {
-      aChoisir.push(`ligne ${l.rang} « ${l.designation} » → ${d.candidats.map((a) => `« ${a.designation} »${a.actif ? "" : " (inactif)"}`).join(", ")}${d.creationPossible ? "" : " (ce nom existe déjà plusieurs fois : choisissez l'un d'eux)"}`);
-    }
+    else if (d.type !== "choix" || (d.creationPossible && creationVoulue.has(cleNom(l.designation)))) creera.add(l);
+    else aChoisir.push(`ligne ${l.rang} « ${l.designation} » → ${d.candidats.map((a) => `« ${a.designation} »${a.actif ? "" : " (inactif)"}`).join(", ")}${d.creationPossible ? "" : " (ce nom existe déjà plusieurs fois : choisissez l'un d'eux)"}`);
+  }
+  // Deux noms NOUVEAUX et proches dans la même liste (« Poivrons » puis « Poivron ») : la seconde ligne
+  // demande le même choix — « Utiliser la ligne n » (même nom) ou « Créer quand même ».
+  const nouvelles = lignes.filter((l) => creera.has(l));
+  for (const [i, js] of prochesDansListe(nouvelles.map((l) => l.designation), () => true)) {
+    const l = nouvelles[i];
+    if (!l.creerNouveau && !creationVoulue.has(cleNom(l.designation))) aChoisir.push(`ligne ${l.rang} « ${l.designation} » → ${js.map((j) => `la ligne ${nouvelles[j].rang} « ${nouvelles[j].designation} »`).join(", ")} (nouvel article de cette liste)`);
   }
   if (aChoisir.length > 0) {
-    throw new Error(`Article déjà au catalogue sous un nom proche : choisissez « Utiliser … » ou « Créer quand même un nouvel article » sur ${aChoisir.length > 1 ? "chaque ligne" : "la ligne"} ; rien n'a été enregistré. ${aChoisir.join(" ; ")}.`);
+    // Onglet ouvert avant le déploiement : il ne sait pas proposer le choix — on le dit.
+    const ancien = formData.getAll("creerNouveau").length === 0 ? "Rechargez la page pour choisir l'article existant ou en créer un nouveau. " : "";
+    throw new Error(`${ancien}Article déjà au catalogue (ou dans cette liste) sous un nom proche : choisissez « Utiliser … » ou « Créer quand même un nouvel article » sur ${aChoisir.length > 1 ? "chaque ligne" : "la ligne"} ; rien n'a été enregistré. ${aChoisir.join(" ; ")}.`);
   }
 
   // Fournisseurs : un id choisi dans la liste doit exister ; un nom tapé est rapproché d'un
@@ -195,6 +214,8 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
     // les mêmes articles dans un autre ordre ne s'interbloquent pas), avant la relecture ci-dessous.
     const clesNouvelles = [...new Set(lignes.filter((l) => !l.articleId && !l.rattache).map((l) => cleArticleExacte(l.designation) || cleAlnum(l.designation) || l.designation))].sort();
     for (const cle of clesNouvelles) await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`article:${cle}`}))::text AS verrou`;
+    // Catalogue relu UNE fois, sous ces verrous : un article du même nom créé entre-temps par une autre liste y est.
+    const catalogueSousVerrou = clesNouvelles.length > 0 ? await tx.articleStock.findMany({ select: { id: true, designation: true } }) : [];
     const resoudreFournisseur = async (l: (typeof lignes)[number]): Promise<string | null> => {
       if (l.fournId) return l.fournId;
       if (!l.fournNom) return null;
@@ -228,9 +249,8 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
         articleId = creesParCle.get(cle) ?? null;
         if (!articleId) {
           // Même garde que les fournisseurs : deux listes simultanées du même nouveau nom ne créent
-          // qu'UN article (clé verrouillée plus haut, puis relecture du catalogue).
-          const recents = await tx.articleStock.findMany({ select: { id: true, designation: true } });
-          const deja = recents.filter((a) => memeDesignation(l.designation, a.designation));
+          // qu'UN article (clé verrouillée plus haut, catalogue relu sous le verrou).
+          const deja = catalogueSousVerrou.filter((a) => memeDesignation(l.designation, a.designation));
           if (deja.length === 1) articleId = deja[0].id; // créé entre-temps sous ce nom exact : c'est lui
         }
         if (!articleId) {

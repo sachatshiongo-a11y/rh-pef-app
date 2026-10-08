@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   cleArticleExacte, doublonsDansListe, erreurDlc, joursAvantDlc, libelleJoursDlc, lireDlc, memeDesignation, type ArticleCandidat,
 } from "@/lib/achats-doublons";
-import { articlesProches, decisionArticle, SEUIL_ARTICLE_PROCHE } from "@/lib/article-proche";
+import { articlesProches, decisionArticle, prochesDansListe, SEUIL_ARTICLE_PROCHE } from "@/lib/article-proche";
 import { sansContenance } from "@/lib/fiches/conversion";
 
 // Liste d'achat — anti-doublon d'ARTICLE (règle de l'Atelier, portée) et DLC (Direction, 2026-10-08) : les règles pures.
@@ -71,6 +71,11 @@ describe("articles PROCHES — la règle de l'Atelier, portée telle quelle", ()
   ])("« %s » ne fait JAMAIS remonter « %s »", (tape, interdit) => {
     expect(noms(articlesProches(tape, ATELIER))).not.toContain(interdit);
   });
+  it("LA LIMITE, dite plutôt que cachée (la même qu'à l'Atelier) : un mot commun de 4 lettres et plus suffit à proposer", () => {
+    // « vertes » ≈ « verts » : jeton distinctif partagé → 0,8. Ce n'est qu'une proposition de trop
+    // (« Créer quand même » d'un geste) ; se tromper dans l'autre sens créerait un doublon en base.
+    expect(noms(articlesProches("Courgettes vertes", [art("c", "Citrons verts")]))).toEqual(["Citrons verts"]);
+  });
   it("pluriel en -x : « Chou » fait remonter « Choux »", () => {
     expect(noms(articlesProches("Chou", [art("c", "Choux")]))).toEqual(["Choux"]);
   });
@@ -137,6 +142,17 @@ describe("sort d'une ligne LIBRE — exact unique : automatique ; proche : choix
   it("rien d'approchant → nouvel article ; un inactif n'est jamais proposé comme PROCHE", () => {
     expect(decisionArticle("Levure boulangère", CATALOGUE)).toEqual({ type: "nouveau" });
     expect(decisionArticle("Sucres roux", CATALOGUE)).toEqual({ type: "nouveau" });
+  });
+});
+
+describe("noms NOUVEAUX et proches dans la même liste (« Poivrons » puis « Poivron »)", () => {
+  const tous = () => true;
+  it("la SECONDE ligne est rapprochée de la première ; la première, non", () => {
+    expect(Object.fromEntries(prochesDansListe(["Poivrons", "Sel", "Poivron"], tous))).toEqual({ 2: [0] });
+  });
+  it("le même nom exact n'est pas « proche » (il ne crée qu'un article) ; une ligne qui ne crée rien ne compte pas", () => {
+    expect(prochesDansListe(["Poivrons", "POIVRONS"], tous).size).toBe(0);
+    expect(prochesDansListe(["Poivrons", "Poivron"], (i) => i !== 0).size).toBe(0);
   });
 });
 

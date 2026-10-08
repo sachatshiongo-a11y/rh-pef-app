@@ -1,7 +1,7 @@
 // Liste d'achat — la logique de saisie PURE, partagée par le tableur et la vue téléphone.
 import { describe, it, expect } from "vitest";
 import {
-  avecArticle, avecArticleChoisi, avecChangement, avecDevise, construireFormData, erreursDe, fournisseursProches, indexFournisseurs, jourCourt, lireBrouillon, produit,
+  avecArticle, avecArticleChoisi, avecChangement, avecNomDeLigne, etatsLignes, avecDevise, construireFormData, erreursDe, fournisseursProches, indexFournisseurs, jourCourt, lireBrouillon, produit,
   serialiserBrouillon, vide, vierge, aEnregistrer, lignesAConfirmer, montantNonConverti, phraseDevise, sansArticleDisparu, type Art, type Ligne,
 } from "./liste-achat-saisie";
 
@@ -52,6 +52,19 @@ describe("l'envoi", () => {
       ["articleId", "a2"], ["designation", "Huile"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", "maman epiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
       ["articleId", ""], ["designation", "Tomate"], ["unite", "kg"], ["domaine", "NOURRITURE"], ["quantite", "3"], ["montant", ""], ["devise", "USD"], ["dlc", "2026-10-20"], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", "1"],
     ]);
+  });
+
+  it("deux noms nouveaux et proches : la seconde ligne attend un choix ; « Utiliser la ligne 1 » reprend son nom (un seul article)", () => {
+    const l1 = { ...vide("USD"), designation: "Poivrons", unite: "kg", domaine: "NOURRITURE", qte: "2" };
+    const l2 = { ...vide("USD"), designation: "Poivron", unite: "sac", domaine: "AUTRE", qte: "1" };
+    const nouveau = { article: { type: "nouveau" as const } };
+    const e = etatsLignes([l1, l2], [nouveau, nouveau], "2026-10-07");
+    expect([e[0].lignesProches, e[1].lignesProches, e[0].choixEnAttente, e[1].choixEnAttente]).toEqual([[], [0], false, true]);
+    expect(etatsLignes([l1, { ...l2, creerNouveau: true }], [nouveau, nouveau], "2026-10-07")[1].choixEnAttente).toBe(false);
+    const repris = avecNomDeLigne(l2, l1);
+    expect([repris.designation, repris.unite, repris.domaine, repris.qte]).toEqual(["Poivrons", "kg", "NOURRITURE", "1"]);
+    // Sans analyse du serveur, on ne sait pas qui créera : rien n'est bloqué à l'écran (le serveur revérifie).
+    expect(etatsLignes([l1, l2], null, "2026-10-07")[1].choixEnAttente).toBe(false);
   });
 
   it("« Utiliser … » (article proche choisi) garde le PU TAPÉ et son montant ; un PU vide ou repris du catalogue suit le nouvel article", () => {

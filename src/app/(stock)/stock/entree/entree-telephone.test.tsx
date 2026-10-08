@@ -728,3 +728,23 @@ describe("Liste d'achat — téléphone : article proche et DLC", () => {
     expect(envoye().getAll("dlc")[0]).toBe("2026-10-12");
   });
 });
+
+describe("Liste d'achat — téléphone : deux noms nouveaux et proches", () => {
+  afterEach(() => { verifier.mockImplementation(async () => ({ avertissements: [] })); });
+
+  it("la carte « Poivron » propose « Utiliser « Poivrons » (déjà dans la liste) » en 44 px ; un appui recopie le nom", async () => {
+    verifier.mockImplementation((async (_d: string, ls: LigneVerif[]) => ({
+      avertissements: [],
+      lignes: ls.map((l) => (l.quantite > 0 && (l.articleId || l.designation) ? { article: { type: l.articleId ? "catalogue" : "nouveau" } } : null)),
+    })) as never);
+    await ajouter({ designation: "Poivrons", unite: "kg", qte: "2", suite: true });
+    await ajouter({ designation: "Poivron", unite: "kg", qte: "1" });
+    await attendreAnalyse();
+    const bouton = cartes()[1].querySelector<HTMLButtonElement>("[data-utiliser-ligne='0']")!;
+    expect(bouton.textContent).toBe("Utiliser « Poivrons » (déjà dans la liste)");
+    expect(bouton.className).toContain("min-h-11");
+    cliquer(bouton);
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("designation").slice(0, 2)).toEqual(["Poivrons", "Poivrons"]);
+  });
+});
