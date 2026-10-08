@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { separerHorsCalcul } from "@/lib/paie-hors-calcul";
 import { CongesInbox, type CongeRow } from "./conges-inbox";
 import { BulletinsInbox, type BulletinRow } from "./bulletins-inbox";
+import { libellePeriode } from "@/lib/changement-mois";
 import { jetonLigne } from "@/lib/paie-jeton";
 import { AcomptesInbox, type AcompteRow } from "./acomptes-inbox";
 import { AttestationsInbox, type AttestationRow } from "./attestations-inbox";
@@ -61,10 +62,13 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
       include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true } } },
       orderBy: { employee: { nom: "asc" } },
     }),
+    // À PAYER : tous les bulletins validés, QUEL QUE SOIT LEUR MOIS. La clôture fait passer l'espace RH
+    // au mois suivant (2026-10-08) : les bulletins de septembre validés mais pas encore payés restent
+    // dus et se paient d'ici (une ligne validée compte toujours, paie-hors-calcul.ts). Plus anciens d'abord.
     prisma.payrollLine.findMany({
-      where: { statutPaiement: "VALIDE", ...filtreRun },
-      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true } } },
-      orderBy: { employee: { nom: "asc" } },
+      where: { statutPaiement: "VALIDE" },
+      include: { employee: { select: { id: true, nom: true, matricule: true, photoUrl: true } }, payrollRun: { select: { tauxChangeUtilise: true, mois: true, annee: true } } },
+      orderBy: [{ payrollRun: { annee: "asc" } }, { payrollRun: { mois: "asc" } }, { employee: { nom: "asc" } }],
     }),
     prisma.acompteSalaire.findMany({
       where: { statut: "EN_ATTENTE" },
@@ -136,7 +140,10 @@ export default async function AValiderPage({ searchParams }: { searchParams: Pro
   // montrée à part sur l'écran Paie, pas ici (paie-hors-calcul.ts).
   const { comptees: prepareComptees, horsCalcul: prepareHorsCalcul } = await separerHorsCalcul(prisma, prepare);
   const prepareRows = prepareComptees.map(toRow);
-  const valideRows = valide.map(toRow);
+  const valideRows = valide.map((l): BulletinRow => ({
+    ...toRow(l),
+    periode: config && (l.payrollRun.mois !== config.moisCourant || l.payrollRun.annee !== config.anneeCourante) ? libellePeriode(l.payrollRun) : null,
+  }));
   const acompteRows: AcompteRow[] = acomptes.map((a) => ({
     id: a.id,
     employeeId: a.employee.id,

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { calculerPaieDuMois, reinitialiserPaieDuMois, cloturerPaie } from "./actions";
+import { annonceCloture, libellePeriode } from "@/lib/changement-mois";
 import { tachesBloquantesCloture } from "@/lib/cloture-paie";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { CLASSES_DANGER, CLASSES_GEOMETRIE } from "@/components/action-buttons";
@@ -68,6 +69,23 @@ export default async function PaiePage({
   // « Réinitialiser » CONSERVE les bulletins déjà REMIS des lignes rouvertes (archive) : la
   // confirmation les nomme.
   const bulletinsEmis = run && estAdmin ? await prisma.versionBulletin.count({ where: { payrollLine: { payrollRunId: run.id } } }) : 0;
+
+  // Bulletins VALIDÉS d'un AUTRE mois (clôturé : l'espace RH est passé au mois suivant) pas encore
+  // payés : toujours dus, ils se paient depuis « À valider ». Annoncés ici, mois par mois.
+  const aPayerAutresMois = peutGerer
+    ? Object.entries(
+        (await prisma.payrollLine.findMany({
+          where: { statutPaiement: "VALIDE", payrollRun: { NOT: { mois, annee } } },
+          select: { payrollRun: { select: { mois: true, annee: true } } },
+        })).reduce<Record<string, number>>((acc, l) => {
+          const cle = `${l.payrollRun.annee}-${String(l.payrollRun.mois).padStart(2, "0")}`;
+          acc[cle] = (acc[cle] ?? 0) + 1;
+          return acc;
+        }, {}),
+      )
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([cle, n]) => ({ n, periode: libellePeriode({ annee: Number(cle.slice(0, 4)), mois: Number(cle.slice(5)) }) }))
+    : [];
 
   const periode = new Date(annee, mois - 1).toLocaleDateString("fr-FR", {
     month: "long",
@@ -339,9 +357,13 @@ export default async function PaiePage({
               — sinon le bouton est remplacé par la raison. */}
           {run && taches.length === 0 && ((estAdmin && (nbPasValide > 0 || run.statut !== "VALIDE")) || (estRHPaie && nbPasValide === 0 && run.statut !== "VALIDE")) && (
             <form action={cloturerPaie}>
+              {/* Le mois montré : c'est lui, et lui seul, que la clôture ferme (un écran resté ouvert
+                  après le passage au mois suivant ne clôture jamais le mois suivant par ricochet). */}
+              <input type="hidden" name="mois" value={mois} />
+              <input type="hidden" name="annee" value={annee} />
               <ConfirmSubmitButton
                 variante="valider"
-                message={`Clôturer la paie de ${periode} ?${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."}${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
+                message={`${annonceCloture({ mois, annee })}${horsCalcul.length > 0 ? ` ${horsCalcul.length} ligne(s) hors calcul resteront de côté, non validées.` : ""} ${nbPasValide > 0 ? `Cela valide d'un coup les ${nbPasValide} bulletin(s) « pas validé ».` : "Tous les bulletins sont validés : la paie du mois sera fermée (pointage et import des présences du mois fermés)."} Les bulletins validés restant à payer se paieront ensuite depuis « À valider ».${avertissementsCloture ? `\n\n${avertissementsCloture}` : ""}`}
               >
                 {nbPasValide > 0 ? `Clôturer la paie (${nbPasValide})` : "Clôturer la paie"}
               </ConfirmSubmitButton>
@@ -406,6 +428,16 @@ export default async function PaiePage({
             Ces montants sont calculés à la volée depuis les présences, heures, primes et acomptes du mois — ils restent
             toujours à jour. Cliquez sur <span className="font-medium">« Calculer la paie du mois »</span> pour figer les
             bulletins et pouvoir les valider, payer et exporter.
+          </p>
+        </div>
+      )}
+
+      {aPayerAutresMois.length > 0 && (
+        <div data-a-payer-autres-mois className="mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Bulletins validés restant à payer d&apos;un mois clôturé</p>
+          <p className="mt-1">
+            {aPayerAutresMois.map((a) => `${a.n} bulletin(s) de ${a.periode}`).join(", ")} — à marquer payés depuis{" "}
+            <Link href="/a-valider" className="font-medium underline">À valider</Link>.
           </p>
         </div>
       )}

@@ -6,7 +6,7 @@ import { SupprimerAchatBtn } from "./supprimer-achat-btn";
 import { BoutonRapport } from "../_rapport/bouton-rapport";
 import { lundiDe, JOURS_FR as JOURS, MOIS_FR as MOIS } from "@/lib/dates-fr";
 import { OngletsAchats } from "../_achats/onglets-achats";
-import { WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
+import { jjmmaaaa, WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { exigerPageStock } from "@/lib/garde-page";
 
@@ -120,6 +120,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                           <span className="text-xs text-muted-foreground"> · <Link href={`/stock/fournisseurs/${m.fournisseur.id}`} className="text-primary hover:underline">{m.fournisseur.nom}</Link></span>
                         )}
                         {m.origine ? <span className="text-xs text-muted-foreground"> · {m.origine}</span> : null}
+                        {m.dlc ? <span className="text-xs text-muted-foreground"> · DLC {jjmmaaaa(new Date(m.dlc).toISOString())}</span> : null}
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
                         <span className="font-medium text-emerald-700">+{qte(m.quantite)}</span>

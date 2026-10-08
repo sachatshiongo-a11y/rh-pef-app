@@ -666,3 +666,85 @@ describe("Liste d'achat — suites de relecture", () => {
     expect(norm(panneau()!.textContent)).toContain("milliers ?");
   });
 });
+
+// ── Anti-doublon d'ARTICLE et DLC (Direction, 2026-10-08) ─────────────────────────────────────────
+const TOMATES = { id: "t1", designation: "Tomates", unite: "kg", domaine: "NOURRITURE", prix: "2.00", actif: true };
+type LigneVerif = { articleId: string; designation: string; quantite: number };
+const attendreAnalyse = () => act(async () => { await new Promise((r) => setTimeout(r, 650)); });
+const envoye = () => (entree.mock.calls.at(-1) as unknown as [FormData])[0];
+
+describe("Liste d'achat — téléphone : article proche et DLC", () => {
+  beforeEach(() => {
+    verifier.mockImplementation((async (_d: string, ls: LigneVerif[]) => ({
+      avertissements: [],
+      lignes: ls.map((l) => (l.quantite > 0 && !l.articleId && l.designation.toLowerCase() === "tomate" ? { article: { type: "choix", candidats: [TOMATES], creationPossible: true } } : null)),
+    })) as never);
+  });
+  afterEach(() => { verifier.mockImplementation(async () => ({ avertissements: [] })); });
+
+  it("la carte « Tomate » montre le choix en cibles de 44 px ; rien ne part tant qu'il n'est pas fait", async () => {
+    await ajouter({ designation: "Tomate", unite: "kg", qte: "3" });
+    await attendreAnalyse();
+    const carte = cartes()[0];
+    const utiliser = carte.querySelector<HTMLButtonElement>("[data-utiliser='t1']")!;
+    expect(utiliser.textContent).toContain("Utiliser « Tomates »");
+    expect(utiliser.className).toContain("min-h-11");
+    expect(carte.querySelector<HTMLButtonElement>("[data-creer]")!.className).toContain("min-h-11");
+    await act(async () => { form().requestSubmit(); });
+    expect(entree).not.toHaveBeenCalled();
+  });
+
+  it("« Utiliser « Tomates » » sur la carte : l'envoi porte l'article existant", async () => {
+    await ajouter({ designation: "Tomate", unite: "kg", qte: "3" });
+    await attendreAnalyse();
+    cliquer(cartes()[0].querySelector<HTMLButtonElement>("[data-utiliser='t1']")!);
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("articleId")[0]).toBe("t1");
+  });
+
+  it("« Créer quand même » sur la carte : creerNouveau = 1 dans l'envoi (le même que celui du tableur)", async () => {
+    await ajouter({ designation: "Tomate", unite: "kg", qte: "3" });
+    await attendreAnalyse();
+    cliquer(cartes()[0].querySelector<HTMLButtonElement>("[data-creer]")!);
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("creerNouveau")[0]).toBe("1");
+    expect(envoye().getAll("designation")[0]).toBe("Tomate");
+  });
+
+  it("DLC dans le panneau, sous la quantité : facultative ; antérieure à l'achat → refus sous le champ ; montrée sur la carte", async () => {
+    ouvrir();
+    const p = panneau()!;
+    const ordre = [...p.querySelectorAll("label")].map((l) => l.textContent?.replace(/\s+/g, " ").trim());
+    expect(ordre.indexOf("DLC (facultatif)")).toBe(ordre.indexOf("Quantité") + 2); // Quantité, Unité, puis DLC
+    await choisirOption(articlePanneau(), "a0");
+    taper(champ("Quantité"), "2");
+    taper(champ("DLC (facultatif)"), "2026-09-01");
+    cliquer(texteBouton(p, "Terminé"));
+    expect(panneau()!.textContent).toContain("La DLC (01/09/2026) est antérieure à la date de l'achat (30/09/2026).");
+    taper(champ("DLC (facultatif)"), "2026-10-12");
+    cliquer(texteBouton(panneau()!, "Terminé"));
+    expect(cartes()[0].querySelector("[data-dlc-carte]")!.textContent).toBe("DLC 12 oct. 2026");
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("dlc")[0]).toBe("2026-10-12");
+  });
+});
+
+describe("Liste d'achat — téléphone : deux noms nouveaux et proches", () => {
+  afterEach(() => { verifier.mockImplementation(async () => ({ avertissements: [] })); });
+
+  it("la carte « Poivron » propose « Utiliser « Poivrons » (déjà dans la liste) » en 44 px ; un appui recopie le nom", async () => {
+    verifier.mockImplementation((async (_d: string, ls: LigneVerif[]) => ({
+      avertissements: [],
+      lignes: ls.map((l) => (l.quantite > 0 && (l.articleId || l.designation) ? { article: { type: l.articleId ? "catalogue" : "nouveau" } } : null)),
+    })) as never);
+    await ajouter({ designation: "Poivrons", unite: "kg", qte: "2", suite: true });
+    await ajouter({ designation: "Poivron", unite: "kg", qte: "1" });
+    await attendreAnalyse();
+    const bouton = cartes()[1].querySelector<HTMLButtonElement>("[data-utiliser-ligne='0']")!;
+    expect(bouton.textContent).toBe("Utiliser « Poivrons » (déjà dans la liste)");
+    expect(bouton.className).toContain("min-h-11");
+    cliquer(bouton);
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("designation").slice(0, 2)).toEqual(["Poivrons", "Poivrons"]);
+  });
+});

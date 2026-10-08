@@ -57,6 +57,7 @@ const d = (n: number) => new Date(Date.UTC(2026, 8, n));
 const joursOuvres = () => Array.from({ length: 30 }, (_, i) => d(i + 1)).filter((x) => x.getUTCDay() >= 1 && x.getUTCDay() <= 5);
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, v] of Object.entries(o)) f.set(k, v); return f; };
 const ligne = (employeeId: string) => prisma.payrollLine.findFirstOrThrow({ where: { employeeId, payrollRun: { mois: 9, annee: 2026 } } });
+const clore = () => cloturerPaie(fd({ mois: "9", annee: "2026" })); // le mois montré par l'écran
 const ignorerRedirection = async (p: Promise<unknown>) => { try { await p; } catch (e) { if (!String((e as Error).message).startsWith("REDIRECT")) throw e; return String((e as Error).message); } return ""; };
 
 async function brigade(matricule: string, nom: string) {
@@ -150,7 +151,8 @@ describe("ligne rouverte d'un salarié sorti du calcul : en base, à part, compt
 
   it("la clôture valide les lignes calculées et laisse la ligne hors calcul de côté, non validée", async () => {
     const l = await ligne(ids.ada);
-    expect(await ignorerRedirection(cloturerPaie())).toBe("");
+    expect(decodeURIComponent(await ignorerRedirection(clore()))).toContain("l'espace RH est passé à octobre 2026");
+    await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } }); // la suite regarde septembre comme mois courant
     expect((await ligne(ids.bob)).statutPaiement).toBe("VALIDE");
     const ada = await ligne(ids.ada);
     expect(ada.id).toBe(l.id);
@@ -262,7 +264,11 @@ describe("mois courant clôturé : une ligne rouverte pour correction reste comp
   it("rouverte après clôture : comptée et validable ; on ne change pas de mois tant qu'elle attend sa revalidation", async () => {
     await prisma.config.update({ where: { id: "singleton" }, data: { moisCourant: 9 } });
     await calculerPaieDuMois();
-    expect(await ignorerRedirection(cloturerPaie())).toBe("");
+    expect(decodeURIComponent(await ignorerRedirection(clore()))).toContain("l'espace RH est passé à octobre 2026");
+    // La clôture a fait passer l'espace RH à octobre : pour corriger septembre, la Direction y revient
+    // par Paramètres (geste manuel, toujours ouvert) — octobre n'a pas de paie, rien ne l'en empêche.
+    expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(10);
+    expect(await ignorerRedirection(mettreAJourConfig(fd({ moisCourant: "9", anneeCourante: "2026", tauxChangeCDF: "2300", jourPaie: "30" })))).toBe("");
     const l = await ligne(ids.ada);
     expect(l.statutPaiement).toBe("VALIDE");
     await changerStatutPaie(l.id, fd({ versStatut: "PAS_VALIDE" })); // rouverte pour correction

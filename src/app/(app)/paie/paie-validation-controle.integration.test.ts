@@ -130,13 +130,14 @@ describe("valider une ligne revérifie son montant", () => {
   });
 
   it("clôture : même règle — une seule ligne changée annule la clôture entière", async () => {
-    await expect(cloturerPaie()).rejects.toThrow(
+    await expect(cloturerPaie(fd({ mois: "9", annee: "2026" }))).rejects.toThrow(
       redirection(`Clôture annulée (aucun bulletin validé) : ${messagePaieChangee(["Béatrice Mbuyi", "Dieudonné Tshala"])}`),
     );
     await rienEcrit(ids.clarisse);
     await rienEcrit(ids.beatrice);
     await rienEcrit(ids.dieudonne);
     expect((await prisma.payrollRun.findFirstOrThrow({ where: { mois: 9, annee: 2026 } })).statut).not.toBe("VALIDE");
+    expect((await prisma.config.findUniqueOrThrow({ where: { id: "singleton" } })).moisCourant).toBe(9); // clôture annulée : pas de passage
   });
 
   it("ligne remplacée par un recalcul depuis l'affichage (écran « À valider » périmé) : refus lisible, jamais ignorée en silence", async () => {
