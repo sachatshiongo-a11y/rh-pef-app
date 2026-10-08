@@ -9,6 +9,11 @@ import { journaliser } from "@/lib/audit";
 import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
+import {
+  fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
+  type IdentiteFiche,
+} from "@/lib/employe-doublon";
+import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
 
 // Nombre d'un champ du formulaire : lu à la française (« 1 250,5 », « 150.000 »), 0 si vide, erreur
 // lisible si illisible — jamais un zéro silencieux (cf. lib/nombre).
@@ -60,6 +65,22 @@ function toEmployeeInput(formData: FormData) {
   };
 }
 
+/**
+ * ANTI-DOUBLON, revérifié ICI (l'écran le montre en direct, mais une action serveur s'appelle sans
+ * lui) : toute fiche existante proche — active ou inactive, règle de `lib/employe-doublon` — doit
+ * avoir été tranchée par « C'est une autre personne » (ids dans le champ caché `doublonsEcartes`).
+ * Sinon : refus lisible qui nomme les fiches. Une fiche apparue entre l'affichage et l'envoi n'est
+ * pas couverte par un choix fait sans elle. Renvoie les ids écartés, à journaliser.
+ */
+async function exigerDoublonsTranches(saisie: IdentiteFiche, formData: FormData, exclureId?: string): Promise<string[]> {
+  const [fiches, ecartees] = await Promise.all([chargerFichesIdentite(), exclureId ? chargerPairesEcartees() : Promise.resolve(undefined)]);
+  const proches = fichesProches(saisie, fiches, { exclureId, ecartees });
+  const vus = lireIdsEcartes(formData.get(CHAMP_DOUBLONS_ECARTES));
+  const nonTranches = proches.filter((p) => !vus.has(p.fiche.id));
+  if (nonTranches.length > 0) throw new Error(messageDoublons(nonTranches));
+  return proches.map((p) => p.fiche.id);
+}
+
 export async function creerEmploye(formData: FormData) {
   // Une saisie illisible revient sur le formulaire avec son message (les erreurs jetées sont masquées en production).
   await formulaireLisible("/employes/nouveau", async () => {
@@ -67,6 +88,7 @@ export async function creerEmploye(formData: FormData) {
     requireRole(user, ["ADMIN", "MANAGER"]);
 
     const data = toEmployeeInput(formData);
+    const ecartes = await exigerDoublonsTranches(data, formData);
     // Matricule auto-généré si laissé vide, selon la logique de la catégorie (brigade / back-office).
     if (!data.matricule) {
       const existants = await prisma.employee.findMany({
@@ -77,6 +99,10 @@ export async function creerEmploye(formData: FormData) {
     }
 
     const nouvel = await prisma.employee.create({ data });
+    // « C'est une autre personne » : décision tracée, et la paire ne se représente plus (liste des doublons probables).
+    if (ecartes.length > 0) {
+      await journaliser(prisma, { entite: "Employee", entiteId: nouvel.id, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
+    }
 
     // Checklist d'intégration : copie du modèle d'onboarding pour le nouvel employé.
     const modeleOnboarding = await prisma.modeleTacheOnboarding.findMany({ orderBy: { ordre: "asc" } });
@@ -96,10 +122,18 @@ export async function modifierEmploye(employeeId: string, formData: FormData) {
     const user = await verifySession();
     requireRole(user, ["ADMIN", "MANAGER"]);
 
+    const data = toEmployeeInput(formData);
+    // La question des doublons ne se repose que si l'identité (nom, téléphone, date de naissance) change.
+    const avant = await prisma.employee.findUnique({ where: { id: employeeId }, select: { nom: true, telephone: true, dateNaissance: true } });
+    const ecartes = avant && identiteModifiee(avant, data) ? await exigerDoublonsTranches(data, formData, employeeId) : [];
+
     await prisma.employee.update({
       where: { id: employeeId },
-      data: toEmployeeInput(formData),
+      data,
     });
+    if (ecartes.length > 0) {
+      await journaliser(prisma, { entite: "Employee", entiteId: employeeId, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: ecartes.join(","), userId: user.id });
+    }
 
     revalidatePath("/employes");
     redirect("/employes");
@@ -191,6 +225,21 @@ export async function reactiverEmploye(employeeId: string) {
   revalidatePath("/employes");
   revalidatePath(`/employes/${employeeId}`);
   revalidatePath("/paie");
+}
+
+/**
+ * « Ce sont deux personnes différentes » sur la liste des doublons probables (Direction) : la paire
+ * est journalisée et ne s'affiche plus. Aucune fiche n'est modifiée — la fusion de deux dossiers
+ * n'existe pas (chantier à part).
+ */
+export async function ecarterDoublon(idA: string, idB: string) {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  if (!idA || !idB || idA === idB) return;
+  const trouvees = await prisma.employee.count({ where: { id: { in: [idA, idB] } } });
+  if (trouvees !== 2) return;
+  await journaliser(prisma, { entite: "Employee", entiteId: idA, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: idB, userId: user.id });
+  revalidatePath("/employes");
 }
 
 export async function desactiverEmploye(employeeId: string) {
