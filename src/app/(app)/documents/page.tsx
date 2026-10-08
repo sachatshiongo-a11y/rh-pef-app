@@ -18,6 +18,8 @@ import { classerContrats, libelleTypeContrat, type Classement } from "@/lib/cont
 import { LIBELLE_STATUT_ATTESTATION, LIBELLE_TYPE_ATTESTATION } from "@/lib/attestations-donnees";
 import { chargerRegistre, filtresRegistre, ligneRegistre } from "../attestations/_registre";
 import { exigerPageRH } from "@/lib/garde-page";
+import { Pagination, ChampTaillePage } from "@/components/pagination";
+import { fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
 
 const fr = (d: Date | null | undefined) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 const MOIS = [
@@ -56,7 +58,7 @@ function Badge({ classe, children }: { classe: string; children: string }) {
 export default async function DocumentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string; q?: string; type?: string }>;
+  searchParams: Promise<{ onglet?: string; annee?: string; mois?: string; statut?: string; q?: string; type?: string; page?: string; par?: string }>;
 }) {
   const user = await exigerPageRH();
   const peutFaireSigner = user.role === "ADMIN" || user.role === "MANAGER";
@@ -66,6 +68,7 @@ export default async function DocumentsPage({
   const mois = sp.mois ? Number(sp.mois) : null;
   const statut = sp.statut || null;
   const q = (sp.q ?? "").trim();
+  const { page, par } = lirePagination(sp); // 50 / 100 / Tout, sur l'onglet affiché
 
   const [bulletinsAll, contratsAll, documentsAll, congesAll, fichesAll] = await Promise.all([
     prisma.payrollLine.findMany({
@@ -112,14 +115,14 @@ export default async function DocumentsPage({
       (!statut || c.statut === statut)
   );
 
-  // Signatures des bulletins affichés : UNE requête pour toute la liste filtrée. La colonne
+  // Signatures des bulletins de la PAGE affichée : UNE requête (50 / 100 / Tout bulletins, pas toute la liste filtrée). La colonne
   // « Signature » lit l'état DÉRIVÉ du document — un bulletin recalculé y repasse en « À resigner »
   // sans qu'aucun champ n'ait été écrit sur la ligne de paie.
   // (liste vide hors de l'onglet Bulletins : `chargerSignatures` rend la main sans requête)
   const sigBulletins = await chargerSignatures(
     prisma,
     "BULLETIN",
-    onglet === "bulletins" ? bulletins.filter((b) => b.statutPaiement !== "PAS_VALIDE").map((b) => b.id) : []
+    onglet === "bulletins" ? tranche(bulletins, fenetrePage(bulletins.length, page, par)).filter((b) => b.statutPaiement !== "PAS_VALIDE").map((b) => b.id) : []
   );
 
   // Onglet Contrats : même classement que « Mes contrats » (un CDD échu s'y lit « expiré le … »),
@@ -166,6 +169,15 @@ export default async function DocumentsPage({
   ]);
   const qsExport = `/attestations/export?${new URLSearchParams({ ...(filtresAtt.type ? { type: filtresAtt.type } : {}), ...(filtresAtt.statut ? { statut: filtresAtt.statut } : {}) })}`;
 
+  // Pagination de l'onglet actif : les filtres ci-dessus portent sur TOUT l'ensemble (les compteurs des onglets
+  // aussi), on n'affiche que la tranche de la page. Les contrats gardent leurs signatures sur tout le filtre
+  // (le classement d'un contrat dépend de ceux du même salarié, qui peuvent être sur une autre page).
+  const totalOnglet = onglet === "bulletins" ? bulletins.length : onglet === "contrats" ? contrats.length : onglet === "documents" ? documents.length
+    : onglet === "conges" ? conges.length : onglet === "attestations" ? attestations.length : fiches.length;
+  const fen = fenetrePage(totalOnglet, page, par);
+  const bulletinsP = tranche(bulletins, fen), contratsP = tranche(contrats, fen), documentsP = tranche(documents, fen);
+  const congesP = tranche(conges, fen), fichesP = tranche(fiches, fen), attestationsP = tranche(attestations, fen);
+
   // Options du filtre statut selon l'onglet actif.
   const optionsStatut: { v: string; label: string }[] =
     onglet === "bulletins"
@@ -195,7 +207,9 @@ export default async function DocumentsPage({
     { cle: "fiches", label: "Fiches de poste", n: fiches.length },
     { cle: "attestations", label: "Attestations", n: onglet === "attestations" ? attestations.length : nbAttestations },
   ];
-  const qs = (o: string) => `/documents?onglet=${o}${annee ? `&annee=${annee}` : ""}${mois ? `&mois=${mois}` : ""}`;
+  // La taille de page reste d'un onglet à l'autre ; la page repart à 1.
+  const suffixeTaille = par !== PAR_DEFAUT ? `&par=${par}` : "";
+  const qs = (o: string) => `/documents?onglet=${o}${annee ? `&annee=${annee}` : ""}${mois ? `&mois=${mois}` : ""}${suffixeTaille}`;
 
   return (
     <div>
@@ -219,6 +233,7 @@ export default async function DocumentsPage({
       {/* Filtres : période + statut (les options de statut dépendent de l'onglet) */}
       <form method="GET" className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3">
         <input type="hidden" name="onglet" value={onglet} />
+        <ChampTaillePage />
         {onglet === "fiches" && (
           <label className="flex flex-col gap-1 text-xs">
             Rechercher un poste
@@ -273,13 +288,13 @@ export default async function DocumentsPage({
           <TelechargerLien href={qsExport} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Exporter (Excel)</TelechargerLien>
         )}
         {(annee || mois || statut || q || sp.type) && (
-          <Link href={`/documents?onglet=${onglet}`} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
+          <Link href={`/documents?onglet=${onglet}${suffixeTaille}`} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</Link>
         )}
       </form>
 
       {/* Mobile : cartes par onglet. */}
       <div className="space-y-2 lg:hidden">
-        {onglet === "bulletins" && bulletins.map((b) => (
+        {onglet === "bulletins" && bulletinsP.map((b) => (
           <div key={b.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={b.employee.id} nom={b.employee.nom} photoUrl={b.employee.photoUrl} />
@@ -309,7 +324,7 @@ export default async function DocumentsPage({
             </div>
           </div>
         ))}
-        {onglet === "contrats" && contrats.map((c) => (
+        {onglet === "contrats" && contratsP.map((c) => (
           <div key={c.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
@@ -324,7 +339,7 @@ export default async function DocumentsPage({
             </div>
           </div>
         ))}
-        {onglet === "documents" && documents.map((d) => (
+        {onglet === "documents" && documentsP.map((d) => (
           <div key={d.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} />
@@ -337,7 +352,7 @@ export default async function DocumentsPage({
             </div>
           </div>
         ))}
-        {onglet === "conges" && conges.map((c) => (
+        {onglet === "conges" && congesP.map((c) => (
           <div key={c.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} />
@@ -349,7 +364,7 @@ export default async function DocumentsPage({
             </div>
           </div>
         ))}
-        {onglet === "fiches" && fiches.map((f) => (
+        {onglet === "fiches" && fichesP.map((f) => (
           <div key={f.id} className="rounded-xl border bg-card p-3">
             <span className="font-medium">{f.poste}</span>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
@@ -361,7 +376,7 @@ export default async function DocumentsPage({
             </div>
           </div>
         ))}
-        {onglet === "attestations" && attestations.map((a) => (
+        {onglet === "attestations" && attestationsP.map((a) => (
           <div key={a.id} className="rounded-xl border bg-card p-3">
             <div className="flex items-center justify-between gap-2">
               <EmpLink id={a.employee.id} nom={a.employee.nom} photoUrl={a.employee.photoUrl} />
@@ -391,7 +406,7 @@ export default async function DocumentsPage({
             <>
               <Thead cols={["Période", "Matricule", "Employé", "Salaire net $", "Statut", "Bulletin", "Signature"]} />
               <tbody>
-                {bulletins.map((b) => (
+                {bulletinsP.map((b) => (
                   <tr key={b.id} className="border-t">
                     <td className="px-3 py-2 capitalize">{new Date(b.payrollRun.annee, b.payrollRun.mois - 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</td>
                     <td className="px-3 py-2 font-mono text-xs">{b.employee.matricule}</td>
@@ -431,7 +446,7 @@ export default async function DocumentsPage({
             <>
               <Thead cols={["Employé", "Type", "Début", "Échéance", "Statut", "Signature", "Contrat (PDF)", "Pièce jointe"]} />
               <tbody>
-                {contrats.map((c) => (
+                {contratsP.map((c) => (
                   <tr key={c.id} className="border-t">
                     <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{libelleTypeContrat(c.type)}</td>
@@ -457,7 +472,7 @@ export default async function DocumentsPage({
             <>
               <Thead cols={["Employé", "Document", "Type", "Expiration", "Pièce"]} />
               <tbody>
-                {documents.map((d) => (
+                {documentsP.map((d) => (
                   <tr key={d.id} className="border-t">
                     <td className="px-3 py-2"><EmpLink id={d.employee.id} nom={d.employee.nom} photoUrl={d.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{d.nom}</td>
@@ -475,7 +490,7 @@ export default async function DocumentsPage({
             <>
               <Thead cols={["Employé", "Type", "Début", "Fin", "Statut", "PDF"]} />
               <tbody>
-                {conges.map((c) => (
+                {congesP.map((c) => (
                   <tr key={c.id} className="border-t">
                     <td className="px-3 py-2"><EmpLink id={c.employee.id} nom={c.employee.nom} photoUrl={c.employee.photoUrl} /></td>
                     <td className="px-3 py-2">{c.type}</td>
@@ -494,7 +509,7 @@ export default async function DocumentsPage({
             <>
               <Thead cols={["Numéro", "Type", "Employé", "Statut", "Demandée le", "Délivrée / refusée le", "Par", "PDF"]} />
               <tbody>
-                {attestations.map((a) => {
+                {attestationsP.map((a) => {
                   const l = ligneRegistre(a);
                   return (
                     <tr key={a.id} className="border-t">
@@ -525,7 +540,7 @@ export default async function DocumentsPage({
             <>
               <Thead cols={["Poste", "Description", "Fiche de poste (PDF)", "Pièce jointe"]} />
               <tbody>
-                {fiches.map((f) => (
+                {fichesP.map((f) => (
                   <tr key={f.id} className="border-t">
                     <td className="px-3 py-2 font-medium">{f.poste}</td>
                     <td className="max-w-md truncate px-3 py-2 text-muted-foreground">{f.descriptionPoste ?? f.description ?? "—"}</td>
@@ -548,6 +563,8 @@ export default async function DocumentsPage({
           )}
         </table>
       </div>
+
+      <Pagination className="mt-4" total={totalOnglet} page={fen.page} par={par} chemin="/documents" params={sp} libelle="documents" />
     </div>
   );
 }
