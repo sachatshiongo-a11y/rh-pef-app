@@ -10,7 +10,8 @@ import { appliquerMouvementManuel, lireMouvementSaisi } from "@/lib/validations-
 import { apresCommit } from "@/lib/validations-stock/demandes";
 import { Prisma } from "@prisma/client";
 import { MESSAGE_MOTIF_SORTIE, estMotifSortie } from "@/lib/motif-sortie";
-import { BORNE_TOUT_LE_FILTRE, lireFiltreMouvements, whereColonne, type ColonneMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
+import type { SelectionMouvements } from "@/lib/filtre-mouvements";
+import { DELAI_TOUT_LE_FILTRE, resoudreSelectionMouvements } from "@/lib/selection-mouvements";
 
 
 /**
@@ -68,48 +69,6 @@ export const supprimerMouvement = actionLisible(async (id: string) => {
   revalidatePath("/stock");
 });
 
-// ─── Sélection d'une action groupée : les id cochés, ou TOUT le filtre (décision du 2026-09-29) ──
-
-const SELECT_SELECTION = {
-  id: true, type: true, date: true, articleId: true, quantite: true, categorieSortie: true, raisonSortie: true, origine: true,
-} satisfies Prisma.MouvementStockSelect;
-type MvtSelection = Prisma.MouvementStockGetPayload<{ select: typeof SELECT_SELECTION }>;
-type SelectionResolue = { mvs: MvtSelection[]; nbDemandes: number } | { erreur: string; nouveauNombre?: number };
-
-/** Délai de la transaction : une action « tout le filtre » peut toucher jusqu'à BORNE_TOUT_LE_FILTRE lignes. */
-const DELAI_TOUT_LE_FILTRE = 60_000;
-
-/**
- * Résout la sélection DANS la transaction d'écriture. Liste d'id : les mouvements existants.
- * Filtre : le `where` est RECONSTRUIT par la même fonction que la page (`whereColonne`), puis
- * RECOMPTÉ : au-delà de la borne, refus ; si le nombre diffère de celui que la Direction a confirmé,
- * rien n'est écrit et le nouveau nombre revient pour une nouvelle confirmation.
- */
-async function resoudreSelection(tx: Prisma.TransactionClient, selection: SelectionMouvements, nom: string, videMsg: string): Promise<SelectionResolue> {
-  if (Array.isArray(selection)) {
-    const uniq = [...new Set(selection.map(String))].filter(Boolean);
-    if (uniq.length === 0) return { erreur: videMsg };
-    return { mvs: await tx.mouvementStock.findMany({ where: { id: { in: uniq } }, select: SELECT_SELECTION }), nbDemandes: uniq.length };
-  }
-  if (!selection || typeof selection !== "object") return { erreur: "Sélection invalide : rechargez la page." };
-  const { attendu } = selection;
-  const colonne: ColonneMouvements | null = selection.colonne === "SORTIES" || selection.colonne === "ENTREES" ? selection.colonne : null;
-  if (!colonne || !Number.isInteger(attendu) || attendu <= 0) return { erreur: "Sélection invalide : rechargez la page." };
-  const where = whereColonne(lireFiltreMouvements(selection.filtre, new Date()), colonne);
-  const n = await tx.mouvementStock.count({ where });
-  if (n > BORNE_TOUT_LE_FILTRE) {
-    return { erreur: `Le filtre compte ${n} ${nom} : au-delà de ${BORNE_TOUT_LE_FILTRE}, une action groupée est refusée. Affinez par mois, produit ou motif.` };
-  }
-  const recompte = (k: number) => ({
-    erreur: `Le filtre compte maintenant ${k} ${nom}, et non ${attendu} comme confirmé : rien n'a été modifié. Vérifiez, puis confirmez à nouveau.`,
-    nouveauNombre: k,
-  });
-  if (n !== attendu) return recompte(n);
-  const mvs = await tx.mouvementStock.findMany({ where, select: SELECT_SELECTION, take: BORNE_TOUT_LE_FILTRE + 1 });
-  if (mvs.length !== attendu) return recompte(mvs.length); // écrit entre le comptage et la lecture
-  return { mvs, nbDemandes: attendu };
-}
-
 /**
  * Supprime plusieurs mouvements d'un coup (Direction) — les id cochés ou tout le filtre d'une
  * colonne — et annule leur effet sur le stock, en une transaction. Chaque suppression est journalisée.
@@ -120,7 +79,7 @@ export const supprimerMouvementsEnLot = actionLisible(async (selection: Selectio
   requireRole(user, ["ADMIN"]);
   if (Array.isArray(selection) && selection.filter(Boolean).length === 0) return;
   const r = await prisma.$transaction(async (tx) => {
-    const res = await resoudreSelection(tx, selection, "mouvements", "Cochez au moins un mouvement.");
+    const res = await resoudreSelectionMouvements(tx, selection, "mouvements", "Cochez au moins un mouvement.");
     if ("erreur" in res) return res;
     const { mvs } = res;
     await exigerPeriodesOuvertes(mvs.map((m) => new Date(m.date)));
@@ -183,7 +142,7 @@ export const requalifierSorties = actionLisible(async (selection: SelectionMouve
   }
 
   const r = await prisma.$transaction(async (tx) => {
-    const res = await resoudreSelection(tx, selection, "sorties", "Cochez au moins une sortie.");
+    const res = await resoudreSelectionMouvements(tx, selection, "sorties", "Cochez au moins une sortie.");
     if ("erreur" in res) return res;
     const { mvs } = res;
     if (mvs.length !== res.nbDemandes) return { erreur: "Certaines sorties n'existent plus : rechargez la page." };
@@ -216,3 +175,4 @@ export const requalifierSorties = actionLisible(async (selection: SelectionMouve
   revalidatePath("/stock/fiches");
   return r;
 });
+
