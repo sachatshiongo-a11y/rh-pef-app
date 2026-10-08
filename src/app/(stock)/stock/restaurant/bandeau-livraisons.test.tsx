@@ -98,4 +98,36 @@ describe("bandeau — rattachement automatique", () => {
     expect(cr).toContain("« Citron » laissé : 2 articles du restaurant portent ce nom : choisissez");
     expect(bouton()).toBeUndefined();
   });
+
+  it("actions groupées : tout est coché par défaut, une case décochée n'est pas envoyée", async () => {
+    ouvrir();
+    monter(LIVRAISONS, PLAN);
+    act(() => conteneur.querySelector<HTMLInputElement>('[aria-label="Rattacher automatiquement Cat cat-farfalle"]')!.click());
+    expect(bouton()!.textContent).toBe("✓Rattacher automatiquement (1)");
+    await act(async () => bouton()!.click());
+    expect(rattacher).toHaveBeenCalledWith(["cat-sel"]);
+    const tout = () => conteneur.querySelector<HTMLInputElement>('[aria-label="Tout sélectionner"]')!;
+    act(() => tout().click()); // tout recocher
+    expect(bouton()!.textContent).toBe("✓Rattacher automatiquement (2)");
+    act(() => tout().click()); // tout décocher : rien à envoyer
+    expect(bouton()!.disabled).toBe(true);
+  });
+
+  it("une ligne laissée mène où agir : fiche catalogue pour une unité du catalogue manquante, grille pour un choix", () => {
+    ouvrir();
+    monter([L("l1", "cat-sucre", null), L("l2", "cat-citron", "pièce")], [
+      { action: "LAISSER", articleStockId: "cat-sucre", motif: "UNITE_CATALOGUE", raison: "unité du catalogue non renseignée : renseignez-la" },
+      PLAN[2]!,
+    ]);
+    const liens = [...conteneur.querySelectorAll("a")].filter((a) => a.textContent!.includes("unité du catalogue") || a.textContent!.includes("choisissez")).map((a) => a.getAttribute("href"));
+    expect(liens).toEqual(["/stock/catalogue/cat-sucre", "#grille-restaurant"]);
+  });
+
+  it("compte-rendu vide (déjà fait par quelqu'un d'autre) : dit « rien à faire », pas « 0 · 0 · 0 »", async () => {
+    rattacher.mockResolvedValueOnce({ rattaches: [], crees: [], laisses: [] });
+    ouvrir();
+    monter(LIVRAISONS, PLAN);
+    await act(async () => bouton()!.click());
+    expect(conteneur.querySelector('[role="status"]')!.textContent).toContain("rien à faire (déjà rattaché entre-temps)");
+  });
 });

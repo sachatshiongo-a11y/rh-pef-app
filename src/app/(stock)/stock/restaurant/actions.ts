@@ -10,6 +10,9 @@ import { proposerRattachements } from "@/lib/fiches/rattachement-resto";
 import { messageDesactivation, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import { rattacherAutomatiquement } from "@/lib/rattachement-auto";
 
+/** Borne d'un lot du bouton « Rattacher automatiquement » (une semaine d'arriéré en compte ~25). */
+const MAX_RATTACHEMENT_AUTO = 200;
+
 
 async function garde() {
   const user = await verifySession();
@@ -153,7 +156,7 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
   if (articleRestoIds.length === 0) return { erreur: "Cochez au moins une proposition." };
   const [restos, catalogue] = await Promise.all([
     prisma.articleResto.findMany({ where: { id: { in: articleRestoIds }, actif: true }, select: { id: true, designation: true, articleStockId: true, unite: true } }),
-    prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true, actif: true, unite: true, contenance: true, contenanceUnite: true } }),
   ]);
   const propositions = proposerRattachements(restos, catalogue);
   if (propositions.length === 0) {
@@ -185,6 +188,7 @@ export const accepterPropositions = actionLisible(async (articleRestoIds: string
 export const rattacherLivraisonsAutomatiquement = actionLisible(async (articleStockIds: string[]) => {
   const user = await garde();
   if (!Array.isArray(articleStockIds) || articleStockIds.length === 0) return { erreur: "Aucune livraison à rattacher." };
+  if (articleStockIds.length > MAX_RATTACHEMENT_AUTO) return { erreur: `Trop d'articles d'un coup (${articleStockIds.length}) : ${MAX_RATTACHEMENT_AUTO} au plus, décochez-en.` };
   const cr = await rattacherAutomatiquement(user, articleStockIds.map(String), "BOUTON");
   if (cr.erreur) return { erreur: cr.erreur };
   revaliderRattachement();

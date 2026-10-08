@@ -39,8 +39,8 @@ async function livres(client: Client, ids: string[]): Promise<string[]> {
 }
 
 /** Cibles (triées : la règle les traite dans l'ordre) et TOUS les articles du restaurant. */
-async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleAuto[]; restos: RestoAuto[] }> {
-  const [cat, restos] = await Promise.all([
+async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleAuto[]; restos: RestoAuto[]; catalogue: { id: string; designation: string; nomCourt: string | null }[] }> {
+  const [cat, restos, catalogue] = await Promise.all([
     client.articleStock.findMany({
       where: { id: { in: ids } },
       orderBy: [{ designation: "asc" }, { id: "asc" }],
@@ -50,8 +50,10 @@ async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleA
       orderBy: [{ espace: "asc" }, { ordre: "asc" }, { designation: "asc" }],
       select: { id: true, designation: true, espace: true, unite: true, actif: true, articleStockId: true, articleStock: { select: { designation: true } } },
     }),
+    client.articleStock.findMany({ where: { actif: true }, select: { id: true, designation: true, nomCourt: true } }),
   ]);
   return {
+    catalogue,
     cibles: cat.map((a) => ({
       id: a.id, designation: a.designation, nomCourt: a.nomCourt, actif: a.actif, domaine: a.domaine, unite: a.unite,
       contenance: a.contenance?.toString() ?? null, contenanceUnite: a.contenanceUnite, categorie: a.categorie?.nom ?? null,
@@ -67,8 +69,8 @@ async function lireEtat(client: Client, ids: string[]): Promise<{ cibles: CibleA
 export async function planRattachementAuto(articleStockIds: string[]): Promise<DecisionAuto[]> {
   const ids = await livres(prisma, articleStockIds);
   if (ids.length === 0) return [];
-  const { cibles, restos } = await lireEtat(prisma, ids);
-  return planifierRattachementsAuto(cibles, restos);
+  const { cibles, restos, catalogue } = await lireEtat(prisma, ids);
+  return planifierRattachementsAuto(cibles, restos, catalogue);
 }
 
 /**
@@ -88,8 +90,8 @@ export async function rattacherAutomatiquement(
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('stock.rattachement-resto-auto'))`;
       const ids = await livres(tx, articleStockIds);
       if (ids.length === 0) return VIDE;
-      const { cibles, restos } = await lireEtat(tx, ids);
-      const decisions = planifierRattachementsAuto(cibles, restos);
+      const { cibles, restos, catalogue } = await lireEtat(tx, ids);
+      const decisions = planifierRattachementsAuto(cibles, restos, catalogue);
       const nom = new Map(cibles.map((c) => [c.id, c.designation]));
       const out: CompteRenduAuto = { rattaches: [], crees: [], laisses: [] };
       const journal: EntreeJournal[] = [];
@@ -125,7 +127,7 @@ export async function rattacherAutomatiquement(
       }
       await journaliserPlusieurs(tx, journal);
       return out;
-    });
+    }, { timeout: 30_000 }); // un arriéré de plusieurs dizaines d'articles, requêtes en série vers la base distante
   } catch (e) {
     console.error("[stock] rattachement automatique au restaurant en échec (rien n'a été écrit) :", e);
     return { ...VIDE, erreur: "Le rattachement automatique n'a pas pu se faire (rien n'a été écrit) : réessayez avec le bouton du bandeau, dans Stock → Restaurant." };

@@ -73,11 +73,18 @@ describe("rattachement au catalogue", () => {
   }, 60_000);
 
   it("une case cochée qui n'est pas (ou plus) une proposition n'est pas écrite", async () => {
-    await article("Crème");
-    const rc = await resto("Creme"); // accent différent : jamais proposé
+    await article("Tomate");
+    const rc = await resto("Tomates"); // pluriel : jamais proposé (les accents, eux, ne séparent plus — 2026-10-08)
     expect(erreurDe(await accepterPropositions([rc.id]))).toContain("Aucune des lignes cochées");
     expect(await rattache(rc.id)).toBeNull();
     expect(erreurDe(await accepterPropositions([]))).toContain("Cochez au moins une proposition");
+  }, 60_000);
+
+  it("une proposition faite par le NOM COURT du catalogue s'accepte (même clé à l'écran et au serveur)", async () => {
+    const agneau = await prisma.articleStock.create({ data: { designation: "AGNEAU CARRE FRANCE 1KG", nomCourt: "Carré d'agneau", domaine: "NOURRITURE", unite: "kg" } });
+    const r = await resto("Carre d'agneau");
+    expect(await accepterPropositions([r.id])).toEqual({ n: 1, ignores: 0 });
+    expect(await rattache(r.id)).toBe(agneau.id);
   }, 60_000);
 
   it("rattacher, changer, détacher : trois gestes, trois entrées au journal", async () => {

@@ -167,11 +167,30 @@ describe("planifierRattachementsAuto — automatique, jamais deviné", () => {
     expect(planifierRattachementsAuto([C("a1", "Sel")], [R("r1", "Autre nom", { articleStockId: "a1" })])).toEqual([]);
   });
 
-  it("deux cibles pour un même article du restaurant, ou deux créations homonymes : la seconde est laissée", () => {
+  it("deux cibles livrées au même nom : AUCUNE n'est rattachée ni créée (jamais « la première gagne »)", () => {
     const d = planifierRattachementsAuto([C("a1", "Farfalle"), C("a2", "FARFALLE")], [R("r1", "Farfalle")]);
-    expect(d.map((x) => [x.action, x.articleStockId])).toEqual([["RATTACHER", "a1"], ["LAISSER", "a2"]]);
-    const e = planifierRattachementsAuto([C("a1", "Penne"), C("a2", "penne")], []);
-    expect(e.map((x) => [x.action, x.articleStockId])).toEqual([["CREER", "a1"], ["LAISSER", "a2"]]);
-    expect((e[1] as { motif: string }).motif).toBe("HOMONYME");
+    expect(d.map((x) => [x.action, x.articleStockId, (x as { motif?: string }).motif])).toEqual([
+      ["LAISSER", "a1", "PLUSIEURS_ARTICLES_CATALOGUE"], ["LAISSER", "a2", "PLUSIEURS_ARTICLES_CATALOGUE"],
+    ]);
+    expect((d[0] as { raison: string }).raison).toBe("« FARFALLE » porte le même nom au catalogue : rattachez à la main (ou fusionnez les doublons du catalogue)");
+  });
+
+  it("nom porté par un AUTRE article actif du catalogue, même non livré (nom court partagé) : laissé", () => {
+    const catalogue = [{ id: "a1", designation: "Coca-Cola 33cl", nomCourt: "Coca" }, { id: "a2", designation: "Coca-Cola 50cl", nomCourt: "Coca" }, { id: "a3", designation: "Sel", nomCourt: null }];
+    const d = planifierRattachementsAuto([C("a1", "Coca-Cola 33cl", { nomCourt: "Coca", domaine: "BOISSON" }), C("a3", "Sel")], [R("r1", "Coca", { espace: "BAR" })], catalogue);
+    expect(d.map((x) => [x.action, x.articleStockId, (x as { motif?: string }).motif ?? null])).toEqual([["LAISSER", "a1", "PLUSIEURS_ARTICLES_CATALOGUE"], ["CREER", "a3", null]]);
+    // Un article DÉSACTIVÉ du catalogue n'est pas un porteur : il n'empêche rien.
+    expect(planifierRattachementsAuto([C("a1", "Sel"), C("a9", "Sel", { actif: false })], [R("r1", "Sel")]).map((x) => x.action)).toEqual(["RATTACHER", "LAISSER"]);
+  });
+
+  it("un seul candidat libre, mais dans l'AUTRE espace que le domaine : rattaché (comportement figé, annoncé « (Bar) »)", () => {
+    expect(planifierRattachementsAuto([C("a1", "Citron")], [R("r1", "Citron", { espace: "BAR" })])).toEqual([
+      { action: "RATTACHER", articleStockId: "a1", articleRestoId: "r1", designationResto: "Citron", espace: "BAR" },
+    ]);
+  });
+
+  it("le nom court d'un article vaut la désignation d'un autre : les deux sont laissés, rien n'est créé", () => {
+    const e = planifierRattachementsAuto([C("a1", "Penne"), C("a2", "Penne rigate", { nomCourt: "Penne" })], []);
+    expect(e.every((x) => x.action === "LAISSER")).toBe(true); // nom court = désignation d'un autre : ambigu
   });
 });

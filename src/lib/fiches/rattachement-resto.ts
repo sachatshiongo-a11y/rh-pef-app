@@ -118,7 +118,7 @@ export type RestoAuto = {
 };
 
 export type MotifLaisse =
-  | "PLUSIEURS_CANDIDATS" | "HOMONYME" | "RATTACHE_DESACTIVE" | "UNITES" | "DOMAINE_AUTRE"
+  | "PLUSIEURS_CANDIDATS" | "PLUSIEURS_ARTICLES_CATALOGUE" | "HOMONYME" | "RATTACHE_DESACTIVE" | "UNITES" | "DOMAINE_AUTRE"
   | "UNITE_CATALOGUE" | "CATALOGUE_INACTIF";
 
 export type DecisionAuto =
@@ -147,10 +147,20 @@ const guillemets = (noms: string[]) => noms.map((n) => `« ${n} »`).join(", ");
  *      domaine ne dit pas l'espace (« Autre ») ou si l'unité du catalogue manque ;
  *   c) PLUSIEURS candidats libres : rien n'est écrit, la ligne reste à choisir (créer un troisième
  *      homonyme partagerait le comptage d'un même produit entre plusieurs lignes de la grille).
+ * Et avant tout : un nom porté par PLUSIEURS articles actifs du catalogue (`catalogue`, plus les
+ * cibles) n'est ni rattaché ni créé — c'est l'ambiguïté que les propositions refusent déjà.
  */
-export function planifierRattachementsAuto(cibles: CibleAuto[], restos: RestoAuto[]): DecisionAuto[] {
+export function planifierRattachementsAuto(
+  cibles: CibleAuto[], restos: RestoAuto[],
+  /** Articles ACTIFS du catalogue (désignation, nom court) : un nom porté par deux d'entre eux est ambigu. */
+  catalogue: { id: string; designation: string; nomCourt?: string | null }[] = [],
+): DecisionAuto[] {
   const etat = restos.map((r) => ({ ...r }));
   const decisions: DecisionAuto[] = [];
+  const porteurs = new Map<string, { id: string; designation: string }[]>();
+  for (const a of [...catalogue, ...cibles.filter((c) => c.actif && !catalogue.some((x) => x.id === c.id))]) {
+    for (const cle of clesCatalogue(a)) porteurs.set(cle, [...(porteurs.get(cle) ?? []), a]);
+  }
   for (const c of cibles) {
     if (etat.some((r) => r.actif && r.articleStockId === c.id)) continue; // déjà rattaché : rien à faire
     const laisser = (motif: MotifLaisse, raison: string) => decisions.push({ action: "LAISSER", articleStockId: c.id, motif, raison });
@@ -161,6 +171,13 @@ export function planifierRattachementsAuto(cibles: CibleAuto[], restos: RestoAut
       continue;
     }
     const cles = new Set(clesCatalogue(c));
+    // Même nom (désignation ou nom court) porté par un AUTRE article du catalogue : lequel des deux
+    // est le produit du restaurant ? Jamais tranché ici (même règle que les propositions).
+    const autres = [...new Map([...cles].flatMap((k) => porteurs.get(k) ?? []).filter((a) => a.id !== c.id).map((a) => [a.id, a])).values()];
+    if (autres.length > 0) {
+      laisser("PLUSIEURS_ARTICLES_CATALOGUE", `${guillemets(autres.map((a) => a.designation))} porte${autres.length > 1 ? "nt" : ""} le même nom au catalogue : rattachez à la main (ou fusionnez les doublons du catalogue)`);
+      continue;
+    }
     const homonymes = etat.filter((r) => cles.has(cleRattachement(r.designation)));
     const espace = espaceDeDomaine(c.domaine);
     let libres = homonymes.filter((r) => r.actif && r.articleStockId === null);

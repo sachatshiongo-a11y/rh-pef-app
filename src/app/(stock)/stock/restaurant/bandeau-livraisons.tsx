@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { formaterNombre } from "@/lib/montant";
 import { estErreur } from "@/lib/action-lisible";
 import { BoutonValider } from "@/components/action-buttons";
-import { NOM_ESPACE, type DecisionAuto } from "@/lib/fiches/rattachement-resto";
+import { NOM_ESPACE, type DecisionAuto, type MotifLaisse } from "@/lib/fiches/rattachement-resto";
 import { conseilSignalement, conseilLivraison, type ArticleRestoSR, type LivraisonSR, type SignalementLivraison } from "@/lib/stock-restaurant";
 import { rattacherLivraisonsAutomatiquement } from "./actions";
 
@@ -31,6 +31,12 @@ type CompteRendu = {
   laisses: { designationCatalogue: string; raison: string }[];
 };
 
+/** Où agir pour une ligne laissée : la grille (choisir), la fiche catalogue, ou les désactivés (Direction). */
+const OU_AGIR: Record<MotifLaisse, "grille" | "catalogue" | "desactives"> = {
+  PLUSIEURS_CANDIDATS: "grille", PLUSIEURS_ARTICLES_CATALOGUE: "grille", HOMONYME: "grille", UNITES: "grille", DOMAINE_AUTRE: "grille",
+  UNITE_CATALOGUE: "catalogue", CATALOGUE_INACTIF: "catalogue", RATTACHE_DESACTIVE: "desactives",
+};
+
 /** Ce que le rattachement automatique fera pour une livraison (texte de la ligne). */
 function annonce(d: Automatique): string {
   return d.action === "RATTACHER"
@@ -46,12 +52,17 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
   const [isPending, start] = useTransition();
   const [compteRendu, setCompteRendu] = useState<CompteRendu | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
+  // Cases DÉCOCHÉES (articles du catalogue) : tout est coché par défaut, y compris ce qui arrive après.
+  const [exclus, setExclus] = useState<Set<string>>(new Set());
 
   const parArticle = new Map(planAuto.map((d) => [d.articleStockId, d]));
   const automatique = (l: LivraisonSR): Automatique | null => { const d = parArticle.get(l.articleStockId); return d && d.action !== "LAISSER" ? d : null; };
   const auto = nonRattachees.filter((l) => automatique(l) !== null);
   const aChoisir = nonRattachees.filter((l) => automatique(l) === null);
   const idsAuto = [...new Set(auto.map((l) => l.articleStockId))];
+  const coches = idsAuto.filter((id) => !exclus.has(id));
+  const basculer = (id: string) => setExclus((e) => { const n = new Set(e); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toutCocher = (oui: boolean) => setExclus(oui ? new Set() : new Set(idsAuto));
   // Une livraison « à répartir » est signalée sur chaque article candidat : une seule ligne ici.
   const aCorriger = [...new Map(signalements.map((s) => [s.livraisonId, s])).values()];
 
@@ -60,7 +71,7 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
   const rattacher = () => {
     setErreur(null); setCompteRendu(null);
     start(async () => {
-      const r = await rattacherLivraisonsAutomatiquement(idsAuto);
+      const r = await rattacherLivraisonsAutomatiquement(coches);
       if (estErreur(r)) { setErreur(r.erreur); return; }
       setCompteRendu(r);
     });
@@ -80,15 +91,19 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
       {auto.length > 0 && (
         <div className="space-y-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className={sousTitre}>Rattachables automatiquement ({pl(idsAuto.length, "article")})</p>
-            <BoutonValider disabled={isPending} onClick={rattacher}>
-              {isPending ? "Rattachement…" : `Rattacher automatiquement (${idsAuto.length})`}
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={coches.length === idsAuto.length} onChange={(e) => toutCocher(e.target.checked)} aria-label="Tout sélectionner" />
+              <span className={sousTitre}>Rattachables automatiquement ({pl(idsAuto.length, "article")})</span>
+            </label>
+            <BoutonValider disabled={isPending || coches.length === 0} onClick={rattacher}>
+              {isPending ? "Rattachement…" : `Rattacher automatiquement (${coches.length})`}
             </BoutonValider>
           </div>
           <ul className="space-y-1 text-xs">
             {auto.map((l) => (
-              <li key={l.id} className="min-w-0 break-words">
-                {jjmm(l.date)} — {lienCatalogue(l.articleStockId, l.designation)} ({quantite(l.quantite, l.uniteCatalogue)}) — {annonce(automatique(l)!)}
+              <li key={l.id} className="flex min-w-0 items-start gap-2 break-words">
+                <input type="checkbox" className="mt-0.5 shrink-0" checked={!exclus.has(l.articleStockId)} onChange={() => basculer(l.articleStockId)} aria-label={`Rattacher automatiquement ${l.designation}`} />
+                <span className="min-w-0">{jjmm(l.date)} — {lienCatalogue(l.articleStockId, l.designation)} ({quantite(l.quantite, l.uniteCatalogue)}) — {annonce(automatique(l)!)}</span>
               </li>
             ))}
           </ul>
@@ -102,11 +117,17 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
             {aChoisir.map((l) => {
               const d = parArticle.get(l.articleStockId);
               const texte = d?.action === "LAISSER" ? d.raison : conseilLivraison({ etat: "NON_RATTACHE" }, l.articleStockId, articles)!.texte;
+              const ou = d?.action === "LAISSER" ? OU_AGIR[d.motif] : "grille";
               return (
                 <li key={l.id} className="min-w-0 break-words">
                   {jjmm(l.date)} — {lienCatalogue(l.articleStockId, l.designation)} ({quantite(l.quantite, l.uniteCatalogue)}) —{" "}
-                  <a href="#grille-restaurant" className="font-medium underline">{texte}</a>
-                  <span className="text-amber-800"> (colonne « Article du catalogue »)</span>
+                  {ou === "grille" ? (
+                    <><a href="#grille-restaurant" className="font-medium underline">{texte}</a><span className="text-amber-800"> (colonne « Article du catalogue »)</span></>
+                  ) : ou === "catalogue" ? (
+                    <Link href={`/stock/catalogue/${l.articleStockId}`} className="font-medium underline">{texte}</Link>
+                  ) : (
+                    <Link href="/stock/restaurant?desactives=1" className="font-medium underline">{texte}</Link>
+                  )}
                 </li>
               );
             })}
@@ -136,7 +157,9 @@ export function BandeauLivraisons({ nonRattachees, signalements, articles, planA
       {compteRendu && (
         <div role="status" className="space-y-1 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-900">
           <p className="font-semibold">
-            Rattachement automatique : {pl(compteRendu.rattaches.length, "rattaché")} · {pl(compteRendu.crees.length, "créé")} · {pl(compteRendu.laisses.length, "laissé")}
+            {compteRendu.rattaches.length + compteRendu.crees.length + compteRendu.laisses.length === 0
+              ? "Rattachement automatique : rien à faire (déjà rattaché entre-temps)."
+              : `Rattachement automatique : ${pl(compteRendu.rattaches.length, "rattaché")} · ${pl(compteRendu.crees.length, "créé")} · ${pl(compteRendu.laisses.length, "laissé")}`}
           </p>
           <ul className="space-y-0.5">
             {compteRendu.rattaches.map((r, i) => <li key={`r${i}`}>« {r.designationCatalogue} » → rattaché à « {r.designationResto} » ({NOM_ESPACE[r.espace]})</li>)}

@@ -163,6 +163,25 @@ describe("à la sortie « Livraison restaurant » (après la transaction, jamais
     expect(await journal()).toEqual([]);
   }, 60_000);
 
+  it("une entrée (même « Retour restaurant ») ne rattache rien", async () => {
+    const riz = await article("Riz");
+    const f = new FormData();
+    f.set("type", "ENTREE"); f.set("date", DATE); f.set("motifEntree", "RETOUR_RESTAURANT");
+    f.append("articleId", riz); f.append("quantite", ecrireSaisieNombre(1));
+    await mouvementManuel(f);
+    expect(await prisma.articleResto.count()).toBe(0);
+  }, 60_000);
+
+  it("panne au milieu d'un LOT : rien n'est écrit (ni le rattachement déjà fait, ni la création)", async () => {
+    const [sel, riz] = await Promise.all([article("Sel"), article("Riz")]);
+    const rs = await resto("Sel");
+    await livraisonPassee(sel, 1); await livraisonPassee(riz, 1);
+    PANNE.journalAutomatique = true;
+    expect(await rattacherLivraisonsAutomatiquement([sel, riz])).toMatchObject({ erreur: expect.stringContaining("rien n'a été écrit") });
+    expect((await prisma.articleResto.findUniqueOrThrow({ where: { id: rs.id } })).articleStockId).toBeNull();
+    expect(await prisma.articleResto.count()).toBe(1);
+  }, 60_000);
+
   it("le rattachement tombe en panne : la sortie est ENREGISTRÉE quand même, rien n'est rattaché à moitié, l'auteur est prévenu", async () => {
     const farine = await article("Farine");
     PANNE.journalAutomatique = true;
@@ -264,7 +283,7 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
     expect(n.map((x) => [x.destinataireUserId, x.lien])).toEqual([[U.dir.id, "/stock/restaurant"]]);
     expect(n[0]!.message).toBe("Rattachement automatique au stock du restaurant par Jean — 1 article rattaché (« Sel »), 1 article créé (« Riz »)");
     expect((await journal()).every((j) => j.userId === U.resp.id)).toBe(true);
-    expect(rs.id).toBeTruthy();
+    expect((await rattacheA(sel)).map((x) => x.id)).toEqual([rs.id]);
 
     await prisma.notification.deleteMany();
     const poivre = await article("Poivre");
@@ -272,6 +291,16 @@ describe("bouton « Rattacher automatiquement (N) » : l'arriéré, en lot", () 
     en("dir");
     await rattacherLivraisonsAutomatiquement([poivre]);
     expect(await prisma.notification.count()).toBe(0);
+  }, 60_000);
+
+  it("doublon au catalogue (même nom court) : ni rattaché ni créé, laissé avec la raison", async () => {
+    const coca33 = await article("Coca-Cola 33cl", { nomCourt: "Coca", domaine: "BOISSON", unite: "Bouteille" });
+    await article("Coca-Cola 50cl", { nomCourt: "Coca", domaine: "BOISSON", unite: "Bouteille" }); // jamais livré
+    await resto("Coca", { espace: "BAR", unite: "Bouteille" });
+    await livraisonPassee(coca33, 6);
+    const r = await rattacherLivraisonsAutomatiquement([coca33]);
+    expect(r).toMatchObject({ rattaches: [], crees: [], laisses: [{ designationCatalogue: "Coca-Cola 33cl", raison: expect.stringContaining("« Coca-Cola 50cl » porte le même nom au catalogue") }] });
+    expect(await rattacheA(coca33)).toEqual([]);
   }, 60_000);
 
   it("ouvrir la page Restaurant n'écrit rien, même avec un arriéré rattachable", async () => {
