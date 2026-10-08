@@ -4,9 +4,9 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
-import { articlesEnHausse } from "@/lib/stock-prix";
+import { chargerHausses, filtrerArticles } from "@/lib/inventaire-export";
+import { lireFiltreInventaire } from "@/lib/filtre-inventaire";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
-import type { Prisma } from "@prisma/client";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 
 // Fonds de ligne selon le niveau d'alerte (codes couleur repris à l'écran).
@@ -20,24 +20,17 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const dom = sp.get("domaine");
   const domaine = dom === "NOURRITURE" || dom === "BOISSON" || dom === "AUTRE" ? dom : undefined;
-  const q = (sp.get("q") ?? "").trim();
-
-  const where: Prisma.ArticleStockWhereInput = {
-    ...(domaine ? { domaine } : {}),
-    ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
-  };
-  const [articles, lignesFacture, taux] = await Promise.all([
+  // Le filtre de l'écran (recherche, alerte, « À compléter », hausse) : le PDF sort EXACTEMENT l'ensemble affiché, tout — jamais la page.
+  const filtre = lireFiltreInventaire((k) => sp.get(k));
+  const [articlesDomaine, hausses, taux] = await Promise.all([
     prisma.articleStock.findMany({
-      where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
+      where: domaine ? { domaine } : {}, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
       include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
     }),
-    prisma.ligneFacture.findMany({
-      where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
-      select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
-    }),
+    chargerHausses(domaine),
     tauxDuJour(),
   ]);
-  const hausses = articlesEnHausse(lignesFacture);
+  const articles = filtrerArticles(articlesDomaine, hausses, filtre);
 
   const lignes: (string | number)[][] = [];
   const sectionRows: number[] = [];

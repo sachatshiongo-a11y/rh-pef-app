@@ -92,7 +92,7 @@ describe("Inventaire paginé", () => {
     monter({ pageInit: 2 });
     taper(conteneur.querySelector<HTMLInputElement>('input[aria-label="Rechercher un article"]')!, "Art 117");
     expect(cartes()).toEqual(["a117"]);
-    expect(window.location.search).toBe(""); // une seule page : plus de ?page=
+    expect(window.location.search).toBe("?q=Art+117"); // une seule page : plus de ?page= ; le filtre est dans l'adresse (les exports le relisent)
     expect(conteneur.querySelector("nav[data-pagination]")).toBeNull(); // 1 résultat : pas de barre
   });
 
@@ -172,5 +172,25 @@ describe("Inventaire paginé", () => {
     const [ids] = categoriserEnMasse.mock.calls[0] as [string[]];
     expect(ids).toHaveLength(1);
     expect(ids[0] >= "a114").toBe(true); // un des 7 urgents (n° 114 à 120)
+  });
+
+  it("le filtre s'écrit dans l'adresse (le menu « Exporter » la relit) et la page repart à 1", () => {
+    monter({ pageInit: 2 });
+    expect(window.location.search).toBe("?page=2");
+    taper(conteneur.querySelector<HTMLInputElement>('input[aria-label="Rechercher un article"]')!, "Art 11");
+    expect(window.location.search).toBe("?q=Art+11");
+    const urgent = [...conteneur.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Urgent" && !b.closest("[data-filtres-mobile]"))!;
+    clic(urgent);
+    expect(new URLSearchParams(window.location.search).get("alerte")).toBe("URGENT");
+    expect(new URLSearchParams(window.location.search).get("q")).toBe("Art 11");
+    clic(urgent); // re-clic : plus d'alerte (même geste qu'à l'écran)
+  });
+
+  it("départ depuis l'adresse : alerte, « À compléter » et hausse initiaux appliqués", () => {
+    conteneur = document.createElement("div");
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    act(() => racine.render(h(CatalogueTable, { articles: ARTICLES, categories: CATS, fournisseurs: [], initialAlerte: "URGENT", initialManque: "negatif" })));
+    expect(conteneur.querySelectorAll('[data-vue="rangees-mobile"] [data-article]')).toHaveLength(0); // urgents ET stock négatif : aucun ici
   });
 });

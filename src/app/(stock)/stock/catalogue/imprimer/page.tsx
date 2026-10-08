@@ -2,35 +2,29 @@ import { libellePrixComplet, prixArticleEnUSD, prixSaisi } from "@/lib/prix-arti
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
-import { articlesEnHausse } from "@/lib/stock-prix";
+import { chargerHausses, filtrerArticles } from "@/lib/inventaire-export";
+import { lireFiltreInventaire } from "@/lib/filtre-inventaire";
 import { PrintDoc } from "../../_print/print-doc";
-import type { Prisma } from "@prisma/client";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
 
-type SP = { q?: string; domaine?: string };
+type SP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string };
 
 export default async function CatalogueImprimerPage({ searchParams }: { searchParams: Promise<SP> }) {
   await exigerPageStock();
   const sp = await searchParams;
-  const q = (sp.q ?? "").trim();
   const domaine = sp.domaine === "NOURRITURE" || sp.domaine === "BOISSON" || sp.domaine === "AUTRE" ? sp.domaine : undefined;
-  const where: Prisma.ArticleStockWhereInput = {
-    ...(domaine ? { domaine } : {}),
-    ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
-  };
-  const [articles, lignesFacture, taux] = await Promise.all([
+  // Le filtre de l'écran : la page imprimable sort EXACTEMENT l'ensemble affiché, tout — jamais la page.
+  const filtre = lireFiltreInventaire((k) => (sp as Record<string, string | undefined>)[k]);
+  const [articlesDomaine, hausses, taux] = await Promise.all([
     prisma.articleStock.findMany({
-      where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
+      where: domaine ? { domaine } : {}, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
       include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
     }),
-    prisma.ligneFacture.findMany({
-      where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
-      select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
-    }),
+    chargerHausses(domaine),
     tauxDuJour(),
   ]);
-  const hausses = articlesEnHausse(lignesFacture);
+  const articles = filtrerArticles(articlesDomaine, hausses, filtre);
 
   const lignes = articles.map((a) => {
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;

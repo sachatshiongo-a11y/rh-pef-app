@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
-import { articlesEnHausse } from "@/lib/stock-prix";
+import { chargerHausses, filtrerArticles } from "@/lib/inventaire-export";
+import { lireFiltreInventaire } from "@/lib/filtre-inventaire";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 import { prixArticleEnCDF, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
@@ -14,21 +15,21 @@ export async function GET(req: Request) {
   const g = await exigerEspaceStock();
   if (!g.ok) return g.reponse;
 
-  const dom = new URL(req.url).searchParams.get("domaine");
+  const sp = new URL(req.url).searchParams;
+  const dom = sp.get("domaine");
   const domaine = dom === "NOURRITURE" || dom === "BOISSON" || dom === "AUTRE" ? dom : undefined;
-  const [articles, lignesFacture, taux] = await Promise.all([
+  // Le filtre de l'écran (recherche, alerte, « À compléter », hausse) : l'export sort EXACTEMENT l'ensemble affiché, tout — jamais la page.
+  const filtre = lireFiltreInventaire((k) => sp.get(k));
+  const [articlesDomaine, hausses, taux] = await Promise.all([
     prisma.articleStock.findMany({
       where: domaine ? { domaine } : {},
       orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
       include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
     }),
-    prisma.ligneFacture.findMany({
-      where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
-      select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
-    }),
+    chargerHausses(domaine),
     tauxDuJour(),
   ]);
-  const hausses = articlesEnHausse(lignesFacture);
+  const articles = filtrerArticles(articlesDomaine, hausses, filtre);
 
   const alerteRow: (NiveauAlerte | null)[] = [];
   const lignes = articles.map((a) => {

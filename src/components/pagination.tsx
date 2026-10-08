@@ -117,10 +117,13 @@ export function usePagination({ total, pageInit = 1, parInit = PAR_DEFAUT, cleFi
  * `doux={false}` pour un lien qui rechargeait la page avant (`<a>`) : l'état du tableau (cases cochées…) repart
  * alors à zéro comme avant, au lieu de survivre à un changement de filtre.
  */
-export function LienGardantTaille({ href, doux = true, ...reste }: Omit<React.ComponentProps<typeof Link>, "href"> & { href: string; doux?: boolean }) {
-  const par = useSearchParams()?.get(PARAM_PAR) ?? null;
+export function LienGardantTaille({ href, doux = true, garder = [], ...reste }: Omit<React.ComponentProps<typeof Link>, "href"> & { href: string; doux?: boolean; /** Autres paramètres de l'adresse AFFICHÉE à reporter (ex. les filtres d'un tableau qui les écrit dans l'adresse). */ garder?: string[] }) {
+  const vivant = useSearchParams();
   const u = new URL(href, "http://x");
-  if (par) u.searchParams.set(PARAM_PAR, par); else u.searchParams.delete(PARAM_PAR);
+  for (const cle of [PARAM_PAR, ...garder]) {
+    const v = vivant?.get(cle) ?? null;
+    if (v) u.searchParams.set(cle, v); else u.searchParams.delete(cle);
+  }
   const cible = `${u.pathname}${u.search}${u.hash}`;
   if (!doux) {
     // Les réglages propres à `Link` n'ont pas de sens sur un <a> ordinaire.

@@ -1,5 +1,6 @@
 import { usd } from "@/lib/stock";
-import { BoutonRapport } from "../_rapport/bouton-rapport";
+import { ExportInventaire } from "./export-inventaire";
+import type { ManqueKey } from "@/lib/filtre-inventaire";
 import { CatalogueTable, type ArticleRow } from "./catalogue-table";
 import { PAR_DEFAUT, type ParPage } from "@/lib/pagination";
 import { LienGardantTaille } from "@/components/pagination";
@@ -20,13 +21,16 @@ const DOMAINES: { cle: Domaine | ""; label: string }[] = [
  * pour montrer les articles dès l'ouverture. La valeur du stock, le compteur et l'export y passent
  * dans le menu « Plus ». Sur ordinateur, rien ne change.
  */
-export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, pageInit = 1, parInit = PAR_DEFAUT, estDirection = true }: {
+export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, manque = "", hausse = false, pageInit = 1, parInit = PAR_DEFAUT, estDirection = true }: {
   rows: ArticleRow[];
   categories: { id: string; nom: string; domaine: string }[];
   fournisseurs: { id: string; nom: string }[];
   domaine?: Domaine;
   q: string;
   alerte?: "URGENT" | "APPRO" | "OK";
+  /** Filtres « À compléter » et « hausse de prix » lus dans l'adresse (le tableau les réécrit à chaque changement). */
+  manque?: ManqueKey;
+  hausse?: boolean;
   /** Page et taille de page lues dans l'URL (le tableau pagine les lignes déjà chargées). */
   pageInit?: number;
   parInit?: ParPage;
@@ -35,12 +39,10 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
 }) {
   // Bascule de domaine en conservant recherche et filtre d'alerte (la page repart à 1, la taille de page est gardée par le lien).
   const lienDomaine = (cle: Domaine | "") => {
-    const p = new URLSearchParams({ ...(q ? { q } : {}), ...(alerte ? { alerte } : {}), ...(cle ? { domaine: cle } : {}) });
-    return `/stock/catalogue${p.toString() ? `?${p}` : ""}`;
+    return `/stock/catalogue${cle ? `?domaine=${cle}` : ""}`; // recherche, alerte, « À compléter » et hausse sont reportés par le lien (adresse affichée)
   };
-  const dlParams = new URLSearchParams({ ...(q ? { q } : {}), ...(domaine ? { domaine } : {}) });
-  const qs = dlParams.toString() ? `?${dlParams}` : "";
-  const exporter = <BoutonRapport pdfHref={`/stock/catalogue/pdf${qs}`} excelHref={`/stock/catalogue/export${qs}`} />;
+  // L'export suit le filtre AFFICHÉ (recherche, alerte, « À compléter », hausse) : le menu relit l'adresse en direct.
+  const exporter = <ExportInventaire domaine={domaine} />;
 
   return (
     <div className="space-y-3 lg:space-y-4">
@@ -52,7 +54,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
               (domaine ?? "") === d.cle ? (
                 <span key={d.label} className="bg-primary px-2.5 py-1.5 font-medium text-primary-foreground lg:px-3">{d.label}</span>
               ) : (
-                <LienGardantTaille doux={false} key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</LienGardantTaille>
+                <LienGardantTaille doux={false} garder={["q", "alerte", "manque", "hausse"]} key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</LienGardantTaille>
               )
             )}
           </div>
@@ -64,7 +66,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
         </div>
       </div>
 
-      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} pageInit={pageInit} parInit={parInit} actionsPlus={exporter} estDirection={estDirection} />
+      <CatalogueTable articles={rows} categories={categories} fournisseurs={fournisseurs} lockedDomaine={domaine} initialQ={q} initialAlerte={alerte} initialManque={manque} initialHausse={hausse} pageInit={pageInit} parInit={parInit} actionsPlus={exporter} estDirection={estDirection} />
     </div>
   );
 }

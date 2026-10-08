@@ -117,6 +117,13 @@ describe("la taille de page survit à un changement de filtre", () => {
     act(() => r.unmount());
   });
 
+  it("LienGardantTaille garder : reporte aussi les filtres de l'adresse affichée (domaine de l'Inventaire)", () => {
+    window.history.replaceState(null, "", "/stock/catalogue?q=farine&alerte=URGENT&page=3&par=100");
+    const { c, r } = monter(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=BOISSON", garder: ["q", "alerte", "manque", "hausse"] }, "Boissons"));
+    expect(c.querySelector("a")!.getAttribute("href")).toBe("/stock/catalogue?domaine=BOISSON&par=100&q=farine&alerte=URGENT");
+    act(() => r.unmount());
+  });
+
   it("LienGardantTaille doux={false} : un vrai <a> (rechargement, état du tableau remis à zéro), même taille reportée", () => {
     window.history.replaceState(null, "", "/stock/catalogue?par=tout");
     const { c, r } = monter(createElement(LienGardantTaille, { href: "/stock/catalogue?domaine=AUTRE", doux: false, className: "pilule", prefetch: false }, "Autre"));

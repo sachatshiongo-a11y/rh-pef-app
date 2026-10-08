@@ -15,6 +15,7 @@ import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
+import { articleDansFiltre, manqueDe, paramsFiltreInventaire, type ManqueKey } from "@/lib/filtre-inventaire";
 
 /** Texte envoyé à `modifierArticle` (lu à la française par `decSaisiOptionnel`) : vide = effacer. Les
  *  valeurs venues de la base (« 12.5 ») pré-remplissent les cases par `nombreDeBase`, jamais par la lecture française. */
@@ -88,19 +89,9 @@ const valeurTri = (a: ArticleRow, col: TriCol, catNom: Map<string, string>, four
   col === "min" ? Number(a.stockMinimum) || 0 :
   col === "alerte" ? (a.niveau ? ORDRE_ALERTE[a.niveau] : 3) : 0;
 
-type ManqueKey = "" | "prix" | "fournisseur" | "seuil" | "unite" | "negatif";
-// Détecte un champ manquant (pur, hors composant → pas de dépendance de hook).
-const manqueDe = (a: ArticleRow, m: ManqueKey) =>
-  m === "prix" ? (a.devisePrix === "CDF" ? !a.prixCDF || Number(a.prixCDF) === 0 : !a.prix || Number(a.prix) === 0) :
-  m === "fournisseur" ? !a.fournisseurId :
-  m === "seuil" ? !a.stockMinimum || Number(a.stockMinimum) <= 0 :
-  m === "unite" ? !a.unite || !a.unite.trim() :
-  m === "negatif" ? Number(a.quantite) < 0 : false;
-
 /** Pilule tactile de la rangée de filtres du téléphone (36 px de haut, jamais coupée sur deux lignes). */
 const PILULE_MOBILE = "inline-flex min-h-9 shrink-0 items-center whitespace-nowrap rounded-full border px-3 text-sm";
 const cellCls = "w-full rounded border border-input bg-background px-1.5 py-1 text-xs";
-const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 /** Tris proposés sur téléphone (même `tri` que les en-têtes de l'ordinateur) : valeur = « colonne:sens ». */
 const TRIS_MOBILE: readonly (readonly [string, string])[] = [
   ["", "↕ Catégories"],
@@ -111,8 +102,8 @@ const TRIS_MOBILE: readonly (readonly [string, string])[] = [
 ];
 const ALERTES = [["", "Toutes"], ["URGENT", "Urgent"], ["APPRO", "À réappro."], ["OK", "Satisfaisant"]] as const;
 
-export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
-  articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte;
+export function CatalogueTable({ articles, categories, fournisseurs, lockedDomaine, initialQ, initialAlerte, initialManque = "", initialHausse = false, pageInit = 1, parInit = 50, actionsPlus, estDirection = true }: {
+  articles: ArticleRow[]; categories: Cat[]; fournisseurs: Four[]; lockedDomaine?: Domaine; initialQ?: string; initialAlerte?: NiveauAlerte; initialManque?: ManqueKey; initialHausse?: boolean;
   /** Page et taille de page de l'URL (50 par défaut) : tout est chargé ici, la page est une tranche du filtre. */
   pageInit?: number; parInit?: ParPage;
   /**
@@ -137,8 +128,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [q, setQ] = useState(initialQ ?? "");
   const dom: "TOUS" | Domaine = lockedDomaine ?? "TOUS"; // choisi par les pilules d'en-tête (?domaine=)
   const [alerte, setAlerte] = useState<"" | NiveauAlerte>(initialAlerte ?? "");
-  const [manque, setManque] = useState<ManqueKey>(""); // vue « À compléter »
-  const [hausseSeule, setHausseSeule] = useState(false); // filtre : articles dont le prix d'achat a grimpé
+  const [manque, setManque] = useState<ManqueKey>(initialManque); // vue « À compléter »
+  const [hausseSeule, setHausseSeule] = useState(initialHausse); // filtre : articles dont le prix d'achat a grimpé
   const [bulkFour, setBulkFour] = useState("");
   const [bulkSeuil, setBulkSeuil] = useState("");
   // Seuil en masse lu à la française (« 2,5 ») ; null = vide ou illisible → bouton inactif.
@@ -154,16 +145,20 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const trierPar = (col: TriCol) =>
     setTri((t) => (t?.col !== col ? { col, dir: 1 } : t.dir === 1 ? { col, dir: -1 } : null));
 
-  const visibles = useMemo(() => {
-    const nq = norm(q.trim());
-    return articles.filter((a) =>
-      (dom === "TOUS" || a.domaine === dom) &&
-      (!alerte || a.niveau === alerte) &&
-      (!manque || manqueDe(a, manque)) &&
-      (!hausseSeule || a.haussePct != null) &&
-      (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq)),
-    );
-  }, [articles, q, dom, alerte, manque, hausseSeule]);
+  // Le filtre est défini UNE fois (`lib/filtre-inventaire`) : les exports Excel / PDF relisent le même, depuis l'adresse.
+  const visibles = useMemo(
+    () => articles.filter((a) => (dom === "TOUS" || a.domaine === dom) && articleDansFiltre(a, { q, alerte, manque, hausse: hausseSeule })),
+    [articles, q, dom, alerte, manque, hausseSeule],
+  );
+  // Le filtre s'écrit dans l'adresse (sans rechargement) : un rechargement ou un lien le retrouve, et le menu
+  // « Exporter » sort exactement l'ensemble affiché. La page et la taille de page sont écrites par `usePagination`.
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    for (const cle of ["q", "alerte", "manque", "hausse"]) u.searchParams.delete(cle);
+    for (const [cle, v] of paramsFiltreInventaire({ q: q.trim(), alerte, manque, hausse: hausseSeule })) u.searchParams.set(cle, v);
+    const voulu = `${u.pathname}${u.search}${u.hash}`;
+    if (voulu !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(null, "", voulu);
+  }, [q, alerte, manque, hausseSeule]);
 
   // La sélection EFFECTIVE = cochées ∩ filtre affiché : c'est elle qui se compte et qui part aux actions groupées.
   // Cocher la page 1 puis filtrer « Urgent » ne laisse pas 50 articles invisibles recevoir « Désactiver » (relecture du 2026-10-08).
