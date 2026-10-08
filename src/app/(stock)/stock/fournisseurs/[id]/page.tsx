@@ -149,10 +149,10 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
         onglets={onglets.map(({ o, label }) => ({ href: lienOnglet(o), label, actif: o === onglet }))}
       />
 
-      {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-regler": nbARegler, payees: nbPayees, toutes: nbFactures }} />}
+      {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-regler": nbARegler, payees: nbPayees, toutes: nbFactures }} taux={taux ?? 0} />}
       {bonsDb && <OngletBons id={id} nom={f.nom} filtre={filtreBons} estDirection={estDirection} bons={bonsDb} effectifs={{ "en-cours": nbBonsEnCours, recus: nbBonsRecus, tous: nbBons }} />}
       {achatsDirects && <OngletAchats nbAchatsDirects={nbAchatsDirects} achatsDirects={achatsDirects} />}
-      {articles && <OngletArticles articles={articles} />}
+      {articles && <OngletArticles articles={articles} taux={taux} />}
       {onglet === "coordonnees" && (
         <section className="rounded-xl border p-4">
           <h2 className="mb-3 text-base font-semibold">Coordonnées</h2>
@@ -187,8 +187,8 @@ function Pastilles<T extends string>({ valeurs, actif, effectifs, lien, libelle 
 }
 
 // ─── Onglet Factures : filtre À régler / Payées / Toutes, regroupées par mois, actions groupées ───
-function OngletFactures({ id, filtre, estDirection, factures, enAttente, effectifs }: {
-  id: string; filtre: FiltreFactures; estDirection: boolean; factures: FactureFournisseur[]; enAttente: Set<string>; effectifs: Record<FiltreFactures, number>;
+function OngletFactures({ id, filtre, estDirection, factures, enAttente, effectifs, taux }: {
+  id: string; filtre: FiltreFactures; estDirection: boolean; factures: FactureFournisseur[]; enAttente: Set<string>; effectifs: Record<FiltreFactures, number>; taux: number;
 }) {
   const moisPlats = grouperFacturesParMois(factures).map((g) => ({ cle: g.cle, label: g.titre, factures: g.items.map((x) => versFactureRow(x, enAttente)) }));
   const lien = (v: FiltreFactures) => lienFiche(id, "factures", v);
@@ -281,7 +281,7 @@ function OngletAchats({ nbAchatsDirects, achatsDirects }: { nbAchatsDirects: num
 // ─── Onglet Articles fournis : contenu inchangé ───
 type ArticleFourni = Prisma.ArticleStockGetPayload<{ include: { stock: true; categorie: { select: { nom: true } } } }>;
 
-function OngletArticles({ articles }: { articles: ArticleFourni[] }) {
+function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: number | null }) {
   return (
     <section>
       <h2 className="mb-2 text-base font-semibold">Articles fournis ({articles.length})</h2>
