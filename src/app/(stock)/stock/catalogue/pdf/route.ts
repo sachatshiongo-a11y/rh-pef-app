@@ -1,3 +1,5 @@
+import { libellePrixComplet, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
@@ -24,7 +26,7 @@ export async function GET(req: Request) {
     ...(domaine ? { domaine } : {}),
     ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
   };
-  const [articles, lignesFacture] = await Promise.all([
+  const [articles, lignesFacture, taux] = await Promise.all([
     prisma.articleStock.findMany({
       where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
       include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
@@ -33,6 +35,7 @@ export async function GET(req: Request) {
       where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
       select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
     }),
+    tauxDuJour(),
   ]);
   const hausses = articlesEnHausse(lignesFacture);
 
@@ -45,7 +48,11 @@ export async function GET(req: Request) {
     if (catNom !== derniereCat) { sectionRows.push(lignes.length); lignes.push([catNom]); alerteRow.push(null); derniereCat = catNom; }
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
     const qte = a.stock ? Number(a.stock.quantite) : 0;
-    const prix = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
+    // Prix dans SA devise de saisie (« 7 000 FC (≈ 2,50 $) ») ; valeur en dollars, « ≈ » pour un article en francs.
+    const enUSD = prixArticleEnUSD(a, taux);
+    const prix = enUSD ? enUSD.valeur : null;
+    const prixTexte = prixSaisi(a) ? libellePrixComplet(a, taux) : null;
+    const valeurTexte = prix !== null ? `${enUSD!.approx ? "≈ " : ""}${(prix * qte).toFixed(2)}` : "";
     const pct = hausses.get(a.id);
     lignes.push([
       a.designation,
@@ -53,19 +60,19 @@ export async function GET(req: Request) {
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,
       a.fournisseur?.nom ?? "",
-      prix !== null ? `${prix.toFixed(2)}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : "",
-      prix !== null ? (prix * qte).toFixed(2) : "",
+      prixTexte !== null ? `${prixTexte}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : "",
+      valeurTexte,
     ]);
     alerteRow.push(niv);
   }
 
   const colonnes: Colonne[] = [
-    { header: "Désignation", width: "30%" },
+    { header: "Désignation", width: "26%" },
     { header: "Stock", width: "9%", align: "right" },
-    { header: "Alerte", width: "16%" },
-    { header: "Min", width: "8%", align: "right" },
-    { header: "Fournisseur", width: "18%" },
-    { header: "Prix USD", width: "10%", align: "right" },
+    { header: "Alerte", width: "13%" },
+    { header: "Min", width: "7%", align: "right" },
+    { header: "Fournisseur", width: "15%" },
+    { header: "Prix", width: "17%", align: "right" },
     { header: "Valeur USD", width: "9%", align: "right" },
   ];
 
@@ -76,7 +83,7 @@ export async function GET(req: Request) {
       sousTitre: jourKinshasa(new Date()),
       colonnes, lignes, sectionRows,
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_BG[alerteRow[r]!] : undefined),
-      pied: "Fond rouge = urgent (rupture) · orange = à réapprovisionner · vert = satisfaisant. ↑ = hausse du dernier prix d'achat.",
+      pied: "Fond rouge = urgent (rupture) · orange = à réapprovisionner · vert = satisfaisant. ↑ = hausse du dernier prix d'achat. Prix dans sa devise de saisie ; l'autre devise et « ≈ » au taux du jour.",
     }),
   );
 

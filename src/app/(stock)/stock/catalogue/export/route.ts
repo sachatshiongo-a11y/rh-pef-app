@@ -4,6 +4,8 @@ import { classeurExcel } from "@/lib/export-excel";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, type NiveauAlerte } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
+import { prixArticleEnCDF, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 
 // Codes couleur d'alerte (ARGB) pour le fond des lignes Excel.
 const ALERTE_ARGB: Record<NiveauAlerte, string> = { URGENT: "FFFBE0E0", APPRO: "FFFBF0D4", OK: "FFE9F6EE" };
@@ -14,7 +16,7 @@ export async function GET(req: Request) {
 
   const dom = new URL(req.url).searchParams.get("domaine");
   const domaine = dom === "NOURRITURE" || dom === "BOISSON" || dom === "AUTRE" ? dom : undefined;
-  const [articles, lignesFacture] = await Promise.all([
+  const [articles, lignesFacture, taux] = await Promise.all([
     prisma.articleStock.findMany({
       where: domaine ? { domaine } : {},
       orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
@@ -24,6 +26,7 @@ export async function GET(req: Request) {
       where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
       select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
     }),
+    tauxDuJour(),
   ]);
   const hausses = articlesEnHausse(lignesFacture);
 
@@ -32,7 +35,11 @@ export async function GET(req: Request) {
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
     alerteRow.push(niv);
     const qte = a.stock ? Number(a.stock.quantite) : 0;
-    const prix = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
+    // Prix en $ ET en FC : celui de la devise de saisie est exact, l'autre au taux du jour (colonne « Devise du prix »).
+    const enUSD = prixArticleEnUSD(a, taux);
+    const enCDF = prixArticleEnCDF(a, taux);
+    const prix = enUSD ? Math.round(enUSD.valeur * 10000) / 10000 : null;
+    const saisi = prixSaisi(a);
     const pct = hausses.get(a.id);
     return [
       a.code ?? "",
@@ -49,6 +56,8 @@ export async function GET(req: Request) {
       a.uniteParCarton !== null ? Number(a.uniteParCarton) : "",
       pct !== undefined ? `+${Math.round(pct)}%` : "",
       DOMAINE_LABEL[a.domaine] ?? a.domaine,
+      enCDF ? Math.round(enCDF.valeur) : "",
+      saisi ? (saisi.devise === "CDF" ? "FC (le $ est au taux du jour)" : "USD") : "",
     ];
   });
 
@@ -59,7 +68,7 @@ export async function GET(req: Request) {
     periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: "Inventaire",
-      entete: ["Code", "Désignation", "Stock", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Unité", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine"],
+      entete: ["Code", "Désignation", "Stock", "Alerte", "Minimum", "Seuil urgent", "Catégorie", "Fournisseur", "Unité", "Prix USD", "Valeur stock USD", "Unités/carton", "Hausse prix", "Domaine", "Prix FC", "Devise du prix"],
       lignes,
       couleurLigne: (r) => (alerteRow[r] ? ALERTE_ARGB[alerteRow[r]!] : undefined),
     }],

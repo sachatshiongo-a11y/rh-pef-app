@@ -53,7 +53,7 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 max-lg:hidden">
-          <span className="rounded-md border bg-muted/40 px-2.5 py-1 text-sm"><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{usd(rows.reduce((t, r) => t + (Number(r.prix) || 0) * (Number(r.quantite) || 0), 0))}</span></span>
+          <span className="rounded-md border bg-muted/40 px-2.5 py-1 text-sm"><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{rows.some((r) => r.valeurApprox) ? "≈ " : ""}{usd(rows.reduce((t, r) => t + (r.valeurUSD !== undefined ? r.valeurUSD ?? 0 : (Number(r.prix) || 0) * (Number(r.quantite) || 0)), 0))}{(() => { const n = rows.filter((r) => r.devisePrix === "CDF" && r.prixCDF && r.valeurUSD === null).length; return n ? ` (hors ${n} en FC : taux non défini)` : ""; })()}</span></span>
           <span className="mr-1 text-sm text-muted-foreground">{rows.length} article(s)</span>
           {exporter}
         </div>

@@ -24,7 +24,11 @@ export type ArticleOption = {
   id: string;
   designation: string;
   unite: string;
+  /** Prix en DOLLARS lu par le moteur (article en francs : converti au taux du jour, voir charger-fiche). */
   prixUnitaireUSD: string | null;
+  /** Article au prix en FRANCS : son prix tel que saisi ; le dollar ci-dessus est « ≈ ». */
+  prixApprox?: boolean;
+  prixSaisi?: { devise: "USD" | "CDF"; montant: string } | null;
   actif: boolean;
   /** Contenance d'une unité comptée à l'unité (bouteille de 75 cl) : texte pleine précision, null = inconnue. */
   contenance?: string | null;
@@ -330,4 +334,16 @@ export function badgeDispo(d: DispoRow, estSousRecette: boolean): { texte: strin
     ? d.rendement ? `${n} × ${d.rendement}` : `${n} fournée${n > 1 ? "s" : ""}`
     : `${n} portion${n > 1 ? "s" : ""}`;
   return { texte: `Disponible · ${quantite}`, detail: d.limitant ? `Limité par ${d.limitant}` : null };
+}
+
+/**
+ * La fiche (sous-recettes comprises) utilise-t-elle un article au prix en FRANCS ? Son coût en
+ * dollars est alors « ≈ » : converti au taux du jour (2026-10-08). Cycle de sous-recettes : arrêté.
+ */
+export function coutEnFrancsConvertis(id: string, vues: Map<string, FicheVue>, articles: Map<string, ArticleOption>, vus: Set<string> = new Set()): boolean {
+  if (vus.has(id)) return false;
+  vus.add(id);
+  const v = vues.get(id);
+  if (!v) return false;
+  return v.lignes.some((l) => (l.articleId ? articles.get(l.articleId)?.prixApprox === true : l.sousFicheId ? coutEnFrancsConvertis(l.sousFicheId, vues, articles, vus) : false));
 }

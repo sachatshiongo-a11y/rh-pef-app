@@ -32,6 +32,8 @@ export type FicheRow = {
   coutConnu: boolean;
   /** Le coût est minoré par des ingrédients non valorisés (≥). */
   coutPartiel: boolean;
+  /** Au moins un article au prix en francs, converti au taux du jour : coût « ≈ ». */
+  coutApprox?: boolean;
   /** `coutPartiel` OU un nombre de portions inexploitable. */
   incomplet: boolean;
   nbIndetermines: number;
@@ -265,7 +267,7 @@ export function FichesClient({ fiches, etatInitial, vue = "plats", peutSupprimer
                     mention et laisserait le chiffre tout seul. */}
                 <div className="shrink-0 text-right">
                   <div className="font-semibold tabular-nums">
-                    {f.coutConnu ? `${f.coutPartiel ? "≥ " : ""}${usd(f.coutPortion)}` : "—"}
+                    {f.coutConnu ? `${f.coutPartiel ? "≥ " : f.coutApprox ? "≈ " : ""}${usd(f.coutPortion)}` : "—"}
                   </div>
                   <div className="text-[11px] text-muted-foreground">coût / portion</div>
                   {f.incomplet && (

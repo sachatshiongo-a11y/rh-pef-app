@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { prixSaisi } from "@/lib/prix-article";
 import { qte, usd } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { SupprimerAchatBtn } from "./supprimer-achat-btn";
@@ -20,7 +21,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const periode = sp.periode === "jour" || sp.periode === "mois" ? sp.periode : "semaine";
 
   const [articles, mouvements, config, fournisseurs] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, prixUnitaireUSD: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
     prisma.mouvementStock.findMany({
       // Les achats saisis ICI, et eux seuls : ni les entrées par facture ou par réception de bon
       // de commande (elles vivent dans « Mouvements » — sinon le même achat s'affichait deux
@@ -81,7 +82,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       </div>
 
       <ListeAchatForm
-        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null }))}
+        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix }))}
         fournisseurs={fournisseurs}
         aujourdhui={jourKinshasaISO()}
         taux={taux}

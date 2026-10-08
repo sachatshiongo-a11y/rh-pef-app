@@ -23,3 +23,15 @@ export const COULEUR_CODE_HEX: Record<CodePresence, { bg: string; text: string }
   F: { bg: "#fce7f3", text: "#9d174d" },
   S: { bg: "#e2e8f0", text: "#334155" },
 };
+
+/** Nom court de chaque code, pour les infobulles et les libellés d'accessibilité des cases. */
+export const LIBELLE_CODE: Record<CodePresence, string> = {
+  P: "Présence",
+  O: "Repos",
+  M: "Maladie",
+  A: "Absence justifiée",
+  N: "Absence non justifiée",
+  C: "Congé payé",
+  F: "Jour férié",
+  S: "Congé sans solde",
+};

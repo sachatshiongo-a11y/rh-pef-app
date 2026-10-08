@@ -92,8 +92,8 @@ describe("Présences & heures — pause par défaut NON déduite", () => {
 
   it("le total du mois (colonne H) = 9 + 8,25 = 17,25 h", () => {
     rendre();
-    const ligne = caseDu(1).closest("tr")!;
-    const cellules = Array.from(ligne.querySelectorAll("td")).map((td) => td.textContent?.trim());
-    expect(cellules).toContain("17,25");
+    // La grille n'est plus un <table> (écran refait le 2026-10-08) : la ligne de l'employé porte le total.
+    const ligne = caseDu(1).closest('[role="row"]')!;
+    expect(ligne.textContent).toContain("17,25 h");
   });
 });

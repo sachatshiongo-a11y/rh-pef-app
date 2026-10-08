@@ -1,3 +1,5 @@
+import { libellePrixComplet, prixArticleEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
@@ -31,7 +33,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
   const stockQte = a.stock ? Number(a.stock.quantite) : null;
-  const prixRef = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
+  // Prix dans SA devise ; en dollars (comparaisons, valeur) « ≈ » au taux du jour pour un article en francs.
+  const taux = await tauxDuJour();
+  const refC = prixArticleEnUSD(a, taux);
+  const prixRef = refC ? refC.valeur : null;
 
   const analyse = analyserPrix([
     ...a.lignesFacture
@@ -64,8 +69,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       stock: stockQte,
       stockMinimum: a.stock ? Number(a.stock.stockMinimum) : null,
       seuilUrgent: a.stock ? Number(a.stock.seuilUrgent) : null,
-      valeur: (stockQte ?? 0) * (prixRef ?? 0),
+      // Sans prix (ou franc sans taux) : « — », jamais 0 ; un article en USD garde son calcul d'avant.
+      valeur: prixRef === null && a.prixUnitaireCDF !== null ? null : (stockQte ?? 0) * (prixRef ?? 0),
+      valeurApprox: refC?.approx ?? false,
       prixReference: prixRef,
+      prixLibelle: libellePrixComplet(a, taux),
       alerteLabel: niv ? ALERTE_LABEL[niv] : "—",
       analyse,
       mouvements,

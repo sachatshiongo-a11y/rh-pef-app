@@ -10,7 +10,7 @@ import { CelluleNombre } from "@/components/tableur/cellule-nombre";
 import { ZoneTableur } from "@/components/tableur/messages";
 import { ecrireSaisieNombre, lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from "@/lib/nombre";
 import { nombreDeBase } from "@/lib/saisie-nombre-stock";
-import { formaterNombre } from "@/lib/montant";
+import { formaterFC, formaterNombre } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 
@@ -18,7 +18,24 @@ import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
  *  valeurs venues de la base (« 12.5 ») pré-remplissent les cases par `nombreDeBase`, jamais par la lecture française. */
 const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 
-const valeurStock = (a: { prix: string | null; quantite: string }) => (Number(a.prix) || 0) * (Number(a.quantite) || 0);
+/**
+ * Valeur du stock d'un article EN DOLLARS. Calculée par le serveur (`valeurUSD`, via
+ * src/lib/prix-article.ts : un article en francs est converti au taux du jour) ; à défaut (ligne
+ * construite sans elle), prix USD × quantité comme avant. null (sans prix, ou franc sans taux) = 0
+ * dans les SOMMES seulement — la case, elle, affiche « — ».
+ */
+const valeurStock = (a: { prix: string | null; quantite: string; valeurUSD?: number | null }) =>
+  a.valeurUSD !== undefined ? a.valeurUSD ?? 0 : (Number(a.prix) || 0) * (Number(a.quantite) || 0);
+/** « ≈ » devant une valeur (ou une somme) qui contient un article en francs converti au taux du jour. */
+const approx = (rows: readonly ArticleRow[]) => (rows.some((a) => a.valeurApprox) ? "≈ " : "");
+/** Articles en francs NON valorisés (taux du jour absent) : la somme le dit au lieu de les compter 0. */
+const horsSansTaux = (rows: readonly ArticleRow[]) => { const n = rows.filter((a) => a.devisePrix === "CDF" && a.prixCDF && a.valeurUSD === null).length; return n ? ` (hors ${n} article${n > 1 ? "s" : ""} en FC : taux non défini)` : ""; };
+/** Valeur d'UN article affichée : « — » sans prix (ou franc sans taux), « ≈ » pour un article en francs. */
+const texteValeur = (a: ArticleRow) => (a.valeurUSD === null ? "—" : `${a.valeurApprox ? "≈ " : ""}${usd(valeurStock(a))}`);
+/** Prix dans sa devise de saisie : le champ que la case modifie, la valeur et l'autre devise « ≈ ». */
+const prixDe = (a: ArticleRow) => a.devisePrix === "CDF"
+  ? { champ: "prixUnitaireCDF", valeur: nombreDeBase(a.prixCDF ?? null), symbole: "FC" }
+  : { champ: "prixUnitaireUSD", valeur: nombreDeBase(a.prix), symbole: "$" };
 
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type ArticleRow = {
@@ -33,7 +50,18 @@ export type ArticleRow = {
   categorieId: string | null;
   fournisseurId: string | null;
   unite: string | null;
+  /** Prix de référence en dollars (article en $) ; null pour un article en francs. */
   prix: string | null;
+  /** Devise de saisie du prix (absente = $) et prix en francs (article en FC). */
+  devisePrix?: "USD" | "CDF";
+  prixCDF?: string | null;
+  /** L'autre devise au taux du jour (« ≈ 7 000 FC »), calculée par le serveur ; null = sans prix. */
+  prixAutre?: string | null;
+  /** Prix en dollars (exact, ou « ≈ » au taux du jour pour un article en FC) : sert au tri. */
+  prixEnUSD?: number | null;
+  /** Valeur du stock en dollars (null = sans prix, ou franc sans taux) ; « ≈ » si l'article est en francs. */
+  valeurUSD?: number | null;
+  valeurApprox?: boolean;
   uniteParCarton: string | null; // conditionnement : nb d'unités par carton
   quantite: string;
   stockMinimum: string;
@@ -54,14 +82,14 @@ const valeurTri = (a: ArticleRow, col: TriCol, catNom: Map<string, string>, four
   col === "fournisseur" ? (a.fournisseurId ? fourNom.get(a.fournisseurId) ?? "" : "￿").toLowerCase() :
   col === "stock" ? Number(a.quantite) || 0 :
   col === "valeur" ? valeurStock(a) :
-  col === "prix" ? Number(a.prix) || 0 :
+  col === "prix" ? (a.devisePrix === "CDF" ? a.prixEnUSD ?? 0 : Number(a.prix) || 0) : // un prix en FC se trie à son équivalent du jour
   col === "min" ? Number(a.stockMinimum) || 0 :
   col === "alerte" ? (a.niveau ? ORDRE_ALERTE[a.niveau] : 3) : 0;
 
 type ManqueKey = "" | "prix" | "fournisseur" | "seuil" | "unite" | "negatif";
 // Détecte un champ manquant (pur, hors composant → pas de dépendance de hook).
 const manqueDe = (a: ArticleRow, m: ManqueKey) =>
-  m === "prix" ? !a.prix || Number(a.prix) === 0 :
+  m === "prix" ? (a.devisePrix === "CDF" ? !a.prixCDF || Number(a.prixCDF) === 0 : !a.prix || Number(a.prix) === 0) :
   m === "fournisseur" ? !a.fournisseurId :
   m === "seuil" ? !a.stockMinimum || Number(a.stockMinimum) <= 0 :
   m === "unite" ? !a.unite || !a.unite.trim() :
@@ -99,6 +127,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [bulkCat, setBulkCat] = useState("");
   const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
   const [ajout, setAjout] = useState(false);
+  const [deviseAjout, setDeviseAjout] = useState<"USD" | "CDF">("USD"); // devise du prix d'un nouvel article
   const [plus, setPlus] = useState(false); // téléphone : menu « Plus » (À compléter, valeur du stock, ajout, export)
   const [q, setQ] = useState(initialQ ?? "");
   const dom: "TOUS" | Domaine = lockedDomaine ?? "TOUS"; // choisi par les pilules d'en-tête (?domaine=)
@@ -320,7 +349,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       {plus && (
         <div id="inventaire-plus" data-plus-mobile="" className="space-y-3 rounded-xl border bg-muted/30 p-3 text-sm lg:hidden">
           <p className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}</span></span>
+            <span><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{approx(articles)}{usd(articles.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(articles)}</span></span>
             <span className="text-xs text-muted-foreground">{visibles.length} / {articles.length} article(s)</span>
           </p>
           {manquants.length > 0 && (
@@ -413,7 +442,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                     <input type="radio" name="fusion-keep" checked={keepOk === a.id} onChange={() => setFusionKeep(a.id)} />
                     <span className="min-w-0 flex-1">
                       <span className="font-medium">{a.code ? `${a.code} · ` : ""}{a.designation}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">stock {a.quantite}{a.categorieId ? " · catégorisé" : " · sans catégorie"}{a.prix ? ` · ${usd(Number(a.prix))}` : ""}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">stock {a.quantite}{a.categorieId ? " · catégorisé" : " · sans catégorie"}{a.devisePrix === "CDF" ? (a.prixCDF ? ` · ${formaterFC(Number(a.prixCDF))}` : "") : a.prix ? ` · ${usd(Number(a.prix))}` : ""}</span>
                     </span>
                     {keepOk === a.id && <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-900">à conserver</span>}
                   </label>
@@ -447,7 +476,16 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue="" vide="— fournisseur —" aria-label="Fournisseur du nouvel article" className={cellCls} />
           <input name="code" placeholder="Code article (ex. 137)" className={cellCls} />
           <input name="unite" placeholder="Unité (Kg, Pièce…)" className={cellCls} />
-          <input name="prixUnitaireUSD" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Prix USD" className={cellCls} />
+          <div className="flex gap-1">
+            {/* Prix de référence dans la devise choisie ($ ou FC) : c'est elle qui fera foi. */}
+            <input name={deviseAjout === "CDF" ? "prixUnitaireCDF" : "prixUnitaireUSD"} type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder={deviseAjout === "CDF" ? "Prix FC" : "Prix USD"} className={`${cellCls} min-w-0 flex-1`} />
+            <input type="hidden" name="devisePrix" value={deviseAjout} />
+            {/* Même bascule $ / FC que la fiche article et le paiement des factures. */}
+            <div role="group" aria-label="Devise du prix" className="inline-flex shrink-0 overflow-hidden rounded border text-xs">
+              <button type="button" onClick={() => setDeviseAjout("USD")} aria-pressed={deviseAjout === "USD"} className={`px-2 ${deviseAjout === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>$</button>
+              <button type="button" onClick={() => setDeviseAjout("CDF")} aria-pressed={deviseAjout === "CDF"} className={`px-2 ${deviseAjout === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>FC</button>
+            </div>
+          </div>
           <input name="uniteParCarton" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Unités / carton (ex. 24)" className={cellCls} />
           {/* Stock initial : Direction seulement (ailleurs, il entre par la Liste d'achat ou un comptage). */}
           {estDirection && <input name="quantite" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock initial" className={cellCls} />}
@@ -493,7 +531,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
               <ThTri col="fournisseur" tri={tri} onTri={trierPar}>Fournisseur</ThTri>
               <th className="w-20">Unité</th>
               <ThTri col="valeur" tri={tri} onTri={trierPar} align="right" className="w-24" title="Prix × stock">Valeur</ThTri>
-              <ThTri col="prix" tri={tri} onTri={trierPar} align="right" className="w-24">Prix&nbsp;USD</ThTri>
+              <ThTri col="prix" tri={tri} onTri={trierPar} align="right" className="w-28" title="Prix de référence dans sa devise de saisie ($ ou FC) ; l'autre devise au taux du jour">Prix</ThTri>
               <th className="w-20 text-right" title="Nombre d'unités par carton">Par carton</th>
             </tr>
           </thead>
@@ -516,7 +554,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <tfoot className="sticky bottom-0 bg-muted">
               <tr className="border-t-2 font-semibold [&>td]:px-2 [&>td]:py-2">
                 <td colSpan={10} className="text-right">Valeur totale du stock affiché</td>
-                <td className="text-right tabular-nums">{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}</td>
+                <td className="text-right tabular-nums" title={horsSansTaux(affichees).trim() || undefined}>{approx(affichees)}{usd(affichees.reduce((t, a) => t + valeurStock(a), 0))}{horsSansTaux(affichees) ? " *" : ""}</td>
                 <td colSpan={2}></td>
               </tr>
             </tfoot>
@@ -596,8 +634,15 @@ const LigneArticle = memo(function LigneArticle({
         </div>
       </td>
       <td><input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={cellCls} placeholder="—" title="Unité de mesure (Kg, Pièce, Bouteille…)" /></td>
-      <td className="text-right tabular-nums text-muted-foreground">{usd(valeurStock(a))}</td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreDeBase(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix USD — ${a.designation}`} /></td>
+      <td className="text-right tabular-nums text-muted-foreground">{texteValeur(a)}</td>
+      <td>
+        {/* Prix dans SA devise de saisie (la case modifie ce prix-là) ; l'autre devise « ≈ » au taux du jour. */}
+        <div className="flex items-center gap-1">
+          <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={prixDe(a).valeur} onEnregistrer={(v) => onSave(a.id, prixDe(a).champ, texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix ${prixDe(a).symbole} — ${a.designation}`} />
+          <span className="w-5 shrink-0 text-[11px] text-muted-foreground">{prixDe(a).symbole}</span>
+        </div>
+        {a.prixAutre && <span className="block text-right text-[10px] tabular-nums text-muted-foreground">{a.prixAutre}</span>}
+      </td>
       <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
     </tr>
   );
@@ -727,14 +772,14 @@ export const CarteArticle = memo(function CarteArticle({
             <label className={champLabel}>Code article
               <input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />
             </label>
-            <label className={champLabel}>Prix USD
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={nombreDeBase(a.prix)} onEnregistrer={(v) => onSave(a.id, "prixUnitaireUSD", texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
+            <label className={champLabel}>Prix {prixDe(a).symbole}{a.prixAutre ? ` (${a.prixAutre})` : ""}
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={prixDe(a).valeur} onEnregistrer={(v) => onSave(a.id, prixDe(a).champ, texteDe(v))} min={0} className={`${cellCls} !py-1.5 text-right`} />
             </label>
             <label className={champLabel}>Unités / carton
               <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} placeholder="ex. 24" />
             </label>
             <label className={champLabel}>Valeur du stock
-              <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{usd(valeurStock(a))}</span>
+              <span className="rounded border border-input/40 bg-muted/40 px-1.5 py-1.5 text-right text-xs tabular-nums text-muted-foreground">{texteValeur(a)}</span>
             </label>
           </div>
           <button type="button" onClick={() => onOuvrir(a.id)} className="mt-2 min-h-11 w-full rounded-md border text-sm font-medium hover:bg-accent">Replier</button>

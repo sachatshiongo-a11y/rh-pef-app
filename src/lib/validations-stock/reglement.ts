@@ -15,8 +15,9 @@ import { prisma } from "@/lib/prisma";
 import { journaliser } from "@/lib/audit";
 import { lireDatePaiement } from "@/lib/date-paiement";
 import { envoyerPush } from "@/lib/push";
-import { formaterUSD } from "@/lib/montant";
+import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
+import { francsEnDollars, francsPourReste } from "./conversion-francs";
 
 type Tx = Prisma.TransactionClient;
 
@@ -40,16 +41,27 @@ export type ParamsReglement = {
  * le taux appliqué est celui du jour où le paiement est enregistré, pas celui du jour de la demande).
  */
 export async function convertirFrancs(client: Tx | typeof prisma, montantCDF: number): Promise<{ montant: number; taux: number }> {
+  const taux = await lireTauxReglement(client);
+  return { montant: francsEnDollars(montantCDF, taux), taux };
+}
+
+/** Taux des Paramètres LU MAINTENANT ; absent ou nul : refus lisible (jamais un taux supposé). */
+export async function lireTauxReglement(client: Tx | typeof prisma): Promise<number> {
   const config = await client.config.findUnique({ where: { id: "singleton" } });
   const taux = Number(config?.tauxChangeCDF ?? 0);
   if (!taux) throw new Error("Taux de change non configuré (Paramètres RH).");
-  return { montant: Math.round((montantCDF / taux) * 100) / 100, taux };
+  return taux;
 }
+
+// LA conversion (francs ÷ taux, au centime) et les francs proposés pour un reste : conversion-francs.ts.
+export { francsEnDollars, francsPourReste };
 
 /** Ce qui a été réglé — de quoi dire « Facture n° 12 de SENEVE payée le … — 120,00 $ ». */
 export type ReglementEcrit = {
   factureId: string; fournisseurNom: string; numero: string | null;
   montant: number; type: "PAIEMENT" | "AVOIR"; date: string; solde: boolean; reste: number;
+  /** Payé en francs : les francs versés et le taux qui les a convertis (absents = payé en dollars). */
+  montantCDF?: number | null; taux?: number | null;
 };
 
 /** Verrouille la facture (`FOR UPDATE`) jusqu'à la fin de la transaction, puis la relit. */
@@ -87,7 +99,7 @@ export async function reglerFactureTx(tx: Tx, userId: string, id: string, p: Par
     },
   });
   await journaliser(tx, { entite: "FactureFournisseur", entiteId: id, champ: type === "AVOIR" ? "avoir" : "paiement", nouvelleValeur: `${p.montant.toFixed(2)} $${p.montantCDF ? ` (${p.montantCDF.toLocaleString("fr-FR")} FC)` : ""} (${solde ? "soldée" : `reste ${nouveauReste.toFixed(2)} $`})`, userId });
-  return { factureId: id, fournisseurNom: f.fournisseurNom, numero: f.numero, montant: p.montant, type, date: dateStr, solde, reste: nouveauReste };
+  return { factureId: id, fournisseurNom: f.fournisseurNom, numero: f.numero, montant: p.montant, type, date: dateStr, solde, reste: nouveauReste, ...(p.montantCDF ? { montantCDF: p.montantCDF, taux: p.taux ?? null } : {}) };
 }
 
 /**
@@ -96,8 +108,11 @@ export async function reglerFactureTx(tx: Tx, userId: string, id: string, p: Par
  * la date choisie, le lot ENTIER est refusé en la nommant. Ce qui n'est déjà plus à régler est
  * exclu (jamais réglé deux fois) : l'appelant compare le nombre réglé au nombre demandé.
  */
-export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr: string | undefined, note: string): Promise<ReglementEcrit[]> {
+export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr: string | undefined, note: string, opts: { enFrancs?: boolean } = {}): Promise<ReglementEcrit[]> {
   const maintenant = new Date();
+  // Lot payé en FRANCS (2026-10-08) : taux des Paramètres lu MAINTENANT (refus lisible s'il manque),
+  // avant toute écriture.
+  const taux = opts.enFrancs ? await lireTauxReglement(tx) : null;
   const facs = await tx.$queryRaw<{ id: string; date: Date | null; fournisseurNom: string; numero: string | null; resteAPayerUSD: Prisma.Decimal }[]>`
     SELECT "id", "date", "fournisseurNom", "numero", "resteAPayerUSD"
     FROM "stock"."FactureFournisseur"
@@ -120,17 +135,38 @@ export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr
   const date = new Date(dateISO);
   const facIds = facs.map((f) => f.id);
 
-  await tx.$executeRaw`
-    INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "modePaiement", "note", "creeParId")
-    SELECT gen_random_uuid(), "id", ${date}, "resteAPayerUSD", "modePaiement", ${note}, ${userId}
-    FROM "stock"."FactureFournisseur"
-    WHERE "id" IN (${Prisma.join(facIds)})`;
+  // En francs : chaque facture est soldée par reste × taux francs (au franc), reconvertis par LA
+  // conversion des règlements (`francsEnDollars`) — ce qui redonne le reste au centime. Le paiement
+  // garde les francs versés et le taux ; la facture reste tenue en dollars.
+  const francs = new Map<string, number>();
+  if (taux !== null) {
+    for (const f of facs) {
+      const reste = Number(f.resteAPayerUSD);
+      const fc = francsPourReste(reste, taux);
+      if (Math.abs(francsEnDollars(fc, taux) - reste) > 0.001) throw new Error(`Taux de change de ${taux} FC pour 1 $ : le reste de ${reste.toFixed(2)} $ ne se paie pas exactement en francs — vérifiez le taux (Paramètres).`);
+      francs.set(f.id, fc);
+    }
+  }
+  if (taux === null) {
+    await tx.$executeRaw`
+      INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "modePaiement", "note", "creeParId")
+      SELECT gen_random_uuid(), "id", ${date}, "resteAPayerUSD", "modePaiement", ${note}, ${userId}
+      FROM "stock"."FactureFournisseur"
+      WHERE "id" IN (${Prisma.join(facIds)})`;
+  } else {
+    await tx.$executeRaw`
+      INSERT INTO "stock"."Paiement" ("id", "factureId", "date", "montantUSD", "montantCDF", "tauxChangeUtilise", "modePaiement", "note", "creeParId")
+      SELECT gen_random_uuid(), f."id", ${date}, f."resteAPayerUSD", v."cdf", ${taux}::numeric, f."modePaiement", ${note}, ${userId}
+      FROM "stock"."FactureFournisseur" f
+      JOIN (VALUES ${Prisma.join(facs.map((x) => Prisma.sql`(${x.id}, ${francs.get(x.id)!}::numeric)`))}) AS v("id", "cdf") ON v."id" = f."id"`;
+  }
   await tx.$executeRaw`
     UPDATE "stock"."FactureFournisseur"
     SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = ${date}
     WHERE "id" IN (${Prisma.join(facIds)})`;
-  await journaliser(tx, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${facIds.length} facture(s) réglée(s)`, userId });
-  return facs.map((f) => ({ factureId: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, montant: Number(f.resteAPayerUSD), type: "PAIEMENT" as const, date: dateISO, solde: true, reste: 0 }));
+  const totalCDF = [...francs.values()].reduce((t, x) => t + x, 0);
+  await journaliser(tx, { entite: "FactureFournisseur", entiteId: "lot", champ: "statut", nouvelleValeur: `${facIds.length} facture(s) réglée(s)${taux !== null ? ` en francs (${totalCDF.toLocaleString("fr-FR")} FC au taux de ${taux})` : ""}`, userId });
+  return facs.map((f) => ({ factureId: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, montant: Number(f.resteAPayerUSD), type: "PAIEMENT" as const, date: dateISO, solde: true, reste: 0, ...(taux !== null ? { montantCDF: francs.get(f.id)!, taux } : {}) }));
 }
 
 // ── Notification « facture payée » ──────────────────────────────────────────
@@ -142,15 +178,19 @@ const capitale = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** Texte de la notification d'un règlement effectif (pur, testé). */
 export function messageReglements(regs: ReglementEcrit[]): string {
+  // Payé en francs : « 280 000 FC au taux de 2 800 » à côté du montant en dollars.
+  const enFC = (montantCDF: number | null | undefined, taux: number | null | undefined) => (montantCDF ? ` (${formaterFC(montantCDF)}${taux ? ` au taux de ${formaterNombre(taux)}` : ""})` : "");
   if (regs.length === 1) {
     const r = regs[0];
-    if (r.type === "AVOIR") return `Avoir de ${formaterUSD(r.montant)} sur la ${nomFacture(r)} le ${dateFr(r.date)} — ${r.solde ? "facture soldée" : `reste ${formaterUSD(r.reste)}`}`;
-    if (r.solde) return `${capitale(nomFacture(r))} payée le ${dateFr(r.date)} — ${formaterUSD(r.montant)}`;
-    return `Paiement partiel de ${formaterUSD(r.montant)} sur la ${nomFacture(r)} le ${dateFr(r.date)} — reste ${formaterUSD(r.reste)}`;
+    const fc = enFC(r.montantCDF, r.taux);
+    if (r.type === "AVOIR") return `Avoir de ${formaterUSD(r.montant)}${fc} sur la ${nomFacture(r)} le ${dateFr(r.date)} — ${r.solde ? "facture soldée" : `reste ${formaterUSD(r.reste)}`}`;
+    if (r.solde) return `${capitale(nomFacture(r))} payée le ${dateFr(r.date)} — ${formaterUSD(r.montant)}${fc}`;
+    return `Paiement partiel de ${formaterUSD(r.montant)}${fc} sur la ${nomFacture(r)} le ${dateFr(r.date)} — reste ${formaterUSD(r.reste)}`;
   }
   const total = regs.reduce((t, r) => t + r.montant, 0);
+  const totalCDF = regs.every((r) => r.montantCDF) ? regs.reduce((t, r) => t + (r.montantCDF ?? 0), 0) : null;
   const noms = regs.map((r) => (r.numero ? `${r.fournisseurNom} n° ${r.numero}` : r.fournisseurNom)).join(", ");
-  return `${regs.length} factures payées le ${dateFr(regs[0].date)} — ${formaterUSD(total)} (${noms})`.slice(0, 480);
+  return `${regs.length} factures payées le ${dateFr(regs[0].date)} — ${formaterUSD(total)}${enFC(totalCDF, regs[0].taux)} (${noms})`.slice(0, 480);
 }
 
 /**

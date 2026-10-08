@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { formaterPrix, prixProposeEn, prixSaisi } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { NouvelleFactureForm } from "./nouveau-client";
 import { exigerPageStock } from "@/lib/garde-page";
 
@@ -14,8 +16,9 @@ function delaiEnJours(s: string | null): number | null {
 export default async function NouvelleFacturePage({ searchParams }: { searchParams: Promise<{ bc?: string }> }) {
   const user = await exigerPageStock();
   const { bc } = await searchParams;
-  const [articles, fournisseurs, bons] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, prixUnitaireUSD: true } }),
+  const [articles, taux, fournisseurs, bons] = await Promise.all([
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
+    tauxDuJour(),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, delaiPaiement: true } }),
     prisma.bonDeCommande.findMany({
       where: { statut: { not: "ANNULE" } },
@@ -37,7 +40,7 @@ export default async function NouvelleFacturePage({ searchParams }: { searchPara
       </div>
       <p className="text-sm text-muted-foreground">Saisissez la facture avec ses articles et quantités. En liant un bon de commande, ses lignes sont pré-remplies pour comparaison.</p>
       <NouvelleFactureForm
-        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, prix: a.prixUnitaireUSD?.toString() ?? "" }))}
+        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, prix: (() => { const p = prixProposeEn(a, "USD", taux); return p === null ? "" : String(p); })(), prixFC: a.devisePrix === "CDF" ? (() => { const ps = prixSaisi(a); return ps ? formaterPrix(Number(ps.montant), "CDF") : null; })() : null }))}
         fournisseurs={fournisseurs.map((f) => ({ id: f.id, nom: f.nom, delaiJours: delaiEnJours(f.delaiPaiement) }))}
         bons={bons.map((b) => ({
           id: b.id, numero: b.numero, fournisseurId: b.fournisseurId,

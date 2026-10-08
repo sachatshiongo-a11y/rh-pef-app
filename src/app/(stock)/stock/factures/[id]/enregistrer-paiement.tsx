@@ -7,6 +7,8 @@ import { jourKinshasaISO } from "@/lib/date-paiement";
 import { BoutonValider } from "@/components/action-buttons";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
+import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
+import { francsEnDollars } from "@/lib/validations-stock/conversion-francs";
 
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
@@ -36,7 +38,9 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
   }
 
   const saisi = lireNombreSaisi(montant); // null = vide ou illisible (le champ le dit en rouge)
-  const equivalent = devise === "CDF" && taux > 0 && saisi !== null && saisi > 0 ? (saisi / taux).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : null;
+  // En francs : l'équivalent par LA conversion des règlements (celle du serveur), et le reste après.
+  const enDollars = devise === "CDF" && taux > 0 && saisi !== null && saisi > 0 ? francsEnDollars(saisi, taux) : devise === "USD" && saisi !== null && saisi > 0 ? saisi : null;
+  const iso = jourKinshasaISO();
 
   return (
     <form action={submit} className="flex w-full flex-wrap items-end gap-2 rounded-lg border bg-muted/20 p-3">
@@ -61,7 +65,12 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Montant ({devise}) *
         <ChampNombre name="montant" value={montant} onChange={(e) => setMontant(e.target.value)} required autoFocus suffixe={devise === "USD" ? "$" : "FC"} placeholder={devise === "USD" ? versSaisie(Math.round(reste * 100) / 100) : taux > 0 ? versSaisie(Math.round(reste * taux)) : ""} className={`${inp} w-32 text-right`} classeConteneur="w-32" />
       </label>
-      {equivalent && <span className="pb-2 text-xs text-muted-foreground">≈ {equivalent} $ (taux {taux.toLocaleString("fr-FR")})</span>}
+      {enDollars !== null && (
+        <span className={`pb-2 text-xs tabular-nums ${enDollars > reste + 0.009 ? "text-destructive" : "text-muted-foreground"}`}>
+          {devise === "CDF" && <>{formaterFC(saisi!)} ≈ {formaterUSD(enDollars)} au taux du {iso.slice(8, 10)}/{iso.slice(5, 7)} (1 $ = {formaterNombre(taux)} FC){!estDirection && " — indicatif : le taux du jour de la validation s'appliquera"} · </>}
+          {enDollars > reste + 0.009 ? `dépasse le reste à payer (${formaterUSD(reste)})` : `reste après : ${formaterUSD(Math.max(0, Math.round((reste - enDollars) * 100) / 100))}`}
+        </span>
+      )}
 
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Date
         <input name="date" type="date" defaultValue={jourKinshasaISO()} max={jourKinshasaISO()} className={inp} />

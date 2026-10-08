@@ -1,4 +1,6 @@
 import "server-only";
+import { prixArticleEnUSD } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
 import { STATUT_FACTURE_LABEL } from "@/lib/stock";
 import { WHERE_ACHATS_LISTE, prixUnitaireAchat } from "@/lib/achats-liste";
@@ -173,13 +175,14 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
     // Demande Direction 2026-09-30 : l'UNITÉ et le PRIX UNITAIRE de chaque ligne (voir `prixUnitaireAchat`).
     // Le mouvement ne porte pas d'unité : c'est celle de l'article (« — » si elle manque). Les
     // montants et leur total ne changent pas : même colonne « Montant USD », mêmes valeurs.
-    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true, unite: true, prixUnitaireUSD: true } } } });
+    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } });
+    const taux = await tauxDuJour(); // repli « prix du catalogue » d'un article en francs : en dollars au taux du jour
     const COURT = { USD: "USD", CDF: "FC" } as const;
     const lignesPdf: CelluleRapport[][] = [];
     const lignes = rows.map((m) => {
       const unite = m.article.unite?.trim() || "—";
       const montant = m.montantUSD !== null ? arr(Number(m.montantUSD)) : "";
-      const pu = prixUnitaireAchat({ quantite: m.quantite, devise: m.devise, montantOrigine: m.montantOrigine, montantUSD: m.montantUSD, tauxChangeUtilise: m.tauxChangeUtilise, prixCatalogueUSD: m.article.prixUnitaireUSD });
+      const pu = prixUnitaireAchat({ quantite: m.quantite, devise: m.devise, montantOrigine: m.montantOrigine, montantUSD: m.montantUSD, tauxChangeUtilise: m.tauxChangeUtilise, prixCatalogueUSD: prixArticleEnUSD(m.article, taux)?.valeur ?? null });
       lignesPdf.push([jj(m.date), m.article.designation, unite, q3(m.quantite), cellulePrixUnitairePdf(pu), montant, m.origine ?? ""]);
       return [
         jj(m.date), m.article.designation, unite, q3(m.quantite),

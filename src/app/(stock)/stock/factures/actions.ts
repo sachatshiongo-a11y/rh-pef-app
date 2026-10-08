@@ -406,15 +406,39 @@ function rafraichirFactures(ids: string[]) {
  * Marque une facture comme réglée : un paiement du reste à payer, daté au choix (défaut :
  * aujourd'hui à Kinshasa — voir `reglerFactureTx`/`lireDatePaiement`).
  * Hors Direction : rien n'est payé, une DEMANDE est adressée à la Direction (demandes.ts).
+ *
+ * `francs` (2026-10-08, « payer des factures en francs ») : le montant versé EN FRANCS (saisie à la
+ * française, proposé à reste × taux du jour). Converti par LA conversion des règlements
+ * (`convertirFrancs`, taux des Paramètres du jour du paiement — ou de la validation pour une demande) ;
+ * la facture garde son reste en dollars ; moins que le reste = paiement partiel, plus = refusé.
+ * C'est le même chemin que « + Paiement » en francs (REGLEMENT), avec la note « Marquée payée ».
  */
-export const marquerPayee = actionLisible(async (id: string, dateStr?: string): Promise<DemandeEnvoyee | void> => {
+export const marquerPayee = actionLisible(async (id: string, dateStr?: string, francs?: string): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
+  // `francs` présent = paiement EN FRANCS : un montant vide est refusé (jamais un repli silencieux en dollars).
+  const enFrancs = francs !== undefined && francs !== null;
+  if (enFrancs && String(francs).trim() === "") throw new Error("Saisissez le montant versé en francs.");
+  const fc = enFrancs ? decSaisi(francs, "montant en francs") : null;
+  if (fc !== null && !(fc > 0)) throw new Error("Le montant en francs doit être supérieur à 0.");
   if (!estDirection(user)) {
-    await demanderPaiement(user, { mode: "SOLDE", factureId: id, dateStr });
+    if (fc !== null) {
+      await demanderPaiement(user, {
+        mode: "REGLEMENT", factureId: id, dateStr,
+        reglement: { type: "PAIEMENT", montantUSD: null, montantCDF: texteDecimal(fc), taux: null, modePaiement: null, note: "Marquée payée (en francs)" },
+      });
+    } else {
+      await demanderPaiement(user, { mode: "SOLDE", factureId: id, dateStr });
+    }
     rafraichirFactures([id]);
     return { demande: true, message: MESSAGE_DEMANDE };
   }
   const reg = await prisma.$transaction(async (tx) => {
+    if (fc !== null) {
+      await verrouillerFacture(tx, id); // avant la lecture des demandes (voir ci-dessous)
+      await exigerAucunPaiementDemande(tx, [id]);
+      const { montant, taux } = await convertirFrancs(tx, fc);
+      return reglerFactureTx(tx, user.id, id, { montant, montantCDF: fc, taux, dateStr, note: "Marquée payée (en francs)" });
+    }
     // Verrou de la facture AVANT de lire les demandes : une demande déposée en même temps attend.
     const f = await verrouillerFacture(tx, id);
     await exigerAucunPaiementDemande(tx, [id]);
@@ -477,13 +501,15 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
  * `demandePaiement` = nombre de factures qu'elle porte.
  */
 export type ResultatLot = { reglees: number; demandees: number; demandePaiement?: number };
-export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string): Promise<ResultatLot> => {
+export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string, devise?: "USD" | "CDF"): Promise<ResultatLot> => {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return { reglees: 0, demandees: 0 };
+  // En francs (2026-10-08) : chaque facture soldée par reste × taux du jour francs (voir reglerLotTx).
+  const enFrancs = devise === "CDF";
 
   if (!estDirection(user)) {
-    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr });
+    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr, enFrancs });
     rafraichirFactures([]);
     return { reglees: 0, demandees: uniq.length, demandePaiement: r.nbFactures };
   }
@@ -491,7 +517,7 @@ export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: 
   const regs = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(uniq)}) ORDER BY "id" FOR UPDATE`; // avant la lecture des demandes
     await exigerAucunPaiementDemande(tx, uniq);
-    return reglerLotTx(tx, user.id, uniq, dateStr, "Marquée payée (lot)");
+    return reglerLotTx(tx, user.id, uniq, dateStr, enFrancs ? "Marquée payée (lot en francs)" : "Marquée payée (lot)", { enFrancs });
   });
 
   if (regs.length > 0) {

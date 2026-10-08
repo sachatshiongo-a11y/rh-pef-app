@@ -11,10 +11,12 @@ import { canoniqueVersSaisie, nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import { decisionSortie, type Regles } from "@/components/tableur/navigation";
 import { MOIS_FR_COURT } from "@/lib/dates-fr";
 import { formaterMontant } from "@/lib/montant";
+import { prixProposeEn } from "@/lib/prix-article";
 import { cleArticleExacte, doublonsDansListe, erreurDlc, type AnalyseLigne, type ArticleCandidat } from "@/lib/achats-doublons";
 import { prochesDansListe } from "@/lib/article-proche";
 
-export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null };
+/** `prix` : prix de référence du catalogue dans SA devise (`devisePrix`, absente = USD). */
+export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise };
 export type Fourn = { id: string; nom: string };
 export type Devise = "USD" | "CDF";
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
@@ -32,6 +34,8 @@ export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type Ligne = {
   articleId: string; designation: string; unite: string; domaine: string; qte: string; pu: string; montant: string; devise: Devise; puCatalogue: string | null; fournNom: string;
   dlc: string; creerNouveau: boolean;
+  /** Devise du prix du catalogue d'où vient `puCatalogue` (absente = USD) — prix d'article en francs, 2026-10-08. */
+  puCatalogueDevise?: Devise;
 };
 
 export const vide = (devise: Devise): Ligne => ({ articleId: "", designation: "", unite: "", domaine: "NOURRITURE", qte: "", pu: "", montant: "", devise, puCatalogue: null, fournNom: "", dlc: "", creerNouveau: false });
@@ -55,9 +59,13 @@ export const produit = (qte: string, pu: string) => {
  * s'il est encore le produit automatique de l'ancien qté × PU (ou vide) : un montant TAPÉ à la
  * main n'est jamais touché — c'est celui du ticket.
  */
-export const avecPuCatalogue = (l: Ligne, pu: string, puCatalogue: string | null): Ligne => {
+export const avecPuCatalogue = (l: Ligne, pu: string, puCatalogue: string | null, puCatalogueDevise?: Devise): Ligne => {
   const montantAuto = l.montant === "" || l.montant === produit(l.qte, l.pu);
-  return { ...l, pu, puCatalogue, montant: montantAuto ? produit(l.qte, pu) : l.montant };
+  const base = { ...l, pu, puCatalogue, montant: montantAuto ? produit(l.qte, pu) : l.montant };
+  if (puCatalogueDevise === "CDF") return { ...base, puCatalogueDevise };
+  const { puCatalogueDevise: _, ...sans } = base;
+  void _;
+  return sans; // catalogue en dollars : la ligne reste celle d'avant (aucun champ de plus)
 };
 
 /**
@@ -72,12 +80,17 @@ export function avecChangement(l: Ligne, patch: Partial<Ligne>): Ligne {
   return maj;
 }
 
-/** PU du catalogue d'un article, dans la devise de la ligne : USD → le prix ; FC → converti au taux ; sinon rien. */
-export function puDuCatalogue(prix: string | null, devise: Devise, taux: number): string | null {
+/**
+ * PU du catalogue d'un article, dans la devise de la LIGNE : même devise que le prix de référence →
+ * ce prix tel quel ; autre devise → converti au taux du jour (au franc, ou 4 décimales en dollars —
+ * src/lib/prix-article.ts) ; sinon rien. `devisePrix` : devise du prix du catalogue (absente = USD).
+ */
+export function puDuCatalogue(prix: string | null, devise: Devise, taux: number, devisePrix: Devise = "USD"): string | null {
   const p = prix !== null ? Number(prix) : NaN;
   if (!(p > 0)) return null;
-  if (devise === "USD") return canoniqueVersSaisie(prix);
-  return taux > 0 ? ecrireSaisieNombre(Math.round(p * taux)) : null;
+  if (devise === devisePrix) return canoniqueVersSaisie(prix);
+  const v = prixProposeEn(devisePrix === "CDF" ? { devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: prix } : { devisePrix: "USD", prixUnitaireUSD: prix }, devise, taux);
+  return v === null ? null : ecrireSaisieNombre(v);
 }
 
 /**
@@ -89,8 +102,8 @@ export function avecArticle(l: Ligne, a: Art | undefined, taux: number): Ligne {
   const base = a
     ? { ...l, articleId: a.id, designation: a.designation, unite: a.unite ?? "", domaine: a.domaine, creerNouveau: false }
     : { ...l, articleId: "", designation: "", unite: "", creerNouveau: false };
-  const pu = a ? puDuCatalogue(a.prix, l.devise, taux) : null;
-  if (pu !== null) return avecPuCatalogue(base, pu, a!.prix);
+  const pu = a ? puDuCatalogue(a.prix, l.devise, taux, a.devisePrix) : null;
+  if (pu !== null) return avecPuCatalogue(base, pu, a!.prix, a!.devisePrix);
   return l.puCatalogue !== null ? avecPuCatalogue(base, "", null) : { ...base, puCatalogue: null };
 }
 
@@ -104,8 +117,8 @@ export function avecDevise(l: Ligne, d: Devise, taux: number): Ligne {
   if (l.devise === d) return l;
   const prix = l.puCatalogue !== null ? Number(l.puCatalogue) : NaN;
   if (taux > 0 && prix > 0) {
-    const pu = d === "CDF" ? ecrireSaisieNombre(Math.round(prix * taux)) : canoniqueVersSaisie(l.puCatalogue);
-    return { ...avecPuCatalogue(l, pu, l.puCatalogue), devise: d };
+    const pu = puDuCatalogue(l.puCatalogue, d, taux, l.puCatalogueDevise ?? "USD") ?? "";
+    return { ...avecPuCatalogue(l, pu, l.puCatalogue, l.puCatalogueDevise), devise: d };
   }
   return avecChangement(l, { devise: d });
 }
@@ -217,7 +230,7 @@ export function avecArticleChoisi(l: Ligne, a: Art, taux: number): Ligne {
 export const avecNomDeLigne = (l: Ligne, modele: Ligne): Ligne => ({ ...l, designation: modele.designation, unite: modele.unite, domaine: modele.domaine, creerNouveau: modele.creerNouveau });
 
 /** Le candidat proposé, en article de l'écran (pour « Utiliser … ») : la ligne devient une ligne du catalogue. */
-export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, unite: c.unite, domaine: c.domaine, prix: c.prix });
+export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, unite: c.unite, domaine: c.domaine, prix: c.prix, ...(c.devisePrix === "CDF" ? { devisePrix: "CDF" as const } : {}) });
 
 /** Lignes de la même désignation libre (même clé exacte) : un choix « Utiliser » ou « Créer quand même » vaut pour toutes. */
 export function memeNomLibre(lignes: readonly Ligne[], i: number): number[] {
@@ -316,6 +329,7 @@ export function lireBrouillon(brut: string | null): Brouillon | null {
       qte: texte(r.qte, 40), pu: texte(r.pu, 40), montant: texte(r.montant, 40),
       devise: estDevise(r.devise) ? r.devise : "USD",
       puCatalogue: typeof r.puCatalogue === "string" ? r.puCatalogue.slice(0, 40) : null,
+      ...(r.puCatalogueDevise === "CDF" ? { puCatalogueDevise: "CDF" as const } : {}),
       fournNom: texte(r.fournNom),
       // La DLC est reprise ; « Créer quand même » NON : il se refait en voyant le catalogue du jour.
       dlc: /^\d{4}-\d{2}-\d{2}$/.test(String(r.dlc)) ? String(r.dlc) : "",

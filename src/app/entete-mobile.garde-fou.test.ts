@@ -123,10 +123,7 @@ describe("la classe colle-sous-entete", () => {
  * Nombre d'occurrences par fichier : en ajouter une fait échouer ce test.
  */
 const EXCEPTIONS: Record<string, number> = {
-  "app/(app)/planning/modele-grid.tsx": 1,
-  "app/(app)/planning/planning-semaine.tsx": 1,
   "app/(app)/presences/import-pointage.tsx": 1,
-  "app/(app)/presences/temps-grid.tsx": 1,
   "app/(stock)/stock/catalogue/catalogue-table.tsx": 1,
   "app/(stock)/stock/commandes/nouveau/nouveau-client.tsx": 1,
   "app/(stock)/stock/factures/[id]/page.tsx": 2,

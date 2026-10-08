@@ -296,14 +296,14 @@ export default async function PlanningPage({
               shifts={shiftsActifs}
               besoins={besoinsMois}
               peutModifier={peutModifier}
-              colJour={104}
+              mois
               afficherContrat={false}
             />
           </JourMobileProvider>
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          Vue mensuelle éditable (la grille défile horizontalement). ✨ = créneau posé par la
+          Vue mensuelle éditable (une case = l'abréviation du shift ; survolez pour l'horaire). ✨ = créneau posé par la
           génération automatique. « Générer automatiquement » remplit les jours ouvrables selon les
           heures de chaque employé sans écraser vos saisies.
         </p>

@@ -13,6 +13,8 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { BulkBar } from "@/components/bulk-bar";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
+import { lireNombreSaisi } from "@/lib/nombre";
+import { BasculeDevise, SaisieFrancs, TotalLotFrancs, francsProposes, type DevisePaiement } from "./devise-paiement";
 
 export type FactureRow = {
   id: string;
@@ -70,7 +72,7 @@ function messageEcartLot(reglees: number, demandees: number): string {
  *  - `moisPlats`: Mois seuls, le plus récent ouvert (fiche d'un fournisseur — `sansFournisseur` : le
  *                 nom du fournisseur est celui de la page, on ne le répète pas à chaque ligne).
  */
-export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean }) {
+export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false, suffixeRetour = "", estDirection = true, ouvert = false, taux = 0 }: { groupes?: Groupe[]; annees?: AnneeGroupe[]; moisPlats?: MoisGroupe[]; sansFournisseur?: boolean; suffixeRetour?: string; estDirection?: boolean; ouvert?: boolean; /** Taux du jour (Paramètres) : paiement en francs ; 0 = non défini. */ taux?: number }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -82,6 +84,11 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
   const [dateChoisie, setDateChoisie] = useState(() => jourKinshasaISO());
   const [lotDatePicker, setLotDatePicker] = useState(false);
   const [lotDate, setLotDate] = useState(() => jourKinshasaISO());
+  // Devise du paiement (2026-10-08) : à l'unité, montant en francs proposé = reste × taux du jour,
+  // modifiable ; en lot, chaque facture soldée par reste × taux francs.
+  const [devise, setDevise] = useState<DevisePaiement>("USD");
+  const [francs, setFrancs] = useState("");
+  const [lotDevise, setLotDevise] = useState<DevisePaiement>("USD");
 
   const run = (fn: () => Promise<unknown>, onSuccess?: () => void) => {
     setErreur(null); setInfo(null);
@@ -119,7 +126,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
   const confirmerLot = () => {
     setErreur(null); setInfo(null);
     startTransition(async () => {
-      const r = await marquerPayeesEnLot(selNonReglees, lotDate);
+      const r = await marquerPayeesEnLot(selNonReglees, lotDate, lotDevise);
       if (estErreur(r)) { setErreur(r.erreur); return; }
       if (r.demandePaiement !== undefined) setInfo(`Paiement de ${r.demandePaiement} facture${r.demandePaiement > 1 ? "s" : ""} demandé à la Direction (tout ou rien) : rien n'est payé avant sa validation.`);
       else if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
@@ -175,11 +182,13 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                         aria-label="Date de paiement"
                         className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
                       />
-                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie), () => setDatePickerId(null))} disabled={isPending}>{libelleConfirmer}</BoutonValider>
+                      <BasculeDevise petit devise={devise} onDevise={(d) => { setDevise(d); if (d === "CDF") setFrancs(francsProposes(f.reste, taux)); }} taux={taux} />
+                      {devise === "CDF" && <SaisieFrancs petit francs={francs} onFrancs={setFrancs} reste={f.reste} taux={taux} demande={!estDirection} />}
+                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie, devise === "CDF" ? francs : undefined), () => setDatePickerId(null))} disabled={isPending || (devise === "CDF" && !((lireNombreSaisi(francs) ?? 0) > 0))}>{libelleConfirmer}</BoutonValider>
                       <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
                     </span>
                   ) : (
-                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); }}>{libelleMarquer}</BoutonValider>
+                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); setDevise("USD"); setFrancs(""); }}>{libelleMarquer}</BoutonValider>
                   )
                 )}
                 {estDirection && (
@@ -212,6 +221,8 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                 className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
               />
             </label>
+            <BasculeDevise petit devise={lotDevise} onDevise={setLotDevise} taux={taux} />
+            {lotDevise === "CDF" && <TotalLotFrancs restes={toutes.filter((f) => selNonReglees.includes(f.id)).map((f) => f.reste)} taux={taux} demande={!estDirection} />}
             <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
               {libelleConfirmer} ({selNonReglees.length})
             </BoutonValider>
@@ -219,7 +230,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
           </span>
         ) : (
           <BoutonValider
-            onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); }}
+            onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); setLotDevise("USD"); }}
             disabled={isPending || selNonReglees.length === 0}
           >
             {estDirection ? "Marquer payées" : "Demander le paiement"} ({selNonReglees.length})

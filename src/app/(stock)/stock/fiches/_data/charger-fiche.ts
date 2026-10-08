@@ -7,6 +7,8 @@ import { jourKinshasaISO } from "@/lib/date-paiement";
 import { stockRestaurantPourDisponibilite } from "@/lib/stock-restaurant";
 import { chargerEntreesStockResto, stocksComptesResto } from "@/lib/stock-restaurant-charger";
 import type { ArticleOption, FicheVue } from "./fiche-calc";
+import { prixArticleEnUSDTexte, prixSaisi, type DevisePrix } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 
 // Lecture Prisma → vues d'écran. Les `Decimal` de la base sont convertis en TEXTE (jamais en
 // `number`) : c'est ce qui permet de les passer tels quels à un composant client ET au moteur de
@@ -76,22 +78,31 @@ const SELECT_ARTICLE = {
   id: true,
   designation: true,
   unite: true,
+  devisePrix: true,
   prixUnitaireUSD: true,
+  prixUnitaireCDF: true,
   actif: true,
   contenance: true,
   contenanceUnite: true,
 } satisfies Prisma.ArticleStockSelect;
 
 type ArticleBrut = {
-  id: string; designation: string; unite: string | null; prixUnitaireUSD: { toString(): string } | null; actif: boolean;
+  id: string; designation: string; unite: string | null; actif: boolean;
+  devisePrix: DevisePrix; prixUnitaireUSD: { toString(): string } | null; prixUnitaireCDF: { toString(): string } | null;
   contenance: { toString(): string } | null; contenanceUnite: string | null;
 };
 
-const versOption = (a: ArticleBrut): ArticleOption => ({
+/**
+ * Prix en dollars que lit le moteur de coût : celui d'un article en USD, À L'IDENTIQUE ; celui d'un
+ * article en FRANCS converti au taux du jour, pleine précision, marqué `prixApprox` (« ≈ ») ; null
+ * sans taux (le moteur l'annonce « sans prix », jamais 0). Le prix saisi reste lisible à côté.
+ */
+const versOption = (a: ArticleBrut, taux: number | null): ArticleOption => ({
   id: a.id,
   designation: a.designation,
   unite: s(a.unite),
-  prixUnitaireUSD: a.prixUnitaireUSD === null ? null : a.prixUnitaireUSD.toString(),
+  prixUnitaireUSD: prixArticleEnUSDTexte(a, taux)?.valeur ?? null,
+  ...(a.devisePrix === "CDF" ? { prixApprox: true, prixSaisi: prixSaisi(a) } : {}),
   actif: a.actif,
   contenance: a.contenance === null ? null : a.contenance.toString(),
   contenanceUnite: a.contenanceUnite,
@@ -106,7 +117,8 @@ export async function chargerArticlesDesFiches(): Promise<ArticleOption[]> {
     where: { fichesIngredient: { some: {} } },
     select: SELECT_ARTICLE,
   });
-  return articles.map(versOption);
+  const taux = await tauxDuJour();
+  return articles.map((a) => versOption(a, taux));
 }
 
 /**
@@ -120,7 +132,8 @@ export async function chargerArticlesSelectionnables(): Promise<ArticleOption[]>
     // Nom court et code : pour retrouver l'article en tapant (le calcul n'en a pas besoin).
     select: { ...SELECT_ARTICLE, nomCourt: true, code: true },
   });
-  return articles.map((a) => ({ ...versOption(a), nomCourt: a.nomCourt, code: a.code }));
+  const taux = await tauxDuJour();
+  return articles.map((a) => ({ ...versOption(a, taux), nomCourt: a.nomCourt, code: a.code }));
 }
 
 /**

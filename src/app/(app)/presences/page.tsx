@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { chargerParametresPaie } from "@/lib/config";
 import { calculerHeuresSupp, numeroSemaineDuMois, reconstituerBrutDepuisNet, type CodePresence, type DetailSemaineHS } from "@/lib/payroll";
 import { TempsGrid, type EmployeeRow, type InfoShift } from "./temps-grid";
+import { BarreVuePresences, PresencesVueProvider, type VuePresences } from "./vue-presences";
+import { semaineParDefaut, semainesDuMois } from "./semaines";
 import { peutSupprimer } from "@/lib/suppression-direction";
 import { pariteSemaine } from "../planning/creneaux";
 import { JourMobileProvider } from "@/components/jour-mobile";
@@ -27,8 +29,9 @@ const LEGENDE: { code: CodePresence; icone: string; label: string }[] = [
   { code: "S", icone: "∅", label: "Congé sans solde — non payé" },
 ];
 
-export default async function PresencesPage() {
+export default async function PresencesPage({ searchParams }: { searchParams: Promise<{ vue?: string; sem?: string; emp?: string }> }) {
   const user = await exigerPageRH();
+  const sp = await searchParams;
   const peutModifier = user.role === "ADMIN" || user.role === "MANAGER";
   const peutEffacer = peutSupprimer(user); // vider une présence saisie = suppression → Direction
 
@@ -169,6 +172,19 @@ export default async function PresencesPage() {
     year: "numeric",
   });
 
+  // Vue ouverte : Semaine par défaut, sur la semaine d'aujourd'hui (jour civil de Kinshasa) si elle
+  // fait partie de la période. `?vue=mois`, `?sem=AAAA-MM-JJ` (un jour de la semaine) et `?emp=` rouvrent
+  // la vue qu'on a quittée (la page recopie son état dans l'adresse).
+  const semaines = semainesDuMois(annee, mois, nbJours);
+  const semaineAujourdhui = semaineParDefaut(semaines, jourCourantKinshasaISO());
+  const semDemandee = sp.sem ? semaines.findIndex((x) => sp.sem! >= x.isos[0] && sp.sem! <= x.isos[6]) : -1;
+  const vueInitiale: VuePresences = sp.vue === "mois" || sp.vue === "employe" ? sp.vue : "semaine";
+  const pourBarre = [
+    ...brigade.map((r) => ({ id: r.id, nom: r.nom, photoUrl: r.photoUrl, groupe: "Brigade" })),
+    ...backoffice.map((r) => ({ id: r.id, nom: r.nom, photoUrl: r.photoUrl, groupe: "Back-office" })),
+  ];
+  const employeInitial = pourBarre.find((e) => e.id === sp.emp)?.id ?? (vueInitiale === "employe" ? pourBarre[0]?.id ?? null : null);
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -176,11 +192,11 @@ export default async function PresencesPage() {
           <h1 className="text-xl font-semibold sm:text-2xl">Présences &amp; heures</h1>
           <p className="text-sm capitalize text-muted-foreground">{periode}</p>
           <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            Chaque case du mois porte le <b>code du jour</b> (couleur) et les <b>heures travaillées</b>.
+            Chaque case porte le <b>code du jour</b> (couleur) et les <b>heures travaillées</b>.
             Cliquez une case pour ouvrir le menu (code + heures), ou tapez directement une lettre
-            (P, O, M, A, N, C, F, S) — Suppr efface, flèches pour naviguer. Les 6 premières heures
-            supp. de la semaine sont majorées à 30%, le reste à 60% ; dimanche et fériés, toutes les
-            heures sont payées double.
+            (P, O, M, A, N, C, F, S) — Suppr efface, flèches pour naviguer. Cliquez un nom pour voir
+            tout son mois. Les 6 premières heures supp. de la semaine sont majorées à 30%, le reste à
+            60% ; dimanche et fériés, toutes les heures sont payées double.
           </p>
         </div>
         <TelechargerLien
@@ -194,59 +210,73 @@ export default async function PresencesPage() {
 
       {peutModifier && <ImportPointage />}
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {LEGENDE.map((l) => (
-          <span key={l.code} className={`rounded-md px-2 py-1 text-xs ${COULEUR_CODE[l.code]}`}>
-            <span aria-hidden>{l.icone}</span>{" "}
-            <span className="font-semibold">{l.code}</span> = {l.label}
-          </span>
-        ))}
-        <span className="rounded-md bg-orange-100 px-2 py-1 text-xs text-orange-800">
-          Colonne surlignée = dimanche ou jour férié (heures payées double)
-        </span>
-        <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
-          Sous le code : les horaires du jour (Planning / modèle hebdo) — <b>●</b> = pointage réel
-        </span>
-        <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
-          <b>p*</b> = pause par défaut {PAUSE_PAR_DEFAUT_MIN} min, non déduite : heures = départ − arrivée (départ pointé sans pause saisie par le salarié)
-        </span>
-        <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
-          Heures en <b>ambre</b> = au-delà du shift prévu (heures supplémentaires)
-        </span>
-      </div>
-
       <JourMobileProvider defaultIdx={Math.max(0, isoDates.indexOf(jourCourantKinshasaISO()))}>
-        <div className="mb-8">
-          <h2 className="mb-3 text-base font-semibold">Brigade</h2>
-          <TempsGrid
-            employees={brigade}
-            days={days}
-            attendanceMap={attendanceMap}
-            hoursMap={hoursMap}
-            shiftMap={shiftMap}
-            peutModifier={peutModifier}
-            peutEffacer={peutEffacer}
-            isoDates={isoDates}
-            joursFeries={joursFeries}
-            params={parametres}
-          />
-        </div>
+        <PresencesVueProvider
+          vueInitiale={vueInitiale}
+          semaineInitiale={semDemandee >= 0 ? semDemandee : semaineAujourdhui}
+          employeInitial={employeInitial}
+          semaines={semaines}
+        >
+          <BarreVuePresences semaines={semaines} semaineAujourdhui={semaineAujourdhui} employes={pourBarre} />
 
-        <div>
-          <h2 className="mb-3 text-base font-semibold">Back-office</h2>
-          <TempsGrid
-            employees={backoffice}
-            days={days}
-            attendanceMap={attendanceMap}
-            hoursMap={hoursMap}
-            shiftMap={shiftMap}
-            peutModifier={peutModifier}
-            peutEffacer={peutEffacer}
-            isoDates={isoDates}
-            joursFeries={joursFeries}
-            params={parametres}
-          />
-        </div>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {LEGENDE.map((l) => (
+              <span key={l.code} className={`rounded-md px-2 py-1 text-xs ${COULEUR_CODE[l.code]}`}>
+                <span aria-hidden>{l.icone}</span>{" "}
+                <span className="font-semibold">{l.code}</span> = {l.label}
+              </span>
+            ))}
+          </div>
+          <details className="mb-5 text-xs text-muted-foreground">
+            <summary className="cursor-pointer font-medium">Comment lire les cases</summary>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="rounded-md bg-orange-100 px-2 py-1 text-orange-800">
+                Colonne surlignée = dimanche ou jour férié (heures payées double)
+              </span>
+              <span className="rounded-md border px-2 py-1">
+                Sous le code : les horaires du jour (Planning / modèle hebdo) — <b>●</b> = pointage réel
+              </span>
+              <span className="rounded-md border px-2 py-1">
+                <b>p*</b> = pause par défaut {PAUSE_PAR_DEFAUT_MIN} min, non déduite : heures = départ − arrivée (départ pointé sans pause saisie par le salarié)
+              </span>
+              <span className="rounded-md bg-amber-100 px-2 py-1 font-medium text-amber-800">
+                Heures en <b>ambre</b> = au-delà du shift prévu (heures supplémentaires)
+              </span>
+            </div>
+          </details>
+
+          <div className="mb-8">
+            <TempsGrid
+              titre="Brigade"
+              employees={brigade}
+              days={days}
+              attendanceMap={attendanceMap}
+              hoursMap={hoursMap}
+              shiftMap={shiftMap}
+              peutModifier={peutModifier}
+              peutEffacer={peutEffacer}
+              isoDates={isoDates}
+              joursFeries={joursFeries}
+              params={parametres}
+            />
+          </div>
+
+          <div>
+            <TempsGrid
+              titre="Back-office"
+              employees={backoffice}
+              days={days}
+              attendanceMap={attendanceMap}
+              hoursMap={hoursMap}
+              shiftMap={shiftMap}
+              peutModifier={peutModifier}
+              peutEffacer={peutEffacer}
+              isoDates={isoDates}
+              joursFeries={joursFeries}
+              params={parametres}
+            />
+          </div>
+        </PresencesVueProvider>
       </JourMobileProvider>
 
       <details className="mt-8 rounded-xl border">

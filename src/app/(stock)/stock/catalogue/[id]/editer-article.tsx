@@ -11,6 +11,7 @@ import { empecherEnvoiParEntree } from "@/lib/entree-sans-envoi";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsFournisseurs } from "@/lib/recherche-options";
 import { contenanceDansNom, UNITES_CONTENANCE } from "@/lib/fiches/conversion";
+import { formaterPrix, prixProposeEn, type DevisePrix } from "@/lib/prix-article";
 
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
@@ -27,6 +28,9 @@ export type ArticleEdit = {
   contenanceUnite?: string | null;
   uniteParCarton: string | null;
   prixUnitaireUSD: string | null;
+  /** Devise de saisie du prix (absente = $) et prix en francs d'un article en FC. */
+  devisePrix?: DevisePrix;
+  prixUnitaireCDF?: string | null;
   categorieId: string | null;
   fournisseurId: string | null;
   stockMinimum: string;
@@ -50,7 +54,7 @@ const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
  * N'envoie JAMAIS `quantite` : le stock ne se modifie que par un mouvement, l'inventaire (comptage)
  * ou la correction de stock négatif — jamais par ce formulaire.
  */
-export function EditerArticle({ a, categories, fournisseurs, estDirection = true }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[]; estDirection?: boolean }) {
+export function EditerArticle({ a, categories, fournisseurs, estDirection = true, taux = null }: { a: ArticleEdit; categories: Cat[]; fournisseurs: Four[]; estDirection?: boolean; taux?: number | null }) {
   const optionsFour = useMemo(() => optionsFournisseurs(fournisseurs), [fournisseurs]);
   const [ouvert, setOuvert] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -58,7 +62,28 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
   const [isPending, start] = useTransition();
   // Cases numériques : valeur tenue en state (texte), portée par un champ caché du même nom que
   // lit `modifierArticle` — comme les lignes de la Liste d'achat de légumes.
-  const [prix, setPrix] = useState(canoniqueVersSaisie(a.prixUnitaireUSD));
+  // Prix de référence : SA devise ($ ou FC) et le prix dans cette devise (la devise de saisie fait foi).
+  const deviseInitiale: DevisePrix = a.devisePrix === "CDF" ? "CDF" : "USD";
+  const [devise, setDevise] = useState<DevisePrix>(deviseInitiale);
+  const [prix, setPrix] = useState(canoniqueVersSaisie(deviseInitiale === "CDF" ? a.prixUnitaireCDF ?? null : a.prixUnitaireUSD));
+  const [prixConverti, setPrixConverti] = useState(false); // prix proposé par conversion au taux du jour (à vérifier)
+  /**
+   * Changer de devise : le prix saisi dans la nouvelle devise est PROPOSÉ au taux du jour (à vérifier,
+   * modifiable) ; revenir à la devise d'origine retrouve le prix enregistré. Rien n'est converti en
+   * base : c'est le prix affiché dans le champ qui sera enregistré, dans la devise choisie.
+   */
+  const changerDevise = (d: DevisePrix) => {
+    if (d === devise) return;
+    setDevise(d);
+    if (d === deviseInitiale) { setPrix(canoniqueVersSaisie(d === "CDF" ? a.prixUnitaireCDF ?? null : a.prixUnitaireUSD)); setPrixConverti(false); return; }
+    const n = nombreOuNull(prix);
+    const propose = n !== null && n > 0 ? prixProposeEn(devise === "USD" ? { devisePrix: "USD", prixUnitaireUSD: n } : { devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: n }, d, taux) : null;
+    setPrix(propose === null ? "" : texteDe(propose));
+    setPrixConverti(propose !== null);
+  };
+  const prixLu = nombreOuNull(prix);
+  const autreDevise: DevisePrix = devise === "USD" ? "CDF" : "USD";
+  const equivalent = prixLu !== null && prixLu > 0 && taux ? (devise === "USD" ? prixLu * taux : prixLu / taux) : null;
   const [parCarton, setParCarton] = useState(canoniqueVersSaisie(a.uniteParCarton));
   const [contenance, setContenance] = useState(canoniqueVersSaisie(a.contenance));
   const lue = contenanceDansNom(a.designation);
@@ -123,10 +148,22 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
             <input type="hidden" name="uniteParCarton" value={parCarton} />
             <CelluleNombre ligne="article" col={0} valeur={nombreOuNull(parCarton)} onEnregistrer={(v) => setParCarton(texteDe(v))} min={0} quantite placeholder="ex. 24" className={`${inp} text-right`} aria-label="Unités par carton" />
           </label>
-          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Prix unitaire USD
-            <input type="hidden" name="prixUnitaireUSD" value={prix} />
-            <CelluleNombre ligne="article" col={1} valeur={nombreOuNull(prix)} onEnregistrer={(v) => setPrix(texteDe(v))} min={0} className={`${inp} text-right`} aria-label="Prix unitaire USD" />
-          </label>
+          <div className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+            <span>Prix unitaire de référence</span>
+            <div className="flex gap-1">
+              <input type="hidden" name="devisePrix" value={devise} />
+              <input type="hidden" name={devise === "CDF" ? "prixUnitaireCDF" : "prixUnitaireUSD"} value={prix} />
+              <CelluleNombre ligne="article" col={1} valeur={prixLu} onEnregistrer={(v) => { setPrix(texteDe(v)); setPrixConverti(false); }} min={0} className={`${inp} text-right`} aria-label={`Prix unitaire ${devise === "CDF" ? "FC" : "USD"}`} />
+              <div role="group" aria-label="Devise du prix" className="inline-flex shrink-0 overflow-hidden rounded-md border text-sm">
+                <button type="button" onClick={() => changerDevise("USD")} aria-pressed={devise === "USD"} className={`px-2.5 ${devise === "USD" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>$</button>
+                <button type="button" onClick={() => changerDevise("CDF")} aria-pressed={devise === "CDF"} className={`px-2.5 ${devise === "CDF" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}>FC</button>
+              </div>
+            </div>
+            <span className="text-[11px] tabular-nums">
+              {equivalent !== null ? `≈ ${formaterPrix(equivalent, autreDevise)} au taux du jour` : prixLu !== null && prixLu > 0 ? "équivalent : — (taux du jour non défini dans les Paramètres)" : "La devise choisie fait foi ; l'autre s'affiche au taux du jour."}
+              {prixConverti && <span className="ml-1 text-amber-800">— converti au taux du jour : vérifiez le prix avant d&apos;enregistrer.</span>}
+            </span>
+          </div>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Catégorie
             <select name="categorieId" defaultValue={a.categorieId ?? ""} className={inp}>
               <option value="">— à classer —</option>

@@ -259,8 +259,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
             </div>
           </div>
           {tri === "mois"
-            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} />
-            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} />}
+            ? <FacturesUI annees={annees} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} />
+            : <FacturesUI groupes={groupes} estDirection={estDirection} ouvert={ouvertParDefaut} taux={tauxCDF} />}
         </>
       )}
     </div>

@@ -8,6 +8,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { decSaisiOptionnel } from "@/lib/nombre";
 import { lireContenanceSaisie } from "@/lib/fiches/conversion";
+import type { DevisePrix } from "@/lib/prix-article";
 import {
   CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, libelleValeur, texteDecimal, valeursEgales,
   type ChampArticle, type Changement, type Valeur,
@@ -31,7 +32,11 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
   if (formData.has("code")) p.code = texte("code");
   if (formData.has("designation")) p.designation = String(formData.get("designation")).trim();
   if (formData.has("nomCourt")) p.nomCourt = texte("nomCourt");
+  // Prix de référence : sa devise (« USD » / « CDF »), puis le prix dans cette devise. Un champ de
+  // prix seul (case de l'Inventaire) garde la devise de l'article — `harmoniserPrix` le vérifie.
+  if (formData.has("devisePrix")) p.devisePrix = lireDevisePrix(formData.get("devisePrix"));
   if (formData.has("prixUnitaireUSD")) p.prixUnitaireUSD = decTexte(formData.get("prixUnitaireUSD"), "prix unitaire");
+  if (formData.has("prixUnitaireCDF")) p.prixUnitaireCDF = decTexte(formData.get("prixUnitaireCDF"), "prix unitaire en francs");
   if (formData.has("uniteParCarton")) p.uniteParCarton = decTexte(formData.get("uniteParCarton"), "unités par carton");
   if (formData.has("unite")) p.unite = String(formData.get("unite")).trim() || null;
   // Contenance : validée avant toute écriture (nombre ET unité, ou aucun des deux).
@@ -56,6 +61,7 @@ export function lirePatchArticle(formData: FormData): PatchArticle {
  */
 const PLAFONDS: Partial<Record<ChampArticle, { max: number; libelle: string }>> = {
   prixUnitaireUSD: { max: 1e8, libelle: "Le prix unitaire" }, // Decimal(12,4)
+  prixUnitaireCDF: { max: 1e14, libelle: "Le prix unitaire en francs" }, // Decimal(16,2)
   uniteParCarton: { max: 1e8, libelle: "Le nombre d'unités par carton" }, // Decimal(10,2)
   stockMinimum: { max: 1e11, libelle: "Le stock minimum" }, // Decimal(14,3)
   seuilUrgent: { max: 1e11, libelle: "Le seuil urgent" },
@@ -70,11 +76,50 @@ function exigerBornes(p: PatchArticle) {
 
 const champsDe = (patch: PatchArticle) => LISTE_CHAMPS_ARTICLE.filter((c) => c in patch);
 
+/** « USD » ou « CDF » ; toute autre valeur est refusée (jamais une devise devinée). */
+export function lireDevisePrix(v: FormDataEntryValue | null): DevisePrix {
+  const d = String(v ?? "").trim().toUpperCase();
+  if (d === "USD" || d === "$") return "USD";
+  if (d === "CDF" || d === "FC") return "CDF";
+  throw new Error("Devise du prix inconnue : choisissez $ ou FC.");
+}
+
+const PRIX_DE: Record<DevisePrix, "prixUnitaireUSD" | "prixUnitaireCDF"> = { USD: "prixUnitaireUSD", CDF: "prixUnitaireCDF" };
+
+/**
+ * LA DEVISE DE SAISIE FAIT FOI (2026-10-08) : un article a son prix en dollars OU en francs, jamais
+ * les deux. Rend le patch cohérent avec la devise qu'aura l'article (`devisePrix` du patch, sinon
+ * celle d'aujourd'hui) : en changeant de devise, le prix de l'autre devise est effacé (il n'est
+ * jamais converti en silence) ; un prix saisi dans la devise que l'article n'aura pas est REFUSÉ.
+ */
+export function harmoniserPrix(deviseActuelle: DevisePrix, patch: PatchArticle): PatchArticle {
+  const touche = "devisePrix" in patch || "prixUnitaireUSD" in patch || "prixUnitaireCDF" in patch;
+  if (!touche) return patch;
+  const p: PatchArticle = { ...patch };
+  const devise: DevisePrix = p.devisePrix === "CDF" || p.devisePrix === "USD" ? p.devisePrix : deviseActuelle;
+  if ("devisePrix" in p && p.devisePrix !== devise) throw new Error("Devise du prix inconnue : choisissez $ ou FC.");
+  const autre = PRIX_DE[devise === "USD" ? "CDF" : "USD"];
+  if (p[autre] !== undefined && p[autre] !== null) {
+    throw new Error(devise === "CDF"
+      ? "Cet article a son prix en francs : saisissez le prix en FC (ou passez l'article en $ depuis sa fiche)."
+      : "Cet article a son prix en dollars : saisissez le prix en $ (ou passez l'article en FC depuis sa fiche).");
+  }
+  // Changement de devise : l'ancien prix s'efface, il n'est jamais converti en silence.
+  if (devise !== deviseActuelle || autre in p) p[autre] = null;
+  return p;
+}
+
 /**
  * Écrit un patch sur un article (et sa ligne Stock, créée si absente — comme `modifierArticle`
  * l'a toujours fait). À appeler dans une transaction.
  */
-export async function appliquerPatchArticleTx(tx: Tx, id: string, patch: PatchArticle) {
+export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: PatchArticle) {
+  // Prix : cohérent avec la devise de l'article, relue ICI (geste direct comme proposition validée).
+  let patch = patchSaisi;
+  if ("devisePrix" in patch || "prixUnitaireUSD" in patch || "prixUnitaireCDF" in patch) {
+    const cur = await tx.articleStock.findUniqueOrThrow({ where: { id }, select: { devisePrix: true } });
+    patch = harmoniserPrix(cur.devisePrix, patch);
+  }
   const data: Prisma.ArticleStockUpdateInput = {};
   const stock: Prisma.StockUpdateInput = {};
   for (const champ of champsDe(patch)) {
@@ -125,7 +170,7 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
     valeurs: {
       code: a.code, designation: a.designation, nomCourt: a.nomCourt, unite: a.unite,
       contenance: dec(a.contenance), contenanceUnite: a.contenanceUnite,
-      prixUnitaireUSD: dec(a.prixUnitaireUSD), uniteParCarton: dec(a.uniteParCarton),
+      devisePrix: a.devisePrix, prixUnitaireUSD: dec(a.prixUnitaireUSD), prixUnitaireCDF: dec(a.prixUnitaireCDF), uniteParCarton: dec(a.uniteParCarton),
       categorieId: a.categorieId, fournisseurId: a.fournisseurId,
       actif: a.actif, surFicheCommande: a.surFicheCommande,
       // Sans ligne Stock, la fiche affiche 0 : c'est la valeur que le demandeur a vue.
@@ -146,8 +191,11 @@ export function changementsDe(etat: EtatArticle, patch: PatchArticle, noms: { ca
         : libelleValeur(champ, v);
   // `inclure` : champs déjà proposés (même auteur) — gardés même s'ils reviennent à la valeur de
   // l'article, pour que la fusion les RETIRE de la proposition au lieu de les y laisser.
+  patch = harmoniserPrix(etat.valeurs.devisePrix === "CDF" ? "CDF" : "USD", patch);
   const changes = new Set(champsDe(patch).filter((c) => inclure?.has(c) || !valeursEgales(c, etat.valeurs[c], patch[c] ?? null)));
   if (changes.has("contenance") || changes.has("contenanceUnite")) { changes.add("contenance"); changes.add("contenanceUnite"); }
+  // Changement de devise du prix : la devise et les deux prix vont ensemble (avant → après lisible).
+  if (changes.has("devisePrix")) { changes.add("prixUnitaireUSD"); changes.add("prixUnitaireCDF"); }
   return LISTE_CHAMPS_ARTICLE.filter((c) => changes.has(c)).map((champ) => {
     const avant = etat.valeurs[champ];
     const apres = champ in patch ? (patch[champ] ?? null) : avant;

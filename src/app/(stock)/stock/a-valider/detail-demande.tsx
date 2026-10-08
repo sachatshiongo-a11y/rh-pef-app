@@ -56,6 +56,15 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
             ) : <b className="tabular-nums">{p.reglement.montantUSD === null ? "—" : formaterUSD(p.reglement.montantUSD)}</b>}
             {p.reglement.mode && <> · {p.reglement.mode}</>}
             {p.reglement.note && <> · « {p.reglement.note} »</>}
+            {p.reglement.resteApres !== null && <> · reste après paiement : <b className="tabular-nums">{formaterUSD(p.reglement.resteApres)}</b></>}
+          </p>
+        )}
+        {p.lotFrancs && (
+          <p>
+            Payé <b>en francs</b> :{" "}
+            {p.lotFrancs.totalCDF !== null && p.lotFrancs.tauxActuel !== null
+              ? <><b className="tabular-nums">{formaterFC(p.lotFrancs.totalCDF)}</b> ≈ {formaterUSD(p.total ?? 0)} au taux du jour ({formaterNombre(p.lotFrancs.tauxActuel)} FC/$), appliqué à la validation — chaque facture soldée, reste en dollars à 0.</>
+              : <>— (taux de change non configuré)</>}
           </p>
         )}
         {!p.reglement && p.factures.length > 1 && <p>Total : <b className="tabular-nums">{p.total === null ? "—" : formaterUSD(p.total)}</b> — tout ou rien.</p>}

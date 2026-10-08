@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 /**
  * Rangée d'onglets (des liens) qui défile de côté sur téléphone au lieu de se couper ou de passer à
@@ -9,8 +9,16 @@ import { useEffect, useRef } from "react";
  * restait hors écran et invisible quand il était actif. Sur ordinateur, les onglets gardent leur
  * boîte compacte d'origine. 44 px de haut sur téléphone. L'onglet actif est recentré aussi quand il
  * CHANGE sans rechargement (sommaire d'une page qui suit le défilement, `SommaireSections`).
+ *
+ * `surChoix` (facultatif) : pour des onglets qui changent de VUE sans recharger la page (état gardé par
+ * l'écran) — le clic simple appelle `surChoix(href)` au lieu de naviguer ; le lien reste un vrai lien
+ * (clic milieu, Ctrl/Cmd-clic, copie de l'adresse). `masqueTelephone` retire un onglet sous `lg`.
  */
-export function OngletsDefilants({ onglets, libelle }: { onglets: { href: string; label: string; actif: boolean }[]; libelle: string }) {
+export function OngletsDefilants({ onglets, libelle, surChoix }: {
+  onglets: { href: string; label: ReactNode; actif: boolean; masqueTelephone?: boolean }[];
+  libelle: string;
+  surChoix?: (href: string) => void;
+}) {
   const rangee = useRef<HTMLDivElement>(null);
   const hrefActif = onglets.find((o) => o.actif)?.href;
   useEffect(() => {
@@ -25,7 +33,12 @@ export function OngletsDefilants({ onglets, libelle }: { onglets: { href: string
         {onglets.map((o) => (
           <Link
             key={o.href} href={o.href} aria-current={o.actif ? "page" : undefined}
-            className={`flex min-h-11 flex-auto shrink-0 items-center justify-center whitespace-nowrap border-l px-4 py-2.5 text-center first:border-l-0 sm:min-h-0 sm:flex-none sm:px-3 sm:py-1.5 ${o.actif ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            onClick={surChoix ? (e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              surChoix(o.href);
+            } : undefined}
+            className={`${o.masqueTelephone ? "max-lg:hidden " : ""}flex min-h-11 flex-auto shrink-0 items-center justify-center whitespace-nowrap border-l px-4 py-2.5 text-center first:border-l-0 sm:min-h-0 sm:flex-none sm:px-3 sm:py-1.5 ${o.actif ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
           >
             {o.label}
           </Link>

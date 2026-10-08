@@ -5,6 +5,7 @@ import { formaterNombre } from "@/lib/montant";
 import { jjmmaaaa, ORIGINE_LISTE_ACHAT, WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
 import type { AnalyseLigne, ArticleCandidat } from "@/lib/achats-doublons";
 import { decisionArticle } from "@/lib/article-proche";
+import { prixSaisi } from "@/lib/prix-article";
 
 /** Fenêtre de la double saisie : celle du contrôle des Factures. */
 const FENETRE_JOURS = 14;
@@ -19,9 +20,10 @@ export type LigneAVerifier = { articleId: string; designation: string; quantite:
 export async function catalogueCandidats(client: Client = prisma): Promise<ArticleCandidat[]> {
   const articles = await client.articleStock.findMany({
     orderBy: { designation: "asc" },
-    select: { id: true, designation: true, unite: true, domaine: true, prixUnitaireUSD: true, actif: true },
+    select: { id: true, designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, actif: true },
   });
-  return articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: a.prixUnitaireUSD !== null ? a.prixUnitaireUSD.toString() : null, actif: a.actif }));
+  // Prix de référence dans SA devise (2026-10-08) : un article en francs propose ses francs.
+  return articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, actif: a.actif }));
 }
 
 /**

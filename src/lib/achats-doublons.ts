@@ -50,7 +50,8 @@ export function memeDesignation(a: string, b: string): boolean {
 // ── Types échangés entre le serveur et l'écran ────────────────────────────────────────────────────
 
 /** Un article du catalogue proposé à la place d'une ligne libre (assez pour en faire une ligne du catalogue). */
-export type ArticleCandidat = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null; actif: boolean };
+/** `prix` : prix de référence dans sa devise `devisePrix` (absente = USD). */
+export type ArticleCandidat = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean };
 
 /**
  * Sort d'une ligne au catalogue :

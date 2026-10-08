@@ -57,6 +57,12 @@ export type ChargePaiement = {
   date: string; // date de paiement proposée, AAAA-MM-JJ (la Direction peut la corriger)
   factures: FactureDemande[];
   reglement: ReglementDemande | null; // présent seulement pour REGLEMENT
+  /**
+   * LOT payé en FRANCS (2026-10-08) : chaque facture soldée par reste × taux francs, au taux des
+   * Paramètres À LA VALIDATION (comme un règlement en francs). Absent = en dollars, comme avant.
+   * (« Marquer payée » d'UNE facture en francs est un REGLEMENT avec `montantCDF`.)
+   */
+  enFrancs?: true;
 };
 
 // ── Réconciliation (comptage) ───────────────────────────────────────────────
@@ -91,7 +97,10 @@ export const CHAMPS_ARTICLE = {
   unite: { libelle: "Unité", sorte: "texte", porte: "article" },
   contenance: { libelle: "Contenance", sorte: "decimal", porte: "article" },
   contenanceUnite: { libelle: "Unité de contenance", sorte: "texte", porte: "article" },
+  // Prix de référence (2026-10-08) : sa devise, puis le prix dans CETTE devise (l'autre est nulle).
+  devisePrix: { libelle: "Devise du prix", sorte: "texte", porte: "article" },
   prixUnitaireUSD: { libelle: "Prix unitaire USD", sorte: "decimal", porte: "article" },
+  prixUnitaireCDF: { libelle: "Prix unitaire FC", sorte: "decimal", porte: "article" },
   uniteParCarton: { libelle: "Unités / carton", sorte: "decimal", porte: "article" },
   categorieId: { libelle: "Catégorie", sorte: "ref", porte: "article" },
   fournisseurId: { libelle: "Fournisseur", sorte: "ref", porte: "article" },
@@ -136,6 +145,7 @@ export function valeursEgales(champ: ChampArticle, a: Valeur, b: Valeur): boolea
 /** Libellé lisible d'une valeur (hors références, dont le nom est résolu par l'appelant). */
 export function libelleValeur(champ: ChampArticle, v: Valeur): string {
   if (v === null || v === "") return "—";
+  if (champ === "devisePrix") return v === "CDF" ? "francs (FC)" : v === "USD" ? "dollars ($)" : String(v);
   const sorte = CHAMPS_ARTICLE[champ].sorte;
   if (sorte === "booleen") return v ? "Oui" : "Non";
   if (sorte === "decimal") {
@@ -190,7 +200,8 @@ function lirePaiement(o: Record<string, unknown>): ChargePaiement {
     throw new ChargeIllisible("règlement inattendu");
   }
   if (o.mode === "SOLDE" && factures.length !== 1) throw new ChargeIllisible("« marquer payée » porte sur une seule facture");
-  return { v: 1, mode: o.mode, date, factures, reglement };
+  if (o.enFrancs !== undefined && (o.enFrancs !== true || o.mode !== "LOT")) throw new ChargeIllisible("lot en francs");
+  return { v: 1, mode: o.mode, date, factures, reglement, ...(o.enFrancs === true ? { enFrancs: true as const } : {}) };
 }
 
 function lireComptage(o: Record<string, unknown>): ChargeComptage {
@@ -212,6 +223,8 @@ function lireComptage(o: Record<string, unknown>): ChargeComptage {
 }
 
 function lireValeur(champ: ChampArticle, x: unknown, quoi: string): Valeur {
+  // La devise d'un prix n'a que deux valeurs (jamais nulle) : une autre ne s'exécute jamais.
+  if (champ === "devisePrix" && x !== "USD" && x !== "CDF") throw new ChargeIllisible(quoi);
   if (x === null) return null;
   const sorte = CHAMPS_ARTICLE[champ].sorte;
   if (sorte === "booleen") { if (typeof x !== "boolean") throw new ChargeIllisible(quoi); return x; }
