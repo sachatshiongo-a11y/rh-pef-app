@@ -22,6 +22,7 @@ import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { notifierGesteStock, type AuteurGeste } from "./geste-notifie";
 import { cleMouvement } from "./charge";
 import { MESSAGE_RAISON_PERTE, exigerMotifSortie, origineDuMotif } from "@/lib/motif-sortie";
+import { rattacherAutomatiquement, type CompteRenduAuto } from "@/lib/rattachement-auto";
 
 type Tx = Prisma.TransactionClient;
 
@@ -108,7 +109,7 @@ export async function apresMouvements(m: Pick<MouvementSaisi, "type" | "lignes">
  * Direction validerait alors deux fois la même sortie. Le geste est donc écrit, et l'auteur comme la
  * Direction sont AVERTIS en nommant les articles (`demandesEnAttente`).
  */
-export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSaisi): Promise<{ demandesEnAttente: string[] }> {
+export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSaisi): Promise<{ demandesEnAttente: string[]; rattachementResto: CompteRenduAuto | null }> {
   await exigerPeriodeOuverte(m.date);
   const ids = m.lignes.map((l) => l.articleId);
   // Articles vérifiés DÈS LA SAISIE : un id forgé ne crée pas une ligne de stock.
@@ -128,5 +129,13 @@ export async function appliquerMouvementManuel(user: AuteurGeste, m: MouvementSa
     genre: "MOUVEMENT", type: m.type, categorieSortie: m.categorieSortie, origine: m.origine, date: m.date, demandesEnAttente,
     lignes: m.lignes.map((l) => ({ articleId: l.articleId, designation: parId.get(l.articleId)!.designation, unite: parId.get(l.articleId)!.unite, quantite: l.quantite })),
   });
-  return { demandesEnAttente };
+  // Rattachement AUTOMATIQUE au stock du restaurant (2026-10-08) : APRÈS la transaction de la sortie,
+  // jamais bloquant — la sortie est écrite quoi qu'il arrive (la fonction ne lève pas ; double garde).
+  // Pas de seconde notification : la Direction est déjà notifiée de la sortie (un geste, une
+  // notification) ; le rattachement est journalisé au nom de l'auteur et dit dans son message.
+  let rattachementResto: CompteRenduAuto | null = null;
+  if (m.type === "SORTIE" && m.categorieSortie === "LIVRAISON_RESTAURANT") {
+    try { rattachementResto = await rattacherAutomatiquement(user, ids, "SORTIE", { notifier: false }); } catch (e) { console.error("[stock] rattachement automatique après sortie en échec :", e); }
+  }
+  return { demandesEnAttente, rattachementResto };
 }
