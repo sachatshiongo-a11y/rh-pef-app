@@ -1,7 +1,7 @@
 // Liste d'achat — la logique de saisie PURE, partagée par le tableur et la vue téléphone.
 import { describe, it, expect } from "vitest";
 import {
-  avecArticle, avecChangement, avecDevise, construireFormData, erreursDe, fournisseursProches, indexFournisseurs, jourCourt, lireBrouillon, produit,
+  avecArticle, avecArticleChoisi, avecChangement, avecDevise, construireFormData, erreursDe, fournisseursProches, indexFournisseurs, jourCourt, lireBrouillon, produit,
   serialiserBrouillon, vide, vierge, aEnregistrer, lignesAConfirmer, montantNonConverti, phraseDevise, sansArticleDisparu, type Art, type Ligne,
 } from "./liste-achat-saisie";
 
@@ -41,13 +41,25 @@ describe("calcul d'une ligne", () => {
 });
 
 describe("l'envoi", () => {
-  it("date, origine, puis par ligne : articleId, designation, unite, domaine, quantite, montant, devise, fournisseurNom, fournisseurId — jamais le PU", () => {
-    const lignes: Ligne[] = [{ ...vide("CDF"), articleId: "a2", designation: "Huile", unite: "pièce", qte: "2,5", pu: "4760", montant: "11900", fournNom: "maman epiphanie" }];
-    const fd = construireFormData({ date: "2026-10-07", origine: "Marché", lignes, idFourn: () => "f0" });
+  it("date, origine, puis par ligne : articleId, designation, unite, domaine, quantite, montant, devise, dlc, fournisseurNom, fournisseurId, creerNouveau — jamais le PU", () => {
+    const lignes: Ligne[] = [
+      { ...vide("CDF"), articleId: "a2", designation: "Huile", unite: "pièce", qte: "2,5", pu: "4760", montant: "11900", fournNom: "maman epiphanie" },
+      { ...vide("USD"), designation: "Tomate", unite: "kg", qte: "3", dlc: "2026-10-20", creerNouveau: true },
+    ];
+    const fd = construireFormData({ date: "2026-10-07", origine: "Marché", lignes, idFourn: (n) => (n ? "f0" : "") });
     expect([...fd.entries()]).toEqual([
       ["date", "2026-10-07"], ["origine", "Marché"],
-      ["articleId", "a2"], ["designation", "Huile"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["fournisseurNom", "maman epiphanie"], ["fournisseurId", "f0"],
+      ["articleId", "a2"], ["designation", "Huile"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", "maman epiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
+      ["articleId", ""], ["designation", "Tomate"], ["unite", "kg"], ["domaine", "NOURRITURE"], ["quantite", "3"], ["montant", ""], ["devise", "USD"], ["dlc", "2026-10-20"], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", "1"],
     ]);
+  });
+
+  it("« Utiliser … » (article proche choisi) garde le PU TAPÉ et son montant ; un PU vide ou repris du catalogue suit le nouvel article", () => {
+    const tape = { ...vide("USD"), designation: "Tomate", qte: "5", pu: "2", montant: "10", creerNouveau: true };
+    const choisi = avecArticleChoisi(tape, { id: "t1", designation: "Tomates", unite: "kg", domaine: "NOURRITURE", prix: "1.8" }, 2800);
+    expect([choisi.articleId, choisi.designation, choisi.unite, choisi.pu, choisi.montant, choisi.creerNouveau]).toEqual(["t1", "Tomates", "kg", "2", "10", false]);
+    const sansPu = avecArticleChoisi({ ...vide("USD"), designation: "Tomate", qte: "5" }, { id: "t1", designation: "Tomates", unite: "kg", domaine: "NOURRITURE", prix: "1.8" }, 2800);
+    expect([sansPu.pu, sansPu.montant]).toEqual(["1,8", "9"]);
   });
 });
 

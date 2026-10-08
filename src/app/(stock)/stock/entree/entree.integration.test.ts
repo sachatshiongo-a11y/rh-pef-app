@@ -21,6 +21,7 @@ vi.mock("@/lib/auth", () => ({ verifySession: async () => A.user, requireModule:
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { entreeListeAchat, verifierDoublonsListe } = await import("./actions");
+const { dlcProches } = await import("@/lib/dlc-stock");
 const { genererDonneesRapportDetail, genererDonneesRapport } = await import("@/lib/rapports");
 
 let prisma: PrismaClient;
@@ -36,7 +37,7 @@ beforeAll(async () => {
 
 afterAll(async () => { await fermer?.(); });
 
-type Ligne = { articleId?: string; designation?: string; unite?: string; domaine?: string; quantite: number; montant?: number; fournisseurId?: string; fournisseurNom?: string };
+type Ligne = { articleId?: string; designation?: string; unite?: string; domaine?: string; quantite: number; montant?: number; fournisseurId?: string; fournisseurNom?: string; dlc?: string; creerNouveau?: boolean };
 const fd = (lignes: Ligne[], opts: { date?: string; devise?: "USD" | "CDF"; origine?: string } = {}) => {
   const f = new FormData();
   if (opts.origine !== undefined) f.set("origine", opts.origine);
@@ -51,6 +52,9 @@ const fd = (lignes: Ligne[], opts: { date?: string; devise?: "USD" | "CDF"; orig
     f.append("montant", String(l.montant ?? 0));
     f.append("fournisseurId", l.fournisseurId ?? "");
     f.append("fournisseurNom", l.fournisseurNom ?? "");
+    // Champs du 2026-10-08, UN par ligne dès qu'une ligne en porte (comme l'écran) ; aucun = formulaire d'avant.
+    if (lignes.some((x) => x.dlc !== undefined)) f.append("dlc", l.dlc ?? "");
+    if (lignes.some((x) => x.creerNouveau !== undefined)) f.append("creerNouveau", l.creerNouveau ? "1" : "");
   }
   return f;
 };
@@ -516,5 +520,120 @@ describe("exports de la Liste d'achat — unité et prix unitaire (demande Direc
     const texte = (await pagesDuPdf(pdf)).map((p) => p.plat).join(" ");
     for (const t of ["UNITÉ", "PRIX UNITAIRE", "MONTANT USD", "7 000 FC", "≈ 2,50 $", "1,70 $ catalogue", "sachet", "Total", "20,00"]) expect(texte, t).toContain(t);
     expect(policesDeRepli(pdf)).toEqual([]);
+  });
+});
+
+// ── Anti-doublon d'ARTICLE et DLC facultative (Direction, 2026-10-08) ─────────────────────────────
+
+describe("article PROCHE au catalogue — choix obligatoire, revérifié par le serveur", () => {
+  it("« Gingembre » quand « Gingembres » existe : REFUS lisible qui nomme la ligne et l'article, rien n'est écrit", async () => {
+    const g = await article("Gingembres");
+    const avant = await prisma.articleStock.count();
+    const r = await entreeListeAchat(fd([{ designation: "Gingembre", unite: "kg", quantite: 2 }]));
+    expect("erreur" in r && r.erreur).toMatch(/nom proche.*rien n'a été enregistré.*ligne 1 « Gingembre » → .*« Gingembres »/);
+    expect(await prisma.articleStock.count()).toBe(avant);
+    expect(await prisma.mouvementStock.count({ where: { articleId: g.id } })).toBe(0);
+  });
+
+  it("à la saisie, l'écran reçoit le même choix (candidats, « Créer quand même » permis)", async () => {
+    const r = ok(await verifierDoublonsListe(jourKinshasaISO(), [{ articleId: "", designation: "gingembre", quantite: 1 }, { articleId: "", designation: "", quantite: 0 }]));
+    expect(r.lignes[0]).toMatchObject({ article: { type: "choix", creationPossible: true } });
+    const d = r.lignes[0]!.article;
+    expect(d.type === "choix" && d.candidats.map((c) => c.designation)).toContain("Gingembres"); // (et « Gingembre frais », d'un autre test)
+    expect(r.lignes[1]).toBeNull();
+  });
+
+  it("« Créer quand même » (creerNouveau = 1) : l'article est créé, UNE fois même sur deux lignes du même nom", async () => {
+    const r = ok(await entreeListeAchat(fd([{ designation: "Gingembre", unite: "kg", quantite: 2, creerNouveau: true }, { designation: "gingembre", unite: "kg", quantite: 1 }])));
+    expect(r.crees).toEqual(["Gingembre"]);
+    const cree = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Gingembre" } });
+    expect(await prisma.mouvementStock.count({ where: { articleId: cree.id } })).toBe(2);
+  });
+
+  it("« Utiliser … » : la ligne arrive avec l'article existant — aucune création", async () => {
+    const g = await prisma.articleStock.findFirstOrThrow({ where: { designation: "Gingembres" } });
+    const r = ok(await entreeListeAchat(fd([{ articleId: g.id, designation: "Gingembres", quantite: 1 }])));
+    expect(r.crees).toEqual([]);
+    expect(await prisma.mouvementStock.count({ where: { articleId: g.id } })).toBe(1);
+  });
+
+  it("exact normalisé UNIQUE (casse, séparateurs, contenance 33cl = 330 ml) : rattaché d'office, sans question", async () => {
+    const c = await article("Fanta Orange 33cl");
+    const r = ok(await entreeListeAchat(fd([{ designation: "FANTA-ORANGE 330 ml", quantite: 6 }])));
+    expect(r.crees).toEqual([]);
+    expect(await prisma.mouvementStock.count({ where: { articleId: c.id } })).toBe(1);
+  });
+
+  it("DEUX articles du même nom exact : choix entre eux, « Créer quand même » REFUSÉ (un troisième serait un doublon certain)", async () => {
+    await article("Cannelle bâton");
+    await article("CANNELLE-BATON");
+    const avant = await prisma.articleStock.count();
+    const r = await entreeListeAchat(fd([{ designation: "cannelle baton", quantite: 1, creerNouveau: true }]));
+    expect("erreur" in r && r.erreur).toMatch(/ce nom existe déjà plusieurs fois/);
+    expect(await prisma.articleStock.count()).toBe(avant);
+  });
+
+  it("formulaire d'avant (sans champ creerNouveau) : un nom nouveau sans proche se crée comme avant", async () => {
+    const r = ok(await entreeListeAchat(fd([{ designation: "Curcuma moulu", unite: "kg", quantite: 1 }])));
+    expect(r.crees).toEqual(["Curcuma moulu"]);
+  });
+});
+
+describe("DLC facultative — stockée sur le mouvement d'entrée", () => {
+  it("renseignée : stockée en date pure ; vide ou absente (ancien formulaire) : NULL ; le résultat compte les lignes", async () => {
+    const a1 = await article("Yaourt nature"), a2 = await article("Crème liquide"), a3 = await article("Lait entier");
+    const r = ok(await entreeListeAchat(fd([
+      { articleId: a1.id, quantite: 2, dlc: "2026-09-25" },
+      { articleId: a2.id, quantite: 1, dlc: "" },
+      { articleId: a3.id, quantite: 1 },
+    ], { date: "2026-09-20" })));
+    expect(r.dlcRenseignees).toBe(1);
+    const dlc = async (id: string) => (await prisma.mouvementStock.findFirstOrThrow({ where: { articleId: id } })).dlc;
+    expect(iso((await dlc(a1.id))!)).toBe("2026-09-25");
+    expect(await dlc(a2.id)).toBeNull();
+    expect(await dlc(a3.id)).toBeNull();
+  });
+
+  it("égale à la date de l'achat : acceptée ; antérieure : refus lisible qui nomme la ligne, RIEN n'est écrit", async () => {
+    const a = await article("Fromage frais");
+    ok(await entreeListeAchat(fd([{ articleId: a.id, quantite: 1, dlc: "2026-09-20" }], { date: "2026-09-20" })));
+    const b = await article("Beurre doux");
+    const r = await entreeListeAchat(fd([{ articleId: b.id, quantite: 1 }, { articleId: a.id, designation: "Fromage frais", quantite: 1, dlc: "2026-09-19" }], { date: "2026-09-20" }));
+    expect(r).toEqual({ erreur: "Ligne 2 (« Fromage frais ») : La DLC (19/09/2026) est antérieure à la date de l'achat (20/09/2026). Corrigez-la ou videz-la ; rien n'a été enregistré." });
+    expect(await prisma.mouvementStock.count({ where: { articleId: b.id } })).toBe(0);
+  });
+
+  it("une DLC de moins que de lignes (formulaire trafiqué) : refus, jamais une DLC glissée sur la ligne voisine", async () => {
+    const a = await article("Saucisson"), b = await article("Chorizo");
+    const f = fd([{ articleId: a.id, quantite: 1 }, { articleId: b.id, quantite: 1 }], { date: "2026-09-20" });
+    f.append("dlc", "2026-09-30");
+    const r = await entreeListeAchat(f);
+    expect("erreur" in r && r.erreur).toMatch(/Formulaire incohérent/);
+    expect(await prisma.mouvementStock.count({ where: { articleId: { in: [a.id, b.id] } } })).toBe(0);
+  });
+
+  it("illisible : refusée", async () => {
+    const a = await article("Jambon");
+    const r = await entreeListeAchat(fd([{ articleId: a.id, quantite: 1, dlc: "31/09/2026" }], { date: "2026-09-20" }));
+    expect("erreur" in r && r.erreur).toMatch(/DLC illisible/);
+  });
+});
+
+describe("DLC proches (tableau de bord) — jour civil de Kinshasa, indicatif", () => {
+  it("entrées des 60 derniers jours dont la DLC tombe dans les 7 jours ou est passée ; la plus urgente d'abord", async () => {
+    const x = await article("Mozzarella DLC"), y = await article("Ricotta DLC"), z = await article("Burrata DLC"), w = await article("Pecorino DLC");
+    const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
+    await prisma.mouvementStock.createMany({ data: [
+      { articleId: x.id, type: "ENTREE", quantite: 3, date: d("2026-11-01"), dlc: d("2026-11-12") }, // dans 2 j
+      { articleId: y.id, type: "ENTREE", quantite: 1, date: d("2026-11-01"), dlc: d("2026-11-08") }, // dépassée de 2 j
+      { articleId: z.id, type: "ENTREE", quantite: 1, date: d("2026-11-01"), dlc: d("2026-11-18") }, // dans 8 j : hors horizon
+      { articleId: w.id, type: "ENTREE", quantite: 1, date: d("2026-09-01"), dlc: d("2026-11-11") }, // entrée de plus de 60 jours : hors fenêtre
+    ] });
+    // 2026-11-09 à 23 h 30 UTC = 10 novembre à 0 h 30 à Kinshasa : le jour compté est le 10.
+    const r = await dlcProches(new Date("2026-11-09T23:30:00.000Z"));
+    expect(r.aujourdhuiISO).toBe("2026-11-10");
+    const nos = r.lignes.filter((l) => l.designation.endsWith("DLC"));
+    expect(nos.map((l) => [l.designation, l.jours])).toEqual([["Ricotta DLC", -2], ["Mozzarella DLC", 2]]);
+    expect(nos[1]).toMatchObject({ quantite: 3, dateEntreeISO: "2026-11-01", dlcISO: "2026-11-12", unite: "kg" });
   });
 });

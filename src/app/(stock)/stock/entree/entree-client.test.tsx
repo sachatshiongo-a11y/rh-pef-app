@@ -99,10 +99,10 @@ describe("Liste d'achat — ordinateur : un tableur, une rangée par ligne", () 
     expect(lignes()).toHaveLength(4);
     act(() => bouton("+ Ligne").click());
     expect(lignes()).toHaveLength(5);
-    // Une rangée = une seule grille de 9 colonnes : article, désignation, unité, domaine, qté, PU, montant + devise, fournisseur, ✕.
+    // Une rangée = une seule grille de 10 colonnes : article, désignation, unité, domaine, qté, PU, montant + devise, DLC, fournisseur, ✕.
     for (const l of lignes()) expect(classes(l)).toMatch(/@4xl:grid-cols-\[[^\]]*\]/);
     const gabarit = /@4xl:grid-cols-\[([^\]]*)\]/.exec(classes(lignes()[0]))![1];
-    expect(gabarit.split("_")).toHaveLength(9);
+    expect(gabarit.split("_")).toHaveLength(10);
   });
 
   it("l'en-tête de colonnes est UNIQUE (pas répété dans chaque ligne) et n'apparaît que sur la liste large", () => {
@@ -111,7 +111,7 @@ describe("Liste d'achat — ordinateur : un tableur, une rangée par ligne", () 
     const barre = entetes[0].parentElement!;
     expect(classes(barre)).toMatch(/\bhidden\b/);
     expect(classes(barre)).toMatch(/@4xl:grid\b/);
-    expect(barre.textContent).toBe("Article (catalogue)Désignation (libre si nouveau)UnitéDomaineQtéPUMontantFournisseur (facultatif)Retirer");
+    expect(barre.textContent).toBe("Article (catalogue)Désignation (libre si nouveau)UnitéDomaineQtéPUMontantDLCFournisseur (facultatif)Retirer");
     act(() => bouton("+ Ligne").click());
     expect([...conteneur.querySelectorAll("span")].filter((s) => s.textContent === "Article (catalogue)")).toHaveLength(1);
     // L'en-tête n'est dans aucune ligne.
@@ -129,10 +129,14 @@ describe("Liste d'achat — ordinateur : un tableur, une rangée par ligne", () 
     }
   });
 
-  it("montant + devise tiennent dans la rangée sans l'élargir : même minimum qu'avant (55 rem, sous le seuil de 56 rem)", () => {
+  it("montant + devise et la DLC (2026-10-08) tiennent dans la rangée : minimum ≤ 55 rem, sous le seuil de 56 rem", () => {
     const gabarit = /@4xl:grid-cols-\[([^\]]*)\]/.exec(classes(lignes()[0]))![1];
-    const minimum = gabarit.split("_").reduce((t, c) => t + Number(/(?:minmax\()?([\d.]+)rem/.exec(c)![1]), 0) + 8 * 0.375; // + 8 intervalles gap-1.5
-    expect(minimum).toBe(55);
+    const colonnes = gabarit.split("_");
+    // Écart entre cases lu sur la rangée (gap-1 = 0,25 rem), compté entre chaque colonne.
+    const ecart = Number(/\bgap-([\d.]+)\b/.exec(classes(lignes()[0]))![1]) * 0.25;
+    const minimum = colonnes.reduce((t, c) => t + Number(/(?:minmax\()?([\d.]+)rem/.exec(c)![1]), 0) + (colonnes.length - 1) * ecart;
+    expect(minimum).toBe(54.75);
+    expect(minimum).toBeLessThanOrEqual(55);
   });
 
   it("la liste suit la largeur de SA colonne (requête de conteneur), pas celle de l'écran", () => {
@@ -206,12 +210,13 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
   // au taux, 1,70 $ × 2 800 = 4 760 FC), la ligne 2 reste en USD, la ligne 3 est saisie en FC.
   const ATTENDU = [
     ["date", "2026-09-30"], ["origine", ""],
-    ["articleId", "a2"], ["designation", "Huile de palme"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["fournisseurNom", "Maman Épiphanie"], ["fournisseurId", "f0"],
-    ["articleId", ""], ["designation", "Sel gris"], ["unite", "Kg"], ["domaine", "BOISSON"], ["quantite", "4"], ["montant", "10,5"], ["devise", "USD"], ["fournisseurNom", "Nouveau Fournisseur"], ["fournisseurId", ""],
-    ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", "7"], ["montant", "24500"], ["devise", "CDF"], ["fournisseurNom", ""], ["fournisseurId", ""],
-    ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", ""], ["montant", ""], ["devise", "USD"], ["fournisseurNom", ""], ["fournisseurId", ""],
+    ["articleId", "a2"], ["designation", "Huile de palme"], ["unite", "pièce"], ["domaine", "NOURRITURE"], ["quantite", "2,5"], ["montant", "11900"], ["devise", "CDF"], ["dlc", "2026-10-15"], ["fournisseurNom", "Maman Épiphanie"], ["fournisseurId", "f0"], ["creerNouveau", ""],
+    ["articleId", ""], ["designation", "Sel gris"], ["unite", "Kg"], ["domaine", "BOISSON"], ["quantite", "4"], ["montant", "10,5"], ["devise", "USD"], ["dlc", ""], ["fournisseurNom", "Nouveau Fournisseur"], ["fournisseurId", ""], ["creerNouveau", ""],
+    ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", "7"], ["montant", "24500"], ["devise", "CDF"], ["dlc", ""], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", ""],
+    ["articleId", ""], ["designation", ""], ["unite", ""], ["domaine", "NOURRITURE"], ["quantite", ""], ["montant", ""], ["devise", "USD"], ["dlc", ""], ["fournisseurNom", ""], ["fournisseurId", ""], ["creerNouveau", ""],
   ];
-  const NOMS_PAR_LIGNE = ["articleId", "designation", "unite", "domaine", "quantite", "montant", "devise", "fournisseurNom", "fournisseurId"];
+  // Depuis le 2026-10-08 : `dlc` (facultative) après la devise, `creerNouveau` (« Créer quand même ») en fin de ligne.
+  const NOMS_PAR_LIGNE = ["articleId", "designation", "unite", "domaine", "quantite", "montant", "devise", "dlc", "fournisseurNom", "fournisseurId", "creerNouveau"];
 
   async function scenario() {
     const L = (i: number) => lignes()[i];
@@ -219,6 +224,7 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
     await saisir(cas("Quantité, ligne 1"), "2,5");
     act(() => deviseDe(0).click()); // PU du catalogue (1,70 $) → 4 760 FC ; montant = 2,5 × 4 760
     taper(cas("Fournisseur de la ligne 1"), "Maman Épiphanie");
+    taper(cas("DLC (facultatif), ligne 1"), "2026-10-15");
     taper(L(1).querySelector<HTMLInputElement>("input[name=designation]")!, "Sel gris");
     taper(L(1).querySelector<HTMLInputElement>("input[name=unite]")!, "Kg");
     choisir(L(1).querySelector("select[name=domaine]")!, "BOISSON");
@@ -267,7 +273,7 @@ describe("Liste d'achat — l'envoi : mêmes champs, plus la devise DE CHAQUE LI
     const fd = (entree.mock.calls[0] as unknown as [FormData])[0];
     // Champ par champ (happy-dom ajoute le domaine du <select> désactivé, que le navigateur n'envoie pas :
     // c'est `donnees()` qui reproduit l'envoi réel, ci-dessus).
-    for (const nom of ["date", "origine", "articleId", "designation", "unite", "quantite", "montant", "devise", "fournisseurNom", "fournisseurId"]) {
+    for (const nom of ["date", "origine", "articleId", "designation", "unite", "quantite", "montant", "devise", "dlc", "fournisseurNom", "fournisseurId", "creerNouveau"]) {
       expect(fd.getAll(nom), nom).toEqual(ATTENDU.filter(([n]) => n === nom).map(([, v]) => v));
     }
     expect(fd.getAll("domaine")).toContain("BOISSON");
@@ -449,5 +455,105 @@ describe("Liste d'achat — choisir un article en tapant son nom", () => {
     expect(ev.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(champArticle(lignes()[1]));
     expect(entree).not.toHaveBeenCalled();
+  });
+});
+
+// ── Anti-doublon d'ARTICLE et DLC (Direction, 2026-10-08) ─────────────────────────────────────────
+// Le serveur (mock ici) dit, ligne par ligne, le sort de chaque désignation libre ; l'écran montre le
+// choix « Utiliser … » / « Créer quand même » SOUS la rangée et n'envoie rien tant qu'il n'est pas fait.
+const TOMATES = { id: "t1", designation: "Tomates", unite: "kg", domaine: "NOURRITURE", prix: "2.00", actif: true };
+type LigneVerif = { articleId: string; designation: string; quantite: number };
+function analyseTomate() {
+  verifier.mockImplementation((async (_d: string, ls: LigneVerif[]) => ({
+    avertissements: [],
+    lignes: ls.map((l) => (l.quantite > 0 && !l.articleId && l.designation.toLowerCase() === "tomate" ? { article: { type: "choix", candidats: [TOMATES], creationPossible: true } } : l.quantite > 0 && (l.articleId || l.designation) ? { article: { type: l.articleId ? "catalogue" : "nouveau" } } : null)),
+  })) as never);
+}
+const attendreAnalyse = () => act(async () => { await new Promise((r) => setTimeout(r, 650)); });
+const envoye = () => (entree.mock.calls.at(-1) as unknown as [FormData])[0];
+
+describe("Liste d'achat — ordinateur : article proche au catalogue (« Tomate » face à « Tomates »)", () => {
+  afterEach(() => { verifier.mockImplementation(async () => ({ avertissements: [] })); });
+
+  async function tomateLigne1() {
+    analyseTomate();
+    taper(cas("Désignation, ligne 1"), "Tomate");
+    await saisir(cas("Quantité, ligne 1"), "3");
+    await attendreAnalyse();
+  }
+
+  it("le choix s'affiche SOUS la rangée : « Utiliser « Tomates » » et « Créer quand même un nouvel article »", async () => {
+    await tomateLigne1();
+    const choix = lignes()[0].querySelector("[data-choix-article]")!;
+    expect(choix.textContent).toContain("Cet article ressemble à « Tomate »");
+    expect(choix.querySelector("[data-utiliser='t1']")!.textContent).toContain("Utiliser « Tomates » (kg)");
+    expect(choix.querySelector("[data-creer]")!.textContent).toBe("Créer quand même un nouvel article");
+  });
+
+  it("tant que rien n'est choisi, l'enregistrement est REFUSÉ à l'écran (rien n'est envoyé)", async () => {
+    await tomateLigne1();
+    await act(async () => { form().requestSubmit(); });
+    expect(entree).not.toHaveBeenCalled();
+    expect(conteneur.querySelector("[role=alert]")!.textContent).toContain("1 ligne demande de choisir l'article");
+  });
+
+  it("« Utiliser « Tomates » » : la ligne devient l'article du catalogue — l'envoi porte son id, aucune création", async () => {
+    await tomateLigne1();
+    act(() => lignes()[0].querySelector<HTMLButtonElement>("[data-utiliser='t1']")!.click());
+    await attendreAnalyse();
+    expect(lignes()[0].querySelector("[data-choix-article]")).toBeNull();
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("articleId")[0]).toBe("t1");
+    expect(envoye().getAll("designation")[0]).toBe("Tomates");
+    expect(envoye().getAll("creerNouveau")[0]).toBe("");
+  });
+
+  it("« Créer quand même » : la ligne part libre avec creerNouveau = 1, et le choix reste révocable", async () => {
+    await tomateLigne1();
+    act(() => lignes()[0].querySelector<HTMLButtonElement>("[data-creer]")!.click());
+    expect(lignes()[0].querySelector("[data-creer-nouveau]")!.textContent).toContain("nouvel article « Tomate » sera créé");
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("articleId")[0]).toBe("");
+    expect(envoye().getAll("designation")[0]).toBe("Tomate");
+    expect(envoye().getAll("creerNouveau")[0]).toBe("1");
+  });
+
+  it("retaper la désignation annule « Créer quand même » (le choix portait sur l'ancien nom)", async () => {
+    await tomateLigne1();
+    act(() => lignes()[0].querySelector<HTMLButtonElement>("[data-creer]")!.click());
+    taper(cas("Désignation, ligne 1"), "Tomate ronde");
+    expect(donnees().filter(([n]) => n === "creerNouveau")[0][1]).toBe("");
+  });
+
+  it("même article sur DEUX lignes : signalé sur les deux (avertissement seulement, l'envoi passe)", async () => {
+    await choisirOption(champArticle(lignes()[0]), "a0");
+    await saisir(cas("Quantité, ligne 1"), "2");
+    await choisirOption(champArticle(lignes()[2]), "a0");
+    await saisir(cas("Quantité, ligne 3"), "2");
+    expect(lignes()[0].querySelector("[data-meme-liste]")!.textContent).toContain("figure aussi à la ligne 3");
+    expect(lignes()[2].querySelector("[data-meme-liste]")!.textContent).toContain("figure aussi à la ligne 1");
+    await act(async () => { form().requestSubmit(); });
+    expect(entree).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Liste d'achat — ordinateur : DLC facultative", () => {
+  it("une colonne « DLC » par ligne, vide par défaut (facultative), bornée par la date de l'achat", () => {
+    const dlc = cas("DLC (facultatif), ligne 1");
+    expect(dlc.type).toBe("date");
+    expect(dlc.value).toBe("");
+    expect(dlc.min).toBe("2026-09-30");
+  });
+
+  it("DLC antérieure à la date de l'achat : refus lisible sous la ligne, rien n'est envoyé", async () => {
+    await choisirOption(champArticle(lignes()[0]), "a0");
+    await saisir(cas("Quantité, ligne 1"), "2");
+    taper(cas("DLC (facultatif), ligne 1"), "2026-09-01");
+    expect(lignes()[0].querySelector("[data-erreur-dlc]")!.textContent).toBe("La DLC (01/09/2026) est antérieure à la date de l'achat (30/09/2026).");
+    await act(async () => { form().requestSubmit(); });
+    expect(entree).not.toHaveBeenCalled();
+    taper(cas("DLC (facultatif), ligne 1"), "2026-10-20");
+    await act(async () => { form().requestSubmit(); });
+    expect(envoye().getAll("dlc")[0]).toBe("2026-10-20");
   });
 });

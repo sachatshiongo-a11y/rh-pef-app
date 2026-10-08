@@ -25,8 +25,10 @@ import { nombreDeSaisie } from "@/lib/saisie-nombre-stock";
 import type { OptionChoix } from "@/lib/recherche-options";
 import {
   avecArticle, avecChangement, avecDevise, erreursDe, fournisseursProches, jourCourt, lignesAConfirmer, montantNonConverti, phraseDevise, rangee, sansErreur, vide, vierge,
-  type Art, type Brouillon, type Devise, type Fourn, type Ligne,
+  type Art, type Brouillon, type Devise, type EtatLigne, type Fourn, type Ligne,
 } from "@/lib/liste-achat-saisie";
+import type { ArticleCandidat } from "@/lib/achats-doublons";
+import { AlertesLigne } from "./alertes-ligne";
 
 const COURT: Record<Devise, string> = { USD: "USD", CDF: "FC" };
 /** Champ du panneau : 48 px de haut, 16 px de police (iOS ne zoome pas), même bordure que les champs du logiciel. */
@@ -55,6 +57,10 @@ type Props = {
   stats: StatsListe;
   enCours: boolean;
   brouillon: { trouve: Brouillon | null; reprendre: () => void; ignorer: () => void };
+  /** Anti-doublon et DLC de chaque ligne (même calcul que le tableur), et les choix qu'on y fait. */
+  etats: EtatLigne[];
+  utiliser: (i: number, c: ArticleCandidat) => void;
+  creerQuandMeme: (i: number, oui: boolean) => void;
 };
 
 /** Choix à deux ou trois boutons côte à côte (devise, domaine) : un appui, pas de liste à ouvrir. */
@@ -109,7 +115,7 @@ function ConfirmerDevise({ lignes, devise, titres, onOui, onNon }: { lignes: Lig
 
 const titreDe = (l: Ligne, parId: Map<string, Art>) => l.designation.trim() || parId.get(l.articleId)?.designation || "Article sans nom";
 
-/** « 3 kg × 18,00 $ = 54,00 $ » — ce que la ligne enregistrera ; alerte si elle serait ignorée (quantité absente). */
+/** « 3 kg × 18,00 $ = 54,00 $ » — ce que la ligne enregistrera ; alerte si elle serait ignorée (quantité absente). La DLC est montrée à part. */
 function calculDe(l: Ligne): { texte: string; alerte: boolean } {
   const q = nombreDeSaisie(l.qte);
   if (!(q > 0)) return { texte: "Quantité manquante : cette ligne ne sera pas enregistrée.", alerte: true };
@@ -124,9 +130,11 @@ function calculDe(l: Ligne): { texte: string; alerte: boolean } {
 
 // ── Le panneau plein écran d'un article ─────────────────────────────────────────────────────────────────
 
-function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idFourn, taux, nbDansListe, onValider, onFermer }: {
+function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idFourn, taux, nbDansListe, dateAchat, onValider, onFermer }: {
   mode: "ajout" | "modif";
   initial: Ligne;
+  /** Date de l'achat : la DLC ne peut pas la précéder. */
+  dateAchat: string;
   articles: Art[];
   optionsArt: OptionChoix[];
   fournisseurs: Fourn[];
@@ -148,10 +156,10 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
   const [changerDevise, setChangerDevise] = useState<Devise | null>(null); // devise demandée, en attente d'accord
   // Un article hors catalogue se saisit à part (nom + domaine) : ces champs n'encombrent pas le cas courant, le choix dans la liste.
   const [libreOuvert, setLibreOuvert] = useState(!initial.articleId && !!initial.designation.trim());
-  const erreurs = essaye ? erreursDe(l) : {};
+  const erreurs = essaye ? erreursDe(l, dateAchat) : {};
   const libre = !l.articleId;
   const montreLibre = libre && libreOuvert;
-  const contenu = !!(l.articleId || l.designation.trim() || l.qte || l.pu || l.montant);
+  const contenu = !!(l.articleId || l.designation.trim() || l.qte || l.pu || l.montant || l.dlc);
   const modifie = mode === "modif" ? JSON.stringify(rangee(l)) !== JSON.stringify(rangee(initial)) : contenu;
   const demanderFermer = () => { if (modifie) setConfirmer(true); else onFermer(); };
   const maj = (patch: Partial<Ligne>) => setL((x) => avecChangement(x, patch));
@@ -170,7 +178,7 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
 
   const valider = (suite: boolean) => {
     if (!suite && mode === "ajout" && !contenu) { onFermer(); return; } // « Terminé » sans rien saisi : on ferme
-    if (!sansErreur(erreursDe(l))) {
+    if (!sansErreur(erreursDe(l, dateAchat))) {
       setEssaye(true);
       return;
     }
@@ -268,6 +276,13 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
           </div>
 
           <div>
+            <label className={ETIQUETTE} htmlFor={`${idTitre}-dlc`}>DLC <span className="font-normal text-muted-foreground">(facultatif)</span></label>
+            <input id={`${idTitre}-dlc`} type="date" value={l.dlc} min={dateAchat || undefined} onChange={(e) => maj({ dlc: e.target.value })} aria-label="DLC (facultatif)" aria-invalid={!!erreurs.dlc || undefined} className={CHAMP} />
+            <p className="mt-1 text-xs text-muted-foreground">Date limite de consommation, si elle est sur l&apos;emballage. Jamais avant la date de l&apos;achat.</p>
+            {erreurs.dlc && <p role="alert" className={ERREUR}>{erreurs.dlc}</p>}
+          </div>
+
+          <div>
             <span className={ETIQUETTE}>Payé en</span>
             <Segments label="Devise de la ligne" valeur={l.devise} options={DEVISES}
               onChange={(d) => { if (d !== l.devise && montantNonConverti(l, taux)) setChangerDevise(d); else { setChangerDevise(null); setL((x) => avecDevise(x, d, taux)); } }} />
@@ -341,7 +356,7 @@ function PanneauArticle({ mode, initial, articles, optionsArt, fournisseurs, idF
 
 type Panneau = null | { mode: "ajout" } | { mode: "modif"; index: number };
 
-export function VueTelephone({ lignes, setLignes, articles, optionsArt, fournisseurs, idFourn, taux, aujourdhui, date, setDate, origine, setOrigine, deviseDefaut, changerDeviseDefaut, stats, enCours, brouillon }: Props) {
+export function VueTelephone({ lignes, setLignes, articles, optionsArt, fournisseurs, idFourn, taux, aujourdhui, date, setDate, origine, setOrigine, deviseDefaut, changerDeviseDefaut, stats, enCours, brouillon, etats, utiliser, creerQuandMeme }: Props) {
   const [panneau, setPanneau] = useState<Panneau>(null);
   const ouvreur = useRef<HTMLElement | null>(null); // le bouton qui a ouvert le panneau : le focus lui revient à la fermeture
   const [confirmerGroupe, setConfirmerGroupe] = useState<{ devise: Devise; cibles: number[]; aConfirmer: number[] } | null>(null);
@@ -493,6 +508,14 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
                         {idF ? <Link href={`/stock/fournisseurs/${idF}`} className="inline-block py-1 text-primary hover:underline">{l.fournNom.trim()}</Link> : <>{l.fournNom.trim()} (nouveau fournisseur)</>}
                       </span>
                     )}
+                    {l.dlc && <span data-dlc-carte className="block text-xs text-muted-foreground">DLC {jourCourt(l.dlc)}</span>}
+                    {etats[i] && (
+                      <div className="pb-1 pr-1 pt-1">
+                        <AlertesLigne ligne={l} etat={etats[i]} nom={titre} tactile
+                          autres={(js) => (js.length > 1 ? `sur ${js.length} autres cartes` : "sur une autre carte")}
+                          onUtiliser={(c) => utiliser(i, c)} onCreer={(oui) => creerQuandMeme(i, oui)} />
+                      </div>
+                    )}
                   </div>
                   <button type="button" onClick={() => retirer([i])} aria-label={`Retirer ${titre}`} className="flex w-11 shrink-0 items-center justify-center rounded-r-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive">✕</button>
                 </li>
@@ -534,6 +557,7 @@ export function VueTelephone({ lignes, setLignes, articles, optionsArt, fourniss
           initial={panneau.mode === "modif" ? lignes[panneau.index] ?? vide(deviseDefaut) : vide(deviseDefaut)}
           articles={articles} optionsArt={optionsArt} fournisseurs={fournisseurs} idFourn={idFourn} taux={taux}
           nbDansListe={visibles.length}
+          dateAchat={date}
           onValider={valider}
           onFermer={() => setPanneau(null)}
         />
