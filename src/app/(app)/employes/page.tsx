@@ -11,6 +11,8 @@ import { exigerPageRH } from "@/lib/garde-page";
 import { doublonsProbables } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
 import { DoublonsProbables } from "./doublons-probables";
+import { Pagination } from "@/components/pagination";
+import { fenetrePage, lirePagination, PAR_DEFAUT, tranche } from "@/lib/pagination";
 
 function formatMoney(n: number) {
   return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -19,7 +21,7 @@ function formatMoney(n: number) {
 export default async function EmployesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string }>;
+  searchParams: Promise<{ poste?: string; secteur?: string; annee?: string; q?: string; vue?: string; statut?: string; page?: string; par?: string }>;
 }) {
   const user = await exigerPageRH();
   const sp = await searchParams;
@@ -57,6 +59,15 @@ export default async function EmployesPage({
   const employes = filtrerEmployes(tous, qsExport);
   const brigade = employes.filter((e) => e.categorie === "BRIGADE");
   const backoffice = employes.filter((e) => e.categorie === "BACKOFFICE");
+  // Pagination (50 / 100 / Tout) de la fiche RH : une seule suite « Brigade puis Back-office » découpée en pages ;
+  // les titres gardent le total de chaque section sur tout le filtre. (La vue Transport, elle, a des totaux : pas de pages.)
+  const { page, par } = lirePagination(sp);
+  const suiteRH = [...brigade, ...backoffice];
+  const fen = fenetrePage(suiteRH.length, page, par);
+  const surLaPage = new Set(tranche(suiteRH, fen).map((e) => e.id));
+  const brigadeP = brigade.filter((e) => surLaPage.has(e.id));
+  const backofficeP = backoffice.filter((e) => surLaPage.has(e.id));
+  const suffixeTaille = par !== PAR_DEFAUT ? `par=${par}` : ""; // la taille de page suit les liens de statut et de vue
   const filtreActif = Boolean(sp.q || sp.poste || sp.secteur || sp.annee);
   const labelStatut = statut === "inactifs" ? "inactif(s)" : statut === "tous" ? "au total" : "actif(s)";
   // Lien conservant les filtres courants mais changeant le statut (Actifs / Inactifs / Tous).
@@ -64,6 +75,7 @@ export default async function EmployesPage({
     const p = new URLSearchParams(qsExport);
     if (st === "actifs") p.delete("statut"); else p.set("statut", st);
     if (vue === "transport") p.set("vue", "transport");
+    else if (suffixeTaille) p.set("par", String(par));
     return `/employes${p.toString() ? `?${p}` : ""}`;
   };
   // L'export « Exporter ▾ » cible la vue active (RH ou Transport), en conservant les filtres.
@@ -72,6 +84,7 @@ export default async function EmployesPage({
   const lienVue = (v: string) => {
     const p = new URLSearchParams(qsExport);
     if (v !== "rh") p.set("vue", v);
+    else if (suffixeTaille) p.set("par", String(par));
     return `/employes${p.toString() ? `?${p}` : ""}`;
   };
 
@@ -127,6 +140,7 @@ export default async function EmployesPage({
           Filtrer
         </button>
         {vue === "transport" && <input type="hidden" name="vue" value="transport" />}
+        {vue !== "transport" && suffixeTaille && <input type="hidden" name="par" value={par} />}
         {statut !== "actifs" && <input type="hidden" name="statut" value={statut} />}
         {filtreActif && (
           <Link href={lienStatut(statut)} className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">
@@ -152,19 +166,25 @@ export default async function EmployesPage({
         <GrilleTransport employes={employes} jours={parametres!.joursOuvrablesMois} taux={parametres!.tauxChangeCDF} />
       ) : (
         <>
-          <div className="mb-8">
-            <h2 className="mb-3 text-base font-semibold">
-              Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
-            </h2>
-            <EmployeeTable employes={brigade} peutModifier={peutModifier} />
-          </div>
+          {(brigadeP.length > 0 || backofficeP.length === 0) && (
+            <div className="mb-8">
+              <h2 className="mb-3 text-base font-semibold">
+                Brigade <span className="font-normal text-muted-foreground">({brigade.length})</span>
+              </h2>
+              <EmployeeTable employes={brigadeP} peutModifier={peutModifier} />
+            </div>
+          )}
 
-          <div>
-            <h2 className="mb-3 text-base font-semibold">
-              Back-office <span className="font-normal text-muted-foreground">({backoffice.length})</span>
-            </h2>
-            <EmployeeTable employes={backoffice} peutModifier={peutModifier} />
-          </div>
+          {(backofficeP.length > 0 || brigadeP.length === 0) && (
+            <div>
+              <h2 className="mb-3 text-base font-semibold">
+                Back-office <span className="font-normal text-muted-foreground">({backoffice.length})</span>
+              </h2>
+              <EmployeeTable employes={backofficeP} peutModifier={peutModifier} />
+            </div>
+          )}
+
+          <Pagination className="mt-6" total={suiteRH.length} page={fen.page} par={par} chemin="/employes" params={sp} libelle="employés" />
         </>
       )}
     </div>
