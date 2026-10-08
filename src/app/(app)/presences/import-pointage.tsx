@@ -7,6 +7,9 @@ import {
   type AnalysePointage,
   type ResultatImport,
 } from "./import-actions";
+import { Pagination, usePagination } from "@/components/pagination";
+import { ListePaginee } from "@/components/liste-paginee";
+import { tranche } from "@/lib/pagination";
 
 // Import IVMS-4200 en deux temps : 1) Analyser (aperçu complet, rien n'est écrit) ;
 // 2) choisir la période et cocher/décocher les lignes ; 3) Importer la sélection.
@@ -32,7 +35,16 @@ export function ImportPointage() {
     if (!analyse) return [];
     return analyse.lignes.filter((l) => (!du || l.date >= du) && (!au || l.date <= au));
   }, [analyse, du, au]);
+  // Pagination de l'aperçu (50 / 100 / Tout) : un mois de pointage fait des milliers de lignes (employés × jours).
+  // La période, la sélection et « Importer la sélection » portent sur TOUTES les lignes de la période, pas sur la
+  // page. Page en état local (l'aperçu vient d'un fichier : il n'existe plus au rechargement).
+  const pagination = usePagination({ total: visibles.length, cleFiltre: `${du}|${au}|${analyse?.lignes.length ?? 0}`, synchroUrl: false });
+  const page = tranche(visibles, pagination);
   const selection = visibles.filter((l) => l.statut === "OK" && !decochees.has(cle(l)));
+  const nbImportables = visibles.filter((l) => l.statut === "OK").length;
+  const importablesPage = page.filter((l) => l.statut === "OK");
+  const pageToutCochee = importablesPage.length > 0 && importablesPage.every((l) => !decochees.has(cle(l)));
+  const cocherPage = (on: boolean) => setDecochees((s) => { const n = new Set(s); for (const l of importablesPage) { if (on) n.delete(cle(l)); else n.add(cle(l)); } return n; });
   const nbConge = visibles.filter((l) => l.statut === "CONGE").length;
   const nbFige = visibles.filter((l) => l.statut === "PAIE_FIGEE").length;
 
@@ -112,10 +124,10 @@ export function ImportPointage() {
                 Au
                 <input type="date" value={au} min={analyse.dateMin} max={analyse.dateMax} onChange={(e) => setAu(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5" />
               </label>
-              <button type="button" onClick={toutCocher} className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout cocher</button>
-              <button type="button" onClick={toutDecocher} className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout décocher</button>
+              <button type="button" onClick={toutCocher} title="Toutes les lignes importables de la période, sur toutes les pages" className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout cocher ({nbImportables})</button>
+              <button type="button" onClick={toutDecocher} title="Toutes les lignes de la période, sur toutes les pages" className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent">Tout décocher ({nbImportables})</button>
               <span className="ml-auto text-xs text-muted-foreground">
-                <b className="text-foreground">{selection.length}</b> à importer
+                <b className="text-foreground">{selection.length}</b> à importer (toutes pages)
                 {nbConge > 0 && <> · {nbConge} en congé (ignorés)</>}
                 {nbFige > 0 && <> · {nbFige} paie validée (ignorés)</>}
               </span>
@@ -126,7 +138,7 @@ export function ImportPointage() {
               <table className="w-full min-w-[34rem] text-sm">
                 <thead className="en-tete-collante bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
-                    <th className="w-8" />
+                    <th className="w-8"><input type="checkbox" checked={pageToutCochee} disabled={importablesPage.length === 0} onChange={(e) => cocherPage(e.target.checked)} aria-label={`Cocher les lignes de cette page (${importablesPage.length})`} title="Coche les lignes de cette page" /></th>
                     <th>Date</th>
                     <th>Employé</th>
                     <th className="text-right">Heures</th>
@@ -135,7 +147,7 @@ export function ImportPointage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibles.map((l) => {
+                  {page.map((l) => {
                     const k = cle(l);
                     const importable = l.statut === "OK";
                     const st = STATUT_LABEL[l.statut];
@@ -168,15 +180,14 @@ export function ImportPointage() {
                 </tbody>
               </table>
             </div>
+            <Pagination total={visibles.length} page={pagination.page} par={pagination.par} onChange={pagination.aller} libelle="jours" />
 
             {analyse.anomalies.length > 0 && (
               <div className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
                 <p className="font-semibold">Anomalies (jamais appliquées) :</p>
-                <ul className="mt-1 list-inside list-disc space-y-0.5">
-                  {analyse.anomalies.map((a, i) => (
-                    <li key={i}>{a.date} · {a.idExterne} · {a.type} — {a.detail}</li>
-                  ))}
-                </ul>
+                <ListePaginee items={analyse.anomalies} libelle="anomalies" className="mt-1 list-inside list-disc space-y-0.5" ligne={(a, i) => (
+                  <li key={i}>{a.date} · {a.idExterne} · {a.type} — {a.detail}</li>
+                )} />
               </div>
             )}
 

@@ -141,7 +141,7 @@ describe("doublons : paires jumelles", () => {
 
 describe("listes des aperçus (articles sans correspondance, lignes lues…)", () => {
   it("ne s'arrêtent plus en silence à 50 : paginées, la dernière ligne reste atteignable", async () => {
-    const { ListePaginee } = await import("./liste-paginee");
+    const { ListePaginee } = await import("@/components/liste-paginee");
     const items = Array.from({ length: 120 }, (_, i) => `Ligne ${i + 1}`);
     monter(h(ListePaginee<string>, { items, libelle: "lignes", ligne: (t: string) => h("li", { key: t }, t) }));
     expect(conteneur.querySelectorAll("li")).toHaveLength(50);

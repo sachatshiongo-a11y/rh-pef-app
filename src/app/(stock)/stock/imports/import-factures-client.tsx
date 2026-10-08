@@ -5,7 +5,7 @@ import { analyserFacturesAction, appliquerFacturesAction } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import type { PreviewFactures } from "@/lib/import-factures";
 import { usd } from "@/lib/stock";
-import { ListePaginee } from "./liste-paginee";
+import { ListePaginee } from "@/components/liste-paginee";
 
 export function ImportFacturesClient() {
   const formRef = useRef<HTMLFormElement>(null);

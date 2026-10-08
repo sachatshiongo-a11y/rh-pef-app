@@ -6,7 +6,7 @@ import { estErreur } from "@/lib/action-lisible";
 import type { PreviewInventaire } from "@/lib/import-inventaire";
 import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
 import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
-import { ListePaginee } from "./liste-paginee";
+import { ListePaginee } from "@/components/liste-paginee";
 
 export function ImportInventaireClient() {
   const formRef = useRef<HTMLFormElement>(null);

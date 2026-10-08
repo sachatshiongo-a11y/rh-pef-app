@@ -8,7 +8,7 @@ import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
 import { BoutonDanger, BoutonNeutre } from "@/components/action-buttons";
 import { qte } from "@/lib/stock";
 import type { ApercuDoublons, LotImport, MvtDoublon } from "@/lib/doublons-imports";
-import { ListePaginee } from "./liste-paginee";
+import { ListePaginee } from "@/components/liste-paginee";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche } from "@/lib/pagination";
 
