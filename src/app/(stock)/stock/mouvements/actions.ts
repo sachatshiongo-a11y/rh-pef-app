@@ -12,6 +12,7 @@ import { Prisma } from "@prisma/client";
 import { MESSAGE_MOTIF_SORTIE, estMotifSortie } from "@/lib/motif-sortie";
 import type { SelectionMouvements } from "@/lib/filtre-mouvements";
 import { DELAI_TOUT_LE_FILTRE, resoudreSelectionMouvements } from "@/lib/selection-mouvements";
+import { appliquerChangementDateSorties } from "@/lib/validations-stock/date-sortie";
 
 
 /**
@@ -176,3 +177,26 @@ export const requalifierSorties = actionLisible(async (selection: SelectionMouve
   return r;
 });
 
+// ─── Changer la date des sorties (à l'unité ou en lot, Direction) ───────────
+
+/**
+ * Change la date des SORTIES sélectionnées (une ligne, les id cochés, ou tout le filtre de la colonne
+ * Sorties) — demande de Sacha du 2026-10-08. Mêmes comptes que « Changer le motif » : la Direction.
+ * Une CORRECTION de date : ni la quantité, ni le motif, ni le stock du dépôt ne bougent. Contrôles,
+ * écriture, journal et notification : `lib/validations-stock/date-sortie.ts`.
+ * Les écrans qui lisent les sorties par jour (Conso. journalière, Comparaison, rapport journalier,
+ * tableau de bord) relisent la date en base à chaque affichage : rien d'autre à recalculer.
+ */
+export const changerDateSorties = actionLisible(async (selection: SelectionMouvements, nouvelleDate: string) => {
+  const user = await verifySession();
+  requireModule(user, "stock");
+  requireRole(user, ["ADMIN"]); // mêmes comptes que la requalification du motif
+  const r = await appliquerChangementDateSorties(user, selection, nouvelleDate);
+  if ("erreur" in r) return r;
+  revalidatePath("/stock/mouvements");
+  revalidatePath("/stock/journalier");
+  revalidatePath("/stock/restaurant");
+  revalidatePath("/stock/fiches");
+  revalidatePath("/stock");
+  return r;
+});
