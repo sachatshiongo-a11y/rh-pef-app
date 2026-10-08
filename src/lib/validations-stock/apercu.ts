@@ -154,7 +154,7 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
           if (!art) base.alertes.push(`« ${a.designation} » n'existe plus.`);
           const valeurs: Record<string, string | boolean | null> | null = art ? {
             code: art.code, designation: art.designation, nomCourt: art.nomCourt, unite: art.unite,
-            contenance: dec(art.contenance), contenanceUnite: art.contenanceUnite, prixUnitaireUSD: dec(art.prixUnitaireUSD),
+            contenance: dec(art.contenance), contenanceUnite: art.contenanceUnite, devisePrix: art.devisePrix, prixUnitaireUSD: dec(art.prixUnitaireUSD), prixUnitaireCDF: dec(art.prixUnitaireCDF),
             uniteParCarton: dec(art.uniteParCarton), categorieId: art.categorieId, fournisseurId: art.fournisseurId,
             actif: art.actif, surFicheCommande: art.surFicheCommande,
             stockMinimum: dec(art.stock?.stockMinimum) ?? "0", seuilUrgent: dec(art.stock?.seuilUrgent) ?? "0", quantite: dec(art.stock?.quantite) ?? "0",

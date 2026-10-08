@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, lireDevisePrix, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
@@ -62,6 +62,9 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
     throw new Error("Le stock initial se saisit par une entrée (Liste d'achat) ou un comptage : créez l'article avec un stock vide, ou demandez à la Direction.");
   }
 
+  // Prix de référence dans SA devise (2026-10-08) : « devisePrix » absent = dollars, comme avant.
+  const devisePrix = formData.has("devisePrix") ? lireDevisePrix(formData.get("devisePrix")) : "USD";
+  const prix = decSaisiOptionnel(formData.get(devisePrix === "CDF" ? "prixUnitaireCDF" : "prixUnitaireUSD"), "prix unitaire");
   const art = await prisma.articleStock.create({
     data: {
       designation,
@@ -70,7 +73,9 @@ export const creerArticle = actionLisible(async (formData: FormData) => {
       unite: String(formData.get("unite") ?? "").trim() || null,
       categorieId,
       fournisseurId,
-      prixUnitaireUSD: decSaisiOptionnel(formData.get("prixUnitaireUSD"), "prix unitaire"),
+      devisePrix,
+      prixUnitaireUSD: devisePrix === "USD" ? prix : null,
+      prixUnitaireCDF: devisePrix === "CDF" ? prix : null,
       uniteParCarton: decSaisiOptionnel(formData.get("uniteParCarton"), "unités par carton"),
       stock: {
         create: {

@@ -91,7 +91,10 @@ export const CHAMPS_ARTICLE = {
   unite: { libelle: "Unité", sorte: "texte", porte: "article" },
   contenance: { libelle: "Contenance", sorte: "decimal", porte: "article" },
   contenanceUnite: { libelle: "Unité de contenance", sorte: "texte", porte: "article" },
+  // Prix de référence (2026-10-08) : sa devise, puis le prix dans CETTE devise (l'autre est nulle).
+  devisePrix: { libelle: "Devise du prix", sorte: "texte", porte: "article" },
   prixUnitaireUSD: { libelle: "Prix unitaire USD", sorte: "decimal", porte: "article" },
+  prixUnitaireCDF: { libelle: "Prix unitaire FC", sorte: "decimal", porte: "article" },
   uniteParCarton: { libelle: "Unités / carton", sorte: "decimal", porte: "article" },
   categorieId: { libelle: "Catégorie", sorte: "ref", porte: "article" },
   fournisseurId: { libelle: "Fournisseur", sorte: "ref", porte: "article" },
@@ -136,6 +139,7 @@ export function valeursEgales(champ: ChampArticle, a: Valeur, b: Valeur): boolea
 /** Libellé lisible d'une valeur (hors références, dont le nom est résolu par l'appelant). */
 export function libelleValeur(champ: ChampArticle, v: Valeur): string {
   if (v === null || v === "") return "—";
+  if (champ === "devisePrix") return v === "CDF" ? "francs (FC)" : v === "USD" ? "dollars ($)" : String(v);
   const sorte = CHAMPS_ARTICLE[champ].sorte;
   if (sorte === "booleen") return v ? "Oui" : "Non";
   if (sorte === "decimal") {
@@ -212,6 +216,8 @@ function lireComptage(o: Record<string, unknown>): ChargeComptage {
 }
 
 function lireValeur(champ: ChampArticle, x: unknown, quoi: string): Valeur {
+  // La devise d'un prix n'a que deux valeurs (jamais nulle) : une autre ne s'exécute jamais.
+  if (champ === "devisePrix" && x !== "USD" && x !== "CDF") throw new ChargeIllisible(quoi);
   if (x === null) return null;
   const sorte = CHAMPS_ARTICLE[champ].sorte;
   if (sorte === "booleen") { if (typeof x !== "boolean") throw new ChargeIllisible(quoi); return x; }

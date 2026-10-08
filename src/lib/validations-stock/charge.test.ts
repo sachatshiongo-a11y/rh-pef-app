@@ -37,6 +37,11 @@ describe("lireCharge — jamais lue de confiance", () => {
     expect(() => lireCharge("MODIF_ARTICLE", art([ok, ok]))).toThrow(/champ en double/);
     expect(() => lireCharge("MODIF_ARTICLE", art([{ ...ok, champ: "actif", apres: "oui" }]))).toThrow(/illisible/);
     expect(() => lireCharge("MODIF_ARTICLE", art([{ ...ok, apres: 3 }]))).toThrow(/illisible/);
+    // Devise du prix (2026-10-08) : « USD » ou « CDF », jamais autre chose ni nulle.
+    const devise = { champ: "devisePrix", avant: "USD", apres: "CDF", avantLibelle: "dollars ($)", apresLibelle: "francs (FC)" };
+    expect(lireCharge("MODIF_ARTICLE", art([devise])).articles[0].changements).toEqual([devise]);
+    expect(() => lireCharge("MODIF_ARTICLE", art([{ ...devise, apres: "EUR" }]))).toThrow(/illisible/);
+    expect(() => lireCharge("MODIF_ARTICLE", art([{ ...devise, apres: null }]))).toThrow(/illisible/);
   });
   it("comptage : domaine et nombres contrôlés", () => {
     const l = { articleId: "a", designation: "Riz", unite: null, theorique: "10", physique: "8", explication: "", prixUnitaireUSD: null };
