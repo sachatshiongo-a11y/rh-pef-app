@@ -222,6 +222,20 @@ export function contenanceDansNom(nom: string): { quantite: Decimal; unite: Unit
 }
 
 /**
+ * Le nom SANS ses mentions de contenance (celles que `contenanceDansNom` sait lire, même règle du
+ * nombre « collé ») : « Coca-Cola 33cl » → « Coca-Cola  », « V8 1L » → « V8  ». Accents retirés.
+ * Sert à comparer deux écritures d'un même article, la contenance étant comparée à part sous sa
+ * forme canonique (Liste d'achat : anti-doublon du catalogue, `lib/achats-doublons.ts`).
+ */
+export function sansContenance(nom: string): string {
+  const texte = nom.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return texte.replace(CONTENANCE_REGEX, (m: string, _q: string, _u: string, decalage: number) => {
+    const avant = texte[decalage - 1];
+    return avant && /[a-z0-9./,]/i.test(avant) ? m : " ";
+  });
+}
+
+/**
  * Contenance ramenée à l'unité de base de sa grandeur (« v:700 » pour 70 cl, « m:2000 » pour
  * 2 kg), pour comparer deux écritures : 1L = 1LTR = 100cl = 1000ML ; 70CL = 700ML.
  */

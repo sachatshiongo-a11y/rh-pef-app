@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { entreeListeAchat, verifierDoublonsListe } from "./actions";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
 import { VueTelephone } from "./entree-telephone";
+import { AlertesLigne, aSignaler } from "./alertes-ligne";
 import { useBrouillonListe } from "./use-brouillon";
 import { estErreur } from "@/lib/action-lisible";
 import { cleAlnum } from "@/lib/texte";
@@ -17,9 +18,10 @@ import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 import {
-  aEnregistrer, avecArticle, avecChangement, avecDevise, construireFormData, indexFournisseurs, quatreVides, sansArticleDisparu, vide, vierge,
+  aEnregistrer, artDeCandidat, avecArticle, avecArticleChoisi, avecChangement, avecNomDeLigne, avecDevise, construireFormData, etatsLignes, indexFournisseurs, memeNomLibre, quatreVides, sansArticleDisparu, vide, vierge,
   type Art, type Brouillon, type Devise, type Fourn, type Ligne,
 } from "@/lib/liste-achat-saisie";
+import type { AnalyseLigne, ArticleCandidat } from "@/lib/achats-doublons";
 
 /** Libellé court d'une devise, tel qu'il s'affiche à côté du montant. */
 const COURT: Record<Devise, string> = { USD: "USD", CDF: "FC" };
@@ -36,17 +38,24 @@ const texteDe = (v: number | null) => (v === null ? "" : ecrireSaisieNombre(v));
 //  - Sinon (téléphone, tablette) : la vue de `entree-telephone.tsx` — récapitulatif + panneau plein écran.
 // Ce qui part au serveur n'est PAS relu dans le DOM : `construireFormData` le construit depuis l'état,
 // pour les deux vues (jamais deux jeux de champs qui divergent ni de ligne envoyée en double).
-// Montant + bascule de devise (USD / FC) dans UNE colonne de 7,5 rem : la largeur prise est rendue
-// par l'article, la désignation et le fournisseur (½ rem chacun) — la rangée garde son minimum de
-// 55 rem et tient sous le seuil de 56 rem, donc à 1280 px avec le menu latéral.
-const COLONNES = "@4xl:grid-cols-[minmax(8.5rem,1.6fr)_minmax(7.5rem,1.4fr)_4rem_6.5rem_4.5rem_5rem_7.5rem_minmax(6.5rem,1.2fr)_2rem]";
+// Montant + bascule de devise (USD / FC) dans UNE colonne de 7,5 rem ; DLC (facultative, 2026-10-08) dans
+// une colonne de 5 rem (date courte, sans l'icône du calendrier, qui s'ouvre au clic). La place de la DLC
+// est rendue par l'article, la désignation, le fournisseur (1 rem chacun), l'unité, la quantité, le PU
+// (½ rem chacun) et l'écart entre cases (gap-1 au lieu de gap-1,5) : la rangée garde un minimum de 54,75
+// rem, sous le seuil de 56 rem, donc tient à 1280 px avec le menu latéral.
+const COLONNES = "@4xl:grid-cols-[minmax(7.5rem,1.6fr)_minmax(6.5rem,1.4fr)_3.5rem_6.5rem_4rem_4.5rem_7.5rem_5rem_minmax(5.5rem,1.2fr)_2rem]";
 // Densité tableur (hauteur naturelle).
 const champ = `${inp} w-full min-w-0`;
 
 export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDirection = false, compteId }: { articles: Art[]; fournisseurs: Fourn[]; aujourdhui: string; taux: number; estDirection?: boolean; compteId?: string }) {
   const [isPending, startTransition] = useTransition();
   // UNE liste d'options pour toutes les lignes : on y cherche par désignation, nom court ou code.
-  const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
+  // Plus les articles HORS de cette liste (inactifs) choisis par « Utiliser … » : visibles dans le champ, marqués « (inactif) ».
+  const [horsListe, setHorsListe] = useState<ArticleCandidat[]>([]);
+  const optionsArt = useMemo(
+    () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, actif: c.actif })), { marquerInactifs: true })],
+    [articles, horsListe],
+  );
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   const refMsg = useRef<HTMLParagraphElement>(null);
   // Devise par défaut des NOUVELLES lignes (sélecteur du haut). Aussi tenue par référence : « + Ligne »
@@ -60,8 +69,8 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   const [dateChangee, setDateChangee] = useState(false);
   const choisirDate = (d: string) => { setDate(d); setDateChangee(true); };
   const [origine, setOrigine] = useState("");
-  // Avertissements de la saisie, rattachés à l'état vérifié : périmés dès que la saisie change.
-  const [verif, setVerif] = useState<{ cle: string; liste: string[] }>({ cle: "", liste: [] });
+  // Analyse de la saisie (anti-doublon, avertissements), rattachée à l'état vérifié : périmée dès que la saisie change.
+  const [verif, setVerif] = useState<{ cle: string; liste: string[]; lignes: (AnalyseLigne | null)[] }>({ cle: "", liste: [], lignes: [] });
   const [avertissementsEnregistres, setAvertissementsEnregistres] = useState<string[]>([]); // du dernier enregistrement
   const [cle, setCle] = useState(0);
   const reinitialiser = () => { setMsg(null); deviseDefautRef.current = "USD"; setDeviseDefaut("USD"); setLignes(quatreVides("USD")); setDate(aujourdhui); setDateChangee(false); setOrigine(""); setAvertissementsEnregistres([]); setCle((c) => c + 1); };
@@ -71,23 +80,43 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   const idFourn = useCallback((nom: string) => (nom.trim() ? fournParCle.get(cleAlnum(nom)) ?? "" : ""), [fournParCle]);
   const nouveauxFournisseurs = [...new Set(lignes.map((l) => l.fournNom.trim()).filter((n) => n && !idFourn(n)))];
 
-  // Double saisie : vérifiée PENDANT la saisie (même article, même jour, même quantité déjà entré
-  // par facture ou réception ; comptage postérieur). Avertissement seulement — rien n'est bloqué.
-  const aVerifier = lignes
-    .map((l) => ({ articleId: l.articleId, designation: l.designation.trim(), quantite: nombreDeSaisie(l.qte) }))
-    .filter((l) => (l.articleId || l.designation) && l.quantite > 0);
+  // Anti-doublon d'ARTICLE vérifié PENDANT la saisie (Direction, 2026-10-08), ligne par ligne et dans
+  // l'ordre : rattachement automatique au même nom, ou articles proches à choisir ; plus les
+  // avertissements non bloquants (±14 jours, comptage postérieur). L'enregistrement revérifie tout.
+  const aVerifier = lignes.map((l) => ({ articleId: l.articleId, designation: l.designation.trim(), quantite: nombreDeSaisie(l.qte) }));
+  const utiles = aVerifier.some((l) => (l.articleId || l.designation) && l.quantite > 0);
   const cleVerif = JSON.stringify([date, aVerifier]);
   useEffect(() => {
-    if (aVerifier.length === 0) return;
+    if (!utiles) return;
     let annule = false;
     const t = setTimeout(async () => {
       const r = await verifierDoublonsListe(date, aVerifier);
-      if (!annule && !estErreur(r)) setVerif({ cle: cleVerif, liste: r.avertissements });
+      if (!annule && !estErreur(r)) setVerif({ cle: cleVerif, liste: r.avertissements, lignes: r.lignes ?? [] });
     }, 500);
     return () => { annule = true; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `cleVerif` résume date + lignes vérifiées
   }, [cleVerif]);
-  const avertissements = verif.cle === cleVerif ? verif.liste : [];
+  const analyseFraiche = verif.cle === cleVerif;
+  const avertissements = analyseFraiche ? verif.liste : [];
+  // État de chaque ligne : l'analyse n'est montrée que si elle est celle de la saisie ACTUELLE (une
+  // analyse périmée pourrait viser une ligne qui a bougé) ; les doublons DANS la liste et la DLC se
+  // calculent ici, sans attendre. Choisir « Créer quand même » ou saisir une DLC ne la périme pas.
+  const etats = etatsLignes(lignes, analyseFraiche ? verif.lignes : null, date);
+
+  // Choix faits sous une ligne. « Utiliser » et « Créer quand même » valent pour toutes les lignes du même nom libre.
+  const utiliser = (i: number, c: ArticleCandidat) => {
+    const cibles = memeNomLibre(lignes, i);
+    if (!articles.some((a) => a.id === c.id)) setHorsListe((h) => (h.some((x) => x.id === c.id) ? h : [...h, c]));
+    setLignes((ls) => ls.map((l, j) => (cibles.includes(j) ? avecArticleChoisi(l, artDeCandidat(c), taux) : l)));
+  };
+  const utiliserLigne = (i: number, k: number) => {
+    const cibles = memeNomLibre(lignes, i);
+    setLignes((ls) => ls.map((l, j) => (cibles.includes(j) ? avecNomDeLigne(l, ls[k]) : l)));
+  };
+  const creerQuandMeme = (i: number, oui: boolean) => {
+    const cibles = memeNomLibre(lignes, i);
+    setLignes((ls) => ls.map((l, j) => (cibles.includes(j) ? { ...l, creerNouveau: oui } : l)));
+  };
 
   const majLigne = (i: number, patch: Partial<Ligne>) => setLignes((ls) => ls.map((l, j) => (j === i ? avecChangement(l, patch) : l)));
 
@@ -150,13 +179,24 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
     // Validation maison (le formulaire n'a pas de contrôle natif : un champ masqué par la mise en page bloquerait l'envoi en silence).
     if (!date) { setMsg({ ok: false, texte: "Choisissez la date de l'achat." }); return; }
     if (date > aujourdhui) { setMsg({ ok: false, texte: "La date de l'achat ne peut pas être dans le futur." }); return; }
+    // Ce que l'écran sait déjà bloquer (le serveur le revérifie, et refuse aussi ce que l'écran n'a pas encore vu).
+    const aCompter = etats.filter((e, i) => aEnregistrer(lignes[i]) && (e.erreurDlc || (analyseFraiche && e.choixEnAttente)));
+    if (aCompter.length > 0) {
+      const n = (f: (e: (typeof etats)[number]) => boolean) => aCompter.filter(f).length;
+      const choix = analyseFraiche ? n((e) => e.choixEnAttente) : 0, dlc = n((e) => !!e.erreurDlc);
+      setMsg({ ok: false, texte: `Rien n'a été enregistré. ${[
+        choix ? `${choix > 1 ? `${choix} lignes demandent` : "1 ligne demande"} de choisir l'article (« Utiliser … » ou « Créer quand même »)` : "",
+        dlc ? `${dlc > 1 ? `${dlc} DLC sont antérieures` : "1 DLC est antérieure"} à la date de l'achat` : "",
+      ].filter(Boolean).join(" ; ")}. Voir les lignes signalées.` });
+      return;
+    }
     const fd = construireFormData({ date, origine, lignes, idFourn });
     startTransition(async () => {
       const r = await entreeListeAchat(fd);
       if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
       setMsg({
         ok: true,
-        texte: `Entrées enregistrées : le stock a été mis à jour.${r.crees.length ? ` ${r.crees.length} nouvel(aux) article(s) créé(s) au catalogue : ${r.crees.join(", ")}.` : ""}${r.fournisseursCrees.length ? ` Nouveau(x) fournisseur(s) créé(s) : ${r.fournisseursCrees.join(", ")}.` : ""}`,
+        texte: `Entrées enregistrées : le stock a été mis à jour.${r.dlcRenseignees ? ` DLC renseignée sur ${r.dlcRenseignees} ligne${r.dlcRenseignees > 1 ? "s" : ""}.` : ""}${r.crees.length ? ` ${r.crees.length} nouvel(aux) article(s) créé(s) au catalogue : ${r.crees.join(", ")}.` : ""}${r.fournisseursCrees.length ? ` Nouveau(x) fournisseur(s) créé(s) : ${r.fournisseursCrees.join(", ")}.` : ""}`,
       });
       brouillon.apresEnregistrement(); // le brouillon n'a plus lieu d'être, même si son bandeau est encore ouvert
       setLignes(quatreVides(deviseDefautRef.current));
@@ -184,6 +224,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         deviseDefaut={deviseDefaut} changerDeviseDefaut={changerDeviseDefaut}
         stats={{ nb: lignes.filter(aEnregistrer).length, saisiUSD, saisiFC, aFrancs, fcEnUSD, totalUSD }}
         enCours={isPending} brouillon={brouillon}
+        etats={etats} utiliser={utiliser} utiliserLigne={utiliserLigne} creerQuandMeme={creerQuandMeme}
       />
 
       <div className="hidden space-y-3 @4xl:block">
@@ -216,7 +257,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         <div className="@container">
           <div ref={racine} data-tableur="" data-tableur-tab="natif" className="@4xl:space-y-0">
             {/* En-têtes de colonnes : UNE fois (la vue téléphone n'a pas de colonnes). */}
-            <div className={`sticky colle-sous-entete z-10 hidden gap-1.5 rounded-md bg-muted px-0 py-1.5 text-xs font-medium text-muted-foreground @4xl:grid ${COLONNES}`}>
+            <div className={`sticky colle-sous-entete z-10 hidden gap-1 rounded-md bg-muted px-0 py-1.5 text-xs font-medium text-muted-foreground @4xl:grid ${COLONNES}`}>
               <span className="pl-2">Article (catalogue)</span>
               <span className="pl-2">Désignation (libre si nouveau)</span>
               <span className="pl-2">Unité</span>
@@ -224,13 +265,14 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
               <span className="pr-2 text-right">Qté</span>
               <span className="pr-2 text-right">PU</span>
               <span className="pr-12 text-right">Montant</span>
+              <span className="pl-1" title="Date limite de consommation (facultative)">DLC</span>
               <span className="pl-2">Fournisseur (facultatif)</span>
               <span className="sr-only">Retirer</span>
             </div>
             {lignes.map((l, i) => {
               const libre = !l.articleId;
               return (
-                <div key={i} data-ligne-achat className={`grid gap-1.5 ${COLONNES} @4xl:items-center @4xl:border-t @4xl:py-0.5`}>
+                <div key={i} data-ligne-achat className={`grid gap-1 ${COLONNES} @4xl:items-center @4xl:border-t @4xl:py-0.5`}>
                   <ChoixRecherche options={optionsArt} name="articleId" value={l.articleId} vide="— libre —" onChange={(id) => choisirArticle(i, id)} aria-label={`Article, ligne ${i + 1}`} className={champ} />
                   <input name="designation" placeholder="Désignation" aria-label={`Désignation, ligne ${i + 1}`} value={l.designation} onChange={(e) => majLigne(i, { designation: e.target.value })} readOnly={!libre} className={`${champ} ${!libre ? "text-muted-foreground" : ""}`} />
                   <input name="unite" placeholder="Kg…" aria-label={`Unité, ligne ${i + 1}`} value={l.unite} onChange={(e) => majLigne(i, { unite: e.target.value })} readOnly={!libre} className={`${champ} ${!libre ? "text-muted-foreground" : ""}`} />
@@ -265,11 +307,26 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
                       {COURT[l.devise]}
                     </button>
                   </div>
+                  {/* DLC facultative : date courte, sans icône (le calendrier s'ouvre au clic) ; jamais avant la date de l'achat. */}
+                  <input type="date" name="dlc" value={l.dlc} min={date || undefined} onChange={(e) => majLigne(i, { dlc: e.target.value })}
+                    onClick={(e) => { try { e.currentTarget.showPicker?.(); } catch { /* navigateur sans showPicker : la saisie au clavier reste possible */ } }}
+                    aria-label={`DLC (facultatif), ligne ${i + 1}`} aria-invalid={!!etats[i]?.erreurDlc || undefined} title="Date limite de consommation (facultative)"
+                    className={`${champ} px-1 text-xs [&::-webkit-calendar-picker-indicator]:hidden ${etats[i]?.erreurDlc ? "border-destructive" : ""} ${l.dlc ? "" : "text-muted-foreground"}`} />
                   {/* Fournisseur DE CETTE LIGNE : suggestions des fournisseurs connus ; un nom nouveau est créé. */}
                   <input name="fournisseurNom" list="fournisseurs-connus" autoComplete="off" placeholder="Fournisseur" aria-label={`Fournisseur de la ligne ${i + 1}`} value={l.fournNom} onChange={(e) => majLigne(i, { fournNom: e.target.value })} className={champ} />
                   <input type="hidden" name="fournisseurId" value={idFourn(l.fournNom)} />
+                  <input type="hidden" name="creerNouveau" value={l.creerNouveau ? "1" : ""} />
                   <button type="button" onClick={() => setLignes((ls) => (ls.length > 1 ? ls.filter((_, j) => j !== i) : ls.map((x, j) => (j === i ? vide(deviseDefautRef.current) : x))))} aria-label={`Retirer la ligne ${i + 1}`} title="Retirer la ligne"
                     className="flex h-8 w-8 items-center justify-center rounded-md border text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive">✕</button>
+                  {/* Sous la rangée, sur toute la largeur : choix d'article, doublon d'achat, même article plus haut, DLC. */}
+                  {etats[i] && aSignaler(l, etats[i]) && (
+                    <div className="pb-1 pl-2 @4xl:col-span-full">
+                      <AlertesLigne ligne={l} etat={etats[i]} nom={`ligne ${i + 1}`}
+                        autres={(js) => (js.length > 1 ? `aux lignes ${js.map((j) => j + 1).join(", ")}` : `à la ligne ${js[0] + 1}`)}
+                        onUtiliser={(c) => utiliser(i, c)} onCreer={(oui) => creerQuandMeme(i, oui)}
+                        onUtiliserLigne={(k) => utiliserLigne(i, k)} nomLigne={(k) => `la ligne ${k + 1} (« ${lignes[k]?.designation.trim()} »)`} />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -315,7 +372,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
         </button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
       </div>
-      <p className="hidden text-xs text-muted-foreground @4xl:block">Article du catalogue OU désignation libre : un nouvel article est <b>créé automatiquement au catalogue</b> (domaine choisi, unité et prix de cet achat comme référence) — une désignation identique retrouve l&apos;article existant. Prix unitaire et montant sont facultatifs — le PU remplit le montant (quantité × PU), ajustable. Chaque ligne a sa devise (USD ou FC) ; une ligne en FC est convertie en USD au taux courant (nourrit l&apos;évolution du prix d&apos;achat).</p>
+      <p className="hidden text-xs text-muted-foreground @4xl:block">Article du catalogue OU désignation libre : un nouvel article est <b>créé automatiquement au catalogue</b> (domaine choisi, unité et prix de cet achat comme référence) — une désignation identique (aux accents, majuscules, espaces et écriture de la contenance près) retrouve l&apos;article existant ; un nom <b>proche</b> d&apos;un article existant (« Tomate » quand « Tomates » existe) demande de choisir. DLC facultative. Prix unitaire et montant sont facultatifs — le PU remplit le montant (quantité × PU), ajustable. Chaque ligne a sa devise (USD ou FC) ; une ligne en FC est convertie en USD au taux courant (nourrit l&apos;évolution du prix d&apos;achat).</p>
       </div>
     </form>
   );

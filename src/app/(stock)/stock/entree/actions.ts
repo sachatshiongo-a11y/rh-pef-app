@@ -10,16 +10,29 @@ import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { cleAlnum } from "@/lib/texte";
 import { lireDateAchat, ORIGINE_LISTE_ACHAT } from "@/lib/achats-liste";
-import { avertissementsListeAchat, type LigneAVerifier } from "@/lib/achats-liste-serveur";
+import { analyserListeAchat, avertissementsListeAchat, catalogueCandidats, type LigneAVerifier } from "@/lib/achats-liste-serveur";
+import { cleArticleExacte, lireDlc, memeDesignation, type AnalyseLigne } from "@/lib/achats-doublons";
+import { decisionArticle, prochesDansListe } from "@/lib/article-proche";
 import { notifierGesteStock } from "@/lib/validations-stock/geste-notifie";
 
 /**
  * Résultat d'une Liste d'achat enregistrée : nouveaux articles créés au catalogue, nouveaux
- * fournisseurs créés à la volée, et AVERTISSEMENTS non bloquants (double saisie possible avec
- * une facture ou une réception, comptage d'inventaire postérieur) — l'achat est enregistré quand
- * même, la personne décide.
+ * fournisseurs créés à la volée, AVERTISSEMENTS non bloquants (double saisie possible avec une
+ * facture ou une réception à ±14 jours, comptage d'inventaire postérieur) — l'achat est enregistré
+ * quand même, la personne décide — et le nombre de lignes enregistrées avec une DLC.
  */
-export type ResultatListeAchat = { crees: string[]; fournisseursCrees: string[]; avertissements: string[] };
+export type ResultatListeAchat = { crees: string[]; fournisseursCrees: string[]; avertissements: string[]; dlcRenseignees: number };
+
+/**
+ * Un champ répété par ligne (`dlc`, `creerNouveau`), lu par position comme `articleId`… : absent
+ * (formulaire d'avant) = vide pour chaque ligne ; sinon UN par ligne — un autre nombre est refusé
+ * (une DLC ne doit jamais glisser sur la ligne voisine).
+ */
+const parLigne = (formData: FormData, nom: string, n: number): string[] => {
+  const v = formData.getAll(nom).map((x) => String(x).trim());
+  if (v.length > 0 && v.length !== n) throw new Error("Formulaire incohérent (un champ par ligne attendu) : rechargez la page et saisissez à nouveau ; rien n'a été enregistré.");
+  return Array.from({ length: n }, (_, i) => v[i] ?? "");
+};
 
 
 const DEVISES = ["USD", "CDF"] as const;
@@ -54,9 +67,9 @@ function lireDevisesParLigne(formData: FormData, nbLignes: number): Devise[] {
 /**
  * Liste d'achat → inventaire : chaque ligne (article + quantité) crée un MouvementStock d'ENTRÉE
  * et incrémente le stock de l'article. Une ligne peut viser un article du CATALOGUE ou être en
- * ÉCRITURE LIBRE (nouvel article) : dans ce cas l'article est rapproché par désignation exacte
- * (anti-doublon) ou CRÉÉ automatiquement au catalogue (domaine Nourriture / Boissons / Autre
- * choisi sur la ligne, unité et prix de référence = prix unitaire de cet achat). Transactionnel.
+ * ÉCRITURE LIBRE (nouvel article) : dans ce cas l'article est rapproché du catalogue (anti-doublon,
+ * ci-dessous) ou CRÉÉ automatiquement (domaine Nourriture / Boissons / Autre choisi sur la ligne,
+ * unité et prix de référence = prix unitaire de cet achat). Transactionnel : tout ou rien.
  *
  * Décisions Direction 2026-09-28 :
  *  - DATE au choix (défaut : aujourd'hui à Kinshasa), jamais dans le futur, jamais dans une
@@ -66,6 +79,16 @@ function lireDevisesParLigne(formData: FormData, nbLignes: number): Devise[] {
  *
  * Décision Direction 2026-09-30 : DEVISE PAR LIGNE (USD ou CDF) — chaque mouvement porte la devise
  * et le taux de SA ligne (`lireDevisesParLigne`).
+ *
+ * Demande Direction 2026-10-08 — ANTI-DOUBLON D'ARTICLE et DLC facultative (lib/achats-doublons.ts,
+ * lib/article-proche.ts — règle de l'application Atelier) :
+ *  - une ligne libre est rattachée d'office à l'article qui porte EXACTEMENT son nom (accents, casse,
+ *    espaces, séparateurs, écriture de la contenance près) s'il est UNIQUE ; si des articles PROCHES
+ *    existent (« Tomate » quand « Tomates » existe) ou plusieurs exacts, la ligne est REFUSÉE tant
+ *    que la personne n'a pas choisi — l'écran remplace la ligne par l'article choisi (« Utiliser … »)
+ *    ou envoie `creerNouveau` = « 1 » (« Créer quand même un nouvel article »). Jamais deviné.
+ *  - le DOUBLON D'ACHAT (même achat saisi deux fois) reste un avertissement NON bloquant ;
+ *  - DLC : champ `dlc` par ligne, facultatif ; une date antérieure à celle de l'achat est refusée.
  */
 export const entreeListeAchat = actionLisible(async (formData: FormData): Promise<ResultatListeAchat> => {
   const user = await verifySession();
@@ -83,6 +106,8 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const fournIds = formData.getAll("fournisseurId").map((v) => String(v).trim());
   const fournNoms = formData.getAll("fournisseurNom").map((v) => String(v).trim());
   const devises = lireDevisesParLigne(formData, ids.length);
+  const dlcs = parLigne(formData, "dlc", ids.length);
+  const creerNouveaux = parLigne(formData, "creerNouveau", ids.length);
   const origine = String(formData.get("origine") ?? "").trim() || ORIGINE_LISTE_ACHAT;
 
   const lignes = ids
@@ -96,11 +121,28 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
       devise: devises[i],
       fournId: fournIds[i] ?? "",
       fournNom: fournNoms[i] ?? "",
+      dlcSaisie: dlcs[i],
+      dlc: null as string | null,
+      creerNouveau: creerNouveaux[i] === "1",
+      /** Ligne libre rattachée d'office à un article existant (correspondance exacte unique). */
+      rattache: "",
       rang: i + 1,
     }))
     .filter((l) => (l.articleId || l.designation) && l.quantite > 0);
 
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (article du catalogue ou désignation libre, + quantité).");
+
+  // DLC facultative : vide autorisé ; illisible ou antérieure à la date de l'achat → refus qui nomme la ligne.
+  for (const l of lignes) l.dlc = lireDlc(l.dlcSaisie, dateISO, l);
+
+  // Article du catalogue disparu depuis l'ouverture de la page (supprimé, fusionné) : refus lisible,
+  // jamais l'erreur brute de la base.
+  const idsCatalogue = [...new Set(lignes.map((l) => l.articleId).filter(Boolean))];
+  if (idsCatalogue.length > 0) {
+    const existent = new Set((await prisma.articleStock.findMany({ where: { id: { in: idsCatalogue } }, select: { id: true } })).map((a) => a.id));
+    const disparue = lignes.find((l) => l.articleId && !existent.has(l.articleId));
+    if (disparue) throw new Error(`Ligne ${disparue.rang}${disparue.designation ? ` (« ${disparue.designation} »)` : ""} : cet article n'existe plus au catalogue. Rechargez la page et choisissez-le à nouveau ; rien n'a été enregistré.`);
+  }
 
   // Taux CDF/USD partagé avec la RH (Config) — lu SEULEMENT si une ligne payée en francs doit être
   // convertie. Sans taux, ces lignes sont nommées et rien n'est écrit : jamais un montant en francs
@@ -119,10 +161,32 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
     }
   }
 
-  // Rapprochement des lignes LIBRES par désignation exacte — on ne crée pas un doublon
-  // d'un article déjà au catalogue.
-  const existants = await prisma.articleStock.findMany({ select: { id: true, designation: true } });
-  const parNom = new Map(existants.map((a) => [cleAlnum(a.designation), a.id]));
+  // DOUBLON D'ARTICLE — sort au catalogue de chaque ligne LIBRE. « Créer quand même » vaut pour la
+  // désignation : posé sur une ligne, il vaut pour les autres lignes du même nom (un seul article créé).
+  const libres = lignes.filter((l) => !l.articleId);
+  const catalogue = libres.length > 0 ? await catalogueCandidats() : [];
+  const cleNom = (d: string) => cleArticleExacte(d) || d;
+  const creationVoulue = new Set(libres.filter((l) => l.creerNouveau).map((l) => cleNom(l.designation)));
+  const aChoisir: string[] = [];
+  const creera = new Set<(typeof lignes)[number]>();
+  for (const l of libres) {
+    const d = decisionArticle(l.designation, catalogue);
+    if (d.type === "auto") l.rattache = d.article.id;
+    else if (d.type !== "choix" || (d.creationPossible && creationVoulue.has(cleNom(l.designation)))) creera.add(l);
+    else aChoisir.push(`ligne ${l.rang} « ${l.designation} » → ${d.candidats.map((a) => `« ${a.designation} »${a.actif ? "" : " (inactif)"}`).join(", ")}${d.creationPossible ? "" : " (ce nom existe déjà plusieurs fois : choisissez l'un d'eux)"}`);
+  }
+  // Deux noms NOUVEAUX et proches dans la même liste (« Poivrons » puis « Poivron ») : la seconde ligne
+  // demande le même choix — « Utiliser la ligne n » (même nom) ou « Créer quand même ».
+  const nouvelles = lignes.filter((l) => creera.has(l));
+  for (const [i, js] of prochesDansListe(nouvelles.map((l) => l.designation), () => true)) {
+    const l = nouvelles[i];
+    if (!l.creerNouveau && !creationVoulue.has(cleNom(l.designation))) aChoisir.push(`ligne ${l.rang} « ${l.designation} » → ${js.map((j) => `la ligne ${nouvelles[j].rang} « ${nouvelles[j].designation} »`).join(", ")} (nouvel article de cette liste)`);
+  }
+  if (aChoisir.length > 0) {
+    // Onglet ouvert avant le déploiement : il ne sait pas proposer le choix — on le dit.
+    const ancien = formData.getAll("creerNouveau").length === 0 ? "Rechargez la page pour choisir l'article existant ou en créer un nouveau. " : "";
+    throw new Error(`${ancien}Article déjà au catalogue (ou dans cette liste) sous un nom proche : choisissez « Utiliser … » ou « Créer quand même un nouvel article » sur ${aChoisir.length > 1 ? "chaque ligne" : "la ligne"} ; rien n'a été enregistré. ${aChoisir.join(" ; ")}.`);
+  }
 
   // Fournisseurs : un id choisi dans la liste doit exister ; un nom tapé est rapproché d'un
   // fournisseur connu (même clé que les articles : « maman epiphanie » = « Maman Épiphanie »).
@@ -136,15 +200,22 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   const illisible = lignes.find((l) => !l.fournId && l.fournNom && !cleAlnum(l.fournNom));
   if (illisible) throw new Error(`Nom de fournisseur illisible (ligne ${illisible.rang}) : écrivez son nom en lettres ou en chiffres, ou laissez le champ vide.`);
 
-  // Avertissements non bloquants (double saisie, comptage postérieur), calculés avant l'écriture.
-  const avertissements = await avertissementsListeAchat(dateISO, lignes.map((l) => ({ articleId: l.articleId, designation: l.designation, quantite: l.quantite })));
+  // Avertissements non bloquants (double saisie à ±14 jours, comptage postérieur), calculés AVANT
+  // l'écriture (sinon la liste se signalerait elle-même).
+  const avertissements = await avertissementsListeAchat(dateISO, lignes.flatMap((l) => (l.articleId || l.rattache ? [{ articleId: l.articleId || l.rattache, quantite: l.quantite }] : [])));
 
   const crees: string[] = [];
   const fournisseursCrees: string[] = [];
   await prisma.$transaction(async (tx) => {
     // Stocks des articles connus verrouillés d'abord, dans un ordre fixe (pas d'interblocage avec un
     // comptage ou une validation qui verrouillent les mêmes lignes).
-    await verrouillerStocks(tx, [...new Set(lignes.map((l) => l.articleId).filter(Boolean))]);
+    await verrouillerStocks(tx, [...new Set(lignes.map((l) => l.articleId || l.rattache).filter(Boolean))]);
+    // Noms NOUVEAUX : verrou sur leur clé, tous d'un coup et TRIÉS (deux listes simultanées qui créent
+    // les mêmes articles dans un autre ordre ne s'interbloquent pas), avant la relecture ci-dessous.
+    const clesNouvelles = [...new Set(lignes.filter((l) => !l.articleId && !l.rattache).map((l) => cleArticleExacte(l.designation) || cleAlnum(l.designation) || l.designation))].sort();
+    for (const cle of clesNouvelles) await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`article:${cle}`}))::text AS verrou`;
+    // Catalogue relu UNE fois, sous ces verrous : un article du même nom créé entre-temps par une autre liste y est.
+    const catalogueSousVerrou = clesNouvelles.length > 0 ? await tx.articleStock.findMany({ select: { id: true, designation: true } }) : [];
     const resoudreFournisseur = async (l: (typeof lignes)[number]): Promise<string | null> => {
       if (l.fournId) return l.fournId;
       if (!l.fournNom) return null;
@@ -165,14 +236,23 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
       return nouveau.id;
     };
 
+    // Articles créés par CETTE liste, par nom exact : deux lignes du même nouveau nom → un seul article.
+    const creesParCle = new Map<string, string>();
     for (const l of lignes) {
-      let articleId = l.articleId || null;
+      let articleId = l.articleId || l.rattache || null;
       const fournisseurId = await resoudreFournisseur(l);
       const aMontant = l.montant > 0;
       const montantUSD = aMontant ? (l.devise === "CDF" ? l.montant / (taux as number) : l.montant) : null;
 
       if (!articleId) {
-        articleId = parNom.get(cleAlnum(l.designation)) ?? null;
+        const cle = cleArticleExacte(l.designation) || cleAlnum(l.designation) || l.designation;
+        articleId = creesParCle.get(cle) ?? null;
+        if (!articleId) {
+          // Même garde que les fournisseurs : deux listes simultanées du même nouveau nom ne créent
+          // qu'UN article (clé verrouillée plus haut, catalogue relu sous le verrou).
+          const deja = catalogueSousVerrou.filter((a) => memeDesignation(l.designation, a.designation));
+          if (deja.length === 1) articleId = deja[0].id; // créé entre-temps sous ce nom exact : c'est lui
+        }
         if (!articleId) {
           // Nouvel article : créé au catalogue dans le domaine choisi, avec l'unité saisie et
           // le prix unitaire de CET achat comme prix de référence.
@@ -181,10 +261,10 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
             data: { designation: l.designation, unite: l.unite || null, domaine: l.domaine, prixUnitaireUSD: prixRef },
           });
           articleId = nouveau.id;
-          parNom.set(cleAlnum(l.designation), nouveau.id);
           crees.push(l.designation);
           await journaliser(tx, { entite: "ArticleStock", entiteId: nouveau.id, champ: "creation", nouvelleValeur: `${l.designation} (auto — liste d'achat, ${l.domaine})`, userId: user.id });
         }
+        creesParCle.set(cle, articleId);
       }
 
       await tx.mouvementStock.create({
@@ -194,6 +274,7 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
           montantOrigine: aMontant ? l.montant : null,
           tauxChangeUtilise: aMontant && l.devise === "CDF" ? taux : null,
           montantUSD,
+          dlc: l.dlc ? new Date(`${l.dlc}T00:00:00.000Z`) : null,
         },
       });
       await tx.stock.upsert({
@@ -219,22 +300,24 @@ export const entreeListeAchat = actionLisible(async (formData: FormData): Promis
   revalidatePath("/stock/fournisseurs", "layout");
   revalidatePath("/stock/catalogue", "layout");
   revalidatePath("/stock");
-  return { crees, fournisseursCrees, avertissements };
+  return { crees, fournisseursCrees, avertissements, dlcRenseignees: lignes.filter((l) => l.dlc).length };
 });
 
 /**
- * Vérification À LA SAISIE (avant l'enregistrement) : mêmes avertissements non bloquants que
- * l'enregistrement. N'écrit rien. Une date illisible ou future ne renvoie rien : c'est
- * l'enregistrement qui la refuse, avec son message.
+ * Vérification À LA SAISIE (avant l'enregistrement) : pour chaque ligne (dans l'ordre de l'écran),
+ * son sort au catalogue (rattachement automatique, articles proches à choisir) ; plus les
+ * avertissements non bloquants. N'écrit rien. Une date
+ * illisible ou future ne renvoie rien : c'est l'enregistrement qui la refuse, avec son message.
+ * L'enregistrement REVÉRIFIE tout : cet écran informe, il ne décide pas.
  */
-export const verifierDoublonsListe = actionLisible(async (dateSaisie: string, lignes: LigneAVerifier[]): Promise<{ avertissements: string[] }> => {
+export const verifierDoublonsListe = actionLisible(async (dateSaisie: string, lignes: LigneAVerifier[]): Promise<{ avertissements: string[]; lignes: (AnalyseLigne | null)[] }> => {
   requireModule(await verifySession(), "stock");
   let dateISO: string;
-  try { dateISO = lireDateAchat(dateSaisie); } catch { return { avertissements: [] }; }
-  const propres = (Array.isArray(lignes) ? lignes : []).slice(0, 200).map((l) => ({
+  try { dateISO = lireDateAchat(dateSaisie); } catch { return { avertissements: [], lignes: [] }; }
+  const propres: LigneAVerifier[] = (Array.isArray(lignes) ? lignes : []).slice(0, 200).map((l) => ({
     articleId: String(l?.articleId ?? ""),
-    designation: String(l?.designation ?? ""),
+    designation: String(l?.designation ?? "").trim(),
     quantite: Number(l?.quantite) || 0,
   }));
-  return { avertissements: await avertissementsListeAchat(dateISO, propres) };
+  return analyserListeAchat(dateISO, propres);
 });

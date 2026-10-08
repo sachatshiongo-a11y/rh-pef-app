@@ -6,7 +6,8 @@ import "server-only";
 //    payer », lien vers « À valider » (section « Bulletins à payer ») ;
 //  - la RH paie → chaque compte Direction (ADMIN) actif : « N bulletins de <mois> payés le <date> —
 //    <total versé> » ;
-//  - la RH clôture la paie du mois → la Direction : « Paie de <mois> clôturée par <nom> ».
+//  - la RH clôture la paie du mois → la Direction : « Paie de <mois> clôturée par <nom> — l'espace RH
+//    est passé à <mois suivant> ».
 // L'auteur du geste n'est jamais notifié de son propre geste.
 // Notifications de la cloche RH ADRESSÉES (destinataireUserId) : la RH ne voit pas celles de la
 // Direction ni l'inverse, et un compte Consultation n'en voit aucune. Push sur les appareils des
@@ -41,10 +42,11 @@ export function messageBulletinsPayes(n: number, mois: number, annee: number, jo
 
 /** Message à la Direction quand la RH clôture (pur, testé). La RH ne clôture qu'une paie déjà
  *  entièrement validée : rien n'est validé par sa clôture ; les lignes hors calcul laissées de côté
- *  sont dites. */
-export function messageClotureParRH(mois: number, annee: number, nom: string, horsCalcul: number): string {
+ *  sont dites, et le passage de l'espace RH au mois suivant (`versMois`, 2026-10-08). */
+export function messageClotureParRH(mois: number, annee: number, nom: string, horsCalcul: number, versMois: { mois: number; annee: number } | null = null): string {
   const base = `Paie de ${libelleMoisPaie(mois, annee)} clôturée par ${nom}`;
-  return horsCalcul > 0 ? `${base} — ${horsCalcul} ligne(s) hors calcul laissée(s) de côté` : base;
+  const avecHors = horsCalcul > 0 ? `${base} — ${horsCalcul} ligne(s) hors calcul laissée(s) de côté` : base;
+  return versMois ? `${avecHors} — l'espace RH est passé à ${libelleMoisPaie(versMois.mois, versMois.annee)}` : avecHors;
 }
 
 /** Sujet « à payer » d'une paie : une seule notification non lue par compte RH (remplacée, pas empilée). */
@@ -160,11 +162,11 @@ export async function notifierPaiementAnnule(payrollLineIds: string[], auteurId:
 }
 
 /** Après une CLÔTURE faite par la RH : la Direction est prévenue (qui, et les lignes laissées de côté). */
-export async function notifierClotureParRH(p: { payrollRunId: string; nom: string; horsCalcul: number }): Promise<void> {
+export async function notifierClotureParRH(p: { payrollRunId: string; nom: string; horsCalcul: number; versMois?: { mois: number; annee: number } | null }): Promise<void> {
   await sansEchec("paie clôturée", async () => {
     const direction = await comptesActifs("ADMIN");
     if (direction.length === 0) return;
     const run = await prisma.payrollRun.findUniqueOrThrow({ where: { id: p.payrollRunId }, select: { mois: true, annee: true } });
-    await notifierComptes(direction, { message: messageClotureParRH(run.mois, run.annee, p.nom, p.horsCalcul), lien: LIEN_PAYES, refId: `paie-cloture:${p.payrollRunId}` });
+    await notifierComptes(direction, { message: messageClotureParRH(run.mois, run.annee, p.nom, p.horsCalcul, p.versMois ?? null), lien: LIEN_PAYES, refId: `paie-cloture:${p.payrollRunId}` });
   });
 }
