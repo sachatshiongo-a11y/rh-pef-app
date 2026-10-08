@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { Avatar, initiales } from "@/components/avatar";
 import { EtatVide } from "@/components/etat-vide";
+import { BulkBar } from "@/components/bulk-bar";
 import { useJourMobile } from "@/components/jour-mobile";
 import { saisirCreneau, saisirCreneauxEnLot } from "./actions";
 import { paletteDe, dureeShift, type ShiftDTO } from "./creneaux";
@@ -215,6 +216,16 @@ export function PlanningSemaine({
   // ---- Vue mobile jour par jour ----
   const idxAuj = Math.max(0, jours.findIndex((j) => j.aujourdhui));
   const [idxMobile, setIdxMobile] = useJourMobile(idxAuj);
+  // Actions groupées sur téléphone (décision Direction du 2026-10-08) : mêmes actions et mêmes
+  // paramètres que sur ordinateur (`appliquerBulk` : shift × jours cochés → saisirCreneauxEnLot), même
+  // sélection. Le choix des jours est replié par défaut (31 cases en vue mois ne tiennent pas dans
+  // une barre collée) ; son résumé reste visible sur le bouton qui le déplie.
+  const empsMobile = useMemo(() => groupes.flatMap((g) => g.employees), [groupes]);
+  const [joursBulkOuverts, setJoursBulkOuverts] = useState(false);
+  const resumeJoursBulk = bulkJours.size === jours.length ? `tous (${jours.length})`
+    : bulkJours.size === 0 ? "aucun"
+    : bulkJours.size <= 2 ? [...bulkJours].sort((a, b) => a - b).map((i) => jours[i]?.label).join(", ")
+    : `${bulkJours.size} jours`;
 
   return (
     <div>
@@ -427,12 +438,46 @@ export function PlanningSemaine({
 
       {/* ---------- MOBILE : jour par jour ---------- */}
       <div className="lg:hidden">
-        <div className="sticky colle-sous-entete z-20 mb-3 flex items-center gap-2 bg-background pb-2">
+        {/* Sélecteur de jour + barre d'actions groupées : collés ENSEMBLE sous l'en-tête de la coquille
+            (deux barres collées séparément se recouvriraient). */}
+        <div className="sticky colle-sous-entete z-20 mb-3 space-y-2 bg-background pb-2">
+        <div className="flex items-center gap-2">
           <button type="button" onClick={() => setIdxMobile(Math.max(0, idxMobile - 1))} className="min-h-11 rounded-md border px-3 py-2 text-sm" aria-label="Jour précédent">◀</button>
           <select value={idxMobile} onChange={(e) => setIdxMobile(Number(e.target.value))} className="min-h-11 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium">
             {jours.map((j, i) => <option key={j.iso} value={i}>{j.label}{j.ferie ? " · férié" : j.dimanche ? " · dimanche" : ""}</option>)}
           </select>
           <button type="button" onClick={() => setIdxMobile(Math.min(jours.length - 1, idxMobile + 1))} className="min-h-11 rounded-md border px-3 py-2 text-sm" aria-label="Jour suivant">▶</button>
+        </div>
+        {peutModifier && empsMobile.length > 0 && (
+          <div data-actions-groupees-mobile>
+            <BulkBar count={sel.size} total={empsMobile.length} onAll={(on) => setSel(on ? new Set(empsMobile.map((e) => e.id)) : new Set())}>
+              <select value={bulkShift} onChange={(e) => setBulkShift(e.target.value)} aria-label="Shift à affecter" className="min-h-11 min-w-0 flex-1 basis-full rounded-md border border-input bg-background px-3 text-base">
+                {shifts.map((s) => <option key={s.id} value={s.id}>{s.nom}{s.heureDebut ? ` ${s.heureDebut}` : ""}</option>)}
+              </select>
+              <button type="button" onClick={() => setJoursBulkOuverts((o) => !o)} aria-expanded={joursBulkOuverts} className="min-h-11 rounded-md border px-3 text-sm">
+                Jours : {resumeJoursBulk} <span aria-hidden>{joursBulkOuverts ? "▴" : "▾"}</span>
+              </button>
+              <button type="button" onClick={() => appliquerBulk(bulkShift)} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">Affecter</button>
+              <button type="button" onClick={() => appliquerBulk("")} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md border border-destructive px-4 text-sm font-medium text-destructive disabled:opacity-50">Vider</button>
+              {joursBulkOuverts && (
+                <div className="basis-full space-y-1">
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setBulkJours(new Set([idxMobile]))} className="min-h-11 flex-1 rounded-md border px-2 text-sm">Ce jour seulement</button>
+                    <button type="button" onClick={() => setBulkJours(new Set(jours.map((_, i) => i)))} className="min-h-11 flex-1 rounded-md border px-2 text-sm">Tous les jours</button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {jours.map((j, i) => (
+                      <button key={j.iso} type="button" aria-pressed={bulkJours.has(i)} onClick={() => setBulkJours((x) => { const n = new Set(x); if (n.has(i)) n.delete(i); else n.add(i); return n; })}
+                        className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded border text-[11px] leading-tight ${bulkJours.has(i) ? "border-primary bg-primary/10 font-medium" : ""}`}>
+                        <span>{j.label.slice(0, 3)}</span><span className="tabular-nums">{j.label.slice(-2)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </BulkBar>
+          </div>
+        )}
         </div>
         {groupes.map((g) => (
           <div key={g.titre} className="mb-4">
@@ -441,7 +486,12 @@ export function PlanningSemaine({
               {g.employees.map((e) => {
                 const j = jours[idxMobile];
                 return (
-                  <div key={e.id} className="flex items-center gap-3 rounded-xl border bg-card p-2.5">
+                  <div key={e.id} className={`flex items-center gap-3 rounded-xl border p-2.5 ${sel.has(e.id) ? "bg-primary/10" : "bg-card"}`}>
+                    {peutModifier && (
+                      <label className="-my-2.5 -ml-2.5 flex min-h-11 w-11 shrink-0 items-center justify-center self-stretch">
+                        <input type="checkbox" checked={sel.has(e.id)} onChange={() => toggleEmp(e.id)} className="h-5 w-5" aria-label={`Sélectionner ${e.nom}`} />
+                      </label>
+                    )}
                     <Avatar nom={e.nom} taille={34} photoUrl={e.photoUrl} />
                     <div className="min-w-0 flex-1 truncate text-sm font-medium">{e.nom}</div>
                     <div>{celluleCarte(e.id, j)}</div>
