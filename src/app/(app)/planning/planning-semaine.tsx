@@ -8,6 +8,7 @@ import { EtatVide } from "@/components/etat-vide";
 import { useJourMobile } from "@/components/jour-mobile";
 import { saisirCreneau, saisirCreneauxEnLot } from "./actions";
 import { paletteDe, dureeShift, type ShiftDTO } from "./creneaux";
+import { abreviationsShifts } from "./abreviations";
 import {
   grouperSalaries,
   pivoterParShift,
@@ -61,37 +62,6 @@ const DENSITES: Record<Densite, DensiteCfg> = {
 const DENSITE_LEGACY: DensiteCfg = { label: "", cellMinH: "min-h-[46px]", padCell: "p-1", caseTexte: "text-xs", avatarTaille: 30, padRow: "py-1.5", texteNom: "text-sm", texteMeta: "text-[10px]" };
 // Vue mois (31 jours) sur ordinateur : colonnes de ~25 px calculées par la grille, une abréviation par case.
 const DENSITE_MOIS: DensiteCfg = { label: "", compact: true, cellMinH: "min-h-[30px]", padCell: "p-px", caseTexte: "text-[10px]", avatarTaille: 22, padRow: "py-1", texteNom: "text-xs", texteMeta: "text-[9px]" };
-/** Abréviation d'un shift pour une case étroite : « Matin » → « Ma », « Soirée bar » → « SB ». */
-const abrege = (nom: string) => {
-  const mots = nom.trim().split(/\s+/).filter(Boolean);
-  return (mots.length > 1 ? mots.slice(0, 2).map((m) => m[0]).join("") : (mots[0] ?? "").slice(0, 2)).replace(/^./, (c) => c.toUpperCase());
-};
-
-/** Un réglage d'affichage mémorisé dans le navigateur (densité, lecture, regroupement) : rendu avec sa
- *  valeur par défaut au premier rendu (identique client/serveur, pas d'hydratation cassée), puis
- *  corrigé depuis `localStorage` une fois monté — même motif que `NoteRepliable` (Atelier Dominique). */
-function usePersisted<T extends string>(cle: string, defaut: T): [T, (v: T) => void] {
-  const [valeur, setValeur] = useState<T>(defaut);
-  useEffect(() => {
-    try {
-      const stocke = window.localStorage.getItem(cle);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- lecture d'un réglage persistant (localStorage), pas un miroir de props/état dérivable au rendu
-      if (stocke) setValeur(stocke as T);
-    } catch {
-      // navigateur sans stockage : le réglage vaut pour la session
-    }
-  }, [cle]);
-  const setPersiste = (v: T) => {
-    setValeur(v);
-    try { window.localStorage.setItem(cle, v); } catch { /* sans stockage, sans conséquence */ }
-  };
-  return [valeur, setPersiste];
-}
-
-// Colonnes CALCULÉES : le nom prend 8,5 à 12 rem, les jours se partagent le reste de la page (`minmax(0,1fr)`).
-// Aucune largeur fixe, aucun défilement de côté à partir de `lg` : les blocs empilés (couverture,
-// totaux, employés) gardent leurs colonnes alignées parce qu'ils utilisent le même gabarit.
-const gridCols = (n: number, compact = false) => ({ display: "grid", gridTemplateColumns: `minmax(${compact ? "8.5rem,11rem" : "10rem,12rem"}) repeat(${n}, minmax(0, 1fr))` });
 const fmtH = (h: number) => (Number.isInteger(h) ? `${h}h` : `${h.toFixed(1).replace(".", ",")}h`);
 
 export function PlanningSemaine({
@@ -112,6 +82,7 @@ export function PlanningSemaine({
 }) {
   const [isPending, start] = useTransition();
   const parId = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
+  const abreges = useMemo(() => abreviationsShifts(shifts), [shifts]); // vue Mois : une abréviation par shift, jamais deux identiques
   const absSet = useMemo(() => new Set(absences), [absences]);
   const autoKeys = useMemo(() => new Set(autoSet), [autoSet]);
   const [couvOuverte, setCouvOuverte] = useState(false); // détail de couverture par shift, replié par défaut
@@ -301,8 +272,8 @@ export function PlanningSemaine({
               <div className="border-r bg-card px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Total / jour</div>
               {jours.map((j, i) => (
                 <div key={j.iso} title={`${fmtH(totJour[i].heures)} · ${totJour[i].personnes} personne(s)`} className={`min-w-0 border-l py-1.5 text-center ${compact ? "px-0" : "px-1"} ${j.aujourdhui ? "bg-primary/10" : ""}`}>
-                  {!compact && <div className="text-xs font-semibold tabular-nums">{fmtH(totJour[i].heures)}</div>}
-                  <div className={`text-muted-foreground tabular-nums ${compact ? "text-[10px] font-semibold" : "text-[10px]"}`}>{compact ? totJour[i].personnes : `👤 ${totJour[i].personnes}`}</div>
+                  <div className={`font-semibold tabular-nums ${compact ? "text-[9px]" : "text-xs"}`}>{fmtH(totJour[i].heures)}</div>
+                  <div className={`text-muted-foreground tabular-nums ${compact ? "text-[9px]" : "text-[10px]"}`}>{compact ? totJour[i].personnes : `👤 ${totJour[i].personnes}`}</div>
                 </div>
               ))}
             </div>
@@ -351,7 +322,7 @@ export function PlanningSemaine({
                     const sous = hp < e.heuresHebdo;
                     return (
                       <div key={e.id} style={gridCols(jours.length, compact)} className={`border-b last:border-0 ${sel.has(e.id) ? "bg-primary/5" : "hover:bg-accent/20"}`}>
-                        <div className={`sticky left-0 z-[1] flex items-center gap-2 border-r bg-card px-3 ${tailleCfg.padRow}`}>
+                        <div className={`flex items-center gap-2 border-r bg-card px-3 ${tailleCfg.padRow}`}>
                           {peutModifier && <input type="checkbox" checked={sel.has(e.id)} onChange={() => toggleEmp(e.id)} className="shrink-0" aria-label={`Sélectionner ${e.nom}`} />}
                           {tailleCfg.avatarTaille > 0 ? (
                             <Avatar nom={e.nom} taille={tailleCfg.avatarTaille} photoUrl={e.photoUrl} />
@@ -383,7 +354,7 @@ export function PlanningSemaine({
                 const pal = paletteDe(s?.couleur ?? "indigo");
                 return (
                   <div key={`${ligne.shiftId}|${ligne.poste}`} style={gridCols(jours.length, compact)} className="border-b last:border-0">
-                    <div className={`sticky left-0 z-[1] flex items-center gap-2 border-r bg-card px-3 ${tailleCfg.padRow}`}>
+                    <div className={`flex items-center gap-2 border-r bg-card px-3 ${tailleCfg.padRow}`}>
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: pal.hex.text }} />
                       <span className="min-w-0">
                         <span className="block truncate text-xs font-semibold">{s?.nom ?? ligne.shiftId}</span>
@@ -499,7 +470,7 @@ export function PlanningSemaine({
         <button type="button" disabled={!peutModifier} onClick={(ev) => ouvrirMenu(ev, empId, j.iso)} style={{ backgroundColor: pal.hex.bg, color: pal.hex.text }}
           title={`${s.nom}${aHoraire ? ` · ${s.heureDebut}–${s.heureFin}` : ""}${auto ? " (généré automatiquement)" : ""}`}
           className={`${base} ${clic} relative items-center justify-center text-center font-semibold hover:brightness-95`}>
-          {cfg.compact ? <span>{abrege(s.nom)}</span> : aHoraire ? <span className="whitespace-nowrap tabular-nums max-xl:text-[10px]">{s.heureDebut}–{s.heureFin}</span> : <span className="truncate">{s.nom}</span>}
+          {cfg.compact ? <span>{abreges.get(s.id) ?? s.nom}</span> : aHoraire ? <span className="whitespace-nowrap tabular-nums max-xl:text-[10px]">{s.heureDebut}–{s.heureFin}</span> : <span className="truncate">{s.nom}</span>}
           {auto && !cfg.compact && <span aria-hidden title="Généré automatiquement" className="absolute right-1 top-1 text-[9px] opacity-60">✨</span>}
         </button>
       );

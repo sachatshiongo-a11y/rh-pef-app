@@ -341,11 +341,85 @@ describe("vue Employé", () => {
   });
 });
 
+describe("une case de saisie ne suit jamais l'employé précédent", () => {
+  const heuresDe = (nom: string, jour: string) => q<HTMLInputElement>(`input[aria-label="Heures de ${nom} — ${jour}"]`)!;
+
+  it("vue Employé : échec réseau chez Alice, puis employé suivant : la case de Bruno est la sienne et rien n'est envoyé à sa place", async () => {
+    m.saisirHeures.mockRejectedValueOnce(new Error("Réseau coupé."));
+    rendre({ vue: "employe", employe: "e1" });
+    const chezAlice = heuresDe("Alice", "lundi 5 octobre");
+    act(() => chezAlice.focus());
+    taper(chezAlice, "7");
+    await act(async () => chezAlice.blur()); // échec : la case d'Alice reste en erreur
+    expect(chezAlice.getAttribute("aria-invalid")).toBe("true");
+    m.saisirHeures.mockClear();
+
+    clic(q('[aria-label="Employé suivant"]')!);
+    const chezBruno = heuresDe("Bruno", "lundi 5 octobre");
+    expect(chezBruno).not.toBeNull();
+    expect(chezBruno.getAttribute("aria-invalid")).not.toBe("true"); // l'erreur d'Alice ne suit pas
+    expect(chezBruno.value).toBe("0"); // les heures de Bruno le 5 (0), surtout pas les « 7 » d'Alice
+    act(() => chezBruno.focus());
+    await act(async () => chezBruno.blur());
+    expect(m.saisirHeures).not.toHaveBeenCalled();
+  });
+
+  it("vue Employé : une frappe en attente chez Alice part chez Alice, pas chez Bruno", async () => {
+    rendre({ vue: "employe", employe: "e1" });
+    const chezAlice = heuresDe("Alice", "mardi 6 octobre");
+    act(() => chezAlice.focus());
+    taper(chezAlice, "6");
+    await act(async () => { clic(q('[aria-label="Employé suivant"]')!); });
+    expect(m.saisirHeures.mock.calls.every((c) => (c as unknown[])[0] === "e1")).toBe(true);
+    expect(m.saisirHeures.mock.calls.some((c) => (c as unknown[])[0] === "e2")).toBe(false);
+  });
+
+  it("liste du jour (téléphone) : au changement de jour, la case de chacun est remontée et ne garde pas la frappe du jour d'avant", async () => {
+    rendre();
+    const c = q<HTMLInputElement>('input[aria-label^="Heures de Bruno —"]')!;
+    act(() => c.focus());
+    taper(c, "5");
+    await act(async () => clic(q('[aria-label="Jour suivant"]')!));
+    expect(m.saisirHeures).toHaveBeenCalledWith("e2", "2026-10-05", "5"); // part sur le jour QUITTÉ
+    expect(q<HTMLInputElement>('input[aria-label^="Heures de Bruno —"]')!.value).toBe("");
+  });
+});
+
+describe("raccourcis clavier", () => {
+  it("Ctrl/Cmd/Alt + lettre n'écrit jamais un code (Cmd+C ne pose pas un « C »)", () => {
+    rendre();
+    const cellule = q('button[data-emp="e1"][data-day="5"]')!;
+    for (const mod of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      act(() => { cellule.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true, cancelable: true, ...mod })); });
+    }
+    expect(m.saisirPresence).not.toHaveBeenCalled();
+    act(() => { cellule.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true, cancelable: true })); });
+    expect(m.saisirPresence).toHaveBeenCalledWith("e1", "2026-10-05", "C");
+  });
+});
+
+describe("portées de l'action groupée — dites sans ambiguïté", () => {
+  it("en vue Semaine, ce qui couvre tout le mois le dit ; la semaine et les jours cochés restent tels quels", () => {
+    rendre();
+    cocher("Alice");
+    const portee = barre().querySelector<HTMLSelectElement>('select[aria-label="Jours concernés"]')!;
+    const libelles = Array.from(portee.options).map((o) => o.textContent);
+    expect(libelles).toEqual([
+      "la semaine affichée", "tout le mois", "jours ouvrables du mois (hors dimanche et fériés)", "jours fériés du mois",
+      "1 jour sur 2 dans le mois", "jours précis du mois", "période du mois (du jour… au jour…)", "jours cochés (0)",
+    ]);
+  });
+});
+
 describe("téléphone : la liste d'un jour", () => {
   it("cases à cocher par employé, cibles de 44 px, barre d'actions (ce jour par défaut)", async () => {
     rendre();
     const liste = q('.lg\\:hidden [data-tableur]')!;
     expect(liste.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+    // Cible de 44 px : l'étiquette qui entoure la case, et le bouton du nom
+    expect(liste.querySelector('label')!.className).toMatch(/\bh-11\b/);
+    expect(liste.querySelector('label')!.className).toMatch(/\bw-11\b/);
+    expect(Array.from(liste.querySelectorAll("button")).find((b) => b.textContent === "Alice")!.className).toMatch(/\bmin-h-11\b/);
     expect(liste.querySelector<HTMLSelectElement>('select[aria-label="Code de Alice"]')!.className).toContain("h-11");
     expect(q<HTMLButtonElement>('[aria-label="Jour suivant"]')!.className).toContain("h-11");
 

@@ -241,7 +241,9 @@ export function TempsGrid({
   /** `voisin(direction)` : la case voisine [employé, jour], selon la vue (ligne ± 1 / jour ± 1, ou jour ± 7 en calendrier). */
   function clavier(ev: React.KeyboardEvent<HTMLButtonElement>, empId: string, day: number, voisin: Voisin) {
     const lettre = ev.key.toUpperCase();
-    if (peutModifier && CODES_SET.has(lettre)) {
+    // Cmd/Ctrl/Alt + lettre est un raccourci du navigateur (copier, coller…), jamais un code de présence.
+    const raccourci = ev.ctrlKey || ev.metaKey || ev.altKey;
+    if (peutModifier && !raccourci && CODES_SET.has(lettre)) {
       ev.preventDefault();
       ecrireCode(empId, day, lettre);
       const suivante = voisin("droite");
@@ -316,11 +318,12 @@ export function TempsGrid({
       case "jour-affiche": return "ce jour";
       case "semaine": return variante === "telephone" ? "toute la semaine" : "la semaine affichée";
       case "mois": return "tout le mois";
-      case "ouvrables": return "jours ouvrables (hors dimanche et fériés)";
-      case "feries": return "jours fériés uniquement";
-      case "alternes": return "1 jour sur 2";
-      case "jour": return "jours précis";
-      case "periode": return "période (du jour… au jour…)";
+      // Ces portées ne regardent PAS la semaine affichée : elles couvrent le mois entier, et le disent.
+      case "ouvrables": return "jours ouvrables du mois (hors dimanche et fériés)";
+      case "feries": return "jours fériés du mois";
+      case "alternes": return "1 jour sur 2 dans le mois";
+      case "jour": return "jours précis du mois";
+      case "periode": return "période du mois (du jour… au jour…)";
       case "coches": return `jours cochés (${joursCoches.length})`;
     }
   }
@@ -658,7 +661,9 @@ export function TempsGrid({
       return n >= 1 && n <= days.length ? [e.id, n] : null;
     };
     return (
-      <div className="mt-2 space-y-4">
+      // key = l'employé : changer d'employé REMONTE tout (cases d'heures comprises) — une case en erreur ou
+      // en cours de frappe ne peut pas passer, avec sa valeur, sur l'employé suivant.
+      <div key={e.id} className="mt-2 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <Avatar nom={e.nom} taille={44} photoUrl={e.photoUrl} />
           <div className="min-w-0">
@@ -716,9 +721,9 @@ export function TempsGrid({
                 const hs = infoHoraire(c, info, e.heuresParJour);
                 const iso = isoDates[d - 1];
                 return (
-                  <div key={d} className={`flex items-center gap-2 rounded-xl border p-2 ${joursSel.has(d) ? "border-primary bg-primary/5" : estMajore(d) ? "bg-orange-50" : "bg-card"}`}>
+                  <div key={`${e.id}_${d}`} className={`flex items-center gap-2 rounded-xl border p-2 ${joursSel.has(d) ? "border-primary bg-primary/5" : estMajore(d) ? "bg-orange-50" : "bg-card"}`}>
                     {peutModifier && (
-                      <label className="flex h-11 w-9 shrink-0 items-center justify-center">
+                      <label className="flex h-11 w-11 shrink-0 items-center justify-center">
                         <input type="checkbox" className="h-5 w-5" checked={joursSel.has(d)} onChange={() => toggleJour(d)} aria-label={`Cocher le jour ${libelleJourLong(iso)}`} />
                       </label>
                     )}
@@ -835,7 +840,7 @@ export function TempsGrid({
                   return (
                     <div key={emp.id} className={`flex items-center gap-2 rounded-xl border p-2 ${selection.has(emp.id) ? "border-primary bg-primary/5" : "bg-card"}`}>
                       {peutModifier && (
-                        <label className="flex h-11 w-9 shrink-0 items-center justify-center">
+                        <label className="flex h-11 w-11 shrink-0 items-center justify-center">
                           <input type="checkbox" className="h-5 w-5" checked={selection.has(emp.id)} onChange={() => toggleEmp(emp.id)} aria-label={`Sélectionner ${emp.nom}`} />
                         </label>
                       )}
@@ -843,7 +848,7 @@ export function TempsGrid({
                         <Avatar nom={emp.nom} taille={36} photoUrl={emp.photoUrl} />
                       </Link>
                       <div className="min-w-0 flex-1">
-                        <button type="button" onClick={() => ouvrirEmploye(emp.id)} className="block min-h-6 max-w-full truncate text-left font-medium">{emp.nom}</button>
+                        <button type="button" onClick={() => ouvrirEmploye(emp.id)} className="flex min-h-11 max-w-full items-center truncate text-left font-medium">{emp.nom}</button>
                         <div className="font-mono text-xs text-muted-foreground">{emp.matricule}</div>
                         {hs.horaire && (
                           <div className={`truncate text-[11px] tabular-nums ${hs.supp ? "font-semibold text-amber-700" : info?.reel ? "font-semibold text-foreground" : "text-muted-foreground"}`}>
@@ -865,7 +870,7 @@ export function TempsGrid({
                             {CODES.map((x) => (<option key={x} value={x}>{x}</option>))}
                           </select>
                           <CelluleNombre
-                            key={jourMobile} ligne={emp.id} col={0} donnee={isoDates[jourMobile - 1]} valeur={c.heures} min={0} max={24}
+                            key={`${emp.id}_${jourMobile}`} ligne={emp.id} col={0} donnee={isoDates[jourMobile - 1]} valeur={c.heures} min={0} max={24}
                             onEnregistrer={enregistrerHeuresCase}
                             placeholder="h"
                             className="h-11 w-16 rounded-md border border-input bg-background px-2 text-right text-base font-semibold"
