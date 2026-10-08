@@ -4,7 +4,7 @@ import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { lignesTransport, colonnesTransport, cdf, usd } from "../_donnees";
-import { filtrerEmployes } from "../../employes/_donnees";
+import { filtrerEmployes, statutEmployes, whereStatutEmployes } from "../../employes/_donnees";
 import { formaterNombre } from "@/lib/montant";
 
 /** Export PDF de la grille de transport — mêmes filtres, colonnes et montants que l'onglet, total en pied. */
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const [tous, parametres] = await Promise.all([
-    prisma.employee.findMany({ where: { actif: true }, orderBy: [{ categorie: "asc" }, { nom: "asc" }] }),
+    prisma.employee.findMany({ where: whereStatutEmployes(statutEmployes(sp.get("statut"))), orderBy: [{ categorie: "asc" }, { nom: "asc" }] }),
     chargerParametresPaie(),
   ]);
   const employes = filtrerEmployes(tous, sp);

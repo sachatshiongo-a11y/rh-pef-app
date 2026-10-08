@@ -5,7 +5,7 @@ import { Avatar } from "@/components/avatar";
 import { BoutonRapport } from "@/app/(stock)/stock/_rapport/bouton-rapport";
 import { chargerParametresPaie } from "@/lib/config";
 import { GrilleTransport } from "@/app/(app)/transport/_grille";
-import { filtrerEmployes } from "./_donnees";
+import { filtrerEmployes, statutEmployes, whereStatutEmployes } from "./_donnees";
 import type { Employee } from "@prisma/client";
 import { exigerPageRH } from "@/lib/garde-page";
 import { doublonsProbables } from "@/lib/employe-doublon";
@@ -30,8 +30,8 @@ export default async function EmployesPage({
   const estDirection = user.role === "ADMIN";
   const vue = sp.vue === "transport" ? "transport" : "rh";
   // Actifs par défaut ; « inactifs » = ex-employés (fin de contrat) ; « tous » = registre complet.
-  const statut = sp.statut === "inactifs" ? "inactifs" : sp.statut === "tous" ? "tous" : "actifs";
-  const whereActif = statut === "inactifs" ? { actif: false } : statut === "tous" ? {} : { actif: true };
+  const statut = statutEmployes(sp.statut);
+  const whereActif = whereStatutEmployes(statut);
 
   const [tous, parametres, identites, ecartees] = await Promise.all([
     prisma.employee.findMany({ where: whereActif, orderBy: [{ nom: "asc" }, { id: "asc" }] }),

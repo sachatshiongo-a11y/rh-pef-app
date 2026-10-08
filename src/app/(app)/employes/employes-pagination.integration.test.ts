@@ -110,4 +110,32 @@ describe("Employés — l'export exporte TOUT l'ensemble filtré, jamais la page
     const c = await lireExcel("http://x/employes/export?q=Salari%C3%A9%20115&page=1&par=50");
     expect(c.filter((v) => /^M-\d{3}$/.test(v))).toEqual(["M-115"]);
   });
+
+  it("l'export suit le statut de l'écran : inactifs → les 10 ex-employés ; tous → 130 ; libellé juste", async () => {
+    const ina = await lireExcel("http://x/employes/export?statut=inactifs");
+    expect(ina.filter((v) => /^M-\d{3}$/.test(v))).toHaveLength(10);
+    expect(ina.some((v) => v.includes("10 employé(s) inactif(s)"))).toBe(true);
+    const tous = await lireExcel("http://x/employes/export?statut=tous&page=3");
+    expect(tous.filter((v) => /^M-\d{3}$/.test(v))).toHaveLength(130);
+    expect(tous.some((v) => v.includes("130 employé(s) au total"))).toBe(true);
+  });
+  it("l'export Transport suit aussi le statut", async () => {
+    const { seedParametresLegaux } = await import("@/lib/test/db");
+    await seedParametresLegaux(H.client, 2026);
+    await H.client.config.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton", tauxChangeCDF: 2800, anneeCourante: 2026, moisCourant: 10 } });
+    const { GET } = await import("../transport/export/route");
+    const ExcelJS = (await import("exceljs")).default;
+    const res = await GET(new Request("http://x/transport/export?statut=inactifs"));
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await res.arrayBuffer()) as unknown as ArrayBuffer);
+    const cellules: string[] = [];
+    wb.worksheets[0].eachRow((row) => row.eachCell((c) => cellules.push(String(c.value ?? ""))));
+    expect(cellules.filter((v) => /^M-\d{3}$/.test(v))).toHaveLength(10);
+  });
+  it("PDF des employés : accepté avec le statut (réponse PDF)", async () => {
+    const { GET } = await import("./pdf/route");
+    const res = await GET(new Request("http://x/employes/pdf?statut=inactifs"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("pdf");
+  });
 });

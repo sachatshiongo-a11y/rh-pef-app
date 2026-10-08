@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { classeurExcel } from "@/lib/export-excel";
-import { filtrerEmployes, colonnesEmployes, ligneEmploye } from "../_donnees";
+import { filtrerEmployes, colonnesEmployes, ligneEmploye, statutEmployes, whereStatutEmployes, libelleNombreEmployes } from "../_donnees";
 
 /** Export Excel de la liste des employés — FIDÈLE à l'onglet (mêmes filtres, brigade puis backoffice). */
 export async function GET(request: Request) {
@@ -9,13 +9,14 @@ export async function GET(request: Request) {
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
 
-  const tous = await prisma.employee.findMany({ where: { actif: true }, orderBy: [{ categorie: "asc" }, { nom: "asc" }] });
+  const statut = statutEmployes(sp.get("statut")); // le statut de l'écran (actifs / inactifs / tous), pas toujours les actifs
+  const tous = await prisma.employee.findMany({ where: whereStatutEmployes(statut), orderBy: [{ categorie: "asc" }, { nom: "asc" }] });
   const employes = filtrerEmployes(tous, sp);
 
   const lignes = employes.map(ligneEmploye);
   const buf = await classeurExcel({
     titre: "Liste des employés",
-    periode: `${employes.length} employé(s) actif(s)`,
+    periode: libelleNombreEmployes(employes.length, statut),
     feuilles: [{ nom: "Employés", entete: colonnesEmployes.map((c) => c.header), lignes }],
   });
   return new Response(new Uint8Array(buf), {

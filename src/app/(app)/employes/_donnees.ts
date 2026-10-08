@@ -4,6 +4,16 @@ import { formaterNombre } from "@/lib/montant";
 
 const money = (n: number) => formaterNombre(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** `?statut=` de l'onglet Employés : actifs (défaut), inactifs (ex-employés) ou tous. UNE lecture pour l'écran ET pour ses exports. */
+export function statutEmployes(brut: string | null | undefined): "actifs" | "inactifs" | "tous" {
+  return brut === "inactifs" ? "inactifs" : brut === "tous" ? "tous" : "actifs";
+}
+export const whereStatutEmployes = (statut: "actifs" | "inactifs" | "tous") =>
+  statut === "inactifs" ? { actif: false } : statut === "tous" ? {} : { actif: true };
+/** « 12 employé(s) actif(s) » / « inactif(s) » / « au total » : le libellé suit le statut exporté. */
+export const libelleNombreEmployes = (n: number, statut: "actifs" | "inactifs" | "tous") =>
+  `${n} employé(s) ${statut === "inactifs" ? "inactif(s)" : statut === "tous" ? "au total" : "actif(s)"}`;
+
 /** Filtre la liste (mêmes critères que l'onglet Employés) et ordonne Brigade puis Backoffice, par nom. */
 export function filtrerEmployes(tous: Employee[], sp: URLSearchParams): Employee[] {
   const q = (sp.get("q") ?? "").trim().toLowerCase();

@@ -3,7 +3,7 @@ import { exigerEspaceRH } from "@/lib/garde-route";
 import { chargerParametresPaie } from "@/lib/config";
 import { classeurExcel } from "@/lib/export-excel";
 import { lignesTransport, colonnesTransport } from "../_donnees";
-import { filtrerEmployes } from "../../employes/_donnees";
+import { filtrerEmployes, statutEmployes, whereStatutEmployes } from "../../employes/_donnees";
 
 /** Export Excel de la grille de transport — FIDÈLE à l'onglet (mêmes filtres, montants, total mois complet). */
 export async function GET(request: Request) {
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   if (!g.ok) return g.reponse;
   const sp = new URL(request.url).searchParams;
   const [tous, parametres] = await Promise.all([
-    prisma.employee.findMany({ where: { actif: true }, orderBy: [{ categorie: "asc" }, { nom: "asc" }] }),
+    prisma.employee.findMany({ where: whereStatutEmployes(statutEmployes(sp.get("statut"))), orderBy: [{ categorie: "asc" }, { nom: "asc" }] }),
     chargerParametresPaie(),
   ]);
   const employes = filtrerEmployes(tous, sp);
