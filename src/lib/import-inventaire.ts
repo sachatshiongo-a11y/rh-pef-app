@@ -212,10 +212,12 @@ export async function appliquerInventaire(
         ops.push({ batchId: batch.id, entite: "ArticleStock", entiteId: articleId, action: "CREATE", avant: Prisma.DbNull });
         codeToArticleId.set(a.domaine + "|" + a.code, articleId);
       } else {
-        const cur = await tx.articleStock.findUniqueOrThrow({ where: { id: articleId }, select: { prixUnitaireUSD: true, unite: true, stock: { select: { quantite: true } } } });
+        const cur = await tx.articleStock.findUniqueOrThrow({ where: { id: articleId }, select: { devisePrix: true, prixUnitaireUSD: true, unite: true, stock: { select: { quantite: true } } } });
         ops.push({ batchId: batch.id, entite: "ArticleStock", entiteId: articleId, action: "UPDATE", avant: { prixUnitaireUSD: cur.prixUnitaireUSD?.toString() ?? null, unite: cur.unite ?? null } });
         ops.push({ batchId: batch.id, entite: "Stock", entiteId: articleId, action: "UPDATE", avant: { quantite: cur.stock?.quantite?.toString() ?? null } });
-        await tx.articleStock.update({ where: { id: articleId }, data: { ...(a.prix != null ? { prixUnitaireUSD: a.prix } : {}), ...(a.unite ? { unite: a.unite } : {}) } });
+        // Le classeur donne des prix en dollars : un article dont le prix de référence est en FRANCS
+        // (2026-10-08) garde ce prix — la devise de saisie fait foi, l'import ne la renverse pas.
+        await tx.articleStock.update({ where: { id: articleId }, data: { ...(a.prix != null && cur.devisePrix !== "CDF" ? { prixUnitaireUSD: a.prix } : {}), ...(a.unite ? { unite: a.unite } : {}) } });
       }
       // Stock final (photo instant T)
       await tx.stock.upsert({
@@ -319,7 +321,11 @@ export async function annulerImport(batchId: string, userId?: string): Promise<v
     for (const o of updates) {
       const av = o.avant as Record<string, string | null> | null;
       if (!av) continue;
-      if (o.entite === "ArticleStock") await tx.articleStock.update({ where: { id: o.entiteId }, data: { prixUnitaireUSD: av.prixUnitaireUSD != null ? new Prisma.Decimal(av.prixUnitaireUSD) : null, unite: av.unite } });
+      if (o.entite === "ArticleStock") {
+        // Article passé en francs depuis l'import : son prix en francs reste (un prix en dollars n'y a plus sa place).
+        const art = await tx.articleStock.findUnique({ where: { id: o.entiteId }, select: { devisePrix: true } });
+        await tx.articleStock.update({ where: { id: o.entiteId }, data: { ...(art?.devisePrix === "CDF" ? {} : { prixUnitaireUSD: av.prixUnitaireUSD != null ? new Prisma.Decimal(av.prixUnitaireUSD) : null }), unite: av.unite } });
+      }
       else if (o.entite === "Stock") await tx.stock.updateMany({ where: { articleId: o.entiteId }, data: { quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 } });
     }
     await tx.importBatch.update({ where: { id: batchId }, data: { statut: "ANNULE", annuleeAt: new Date() } });
