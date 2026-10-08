@@ -109,7 +109,7 @@ describe("chemins d'écriture des factures et paiements", () => {
 });
 
 describe("cœurs d'écriture jamais exposés comme actions serveur", () => {
-  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx"];
+  const COEURS = ["reglerFactureTx", "reglerLotTx", "ecrireComptageTx", "appliquerPatchArticleTx", "validerDemande", "refuserDemande", "retirerDemande", "demanderPaiement", "proposerModifications", "appliquerOuDemanderComptage", "verrouillerFacture", "ecrireMouvementsTx", "appliquerMouvementManuel", "notifierGesteStock", "convertirFrancs", "appliquerChangementDateSorties", "changerDateSortiesTx", "rattacherAutomatiquement"];
   it("aucun fichier « use server » ne ré-exporte un cœur", () => {
     const fautifs: string[] = [];
     for (const p of fichiers(path.join(SRC, "app"))) {

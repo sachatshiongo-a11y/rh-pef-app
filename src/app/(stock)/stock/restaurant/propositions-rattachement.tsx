@@ -11,6 +11,9 @@ import { accepterPropositions } from "./actions";
 /**
  * Propositions de rattachement (noms identiques) : rien n'est rattaché tant que la Direction n'a pas
  * coché la ligne et cliqué « Rattacher » — actions groupées, comme partout dans l'application.
+ * Restent utiles pour les articles du restaurant dont l'article du catalogue n'a PAS été livré cette
+ * semaine (le rattachement automatique ne part que d'une livraison) ; celles que le bouton du bandeau
+ * couvre déjà ne sont pas montrées (page.tsx).
  */
 export function PropositionsRattachement({ propositions }: { propositions: Proposition[] }) {
   const [isPending, start] = useTransition();
@@ -37,7 +40,7 @@ export function PropositionsRattachement({ propositions }: { propositions: Propo
     <section className="space-y-2 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
       <h2 className="text-sm font-semibold text-sky-900">Propositions de rattachement au catalogue ({propositions.length})</h2>
       <p className="text-xs text-sky-900">
-        Même désignation que l&apos;article du catalogue (sans tenir compte des majuscules ni des espaces). Rien n&apos;est rattaché sans votre validation.
+        Même désignation (ou nom court) que l&apos;article du catalogue, aux accents, majuscules, espaces et ponctuation près. Rien n&apos;est rattaché sans votre validation ; les articles livrés cette semaine se rattachent, eux, par le bandeau ci-dessus.
       </p>
       {nbSignalees > 0 && (
         <p className="text-xs text-amber-900">

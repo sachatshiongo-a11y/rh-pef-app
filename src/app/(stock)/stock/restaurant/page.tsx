@@ -6,6 +6,7 @@ import { joursSemaine } from "./semaine";
 import { jourKinshasaISO } from "@/lib/date-paiement";
 import { formaterNombre } from "@/lib/montant";
 import { chargerEntreesStockResto } from "@/lib/stock-restaurant-charger";
+import { planRattachementAuto } from "@/lib/rattachement-auto";
 import { LIBELLE_SIGNALEMENT, recuDuDepot, stockRestaurantTheorique, type SignalementLivraison } from "@/lib/stock-restaurant";
 
 const q3 = (v: string) => formaterNombre(Number(v), { maximumFractionDigits: 3 });
@@ -48,14 +49,18 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     }),
     // Catalogue actif : choix du rattachement ET propositions (noms identiques). Lecture seule —
     // rien n'est rattaché ici, seulement proposé.
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, unite: true, actif: true, contenance: true, contenanceUnite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, unite: true, actif: true, contenance: true, contenanceUnite: true } }),
     // Entrées du stock théorique (requêtes groupées, jamais par article) : lecture seule.
     chargerEntreesStockResto({ depuis: jours[0].iso, jusquA: aujourdhui > jours[6].iso ? aujourdhui : jours[6].iso }),
   ]);
   const theorique = stockRestaurantTheorique(entrees, aujourdhui).parArticle;
   // Livraisons de la semaine qui n'alimentent pas le restaurant : signalées, jamais réparties.
   const nonRattachees = stockRestaurantTheorique(entrees, jours[6].iso).nonRattachees.filter((l) => l.date >= jours[0].iso);
-  const propositions = proposerRattachements(articles.filter((a) => a.actif), catalogue);
+  // Rattachement automatique : ce que le bouton du bandeau ferait (LECTURE seule — rien n'est écrit à
+  // l'affichage). Les propositions déjà couvertes par lui ne sont pas montrées une seconde fois.
+  const planAuto = await planRattachementAuto([...new Set(nonRattachees.map((l) => l.articleStockId))]);
+  const couverts = new Set(planAuto.filter((d) => d.action !== "LAISSER").map((d) => d.articleStockId));
+  const propositions = proposerRattachements(articles.filter((a) => a.actif), catalogue).filter((p) => !couverts.has(p.articleStockId));
 
   // Regroupe les livraisons par jour.
   const livParJour = new Map<string, { designation: string; quantite: number }[]>();
@@ -100,7 +105,7 @@ export default async function RestaurantPage({ searchParams }: { searchParams: P
     <RestaurantEcran
       espace={espace} jours={jours} aujourdhui={aujourdhui} estDirection={estDirection} afficherDesactives={afficherDesactives}
       lignes={lignes} categories={categories} catalogue={catalogue.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite ?? "" }))}
-      livraisonsParJour={livraisonsParJour} nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]}
+      livraisonsParJour={livraisonsParJour} nonRattachees={nonRattachees} signalements={[...signalesSemaine.values()]} planAuto={planAuto}
       articlesResto={entrees.articles} propositions={propositions}
     />
   );
