@@ -20,8 +20,8 @@ import { PlanningSemaine } from "./planning-semaine";
 const LIBELLES = ["Lun 05", "Mar 06", "Mer 07", "Jeu 08", "Ven 09", "Sam 10", "Dim 11"];
 const JOURS = LIBELLES.map((label, i) => ({ iso: `2026-10-${String(5 + i).padStart(2, "0")}`, label, dow: (i + 1) % 7, ferie: false, dimanche: i === 6, aujourdhui: i === 2 }));
 const SHIFTS = [
-  { id: "matin", nom: "Matin", heureDebut: "07:00", heureFin: "15:00", couleur: "indigo", ordre: 1, systeme: false, actif: true },
-  { id: "soir", nom: "Soir", heureDebut: "15:00", heureFin: "23:00", couleur: "orange", ordre: 2, systeme: false, actif: true },
+  { id: "matin", nom: "Matin", heureDebut: "07:00", heureFin: "15:00", couleur: "indigo", ordre: 1, systeme: false, actif: true, dureeHeures: null, tauxHoraireUSD: null },
+  { id: "soir", nom: "Soir", heureDebut: "15:00", heureFin: "23:00", couleur: "orange", ordre: 2, systeme: false, actif: true, dureeHeures: null, tauxHoraireUSD: null },
 ];
 const GROUPES = [
   { titre: "Brigade", employees: [{ id: "e1", nom: "Ana Kabila", heuresHebdo: 48 }, { id: "e2", nom: "Ben Mbala", heuresHebdo: 48 }] },
