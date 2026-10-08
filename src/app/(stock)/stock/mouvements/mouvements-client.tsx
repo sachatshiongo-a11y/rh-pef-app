@@ -8,6 +8,7 @@ import { qte, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
 import { ChangerMotif } from "./changer-motif";
+import { ChangerDate } from "./changer-date";
 import { ChoixRecherche } from "@/components/choix-recherche";
 import { ChampNombre } from "@/components/champ-nombre";
 import { optionsArticles } from "@/lib/recherche-options";
@@ -76,7 +77,7 @@ export type ToutLeFiltre = { filtre: FiltreMouvements; colonne: Colonne; libelle
  */
 export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirection, requalifiable = false, toutLeFiltre }: {
   titre: string; mouvements: MvtLite[]; signe: string; couleur: string; estDirection: boolean;
-  /** Sorties : la Direction peut changer le motif des lignes cochées (sans toucher au stock). */
+  /** Sorties : la Direction peut changer le motif et la date des lignes cochées, ou la date d'une ligne (sans toucher au stock). */
   requalifiable?: boolean;
   toutLeFiltre?: ToutLeFiltre;
 }) {
@@ -84,9 +85,12 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
   const [modeFiltre, setModeFiltre] = useState(false);
   // Nombre recompté par le serveur (refus « le nombre a changé ») : vaut tant que le total reçu ne change pas.
   const [recompte, setRecompte] = useState<{ base: number; n: number } | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  /** Compte rendu de la dernière action ; `alerte` : un avertissement non bloquant l'accompagne (ambre). */
+  const [info, setInfo] = useState<{ texte: string; alerte?: boolean } | null>(null);
   const [isPending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  /** Sortie dont le panneau « Changer la date » est ouvert (à l'unité, depuis la ligne). */
+  const [dateOuverte, setDateOuverte] = useState<string | null>(null);
 
   const jours = useMemo(() => {
     const acc: { cle: string; titre: string; lignes: MvtLite[] }[] = [];
@@ -156,7 +160,15 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
             <ChangerMotif
               ids={[...sel]}
               toutLeFiltre={enModeFiltre && toutLeFiltre ? { filtre: toutLeFiltre.filtre, attendu: totalFiltre, libelle: toutLeFiltre.libelle } : undefined}
-              onFait={(t) => { setInfo(t); vider(); }}
+              onFait={(t) => { setInfo({ texte: t }); vider(); }}
+              onRecompte={surRecompte}
+            />
+          )}
+          {requalifiable && (
+            <ChangerDate
+              ids={[...sel]}
+              toutLeFiltre={enModeFiltre && toutLeFiltre ? { filtre: toutLeFiltre.filtre, attendu: totalFiltre, libelle: toutLeFiltre.libelle } : undefined}
+              onFait={(t, alerte) => { setInfo({ texte: t, alerte }); vider(); }}
               onRecompte={surRecompte}
             />
           )}
@@ -174,7 +186,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
           )}
         </div>
       )}
-      {info && <p className="border-b bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{info}</p>}
+      {info && <p role="status" className={`border-b px-3 py-2 text-xs ${info.alerte ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>{info.texte}</p>}
       {erreur && <p className="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive">{erreur}</p>}
 
       <div className="max-h-[70vh] divide-y overflow-auto">
@@ -191,7 +203,8 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
               </summary>
               <div className="divide-y border-t">
                 {j.lignes.map((m) => (
-                  <div key={m.id} className={`flex items-center justify-between gap-3 px-3 py-1.5 ${sel.has(m.id) ? "bg-primary/10" : ""}`}>
+                  <div key={m.id} className={sel.has(m.id) ? "bg-primary/10" : ""}>
+                  <div className="flex items-center justify-between gap-3 px-3 py-1.5">
                     <div className="flex min-w-0 items-start gap-2">
                       {estDirection && <input type="checkbox" checked={sel.has(m.id)} onChange={() => toggle(m.id)} className="mt-1 shrink-0" aria-label="Sélectionner" />}
                       <div className="min-w-0">
@@ -215,8 +228,20 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                         <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
                         <div className="text-[11px] tabular-nums text-muted-foreground">{m.valeur !== null ? `${m.valeurEstimee ? "≈ " : ""}${usd(m.valeur)}` : "—"}</div>
                       </div>
+                      {estDirection && requalifiable && m.type === "SORTIE" && (
+                        <button type="button" onClick={() => { setDateOuverte(dateOuverte === m.id ? null : m.id); setInfo(null); }}
+                          aria-expanded={dateOuverte === m.id} aria-label={`Changer la date de la sortie ${m.designation}`} title="Changer la date de cette sortie"
+                          className="rounded border px-1.5 py-0.5 text-xs hover:bg-accent">📅</button>
+                      )}
                       {estDirection && <SupprimerMouvementBtn id={m.id} />}
                     </div>
+                  </div>
+                  {dateOuverte === m.id && (
+                    <div data-date-sortie={m.id} className="border-t border-dashed bg-muted/30 px-3 py-2">
+                      <ChangerDate ids={[m.id]} dateActuelle={m.dateISO} onAnnuler={() => setDateOuverte(null)}
+                        onFait={(t, alerte) => { setInfo({ texte: `${m.designation} : ${t}`, alerte }); setDateOuverte(null); }} />
+                    </div>
+                  )}
                   </div>
                 ))}
               </div>
