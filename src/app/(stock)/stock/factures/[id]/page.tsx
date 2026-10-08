@@ -14,6 +14,7 @@ import { cleFacture } from "@/lib/validations-stock/charge";
 import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
 import { DecisionDemande } from "../../a-valider/decision-demande";
 import { lireRetourFiche } from "@/lib/fiche-fournisseur";
+import { formaterFC, formaterNombre } from "@/lib/montant";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -88,7 +89,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {/* Un paiement déjà demandé se DÉCIDE (bloc ci-dessous) : pas de second geste de paiement. */}
-          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} />}
+          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} />}
           {!demande && <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} estDirection={estDirection} />}
           <Link href={retour ?? "/stock/factures"} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
@@ -137,7 +138,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                 <span className="text-muted-foreground">
                   {p.type === "AVOIR" && <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Avoir</span>}
                   {new Date(p.date).toLocaleDateString("fr-FR")}{p.modePaiement ? ` · ${p.modePaiement}` : ""}{p.note ? ` · ${p.note}` : ""}
-                  {p.montantCDF ? <span className="ml-1 text-xs">({Number(p.montantCDF).toLocaleString("fr-FR")} FC @ {Number(p.tauxChangeUtilise ?? 0).toLocaleString("fr-FR")})</span> : null}
+                  {p.montantCDF ? <span className="ml-1 text-xs">(payé {formaterFC(Number(p.montantCDF))}{p.tauxChangeUtilise ? ` au taux de ${formaterNombre(Number(p.tauxChangeUtilise))} FC/$` : ""})</span> : null}
                 </span>
                 <span className="font-semibold tabular-nums text-emerald-700">{usd(Number(p.montantUSD))}</span>
               </li>

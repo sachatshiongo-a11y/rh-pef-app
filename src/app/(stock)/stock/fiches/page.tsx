@@ -1,7 +1,7 @@
 import { calculerCout, arrondirCentime } from "@/lib/fiches/cout";
 import type { EtatDispo } from "@/lib/fiches/disponibilite";
 import { chargerFichesVues, chargerArticlesDesFiches, chargerStocksDesFiches } from "./_data/charger-fiche";
-import { construireContexte, disponibilitesDesFiches, resumerDispo } from "./_data/fiche-calc";
+import { construireContexte, disponibilitesDesFiches, resumerDispo, coutEnFrancsConvertis } from "./_data/fiche-calc";
 import type { FicheRow } from "./fiches-client";
 import { EcranFiches } from "./ecran-fiches";
 import { peutSupprimer } from "@/lib/suppression-direction";
@@ -27,6 +27,8 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
 
   // Le coût n'est JAMAIS stocké : il est recalculé ici par le moteur, pour chaque fiche, avec le
   // même contexte (les sous-recettes se résolvent entre elles).
+  const mapVues = new Map(vues.map((v) => [v.id, v]));
+  const mapArticles = new Map(articles.map((a) => [a.id, a]));
   const rows: FicheRow[] = vues.map((v) => {
     const calc = contexte.fiches.get(v.id)!;
     const r = calculerCout(calc, contexte);
@@ -48,6 +50,8 @@ export default async function FichesPage({ searchParams }: { searchParams: Promi
       // montant. `incomplet` couvre en plus un nombre de portions inexploitable, où le coût total
       // reste exact — on ne mélange pas les deux.
       coutPartiel: r.ingredientsSansPrix.length > 0 || r.cycle,
+      // Un article au prix en francs, converti au taux du jour : coût « ≈ ».
+      coutApprox: coutEnFrancsConvertis(v.id, mapVues, mapArticles),
       incomplet: r.incomplet,
       nbIndetermines: r.ingredientsSansPrix.length,
       prixVenteHT: r.prixVenteHT,

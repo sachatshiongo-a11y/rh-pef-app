@@ -1,3 +1,5 @@
+import { libellePrixComplet, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte, ALERTE_LABEL } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
@@ -17,7 +19,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     ...(domaine ? { domaine } : {}),
     ...(q ? { designation: { contains: q, mode: "insensitive" } } : {}),
   };
-  const [articles, lignesFacture] = await Promise.all([
+  const [articles, lignesFacture, taux] = await Promise.all([
     prisma.articleStock.findMany({
       where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }],
       include: { categorie: { select: { nom: true } }, fournisseur: { select: { nom: true } }, stock: true },
@@ -26,16 +28,21 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
       where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
       select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
     }),
+    tauxDuJour(),
   ]);
   const hausses = articlesEnHausse(lignesFacture);
 
   const lignes = articles.map((a) => {
     const niv = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
     const qte = a.stock ? Number(a.stock.quantite) : 0;
-    const prix = a.prixUnitaireUSD !== null ? Number(a.prixUnitaireUSD) : null;
+    // Prix dans SA devise de saisie (« 7 000 FC (≈ 2,50 $) ») ; valeur en dollars, « ≈ » pour un article en francs.
+    const enUSD = prixArticleEnUSD(a, taux);
+    const prix = enUSD ? enUSD.valeur : null;
+    const prixTexte = prixSaisi(a) ? libellePrixComplet(a, taux) : null;
+    const valeurTexte = prix !== null ? `${enUSD!.approx ? "≈ " : ""}${(prix * qte).toFixed(2)}` : "";
     const pct = hausses.get(a.id);
     // La hausse est signalée directement dans la colonne Prix (ex. « 3.50  ↑+75% »).
-    const prixCell = prix !== null ? `${prix.toFixed(2)}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : (pct !== undefined ? `↑+${Math.round(pct)}%` : "");
+    const prixCell = prixTexte !== null ? `${prixTexte}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : (pct !== undefined ? `↑+${Math.round(pct)}%` : "");
     return [
       a.designation,
       qte,
@@ -44,7 +51,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
       a.categorie?.nom ?? "",
       a.fournisseur?.nom ?? "",
       prixCell,
-      prix !== null ? (prix * qte).toFixed(2) : "",
+      valeurTexte,
     ] as (string | number)[];
   });
 
@@ -52,7 +59,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     <PrintDoc
       titre="Inventaire — Stock & Achats"
       sousTitre={jourKinshasa(new Date())}
-      entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix USD", "Valeur USD"]}
+      entete={["Désignation", "Stock", "Alerte", "Min", "Catégorie", "Fournisseur", "Prix", "Valeur USD"]}
       aligneDroite={[1, 3, 6, 7]}
       lignes={lignes}
     />

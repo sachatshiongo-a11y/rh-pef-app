@@ -1,3 +1,5 @@
+import { libellesPrix } from "@/lib/prix-article";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import Link from "next/link";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
@@ -41,12 +43,13 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
   // Toujours lus, et peu coûteux : la fiche, les comptes des libellés d'onglets, les KPIs et les
   // effectifs des filtres (agrégats SQL, aucune ligne rapatriée). Le CONTENU, lui, n'est lu que pour
   // l'onglet affiché : plus de 500 factures + 300 bons + 300 achats à chaque ouverture.
-  const [f, statsFactures, statsBons, nbAchatsDirects] = await Promise.all([
+  const [f, statsFactures, statsBons, nbAchatsDirects, taux] = await Promise.all([
     prisma.fournisseur.findUnique({ where: { id }, include: { _count: { select: { articles: true } } } }),
     prisma.factureFournisseur.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true }, _sum: { montantUSD: true, resteAPayerUSD: true } }),
     prisma.bonDeCommande.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true } }),
     // Le VRAI total des achats DIRECTS (la liste de l'onglet est plafonnée).
     prisma.mouvementStock.count({ where: { fournisseurId: id, type: "ENTREE" } }),
+    tauxDuJour(), // prix d'articles en francs (≈) et paiement des factures en francs
   ]);
   if (!f) notFound();
 
@@ -146,10 +149,10 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
         onglets={onglets.map(({ o, label }) => ({ href: lienOnglet(o), label, actif: o === onglet }))}
       />
 
-      {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-regler": nbARegler, payees: nbPayees, toutes: nbFactures }} />}
+      {facturesDb && enAttente && <OngletFactures id={id} filtre={filtreFactures} estDirection={estDirection} factures={facturesDb} enAttente={enAttente.factures} effectifs={{ "a-regler": nbARegler, payees: nbPayees, toutes: nbFactures }} taux={taux ?? 0} />}
       {bonsDb && <OngletBons id={id} nom={f.nom} filtre={filtreBons} estDirection={estDirection} bons={bonsDb} effectifs={{ "en-cours": nbBonsEnCours, recus: nbBonsRecus, tous: nbBons }} />}
       {achatsDirects && <OngletAchats nbAchatsDirects={nbAchatsDirects} achatsDirects={achatsDirects} />}
-      {articles && <OngletArticles articles={articles} />}
+      {articles && <OngletArticles articles={articles} taux={taux} />}
       {onglet === "coordonnees" && (
         <section className="rounded-xl border p-4">
           <h2 className="mb-3 text-base font-semibold">Coordonnées</h2>
@@ -184,8 +187,8 @@ function Pastilles<T extends string>({ valeurs, actif, effectifs, lien, libelle 
 }
 
 // ─── Onglet Factures : filtre À régler / Payées / Toutes, regroupées par mois, actions groupées ───
-function OngletFactures({ id, filtre, estDirection, factures, enAttente, effectifs }: {
-  id: string; filtre: FiltreFactures; estDirection: boolean; factures: FactureFournisseur[]; enAttente: Set<string>; effectifs: Record<FiltreFactures, number>;
+function OngletFactures({ id, filtre, estDirection, factures, enAttente, effectifs, taux }: {
+  id: string; filtre: FiltreFactures; estDirection: boolean; factures: FactureFournisseur[]; enAttente: Set<string>; effectifs: Record<FiltreFactures, number>; taux: number;
 }) {
   const moisPlats = grouperFacturesParMois(factures).map((g) => ({ cle: g.cle, label: g.titre, factures: g.items.map((x) => versFactureRow(x, enAttente)) }));
   const lien = (v: FiltreFactures) => lienFiche(id, "factures", v);
@@ -202,7 +205,7 @@ function OngletFactures({ id, filtre, estDirection, factures, enAttente, effecti
           action={filtre !== "toutes" && effectifs.toutes > 0 ? <Link href={lien("toutes")} className="text-primary underline">Voir toutes les factures ({effectifs.toutes})</Link> : undefined}
         />
       ) : (
-        <FacturesUI key={filtre} moisPlats={moisPlats} ouvert={filtre === "a-regler"} sansFournisseur estDirection={estDirection} suffixeRetour={suffixeRetour(lien(filtre))} />
+        <FacturesUI key={filtre} moisPlats={moisPlats} ouvert={filtre === "a-regler"} sansFournisseur estDirection={estDirection} taux={taux} suffixeRetour={suffixeRetour(lien(filtre))} />
       )}
     </section>
   );
@@ -278,7 +281,7 @@ function OngletAchats({ nbAchatsDirects, achatsDirects }: { nbAchatsDirects: num
 // ─── Onglet Articles fournis : contenu inchangé ───
 type ArticleFourni = Prisma.ArticleStockGetPayload<{ include: { stock: true; categorie: { select: { nom: true } } } }>;
 
-function OngletArticles({ articles }: { articles: ArticleFourni[] }) {
+function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: number | null }) {
   return (
     <section>
       <h2 className="mb-2 text-base font-semibold">Articles fournis ({articles.length})</h2>
@@ -288,7 +291,7 @@ function OngletArticles({ articles }: { articles: ArticleFourni[] }) {
             <tr>
               <th className="px-3 py-2">Désignation</th>
               <th className="px-3 py-2">Catégorie</th>
-              <th className="px-3 py-2 text-right">Prix USD</th>
+              <th className="px-3 py-2 text-right">Prix</th>
               <th className="px-3 py-2 text-right">Stock</th>
               <th className="px-3 py-2">Alerte</th>
             </tr>
@@ -300,7 +303,7 @@ function OngletArticles({ articles }: { articles: ArticleFourni[] }) {
                 <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
                   <td className="px-3 py-2 font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></td>
                   <td className="px-3 py-2 text-muted-foreground">{a.categorie?.nom ?? "—"}</td>
-                  <td className="px-3 py-2 text-right">{usd(a.prixUnitaireUSD)}</td>
+                  <td className="px-3 py-2 text-right">{(() => { const l = libellesPrix(a, taux); return <>{l.principal}{l.autre && <span className="block text-[11px] text-muted-foreground">{l.autre}</span>}</>; })()}</td>
                   <td className="px-3 py-2 text-right">{a.stock ? qte(a.stock.quantite) : "—"}</td>
                   <td className="px-3 py-2">{niv && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[niv]}`}>{ALERTE_LABEL[niv]}</span>}</td>
                 </tr>

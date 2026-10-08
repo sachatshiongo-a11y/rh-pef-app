@@ -63,11 +63,13 @@ export async function GET(req: Request) {
           { label: "Entrées du mois (USD)", valeur: usd(valEnt) },
           { label: "Sorties du mois (USD)", valeur: usd(valSor) },
         ],
-        invEntete: ["Code", "Désignation", "Unité", "Catégorie", "Fournisseur", "Stock min", "Stock final", "Alerte stock", "Prix U. USD", "Valeur USD"],
+        invEntete: ["Code", "Désignation", "Unité", "Catégorie", "Fournisseur", "Stock min", "Stock final", "Alerte stock", "Prix U. USD", "Valeur USD", "Prix saisi en FC"],
         invLignes: g.lignes.map((l) => [
           l.code, l.designation, l.unite, l.categorie, l.fournisseur,
           r2(l.stockMinimum), r2(l.quantite), alerteLabel(l.quantite, l.stockMinimum),
           r2(l.prixUnitaireUSD), r2(l.quantite * l.prixUnitaireUSD),
+          // Article en francs : son prix tel que saisi et le taux qui l'a converti (« taux non défini » : non valorisé).
+          l.prixUnitaireCDF !== undefined ? `${l.prixUnitaireCDF} FC ${l.tauxChange ? `≈ au taux ${l.tauxChange}` : "(taux non défini : non valorisé)"}` : "",
         ]),
         invTotauxCols: [9],
         alerteCol: 7,
@@ -103,7 +105,7 @@ export async function GET(req: Request) {
     sectionRows.push(lignes.length);
     lignes.push([`${g.label} — ${usd(g.valeur)}`, "", "", "", "", ""]); couleurs.push(undefined);
     for (const l of g.lignes) {
-      lignes.push([l.designation, l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum), num(l.quantite), usd(l.quantite * l.prixUnitaireUSD)]);
+      lignes.push([l.designation, l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum), num(l.quantite), l.prixUnitaireCDF !== undefined ? (l.tauxChange ? `≈ ${usd(l.quantite * l.prixUnitaireUSD)}` : "—") : usd(l.quantite * l.prixUnitaireUSD)]);
       couleurs.push(COULEUR[niveauAlerte(l.quantite, l.stockMinimum)]);
     }
   }

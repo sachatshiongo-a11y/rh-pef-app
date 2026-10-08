@@ -49,11 +49,13 @@ function PRow({ label, value }: { label: string; value: string }) {
 
 export function FicheArticleDocument({
   designation, code, domaineLabel, categorieNom, fournisseurNom, unite,
-  stock, stockMinimum, seuilUrgent, valeur, prixReference, alerteLabel,
+  stock, stockMinimum, seuilUrgent, valeur, prixReference, alerteLabel, prixLibelle, valeurApprox,
   analyse, mouvements,
 }: {
   designation: string; code: string | null; domaineLabel: string; categorieNom: string; fournisseurNom: string; unite: string | null;
-  stock: number | null; stockMinimum: number | null; seuilUrgent: number | null; valeur: number; prixReference: number | null; alerteLabel: string;
+  stock: number | null; stockMinimum: number | null; seuilUrgent: number | null; valeur: number | null; prixReference: number | null; alerteLabel: string;
+  /** Prix de référence tel que saisi + l'autre devise (« 7 000 FC (≈ 2,50 $) ») ; « ≈ » devant la valeur d'un article en francs. */
+  prixLibelle?: string; valeurApprox?: boolean;
   analyse: AnalysePrix; mouvements: MouvementLigne[];
 }) {
   const uSuffix = unite ? ` ${unite}` : "";
@@ -74,8 +76,8 @@ export function FicheArticleDocument({
 
         <View style={styles.kpis}>
           <View style={styles.kpi}><Text style={styles.kpiLabel}>Stock actuel</Text><Text style={styles.kpiValue}>{stock === null ? "—" : `${nb(stock)}${uSuffix}`}</Text></View>
-          <View style={styles.kpi}><Text style={styles.kpiLabel}>Valeur du stock</Text><Text style={styles.kpiValue}>{usd(valeur)}</Text></View>
-          <View style={styles.kpi}><Text style={styles.kpiLabel}>Prix de référence</Text><Text style={styles.kpiValue}>{usd(prixReference)}</Text></View>
+          <View style={styles.kpi}><Text style={styles.kpiLabel}>Valeur du stock</Text><Text style={styles.kpiValue}>{valeurApprox ? "≈ " : ""}{usd(valeur)}</Text></View>
+          <View style={styles.kpi}><Text style={styles.kpiLabel}>Prix de référence</Text><Text style={styles.kpiValue}>{prixLibelle ?? usd(prixReference)}</Text></View>
           <View style={styles.kpi}><Text style={styles.kpiLabel}>Alerte</Text><Text style={styles.kpiValue}>{alerteLabel}</Text></View>
         </View>
 
