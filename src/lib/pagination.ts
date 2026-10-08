@@ -124,3 +124,12 @@ export function hrefPagination(chemin: string, params: Record<string, string | s
   const qs = appliquerPagination(p, page, par).toString();
   return qs ? `${chemin}?${qs}` : chemin;
 }
+
+/**
+ * Liste triée par date et groupée par mois : le premier groupe d'une page autre que la première peut se
+ * poursuivre sur la page précédente, le dernier d'une page autre que la dernière sur la suivante. Pour ces
+ * groupes, un compteur ou un total n'est que celui de la PAGE — l'écran doit le dire. PURE.
+ */
+export function groupePartiel(indice: number, nbGroupes: number, f: Pick<FenetrePage, "page" | "nbPages">): boolean {
+  return (indice === 0 && f.page > 1) || (indice === nbGroupes - 1 && f.page < f.nbPages);
+}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   appliquerPagination, compteurPage, fenetrePage, hrefPagination, lireNumeroPage, lireParPage, lirePagination,
-  numerosPages, pageApresChangementTaille, paramsSansPage, tranche,
+  groupePartiel, numerosPages, pageApresChangementTaille, paramsSansPage, tranche,
 } from "./pagination";
 
 describe("lecture de l'URL", () => {
@@ -77,5 +77,21 @@ describe("adresses", () => {
   });
   it("paramsSansPage : change de filtre = retour à la page 1, la taille reste", () => {
     expect(paramsSansPage({ q: "a", page: "4", par: "100", x: undefined }).toString()).toBe("q=a&par=100");
+  });
+});
+
+describe("groupePartiel — mois coupés par une frontière de page", () => {
+  it("le premier groupe (page > 1) et le dernier (page < dernière) sont partiels ; ceux du milieu non", () => {
+    const f = { page: 2, nbPages: 3 };
+    expect(groupePartiel(0, 4, f)).toBe(true);
+    expect(groupePartiel(1, 4, f)).toBe(false);
+    expect(groupePartiel(3, 4, f)).toBe(true);
+  });
+  it("page unique : jamais partiel ; première page : seul le dernier ; dernière page : seul le premier", () => {
+    expect(groupePartiel(0, 2, { page: 1, nbPages: 1 })).toBe(false);
+    expect(groupePartiel(0, 2, { page: 1, nbPages: 3 })).toBe(false);
+    expect(groupePartiel(1, 2, { page: 1, nbPages: 3 })).toBe(true);
+    expect(groupePartiel(0, 2, { page: 3, nbPages: 3 })).toBe(true);
+    expect(groupePartiel(1, 2, { page: 3, nbPages: 3 })).toBe(false);
   });
 });

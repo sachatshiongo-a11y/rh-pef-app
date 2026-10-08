@@ -5,11 +5,19 @@ import { DOMAINE_LABEL, STATUT_BC_LABEL, STATUT_BC_CLASSE, usd } from "@/lib/sto
 import { grouperParMois } from "@/lib/dates-fr";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { exigerPageStock } from "@/lib/garde-page";
+import type { Prisma } from "@prisma/client";
 import { TelechargerLien } from "@/components/telecharger-lien";
+import { Pagination } from "@/components/pagination";
+import { fenetrePage, groupePartiel, lirePagination, PAR_DEFAUT, type ParPage } from "@/lib/pagination";
 
 const jfr = (d: Date | null) => (d ? new Date(d).toLocaleDateString("fr-FR") : "—");
 
-type SP = { vue?: string; entite?: string; userId?: string };
+type SP = { vue?: string; entite?: string; userId?: string; page?: string; par?: string };
+
+/** Pagination côté serveur (skip/take + count) : avant, chaque onglet s'arrêtait en silence aux 300 plus récents. */
+type Pg = { page: number; par: ParPage; sp: SP };
+/** Un mois coupé par une frontière de page ne montre que le compteur / le total de la PAGE : on le dit. */
+const compteurMois = (n: number, partiel: boolean, mot: string) => `${n} ${mot}${partiel ? " sur cette page" : ""}`;
 
 // Entités du domaine Stock à afficher dans le journal d'activité.
 const STOCK_ENTITES = ["ArticleStock", "BonDeCommande", "FactureFournisseur", "MouvementStock", "SessionComptage", "Fournisseur", "LigneFacture", "ArticleResto", "AchatLegume", "Stock", "LigneComptage"];
@@ -27,6 +35,8 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
   await exigerPageStock();
   const sp = await searchParams;
   const vue = sp.vue === "rapports" ? "rapports" : sp.vue === "journal" ? "journal" : sp.vue === "bons" ? "bons" : "comptages";
+  const { page, par } = lirePagination(sp);
+  const pg: Pg = { page, par, sp };
 
   const onglets: [string, string][] = [["comptages", "Comptages"], ["bons", "Bons de commande validés"], ["rapports", "Rapports générés"], ["journal", "Journal d'activité"]];
 
@@ -39,26 +49,32 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
 
       <div className="flex flex-wrap gap-1.5 text-sm">
         {onglets.map(([k, label]) => (
-          <a key={k} href={`/stock/archives?vue=${k}`} className={`rounded-full border px-3 py-1 ${vue === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
+          <a key={k} href={`/stock/archives?vue=${k}${par !== PAR_DEFAUT ? `&par=${par}` : ""}`} className={`rounded-full border px-3 py-1 ${vue === k ? "border-primary bg-primary/10 font-medium" : "hover:bg-accent"}`}>{label}</a>
         ))}
       </div>
 
-      {vue === "comptages" && <Comptages />}
-      {vue === "bons" && <BonsValides />}
-      {vue === "rapports" && <Rapports />}
-      {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} />}
+      {vue === "comptages" && <Comptages pg={pg} />}
+      {vue === "bons" && <BonsValides pg={pg} />}
+      {vue === "rapports" && <Rapports pg={pg} />}
+      {vue === "journal" && <Journal entite={sp.entite} userId={sp.userId} pg={pg} />}
     </div>
   );
 }
 
-async function Comptages() {
-  const sessions = await prisma.sessionComptage.findMany({ orderBy: { date: "desc" }, take: 300 });
-  if (sessions.length === 0) return <EtatVide message="Aucun comptage archivé." />;
+function BarrePages({ total, pg, page, libelle }: { total: number; pg: Pg; page: number; libelle: string }) {
+  return <Pagination total={total} page={page} par={pg.par} chemin="/stock/archives" params={pg.sp} libelle={libelle} />;
+}
+
+async function Comptages({ pg }: { pg: Pg }) {
+  const nb = await prisma.sessionComptage.count();
+  const fen = fenetrePage(nb, pg.page, pg.par);
+  const sessions = await prisma.sessionComptage.findMany({ orderBy: [{ date: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
+  if (nb === 0) return <EtatVide message="Aucun comptage archivé." />;
   const groupes = grouperParMois(sessions, (s) => s.date);
   return (
     <div className="space-y-2">
       {groupes.map((g, i) => (
-        <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} comptage(s)`} defaultOpen={i === 0}>
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, groupePartiel(i, groupes.length, fen), "comptage(s)")} defaultOpen={i === 0}>
           <ul className="divide-y border-t text-sm">
             {g.items.map((s) => (
               <li key={s.id}>
@@ -74,23 +90,30 @@ async function Comptages() {
           </ul>
         </MoisAccordeon>
       ))}
+      <BarrePages total={nb} pg={pg} page={fen.page} libelle="comptages" />
     </div>
   );
 }
 
-async function BonsValides() {
+async function BonsValides({ pg }: { pg: Pg }) {
+  const where = { statut: { notIn: ["BROUILLON", "ANNULE"] } } satisfies Prisma.BonDeCommandeWhereInput;
+  const nb = await prisma.bonDeCommande.count({ where });
+  const fen = fenetrePage(nb, pg.page, pg.par);
   const bcs = await prisma.bonDeCommande.findMany({
-    where: { statut: { notIn: ["BROUILLON", "ANNULE"] } },
-    orderBy: [{ annee: "desc" }, { date: "desc" }],
-    take: 300,
+    where,
+    orderBy: [{ annee: "desc" }, { date: "desc" }, { id: "asc" }],
+    skip: fen.skip,
+    take: fen.take,
     include: { fournisseur: { select: { nom: true } }, _count: { select: { lignes: true } } },
   });
-  if (bcs.length === 0) return <EtatVide message="Aucun bon de commande validé." />;
+  if (nb === 0) return <EtatVide message="Aucun bon de commande validé." />;
   const groupes = grouperParMois(bcs, (b) => b.date);
   return (
     <div className="space-y-2">
-      {groupes.map((g, i) => (
-        <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} bon(s)`} resume={usd(g.items.reduce((t, b) => t + Number(b.totalUSD), 0))} defaultOpen={i === 0}>
+      {groupes.map((g, i) => {
+        const partiel = groupePartiel(i, groupes.length, fen);
+        return (
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, partiel, "bon(s)")} resume={<>{usd(g.items.reduce((t, b) => t + Number(b.totalUSD), 0))}{partiel ? " (cette page)" : ""}</>} defaultOpen={i === 0}>
           <ul className="divide-y border-t text-sm">
             {g.items.map((b) => (
               <li key={b.id} className="flex items-center justify-between gap-3 px-3 py-1.5 hover:bg-accent/40">
@@ -106,23 +129,27 @@ async function BonsValides() {
             ))}
           </ul>
         </MoisAccordeon>
-      ))}
+        );
+      })}
+      <BarrePages total={nb} pg={pg} page={fen.page} libelle="bons de commande" />
     </div>
   );
 }
 
 const moisISO = (d: Date | null) => (d ? `${new Date(d).getUTCFullYear()}-${String(new Date(d).getUTCMonth() + 1).padStart(2, "0")}` : "");
 
-async function Rapports() {
-  const rapports = await prisma.rapport.findMany({ orderBy: { createdAt: "desc" }, take: 300 });
-  if (rapports.length === 0) return <EtatVide message="Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés." />;
+async function Rapports({ pg }: { pg: Pg }) {
+  const nb = await prisma.rapport.count();
+  const fen = fenetrePage(nb, pg.page, pg.par);
+  const rapports = await prisma.rapport.findMany({ orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: fen.skip, take: fen.take });
+  if (nb === 0) return <EtatVide message="Aucun rapport généré. Utilisez le bouton « Rapport » dans les onglets concernés." />;
   const groupes = grouperParMois(rapports, (r) => r.createdAt);
   const periode = (r: (typeof rapports)[number]) =>
     `${r.periodeDebut ? new Date(r.periodeDebut).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"} → ${r.periodeFin ? new Date(r.periodeFin).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }) : "—"}`;
   return (
     <div className="space-y-2">
       {groupes.map((g, i) => (
-        <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} rapport(s)`} defaultOpen={i === 0}>
+        <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, groupePartiel(i, groupes.length, fen), "rapport(s)")} defaultOpen={i === 0}>
           <ul className="divide-y border-t text-sm">
             {g.items.map((r) => {
               const url = `/stock/rapports/export?type=${r.type}&mode=${r.mode}&format=${r.format}&debut=${moisISO(r.periodeDebut)}&fin=${moisISO(r.periodeFin)}`;
@@ -139,19 +166,25 @@ async function Rapports() {
           </ul>
         </MoisAccordeon>
       ))}
+      <BarrePages total={nb} pg={pg} page={fen.page} libelle="rapports" />
     </div>
   );
 }
 
-async function Journal({ entite, userId }: { entite?: string; userId?: string }) {
+async function Journal({ entite, userId, pg }: { entite?: string; userId?: string; pg: Pg }) {
   const filtreEntite = entite && STOCK_ENTITES.includes(entite) ? entite : undefined;
   const filtreUser = userId || undefined;
+  const where: Prisma.JournalAuditWhereInput = { entite: filtreEntite ? filtreEntite : { in: STOCK_ENTITES }, ...(filtreUser ? { userId: filtreUser } : {}) };
+  // Le filtre (type, personne) porte sur TOUT le journal ; seule la tranche de la page est lue.
+  const nb = await prisma.journalAudit.count({ where });
+  const fen = fenetrePage(nb, pg.page, pg.par);
 
   const [entrees, users] = await Promise.all([
     prisma.journalAudit.findMany({
-      where: { entite: filtreEntite ? filtreEntite : { in: STOCK_ENTITES }, ...(filtreUser ? { userId: filtreUser } : {}) },
-      orderBy: { date: "desc" },
-      take: 300,
+      where,
+      orderBy: [{ date: "desc" }, { id: "asc" }],
+      skip: fen.skip,
+      take: fen.take,
       include: { user: { select: { nom: true } } },
     }),
     prisma.user.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
@@ -161,6 +194,7 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
     <div className="space-y-3">
       <form method="GET" className="flex flex-wrap items-center gap-2 text-sm">
         <input type="hidden" name="vue" value="journal" />
+        {pg.par !== PAR_DEFAUT && <input type="hidden" name="par" value={pg.par} />}
         <select name="entite" defaultValue={filtreEntite ?? ""} className="rounded-md border border-input bg-background px-2 py-1.5">
           <option value="">Tous les types</option>
           {STOCK_ENTITES.map((e) => <option key={e} value={e}>{ENTITE_LABEL[e] ?? e}</option>)}
@@ -170,16 +204,16 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
           {users.map((u) => <option key={u.id} value={u.id}>{u.nom}</option>)}
         </select>
         <button className="rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground">Filtrer</button>
-        {(filtreEntite || filtreUser) && <Link href="/stock/archives?vue=journal" className="text-muted-foreground underline">Réinitialiser</Link>}
-        <span className="text-xs text-muted-foreground">{entrees.length} entrée(s)</span>
+        {(filtreEntite || filtreUser) && <Link href={`/stock/archives?vue=journal${pg.par !== PAR_DEFAUT ? `&par=${pg.par}` : ""}`} className="text-muted-foreground underline">Réinitialiser</Link>}
+        <span className="text-xs text-muted-foreground">{nb} entrée(s)</span>
       </form>
 
-      {entrees.length === 0 ? (
+      {nb === 0 ? (
         <EtatVide message="Aucune activité enregistrée." />
       ) : (
         <div className="space-y-2">
-          {grouperParMois(entrees, (e) => e.date).map((g, i) => (
-            <MoisAccordeon key={g.cle} titre={g.titre} compteur={`${g.items.length} entrée(s)`} defaultOpen={i === 0}>
+          {(() => { const groupes = grouperParMois(entrees, (e) => e.date); return groupes.map((g, i) => (
+            <MoisAccordeon key={g.cle} titre={g.titre} compteur={compteurMois(g.items.length, groupePartiel(i, groupes.length, fen), "entrée(s)")} defaultOpen={i === 0}>
               <ul className="divide-y border-t text-sm">
                 {g.items.map((e) => (
                   <li key={e.id} className="flex items-start justify-between gap-3 px-3 py-1.5">
@@ -192,7 +226,8 @@ async function Journal({ entite, userId }: { entite?: string; userId?: string })
                 ))}
               </ul>
             </MoisAccordeon>
-          ))}
+          )); })()}
+          <BarrePages total={nb} pg={pg} page={fen.page} libelle="entrées" />
         </div>
       )}
     </div>
