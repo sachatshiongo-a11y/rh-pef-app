@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { changerStatutEnLot } from "./actions";
 import { StatusActions } from "./status-actions";
 import { BoutonValider, BoutonNeutre } from "@/components/action-buttons";
+import { useHauteurBarreCollante } from "@/components/bulk-bar";
 import { LIBELLE_STATUT, COULEUR_STATUT } from "@/lib/paie-etats";
 import { EmployeeName } from "@/components/employee-name";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -153,6 +154,8 @@ export function PaieBulk({
   }
 
   const n = idsSelection.length;
+  // La barre n'existe qu'à la sélection : elle publie sa hauteur pour que l'en-tête des tableaux se colle dessous.
+  const refBarre = useHauteurBarreCollante(n > 0);
   const avisEcartes = messageEcartes(ecartes);
 
   return (
@@ -167,7 +170,7 @@ export function PaieBulk({
       )}
       {/* Barre d'actions groupées */}
       {n > 0 && (
-        <div className="sticky colle-sous-entete z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
+        <div ref={refBarre} className="sticky colle-sous-entete z-20 mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3 shadow-sm">
           <span className="text-sm font-medium">{n} sélectionné(s) :</span>
           {estAdmin && (
             <>
@@ -268,9 +271,9 @@ function Groupe({
       <h2 className="mb-2 text-base font-semibold">
         {titre} <span className="font-normal text-muted-foreground">({rows.length})</span>
       </h2>
-      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+      <div className="tableau-normal-xl rounded-lg border">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-left">
+          <thead className="en-tete-collante-xl bg-muted text-left">
             <tr>
               <th className="w-8 px-3 py-2">
                 <input

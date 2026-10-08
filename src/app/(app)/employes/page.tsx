@@ -200,9 +200,9 @@ function EmployeeTable({ employes, peutModifier }: { employes: Employee[]; peutM
       </div>
 
       {/* Ordinateur : tableau détaillé. */}
-      <div className="hidden max-h-[70vh] overflow-auto rounded-lg border lg:block">
+      <div className="tableau-normal-xl hidden rounded-lg border lg:block">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left">
+        <thead className="en-tete-collante-xl bg-muted text-left">
           <tr>
             <th className="px-3 py-2">Matricule</th>
             <th className="px-3 py-2">Nom et prénom</th>

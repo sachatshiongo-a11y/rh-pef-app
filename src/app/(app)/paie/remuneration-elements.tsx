@@ -94,7 +94,7 @@ export function RemunerationElements({ lignes }: { lignes: LigneRemu[] }) {
               {concernes.length === 0 ? (
                 <p className="px-4 py-3 text-sm text-muted-foreground">Aucun salarié concerné ce mois.</p>
               ) : (
-                <ul className="max-h-64 divide-y overflow-y-auto">
+                <ul className="divide-y">
                   {concernes.map((x) => (
                     <li key={x.employeeId} className="flex items-center gap-3 px-4 py-2">
                       <Avatar nom={x.nom} taille={26} photoUrl={x.photoUrl} />

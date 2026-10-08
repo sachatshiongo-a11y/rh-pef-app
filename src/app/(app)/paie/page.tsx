@@ -592,7 +592,7 @@ function ApercuGroupe({ titre, rows }: { titre: string; rows: PaieRow[] }) {
         <h3 className="text-sm font-semibold">{titre} · {rows.length}</h3>
         <span className="text-xs text-muted-foreground">Salaire net total {usd(totalNet)} · Total versé {usd(totalVerse)}</span>
       </div>
-      <div className="max-h-[70vh] overflow-auto">
+      <div className="overflow-x-auto">
         <table className="w-full min-w-[44rem] text-sm">
           <thead className="bg-muted/20 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>

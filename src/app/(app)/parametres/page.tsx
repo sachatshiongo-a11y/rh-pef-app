@@ -428,7 +428,7 @@ export default async function ParametresPage({ searchParams }: { searchParams: P
           </button>
         </form>
 
-        <div className="max-h-[70vh] overflow-auto">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[24rem] text-sm">
           <tbody>
             {joursFeries.map((j) => (

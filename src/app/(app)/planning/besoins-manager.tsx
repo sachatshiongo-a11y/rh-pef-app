@@ -65,7 +65,7 @@ export function BesoinsManager({
           <div key={s.id}>
             <div className="mb-1 text-sm font-semibold">{s.nom}</div>
             <ZoneTableur>
-            <div className="max-h-[70vh] overflow-auto">
+            <div className="overflow-x-auto">
               <table data-tableur="" className="text-sm">
                 <thead>
                   <tr className="text-muted-foreground">
