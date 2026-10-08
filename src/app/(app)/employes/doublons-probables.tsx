@@ -30,7 +30,7 @@ export function DoublonsProbables({ paires }: { paires: PaireDoublon[] }) {
     <details open={paires.length <= 3} className="group mb-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
         <span aria-hidden className="transition-transform group-open:rotate-90">▸</span>
-        {paires.length === 1 ? "2 fiches semblent en double" : `${paires.length} paires de fiches semblent en double`}
+        {paires.length === 1 ? "Doublon probable dans les fiches employés" : `${paires.length} doublons probables dans les fiches employés`}
       </summary>
       <ul className="mt-3 space-y-2">
         {paires.map(({ a, b, motifs, memeNom }) => (

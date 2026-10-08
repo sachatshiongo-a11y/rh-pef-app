@@ -95,5 +95,10 @@ describe("PDF en lot (ZIP)", () => {
     expect((await LOT.GET(new Request("http://x/fiches-poste/pdf-lot?ids=a"))).status).toBe(403);
     G.refus = false;
     expect((await LOT.GET(new Request("http://x/fiches-poste/pdf-lot?ids="))).status).toBe(400);
+    // Au-delà du plafond : refus explicite, jamais un ZIP tronqué en silence.
+    const trop = Array.from({ length: 51 }, (_, i) => `id${i}`).join(",");
+    const refus = await LOT.GET(new Request(`http://x/fiches-poste/pdf-lot?ids=${trop}`));
+    expect(refus.status).toBe(400);
+    expect(await refus.text()).toBe("50 fiches au plus par lot");
   });
 });

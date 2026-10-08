@@ -78,6 +78,38 @@ function inclus(court: string[], long: string[]): boolean {
 
 const cleTriee = (mots: string[]) => [...mots].sort().join(" ");
 
+/**
+ * Une identité PRÉPARÉE : mots, clés et dates calculés UNE fois par fiche. La liste des doublons
+ * probables compare toutes les paires (n²/2) : recalculer la normalisation à chaque paire coûtait
+ * plusieurs secondes à 300 fiches (relecture du 2026-10-08).
+ */
+type Preparee = { mots: string[]; motsPleins: string[]; cle: string; colles: string; collesTries: string; tel: string | null; naissance: string | null };
+
+function preparer(f: IdentiteFiche): Preparee {
+  const mots = motsNom(f.nom);
+  return {
+    mots,
+    motsPleins: mots.filter((m) => m.length > 1),
+    cle: cleTriee(mots),
+    colles: mots.join(""),
+    collesTries: [...mots].sort().join(""),
+    tel: cleTelephone(f.telephone),
+    naissance: jourNaissance(f.dateNaissance),
+  };
+}
+
+function nomsProchesPrep(A: Preparee, B: Preparee): boolean {
+  // Rien d'autre que des initiales (ou rien du tout) : on ne peut rien affirmer.
+  if (A.motsPleins.length === 0 || B.motsPleins.length === 0) return false;
+  const [court, long] = A.mots.length <= B.mots.length ? [A.mots, B.mots] : [B.mots, A.mots];
+  if (inclus(court, long)) return true;
+  // Espace oublié : seulement entre deux noms qui n'ont PAS le même nombre de mots (« Mbuyikabedi » /
+  // « Mbuyi Kabedi »). À nombre égal, la comparaison mot à mot ci-dessus fait foi — sinon « Ali
+  // Kasongo » et « Alia Kasongo » se rapprochaient par leurs lettres collées.
+  if (A.mots.length === B.mots.length || Math.min(A.colles.length, B.colles.length) < 8) return false;
+  return lev(A.colles, B.colles) <= 1 || lev(A.collesTries, B.collesTries) <= 1;
+}
+
 /** Mêmes mots, exactement (dans n'importe quel ordre, accents, casse, tirets près). */
 export function memeNom(a: string, b: string): boolean {
   const A = motsNom(a), B = motsNom(b);
@@ -86,20 +118,19 @@ export function memeNom(a: string, b: string): boolean {
 
 /** Deux noms de personnes proches (voir l'en-tête : ordre, nom/prénom manquant, faute, espace oublié). */
 export function nomsProches(a: string, b: string): boolean {
-  const A = motsNom(a), B = motsNom(b);
-  // Rien d'autre que des initiales (ou rien du tout) : on ne peut rien affirmer.
-  if (!A.some((m) => m.length > 1) || !B.some((m) => m.length > 1)) return false;
-  const [court, long] = A.length <= B.length ? [A, B] : [B, A];
-  if (inclus(court, long)) return true;
-  const collesA = A.join(""), collesB = B.join("");
-  if (Math.min(collesA.length, collesB.length) < 8) return false;
-  return lev(collesA, collesB) <= 1 || lev([...A].sort().join(""), [...B].sort().join("")) <= 1;
+  return nomsProchesPrep(preparer({ nom: a }), preparer({ nom: b }));
 }
 
-/** Clé d'un téléphone : ses 9 derniers chiffres (« +243 81 234 5678 » = « 0812345678 ») ; null s'il en a moins. */
+/**
+ * Clé d'un téléphone : ses 9 derniers chiffres (« +243 81 234 5678 » = « 0812345678 ») ; null s'il
+ * en a moins, ou si c'est un numéro de remplissage (« 0000000000 », « 999999999 ») : deux fiches
+ * saisies sans vrai numéro ne sont pas la même personne.
+ */
 export function cleTelephone(tel: string | null | undefined): string | null {
   const chiffres = String(tel ?? "").replace(/\D/g, "");
-  return chiffres.length >= 9 ? chiffres.slice(-9) : null;
+  if (chiffres.length < 9) return null;
+  const cle = chiffres.slice(-9);
+  return /^(\d)\1+$/.test(cle) ? null : cle;
 }
 
 /** Jour civil d'une date de naissance (colonne DATE : lue en UTC), « AAAA-MM-JJ » ; null si absente ou illisible. */
@@ -110,21 +141,18 @@ export function jourNaissance(d: Date | string | null | undefined): string | nul
   return m ? m[1] : null;
 }
 
-/** Au moins un mot (hors initiale) commun, à une faute près. */
-function unMotCommun(a: string, b: string): boolean {
-  const B = motsNom(b).filter((m) => m.length > 1);
-  return motsNom(a).some((m) => m.length > 1 && B.some((x) => motsProches(m, x)));
+function motifsPrep(A: Preparee, B: Preparee): MotifDoublon[] {
+  const motifs: MotifDoublon[] = [];
+  if (nomsProchesPrep(A, B)) motifs.push("nom");
+  if (A.tel && A.tel === B.tel) motifs.push("telephone");
+  // Même date de naissance + au moins un mot (hors initiale) commun, à une faute près.
+  if (A.naissance && A.naissance === B.naissance && A.motsPleins.some((m) => B.motsPleins.some((x) => motsProches(m, x)))) motifs.push("naissance");
+  return motifs;
 }
 
 /** Pourquoi deux identités se ressemblent ; [] si rien. */
 export function motifsDoublon(a: IdentiteFiche, b: IdentiteFiche): MotifDoublon[] {
-  const motifs: MotifDoublon[] = [];
-  if (nomsProches(a.nom, b.nom)) motifs.push("nom");
-  const ta = cleTelephone(a.telephone);
-  if (ta && ta === cleTelephone(b.telephone)) motifs.push("telephone");
-  const na = jourNaissance(a.dateNaissance);
-  if (na && na === jourNaissance(b.dateNaissance) && unMotCommun(a.nom, b.nom)) motifs.push("naissance");
-  return motifs;
+  return motifsPrep(preparer(a), preparer(b));
 }
 
 /** Clé d'une paire de fiches, indépendante de l'ordre. */
@@ -141,12 +169,14 @@ export function fichesProches<T extends FicheIdentifiee>(
   fiches: readonly T[],
   { exclureId, ecartees }: { exclureId?: string; ecartees?: ReadonlySet<string> } = {},
 ): FicheProche<T>[] {
+  const S = preparer(saisie);
   const trouvees: (FicheProche<T> & { ordre: number })[] = [];
   fiches.forEach((fiche, ordre) => {
     if (exclureId && fiche.id === exclureId) return;
     if (exclureId && ecartees?.has(clePaire(exclureId, fiche.id))) return;
-    const motifs = motifsDoublon(saisie, fiche);
-    if (motifs.length) trouvees.push({ fiche, motifs, memeNom: memeNom(saisie.nom, fiche.nom), ordre });
+    const F = preparer(fiche);
+    const motifs = motifsPrep(S, F);
+    if (motifs.length) trouvees.push({ fiche, motifs, memeNom: S.mots.length > 0 && S.cle === F.cle, ordre });
   });
   trouvees.sort((a, b) => Number(b.memeNom) - Number(a.memeNom) || b.motifs.length - a.motifs.length || a.ordre - b.ordre);
   return trouvees.map(({ fiche, motifs, memeNom }) => ({ fiche, motifs, memeNom }));
@@ -157,13 +187,14 @@ export function doublonsProbables<T extends FicheIdentifiee>(
   fiches: readonly T[],
   ecartees: ReadonlySet<string> = new Set(),
 ): { a: T; b: T; motifs: MotifDoublon[]; memeNom: boolean }[] {
+  const prep = fiches.map(preparer);
   const paires: { a: T; b: T; motifs: MotifDoublon[]; memeNom: boolean }[] = [];
   for (let i = 0; i < fiches.length; i++) {
     for (let j = i + 1; j < fiches.length; j++) {
       const a = fiches[i], b = fiches[j];
       if (ecartees.has(clePaire(a.id, b.id))) continue;
-      const motifs = motifsDoublon(a, b);
-      if (motifs.length) paires.push({ a, b, motifs, memeNom: memeNom(a.nom, b.nom) });
+      const motifs = motifsPrep(prep[i], prep[j]);
+      if (motifs.length) paires.push({ a, b, motifs, memeNom: prep[i].mots.length > 0 && prep[i].cle === prep[j].cle });
     }
   }
   return paires.sort((x, y) => Number(y.memeNom) - Number(x.memeNom) || y.motifs.length - x.motifs.length);

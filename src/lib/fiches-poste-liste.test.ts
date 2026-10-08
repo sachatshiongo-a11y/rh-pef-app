@@ -33,6 +33,11 @@ describe("lignes de l'écran Fiches de poste", () => {
     expect(lignes.find((l) => l.poste === "Chef de cuisine")!.departement).toBeNull();
   });
 
+  it("département : casse et accents ignorés (« cuisine » = « Cuisine »), première écriture affichée", () => {
+    const l = lignesFichesPoste([emp("1", "A", "Commis", "Cuisine"), emp("2", "B", "Commis", "cuisine"), emp("3", "C", "Commis", "Salle")], []);
+    expect(l[0].departement).toBe("Cuisine");
+  });
+
   it("documentée : même règle qu'avant (missions, activités ou document joint)", () => {
     expect(lignes.filter((l) => l.documentee).map((l) => l.poste)).toEqual(["Barman", "Cuisinière"]);
     expect(estDocumentee(null)).toBe(false);

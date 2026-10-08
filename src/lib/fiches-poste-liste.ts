@@ -45,6 +45,9 @@ export function estDocumentee(f: Pick<FicheDePoste, "fichierUrl" | "description"
 
 export const SANS_DEPARTEMENT = "Sans salarié actif";
 
+/** Fiches au plus par lot PDF (ZIP) : chaque PDF se génère dans la même requête, la mémoire du serveur est comptée. */
+export const MAX_FICHES_PAR_LOT = 50;
+
 /** Lignes de l'écran, triées par intitulé (ordre français). */
 export function lignesFichesPoste(
   employesActifs: readonly (Occupant & { poste: string; secteur: string })[],
@@ -61,10 +64,18 @@ export function lignesFichesPoste(
   const postes = [...new Set([...parPoste.keys(), ...ficheParPoste.keys()])].sort((a, b) => a.localeCompare(b, "fr"));
   return postes.map((poste) => {
     const occupants = (parPoste.get(poste) ?? []).sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
-    const compte = new Map<string, number>();
-    for (const o of occupants) if (o.secteur.trim()) compte.set(o.secteur.trim(), (compte.get(o.secteur.trim()) ?? 0) + 1);
-    // Secteur le plus fréquent ; à égalité, l'ordre alphabétique (stable d'un affichage à l'autre).
-    const departement = [...compte.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"))[0]?.[0] ?? null;
+    // Secteur le plus fréquent, comparé sans casse ni accents (« cuisine » = « Cuisine ») et affiché
+    // sous sa première écriture rencontrée ; à égalité, l'ordre alphabétique (stable d'un affichage à l'autre).
+    const compte = new Map<string, { libelle: string; n: number }>();
+    for (const o of occupants) {
+      const libelle = o.secteur.trim();
+      if (!libelle) continue;
+      const cle = normTexte(libelle);
+      const c = compte.get(cle) ?? { libelle, n: 0 };
+      c.n++;
+      compte.set(cle, c);
+    }
+    const departement = [...compte.values()].sort((a, b) => b.n - a.n || a.libelle.localeCompare(b.libelle, "fr"))[0]?.libelle ?? null;
     const fiche = ficheParPoste.get(poste) ?? null;
     return { poste, fiche, occupants: occupants.map(({ id, nom, photoUrl }) => ({ id, nom, photoUrl })), departement, documentee: estDocumentee(fiche) };
   });

@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import { exigerEspaceRH } from "@/lib/garde-route";
 import { genererFichePostePdf } from "@/lib/pdf/fiche-poste-buffer";
+import { MAX_FICHES_PAR_LOT } from "@/lib/fiches-poste-liste";
 
 /**
  * Plusieurs fiches de poste d'un coup (barre d'actions groupées) : chaque PDF est EXACTEMENT celui
@@ -10,8 +11,10 @@ import { genererFichePostePdf } from "@/lib/pdf/fiche-poste-buffer";
 export async function GET(request: Request) {
   const g = await exigerEspaceRH({ roles: ["ADMIN", "MANAGER"] });
   if (!g.ok) return g.reponse;
-  const ids = [...new Set((new URL(request.url).searchParams.get("ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean))].slice(0, 200);
+  const ids = [...new Set((new URL(request.url).searchParams.get("ids") ?? "").split(",").map((s) => s.trim()).filter(Boolean))];
   if (ids.length === 0) return new Response("Aucune fiche sélectionnée", { status: 400 });
+  // Refus explicite plutôt qu'un ZIP tronqué en silence (l'écran ne propose pas le lien au-delà).
+  if (ids.length > MAX_FICHES_PAR_LOT) return new Response(`${MAX_FICHES_PAR_LOT} fiches au plus par lot`, { status: 400 });
 
   const zip = new JSZip();
   const utilises = new Set<string>();

@@ -10,7 +10,7 @@ import { exigerDirectionPourSupprimer } from "@/lib/suppression-direction";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { decSaisi } from "@/lib/nombre";
 import {
-  fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
+  clePaire, fichesProches, identiteModifiee, lireIdsEcartes, messageDoublons, CHAMP_DOUBLONS_ECARTES, JOURNAL_DOUBLON_ECARTE,
   type IdentiteFiche,
 } from "@/lib/employe-doublon";
 import { chargerFichesIdentite, chargerPairesEcartees } from "@/lib/employe-doublon-serveur";
@@ -238,6 +238,8 @@ export async function ecarterDoublon(idA: string, idB: string) {
   if (!idA || !idB || idA === idB) return;
   const trouvees = await prisma.employee.count({ where: { id: { in: [idA, idB] } } });
   if (trouvees !== 2) return;
+  // Déjà écartée (double clic, deux onglets) : rien de plus au journal.
+  if ((await chargerPairesEcartees()).has(clePaire(idA, idB))) return;
   await journaliser(prisma, { entite: "Employee", entiteId: idA, champ: JOURNAL_DOUBLON_ECARTE, nouvelleValeur: idB, userId: user.id });
   revalidatePath("/employes");
 }

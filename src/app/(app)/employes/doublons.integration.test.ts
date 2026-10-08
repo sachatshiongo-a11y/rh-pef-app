@@ -177,6 +177,8 @@ describe("encadré des doublons probables (liste des employés)", () => {
     await expect(RH.ecarterDoublon(a.id, b.id)).rejects.toThrow(/rôle insuffisant/);
     A.user.role = "ADMIN";
     await RH.ecarterDoublon(b.id, a.id);
+    await RH.ecarterDoublon(a.id, b.id); // double clic : une seule décision au journal
+    expect(await prisma.journalAudit.count({ where: { champ: "doublon-ecarte" } })).toBe(1);
     expect(await page()).not.toContain("semblent en double");
   });
 });

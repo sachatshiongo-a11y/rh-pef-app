@@ -12,7 +12,7 @@ import { TelechargerLien } from "@/components/telecharger-lien";
 import { ContratViewerButton } from "@/app/(app)/employes/[id]/contrat-viewer";
 import { CATEGORIES_PRO, labelCategoriePro } from "@/lib/categorie-professionnelle";
 import {
-  filtrerFichesPoste, grouperParDepartement, premiereLigne, type FiltreStatut, type LigneFichePoste,
+  filtrerFichesPoste, grouperParDepartement, premiereLigne, MAX_FICHES_PAR_LOT, type FiltreStatut, type LigneFichePoste,
 } from "@/lib/fiches-poste-liste";
 import { enregistrerFichePoste, renommerPoste, supprimerFichePoste, supprimerFichesPoste, supprimerPoste } from "./actions";
 
@@ -89,13 +89,17 @@ export function ListeFichesPoste({
 
       {peutGerer && selectionnables.length > 0 && (
         <BulkBar count={choisies.length} total={selectionnables.length} onAll={(on) => selection.setAll(selectionnables, on)}>
-          <TelechargerLien
-            href={`/fiches-poste/pdf-lot?ids=${choisies.join(",")}`}
-            nomFichier="Fiches_de_poste.zip"
-            className={CLASSES_NEUTRE}
-          >
-            Télécharger les fiches PDF ({choisies.length})
-          </TelechargerLien>
+          {choisies.length <= MAX_FICHES_PAR_LOT ? (
+            <TelechargerLien
+              href={`/fiches-poste/pdf-lot?ids=${choisies.join(",")}`}
+              nomFichier="Fiches_de_poste.zip"
+              className={CLASSES_NEUTRE}
+            >
+              Télécharger les fiches PDF ({choisies.length})
+            </TelechargerLien>
+          ) : (
+            <span className="text-xs text-muted-foreground">PDF : {MAX_FICHES_PAR_LOT} fiches au plus par lot ({choisies.length} cochées)</span>
+          )}
           {estAdmin && (
             <form action={supprimerFichesPoste}>
               {choisies.map((id) => <input key={id} type="hidden" name="ficheId" value={id} />)}
@@ -114,9 +118,9 @@ export function ListeFichesPoste({
         <EtatVide message={lignes.length === 0 ? "Aucun poste enregistré (ajoutez d'abord des employés avec un intitulé de poste)." : "Aucun poste ne correspond."} />
       )}
 
-      {groupes.map((g) => (
-        <section key={g.departement} aria-labelledby={`dep-${g.departement}`}>
-          <h2 id={`dep-${g.departement}`} className="mb-2 text-base font-semibold">
+      {groupes.map((g, i) => (
+        <section key={g.departement} aria-labelledby={`departement-${i}`}>
+          <h2 id={`departement-${i}`} className="mb-2 text-base font-semibold">
             {g.departement} <span className="font-normal text-muted-foreground">({g.lignes.length})</span>
           </h2>
           <ul className="divide-y rounded-xl border bg-card">

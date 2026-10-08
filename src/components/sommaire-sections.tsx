@@ -42,7 +42,15 @@ export function SommaireSections({ sections, libelle, children }: { sections: { 
   }, [cle]);
 
   return (
-    <div className="sticky colle-sous-entete z-20 -mx-4 flex items-center gap-2 border-b bg-background px-4 py-2 lg:mx-0 lg:rounded-lg lg:border lg:px-2">
+    <div
+      className="sticky colle-sous-entete z-20 -mx-4 flex items-center gap-2 border-b bg-background px-4 py-2 lg:mx-0 lg:rounded-lg lg:border lg:px-2"
+      // Un onglet cliqué s'allume tout de suite : une dernière section courte (Famille) peut ne jamais
+      // traverser la bande de lecture, le bas de page étant atteint avant.
+      onClick={(e) => {
+        const id = (e.target as HTMLElement).closest("a")?.getAttribute("href")?.replace(/^#/, "");
+        if (id && sections.some((s) => s.id === id)) setActif(id);
+      }}
+    >
       {/* overflow-hidden : la rangée d'onglets déborde de 1 rem de chaque côté (`OngletsDefilants`) ; ici elle
           défile dans sa case, sans passer sous le bouton voisin. */}
       <div className="min-w-0 flex-1 overflow-hidden">

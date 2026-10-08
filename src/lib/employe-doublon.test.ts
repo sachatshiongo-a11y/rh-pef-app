@@ -33,6 +33,7 @@ describe("noms de personnes proches", () => {
     ["J.", "Jean Kabila", "une initiale seule ne prouve rien"],
     ["", "Sacha Tshiongo", "vide"],
     ["Tshiongo Sacha", "Tshiongo Samuel", "même nom de famille, autre prénom"],
+    ["Ali Kasongo", "Alia Kasongo", "même nombre de mots : pas de rapprochement par lettres collées"],
   ])("« %s » ≠ « %s » (%s)", (a, b) => {
     expect(nomsProches(a, b)).toBe(false);
     expect(nomsProches(b, a)).toBe(false);
@@ -51,6 +52,9 @@ describe("téléphone et date de naissance", () => {
     expect(cleTelephone("00243-812-345-678")).toBe("812345678");
     expect(cleTelephone("12 34")).toBeNull();
     expect(cleTelephone(null)).toBeNull();
+    // Numéros de remplissage : deux fiches sans vrai numéro ne sont pas la même personne.
+    expect(cleTelephone("0000000000")).toBeNull();
+    expect(cleTelephone("+243 999 999 999")).toBeNull();
   });
 
   it("même téléphone, noms sans rapport : signalé (motif téléphone seul)", () => {
@@ -140,4 +144,14 @@ it("message de refus lisible : noms, statut inactif, motifs, et les trois issues
   const m = messageDoublons(fichesProches({ nom: "Mutombo Martine" }, FICHES));
   expect(m).toContain("« Martine Mutombo » (inactive) — même nom");
   expect(m).toMatch(/Ouvrez la fiche existante.*réactivez-la.*C'est une autre personne/);
+});
+
+it("la liste des doublons probables reste rapide à l'échelle (identités préparées une fois)", () => {
+  const prenoms = ["Aimée", "Esther", "Jean", "Marie", "Paul", "Rose", "Marc", "Zoé", "Gode", "César", "Léa", "Nathan", "Grâce", "Pierre", "Joseph"];
+  const noms = ["Mutita", "Nsundi", "Kabila", "Mbuyi", "Ilunga", "Tshibangu", "Kasongo", "Mukendi", "Kalala", "Bokole", "Kabeya", "Lukusa", "Ngoy", "Mwamba", "Tshiongo", "Banza", "Kanku", "Mulumba", "Kayembe", "Lumbu"];
+  const fiches = Array.from({ length: 300 }, (_, i) => ({ id: `e${i}`, nom: `${prenoms[i % 15]} ${noms[Math.floor(i / 15)]}`, telephone: `08${String(10000000 + i * 7)}`, dateNaissance: null }));
+  const t = performance.now();
+  doublonsProbables(fiches);
+  // 300 fiches = 44 850 paires. Mesuré ~0,3 s sur la machine chargée ; avant la préparation, plusieurs secondes.
+  expect(performance.now() - t).toBeLessThan(3000);
 });
