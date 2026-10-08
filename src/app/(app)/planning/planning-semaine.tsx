@@ -458,7 +458,8 @@ export function PlanningSemaine({
                 Jours : {resumeJoursBulk} <span aria-hidden>{joursBulkOuverts ? "▴" : "▾"}</span>
               </button>
               <button type="button" onClick={() => appliquerBulk(bulkShift)} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50">Affecter</button>
-              <button type="button" onClick={() => appliquerBulk("")} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md border border-destructive px-4 text-sm font-medium text-destructive disabled:opacity-50">Vider</button>
+              {/* Sur téléphone les jours visés sont repliés : « Vider » les NOMME avant d'effacer (relecture du 2026-10-08). */}
+              <button type="button" onClick={() => { if (confirm(`Vider le planning de ${sel.size} salarié(s) — jours : ${resumeJoursBulk} ?`)) appliquerBulk(""); }} disabled={isPending || bulkJours.size === 0} className="min-h-11 rounded-md border border-destructive px-4 text-sm font-medium text-destructive disabled:opacity-50">Vider</button>
               {joursBulkOuverts && (
                 <div className="basis-full space-y-1">
                   <div className="flex gap-2">

@@ -68,4 +68,9 @@ describe("prixReferenceNouvelArticle — article créé par la Liste d'achat (d�
     expect(prixReferenceNouvelArticle("CDF", 0, 2)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: null });
     expect(prixReferenceNouvelArticle("USD", null, 2)).toEqual({ devisePrix: "USD", prixUnitaireUSD: null, prixUnitaireCDF: null });
   });
+  it("prix si petit qu'il s'arrondirait à 0 (100 FC pour 25 000 g) : NULL, jamais 0", () => {
+    expect(prixReferenceNouvelArticle("CDF", 100, 25000)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: null });
+    expect(prixReferenceNouvelArticle("USD", 1, 100000)).toEqual({ devisePrix: "USD", prixUnitaireUSD: null, prixUnitaireCDF: null });
+    expect(prixReferenceNouvelArticle("CDF", 100, 20000)).toEqual({ devisePrix: "CDF", prixUnitaireUSD: null, prixUnitaireCDF: 0.01 }); // 0,005 → 0,01
+  });
 });

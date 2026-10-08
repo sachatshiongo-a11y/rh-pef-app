@@ -78,7 +78,18 @@ describe("planning sur téléphone — actions groupées", () => {
     expect(entrees.every((e) => e.shiftId === "soir")).toBe(true);
   });
 
+  it("« Vider » demande confirmation en NOMMANT les jours (repliés sur téléphone) ; refusée : rien n'est envoyé", async () => {
+    const confirmer = vi.fn(() => false);
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = confirmer;
+    monter();
+    cocher("Ana Kabila");
+    await act(async () => { bouton("Vider")!.click(); });
+    expect(confirmer).toHaveBeenCalledWith("Vider le planning de 1 salarié(s) — jours : tous (7) ?");
+    expect(appels.saisirCreneauxEnLot).not.toHaveBeenCalled();
+  });
+
   it("« Vider » sur « Ce jour seulement » (le jour affiché) : shift vide, un seul jour", async () => {
+    (window as unknown as { confirm: (m: string) => boolean }).confirm = vi.fn(() => true);
     monter();
     act(() => mobile().querySelector<HTMLInputElement>("[data-actions-groupees-mobile] label input")!.click()); // Tout sélectionner
     expect(mobile().textContent).toContain("3 sélectionné(s)");
