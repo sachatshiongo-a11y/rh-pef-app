@@ -42,6 +42,7 @@ const NATIFS_RECENSES: Record<string, { n: number; raison: string }> = {
   "src/app/(stock)/stock/factures/nouveau/nouveau-client.tsx": { n: 1, raison: "bon de commande à lier (liste de documents, pas d'article)" },
   "src/app/(stock)/stock/catalogue/catalogue-table.tsx": { n: 6, raison: "tri sur téléphone, domaine et catégorie (ajout), catégorie de l'action groupée, domaine et catégorie du nouveau domaine de l'action groupée « Changer le domaine » (2026-10-09) : listes courtes (plus de liste par ligne : l'Inventaire est en lecture)" },
   "src/app/(stock)/stock/catalogue/[id]/editer-article.tsx": { n: 3, raison: "unité de contenance, domaine (3 valeurs, 2026-10-09) et catégorie" },
+  "src/app/(stock)/stock/catalogue/categories/categories-client.tsx": { n: 2, raison: "domaine (3 valeurs) d'une nouvelle catégorie et d'une catégorie en modification : ni article ni fournisseur (2026-10-10)" },
 };
 
 /** Exceptions : <select> qui parlent d'articles, mais pour une poignée de propositions déjà faites. */
