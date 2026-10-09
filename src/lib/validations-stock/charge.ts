@@ -50,7 +50,14 @@ export type ReglementDemande = {
   modePaiement: string | null;
   note: string | null;
 };
-export type FactureDemande = { id: string; fournisseurNom: string; numero: string | null; resteUSD: string };
+/**
+ * Facture d'une demande. En dollars (toutes les demandes d'avant le 2026-10-09) : `resteUSD`. En
+ * francs : `devise` CDF et `resteCDF` (le reste VU, en francs — jeton comparé à la validation), sans
+ * `resteUSD`.
+ */
+export type FactureDemande =
+  | { id: string; fournisseurNom: string; numero: string | null; resteUSD: string; devise?: undefined; resteCDF?: undefined }
+  | { id: string; fournisseurNom: string; numero: string | null; devise: "CDF"; resteCDF: string; resteUSD?: undefined };
 export type ChargePaiement = {
   v: 1;
   mode: "SOLDE" | "LOT" | "REGLEMENT";
@@ -61,8 +68,11 @@ export type ChargePaiement = {
    * LOT payé en FRANCS (2026-10-08) : chaque facture soldée par reste × taux francs, au taux des
    * Paramètres À LA VALIDATION (comme un règlement en francs). Absent = en dollars, comme avant.
    * (« Marquer payée » d'UNE facture en francs est un REGLEMENT avec `montantCDF`.)
+   * Une facture tenue en francs d'un tel lot est soldée en francs, sans conversion.
    */
   enFrancs?: true;
+  /** LOT payé « chaque facture dans sa devise » (2026-10-09) : aucune conversion, aucun taux. */
+  saDevise?: true;
 };
 
 // ── Réconciliation (comptage) ───────────────────────────────────────────────
@@ -177,7 +187,13 @@ function lirePaiement(o: Record<string, unknown>): ChargePaiement {
   if (!DATE_ISO.test(date)) throw new ChargeIllisible("date");
   const factures = liste(o.factures, "factures").map((f, i) => {
     if (!estObjet(f)) throw new ChargeIllisible(`facture ${i + 1}`);
-    return { id: chaine(f.id, "facture.id"), fournisseurNom: chaine(f.fournisseurNom, "facture.fournisseurNom"), numero: chaineOuNull(f.numero, "facture.numero"), resteUSD: decimale(f.resteUSD, "facture.resteUSD") };
+    const base = { id: chaine(f.id, "facture.id"), fournisseurNom: chaine(f.fournisseurNom, "facture.fournisseurNom"), numero: chaineOuNull(f.numero, "facture.numero") };
+    if (f.devise === "CDF") {
+      if (f.resteUSD !== undefined) throw new ChargeIllisible("facture en francs avec un reste en dollars");
+      return { ...base, devise: "CDF" as const, resteCDF: decimale(f.resteCDF, "facture.resteCDF") };
+    }
+    if (f.devise !== undefined || f.resteCDF !== undefined) throw new ChargeIllisible("facture.devise");
+    return { ...base, resteUSD: decimale(f.resteUSD, "facture.resteUSD") };
   });
   let reglement: ReglementDemande | null = null;
   if (o.mode === "REGLEMENT") {
@@ -201,7 +217,8 @@ function lirePaiement(o: Record<string, unknown>): ChargePaiement {
   }
   if (o.mode === "SOLDE" && factures.length !== 1) throw new ChargeIllisible("« marquer payée » porte sur une seule facture");
   if (o.enFrancs !== undefined && (o.enFrancs !== true || o.mode !== "LOT")) throw new ChargeIllisible("lot en francs");
-  return { v: 1, mode: o.mode, date, factures, reglement, ...(o.enFrancs === true ? { enFrancs: true as const } : {}) };
+  if (o.saDevise !== undefined && (o.saDevise !== true || o.mode !== "LOT" || o.enFrancs !== undefined)) throw new ChargeIllisible("lot dans la devise de chaque facture");
+  return { v: 1, mode: o.mode, date, factures, reglement, ...(o.enFrancs === true ? { enFrancs: true as const } : {}), ...(o.saDevise === true ? { saDevise: true as const } : {}) };
 }
 
 function lireComptage(o: Record<string, unknown>): ChargeComptage {

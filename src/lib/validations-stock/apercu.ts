@@ -11,9 +11,11 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CHAMPS_ARTICLE, cleArticle, cleFacture, libelleValeur, lireChargeOuNull, valeursEgales, type NatureDemande } from "./charge";
 import { aUnEcart, etatLigneAValider, mouvementsDepuis } from "./comptage";
-import { francsPourReste } from "./reglement";
+import { dollarsPourReste, francsPourReste, imputation } from "./conversion-francs";
+import { ajouterAuTotal, formaterMontantFacture, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 
-export type ApercuFacture = { id: string; nom: string; numero: string | null; resteDemande: number; resteActuel: number | null; reglee: boolean };
+/** Restes dans la devise de la facture (`devise`, absente = USD). */
+export type ApercuFacture = { id: string; nom: string; numero: string | null; resteDemande: number; resteActuel: number | null; reglee: boolean; devise?: DeviseFacture };
 export type ApercuLigneComptage = {
   articleId: string; designation: string; unite: string | null; explication: string;
   theorique: string; physique: string; ecart: string; valeur: number | null;
@@ -29,11 +31,25 @@ export type ApercuDemande = {
   illisible: boolean;
   alertes: string[]; // ce qui empêchera la validation (constaté maintenant)
   paiement: null | {
-    mode: "SOLDE" | "LOT" | "REGLEMENT"; date: string; total: number | null; factures: ApercuFacture[];
-    /** En francs : `montantUSD` = équivalent au taux des Paramètres d'AUJOURD'HUI (`tauxActuel`, null s'il manque) — celui qui sera appliqué si la Direction valide maintenant. */
-    reglement: null | { type: string; montantUSD: number | null; montantCDF: number | null; tauxActuel: number | null; mode: string | null; note: string | null; resteApres: number | null };
-    /** LOT payé en francs : francs à verser au taux d'AUJOURD'HUI (null sans taux) — celui de la validation s'il a lieu maintenant. */
-    lotFrancs: null | { totalCDF: number | null; tauxActuel: number | null };
+    mode: "SOLDE" | "LOT" | "REGLEMENT"; date: string;
+    /** Total des restes demandés EN DOLLARS (lot de factures en dollars) ; null s'il compte des factures en francs. */
+    total: number | null;
+    /** Total des restes demandés, par devise (« 100,00 $ + 280 000 FC »). */
+    totalDevises?: TotalDevises;
+    factures: ApercuFacture[];
+    /**
+     * Règlement (« + Paiement / Avoir ») : `verse` = devise du montant versé ; `deviseFacture` = celle
+     * de la facture. Facture en dollars : `montantUSD` = imputé, `montantCDF` = francs versés (s'il y a
+     * lieu). Facture en francs : `montantCDF` = imputé, `montantUSD` = dollars versés (s'il y a lieu).
+     * Imputé converti au taux des Paramètres d'AUJOURD'HUI (`tauxActuel`, null s'il manque) — celui
+     * qui sera appliqué si la Direction valide maintenant. `resteApres` : dans la devise de la facture.
+     */
+    reglement: null | { type: string; montantUSD: number | null; montantCDF: number | null; tauxActuel: number | null; mode: string | null; note: string | null; resteApres: number | null; verse?: DeviseFacture; deviseFacture?: DeviseFacture };
+    /**
+     * LOT payé dans une autre devise que celle de ses factures : ce qui sera versé, au taux
+     * d'AUJOURD'HUI (null sans taux) — celui de la validation s'il a lieu maintenant.
+     */
+    lot: null | { verse: "USD" | "CDF" | "SA_DEVISE"; totalVerse: TotalDevises | null; tauxActuel: number | null; conversion: boolean };
   };
   comptage: null | { origine: string; nbLignes: number; valeurTotale: number | null; lignes: ApercuLigneComptage[] };
   article: null | { articles: { id: string; designation: string; changements: ApercuChangement[] }[] };
@@ -46,6 +62,8 @@ export type ApercuDemande = {
 };
 
 const ISO = (d: Date) => d.toISOString();
+/** Montant d'une alerte : « 100.00 $ » (forme d'avant, inchangée) ou « 280 000 FC ». */
+const texteAlerte = (n: number, d: DeviseFacture) => (d === "USD" ? `${n.toFixed(2)} $` : formaterMontantFacture(n, "CDF"));
 
 /** Aperçus des demandes (ordre conservé). `detail` : calcule l'état actuel (demandes en attente). */
 export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereInput, opts: { take?: number; detail?: boolean } = {}): Promise<ApercuDemande[]> {
@@ -62,41 +80,61 @@ export async function apercusDemandes(where: Prisma.DemandeValidationStockWhereI
     if (!opts.detail) { res.push(base); continue; }
 
     if (d.nature === "PAIEMENT_FACTURE" && "mode" in charge) {
-      const actuelles = new Map((await prisma.factureFournisseur.findMany({ where: { id: { in: charge.factures.map((f) => f.id) } }, select: { id: true, statut: true, resteAPayerUSD: true } })).map((f) => [f.id, f]));
-      const factures = charge.factures.map((f) => {
+      const actuelles = new Map((await prisma.factureFournisseur.findMany({ where: { id: { in: charge.factures.map((f) => f.id) } }, select: { id: true, statut: true, devise: true, resteAPayerUSD: true, resteAPayerCDF: true } })).map((f) => [f.id, f]));
+      const factures: ApercuFacture[] = charge.factures.map((f) => {
         const a = actuelles.get(f.id);
         const nom = `${f.numero ? `N° ${f.numero}` : "Sans numéro"} — ${f.fournisseurNom}`;
-        if (!a) base.alertes.push(`${nom} : facture supprimée depuis la demande.`);
-        else if (a.statut === "REGLEE" || Number(a.resteAPayerUSD) <= 0.001) base.alertes.push(`${nom} : déjà réglée depuis la demande.`);
-        else if (!new Decimal(a.resteAPayerUSD.toString()).equals(new Decimal(f.resteUSD))) base.alertes.push(`${nom} : le reste à payer a changé depuis la demande.`);
-        return { id: f.id, nom: f.fournisseurNom, numero: f.numero, resteDemande: Number(f.resteUSD), resteActuel: a ? Number(a.resteAPayerUSD) : null, reglee: a ? a.statut === "REGLEE" : false };
+        const devise: DeviseFacture = f.devise === "CDF" ? "CDF" : "USD";
+        const resteVu = f.devise === "CDF" ? f.resteCDF : f.resteUSD;
+        const m = a ? montantsFacture(a) : null;
+        if (!a || !m) base.alertes.push(`${nom} : facture supprimée depuis la demande.`);
+        else if (a.statut === "REGLEE" || m.reste <= 0.001) base.alertes.push(`${nom} : déjà réglée depuis la demande.`);
+        else if (m.devise !== devise) base.alertes.push(`${nom} : la devise de la facture a changé depuis la demande.`);
+        else if (!new Decimal(m.resteTexte).equals(new Decimal(resteVu))) base.alertes.push(`${nom} : le reste à payer a changé depuis la demande.`);
+        return { id: f.id, nom: f.fournisseurNom, numero: f.numero, resteDemande: Number(resteVu), resteActuel: m ? m.reste : null, reglee: a ? a.statut === "REGLEE" : false, ...(devise === "CDF" ? { devise } : {}) };
       });
+      const tauxDuJourLu = async () => { const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { tauxChangeCDF: true } }); return Number(config?.tauxChangeCDF ?? 0) || null; };
       const r = charge.reglement;
       let reglement: NonNullable<ApercuDemande["paiement"]>["reglement"] = null;
       if (r) {
-        const cdf = r.montantCDF === null ? null : Number(r.montantCDF);
-        let tauxActuel: number | null = null, usd: number | null = r.montantUSD === null ? null : Number(r.montantUSD);
-        if (cdf !== null) {
-          const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { tauxChangeCDF: true } });
-          tauxActuel = Number(config?.tauxChangeCDF ?? 0) || null;
-          usd = tauxActuel ? Math.round((cdf / tauxActuel) * 100) / 100 : null;
-          if (!tauxActuel) base.alertes.push("Taux de change non configuré (Paramètres) : le paiement en francs ne peut pas être converti.");
+        const deviseF: DeviseFacture = factures[0]?.devise ?? "USD";
+        const verse = r.montantCDF !== null ? { devise: "CDF" as const, montant: Number(r.montantCDF) } : { devise: "USD" as const, montant: Number(r.montantUSD) };
+        let tauxActuel: number | null = null;
+        if (verse.devise !== deviseF) {
+          tauxActuel = await tauxDuJourLu();
+          if (!tauxActuel) base.alertes.push(`Taux de change non configuré (Paramètres) : le paiement en ${verse.devise === "CDF" ? "francs" : "dollars"} ne peut pas être converti.`);
         }
         const reste = factures[0]?.resteActuel;
-        if (usd !== null && reste !== null && reste !== undefined && usd > reste + 0.009) base.alertes.push(`Le montant dépasse aujourd'hui le reste à payer (${usd.toFixed(2)} $ > ${reste.toFixed(2)} $).`);
-        const resteApres = usd !== null && reste !== null && reste !== undefined ? Math.max(0, Math.round((reste - usd) * 100) / 100) : null;
-        reglement = { type: r.type, montantUSD: usd, montantCDF: cdf, tauxActuel, mode: r.modePaiement, note: r.note, resteApres };
+        const imp = imputation(deviseF, verse, tauxActuel, reste ?? Number.POSITIVE_INFINITY);
+        const impute = imp ? imp.impute : null;
+        if (imp && reste !== null && reste !== undefined && imp.depasse) base.alertes.push(`Le montant dépasse aujourd'hui le reste à payer (${texteAlerte(imp.impute, deviseF)} > ${texteAlerte(reste, deviseF)}).`);
+        const resteApres = impute !== null && reste !== null && reste !== undefined ? Math.max(0, Math.round((reste - impute) * 100) / 100) : null;
+        reglement = {
+          type: r.type,
+          montantUSD: deviseF === "USD" ? impute : verse.devise === "USD" ? verse.montant : null,
+          montantCDF: deviseF === "CDF" ? impute : verse.devise === "CDF" ? verse.montant : null,
+          tauxActuel, mode: r.modePaiement, note: r.note, resteApres, verse: verse.devise, deviseFacture: deviseF,
+        };
       }
-      let lotFrancs: NonNullable<ApercuDemande["paiement"]>["lotFrancs"] = null;
-      if (charge.enFrancs) {
-        const config = await prisma.config.findUnique({ where: { id: "singleton" }, select: { tauxChangeCDF: true } });
-        const t = Number(config?.tauxChangeCDF ?? 0) || null;
-        if (!t) base.alertes.push("Taux de change non configuré (Paramètres) : le lot en francs ne peut pas être converti.");
-        lotFrancs = { tauxActuel: t, totalCDF: t ? factures.reduce((x, f) => x + francsPourReste(f.resteDemande, t), 0) : null };
+      const totalDevises = factures.reduce((t, f) => ajouterAuTotal(t, f.devise ?? "USD", f.resteDemande), totalVide());
+      let lot: NonNullable<ApercuDemande["paiement"]>["lot"] = null;
+      if (charge.mode === "LOT") {
+        const verseLot = charge.saDevise ? "SA_DEVISE" as const : charge.enFrancs ? "CDF" as const : "USD" as const;
+        const verseDe = (d: DeviseFacture): DeviseFacture => (verseLot === "SA_DEVISE" ? d : verseLot);
+        const conversion = factures.some((f) => verseDe(f.devise ?? "USD") !== (f.devise ?? "USD"));
+        const t = conversion ? await tauxDuJourLu() : null;
+        if (conversion && !t) base.alertes.push(`Taux de change non configuré (Paramètres) : le lot ${verseLot === "CDF" ? "en francs" : "en dollars"} ne peut pas être converti.`);
+        // Ce qui sera VERSÉ, par devise : une facture dans la devise versée, son reste ; sinon, sa conversion.
+        const totalVerse = conversion && !t ? null : factures.reduce((acc, f) => {
+          const d = f.devise ?? "USD", v = verseDe(d);
+          if (v === d) return ajouterAuTotal(acc, d, f.resteDemande);
+          return ajouterAuTotal(acc, v, d === "USD" ? francsPourReste(f.resteDemande, t!) : dollarsPourReste(f.resteDemande, t!));
+        }, totalVide());
+        if (conversion || verseLot !== "USD") lot = { verse: verseLot, totalVerse, tauxActuel: t, conversion };
       }
       base.paiement = {
-        mode: charge.mode, date: charge.date, factures, reglement, lotFrancs,
-        total: reglement ? reglement.montantUSD : factures.reduce((t, f) => t + f.resteDemande, 0),
+        mode: charge.mode, date: charge.date, factures, reglement, lot, totalDevises,
+        total: reglement ? (reglement.deviseFacture === "CDF" ? null : reglement.montantUSD) : totalDevises.nbCDF > 0 ? null : totalDevises.usd,
       };
     } else if (d.nature === "MOUVEMENT_MANUEL" && "type" in charge) {
       const ids = charge.lignes.map((l) => l.articleId);

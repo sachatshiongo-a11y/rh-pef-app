@@ -67,8 +67,8 @@ const etatArgent = async (id: string) => {
   const f = await relire(id);
   const p = await paiements(id);
   return {
-    statut: f.statut, regle: f.montantRegleUSD.toString(), reste: f.resteAPayerUSD.toString(), datePaiement: f.datePaiement?.toISOString() ?? null,
-    paiements: p.map((x) => ({ type: x.type, date: x.date.toISOString(), montantUSD: x.montantUSD.toString(), montantCDF: x.montantCDF?.toString() ?? null, taux: x.tauxChangeUtilise?.toString() ?? null, mode: x.modePaiement })),
+    statut: f.statut, regle: f.montantRegleUSD!.toString(), reste: f.resteAPayerUSD!.toString(), datePaiement: f.datePaiement?.toISOString() ?? null,
+    paiements: p.map((x) => ({ type: x.type, date: x.date.toISOString(), montantUSD: x.montantUSD!.toString(), montantCDF: x.montantCDF?.toString() ?? null, taux: x.tauxChangeUtilise?.toString() ?? null, mode: x.modePaiement })),
   };
 };
 

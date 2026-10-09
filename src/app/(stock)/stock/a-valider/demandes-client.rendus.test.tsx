@@ -27,7 +27,7 @@ const { CatalogueTable } = await import("../catalogue/catalogue-table");
 const base = { version: "2026-09-30T08:00:00.000Z", statut: "EN_ATTENTE", auteurId: "u1", auteurNom: "Jean", creeLe: "2026-09-30T08:00:00.000Z", decideurNom: null, decideLe: null, motifRefus: null, illisible: false, alertes: [], paiement: null, comptage: null, article: null, mouvement: null };
 const DEMANDES: ApercuDemande[] = [
   { ...base, id: "p1", nature: "PAIEMENT_FACTURE", resume: "Payer la facture n° 12 de SENEVE le 29/09/2026 — 100,00 $",
-    paiement: { mode: "SOLDE", date: "2026-09-29", total: 100, reglement: null, lotFrancs: null, factures: [{ id: "f1", nom: "SENEVE", numero: "12", resteDemande: 100, resteActuel: 100, reglee: false }] } },
+    paiement: { mode: "SOLDE", date: "2026-09-29", total: 100, reglement: null, lot: null, factures: [{ id: "f1", nom: "SENEVE", numero: "12", resteDemande: 100, resteActuel: 100, reglee: false }] } },
   { ...base, id: "r1", nature: "RECONCILIATION", resume: "Inventaire — 1 écart(s)",
     comptage: { origine: "Inventaire", nbLignes: 3, valeurTotale: -4, lignes: [{ articleId: "a1", designation: "Riz", unite: "Kg", explication: "casse", theorique: "10", physique: "8", ecart: "-2", valeur: -4, actuel: "10", final: "8", etat: "inchange", raison: null }] } },
   { ...base, id: "m1", nature: "MODIF_ARTICLE", resume: "« Riz » : Prix unitaire USD 2 → 3", alertes: ["« Riz » — Prix unitaire USD a changé depuis la proposition."],

@@ -13,7 +13,8 @@ import { parserClasseurFactures } from "@/lib/import-factures-excel";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
-import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
+import { reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture, type VerseLot } from "@/lib/validations-stock/reglement";
+import { deviseFacture, resteFacture } from "@/lib/facture-devise";
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
@@ -408,23 +409,34 @@ function rafraichirFactures(ids: string[]) {
  * Hors Direction : rien n'est payé, une DEMANDE est adressée à la Direction (demandes.ts).
  *
  * `francs` (2026-10-08, « payer des factures en francs ») : le montant versé EN FRANCS (saisie à la
- * française, proposé à reste × taux du jour). Converti par LA conversion des règlements
- * (`convertirFrancs`, taux des Paramètres du jour du paiement — ou de la validation pour une demande) ;
- * la facture garde son reste en dollars ; moins que le reste = paiement partiel, plus = refusé.
- * C'est le même chemin que « + Paiement » en francs (REGLEMENT), avec la note « Marquée payée ».
+ * française). Sur une facture en dollars, converti par LA conversion des règlements (taux des
+ * Paramètres du jour du paiement — ou de la validation, pour une demande) ; la facture garde son reste
+ * en dollars ; moins que le reste = paiement partiel, plus = refusé.
+ * `dollars` (2026-10-09, factures en francs) : le montant versé EN DOLLARS sur une facture tenue en
+ * francs, converti au taux du jour (sens inverse). Sans l'un ni l'autre : le reste, dans la devise de
+ * la facture (une facture en francs se solde en francs, sans taux).
+ * C'est le même chemin que « + Paiement » (REGLEMENT), avec la note « Marquée payée ».
  */
-export const marquerPayee = actionLisible(async (id: string, dateStr?: string, francs?: string): Promise<DemandeEnvoyee | void> => {
+export const marquerPayee = actionLisible(async (id: string, dateStr?: string, francs?: string, dollars?: string): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
-  // `francs` présent = paiement EN FRANCS : un montant vide est refusé (jamais un repli silencieux en dollars).
-  const enFrancs = francs !== undefined && francs !== null;
-  if (enFrancs && String(francs).trim() === "") throw new Error("Saisissez le montant versé en francs.");
-  const fc = enFrancs ? decSaisi(francs, "montant en francs") : null;
-  if (fc !== null && !(fc > 0)) throw new Error("Le montant en francs doit être supérieur à 0.");
+  // `francs` / `dollars` présent = montant versé dans CETTE devise : un montant vide est refusé
+  // (jamais un repli silencieux dans l'autre devise).
+  const lire = (v: string | undefined, devise: "USD" | "CDF") => {
+    if (v === undefined || v === null) return null;
+    if (String(v).trim() === "") throw new Error(devise === "CDF" ? "Saisissez le montant versé en francs." : "Saisissez le montant versé en dollars.");
+    const n = decSaisi(v, devise === "CDF" ? "montant en francs" : "montant en dollars");
+    if (!(n > 0)) throw new Error(devise === "CDF" ? "Le montant en francs doit être supérieur à 0." : "Le montant en dollars doit être supérieur à 0.");
+    return { devise, montant: n };
+  };
+  const fc = lire(francs, "CDF");
+  const usd = lire(dollars, "USD");
+  if (fc && usd) throw new Error("Un seul montant versé : en francs OU en dollars.");
+  const verse = fc ?? usd;
   if (!estDirection(user)) {
-    if (fc !== null) {
+    if (verse) {
       await demanderPaiement(user, {
         mode: "REGLEMENT", factureId: id, dateStr,
-        reglement: { type: "PAIEMENT", montantUSD: null, montantCDF: texteDecimal(fc), taux: null, modePaiement: null, note: "Marquée payée (en francs)" },
+        reglement: { type: "PAIEMENT", montantUSD: verse.devise === "USD" ? texteDecimal(verse.montant) : null, montantCDF: verse.devise === "CDF" ? texteDecimal(verse.montant) : null, taux: null, modePaiement: null, note: verse.devise === "CDF" ? "Marquée payée (en francs)" : "Marquée payée (en dollars)" },
       });
     } else {
       await demanderPaiement(user, { mode: "SOLDE", factureId: id, dateStr });
@@ -433,18 +445,15 @@ export const marquerPayee = actionLisible(async (id: string, dateStr?: string, f
     return { demande: true, message: MESSAGE_DEMANDE };
   }
   const reg = await prisma.$transaction(async (tx) => {
-    if (fc !== null) {
-      await verrouillerFacture(tx, id); // avant la lecture des demandes (voir ci-dessous)
-      await exigerAucunPaiementDemande(tx, [id]);
-      const { montant, taux } = await convertirFrancs(tx, fc);
-      return reglerFactureTx(tx, user.id, id, { montant, montantCDF: fc, taux, dateStr, note: "Marquée payée (en francs)" });
-    }
     // Verrou de la facture AVANT de lire les demandes : une demande déposée en même temps attend.
     const f = await verrouillerFacture(tx, id);
     await exigerAucunPaiementDemande(tx, [id]);
-    const reste = Number(f.resteAPayerUSD);
-    if (reste <= 0.001) return null; // déjà soldée
-    return reglerFactureTx(tx, user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
+    if (verse) {
+      const memeDevise = verse.devise === deviseFacture(f);
+      return reglerFactureTx(tx, user.id, id, { verse, dateStr, note: memeDevise ? "Marquée payée" : verse.devise === "CDF" ? "Marquée payée (en francs)" : "Marquée payée (en dollars)" });
+    }
+    if (resteFacture(f) <= 0.001) return null; // déjà soldée
+    return reglerFactureTx(tx, user.id, id, { dateStr, note: "Marquée payée" });
   });
   rafraichirFactures([id]);
   // Après le paiement : un échec de notification ne doit JAMAIS revenir comme une erreur (un nouvel
@@ -456,6 +465,7 @@ export const marquerPayee = actionLisible(async (id: string, dateStr?: string, f
 export const enregistrerPaiement = actionLisible(async (id: string, formData: FormData): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
   const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
+  // Devise du montant VERSÉ ; la facture, elle, garde sa devise (conversion au taux du jour si elles diffèrent).
   const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
   const saisi = decSaisi(formData.get("montant"), "montant");
   if (saisi <= 0) throw new Error("Le montant doit être supérieur à 0.");
@@ -464,8 +474,9 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
   const note = String(formData.get("note") ?? "").trim() || null;
   if (type === "AVOIR" && !note) throw new Error("Indiquez le motif de l'avoir (ex. retour marchandise).");
 
-  // Hors Direction : une demande, en DEVISE DE SAISIE. Un montant en francs sera converti au taux
-  // des Paramètres au moment de la validation (comme le paiement direct, ci-dessous, le fait maintenant).
+  // Hors Direction : une demande, en DEVISE DE SAISIE. Un montant dans l'autre devise que la facture
+  // sera converti au taux des Paramètres au moment de la validation (comme le paiement direct,
+  // ci-dessous, le fait maintenant).
   if (!estDirection(user)) {
     await demanderPaiement(user, {
       mode: "REGLEMENT", factureId: id, dateStr,
@@ -474,14 +485,11 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
     rafraichirFactures([id]);
     return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura validé." : MESSAGE_DEMANDE };
   }
-  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement.
-  let montant = saisi, montantCDF: number | null = null, taux: number | null = null;
-  if (devise === "CDF") ({ montant, taux } = await convertirFrancs(prisma, (montantCDF = saisi)));
-
   const reg = await prisma.$transaction(async (tx) => {
     await verrouillerFacture(tx, id); // avant la lecture des demandes (voir marquerPayee)
     await exigerAucunPaiementDemande(tx, [id]);
-    return reglerFactureTx(tx, user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
+    // Conversion (si la devise versée n'est pas celle de la facture) au taux lu dans CETTE transaction.
+    return reglerFactureTx(tx, user.id, id, { verse: { devise, montant: saisi }, dateStr, mode, note, type });
   });
   rafraichirFactures([id]);
   await apresCommit(() => notifierReglements([reg]));
@@ -499,17 +507,19 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
  * (`demandees`) : l'écart se dit à l'écran plutôt que de vider la sélection en silence.
  * Hors Direction : rien n'est payé, UNE demande (tout ou rien) est adressée à la Direction ;
  * `demandePaiement` = nombre de factures qu'elle porte.
+ *
+ * `devise` = ce qui est VERSÉ : "USD" (défaut, comme avant), "CDF" (2026-10-08), ou "SA_DEVISE"
+ * (2026-10-09 : chaque facture dans sa devise, aucune conversion).
  */
 export type ResultatLot = { reglees: number; demandees: number; demandePaiement?: number };
-export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string, devise?: "USD" | "CDF"): Promise<ResultatLot> => {
+export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string, devise?: "USD" | "CDF" | "SA_DEVISE"): Promise<ResultatLot> => {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return { reglees: 0, demandees: 0 };
-  // En francs (2026-10-08) : chaque facture soldée par reste × taux du jour francs (voir reglerLotTx).
-  const enFrancs = devise === "CDF";
+  const verse: VerseLot = devise === "CDF" || devise === "SA_DEVISE" ? devise : "USD";
 
   if (!estDirection(user)) {
-    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr, enFrancs });
+    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr, verse });
     rafraichirFactures([]);
     return { reglees: 0, demandees: uniq.length, demandePaiement: r.nbFactures };
   }
@@ -517,7 +527,7 @@ export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: 
   const regs = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(uniq)}) ORDER BY "id" FOR UPDATE`; // avant la lecture des demandes
     await exigerAucunPaiementDemande(tx, uniq);
-    return reglerLotTx(tx, user.id, uniq, dateStr, enFrancs ? "Marquée payée (lot en francs)" : "Marquée payée (lot)", { enFrancs });
+    return reglerLotTx(tx, user.id, uniq, dateStr, verse === "CDF" ? "Marquée payée (lot en francs)" : verse === "SA_DEVISE" ? "Marquée payée (lot, dans la devise de chaque facture)" : "Marquée payée (lot)", { verse });
   });
 
   if (regs.length > 0) {
