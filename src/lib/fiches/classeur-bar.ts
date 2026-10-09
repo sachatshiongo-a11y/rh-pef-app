@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import { articlesProches } from "@/lib/article-proche";
 import {
   contenanceCanonique, contenanceDansNom, estUniteComptage, facteur, facteurVersArticle, lireContenanceSaisie, normaliserUnite, uniteManquante,
   UNITES_CONTENANCE, type UniteArticle,
@@ -475,7 +476,9 @@ export function rattacherIngredients(lues: FicheBarLue[], articles: ArticleExist
       feuilles: [...e.feuilles],
       articleId: memes.length === 1 ? memes[0]!.id : null,
       doute: memes.length > 1 ? `${memes.length} articles du catalogue ont ce nom et cette contenance` : null,
-      suggestions: [...(memes.length > 1 ? memes.map((a) => a.id) : []), ...proches.map((x) => x.a.id)],
+      // + les articles proches selon la règle anti-doublon du catalogue (lib/article-proche.ts, 2026-10-09) :
+      // un « Créer l'article » choisi malgré eux est un « Créer quand même » explicite.
+      suggestions: [...new Set([...(memes.length > 1 ? memes.map((a) => a.id) : []), ...proches.map((x) => x.a.id), ...articlesProches(e.libelle, articles.filter((a) => !memes.includes(a))).map((x) => x.article.id)])].slice(0, 8),
       creation: unite ? valeursCreation(e.libelle, unite, e.premiere.unite === unite ? e.premiere.coutUnitaire : null) : null,
     };
   });

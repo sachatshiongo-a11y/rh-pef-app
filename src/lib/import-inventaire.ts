@@ -6,6 +6,9 @@ import { repererDejaPresents, refusAnnulationHistoriquePorte, traceJumeau, ACTIO
 import { categorieSortieImport } from "./motif-sorties-import";
 import { journaliser } from "./audit";
 import { poserStocksTx } from "./validations-stock/stock-positif";
+import { catalogueCandidats } from "./achats-liste-serveur";
+import { decisionArticle } from "./article-proche";
+import { cleArticleImport } from "./import-inventaire-cle";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Import d'inventaire depuis le classeur Excel (feuilles « Nourriture », « Boissons »,
@@ -27,7 +30,17 @@ export type ArtPreview = {
   code: string; nom: string; domaine: Domaine; unite: string | null; prix: number | null; stockMin: number | null;
   stockFinal: number; entreeTot: number; sortieTot: number;
   match: "code" | "nom" | "aucun"; articleId: string | null; articleNom: string | null; articleDomaine: Domaine | null;
+  /**
+   * Article SANS correspondance dont le nom ressemble à un article du catalogue (anti-doublon du
+   * 2026-10-09, règle de lib/article-proche.ts) : la Direction choisit « Utiliser … » ou « Créer quand
+   * même » avant d'appliquer ; `creationPossible` faux = le nom exact existe déjà (plusieurs fois).
+   */
+  proches?: { id: string; designation: string; unite: string | null; actif: boolean }[];
+  creationPossible?: boolean;
 };
+/** Choix de la Direction pour un article à créer qui a des proches : id de l'article à utiliser, ou « CREER ». */
+export type ChoixArticlesImport = Record<string, string>;
+
 export type LegPreview = { date: string; legume: string; unite: string | null; quantite: number; montantCDF: number };
 export type PreviewInventaire = {
   articles: ArtPreview[]; mouvements: MvtPreview[]; legumes: LegPreview[];
@@ -137,6 +150,18 @@ export async function analyserInventaire(buffer: ArrayBuffer): Promise<PreviewIn
     }
   }
 
+  // ANTI-DOUBLON (2026-10-09) : un article qui serait CRÉÉ mais ressemble à un article du catalogue
+  // (« Tomate » quand « Tomates » existe, même nom écrit autrement) attend le choix de la Direction.
+  const sansMatch = articles.filter((a) => a.match === "aucun");
+  if (sansMatch.length > 0) {
+    const catalogue = await catalogueCandidats();
+    for (const a of sansMatch) {
+      const d = decisionArticle(a.nom, catalogue);
+      if (d.type === "auto") { a.proches = [{ id: d.article.id, designation: d.article.designation, unite: d.article.unite, actif: d.article.actif }]; a.creationPossible = false; }
+      else if (d.type === "choix") { a.proches = d.candidats.map((c) => ({ id: c.id, designation: c.designation, unite: c.unite, actif: c.actif })); a.creationPossible = d.creationPossible; }
+    }
+  }
+
   // Légumes : journal d'achats (colonnes de droite) + unités depuis le catalogue de gauche
   // (code col 1, désignation col 2, unité col 3 — le journal, lui, n'a pas de colonne unité).
   const legumes: LegPreview[] = [];
@@ -194,9 +219,23 @@ function candidatsMouvements(mvts: MvtPreview[], articleDe: (m: MvtPreview) => s
  *  reçoivent le motif « Livraison restaurant » ; non → aucun motif. */
 export async function appliquerInventaire(
   buffer: ArrayBuffer, libelle: string, userId: string | null,
-  { sortiesLivraisonRestaurant = true }: { sortiesLivraisonRestaurant?: boolean } = {}
+  { sortiesLivraisonRestaurant = true, choixArticles = {} }: { sortiesLivraisonRestaurant?: boolean; choixArticles?: ChoixArticlesImport } = {}
 ): Promise<{ batchId: string; resume: PreviewInventaire["resume"] }> {
   const preview = await analyserInventaire(buffer);
+  // Anti-doublon : chaque article à créer qui a des proches doit avoir été décidé (relu ici, sur
+  // l'analyse refaite) — « Utiliser » un des proches, ou « Créer quand même » si c'est permis.
+  const aChoisir: string[] = [];
+  for (const a of preview.articles) {
+    if (a.match !== "aucun" || !a.proches?.length) continue;
+    const c = choixArticles[cleArticleImport(a)];
+    const utilise = a.proches.find((p) => p.id === c);
+    if (utilise) { a.articleId = utilise.id; a.articleNom = utilise.designation; continue; }
+    if (c === "CREER" && a.creationPossible) continue;
+    aChoisir.push(`« ${a.nom} » → ${a.proches.map((p) => `« ${p.designation} »`).join(", ")}${a.creationPossible ? "" : " (ce nom existe déjà : utilisez-le)"}`);
+  }
+  if (aChoisir.length > 0) throw new Error(`Article déjà au catalogue sous un nom proche : choisissez « Utiliser … » ou « Créer quand même » pour ${aChoisir.length > 1 ? "chaque article" : "l'article"} ; rien n'a été importé. ${aChoisir.join(" ; ")}.`);
+  preview.resume.maj = preview.articles.filter((a) => a.articleId).length; // « Utiliser … » : mis à jour, pas créé
+  preview.resume.crees = preview.articles.filter((a) => !a.articleId).length;
   const codeToArticleId = new Map<string, string>();
   for (const a of preview.articles) if (a.articleId) codeToArticleId.set(a.domaine + "|" + a.code, a.articleId);
 
@@ -222,7 +261,7 @@ export async function appliquerInventaire(
       }
       // Stock final (photo instant T) : posé par la porte unique (stock-positif.ts) — un stock final
       // négatif dans le classeur est refusé, l'article nommé ; rien n'est écrit.
-      await poserStocksTx(tx, [{ articleId, quantite: a.stockFinal }], { quoi: "Le stock final du classeur" });
+      await poserStocksTx(tx, [{ articleId, quantite: a.stockFinal }], { quoi: "stock final du classeur" });
       if (a.stockMin != null) await tx.stock.update({ where: { articleId }, data: { stockMinimum: a.stockMin } });
     }
 
@@ -330,7 +369,7 @@ export async function annulerImport(batchId: string, userId?: string): Promise<v
       }
       // Remise à la valeur d'avant l'import, par la porte unique : une valeur d'avant négative n'est
       // pas réécrite (refus nommé, rien n'est annulé) — sauf si c'est déjà la valeur en base.
-      else if (o.entite === "Stock" && (await tx.stock.count({ where: { articleId: o.entiteId } })) > 0) await poserStocksTx(tx, [{ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 }], { quoi: "Le stock d'avant l'import" });
+      else if (o.entite === "Stock" && (await tx.stock.count({ where: { articleId: o.entiteId } })) > 0) await poserStocksTx(tx, [{ articleId: o.entiteId, quantite: av.quantite != null ? new Prisma.Decimal(av.quantite) : 0 }], { quoi: "stock d'avant l'import" });
     }
     await tx.importBatch.update({ where: { id: batchId }, data: { statut: "ANNULE", annuleeAt: new Date() } });
     if (userId) {

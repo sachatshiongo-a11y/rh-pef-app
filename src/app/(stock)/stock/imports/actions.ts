@@ -38,8 +38,11 @@ export const appliquerInventaireAction = actionLisible(
     const file = formData.get("fichier");
     if (!(file instanceof File) || file.size === 0) throw new Error("Fichier manquant.");
     const libelle = String(formData.get("libelle") ?? "").trim() || file.name.replace(/\.xlsx$/i, "");
+    let choixArticles: Record<string, string> = {};
+    try { const brut = JSON.parse(String(formData.get("choixArticles") ?? "{}")); if (brut && typeof brut === "object" && !Array.isArray(brut)) choixArticles = Object.fromEntries(Object.entries(brut).filter(([, v]) => typeof v === "string")) as Record<string, string>; } catch { /* illisible : aucun choix, le serveur redemande */ }
     const res = await appliquerInventaire(await file.arrayBuffer(), libelle, user.id, {
       sortiesLivraisonRestaurant: sortiesSontLivraisons(formData.get(CHAMP_SORTIES_LIVRAISON)),
+      choixArticles, // anti-doublon : « Utiliser … » / « Créer quand même » décidés dans l'aperçu
     });
     revalidatePath("/stock/imports");
     revalidatePath("/stock/catalogue", "layout");

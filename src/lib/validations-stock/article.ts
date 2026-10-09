@@ -164,7 +164,7 @@ export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: Pa
   }
   if (Object.keys(data).length > 0) await tx.articleStock.update({ where: { id }, data });
   // Quantité saisie sur la fiche : posée par la porte unique (stock-positif.ts), jamais négative.
-  if (quantite !== null) await poserStocksTx(tx, [{ articleId: id, quantite }], { quoi: "La quantité en stock" });
+  if (quantite !== null) await poserStocksTx(tx, [{ articleId: id, quantite }], { quoi: "quantité en stock" });
   if (Object.keys(stock).length > 0) {
     await tx.stock.upsert({
       where: { articleId: id },

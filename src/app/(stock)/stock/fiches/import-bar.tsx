@@ -460,7 +460,8 @@ const LigneIngredient = memo(function LigneIngredient({ proposition: p, choix, a
   const extras = useMemo<OptionChoix[]>(() => [
     ...(choisi && !suggestions.some((a) => a.id === choisi.id) ? [{ id: `art:${choisi.id}`, libelle: libelleArticle(choisi) }] : []),
     ...suggestions.map((a) => ({ id: `art:${a.id}`, libelle: libelleArticle(a), groupe: "Proches (à vérifier)" })),
-    ...(p.creation && !p.articleId && !p.doute ? [{ id: "creer", libelle: `Créer l'article « ${p.creation.designation} » (${p.creation.unite})` }] : []),
+    // Des articles proches existent : créer est un choix explicite « quand même » (anti-doublon, 2026-10-09).
+    ...(p.creation && !p.articleId && !p.doute ? [{ id: "creer", libelle: `${suggestions.length > 0 ? "Créer quand même" : "Créer"} l'article « ${p.creation.designation} » (${p.creation.unite})` }] : []),
     { id: "ignorer", libelle: "Ignorer la ligne" },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `suggestions` est dérivé de p.suggestions et parId
   ], [choisi, p.suggestions, parId, p.creation, p.articleId, p.doute]);

@@ -116,7 +116,7 @@ export async function entrerEnStockTx(tx: Tx, lignes: { articleId: string; quant
  * absente est créée. Écriture GROUPÉE (un UPDATE … FROM VALUES + un createMany) : 3 requêtes par ligne
  * dépassaient le délai d'une transaction en production (P2028, comptage de tout le catalogue).
  */
-export async function poserStocksTx(tx: Tx, lignes: { articleId: string; quantite: Quantite }[], { quoi = "La quantité posée" }: { quoi?: string } = {}) {
+export async function poserStocksTx(tx: Tx, lignes: { articleId: string; quantite: Quantite }[], { quoi = "quantité posée" }: { quoi?: string } = {}) {
   if (lignes.length === 0) return;
   const parId = new Map<string, Prisma.Decimal>();
   for (const l of lignes) {
@@ -132,7 +132,7 @@ export async function poserStocksTx(tx: Tx, lignes: { articleId: string; quantit
   const negatifs = ids.filter((id) => parId.get(id)!.isNegative() && !parId.get(id)!.isZero() && !actuels.get(id)?.equals(parId.get(id)!));
   if (negatifs.length > 0) {
     const arts = new Map((await tx.articleStock.findMany({ where: { id: { in: negatifs } }, select: { id: true, designation: true, unite: true } })).map((a) => [a.id, a]));
-    throw new Error(`${quoi} ne peut pas être négative — un stock ne passe jamais sous 0 : ${negatifs.map((id) => `${arts.get(id)?.designation ?? "Article inconnu"} (${avecUnite(parId.get(id)!.toString(), arts.get(id)?.unite ?? null)})`).join(", ")}. Rien n'a été enregistré.`);
+    throw new Error(`Quantité négative refusée (${quoi}) — un stock ne passe jamais sous 0 : ${negatifs.map((id) => `${arts.get(id)?.designation ?? "Article inconnu"} (${avecUnite(parId.get(id)!.toString(), arts.get(id)?.unite ?? null)})`).join(", ")}. Rien n'a été enregistré.`);
   }
   const maj = ids.filter((id) => existants.has(id));
   if (maj.length > 0) {

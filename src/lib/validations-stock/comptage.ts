@@ -99,7 +99,7 @@ export async function ecrireComptageTx(tx: Tx, userId: string, p: { domaine: Dom
     });
   }
   // Stock posé au compté par la porte unique (stock-positif.ts) : écriture groupée, jamais sous 0.
-  await poserStocksTx(tx, lignes.map((l) => ({ articleId: l.articleId, quantite: l.stockFinal })), { quoi: "La quantité comptée" });
+  await poserStocksTx(tx, lignes.map((l) => ({ articleId: l.articleId, quantite: l.stockFinal })), { quoi: "quantité comptée" });
   return { session: s, nbEcarts, nbHorsTol };
 }
 

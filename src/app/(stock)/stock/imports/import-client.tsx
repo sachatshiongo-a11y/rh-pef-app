@@ -4,6 +4,8 @@ import { useRef, useState, useTransition } from "react";
 import { analyserInventaireAction, appliquerInventaireAction } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import type { PreviewInventaire } from "@/lib/import-inventaire";
+import { cleArticleImport } from "@/lib/import-inventaire-cle";
+import { ChoixArticleProche } from "@/components/stock/choix-article-proche";
 import { CaseSortiesLivraison, MotifSortiesApercu } from "./case-sorties-livraison";
 import { CHAMP_SORTIES_LIVRAISON } from "@/lib/motif-sorties-import";
 import { ListePaginee } from "@/components/liste-paginee";
@@ -14,9 +16,11 @@ export function ImportInventaireClient() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [isPending, start] = useTransition();
+  /** Anti-doublon (2026-10-09) : pour chaque article à créer qui a des proches, « Utiliser » (id) ou « CREER ». */
+  const [choix, setChoix] = useState<Record<string, string>>({});
 
   const analyser = () => {
-    setErreur(null); setSucces(null); setPreview(null);
+    setErreur(null); setSucces(null); setPreview(null); setChoix({});
     const fd = new FormData(formRef.current!);
     start(async () => {
       const p = await analyserInventaireAction(fd);
@@ -28,6 +32,7 @@ export function ImportInventaireClient() {
     setErreur(null);
     const fd = new FormData(formRef.current!);
     fd.set(CHAMP_SORTIES_LIVRAISON, "1"); // motif obligatoire : toujours « Livraison restaurant »
+    fd.set("choixArticles", JSON.stringify(choix));
     start(async () => {
       const r = await appliquerInventaireAction(fd);
       if (estErreur(r)) { setErreur(r.erreur); return; }
@@ -42,6 +47,8 @@ export function ImportInventaireClient() {
 
   const sansMatch = preview?.articles.filter((a) => a.match === "aucun") ?? [];
   const parNom = preview?.articles.filter((a) => a.match === "nom") ?? [];
+  const aDecider = sansMatch.filter((a) => a.proches?.length);
+  const nonDecides = aDecider.filter((a) => { const c = choix[cleArticleImport(a)]; return !(c && (c === "CREER" ? a.creationPossible : a.proches!.some((p) => p.id === c))); });
 
   return (
     <div className="space-y-3">
@@ -88,6 +95,23 @@ export function ImportInventaireClient() {
               <ListePaginee items={sansMatch} libelle="articles" ligne={(a) => <li key={a.domaine + a.code}>{a.nom} [{a.domaine}] (code {a.code})</li>} />
             </details>
           )}
+          {aDecider.length > 0 && (
+            <div data-doublons-import className="space-y-2 rounded-md border border-amber-400 bg-amber-50/60 p-2 text-sm">
+              <p className="font-medium text-amber-900">{aDecider.length} article(s) à créer ressemblent à un article du catalogue : choisissez pour chacun avant d&apos;appliquer.</p>
+              {aDecider.map((a) => {
+                const k = cleArticleImport(a);
+                const c = choix[k];
+                const utilise = a.proches!.find((p) => p.id === c);
+                return (
+                  <div key={k} className="space-y-1">
+                    <p className="text-xs">{a.nom} [{a.domaine}] (code {a.code}){utilise ? <b> → stock posé sur « {utilise.designation} »</b> : c === "CREER" ? <b> → nouvel article créé</b> : null}</p>
+                    <ChoixArticleProche nom={a.nom} candidats={a.proches!} creationPossible={!!a.creationPossible} desactive={isPending}
+                      onUtiliser={(p) => setChoix((x) => ({ ...x, [k]: p.id }))} onCreer={() => setChoix((x) => ({ ...x, [k]: "CREER" }))} />
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {parNom.length > 0 && (
             <details className="rounded-md border p-2 text-sm">
               <summary className="cursor-pointer font-medium">{parNom.length} rapprochement(s) par nom (à vérifier)</summary>
@@ -96,7 +120,7 @@ export function ImportInventaireClient() {
           )}
 
           <div className="flex items-center gap-2 pt-1">
-            <button type="button" onClick={appliquer} disabled={isPending} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : "Appliquer l'import"}</button>
+            <button type="button" onClick={appliquer} disabled={isPending || nonDecides.length > 0} title={nonDecides.length > 0 ? `${nonDecides.length} article(s) à décider` : undefined} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">{isPending ? "Application…" : "Appliquer l'import"}</button>
             <button type="button" onClick={() => setPreview(null)} className="text-sm text-muted-foreground underline">Annuler</button>
           </div>
         </div>

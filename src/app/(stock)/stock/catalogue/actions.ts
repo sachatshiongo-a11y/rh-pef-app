@@ -119,7 +119,7 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
         },
       },
     });
-    if (quantiteInitiale !== 0) await poserStocksTx(tx, [{ articleId: cree.id, quantite: quantiteInitiale }], { quoi: "Le stock initial" });
+    if (quantiteInitiale !== 0) await poserStocksTx(tx, [{ articleId: cree.id, quantite: quantiteInitiale }], { quoi: "stock initial" });
     return cree;
   });
   await journaliser(prisma, { entite: "ArticleStock", entiteId: art.id, champ: "creation", nouvelleValeur: designation + (d.type === "choix" ? ` (créé quand même, proche de ${d.candidats.map((c) => `« ${c.designation} »`).join(", ")})` : ""), userId: user.id });

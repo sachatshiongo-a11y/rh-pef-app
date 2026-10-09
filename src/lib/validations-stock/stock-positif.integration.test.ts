@@ -247,7 +247,7 @@ describe("autres chemins qui diminuent un stock", () => {
     const c = new FormData(); c.set("designation", "Mil"); c.set("quantite", "-2");
     expect(erreurDe(await creerArticle(c))).toContain("ne peut pas être négatif");
     expect(await prisma.articleStock.count({ where: { designation: "Mil" } })).toBe(0);
-    await expect(prisma.$transaction((tx) => poserStocksTx(tx, [{ articleId: riz, quantite: "-0.5" }], { quoi: "La quantité comptée" }))).rejects.toThrow("La quantité comptée ne peut pas être négative — un stock ne passe jamais sous 0 : Riz (-0,5 kg)");
+    await expect(prisma.$transaction((tx) => poserStocksTx(tx, [{ articleId: riz, quantite: "-0.5" }], { quoi: "quantité comptée" }))).rejects.toThrow("Quantité négative refusée (quantité comptée) — un stock ne passe jamais sous 0 : Riz (-0,5 kg)");
     // Un négatif DÉJÀ en base reposé tel quel (ligne de comptage en conflit) n'est pas refusé.
     const beurre = await article("Beurre", -3);
     await prisma.$transaction((tx) => poserStocksTx(tx, [{ articleId: beurre, quantite: "-3" }]));
