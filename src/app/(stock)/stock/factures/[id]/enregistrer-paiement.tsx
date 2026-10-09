@@ -8,15 +8,20 @@ import { BoutonValider } from "@/components/action-buttons";
 import { ChampNombre } from "@/components/champ-nombre";
 import { lireNombreSaisi, versSaisie } from "@/lib/nombre";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
-import { francsEnDollars } from "@/lib/validations-stock/conversion-francs";
+import { imputation } from "@/lib/validations-stock/conversion-francs";
+import { formaterMontantFacture, type DeviseFacture } from "@/lib/facture-devise";
 
 const inp = "rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 
-/** Formulaire « Enregistrer un paiement / avoir » (total ou partiel, USD ou CDF) — replié derrière un bouton. */
-export function EnregistrerPaiement({ factureId, reste, taux, estDirection = true }: { factureId: string; reste: number; taux: number; estDirection?: boolean }) {
+/**
+ * Formulaire « Enregistrer un paiement / avoir » (total ou partiel, USD ou CDF) — replié derrière un
+ * bouton. `reste` est dans la devise de la facture (`deviseFacture`, dollars par défaut) ; le montant
+ * versé peut être dans l'autre devise, converti au taux du jour par LA règle du serveur (`imputation`).
+ */
+export function EnregistrerPaiement({ factureId, reste, taux, estDirection = true, deviseFacture = "USD" }: { factureId: string; reste: number; taux: number; estDirection?: boolean; deviseFacture?: DeviseFacture }) {
   const [ouvert, setOuvert] = useState(false);
   const [type, setType] = useState<"PAIEMENT" | "AVOIR">("PAIEMENT");
-  const [devise, setDevise] = useState<"USD" | "CDF">("USD");
+  const [devise, setDevise] = useState<"USD" | "CDF">(deviseFacture);
   const [montant, setMontant] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
   const [isPending, start] = useTransition();
@@ -38,8 +43,10 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
   }
 
   const saisi = lireNombreSaisi(montant); // null = vide ou illisible (le champ le dit en rouge)
-  // En francs : l'équivalent par LA conversion des règlements (celle du serveur), et le reste après.
-  const enDollars = devise === "CDF" && taux > 0 && saisi !== null && saisi > 0 ? francsEnDollars(saisi, taux) : devise === "USD" && saisi !== null && saisi > 0 ? saisi : null;
+  // Ce que le versement retire du reste, DANS LA DEVISE DE LA FACTURE : LA règle des règlements
+  // (celle du serveur) — converti au taux du jour s'il est versé dans l'autre devise.
+  const imp = saisi !== null && saisi > 0 ? imputation(deviseFacture, { devise, montant: saisi }, taux > 0 ? taux : null, reste) : null;
+  const fm = (n: number) => formaterMontantFacture(n, deviseFacture);
   const iso = jourKinshasaISO();
 
   return (
@@ -63,12 +70,15 @@ export function EnregistrerPaiement({ factureId, reste, taux, estDirection = tru
       </div>
 
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">Montant ({devise}) *
-        <ChampNombre name="montant" value={montant} onChange={(e) => setMontant(e.target.value)} required autoFocus suffixe={devise === "USD" ? "$" : "FC"} placeholder={devise === "USD" ? versSaisie(Math.round(reste * 100) / 100) : taux > 0 ? versSaisie(Math.round(reste * taux)) : ""} className={`${inp} w-32 text-right`} classeConteneur="w-32" />
+        <ChampNombre name="montant" value={montant} onChange={(e) => setMontant(e.target.value)} required autoFocus suffixe={devise === "USD" ? "$" : "FC"}
+          placeholder={devise === deviseFacture ? versSaisie(Math.round(reste * 100) / 100) : !(taux > 0) ? "" : devise === "CDF" ? versSaisie(Math.round(reste * taux)) : versSaisie(Math.round((reste / taux) * 100) / 100)}
+          className={`${inp} w-32 text-right`} classeConteneur="w-32" />
       </label>
-      {enDollars !== null && (
-        <span className={`pb-2 text-xs tabular-nums ${enDollars > reste + 0.009 ? "text-destructive" : "text-muted-foreground"}`}>
-          {devise === "CDF" && <>{formaterFC(saisi!)} ≈ {formaterUSD(enDollars)} au taux du {iso.slice(8, 10)}/{iso.slice(5, 7)} (1 $ = {formaterNombre(taux)} FC){!estDirection && " — indicatif : le taux du jour de la validation s'appliquera"} · </>}
-          {enDollars > reste + 0.009 ? `dépasse le reste à payer (${formaterUSD(reste)})` : `reste après : ${formaterUSD(Math.max(0, Math.round((reste - enDollars) * 100) / 100))}`}
+      {saisi !== null && saisi > 0 && devise !== deviseFacture && imp === null && <span className="pb-2 text-xs text-destructive">Taux du jour non défini (Paramètres) : conversion impossible.</span>}
+      {imp !== null && (
+        <span className={`pb-2 text-xs tabular-nums ${imp.depasse ? "text-destructive" : "text-muted-foreground"}`}>
+          {imp.converti && <>{devise === "CDF" ? formaterFC(saisi!) : formaterUSD(saisi!)} ≈ {fm(imp.impute)} au taux du {iso.slice(8, 10)}/{iso.slice(5, 7)} (1 $ = {formaterNombre(taux)} FC){!estDirection && " — indicatif : le taux du jour de la validation s'appliquera"} · </>}
+          {imp.depasse ? `dépasse le reste à payer (${fm(reste)})` : `reste après : ${fm(Math.max(0, Math.round((reste - imp.impute) * 100) / 100))}`}
         </span>
       )}
 

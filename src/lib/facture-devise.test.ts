@@ -36,8 +36,10 @@ describe("totaux par devise", () => {
     expect(libelleTotal(t)).toBe("1 234,50 $ + 2 800 000 FC");
     expect(t).toEqual({ usd: 1234.5, cdf: 2800000, nbUSD: 1, nbCDF: 1 });
   });
-  it("francs seuls : pas de « 0,00 $ + »", () => {
+  it("francs seuls : pas de « 0,00 $ + » ; rien de dû sur des factures en francs : « 0 FC »", () => {
     expect(libelleTotal(totalFactures([enFrancs], "montant"))).toBe("2 800 000 FC");
+    expect(libelleTotal(totalFactures([enFrancs], "regle"))).toBe("0 FC");
+    expect(libelleTotal(totalFactures([enFrancs, enDollars], "regle"))).toBe("20,50 $");
   });
   it("équivalent unique : exact sans francs, « ≈ » au taux du jour avec, null sans taux (jamais 0)", () => {
     const t = additionnerTotaux(totalFactures([enDollars], "reste"), totalFactures([enFrancs], "reste"));

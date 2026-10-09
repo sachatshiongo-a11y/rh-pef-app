@@ -99,7 +99,9 @@ export function partsTotal(t: TotalDevises): { devise: DeviseFacture; montant: n
  */
 export function libelleTotal(t: TotalDevises, vide?: string, fmtUSD: (n: number) => string = formaterUSD): string {
   const p = partsTotal(t);
-  return p.length === 0 ? (vide ?? fmtUSD(0)) : p.map((x) => (x.devise === "USD" ? fmtUSD(x.montant) : formaterMontantFacture(x.montant, "CDF"))).join(" + ");
+  // Rien à additionner : un total de factures toutes en francs s'écrit « 0 FC », pas « 0,00 $ ».
+  if (p.length === 0) return vide ?? (t.nbCDF > 0 && t.nbUSD === 0 ? formaterMontantFacture(0, "CDF") : fmtUSD(0));
+  return p.map((x) => (x.devise === "USD" ? fmtUSD(x.montant) : formaterMontantFacture(x.montant, "CDF"))).join(" + ");
 }
 
 /** Le total compte-t-il des francs ? (l'équivalent unique en dollars est alors approché). */

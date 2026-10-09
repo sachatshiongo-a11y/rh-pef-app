@@ -15,6 +15,7 @@ import { DetailDemande, AlertesDemande } from "../../a-valider/detail-demande";
 import { DecisionDemande } from "../../a-valider/decision-demande";
 import { lireRetourFiche } from "@/lib/fiche-fournisseur";
 import { formaterFC, formaterNombre } from "@/lib/montant";
+import { formaterMontantFacture, libelleAutreDevise, montantsFacture } from "@/lib/facture-devise";
 
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 const cle = (articleId: string | null, designation: string) => articleId ?? `#${designation.trim().toLowerCase()}`;
@@ -41,6 +42,12 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   ]);
   const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
   const nom = facture.fournisseur?.nom ?? facture.fournisseurNom;
+  // Montants DANS LA DEVISE de la facture (2026-10-09) ; en francs, l'équivalent « ≈ » au taux du jour.
+  const m = montantsFacture(facture);
+  const enFC = m.devise === "CDF";
+  const fm = (n: number | null) => (n === null ? "—" : enFC ? formaterMontantFacture(n, "CDF") : usd(n));
+  const prixLigne = (l: { prixUnitaireUSD: unknown; prixUnitaireCDF: unknown }) => (enFC ? (l.prixUnitaireCDF === null ? "—" : formaterMontantFacture(Number(l.prixUnitaireCDF), "CDF")) : usd(l.prixUnitaireUSD as number));
+  const totalLigne = (l: { totalLigneUSD: unknown; totalLigneCDF: unknown }) => Number(enFC ? l.totalLigneCDF : l.totalLigneUSD);
   const bc = facture.bonDeCommande;
   const retour = lireRetourFiche(sp.retour, facture.fournisseurId);
 
@@ -65,12 +72,12 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   for (const l of facture.lignes) {
     const k = cle(l.articleId, l.designation);
     const e = recon.get(k) ?? { designation: l.designation, articleId: l.articleId ?? null, qteBC: 0, puBC: 0, totBC: 0, qteFac: 0, puFac: 0, totFac: 0 };
-    e.qteFac += Number(l.quantite); e.puFac = Number(l.prixUnitaireUSD); e.totFac += Number(l.totalLigneUSD);
+    e.qteFac += Number(l.quantite); e.puFac = Number(enFC ? l.prixUnitaireCDF : l.prixUnitaireUSD); e.totFac += totalLigne(l);
     recon.set(k, e);
   }
   const lignesRecon = [...recon.values()];
   const totBC = bc ? Number(bc.totalUSD) : 0;
-  const totFac = Number(facture.montantUSD);
+  const totFac = m.montant;
   const ecartTotal = totFac - totBC;
   // L'écart à SIGNALER porte sur les QUANTITÉS (commandé vs livré/facturé), pas sur le montant :
   // une différence de prix ne change pas ce qu'il y a à payer (= le montant de la facture).
@@ -89,8 +96,8 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           : nom}</h1>
         <div className="flex flex-wrap items-center gap-2">
           {/* Un paiement déjà demandé se DÉCIDE (bloc ci-dessous) : pas de second geste de paiement. */}
-          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} />}
-          {!demande && <EnregistrerPaiement factureId={facture.id} reste={Number(facture.resteAPayerUSD)} taux={tauxCDF} estDirection={estDirection} />}
+          {facture.statut !== "REGLEE" && !demande && <MarquerPayeeBtn id={facture.id} estDirection={estDirection} reste={m.reste} taux={tauxCDF} deviseFacture={m.devise} />}
+          {!demande && <EnregistrerPaiement factureId={facture.id} reste={m.reste} taux={tauxCDF} estDirection={estDirection} deviseFacture={m.devise} />}
           <Link href={retour ?? "/stock/factures"} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">← Retour</Link>
         </div>
       </div>
@@ -113,10 +120,18 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           <p className="text-xs text-muted-foreground">Statut</p>
           <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[facture.statut]}`}>{STATUT_FACTURE_LABEL[facture.statut]}</span>
         </div>
-        <Info label="Montant" val={usd(facture.montantUSD)} />
-        <Info label="Réglé" val={usd(Number(facture.montantRegleUSD))} />
-        <Info label="Reste à payer" val={usd(Number(facture.resteAPayerUSD))} accent={Number(facture.resteAPayerUSD) > 0} />
+        <Info label="Montant" val={fm(m.montant)} sous={enFC ? libelleAutreDevise(m.montant, "CDF", tauxCDF) + " au taux du jour" : undefined} />
+        <Info label="Réglé" val={fm(m.regle)} />
+        <Info label="Reste à payer" val={fm(m.reste)} accent={m.reste > 0} sous={enFC && m.reste > 0 ? libelleAutreDevise(m.reste, "CDF", tauxCDF) + " au taux du jour" : undefined} />
         <Info label="Mode de paiement" val={facture.modePaiement ?? "—"} />
+        {enFC && (
+          <div className="col-span-2 sm:col-span-4">
+            <p className="text-xs text-muted-foreground">
+              Facture <b>en francs (FC)</b> : montant, réglé et reste tenus en francs, sans conversion.
+              {facture.tauxChangeUtilise !== null ? <> Taux du jour à l&apos;enregistrement : {formaterNombre(Number(facture.tauxChangeUtilise))} FC/$ (valorise l&apos;entrée en stock en dollars).</> : null}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Document d'origine (PDF ou scan joint) */}
@@ -138,9 +153,12 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                 <span className="text-muted-foreground">
                   {p.type === "AVOIR" && <span className="mr-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Avoir</span>}
                   {new Date(p.date).toLocaleDateString("fr-FR")}{p.modePaiement ? ` · ${p.modePaiement}` : ""}{p.note ? ` · ${p.note}` : ""}
-                  {p.montantCDF ? <span className="ml-1 text-xs">(payé {formaterFC(Number(p.montantCDF))}{p.tauxChangeUtilise ? ` au taux de ${formaterNombre(Number(p.tauxChangeUtilise))} FC/$` : ""})</span> : null}
+                  {/* Versé dans l'autre devise que la facture : le montant réellement versé et le taux qui l'a converti. */}
+                  {p.devise === "CDF"
+                    ? (p.montantUSD !== null ? <span className="ml-1 text-xs">(payé {usd(Number(p.montantUSD))}{p.tauxChangeUtilise ? ` au taux de ${formaterNombre(Number(p.tauxChangeUtilise))} FC/$` : ""})</span> : null)
+                    : (p.montantCDF ? <span className="ml-1 text-xs">(payé {formaterFC(Number(p.montantCDF))}{p.tauxChangeUtilise ? ` au taux de ${formaterNombre(Number(p.tauxChangeUtilise))} FC/$` : ""})</span> : null)}
                 </span>
-                <span className="font-semibold tabular-nums text-emerald-700">{usd(Number(p.montantUSD))}</span>
+                <span className="font-semibold tabular-nums text-emerald-700">{p.devise === "CDF" ? formaterMontantFacture(Number(p.montantCDF), "CDF") : usd(Number(p.montantUSD))}</span>
               </li>
             ))}
           </ul>
@@ -154,7 +172,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
           <table className="w-full min-w-[40rem] text-sm">
             <thead className="en-tete-collante bg-muted text-left">
               <tr className="[&>th]:px-3 [&>th]:py-2">
-                <th>Article</th><th>Unité</th><th className="text-right">Quantité</th><th className="text-right">P.U.</th><th className="text-right">Total</th>
+                <th>Article</th><th>Unité</th><th className="text-right">Quantité</th><th className="text-right">P.U.{enFC ? " (FC)" : ""}</th><th className="text-right">Total{enFC ? " (FC)" : ""}</th>
               </tr>
             </thead>
             <tbody>
@@ -163,8 +181,8 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                   <td className="px-3 py-2 font-medium">{l.articleId ? <Link href={`/stock/catalogue/${l.articleId}`} className="text-primary hover:underline">{l.designation}</Link> : l.designation}</td>
                   <td className="px-3 py-2 text-muted-foreground">{l.unite ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{qte(l.quantite)}</td>
-                  <td className="px-3 py-2 text-right">{usd(l.prixUnitaireUSD)}</td>
-                  <td className="px-3 py-2 text-right">{usd(l.totalLigneUSD)}</td>
+                  <td className="px-3 py-2 text-right">{prixLigne(l)}</td>
+                  <td className="px-3 py-2 text-right">{fm(totalLigne(l))}</td>
                 </tr>
               ))}
               {facture.lignes.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">Cette facture n’a pas de lignes détaillées.</td></tr>}
@@ -196,7 +214,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                     <th className="text-right">Qté fact</th>
                     <th className="text-right">Écart qté</th>
                     <th className="text-right">Total cmd</th>
-                    <th className="text-right">Total fact</th>
+                    <th className="text-right">Total fact{enFC ? " (FC)" : ""}</th>
                     <th className="text-right">Écart</th>
                   </tr>
                 </thead>
@@ -211,8 +229,9 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                         <td className="px-3 py-2 text-right">{l.qteFac ? qte(l.qteFac) : "—"}</td>
                         <td className={`px-3 py-2 text-right ${eQte ? "font-medium text-amber-700" : "text-muted-foreground"}`}>{eQte ? `${eQte > 0 ? "+" : ""}${qte(eQte)}` : "0"}</td>
                         <td className="px-3 py-2 text-right text-muted-foreground">{l.totBC ? usd(l.totBC) : "—"}</td>
-                        <td className="px-3 py-2 text-right">{l.totFac ? usd(l.totFac) : "—"}</td>
-                        <td className="px-3 py-2 text-right text-muted-foreground">{Math.abs(eTot) > 0.009 ? `${eTot > 0 ? "+" : ""}${usd(eTot)}` : "0"}</td>
+                        <td className="px-3 py-2 text-right">{l.totFac ? fm(l.totFac) : "—"}</td>
+                        {/* Bon en dollars, facture en francs : pas d'écart de montant entre deux devises (jamais converti en silence). */}
+                        <td className="px-3 py-2 text-right text-muted-foreground">{enFC ? "—" : Math.abs(eTot) > 0.009 ? `${eTot > 0 ? "+" : ""}${usd(eTot)}` : "0"}</td>
                       </tr>
                     );
                   })}
@@ -221,8 +240,8 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                   <tr className="border-t bg-muted/40 font-semibold [&>td]:px-3 [&>td]:py-2">
                     <td colSpan={4}>Totaux</td>
                     <td className="text-right">{usd(totBC)}</td>
-                    <td className="text-right">{usd(totFac)}</td>
-                    <td className="text-right text-muted-foreground">{ecartTotal >= 0 ? "+" : ""}{usd(ecartTotal)}</td>
+                    <td className="text-right">{fm(totFac)}</td>
+                    <td className="text-right text-muted-foreground">{enFC ? "—" : <>{ecartTotal >= 0 ? "+" : ""}{usd(ecartTotal)}</>}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -239,6 +258,7 @@ export default async function FactureDetailPage({ params, searchParams }: { para
                     })}
                   </ul>
                   <p className="mt-1 text-[11px]">Une différence de montant n’affecte pas la somme à payer : c’est le montant de la facture qui fait foi.</p>
+                  {enFC && <p className="mt-1 text-[11px]">Bon de commande en dollars, facture en francs : les montants ne se comparent pas (devises différentes) ; seules les quantités le sont.</p>}
                 </div>
               )}
           </>
@@ -248,11 +268,12 @@ export default async function FactureDetailPage({ params, searchParams }: { para
   );
 }
 
-function Info({ label, val, accent }: { label: string; val: string; accent?: boolean }) {
+function Info({ label, val, accent, sous }: { label: string; val: string; accent?: boolean; sous?: string }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`mt-0.5 font-medium ${accent ? "text-red-700" : ""}`}>{val}</p>
+      {sous && <p className="text-[11px] text-muted-foreground">{sous}</p>}
     </div>
   );
 }

@@ -14,7 +14,8 @@ import { BulkBar } from "@/components/bulk-bar";
 import { MoisAccordeon } from "@/components/mois-accordeon";
 import { MAX_EXPORT_SELECTION, MESSAGE_EXPORT_TROP_GRAND } from "@/lib/export-selection";
 import { lireNombreSaisi } from "@/lib/nombre";
-import { BasculeDevise, SaisieFrancs, TotalLotFrancs, francsProposes, type DevisePaiement } from "./devise-paiement";
+import { BasculeDevise, SaisieDollars, SaisieFrancs, TotalLot, TotalLotFrancs, dollarsProposes, francsProposes, type DeviseLot, type DevisePaiement } from "./devise-paiement";
+import { aDesFrancs, ajouterAuTotal, formaterMontantFacture, libelleTotal, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
 
@@ -27,6 +28,8 @@ export type FactureRow = {
   echeance: string | null;
   joursRestants: number | null; // null si réglée ou sans échéance
   datePaiement: string | null;
+  /** Devise de la facture (2026-10-09) : `montant` et `reste` sont dans cette devise. Absente = USD. */
+  devise?: DeviseFacture;
   montant: string;
   reste: number;
   statut: string;
@@ -42,7 +45,14 @@ export type AnneeGroupe = { annee: number; mois: MoisGroupe[] };
 // Plafond de l'export de la sélection : au-delà, le bouton le dit au lieu d'échouer (la route refuse aussi).
 export { MAX_EXPORT_SELECTION };
 
-const sumReste = (fs: FactureRow[]) => fs.reduce((t, f) => t + f.reste, 0);
+/** Restes d'un groupe, TENUS PAR DEVISE (jamais 100 $ + 280 000 FC additionnés). */
+const sumReste = (fs: FactureRow[]): TotalDevises => fs.reduce((t, f) => ajouterAuTotal(t, f.devise ?? "USD", f.reste), totalVide());
+const sumMontant = (fs: FactureRow[]): TotalDevises => fs.reduce((t, f) => ajouterAuTotal(t, f.devise ?? "USD", Number(f.montant)), totalVide());
+/** Un montant de la ligne dans sa devise : dollars comme avant (`usd`), francs « 280 000 FC ». */
+const fmt = (f: { devise?: DeviseFacture }, n: number | string) => ((f.devise ?? "USD") === "USD" ? usd(n) : formaterMontantFacture(Number(n), "CDF"));
+/** « 100,00 $ + 280 000 FC » (dollars formatés comme avant). */
+const fmtTotal = (t: TotalDevises) => libelleTotal(t, undefined, usd);
+const nonNul = (t: TotalDevises) => aDesFrancs(t) || t.usd > 0;
 
 // Pastille d'échéance : verte > 10 j, jaune ≤ 10 j, rouge en retard, verte « payée » une fois réglée.
 function badgeEcheance(f: FactureRow): { texte: string; cls: string } | null {
@@ -91,9 +101,12 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
   const [lotDate, setLotDate] = useState(() => jourKinshasaISO());
   // Devise du paiement (2026-10-08) : à l'unité, montant en francs proposé = reste × taux du jour,
   // modifiable ; en lot, chaque facture soldée par reste × taux francs.
+  // Facture en francs (2026-10-09) : payée en francs par défaut (son reste, sans conversion) ; en
+  // dollars, montant proposé = reste ÷ taux du jour, modifiable.
   const [devise, setDevise] = useState<DevisePaiement>("USD");
   const [francs, setFrancs] = useState("");
-  const [lotDevise, setLotDevise] = useState<DevisePaiement>("USD");
+  const [dollars, setDollars] = useState("");
+  const [lotDevise, setLotDevise] = useState<DeviseLot>("USD");
 
   const run = (fn: () => Promise<unknown>, onSuccess?: () => void) => {
     setErreur(null); setInfo(null);
@@ -171,7 +184,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                 </div>
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-base font-semibold tabular-nums">{usd(f.montant)}</p>
+                <p className="text-base font-semibold tabular-nums">{fmt(f, f.montant)}</p>
                 <p className="text-[11px] text-muted-foreground">échéance {f.echeance ?? "—"}</p>
               </div>
             </div>
@@ -195,13 +208,17 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                         aria-label="Date de paiement"
                         className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
                       />
-                      <BasculeDevise petit devise={devise} onDevise={(d) => { setDevise(d); if (d === "CDF") setFrancs(francsProposes(f.reste, taux)); }} taux={taux} />
-                      {devise === "CDF" && <SaisieFrancs petit francs={francs} onFrancs={setFrancs} reste={f.reste} taux={taux} demande={!estDirection} />}
-                      <BoutonValider onClick={() => run(() => marquerPayee(f.id, dateChoisie, devise === "CDF" ? francs : undefined), () => setDatePickerId(null))} disabled={isPending || (devise === "CDF" && !((lireNombreSaisi(francs) ?? 0) > 0))}>{libelleConfirmer}</BoutonValider>
+                      <BasculeDevise petit devise={devise} deviseFacture={f.devise ?? "USD"} onDevise={(d) => { setDevise(d); if (d === "CDF" && (f.devise ?? "USD") === "USD") setFrancs(francsProposes(f.reste, taux)); if (d === "USD" && f.devise === "CDF") setDollars(dollarsProposes(f.reste, taux)); }} taux={taux} />
+                      {devise === "CDF" && (f.devise ?? "USD") === "USD" && <SaisieFrancs petit francs={francs} onFrancs={setFrancs} reste={f.reste} taux={taux} demande={!estDirection} />}
+                      {devise === "USD" && f.devise === "CDF" && <SaisieDollars petit dollars={dollars} onDollars={setDollars} reste={f.reste} taux={taux} demande={!estDirection} />}
+                      <BoutonValider onClick={() => run(() => (f.devise === "CDF"
+                        ? marquerPayee(f.id, dateChoisie, undefined, devise === "USD" ? dollars : undefined)
+                        : marquerPayee(f.id, dateChoisie, devise === "CDF" ? francs : undefined)), () => setDatePickerId(null))}
+                        disabled={isPending || (devise === "CDF" && (f.devise ?? "USD") === "USD" && !((lireNombreSaisi(francs) ?? 0) > 0)) || (devise === "USD" && f.devise === "CDF" && !((lireNombreSaisi(dollars) ?? 0) > 0))}>{libelleConfirmer}</BoutonValider>
                       <BoutonNeutre onClick={() => setDatePickerId(null)}>Annuler</BoutonNeutre>
                     </span>
                   ) : (
-                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); setDevise("USD"); setFrancs(""); }}>{libelleMarquer}</BoutonValider>
+                    <BoutonValider onClick={() => { setDatePickerId(f.id); setDateChoisie(jourKinshasaISO()); setDevise(f.devise ?? "USD"); setFrancs(""); setDollars(""); }}>{libelleMarquer}</BoutonValider>
                   )
                 )}
                 {estDirection && (
@@ -243,8 +260,20 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                 className="rounded-md border border-input bg-background px-1.5 py-1 text-xs"
               />
             </label>
-            <BasculeDevise petit devise={lotDevise} onDevise={setLotDevise} taux={taux} />
-            {lotDevise === "CDF" && <TotalLotFrancs restes={toutes.filter((f) => selNonReglees.includes(f.id)).map((f) => f.reste)} taux={taux} demande={!estDirection} />}
+            {(() => {
+              // Lot : en dollars / en francs (comme avant) ; s'il compte des factures en francs, aussi « chacune dans sa devise » (défaut).
+              const lot = toutes.filter((f) => selNonReglees.includes(f.id));
+              const devises = new Set(lot.map((f) => f.devise ?? "USD"));
+              const toutUSD = !devises.has("CDF");
+              return (
+                <>
+                  <BasculeDevise petit devise={lotDevise} onDevise={setLotDevise} taux={taux} saDevise={!toutUSD} deviseFacture={devises.size === 1 ? [...devises][0] : null} />
+                  {toutUSD
+                    ? lotDevise === "CDF" && <TotalLotFrancs restes={lot.map((f) => f.reste)} taux={taux} demande={!estDirection} />
+                    : <TotalLot factures={lot.map((f) => ({ devise: f.devise ?? "USD", reste: f.reste }))} verse={lotDevise} taux={taux} demande={!estDirection} />}
+                </>
+              );
+            })()}
             <BoutonValider onClick={confirmerLot} disabled={isPending || selNonReglees.length === 0}>
               {libelleConfirmer} ({selNonReglees.length})
             </BoutonValider>
@@ -252,7 +281,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
           </span>
         ) : (
           <BoutonValider
-            onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); setLotDevise("USD"); }}
+            onClick={() => { setLotDatePicker(true); setLotDate(jourKinshasaISO()); setLotDevise(toutes.some((f) => selNonReglees.includes(f.id) && f.devise === "CDF") ? "SA_DEVISE" : "USD"); }}
             disabled={isPending || selNonReglees.length === 0}
           >
             {estDirection ? "Marquer payées" : "Demander le paiement"} ({selNonReglees.length})
@@ -287,7 +316,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
             const duM = sumReste(m.factures);
             return (
               <MoisAccordeon key={m.cle} titre={m.label} compteur={`${m.factures.length} facture(s)`} defaultOpen={ouvert || i === 0}
-                resume={duM > 0 ? <span className="text-xs text-red-700">dû {usd(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}>
+                resume={nonNul(duM) ? <span className="text-xs text-red-700">dû {fmtTotal(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}>
                 {liste(m.factures)}
               </MoisAccordeon>
             );
@@ -298,12 +327,12 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
         <>
           {annees.filter((a) => a.mois.some((m) => surPage(m.factures).length > 0)).map((a) => {
             const nbA = a.mois.reduce((n, m) => n + m.factures.length, 0);
-            const duA = a.mois.reduce((n, m) => n + sumReste(m.factures), 0);
+            const duA = sumReste(a.mois.flatMap((m) => m.factures));
             return (
               <details key={a.annee} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{a.annee} <span className="font-normal text-muted-foreground">· {nbA} facture(s){noteAffichees(a.mois.flatMap((m) => m.factures))}</span></span>
-                  {duA > 0 ? <span className="text-red-700">dû {usd(duA)}</span> : <span className="text-emerald-700">soldé</span>}
+                  {nonNul(duA) ? <span className="text-red-700">dû {fmtTotal(duA)}</span> : <span className="text-emerald-700">soldé</span>}
                 </summary>
                 <div className="space-y-1.5 p-2">
                   {a.mois.filter((m) => surPage(m.factures).length > 0).map((m) => {
@@ -312,7 +341,7 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
                       <details key={m.cle} open={ouvert || undefined} className="group/m overflow-hidden rounded-lg border">
                         <summary className={`${sommaireCls} bg-muted/30 px-3 py-1 text-sm font-medium`}>
                           <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open/m:rotate-90">▸</span>{m.label} <span className="font-normal text-muted-foreground">· {m.factures.length}{noteAffichees(m.factures)}</span></span>
-                          {duM > 0 ? <span className="text-xs text-red-700">dû {usd(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}
+                          {nonNul(duM) ? <span className="text-xs text-red-700">dû {fmtTotal(duM)}</span> : <span className="text-xs text-emerald-700">soldé</span>}
                         </summary>
                         {liste(m.factures)}
                       </details>
@@ -327,13 +356,14 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
       ) : (
         <>
           {(groupes ?? []).filter((g) => surPage(g.factures).length > 0).map((g) => {
-            const total = g.factures.reduce((t, f) => t + Number(f.montant), 0);
-            const regle = total - sumReste(g.factures);
+            // Par devise : réglé = montant − reste, dans chaque devise.
+            const total = sumMontant(g.factures), du = sumReste(g.factures);
+            const regle: TotalDevises = { ...total, usd: Math.round((total.usd - du.usd) * 100) / 100, cdf: Math.round((total.cdf - du.cdf) * 100) / 100 };
             return (
               <details key={g.titre} open={ouvert || undefined} className="group overflow-hidden rounded-xl border">
                 <summary className={`${sommaireCls} bg-muted/60 px-4 py-1.5 text-sm font-semibold`}>
                   <span className="flex items-center gap-1.5"><span aria-hidden className="transition-transform group-open:rotate-90">▸</span>{g.titre} <span className="font-normal text-muted-foreground">· {g.factures.length} facture(s){noteAffichees(g.factures)}</span></span>
-                  <span className="text-xs font-normal">Réglé <b className="text-emerald-700">{usd(regle)}</b> / {usd(total)}</span>
+                  <span className="text-xs font-normal">Réglé <b className="text-emerald-700">{fmtTotal(regle)}</b> / {fmtTotal(total)}</span>
                 </summary>
                 {liste(g.factures)}
               </details>
