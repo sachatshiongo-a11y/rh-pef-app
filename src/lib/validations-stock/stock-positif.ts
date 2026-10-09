@@ -138,7 +138,9 @@ export async function poserStocksTx(tx: Tx, lignes: { articleId: string; quantit
   const negatifs = ids.filter((id) => parId.get(id)!.isNegative() && !parId.get(id)!.isZero() && !actuels.get(id)?.equals(parId.get(id)!));
   if (negatifs.length > 0) {
     const arts = new Map((await tx.articleStock.findMany({ where: { id: { in: negatifs } }, select: { id: true, ...CHAMPS_LIBELLE, unite: true } })).map((a) => [a.id, a]));
-    throw new Error(`Quantité négative refusée (${quoi}) — un stock ne passe jamais sous 0 : ${negatifs.map((id) => `${arts.has(id) ? libelleArticle(arts.get(id)!) : "Article inconnu"} (${avecUnite(parId.get(id)!.toString(), arts.get(id)?.unite ?? null)})`).join(", ")}. Rien n'a été enregistré.`);
+    // Noms dans l'ordre alphabétique : un message stable (les ids, eux, sont tirés au hasard).
+    const noms = negatifs.map((id) => `${arts.has(id) ? libelleArticle(arts.get(id)!) : "Article inconnu"} (${avecUnite(parId.get(id)!.toString(), arts.get(id)?.unite ?? null)})`).sort((a, b) => a.localeCompare(b, "fr"));
+    throw new Error(`Quantité négative refusée (${quoi}) — un stock ne passe jamais sous 0 : ${noms.join(", ")}. Rien n'a été enregistré.`);
   }
   const maj = ids.filter((id) => existants.has(id));
   if (maj.length > 0) {
