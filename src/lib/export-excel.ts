@@ -103,6 +103,23 @@ function logoDuClasseur(wb: ExcelJS.Workbook): number | null {
  * Note : la police Optima ne s'affiche que si elle est installée sur le poste qui ouvre le fichier
  * (macOS l'a par défaut) ; sinon Excel la remplace par une police proche.
  */
+/**
+ * Nom d'onglet que Excel accepte : sans `* ? : \ / [ ]`, sans apostrophe en tête ni en fin, 31
+ * caractères au plus, unique dans le classeur (Excel ne distingue pas la casse). Un titre d'écran
+ * passé tel quel (« Comparaison commandé / livré / consommé ») faisait PLANTER tout l'export
+ * (constaté le 2026-10-09 sur l'Excel de la Comparaison).
+ */
+export function nomOngletExcel(nom: string, dejaPris: Set<string> = new Set()): string {
+  const base = (nom.replace(/[*?:\\/\[\]]/g, "-").replace(/\s+/g, " ").trim().replace(/^'+|'+$/g, "") || "Feuille").slice(0, 31).trim();
+  let candidat = base;
+  for (let i = 2; dejaPris.has(candidat.toLowerCase()); i++) {
+    const suffixe = ` (${i})`;
+    candidat = base.slice(0, 31 - suffixe.length).trim() + suffixe;
+  }
+  dejaPris.add(candidat.toLowerCase());
+  return candidat;
+}
+
 export async function classeurExcel(opts: {
   titre: string;
   periode: string;
@@ -118,8 +135,9 @@ export async function classeurExcel(opts: {
 
   const HAUT_LOGO = 3; // lignes vides réservées à la hauteur du logo, au-dessus des titres
 
+  const onglets = new Set<string>();
   for (const f of feuilles) {
-    const ws = wb.addWorksheet(f.nom);
+    const ws = wb.addWorksheet(nomOngletExcel(f.nom, onglets));
 
     // Logo EN HAUT À GAUCHE, au-dessus des titres : la MÊME image, référencée par chaque feuille.
     if (logoId != null) ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
@@ -346,9 +364,10 @@ export async function classeurInventaire(opts: { periode: string; feuilles: Feui
     return r;
   };
 
+  const onglets = new Set<string>();
   for (const f of feuilles) {
     const largeur = Math.max(f.invEntete.length, f.mvtEntete.length, 4);
-    const ws = wb.addWorksheet(f.nom);
+    const ws = wb.addWorksheet(nomOngletExcel(f.nom, onglets));
     if (logoId != null) ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 165, height: 52 }, editAs: "oneCell" });
     for (let i = 0; i < HAUT_LOGO; i++) ws.addRow([]);
     const rTitre = ws.addRow([`Pâtes en Folie (TOLYA SARL) — ${f.titre}`]);
