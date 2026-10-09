@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { niveauAlerte } from "@/lib/stock";
 import { articlesEnHausse } from "@/lib/stock-prix";
 import { articleDansFiltre, type ArticleFiltrable, type FiltreInventaire } from "@/lib/filtre-inventaire";
+import { contenancePourClient } from "@/lib/libelle-article";
 
 // Ce que l'écran Inventaire et ses exports (Excel, PDF, page imprimable) calculent EN COMMUN : les hausses de
 // prix d'achat (factures datées + entrées payées hors facture) et l'appartenance au filtre. Avant le 2026-10-08,
@@ -33,6 +34,7 @@ export async function chargerHausses(domaine?: Domaine): Promise<Map<string, num
 export function versArticleFiltrable(a: ArticleStock & { stock: Stock | null }, hausses: Map<string, number>): ArticleFiltrable {
   return {
     designation: a.designation,
+    ...contenancePourClient(a),
     code: a.code,
     niveau: a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null,
     haussePct: hausses.get(a.id) ?? null,

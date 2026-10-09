@@ -10,6 +10,7 @@ import { ciblesEnAttente } from "@/lib/validations-stock/apercu";
 import { libellesPrix, prixArticleEnUSD, valeurEnUSD } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
 import { lirePagination } from "@/lib/pagination";
+import { contenancePourClient } from "@/lib/libelle-article";
 
 type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
 export type CatalogueSP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string; page?: string; par?: string };
@@ -42,6 +43,7 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
       id: a.id,
       code: a.code,
       designation: a.designation,
+      ...contenancePourClient(a), // libellé affiché (désignation + contenance) : `libelleArticle`, côté écran
       nomCourt: a.nomCourt,
       surFicheCommande: a.surFicheCommande,
       domaine: a.domaine,

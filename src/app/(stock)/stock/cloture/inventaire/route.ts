@@ -7,6 +7,7 @@ import { MOIS_FR } from "@/lib/dates-fr";
 import { inventaireDuMois, parDomaine, alerteLabel } from "@/lib/cloture-inventaire";
 import { niveauAlerte, uniteAffichee } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const usd = (n: number) => `${formaterNombre(r2(n), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
@@ -39,7 +40,7 @@ export async function GET(req: Request) {
     where: { date: { gte: debut, lt: fin } },
     orderBy: [{ date: "asc" }],
     take: 8000,
-    include: { article: { select: { code: true, designation: true, unite: true, domaine: true } } },
+    include: { article: { select: { code: true, ...CHAMPS_LIBELLE, unite: true, domaine: true } } },
   });
   const mvtParDomaine = (dom: string) => mouvements.filter((x) => String(x.article.domaine) === dom);
 
@@ -65,7 +66,7 @@ export async function GET(req: Request) {
         ],
         invEntete: ["Code", "Désignation", "Unité", "Catégorie", "Fournisseur", "Stock min", "Stock final", "Alerte stock", "Prix U. USD", "Valeur USD", "Prix saisi en FC"],
         invLignes: g.lignes.map((l) => [
-          l.code, l.designation, l.unite, l.categorie, l.fournisseur,
+          l.code, libelleArticle(l), l.unite, l.categorie, l.fournisseur,
           r2(l.stockMinimum), r2(l.quantite), alerteLabel(l.quantite, l.stockMinimum),
           r2(l.prixUnitaireUSD), r2(l.quantite * l.prixUnitaireUSD),
           // Article en francs : son prix tel que saisi et le taux qui l'a converti (« taux non défini » : non valorisé).
@@ -79,7 +80,7 @@ export async function GET(req: Request) {
         mvtLignes: mvts.map((x) => [
           new Date(x.date).toLocaleDateString("fr-FR"),
           x.article.code ?? "",
-          x.article.designation,
+          libelleArticle(x.article),
           uniteAffichee(x.article.unite),
           x.type !== "SORTIE" ? num(Number(x.quantite)) : "",
           x.type === "SORTIE" ? num(Number(x.quantite)) : "",
@@ -107,7 +108,7 @@ export async function GET(req: Request) {
     sectionRows.push(lignes.length);
     lignes.push([`${g.label} — ${usd(g.valeur)}`, "", "", "", "", ""]); couleurs.push(undefined);
     for (const l of g.lignes) {
-      lignes.push([l.designation, l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum), num(l.quantite), l.prixUnitaireCDF !== undefined ? (l.tauxChange ? `≈ ${usd(l.quantite * l.prixUnitaireUSD)}` : "—") : usd(l.quantite * l.prixUnitaireUSD)]);
+      lignes.push([libelleArticle(l), l.categorie, l.fournisseur, alerteLabel(l.quantite, l.stockMinimum), num(l.quantite), l.prixUnitaireCDF !== undefined ? (l.tauxChange ? `≈ ${usd(l.quantite * l.prixUnitaireUSD)}` : "—") : usd(l.quantite * l.prixUnitaireUSD)]);
       couleurs.push(COULEUR[niveauAlerte(l.quantite, l.stockMinimum)]);
     }
   }

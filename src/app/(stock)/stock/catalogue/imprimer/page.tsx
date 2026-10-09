@@ -7,6 +7,7 @@ import { lireFiltreInventaire } from "@/lib/filtre-inventaire";
 import { PrintDoc } from "../../_print/print-doc";
 import { exigerPageStock } from "@/lib/garde-page";
 import { jourKinshasa } from "@/lib/heure-kinshasa";
+import { libelleArticle } from "@/lib/libelle-article";
 
 type SP = { q?: string; domaine?: string; alerte?: string; manque?: string; hausse?: string };
 
@@ -38,7 +39,7 @@ export default async function CatalogueImprimerPage({ searchParams }: { searchPa
     // La hausse est signalée directement dans la colonne Prix (ex. « 3.50  ↑+75% »).
     const prixCell = prixTexte !== null ? `${prixTexte}${pct !== undefined ? `  ↑+${Math.round(pct)}%` : ""}` : (pct !== undefined ? `↑+${Math.round(pct)}%` : "");
     return [
-      a.designation,
+      libelleArticle(a),
       qte,
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,

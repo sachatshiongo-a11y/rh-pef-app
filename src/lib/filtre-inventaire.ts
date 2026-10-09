@@ -1,4 +1,5 @@
 import type { NiveauAlerte } from "@/lib/stock";
+import { libelleArticle, rechercheContenance } from "@/lib/libelle-article";
 
 // FILTRE DE L'INVENTAIRE (recherche, alerte, « À compléter », hausse de prix) — UNE seule définition pour
 // l'écran (tableau client) ET pour ses exports Excel / PDF / page imprimable (2026-10-08) : un export doit sortir
@@ -39,6 +40,9 @@ export function paramsFiltreInventaire(f: FiltreInventaire): URLSearchParams {
 /** Ce qu'il faut savoir d'un article pour le filtrer (l'écran et les exports le construisent de la même façon). */
 export type ArticleFiltrable = {
   designation: string;
+  /** Contenance enregistrée : la recherche lit aussi le libellé affiché (« Bacardi 1 l ») et ses écritures compactes. */
+  contenance?: string | null;
+  contenanceUnite?: string | null;
   code: string | null;
   niveau: NiveauAlerte | null;
   haussePct?: number | null;
@@ -66,6 +70,21 @@ export function articleDansFiltre(a: ArticleFiltrable, f: FiltreInventaire): boo
     (!f.alerte || a.niveau === f.alerte) &&
     (!f.manque || manqueDe(a, f.manque)) &&
     (!f.hausse || (a.haussePct !== null && a.haussePct !== undefined)) &&
-    (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq))
+    (!nq || norm(a.designation).includes(nq) || (a.code ?? "").toLowerCase().includes(nq) || correspondContenance(a, nq))
   );
+}
+
+/**
+ * La recherche par CONTENANCE (2026-10-09) : « bacardi 1l » trouve « Bacardi » enregistré 1 l. Le texte
+ * tapé se compare au libellé affiché (`libelleArticle`) ; s'il nomme une contenance, CHAQUE mot doit se
+ * retrouver dans le libellé ou dans une écriture compacte de la contenance (« 1l », « 100cl », « 1000ml »).
+ */
+function correspondContenance(a: ArticleFiltrable, nq: string): boolean {
+  const formes = rechercheContenance(a);
+  if (formes.length === 0) return false;
+  const libelle = norm(libelleArticle(a));
+  if (libelle.includes(nq)) return true;
+  const foin = [libelle, ...formes].join(" | ");
+  const mots = nq.split(/\s+/).filter(Boolean);
+  return mots.every((m) => foin.includes(m));
 }

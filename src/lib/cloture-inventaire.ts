@@ -17,6 +17,12 @@ export type LigneInventaire = {
    * `tauxChange` null et `prixUnitaireUSD` 0 — la ligne le dit (« taux non défini »), jamais en silence.
    */
   prixUnitaireCDF?: number; tauxChange?: number | null;
+  /**
+   * Contenance de l'article (2026-10-09), pour le LIBELLÉ des exports (`libelleArticle`). Figée avec
+   * l'instantané depuis cette date ; absente d'un instantané plus ancien : le document garde le nom
+   * qu'il avait (jamais complété après coup par la contenance d'aujourd'hui).
+   */
+  contenance?: string; contenanceUnite?: string;
 };
 export type Inventaire = {
   fige: boolean; // true = instantané figé à la clôture ; false = état actuel du stock
@@ -37,7 +43,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
   const articles = await prisma.articleStock.findMany({
     where: { actif: true },
     select: {
-      id: true, code: true, designation: true, domaine: true, unite: true,
+      id: true, code: true, designation: true, domaine: true, unite: true, contenance: true, contenanceUnite: true,
       devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true,
       categorie: { select: { nom: true } },
       fournisseur: { select: { nom: true } },
@@ -58,6 +64,7 @@ export async function inventaireActuel(): Promise<Inventaire> {
     // Article en dollars : à l'identique d'avant. En francs : converti au taux du jour (tracé sur la ligne).
     prixUnitaireUSD: a.devisePrix === "CDF" ? prixArticleEnUSD(a, taux)?.valeur ?? 0 : a.prixUnitaireUSD ? Number(a.prixUnitaireUSD) : 0,
     ...(a.devisePrix === "CDF" && a.prixUnitaireCDF !== null ? { prixUnitaireCDF: Number(a.prixUnitaireCDF), tauxChange: taux } : {}),
+    ...(a.contenance !== null && a.contenanceUnite ? { contenance: a.contenance.toString(), contenanceUnite: a.contenanceUnite } : {}),
   }));
   const valeurTotaleUSD = r2(lignes.reduce((t, l) => t + l.quantite * l.prixUnitaireUSD, 0));
   return { fige: false, valeurTotaleUSD, lignes };

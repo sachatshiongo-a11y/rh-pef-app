@@ -19,6 +19,7 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { jjmmaaaa } from "@/lib/achats-liste";
 import { classePastilleDlc, joursAvantDlc, libelleJoursDlc } from "@/lib/achats-doublons";
+import { complementLibelle, incoherenceContenance, libelleArticle } from "@/lib/libelle-article";
 
 // Fiche « tout sur la page » (Direction, 2026-09-28 : « pourquoi ne pas juste les mettre sur la
 // page ») : aucun cadre à hauteur fixe avec sa propre barre de défilement. Les listes longues
@@ -124,13 +125,18 @@ export default async function ArticleFichePage({
     return { facture: m.facture, bc, fournId, fournNom };
   };
 
+  // Nom AFFICHÉ (contenance comprise si le nom ne la porte pas) ; la désignation enregistrée reste celle du formulaire.
+  const libelle = libelleArticle(a);
+  const complement = complementLibelle(a);
+  const incoherence = incoherenceContenance(a);
+
   return (
     <div className="w-full space-y-5">
-      <FilAriane segments={[{ label: "Inventaire", href: `/stock/catalogue?domaine=${a.domaine}` }, { label: a.designation }]} />
+      <FilAriane segments={[{ label: "Inventaire", href: `/stock/catalogue?domaine=${a.domaine}` }, { label: libelle }]} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">{a.designation}</h1>
+          <h1 className="text-xl font-semibold sm:text-2xl" title={complement ? `Nom enregistré : « ${a.designation} » — la contenance (${complement}) s'ajoute à l'affichage` : undefined}>{libelle}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             <span>{DOMAINE_LABEL[a.domaine] ?? a.domaine}</span>
             <span>· {a.categorie?.nom ?? "à classer"}</span>
@@ -138,6 +144,12 @@ export default async function ArticleFichePage({
             {a.unite && <span>· {a.unite}{a.contenance !== null ? ` de ${a.contenance.toString().replace(".", ",")} ${a.contenanceUnite}` : ""}</span>}
             {a.fournisseur && <span>· <Link href={`/stock/fournisseurs/${a.fournisseur.id}`} className="text-primary hover:underline">{a.fournisseur.nom}</Link></span>}
           </p>
+          {/* Le nom et la contenance se contredisent : le logiciel le dit, la Direction corrige l'un ou l'autre. */}
+          {incoherence && (
+            <p data-incoherence-contenance className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-sm text-amber-900">
+              Contenance à vérifier : {incoherence.message}. Le nom affiché n&apos;est pas complété — corrigez le nom ou la contenance.
+            </p>
+          )}
         </div>
         {/* Les boutons passent à la ligne sur téléphone : à 375 px, les trois côte à côte débordaient. */}
         <div className="flex flex-wrap items-center gap-2">
@@ -171,7 +183,7 @@ export default async function ArticleFichePage({
           {estDirection && (
             <form action={supprimerArticle.bind(null, a.id)}>
               <ConfirmSubmitButton
-                message={`Supprimer « ${a.designation} » du catalogue ? Refusé s'il a un historique (mouvements, factures…) — dans ce cas, désactivez-le plutôt.`}
+                message={`Supprimer « ${libelle} » du catalogue ? Refusé s'il a un historique (mouvements, factures…) — dans ce cas, désactivez-le plutôt.`}
                 className="rounded-md border border-destructive px-3 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/10"
               >
                 Supprimer

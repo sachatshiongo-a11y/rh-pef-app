@@ -7,6 +7,7 @@ import { lireFiltreInventaire } from "@/lib/filtre-inventaire";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
 import { prixArticleEnCDF, prixArticleEnUSD, prixSaisi } from "@/lib/prix-article";
 import { tauxDuJour } from "@/lib/taux-du-jour";
+import { libelleArticle } from "@/lib/libelle-article";
 
 // Codes couleur d'alerte (ARGB) pour le fond des lignes Excel.
 const ALERTE_ARGB: Record<NiveauAlerte, string> = { URGENT: "FFFBE0E0", APPRO: "FFFBF0D4", OK: "FFE9F6EE" };
@@ -44,7 +45,7 @@ export async function GET(req: Request) {
     const pct = hausses.get(a.id);
     return [
       a.code ?? "",
-      a.designation,
+      libelleArticle(a),
       qte,
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,

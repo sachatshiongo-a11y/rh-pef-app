@@ -6,6 +6,7 @@ import { exigerEspaceStock } from "@/lib/garde-route";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement, pointDeLigne } from "@/lib/stock-prix";
 import { FicheArticleDocument, type MouvementLigne } from "@/lib/pdf/fiche-article";
+import { libelleArticle } from "@/lib/libelle-article";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const g = await exigerEspaceStock();
@@ -61,7 +62,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const buffer = await renderPdfBuffer(
     FicheArticleDocument({
-      designation: a.designation,
+      designation: libelleArticle(a), // nom affiché : contenance comprise si le nom ne la porte pas
       code: a.code,
       domaineLabel: DOMAINE_LABEL[a.domaine] ?? a.domaine,
       categorieNom: a.categorie?.nom ?? "à classer",
@@ -81,7 +82,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     }),
   );
 
-  const nomFichier = `Fiche_${a.designation.replace(/[^\w-]+/g, "_").slice(0, 40)}.pdf`;
+  const nomFichier = `Fiche_${libelleArticle(a).replace(/[^\w-]+/g, "_").slice(0, 40)}.pdf`;
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",

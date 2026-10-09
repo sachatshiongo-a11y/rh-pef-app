@@ -17,6 +17,7 @@ import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
 import { articleDansFiltre, manqueDe, paramsFiltreInventaire, type ManqueKey } from "@/lib/filtre-inventaire";
+import { complementLibelle, libelleArticle } from "@/lib/libelle-article";
 
 /** Texte envoyé à `modifierArticle` (lu à la française par `decSaisiOptionnel`) : vide = effacer. Les
  *  valeurs venues de la base (« 12.5 ») pré-remplissent les cases par `nombreDeBase`, jamais par la lecture française. */
@@ -46,6 +47,9 @@ export type ArticleRow = {
   id: string;
   code: string | null; // code article (repris du fichier d'inventaire)
   designation: string;
+  /** Contenance enregistrée (« 75 » + « cl ») : s'ajoute au nom AFFICHÉ (`libelleArticle`), jamais au champ modifiable. */
+  contenance?: string | null;
+  contenanceUnite?: string | null;
   /** Nom court imprimé sur la fiche « Commande journalière ». */
   nomCourt?: string | null;
   /** Coché « Sur la fiche commande ». */
@@ -74,6 +78,14 @@ export type ArticleRow = {
   /** Une proposition de modification attend la décision de la Direction (« Demandes à valider »). */
   propositionEnAttente?: boolean;
 };
+/**
+ * Le nom se MODIFIE dans un champ qui garde la désignation brute (y écrire « 75 cl » la réécrirait en
+ * base) : la contenance que le libellé affiché y ajoute se montre À CÔTÉ, en gris.
+ */
+function ComplementContenance({ a }: { a: ArticleRow }) {
+  const c = complementLibelle(a);
+  return c ? <span data-complement-contenance className="shrink-0 whitespace-nowrap text-xs text-muted-foreground" title="Contenance de la fiche article, ajoutée au nom affiché">{c}</span> : null;
+}
 type Cat = { id: string; nom: string; domaine: string };
 type Four = { id: string; nom: string };
 
@@ -498,7 +510,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
                   <label className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 ${keepOk === a.id ? "border-amber-400 bg-amber-100" : "bg-background hover:bg-accent"}`}>
                     <input type="radio" name="fusion-keep" checked={keepOk === a.id} onChange={() => setFusionKeep(a.id)} />
                     <span className="min-w-0 flex-1">
-                      <span className="font-medium">{a.code ? `${a.code} · ` : ""}{a.designation}</span>
+                      <span className="font-medium">{a.code ? `${a.code} · ` : ""}{libelleArticle(a)}</span>
                       <span className="ml-2 text-xs text-muted-foreground">stock {a.quantite}{a.categorieId ? " · catégorisé" : " · sans catégorie"}{a.devisePrix === "CDF" ? (a.prixCDF ? ` · ${formaterFC(Number(a.prixCDF))}` : "") : a.prix ? ` · ${usd(Number(a.prix))}` : ""}</span>
                     </span>
                     {keepOk === a.id && <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-900">à conserver</span>}
@@ -673,16 +685,17 @@ const LigneArticle = memo(function LigneArticle({
       <td>
         <div className="flex items-center gap-1">
           <input readOnly={lectureSeule} defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} min-w-44 flex-1 font-medium`} title="Modifier le nom de l'article" />
+          <ComplementContenance a={a} />
           {a.haussePct != null && <span title={`Dernier prix d'achat +${Math.round(a.haussePct)}% vs moyenne précédente`} className="shrink-0 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">📈+{Math.round(a.haussePct)}%</span>}
           {a.surFicheCommande && <span title="Sur la fiche Commande journalière" className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary">fiche cmd</span>}
           {a.propositionEnAttente && <BadgeProposition />}
           <Link href={`/stock/catalogue/${a.id}`} title="Ouvrir la fiche article (historique, prix)" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche article">↗</Link>
         </div>
       </td>
-      <td><input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} w-40`} placeholder="—" title="Nom court (fiche Commande journalière)" aria-label={`Nom court — ${a.designation}`} /></td>
+      <td><input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} w-40`} placeholder="—" title="Nom court (fiche Commande journalière)" aria-label={`Nom court — ${libelleArticle(a)}`} /></td>
       <td className="text-right tabular-nums text-muted-foreground" title="Le stock ne se modifie que par la liste d'achat, la facture ou une sortie">{a.quantite}</td>
       <td>{a.niveau && <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}</td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} title="Seuil minimum (alerte de réappro)" aria-label={`Stock minimum — ${libelleArticle(a)}`} /></td>
       <td>
         <select disabled={lectureSeule} defaultValue={a.categorieId ?? ""} onChange={(e) => write("categorieId", e.target.value, a.categorieId ?? "")} className={`${cellCls} min-w-32 ${!a.categorieId ? "border-amber-400" : ""}`}>
           <option value="">— à classer —</option>
@@ -691,7 +704,7 @@ const LigneArticle = memo(function LigneArticle({
       </td>
       <td>
         <div className="flex items-center gap-1">
-          <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${a.designation}`} className={`${cellCls} min-w-28 flex-1`} />
+          <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${libelleArticle(a)}`} className={`${cellCls} min-w-28 flex-1`} />
           {a.fournisseurId && (
             <Link href={`/stock/fournisseurs/${a.fournisseurId}`} title="Ouvrir la fiche fournisseur" className="shrink-0 text-primary hover:text-primary/70" aria-label="Fiche fournisseur">↗</Link>
           )}
@@ -702,12 +715,12 @@ const LigneArticle = memo(function LigneArticle({
       <td>
         {/* Prix dans SA devise de saisie (la case modifie ce prix-là) ; l'autre devise « ≈ » au taux du jour. */}
         <div className="flex items-center gap-1">
-          <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={prixDe(a).valeur} onEnregistrer={(v) => onSave(a.id, prixDe(a).champ, texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix ${prixDe(a).symbole} — ${a.designation}`} />
+          <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={1} valeur={prixDe(a).valeur} onEnregistrer={(v) => onSave(a.id, prixDe(a).champ, texteDe(v))} min={0} className={`${cellCls} text-right`} aria-label={`Prix ${prixDe(a).symbole} — ${libelleArticle(a)}`} />
           <span className="w-5 shrink-0 text-[11px] text-muted-foreground">{prixDe(a).symbole}</span>
         </div>
         {a.prixAutre && <span className="block text-right text-[10px] tabular-nums text-muted-foreground">{a.prixAutre}</span>}
       </td>
-      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${a.designation}`} /></td>
+      <td><CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={2} valeur={nombreDeBase(a.uniteParCarton)} onEnregistrer={(v) => onSave(a.id, "uniteParCarton", texteDe(v))} min={0} quantite className={`${cellCls} text-right`} placeholder="—" title="Nombre d'unités par carton (ex. 24)" aria-label={`Unités par carton — ${libelleArticle(a)}`} /></td>
     </tr>
   );
 });
@@ -770,7 +783,7 @@ export const CarteArticle = memo(function CarteArticle({
       <div className="flex items-stretch">
         {/* Case des actions groupées : la zone entière (44 px) est cliquable. */}
         <label className="flex w-11 shrink-0 cursor-pointer items-center justify-center">
-          <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="h-5 w-5" aria-label={`Sélectionner ${a.designation}`} />
+          <input type="checkbox" checked={selected} onChange={() => onToggle(a.id)} className="h-5 w-5" aria-label={`Sélectionner ${libelleArticle(a)}`} />
         </label>
         <button
           type="button"
@@ -781,7 +794,7 @@ export const CarteArticle = memo(function CarteArticle({
           className="grid min-h-14 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-1.5 pr-3 text-left"
         >
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{a.designation}</span>
+            <span className="block truncate text-sm font-medium">{libelleArticle(a)}</span>
             <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
               {a.niveau && a.niveau !== "OK" && <span className={`shrink-0 rounded-full px-1.5 py-px font-medium ${ALERTE_CLASSE[a.niveau]}`}>{ALERTE_LABEL[a.niveau]}</span>}
               {etat.negatif && <span className="shrink-0 rounded-full bg-red-100 px-1.5 py-px font-medium text-red-800">Négatif</span>}
@@ -804,17 +817,18 @@ export const CarteArticle = memo(function CarteArticle({
         <div id={idChamps} className="border-t px-3 pb-3 pt-2">
           <div className="flex flex-wrap items-center gap-2">
             {a.surFicheCommande && <span className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-semibold text-primary" title="Sur la fiche Commande journalière">fiche cmd</span>}
-            <Link href={`/stock/catalogue/${a.id}`} className="ml-auto inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:text-primary/70" aria-label={`Fiche article — ${a.designation}`}>{lectureSeule ? "Proposer une modification ↗" : "Ouvrir la fiche ↗"}</Link>
+            <Link href={`/stock/catalogue/${a.id}`} className="ml-auto inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:text-primary/70" aria-label={`Fiche article — ${libelleArticle(a)}`}>{lectureSeule ? "Proposer une modification ↗" : "Ouvrir la fiche ↗"}</Link>
           </div>
           <label className={champLabel}>Nom
             <input readOnly={lectureSeule} defaultValue={a.designation} onBlur={(e) => write("designation", e.target.value, a.designation)} className={`${cellCls} !py-1.5 !text-sm font-medium`} title="Modifier le nom" />
+            <ComplementContenance a={a} />
           </label>
           <label className={`${champLabel} mt-2`}>Nom court (fiche commande)
-            <input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${a.designation}`} />
+            <input readOnly={lectureSeule} defaultValue={a.nomCourt ?? ""} onBlur={(e) => write("nomCourt", e.target.value, a.nomCourt ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" aria-label={`Nom court — ${libelleArticle(a)}`} />
           </label>
           <div className="mt-2 grid grid-cols-2 gap-2 [&>*]:min-w-0">
             <label className={champLabel}>Stock min.
-              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${a.designation}`} />
+              <CelluleNombre readOnly={lectureSeule} groupe={a.categorieId ?? ""} ligne={a.id} col={0} valeur={nombreDeBase(a.stockMinimum)} onEnregistrer={(v) => onSave(a.id, "stockMinimum", texteDe(v))} min={0} quantite className={`${cellCls} !py-1.5 text-right`} aria-label={`Stock minimum — ${libelleArticle(a)}`} />
             </label>
             <label className={champLabel}>Unité
               <input readOnly={lectureSeule} defaultValue={a.unite ?? ""} onBlur={(e) => write("unite", e.target.value, a.unite ?? "")} className={`${cellCls} !py-1.5`} placeholder="Kg, Pièce…" />
@@ -831,7 +845,7 @@ export const CarteArticle = memo(function CarteArticle({
                   <Link href={`/stock/fournisseurs/${a.fournisseurId}`} className="py-1 text-primary hover:underline">Voir la fiche ↗</Link>
                 )}
               </span>
-              <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${a.designation}`} className={`${cellCls} !py-1.5`} />
+              <ChoixRecherche disabled={lectureSeule} options={optionsFour} defaultValue={a.fournisseurId ?? ""} vide="—" onChange={(v) => write("fournisseurId", v, a.fournisseurId ?? "")} aria-label={`Fournisseur — ${libelleArticle(a)}`} className={`${cellCls} !py-1.5`} />
             </label>
             <label className={champLabel}>Code article
               <input readOnly={lectureSeule} defaultValue={a.code ?? ""} onBlur={(e) => write("code", e.target.value, a.code ?? "")} className={`${cellCls} !py-1.5`} placeholder="—" />

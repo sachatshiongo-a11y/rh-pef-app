@@ -8,6 +8,7 @@ import { chargerHausses, filtrerArticles } from "@/lib/inventaire-export";
 import { lireFiltreInventaire } from "@/lib/filtre-inventaire";
 import { TableauDocument, type Colonne } from "@/lib/pdf/tableau";
 import { jourCourantKinshasaISO, jourKinshasa } from "@/lib/heure-kinshasa";
+import { libelleArticle } from "@/lib/libelle-article";
 
 // Fonds de ligne selon le niveau d'alerte (codes couleur repris à l'écran).
 const ALERTE_BG: Record<NiveauAlerte, string> = { URGENT: "#fbe0e0", APPRO: "#fbf0d4", OK: "#e9f6ee" };
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
     const valeurTexte = prix !== null ? `${enUSD!.approx ? "≈ " : ""}${(prix * qte).toFixed(2)}` : "";
     const pct = hausses.get(a.id);
     lignes.push([
-      a.designation,
+      libelleArticle(a),
       qte,
       niv ? ALERTE_LABEL[niv] : "",
       a.stock ? Number(a.stock.stockMinimum) : 0,
