@@ -15,7 +15,7 @@ import { PilulesDomaine, type DomaineCle as Domaine } from "@/components/stock/p
  */
 export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, alerte, manque = "", hausse = false, pageInit = 1, parInit = PAR_DEFAUT, estDirection = true }: {
   rows: ArticleRow[];
-  categories: { id: string; nom: string; domaine: string }[];
+  categories: { id: string; nom: string; domaine: string; actif?: boolean }[];
   fournisseurs: { id: string; nom: string }[];
   domaine?: Domaine;
   q: string;

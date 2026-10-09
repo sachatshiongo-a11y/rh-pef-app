@@ -43,7 +43,7 @@ export default async function ArticleFichePage({
   const { id } = await params;
   const estDirection = user.role === "ADMIN";
 
-  const [a, categories, fournisseurs, proposition, taux] = await Promise.all([
+  const [a, toutesCategories, fournisseurs, proposition, taux] = await Promise.all([
     prisma.articleStock.findUnique({
       where: { id },
       include: {
@@ -65,12 +65,14 @@ export default async function ArticleFichePage({
       },
     }),
     // Pour le formulaire « Modifier » de la fiche — mêmes listes que l'Inventaire.
-    prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
+    prisma.categorieStock.findMany({ orderBy: [{ ordre: "asc" }, { nom: "asc" }], select: { id: true, nom: true, domaine: true, actif: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     demandeSurCible(cleArticle(id)), // proposition de modification en attente de la Direction ?
     tauxDuJour(),
   ]);
   if (!a) notFound();
+  // Catégories ARCHIVÉES : plus proposées dans le choix, sauf celle que l'article porte déjà (il reste rattaché).
+  const categories = toutesCategories.filter((c) => c.actif || c.id === a.categorieId);
 
   const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
   const stockQte = a.stock ? Number(a.stock.quantite) : 0;

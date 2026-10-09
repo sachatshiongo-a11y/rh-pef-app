@@ -114,6 +114,23 @@ export async function exigerCategorieDuDomaine(tx: Pick<Tx, "articleStock" | "ca
   throw new Error(`« ${art.designation} » passe en ${nouveau} : sa catégorie « ${cat?.nom ?? art.categorie?.nom ?? "?"} » n'existe pas dans ce domaine. Choisissez une catégorie du domaine ${nouveau}, ou « à classer ». Rien n'a été modifié.`);
 }
 
+/**
+ * Catégorie ARCHIVÉE (Inventaire › Catégories) : elle n'est plus proposée dans les choix, et le serveur
+ * la refuse aussi (une action s'appelle sans l'écran). Seule exception : l'article qui la porte déjà
+ * peut la GARDER (une retouche de prix ne doit pas buter sur la catégorie d'hier). `articleId` absent =
+ * création d'un article.
+ */
+export async function exigerCategorieActive(tx: Pick<Tx, "articleStock" | "categorieStock">, categorieId: string | null | undefined, articleId?: string) {
+  if (!categorieId) return;
+  const cat = await tx.categorieStock.findUnique({ where: { id: categorieId }, select: { nom: true, actif: true } });
+  if (!cat || cat.actif) return; // inconnue : la clé étrangère s'en charge
+  if (articleId) {
+    const art = await tx.articleStock.findUnique({ where: { id: articleId }, select: { categorieId: true } });
+    if (art?.categorieId === categorieId) return;
+  }
+  throw new Error(`La catégorie « ${cat.nom} » est archivée : choisissez une catégorie active (ou réactivez-la dans Inventaire › Catégories). Rien n'a été modifié.`);
+}
+
 const PRIX_DE: Record<DevisePrix, "prixUnitaireUSD" | "prixUnitaireCDF"> = { USD: "prixUnitaireUSD", CDF: "prixUnitaireCDF" };
 
 /**
@@ -147,6 +164,7 @@ export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: Pa
   // Prix : cohérent avec la devise de l'article, relue ICI (geste direct comme proposition validée).
   let patch = patchSaisi;
   await exigerCategorieDuDomaine(tx, id, patch); // domaine changé : catégorie du nouveau domaine, ou « à classer »
+  if ("categorieId" in patch) await exigerCategorieActive(tx, patch.categorieId as string | null, id); // jamais vers une catégorie archivée
   if ("devisePrix" in patch || "prixUnitaireUSD" in patch || "prixUnitaireCDF" in patch) {
     const cur = await tx.articleStock.findUniqueOrThrow({ where: { id }, select: { devisePrix: true } });
     patch = harmoniserPrix(cur.devisePrix, patch);

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, exigerCategorieActive, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
@@ -69,6 +69,7 @@ export const creerArticle = actionLisible(async (formData: FormData): Promise<Do
   const categorieId = String(formData.get("categorieId") ?? "").trim() || null;
   const fournisseurId = String(formData.get("fournisseurId") ?? "").trim() || null;
   const creerQuandMeme = String(formData.get("creerQuandMeme") ?? "") === "1";
+  await exigerCategorieActive(prisma, categorieId); // une catégorie archivée ne reçoit plus de nouvel article
 
   // Le stock initial d'un nouvel article est une quantité posée hors flux : hors Direction, il
   // entre par la Liste d'achat (entrée) ou par un comptage, pas par la création.
@@ -196,6 +197,7 @@ export const fusionnerArticles = actionLisible(async (articleIds: string[], keep
 /** Catégorise en masse : affecte une catégorie à plusieurs articles. */
 export const categoriserEnMasse = actionLisible(async (articleIds: string[], categorieId: string) => {
   const user = await garde();
+  for (const id of new Set(articleIds.map(String))) await exigerCategorieActive(prisma, categorieId, id); // archivée : refusée (sauf pour qui la porte déjà)
   if (!estDirection(user)) {
     if (articleIds.length === 0 || !categorieId) return;
     return proposer(user, "Catégorie en masse", [...new Set(articleIds.map(String))].filter(Boolean).map((id) => ({ id, patch: { categorieId } })));
@@ -263,12 +265,13 @@ export const changerDomaineEnMasse = actionLisible(async (articleIds: string[], 
   if (ids.length === 0) throw new Error("Aucun article sélectionné.");
   const [arts, cats] = await Promise.all([
     prisma.articleStock.findMany({ where: { id: { in: ids } }, select: { id: true, designation: true, domaine: true, categorieId: true, categorie: { select: { nom: true } } } }),
-    prisma.categorieStock.findMany({ select: { id: true, nom: true, domaine: true } }),
+    prisma.categorieStock.findMany({ select: { id: true, nom: true, domaine: true, actif: true } }),
   ]);
   if (arts.length !== ids.length) throw new Error("Article introuvable : rechargez la page.");
   const choisie = categorie && categorie !== "A_CLASSER" ? cats.find((c) => c.id === categorie) : null;
   if (categorie && categorie !== "A_CLASSER" && (!choisie || choisie.domaine !== domaine)) throw new Error("La catégorie choisie n'appartient pas au nouveau domaine : rechargez la page et choisissez-en une du nouveau domaine, ou « à classer ».");
-  const memeNom = (nom: string) => cats.find((c) => c.domaine === domaine && c.nom.trim().toLowerCase() === nom.trim().toLowerCase()) ?? null;
+  if (choisie && !choisie.actif) throw new Error(`La catégorie « ${choisie.nom} » est archivée : choisissez une catégorie active du nouveau domaine, ou « à classer ».`);
+  const memeNom = (nom: string) => cats.find((c) => c.actif && c.domaine === domaine && c.nom.trim().toLowerCase() === nom.trim().toLowerCase()) ?? null;
 
   const aDeplacer = arts.filter((a) => a.domaine !== domaine);
   const libelle = libelleValeur("domaine", domaine);

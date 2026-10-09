@@ -78,7 +78,8 @@ export type ArticleRow = {
   /** Une proposition de modification attend la décision de la Direction (« Demandes à valider »). */
   propositionEnAttente?: boolean;
 };
-type Cat = { id: string; nom: string; domaine: string };
+/** `actif` faux = catégorie ARCHIVÉE : elle nomme encore ses groupes, mais n'est plus proposée dans les listes de choix. */
+type Cat = { id: string; nom: string; domaine: string; actif?: boolean };
 type Four = { id: string; nom: string };
 
 type TriCol = "code" | "designation" | "categorie" | "fournisseur" | "stock" | "valeur" | "prix" | "min" | "alerte";
@@ -155,6 +156,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [tri, setTri] = useState<{ col: TriCol; dir: 1 | -1 } | null>(null); // null = groupé par catégorie
 
   const catNom = useMemo(() => new Map(categories.map((c) => [c.id, c.nom])), [categories]);
+  // Listes de choix (ajout, catégoriser, changer de domaine) : les catégories ARCHIVÉES n'y sont plus ; leurs articles restent groupés sous leur nom.
+  const categoriesChoix = useMemo(() => categories.filter((c) => c.actif !== false), [categories]);
   const fourNom = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f.nom])), [fournisseurs]);
   const fourPar = useMemo(() => new Map(fournisseurs.map((f) => [f.id, f])), [fournisseurs]); // objet stable par fournisseur : les lignes mémoïsées ne se re-rendent pas pour rien
   // Une liste d'options pour TOUS les fournisseurs du tableau (lignes, cartes, action groupée, ajout) : on y cherche en tapant.
@@ -399,6 +402,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           )}
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => { setAjout((v) => !v); setDoublon(null); setPlus(false); }} className="min-h-11 rounded-md border bg-background px-3 font-medium hover:bg-accent">{ajout ? "Fermer l'ajout" : "+ Ajouter un article"}</button>
+            <Link href="/stock/catalogue/categories" className="inline-flex min-h-11 items-center rounded-md border bg-background px-3 font-medium hover:bg-accent">Catégories</Link>
             {actionsPlus}
           </div>
         </div>
@@ -446,7 +450,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <span className="text-muted-foreground">→ catégoriser :</span>
           <select value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} className="rounded border border-input bg-background px-2 py-1 text-xs">
             <option value="">Choisir une catégorie…</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
+            {categoriesChoix.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
           <button disabled={isPending || !bulkCat} onClick={() => run(async () => { const r = await categoriserEnMasse([...sel], bulkCat); if (!estErreur(r)) { setSel(new Set()); setBulkCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
           <span className="text-muted-foreground">· fournisseur :</span>
@@ -463,7 +467,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
             <select value={bulkDomCat} onChange={(e) => setBulkDomCat(e.target.value)} aria-label="Catégorie dans le nouveau domaine" className="rounded border border-input bg-background px-2 py-1 text-xs">
               <option value="">Catégorie du même nom, sinon « à classer »</option>
               <option value="A_CLASSER">« À classer » pour tous</option>
-              {categories.filter((c) => c.domaine === bulkDom).map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+              {categoriesChoix.filter((c) => c.domaine === bulkDom).map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
           )}
           <button disabled={isPending || !bulkDom} data-changer-domaine onClick={() => run(async () => { const r = await changerDomaineEnMasse([...sel], bulkDom, bulkDomCat); if (!estErreur(r)) { setSel(new Set()); setBulkDom(""); setBulkDomCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? `Changer le domaine (${sel.size})` : `Proposer le domaine (${sel.size})`}</button>
@@ -511,8 +515,10 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
         );
       })()}
 
-      <div className="flex items-center justify-between max-lg:hidden">
+      <div className="flex items-center gap-2 max-lg:hidden">
         <button onClick={() => { setAjout((v) => !v); setDoublon(null); }} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">{ajout ? "Fermer" : "+ Ajouter un article"}</button>
+        {/* Créer, renommer, ordonner, archiver les catégories : écran à part (lecture pour les autres rôles que la Direction). */}
+        <Link href="/stock/catalogue/categories" className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Catégories</Link>
       </div>
 
       {ajout && (
@@ -525,7 +531,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           </select>
           <select name="categorieId" defaultValue="" className={cellCls}>
             <option value="">— catégorie —</option>
-            {categories.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
+            {categoriesChoix.map((c) => <option key={c.id} value={c.id}>{c.nom} ({(DOMAINE_LABEL[c.domaine] ?? "?")[0]})</option>)}
           </select>
           <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue="" vide="— fournisseur —" aria-label="Fournisseur du nouvel article" className={cellCls} />
           <input name="code" placeholder="Code article (ex. 137)" className={cellCls} />

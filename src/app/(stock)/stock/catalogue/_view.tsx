@@ -27,8 +27,8 @@ export async function CatalogueView({ searchParams }: { searchParams: Promise<Ca
   const where: Prisma.ArticleStockWhereInput = domFiltre ? { domaine: domFiltre } : {};
   const user = await verifySession(); // mis en cache par requête : la page l'a déjà vérifié (exigerPageStock)
   const [articles, categories, fournisseurs, haussePct, enAttente, taux] = await Promise.all([
-    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
-    prisma.categorieStock.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true, domaine: true } }),
+    prisma.articleStock.findMany({ where, orderBy: [{ domaine: "asc" }, { categorie: { ordre: "asc" } }, { categorie: { nom: "asc" } }, { designation: "asc" }], include: { stock: true } }),
+    prisma.categorieStock.findMany({ orderBy: [{ ordre: "asc" }, { nom: "asc" }], select: { id: true, nom: true, domaine: true, actif: true } }),
     prisma.fournisseur.findMany({ orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
     // Hausses du dernier prix d'achat (badge 📈) : le MÊME calcul que les exports de l'Inventaire.
     chargerHausses(domFiltre),
