@@ -219,9 +219,17 @@ export async function lireArticlesTx(tx: Tx, ids: string[], verrouiller = false)
  * Contenance et son unité vont par paire : si l'une change, les deux sont proposées ensemble.
  * `noms` résout le nom d'une catégorie / d'un fournisseur pour l'affichage.
  */
-export function changementsDe(etat: EtatArticle, patch: PatchArticle, noms: { categories: Map<string, string>; fournisseurs: Map<string, string> }, inclure?: Set<ChampArticle>): Changement[] {
+export function changementsDe(etat: EtatArticle, patch: PatchArticle, noms: { categories: Map<string, string>; fournisseurs: Map<string, string>; domainesCategories?: Map<string, string> }, inclure?: Set<ChampArticle>): Changement[] {
+  // Domaine changé : la catégorie dit son domaine (« Jus (Nourriture) → Jus (Boissons) »), sinon les
+  // deux catégories homonymes se liraient « Jus → Jus ».
+  const avecDomaine = "domaine" in patch && !valeursEgales("domaine", etat.valeurs.domaine, patch.domaine ?? null);
+  const nomCategorie = (id: string) => {
+    const nom = noms.categories.get(id) ?? "(catégorie inconnue)";
+    const d = avecDomaine ? noms.domainesCategories?.get(id) : undefined;
+    return d ? `${nom} (${libelleValeur("domaine", d)})` : nom;
+  };
   const libelle = (champ: ChampArticle, v: Valeur) =>
-    champ === "categorieId" ? (v ? noms.categories.get(String(v)) ?? "(catégorie inconnue)" : "— à classer —")
+    champ === "categorieId" ? (v ? nomCategorie(String(v)) : "— à classer —")
       : champ === "fournisseurId" ? (v ? noms.fournisseurs.get(String(v)) ?? "(fournisseur inconnu)" : "—")
         : libelleValeur(champ, v);
   // `inclure` : champs déjà proposés (même auteur) — gardés même s'ils reviennent à la valeur de
@@ -241,10 +249,10 @@ export function changementsDe(etat: EtatArticle, patch: PatchArticle, noms: { ca
 /** Noms des catégories et fournisseurs (libellés des propositions). */
 export async function nomsReferencesTx(tx: Tx) {
   const [cats, fours] = await Promise.all([
-    tx.categorieStock.findMany({ select: { id: true, nom: true } }),
+    tx.categorieStock.findMany({ select: { id: true, nom: true, domaine: true } }),
     tx.fournisseur.findMany({ select: { id: true, nom: true } }),
   ]);
-  return { categories: new Map(cats.map((c) => [c.id, c.nom])), fournisseurs: new Map(fours.map((f) => [f.id, f.nom])) };
+  return { categories: new Map(cats.map((c) => [c.id, c.nom])), domainesCategories: new Map(cats.map((c) => [c.id, String(c.domaine)])), fournisseurs: new Map(fours.map((f) => [f.id, f.nom])) };
 }
 
 /** Patch à écrire pour une proposition validée : les valeurs APRÈS de ses changements. */

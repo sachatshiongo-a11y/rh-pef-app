@@ -37,6 +37,7 @@ export type ArticleEdit = {
   seuilUrgent: string;
 };
 
+const DOMAINES = [["NOURRITURE", "Nourriture"], ["BOISSON", "Boissons"], ["AUTRE", "Autre"]] as const;
 const inp = "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm";
 /** Texte de saisie (français) → valeur de case ; l'inverse pour le champ caché envoyé au serveur
  *  (`decSaisiOptionnel`) — même lecture/écriture que la Liste d'achat de légumes. Les valeurs venues de
@@ -92,7 +93,24 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
   // Catégories du domaine de l'article — PLUS sa catégorie actuelle si elle est d'un autre domaine
   // (import, reclassement) : absente de la liste, le select retomberait sur « à classer » et
   // l'enregistrement effacerait la catégorie sans que personne l'ait demandé.
-  const catsPour = categories.filter((c) => c.domaine === a.domaine || c.id === a.categorieId);
+  // Domaine modifiable (2026-10-09) : Nourriture ↔ Boissons ↔ Autre. Une catégorie vit dans un domaine :
+  // en changeant de domaine, la catégorie du MÊME NOM dans le nouveau est reprise si elle existe ;
+  // sinon le choix revient à « à classer » et l'écran le dit (choisir une catégorie du nouveau domaine).
+  const [domaine, setDomaine] = useState(a.domaine);
+  const [categorieId, setCategorieId] = useState(a.categorieId ?? "");
+  const [noteCategorie, setNoteCategorie] = useState<string | null>(null);
+  const changerDomaine = (d: ArticleEdit["domaine"]) => {
+    setDomaine(d);
+    if (d === a.domaine) { setCategorieId(a.categorieId ?? ""); setNoteCategorie(null); return; }
+    const actuelle = categories.find((c) => c.id === (categorieId || a.categorieId));
+    if (!actuelle) { setCategorieId(""); setNoteCategorie(null); return; }
+    const memeNom = categories.find((c) => c.domaine === d && c.nom.trim().toLowerCase() === actuelle.nom.trim().toLowerCase());
+    setCategorieId(memeNom?.id ?? "");
+    setNoteCategorie(memeNom
+      ? `Catégorie « ${memeNom.nom} » du nouveau domaine reprise (même nom).`
+      : `La catégorie « ${actuelle.nom} » n'existe pas en ${DOMAINES.find(([k]) => k === d)?.[1]} : choisissez-en une de ce domaine, ou laissez « à classer ».`);
+  };
+  const catsPour = categories.filter((c) => c.domaine === domaine || (domaine === a.domaine && c.id === a.categorieId));
 
   const enregistrer = (fd: FormData) => {
     setErreur(null);
@@ -164,11 +182,18 @@ export function EditerArticle({ a, categories, fournisseurs, estDirection = true
               {prixConverti && <span className="ml-1 text-amber-800">— converti au taux du jour : vérifiez le prix avant d&apos;enregistrer.</span>}
             </span>
           </div>
+          <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Domaine
+            <select name="domaine" value={domaine} onChange={(e) => changerDomaine(e.target.value as ArticleEdit["domaine"])} className={inp} aria-label="Domaine">
+              {DOMAINES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+            {domaine !== a.domaine && <span data-note-domaine className="text-[11px] text-amber-800">Ni le stock ni les mouvements ne changent : seul le classement de l&apos;article (Inventaire, fiches de comptage, rapports par domaine).</span>}
+          </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Catégorie
-            <select name="categorieId" defaultValue={a.categorieId ?? ""} className={inp}>
+            <select name="categorieId" value={categorieId} onChange={(e) => { setCategorieId(e.target.value); setNoteCategorie(null); }} className={inp}>
               <option value="">— à classer —</option>
               {catsPour.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
             </select>
+            {noteCategorie && <span data-note-categorie className="text-[11px] text-amber-800">{noteCategorie}</span>}
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">Fournisseur
             <ChoixRecherche options={optionsFour} name="fournisseurId" defaultValue={a.fournisseurId ?? ""} vide="—" aria-label="Fournisseur" className={inp} />

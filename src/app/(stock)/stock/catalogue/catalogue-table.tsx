@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { EtatVide } from "@/components/etat-vide";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { creerArticle, modifierArticle, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
+import { creerArticle, modifierArticle, changerDomaineEnMasse, categoriserEnMasse, fusionnerArticles, basculerActifArticles, basculerFicheCommande, definirFournisseurEnMasse, definirSeuilEnMasse, corrigerStocksNegatifs } from "./actions";
 import { ALERTE_CLASSE, ALERTE_LABEL, DOMAINE_LABEL, usd, type NiveauAlerte } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { CelluleNombre } from "@/components/tableur/cellule-nombre";
@@ -12,6 +12,7 @@ import { ecrireSaisieNombre, lireSaisieNombre, MOTIF_HTML_DECIMAL_POSITIF } from
 import { nombreDeBase } from "@/lib/saisie-nombre-stock";
 import { formaterFC, formaterNombre } from "@/lib/montant";
 import { ChoixRecherche } from "@/components/choix-recherche";
+import { ChoixArticleProche, type CandidatProche } from "@/components/stock/choix-article-proche";
 import { optionsFournisseurs, type OptionChoix } from "@/lib/recherche-options";
 import { Pagination, usePagination } from "@/components/pagination";
 import { tranche, type ParPage } from "@/lib/pagination";
@@ -118,11 +119,22 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [isPending, startTransition] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null); // proposition envoyée à la Direction
+  const [fait, setFait] = useState<string | null>(null); // compte rendu d'un geste écrit (changement de domaine…)
   // Cases cochées, TOUTES pages et tous filtres confondus ; `sel` (plus bas) n'en garde que ce qui est dans le filtre affiché.
   const [selBrute, setSel] = useState<Set<string>>(new Set());
   const [bulkCat, setBulkCat] = useState("");
   const [fusionKeep, setFusionKeep] = useState<string | null>(null); // article à conserver (panneau de fusion ouvert)
   const [ajout, setAjout] = useState(false);
+  // Anti-doublon de « Ajouter un article » : la saisie gardée (le formulaire se vide après l'envoi) et les articles proches.
+  const [doublon, setDoublon] = useState<{ fd: FormData; nom: string; candidats: CandidatProche[]; creationPossible: boolean } | null>(null);
+  const creer = async (fd: FormData) => {
+    setDoublon(null);
+    const r = await creerArticle(fd);
+    if (estErreur(r)) return r;
+    if (r && "doublon" in r) { setDoublon({ fd, nom: String(fd.get("designation") ?? ""), candidats: r.candidats, creationPossible: r.creationPossible }); return r; }
+    setAjout(false);
+    return r;
+  };
   const [deviseAjout, setDeviseAjout] = useState<"USD" | "CDF">("USD"); // devise du prix d'un nouvel article
   const [plus, setPlus] = useState(false); // téléphone : menu « Plus » (À compléter, valeur du stock, ajout, export)
   const [q, setQ] = useState(initialQ ?? "");
@@ -131,6 +143,8 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   const [manque, setManque] = useState<ManqueKey>(initialManque); // vue « À compléter »
   const [hausseSeule, setHausseSeule] = useState(initialHausse); // filtre : articles dont le prix d'achat a grimpé
   const [bulkFour, setBulkFour] = useState("");
+  const [bulkDom, setBulkDom] = useState<"" | Domaine>("");
+  const [bulkDomCat, setBulkDomCat] = useState(""); // "" = même nom sinon à classer ; "A_CLASSER" ; id d'une catégorie du nouveau domaine
   const [bulkSeuil, setBulkSeuil] = useState("");
   // Seuil en masse lu à la française (« 2,5 ») ; null = vide ou illisible → bouton inactif.
   const seuilEnMasse = (() => { const l = lireSaisieNombre(bulkSeuil); return l.ok && l.valeur !== null && l.valeur >= 0 ? l.valeur : null; })();
@@ -222,11 +236,15 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   // Le résultat de l'action est RENDU par `fn` : une erreur s'affiche, une proposition envoyée à la
   // Direction aussi (en information) — jamais avalés.
   const run = (fn: () => Promise<unknown>) => {
-    setErreur(null); setInfo(null);
+    setErreur(null); setInfo(null); setFait(null);
     startTransition(async () => {
       const r = await fn();
       if (estErreur(r)) setErreur(r.erreur);
-      else if (r && typeof r === "object" && "proposition" in r && "message" in r) setInfo(String((r as { message: string }).message));
+      else if (r && typeof r === "object" && "proposition" in r && "message" in r) {
+        // Proposition envoyée à la Direction (ambre, lien vers les demandes) ; compte rendu d'un geste fait (vert).
+        if ((r as { proposition: boolean }).proposition) setInfo(String((r as { message: string }).message));
+        else setFait(String((r as { message: string }).message));
+      }
     });
   };
   // Stable (useCallback) : les lignes mémoïsées ne se re-rendent plus à chaque rendu du tableau.
@@ -251,6 +269,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
   return (
     <div className="space-y-2 lg:space-y-3">
       {erreur && <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreur}</p>}
+      {fait && <p role="status" data-compte-rendu className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{fait}</p>}
       {info && <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{info} <Link href="/stock/a-valider" className="font-medium underline">Voir mes demandes</Link></p>}
       {!estDirection && (
         <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -436,6 +455,21 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <span className="text-muted-foreground">· fournisseur :</span>
           <ChoixRecherche options={optionsFour} value={bulkFour} vide="Choisir un fournisseur…" onChange={setBulkFour} aria-label="Fournisseur de l'action groupée" className="w-52 rounded border border-input bg-background px-2 py-1 text-xs" />
           <button disabled={isPending || !bulkFour} onClick={() => run(async () => { const r = await definirFournisseurEnMasse([...sel], bulkFour); if (!estErreur(r)) { setSel(new Set()); setBulkFour(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
+          {/* Domaine (2026-10-09) : Nourriture ↔ Boissons ↔ Autre. La catégorie suit : même nom dans le
+              nouveau domaine si elle existe, sinon « à classer » — ou une catégorie du nouveau domaine choisie ici. */}
+          <span className="text-muted-foreground">· domaine :</span>
+          <select value={bulkDom} onChange={(e) => { setBulkDom(e.target.value as "" | Domaine); setBulkDomCat(""); }} aria-label="Nouveau domaine des articles sélectionnés" className="rounded border border-input bg-background px-2 py-1 text-xs">
+            <option value="">Choisir un domaine…</option>
+            {(["NOURRITURE", "BOISSON", "AUTRE"] as const).map((d) => <option key={d} value={d}>{DOMAINE_LABEL[d]}</option>)}
+          </select>
+          {bulkDom && (
+            <select value={bulkDomCat} onChange={(e) => setBulkDomCat(e.target.value)} aria-label="Catégorie dans le nouveau domaine" className="rounded border border-input bg-background px-2 py-1 text-xs">
+              <option value="">Catégorie du même nom, sinon « à classer »</option>
+              <option value="A_CLASSER">« À classer » pour tous</option>
+              {categories.filter((c) => c.domaine === bulkDom).map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+            </select>
+          )}
+          <button disabled={isPending || !bulkDom} data-changer-domaine onClick={() => run(async () => { const r = await changerDomaineEnMasse([...sel], bulkDom, bulkDomCat); if (!estErreur(r)) { setSel(new Set()); setBulkDom(""); setBulkDomCat(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? `Changer le domaine (${sel.size})` : `Proposer le domaine (${sel.size})`}</button>
           <span className="text-muted-foreground">· seuil min :</span>
           <input type="text" inputMode="decimal" autoComplete="off" value={bulkSeuil} onChange={(e) => setBulkSeuil(e.target.value)} placeholder="ex. 4" aria-invalid={seuilEnMasse === null && bulkSeuil.trim() !== "" ? true : undefined} className="w-16 rounded border border-input bg-background px-2 py-1 text-xs aria-[invalid=true]:border-destructive" />
           <button disabled={isPending || seuilEnMasse === null} onClick={() => run(async () => { const r = await definirSeuilEnMasse([...sel], seuilEnMasse!); if (!estErreur(r)) { setSel(new Set()); setBulkSeuil(""); } return r; })} className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50">{estDirection ? "Appliquer" : "Proposer"}</button>
@@ -485,7 +519,7 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
       </div>
 
       {ajout && (
-        <form action={(fd) => run(async () => { const r = await creerArticle(fd); if (!estErreur(r)) setAjout(false); return r; })} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
+        <form action={(fd) => run(async () => creer(fd))} className="grid grid-cols-2 gap-2 rounded-lg border p-3 text-sm md:grid-cols-4">
           <input name="designation" placeholder="Désignation *" required className={cellCls} />
           <select name="domaine" defaultValue={lockedDomaine ?? "NOURRITURE"} className={cellCls}>
             <option value="NOURRITURE">Nourriture</option>
@@ -515,6 +549,12 @@ export function CatalogueTable({ articles, categories, fournisseurs, lockedDomai
           <input name="stockMinimum" type="text" inputMode="decimal" pattern={MOTIF_HTML_DECIMAL_POSITIF} title="Nombre, ex. 2,5" placeholder="Stock minimum" className={cellCls} />
           <button disabled={isPending} className="col-span-2 rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground disabled:opacity-50 md:col-span-4">Créer l&apos;article</button>
         </form>
+      )}
+      {/* Anti-doublon (2026-10-09, même règle que la Liste d'achat) : rien n'est créé tant que la personne n'a pas choisi. */}
+      {ajout && doublon && (
+        <ChoixArticleProche nom={doublon.nom} candidats={doublon.candidats} creationPossible={doublon.creationPossible} desactive={isPending}
+          hrefUtiliser={(c) => `/stock/catalogue/${c.id}`}
+          onCreer={() => run(async () => { const fd = doublon.fd; fd.set("creerQuandMeme", "1"); return creer(fd); })} />
       )}
 
       <ZoneTableur>
