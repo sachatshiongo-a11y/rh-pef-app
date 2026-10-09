@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { actionLisible } from "@/lib/action-lisible";
 import { decSaisiOptionnel } from "@/lib/nombre";
-import { appliquerPatchArticleTx, exigerCategorieActive, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
+import { appliquerPatchArticleTx, exigerCategorieActive, exigerDesignationLibre, lireDevisePrix, lireDomaine, lirePatchArticle, type PatchArticle } from "@/lib/validations-stock/article";
 import { estDirection, proposerModifications, type Acteur } from "@/lib/validations-stock/demandes";
 import { libelleValeur, texteDecimal } from "@/lib/validations-stock/charge";
 import { prisma } from "@/lib/prisma";
@@ -35,6 +35,8 @@ async function garde() {
 export type PropositionEnvoyee = { proposition: boolean; message: string };
 
 async function proposer(user: Acteur, libelle: string, patchs: { id: string; patch: PatchArticle }[]): Promise<PropositionEnvoyee> {
+  // Renommage proposé : même anti-doublon que la modification directe, refusé DÈS LA PROPOSITION (la validation le revérifie).
+  for (const p of patchs) await exigerDesignationLibre(prisma, p.id, p.patch);
   const r = await proposerModifications(user, libelle, patchs);
   revalidatePath("/stock/catalogue", "layout");
   revalidatePath("/stock/a-valider");

@@ -10,6 +10,9 @@ import { decSaisiOptionnel } from "@/lib/nombre";
 import { lireContenanceSaisie } from "@/lib/fiches/conversion";
 import { poserStocksTx } from "./stock-positif";
 import type { DevisePrix } from "@/lib/prix-article";
+import { libelleArticle } from "@/lib/libelle-article";
+import { decisionArticle } from "@/lib/article-proche";
+import { catalogueCandidats } from "@/lib/achats-liste-serveur";
 import {
   CHAMPS_ARTICLE, LISTE_CHAMPS_ARTICLE, estDomaineArticle, libelleValeur, texteDecimal, valeursEgales,
   type ChampArticle, type Changement, type DomaineArticle, type Valeur,
@@ -131,6 +134,35 @@ export async function exigerCategorieActive(tx: Pick<Tx, "articleStock" | "categ
   throw new Error(`La catégorie « ${cat.nom} » est archivée : choisissez une catégorie active (ou réactivez-la dans Inventaire › Catégories). Rien n'a été modifié.`);
 }
 
+/**
+ * ANTI-DOUBLON AU RENOMMAGE (Direction, 2026-10-10) : la règle de « Ajouter un article » (`decisionArticle` :
+ * casse, accents, espaces, contenance écrite autrement = même nom ; pluriel, lettre d'écart, ordre des mots =
+ * nom proche), sur le même catalogue (tous domaines, inactifs compris pour le nom exact), moins l'article
+ * lui-même — « tomate » → « Tomate » passe. Refus lisible qui NOMME l'article existant ; rien n'est écrit.
+ * Seule une désignation qui CHANGE est contrôlée (les autres champs, seuls, ne déclenchent rien).
+ *
+ * Appelée par `appliquerPatchArticleTx` (modification directe de la Direction ET validation d'une
+ * proposition : un doublon créé entre-temps fait refuser l'approbation) et, à la saisie, par la
+ * proposition d'un autre rôle (`proposer`). Pas de « renommer quand même » : une désignation qui
+ * ressemble à une autre se distingue (ou se corrige) avant d'être enregistrée.
+ */
+export async function exigerDesignationLibre(tx: Tx, id: string, patch: PatchArticle) {
+  if (!("designation" in patch) || typeof patch.designation !== "string") return;
+  const nom = patch.designation.trim();
+  if (!nom) return;
+  const actuel = await tx.articleStock.findUnique({ where: { id }, select: { designation: true } });
+  if (!actuel || actuel.designation === nom) return; // inchangée (ou article disparu : l'écriture le dira)
+  const catalogue = (await catalogueCandidats(tx)).filter((a) => a.id !== id);
+  const d = decisionArticle(nom, catalogue);
+  if (d.type !== "auto" && d.type !== "choix") return; // nouveau nom
+  const candidats = d.type === "auto" ? [d.article] : d.candidats;
+  const noms = candidats.map((c) => `« ${libelleArticle(c)} »${c.actif ? "" : " (inactif)"}`).join(", ");
+  const exact = d.type === "auto" || !d.creationPossible;
+  throw new Error(exact
+    ? `« ${nom} » existe déjà au catalogue : ${noms}. Utilisez cet article (réactivez-le s'il est inactif) ou choisissez un autre nom. Rien n'a été modifié.`
+    : `« ${nom} » ressemble à ${candidats.length > 1 ? "des articles" : "un article"} déjà au catalogue : ${noms}. Utilisez-${candidats.length > 1 ? "en un" : "le"} ou choisissez un nom qui s'en distingue. Rien n'a été modifié.`);
+}
+
 const PRIX_DE: Record<DevisePrix, "prixUnitaireUSD" | "prixUnitaireCDF"> = { USD: "prixUnitaireUSD", CDF: "prixUnitaireCDF" };
 
 /**
@@ -164,6 +196,7 @@ export async function appliquerPatchArticleTx(tx: Tx, id: string, patchSaisi: Pa
   // Prix : cohérent avec la devise de l'article, relue ICI (geste direct comme proposition validée).
   let patch = patchSaisi;
   await exigerCategorieDuDomaine(tx, id, patch); // domaine changé : catégorie du nouveau domaine, ou « à classer »
+  await exigerDesignationLibre(tx, id, patch); // renommage : jamais un doublon d'un autre article
   if ("categorieId" in patch) await exigerCategorieActive(tx, patch.categorieId as string | null, id); // jamais vers une catégorie archivée
   if ("devisePrix" in patch || "prixUnitaireUSD" in patch || "prixUnitaireCDF" in patch) {
     const cur = await tx.articleStock.findUniqueOrThrow({ where: { id }, select: { devisePrix: true } });
