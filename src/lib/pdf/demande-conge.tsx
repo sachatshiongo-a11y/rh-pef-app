@@ -1,5 +1,5 @@
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import type { Employee, LeaveRequest, User } from "@prisma/client";
+import type { Employee, LeaveRequest } from "@prisma/client";
 import { registerPdfFonts } from "./fonts";
 import { PdfHeader, PdfFooter, PdfSectionHeader, PdfSignatureBox, type SignatureImprimable } from "./layout";
 import { pdfColors } from "./theme";
@@ -90,14 +90,12 @@ function Ligne({ label, value }: { label: string; value: string }) {
 export function DemandeCongeDocument({
   employee,
   demande,
-  approuvePar,
   remplacant,
   solde,
   signatureSalarie,
 }: {
   employee: Employee;
   demande: LeaveRequest;
-  approuvePar: User | null;
   remplacant: Employee | null;
   /** Le solde à imprimer et sa date : figé à l'approbation, ou du jour d'édition (`lib/solde-conge-imprime.ts`). */
   solde: SoldeImprime;
@@ -192,7 +190,9 @@ export function DemandeCongeDocument({
               {STATUT_LABEL[demande.statut] ?? demande.statut}
             </Text>
           </View>
-          <Ligne label="Traité par" value={approuvePar?.nom ?? "—"} />
+          {/* La décision est celle de LA DIRECTION, sans le nom de la personne qui a cliqué (décision 2026-10-09). */}
+          <Ligne label="Décision" value={demande.statut === "APPROUVE" ? "Approuvé par la Direction" : demande.statut === "REFUSE" ? "Refusé par la Direction" : "En attente de décision"} />
+          {demande.statut === "REFUSE" && <Ligne label="Motif du refus" value={demande.motifRefus ?? "—"} />}
         </View>
 
         <View style={styles.signatures}>

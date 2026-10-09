@@ -54,7 +54,7 @@ describe("Congés — actions groupées : droits", () => {
     A.user = { ...direction, role: "MANAGER" };
     try {
       await expect(approuverCongesEnLot([a, b])).rejects.toThrow(/rôle insuffisant/);
-      await expect(refuserCongesEnLot([a, b])).rejects.toThrow(/rôle insuffisant/);
+      await expect(refuserCongesEnLot([a, b], "Motif")).rejects.toThrow(/rôle insuffisant/);
       await expect(supprimerCongesEnLot([a, b, c])).rejects.toThrow(/rôle insuffisant/);
     } finally { A.user = direction; }
     expect([await statutDe(a), await statutDe(b), await statutDe(c)]).toEqual(["EN_ATTENTE", "EN_ATTENTE", "APPROUVE"]);
@@ -72,7 +72,7 @@ describe("Congés — actions groupées : effets", () => {
 
   it("refuser en lot : EN ATTENTE → REFUSÉ, une approbation existante n'est pas touchée", async () => {
     const [att, appr] = [await demande("EN_ATTENTE"), await demande("APPROUVE")];
-    const r = await refuserCongesEnLot([att, appr]);
+    const r = await refuserCongesEnLot([att, appr], "Effectif insuffisant");
     expect(r).toEqual({ traitees: 1, echecs: [] });
     expect(await statutDe(att)).toBe("REFUSE");
     expect(await statutDe(appr)).toBe("APPROUVE");

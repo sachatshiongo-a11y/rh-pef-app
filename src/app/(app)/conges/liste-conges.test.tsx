@@ -8,12 +8,13 @@ import { createRoot, type Root } from "react-dom/client";
 import type { LigneConge } from "@/lib/conges-liste";
 
 const M = vi.hoisted(() => ({
+  refuserConge: vi.fn(async () => ({} as { erreur?: string })),
   approuverCongesEnLot: vi.fn(async (ids: string[]) => ({ traitees: ids.length, echecs: [] as string[] })),
-  refuserCongesEnLot: vi.fn(async (ids: string[]) => ({ traitees: ids.length, echecs: [] as string[] })),
+  refuserCongesEnLot: vi.fn(async (ids: string[], _motif: string) => ({ traitees: ids.length, echecs: [] as string[] })),
   supprimerCongesEnLot: vi.fn(async (ids: string[]) => ({ traitees: ids.length, echecs: [] as string[] })),
 }));
 vi.mock("./actions", () => ({
-  approuverCongeFormulaire: vi.fn(), refuserConge: vi.fn(), supprimerConge: vi.fn(),
+  approuverCongeFormulaire: vi.fn(), refuserConge: M.refuserConge, supprimerConge: vi.fn(),
   approuverCongesEnLot: M.approuverCongesEnLot, refuserCongesEnLot: M.refuserCongesEnLot, supprimerCongesEnLot: M.supprimerCongesEnLot,
 }));
 vi.mock("../signature-actions", () => ({ faireSignerDocument: vi.fn() }));
@@ -23,7 +24,7 @@ import { ListeConges, type GroupeMois, type SectionListe } from "./liste-conges"
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ligne = (id: string, nom: string, statut: LigneConge["statut"], debut: string, fin: string, extra: Partial<LigneConge> = {}): LigneConge => ({
-  id, employeeId: `emp-${id}`, nom, photoUrl: null, type: "Congé annuel", debut, fin, nbJours: 5, statut, approuveParNom: null,
+  id, employeeId: `emp-${id}`, nom, photoUrl: null, type: "Congé annuel", debut, fin, nbJours: 5, statut, approuveParNom: null, motifRefus: null,
   signature: statut === "APPROUVE" ? { etat: "A_SIGNER", signeLeTexte: null } : null, ...extra,
 });
 const A1 = ligne("a1", "Aimée Mutita", "EN_ATTENTE", "2026-10-20", "2026-10-24");
@@ -31,13 +32,14 @@ const A2 = ligne("a2", "Bijou Mputu", "EN_ATTENTE", "2026-11-02", "2026-11-06");
 const C1 = ligne("c1", "Christian Lumbu", "APPROUVE", "2026-10-05", "2026-10-12", { signature: { etat: "SIGNE", signeLeTexte: "08/10/2026" } });
 const V1 = ligne("v1", "Dorcas Ilunga", "APPROUVE", "2026-12-01", "2026-12-05");
 const P1 = ligne("p1", "Emmanuel Tshimanga", "APPROUVE", "2026-09-01", "2026-09-05", { approuveParNom: "Sacha Tshiongo" });
-const P2 = ligne("p2", "Fatuma Mwamba", "REFUSE", "2026-08-03", "2026-08-07");
+const P2 = ligne("p2", "Fatuma Mwamba", "REFUSE", "2026-08-03", "2026-08-07", { approuveParNom: "Sacha Tshiongo", motifRefus: "Effectif insuffisant" });
+const P3 = ligne("p3", "Grâce Nsimba", "REFUSE", "2026-07-01", "2026-07-03"); // refusée avant que le motif existe
 
 const SECTIONS: SectionListe[] = [
   { cle: "A_TRAITER", lignes: [A1, A2], total: 2, tronque: false },
   { cle: "EN_COURS", lignes: [C1], total: 1, tronque: false },
   { cle: "A_VENIR", lignes: [V1], total: 1, tronque: false },
-  { cle: "PASSES", lignes: [P1, P2], total: 2, tronque: false },
+  { cle: "PASSES", lignes: [P1, P2, P3], total: 3, tronque: false },
 ];
 
 let conteneur: HTMLDivElement;
@@ -75,8 +77,8 @@ describe("sections", () => {
     expect(titres[0]).toMatch(/^À traiter \(2\)/);
     expect(titres[1]).toMatch(/^En cours aujourd'hui \(1\)/);
     expect(titres[2]).toMatch(/^À venir \(1\)/);
-    expect(titres[3]).toMatch(/^▸Passés \(2\)/);
-    expect(idsLignes(tableau())).toEqual(["a1", "a2", "c1", "v1", "p1", "p2"]);
+    expect(titres[3]).toMatch(/^▸Passés \(3\)/);
+    expect(idsLignes(tableau())).toEqual(["a1", "a2", "c1", "v1", "p1", "p2", "p3"]);
   });
 
   it("« Passés » est repliée par défaut : ses lignes ne sont pas dans la page, la pagination non plus ; un clic la déplie", () => {
@@ -86,7 +88,7 @@ describe("sections", () => {
     const entete = bouton(/Passés/, tableau())!;
     expect(entete.getAttribute("aria-expanded")).toBe("false");
     act(() => entete.click());
-    expect(idsLignes(tableau())).toEqual(["a1", "a2", "c1", "v1", "p1", "p2"]);
+    expect(idsLignes(tableau())).toEqual(["a1", "a2", "c1", "v1", "p1", "p2", "p3"]);
     expect(conteneur.querySelector("[data-pagination]")).not.toBeNull();
     act(() => bouton(/Passés/, tableau())!.click());
     expect(idsLignes(tableau())).toEqual(["a1", "a2", "c1", "v1"]);
@@ -144,15 +146,27 @@ describe("une ligne par demande", () => {
     expect(tableau().querySelector('[data-conge="z"] td:nth-child(4)')?.textContent).toBe("28 sept. → 20 janv. 2027");
   });
 
-  it("le pavé de statut dit qui a approuvé (infobulle)", () => {
+  it("qui a décidé est écrit EN TOUTES LETTRES sous la pastille (tableau et cartes), pas seulement en infobulle", () => {
     monter("ADMIN", { passesOuvertParDefaut: true });
-    expect(tableau().querySelector('[data-conge="p1"] td:nth-child(6) span')?.getAttribute("title")).toBe("Approuvé par Sacha Tshiongo");
+    expect(tableau().querySelector('[data-conge="p1"] td:nth-child(6)')?.textContent).toBe("Approuvépar Sacha Tshiongo");
+    expect(tableau().querySelector('[data-conge="p2"] td:nth-child(6)')?.textContent).toBe("Refuséepar Sacha Tshiongo".replace("Refuséepar", "Refusépar"));
+    expect(cartes().querySelector('[data-conge="p1"]')?.textContent).toContain("par Sacha Tshiongo");
+    expect(tableau().querySelector('[data-conge="a1"] td:nth-child(6)')?.textContent).toBe("En attente"); // pas encore décidée : personne
+  });
+
+  it("le motif d'un refus est visible sur la ligne (sous la demande) ; « — » pour une ancienne demande refusée sans motif", () => {
+    monter("ADMIN", { passesOuvertParDefaut: true });
+    expect(tableau().querySelector('[data-motif-refus="p2"]')?.textContent).toBe("Motif du refus : Effectif insuffisant");
+    expect(tableau().querySelector('[data-motif-refus="p3"]')?.textContent).toBe("Motif du refus : —");
+    expect(tableau().querySelector('[data-motif-refus="p1"]')).toBeNull(); // une approuvée n'a pas de motif
+    expect(cartes().querySelector('[data-conge="p2"]')?.textContent).toContain("Motif du refus : Effectif insuffisant");
+    expect(cartes().querySelector('[data-conge="p3"]')?.textContent).toContain("Motif du refus : —");
   });
 
   it("téléphone : les mêmes demandes en cartes, mêmes sections", () => {
     monter("ADMIN", { passesOuvertParDefaut: true });
     expect(titresSections(cartes())).toEqual(["A_TRAITER", "EN_COURS", "A_VENIR", "PASSES"]);
-    expect(idsLignes(cartes())).toEqual(["a1", "a2", "c1", "v1", "p1", "p2"]);
+    expect(idsLignes(cartes())).toEqual(["a1", "a2", "c1", "v1", "p1", "p2", "p3"]);
     expect(cartes().querySelector('[data-conge="a1"] a[href="/employes/emp-a1"]')).toBeTruthy();
     expect(cartes().textContent).toContain("Congé annuel · 20 oct. → 24 oct. · 5 j");
     // Le tableau n'apparaît que dès 1280 px, les cartes disparaissent à partir de là.
@@ -214,12 +228,50 @@ describe("actions groupées", () => {
     expect(conteneur.textContent).toContain("0 sélectionné(s)"); // la sélection est vidée
   });
 
-  it("Refuser en lot : demande confirmation, puis appelle l'action de lot existante", async () => {
+  it("Refuser en lot : une fenêtre demande UN motif obligatoire, puis appelle l'action de lot existante avec ce motif", async () => {
+    monter("ADMIN");
+    act(() => { caseDe("a1").click(); caseDe("a2").click(); });
+    act(() => { bouton(/Refuser \(2\)/)!.click(); });
+    const dialogue = document.querySelector<HTMLElement>("[data-dialogue-refus]")!;
+    expect(dialogue.textContent).toContain("Refuser 2 demande(s) de congé");
+    const envoyer = [...dialogue.querySelectorAll("button")].find((b) => /Refuser$/.test(b.textContent ?? ""))!;
+    expect(envoyer.disabled).toBe(true); // pas de motif, pas de refus
+    const zone = dialogue.querySelector("textarea")!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(zone, "Fermeture de la salle");
+    act(() => { zone.dispatchEvent(new Event("input", { bubbles: true })); });
+    expect(envoyer.disabled).toBe(false);
+    await act(async () => { dialogue.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(M.refuserCongesEnLot).toHaveBeenCalledWith(["a1", "a2"], "Fermeture de la salle");
+    expect(document.querySelector("[data-dialogue-refus]")).toBeNull();
+    expect(conteneur.querySelector('[role="status"]')?.textContent).toBe("2 demande(s) refusée(s).");
+  });
+
+  it("Annuler la fenêtre de refus n'écrit rien ; un motif refusé par le serveur reste affiché dans la fenêtre", async () => {
     monter("ADMIN");
     act(() => caseDe("a2").click());
-    await act(async () => { bouton(/Refuser \(1\)/)!.click(); });
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Refuser 1 demande(s)"));
-    expect(M.refuserCongesEnLot).toHaveBeenCalledWith(["a2"]);
+    act(() => { bouton(/Refuser \(1\)/)!.click(); });
+    act(() => { [...document.querySelectorAll<HTMLButtonElement>("[data-dialogue-refus] button")].find((b) => b.textContent === "Annuler")!.click(); });
+    expect(document.querySelector("[data-dialogue-refus]")).toBeNull();
+    expect(M.refuserCongesEnLot).not.toHaveBeenCalled();
+    M.refuserCongesEnLot.mockResolvedValueOnce({ traitees: 0, echecs: ["Un motif est obligatoire pour refuser une demande de congé."] });
+    act(() => { bouton(/Refuser \(1\)/)!.click(); });
+    const zone = document.querySelector<HTMLTextAreaElement>("[data-dialogue-refus] textarea")!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(zone, "x");
+    act(() => { zone.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { document.querySelector("[data-dialogue-refus]")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(document.querySelector('[data-dialogue-refus] [role="alert"]')?.textContent).toContain("Un motif est obligatoire");
+  });
+
+  it("Refuser sur une ligne : la même fenêtre, puis `refuserConge(id, motif)`", async () => {
+    monter("ADMIN");
+    act(() => { [...tableau().querySelectorAll('[data-conge="a1"] button')].find((b) => /Refuser/.test(b.textContent ?? ""))!.click(); });
+    const dialogue = document.querySelector<HTMLElement>("[data-dialogue-refus]")!;
+    expect(dialogue.textContent).toContain("Demande de Aimée Mutita");
+    const zone = dialogue.querySelector("textarea")!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(zone, "Période chargée");
+    act(() => { zone.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(async () => { dialogue.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+    expect(M.refuserConge).toHaveBeenCalledWith("a1", "Période chargée");
   });
 
   it("une confirmation refusée n'écrit rien", async () => {

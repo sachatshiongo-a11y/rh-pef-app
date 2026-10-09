@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HeuresTravailleesCard, referenceHeuresCarte } from "./fiche-cards";
+import { AbsencesCard, HeuresTravailleesCard, referenceHeuresCarte } from "./fiche-cards";
 
 // La jauge « Heures travaillées » de la fiche ne doit pas contredire l'aperçu du bulletin affiché
 // juste en dessous (revue finale du 2026-09-24, point 3). Martine Mutombo, septembre 2026 : contrat
@@ -47,5 +47,21 @@ describe("jauge d'heures de la fiche", () => {
     expect(page).toMatch(/referenceHeuresCarte\(\{ categorie: employee\.categorie, heuresMoisContrat, reference: apercuBulletin\.reference \}\)/);
     expect(bloc).toContain("heuresContractuelles={ref.heures}");
     expect(bloc).toContain("libelleReference={ref.libelle}");
+  });
+});
+
+describe("congés de la fiche : le motif d'un refus", () => {
+  const d = (jour: string) => new Date(`${jour}T00:00:00Z`);
+  const html = renderToStaticMarkup(
+    <AbsencesCard absences={[
+      { id: "1", type: "Congé annuel", dateDebut: d("2026-10-05"), dateFin: d("2026-10-09"), nbJours: 5, statut: "REFUSE", motifRefus: "Effectif insuffisant" },
+      { id: "2", type: "Congé maladie", dateDebut: d("2026-09-05"), dateFin: d("2026-09-09"), nbJours: 5, statut: "REFUSE", motifRefus: null },
+      { id: "3", type: "Congé annuel", dateDebut: d("2026-08-05"), dateFin: d("2026-08-09"), nbJours: 5, statut: "APPROUVE" },
+    ]} />,
+  );
+  it("affiché sur la demande refusée ; « — » pour une ancienne sans motif ; rien sur une approuvée", () => {
+    expect(texte(html)).toContain("Motif du refus : Effectif insuffisant");
+    expect(texte(html)).toContain("Motif du refus : —");
+    expect((html.match(/Motif du refus/g) ?? []).length).toBe(2);
   });
 });

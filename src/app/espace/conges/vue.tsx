@@ -17,6 +17,8 @@ export type DemandeConge = {
   dateFin: Date;
   motif: string | null;
   statut: string;
+  /** Motif d'un refus (null sur une demande refusée avant que le motif existe). */
+  motifRefus?: string | null;
   /** État de signature — seulement pour une demande APPROUVÉE (seule à se signer). */
   signature: EtatSignature | null;
 };
@@ -162,6 +164,7 @@ function SectionAbsences({
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium leading-snug">{l.type}</p>
                     <p className="text-xs text-muted-foreground">{jours(l.nbJours)}{l.motif ? ` · ${l.motif}` : ""}</p>
+                    {l.statut === "REFUSE" && <p className="text-xs text-muted-foreground">Motif du refus : {l.motifRefus ?? "—"}</p>}
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${b.classe}`}>{b.label}</span>
                 </div>

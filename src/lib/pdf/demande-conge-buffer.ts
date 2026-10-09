@@ -24,7 +24,7 @@ export async function genererDemandeCongePdf(
 ): Promise<{ buffer: Buffer; nomFichier: string; employeeId: string } | null> {
   const demande = await prisma.leaveRequest.findUnique({
     where: { id: demandeId },
-    include: { employee: true, approuvePar: true, remplacant: true },
+    include: { employee: true, remplacant: true },
   });
   if (!demande) return null;
 
@@ -48,7 +48,6 @@ export async function genererDemandeCongePdf(
     DemandeCongeDocument({
       employee: demande.employee,
       demande,
-      approuvePar: demande.approuvePar,
       remplacant: demande.remplacant,
       solde,
       signatureSalarie,

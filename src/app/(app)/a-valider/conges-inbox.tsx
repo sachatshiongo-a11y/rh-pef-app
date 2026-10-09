@@ -12,6 +12,7 @@ import {
 } from "../conges/actions";
 import { Avatar } from "@/components/avatar";
 import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
+import { DialogueRefus } from "@/components/dialogue-refus";
 
 export type CongeRow = {
   id: string;
@@ -31,6 +32,8 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [note, setNote] = useState<string | null>(null);
+  // Refus : le MOTIF est obligatoire ; un seul pour toute la sélection en lot.
+  const [refus, setRefus] = useState<{ ids: string[]; erreur: string | null } | null>(null);
 
   function toggle(id: string) {
     setSelection((s) => {
@@ -48,6 +51,27 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
       setSelection(new Set());
       // Rapport de fin : l'échec d'une demande ne bloque pas les autres, mais il est NOMMÉ.
       if (r.echecs.length > 0) setNote(`${r.traitees} traitée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}`);
+    });
+  }
+  function confirmerRefus(motif: string) {
+    if (!refus) return;
+    const { ids } = refus;
+    setNote(null);
+    startTransition(async () => {
+      try {
+        if (ids.length === 1) {
+          const r = await refuserConge(ids[0], motif);
+          if (r.erreur) { setRefus({ ids, erreur: r.erreur }); return; }
+        } else {
+          const r = await refuserCongesEnLot(ids, motif);
+          if (r.traitees === 0 && r.echecs.length > 0) { setRefus({ ids, erreur: r.echecs.join(" · ") }); return; }
+          if (r.echecs.length > 0) setNote(`${r.traitees} traitée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}`);
+        }
+        setSelection(new Set());
+        setRefus(null);
+      } catch (e) {
+        setRefus({ ids, erreur: e instanceof Error && e.message ? e.message : "Le refus a échoué. Réessayez." });
+      }
     });
   }
   function individuel(fn: (id: string) => Promise<unknown>, id: string) {
@@ -84,11 +108,19 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium">{selection.size} sélectionné(s) :</span>
               <BoutonApprouver onClick={() => bulk(approuverCongesEnLot)} disabled={isPending} />
-              <BoutonRefuser onClick={() => bulk(refuserCongesEnLot)} disabled={isPending} />
+              <BoutonRefuser onClick={() => setRefus({ ids: [...selection], erreur: null })} disabled={isPending} />
               {isPending && <span className="text-xs text-muted-foreground">Traitement…</span>}
             </div>
           )}
         </div>
+      )}
+
+      {refus && (
+        <DialogueRefus
+          titre={refus.ids.length === 1 ? "Refuser la demande de congé" : `Refuser ${refus.ids.length} demandes de congé`}
+          consigne={refus.ids.length === 1 ? `Demande de ${rows.find((r) => r.id === refus.ids[0])?.nom ?? "ce salarié"}.` : `Un même motif sera enregistré pour les ${refus.ids.length} demandes cochées.`}
+          enCours={isPending} erreur={refus.erreur} onConfirmer={confirmerRefus} onAnnuler={() => setRefus(null)}
+        />
       )}
 
       <div className="space-y-2">
@@ -119,7 +151,7 @@ export function CongesInbox({ rows, peutValider }: { rows: CongeRow[]; peutValid
                 {peutValider && (
                   <div className="flex items-center gap-2">
                     <BoutonApprouver onClick={() => individuel(approuverConge, d.id)} disabled={isPending} />
-                    <BoutonRefuser onClick={() => individuel(refuserConge, d.id)} disabled={isPending} />
+                    <BoutonRefuser onClick={() => setRefus({ ids: [d.id], erreur: null })} disabled={isPending} />
                     <button
                       onClick={() => {
                         if (confirm("Supprimer cette demande de la liste ? (tracé au journal d'audit)"))

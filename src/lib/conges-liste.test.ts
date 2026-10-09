@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   ETATS, clauseConges, clausePeriode, clauseSection, etatActif, filtreActif, hrefConges, libelleJours, libellePeriode, lireFiltresConges, lireJourParametre,
-  sectionDe, triSection, bornesDuMois,
+  sectionDe, triSection, bornesDuMois, verifierMotifRefus,
 } from "./conges-liste";
 
 const J = new Date(Date.UTC(2026, 9, 9)); // « aujourd'hui » : le 9 octobre 2026 (jour civil de Kinshasa)
@@ -126,5 +126,16 @@ describe("libellés", () => {
   it("jours : virgule décimale", () => {
     expect(libelleJours(98)).toBe("98 j");
     expect(libelleJours(0.5)).toBe("0,5 j");
+  });
+});
+
+describe("verifierMotifRefus", () => {
+  it("rogné ; vide, espaces, absent ou autre chose qu'un texte : refusé avec un message lisible", () => {
+    expect(verifierMotifRefus("  Effectif insuffisant ")).toEqual({ motif: "Effectif insuffisant" });
+    for (const v of ["", "   ", undefined, null, 12]) expect(verifierMotifRefus(v)).toEqual({ erreur: "Un motif est obligatoire pour refuser une demande de congé." });
+  });
+  it("500 caractères au plus", () => {
+    expect(verifierMotifRefus("x".repeat(500))).toEqual({ motif: "x".repeat(500) });
+    expect(verifierMotifRefus("x".repeat(501))).toEqual({ erreur: "Le motif du refus est trop long (501 caractères, 500 au plus)." });
   });
 });

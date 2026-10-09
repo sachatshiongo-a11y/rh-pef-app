@@ -102,6 +102,7 @@ export default async function CongesPage({ searchParams }: { searchParams: Promi
     nbJours: Number(d.nbJours),
     statut: d.statut,
     approuveParNom: d.approuvePar?.nom ?? null,
+    motifRefus: d.statut === "REFUSE" ? d.motifRefus : null,
     signature: d.statut === "APPROUVE" ? etatSignature(sigConges.get(d.id)) : null,
   });
 

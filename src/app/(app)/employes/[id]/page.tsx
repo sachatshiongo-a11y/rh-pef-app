@@ -415,7 +415,7 @@ export default async function FicheEmployePage({
       date: new Date(l.dateDebut),
       icone: "🏖",
       titre: `Congé ${l.type}`,
-      detail: `${l.statut.replace("_", " ").toLowerCase()} · ${Number(l.nbJours)} j`,
+      detail: `${l.statut.replace("_", " ").toLowerCase()} · ${Number(l.nbJours)} j${l.statut === "REFUSE" ? ` · motif : ${l.motifRefus ?? "—"}` : ""}`,
     })),
     ...payrollLines.map((l) => ({
       date: new Date(l.payrollRun.annee, l.payrollRun.mois - 1, 28),
@@ -724,6 +724,7 @@ export default async function FicheEmployePage({
             dateFin: new Date(l.dateFin),
             nbJours: Number(l.nbJours),
             statut: l.statut,
+            motifRefus: l.motifRefus,
           }))}
         />
       </Section>

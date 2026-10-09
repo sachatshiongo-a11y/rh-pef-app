@@ -9,6 +9,7 @@ import {
 import { faireSignerDocument } from "../signature-actions";
 import { BoutonApprouver, BoutonDanger, BoutonRefuser, CLASSES_DANGER } from "@/components/action-buttons";
 import { BulkBar, useBulkSelection } from "@/components/bulk-bar";
+import { DialogueRefus } from "@/components/dialogue-refus";
 import { BoutonSigner } from "@/components/bouton-signer";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { EmployeeName } from "@/components/employee-name";
@@ -70,6 +71,7 @@ export function ListeConges({
   const selection = useBulkSelection();
   const [enCours, demarrer] = useTransition();
   const [note, setNote] = useState<{ ok: boolean; texte: string } | null>(null);
+  const [refusEnLot, setRefusEnLot] = useState<{ erreur: string | null } | null>(null);
   // Le choix de l'utilisateur (ouvrir / replier « Passés ») ne vaut que tant que la valeur d'office n'a pas changé (nouveau filtre).
   const [choix, setChoix] = useState<{ base: boolean; ouvert: boolean } | null>(null);
   const passesOuvert = choix && choix.base === passesOuvertParDefaut ? choix.ouvert : passesOuvertParDefaut;
@@ -105,6 +107,25 @@ export function ListeConges({
     });
   }
 
+  // Refus en lot : UN motif (obligatoire) pour toute la sélection.
+  function refuserLot(motif: string) {
+    const cibles = enAttenteChoisies;
+    setNote(null);
+    demarrer(async () => {
+      try {
+        const r = await refuserCongesEnLot(cibles, motif);
+        if (r.traitees === 0 && r.echecs.length > 0) { setRefusEnLot({ erreur: r.echecs.join(" · ") }); return; } // motif refusé par le serveur : la fenêtre reste ouverte
+        selection.clear();
+        setRefusEnLot(null);
+        setNote(r.echecs.length > 0
+          ? { ok: false, texte: `${r.traitees} demande(s) refusée(s), ${r.echecs.length} échec(s) — ${r.echecs.join(" · ")}` }
+          : { ok: true, texte: `${r.traitees} demande(s) refusée(s).` });
+      } catch (e) {
+        setRefusEnLot({ erreur: e instanceof Error && e.message ? e.message : "Le refus groupé a échoué. Réessayez." });
+      }
+    });
+  }
+
   if (vide) return <EtatVide message={vide} />;
 
   return (
@@ -125,7 +146,7 @@ export function ListeConges({
               </BoutonApprouver>
               <BoutonRefuser
                 type="button" disabled={enCours}
-                onClick={() => lot(refuserCongesEnLot, enAttenteChoisies, "refusée(s)", `Refuser ${enAttenteChoisies.length} demande(s) de congé ? Les salariés concernés seront prévenus.`)}
+                onClick={() => setRefusEnLot({ erreur: null })}
               >
                 Refuser ({enAttenteChoisies.length})
               </BoutonRefuser>
@@ -164,13 +185,13 @@ export function ListeConges({
           <thead className="en-tete-collante-xl bg-muted text-left text-xs">
             <tr>
               <th className="w-9 px-3 py-2"><span className="sr-only">Sélection</span></th>
-              <th className="px-2 py-2 font-medium">Salarié</th>
-              <th className="px-2 py-2 font-medium">Type</th>
-              <th className="px-2 py-2 font-medium">Période</th>
-              <th className="px-2 py-2 text-right font-medium">Jours</th>
-              <th className="px-2 py-2 font-medium">Statut</th>
+              <th className="px-1.5 py-2 font-medium">Salarié</th>
+              <th className="px-1.5 py-2 font-medium">Type</th>
+              <th className="px-1.5 py-2 font-medium">Période</th>
+              <th className="px-1.5 py-2 text-right font-medium">Jours</th>
+              <th className="px-1.5 py-2 font-medium">Statut</th>
               <th className="w-12 px-1 py-2 text-center font-medium">Signé</th>
-              <th className="px-2 py-2 text-right font-medium">Actions</th>
+              <th className="px-1.5 py-2 text-right font-medium">Actions</th>
             </tr>
           </thead>
           {parMois
@@ -225,6 +246,15 @@ export function ListeConges({
               );
             })}
       </div>
+
+      {refusEnLot && (
+        <DialogueRefus
+          titre={`Refuser ${enAttenteChoisies.length} demande(s) de congé`}
+          consigne={`Un même motif sera enregistré pour les ${enAttenteChoisies.length} demandes cochées.`}
+          enCours={enCours} erreur={refusEnLot.erreur}
+          onConfirmer={refuserLot} onAnnuler={() => setRefusEnLot(null)}
+        />
+      )}
 
       {(parMois || passesOuvert) && pagination}
     </div>
@@ -303,7 +333,6 @@ function AvertissementBorne({ colSpan, tag }: { colSpan?: number; tag: "tr" | "p
 function Pastille({ l }: { l: LigneConge }) {
   return (
     <span
-      title={l.approuveParNom ? `${LIBELLE_STATUT_CONGE[l.statut]} par ${l.approuveParNom}` : undefined}
       className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_CONGE[l.statut] ?? ""}`}
     >
       {LIBELLE_STATUT_CONGE[l.statut] ?? l.statut}
@@ -324,21 +353,52 @@ function MarqueSignature({ l }: { l: LigneConge }) {
   return <span title="Pas encore signé" className="text-muted-foreground"><span aria-hidden>–</span><span className="sr-only">À signer</span></span>;
 }
 
+/** Qui a décidé, EN TOUTES LETTRES (approuvé ou refusé) — plus seulement en infobulle. */
+const parQui = (l: LigneConge) => (l.approuveParNom ? `par ${l.approuveParNom}` : null);
+/** Motif d'un refus ; « — » pour une demande refusée avant que le motif existe. */
+const motifDe = (l: LigneConge) => l.motifRefus ?? "—";
+
 const CASE_CLS = "size-4 shrink-0";
 const libelleCase = (l: LigneConge) => `Sélectionner la demande de ${l.nom} (${l.type})`;
 const jour = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const periode = (l: LigneConge, annee: number) => libellePeriode(jour(l.debut), jour(l.fin), annee);
 
-/** Les décisions d'une demande EN ATTENTE : les actions serveur d'avant, en formulaire. */
+/** Les décisions d'une demande EN ATTENTE : approuver (action serveur d'avant, en formulaire) ; refuser demande d'abord un MOTIF. */
 function Decisions({ l, ctx }: { l: LigneConge; ctx: Contexte }) {
   return (
     <>
       <form action={approuverCongeFormulaire.bind(null, l.id, ctx.filtresRetour)} className="inline">
         <BoutonApprouver type="submit" />
       </form>
-      <form action={refuserConge.bind(null, l.id)} className="inline">
-        <BoutonRefuser type="submit" />
-      </form>
+      <RefusUnitaire l={l} />
+    </>
+  );
+}
+
+function RefusUnitaire({ l }: { l: LigneConge }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enCours, demarrer] = useTransition();
+  function confirmer(motif: string) {
+    setErreur(null);
+    demarrer(async () => {
+      try {
+        const r = await refuserConge(l.id, motif);
+        if (r.erreur) setErreur(r.erreur); else setOuvert(false);
+      } catch (e) {
+        setErreur(e instanceof Error && e.message ? e.message : "Le refus a échoué. Réessayez.");
+      }
+    });
+  }
+  return (
+    <>
+      <BoutonRefuser type="button" onClick={() => { setErreur(null); setOuvert(true); }}>Refuser</BoutonRefuser>
+      {ouvert && (
+        <DialogueRefus
+          titre="Refuser la demande de congé" consigne={`Demande de ${l.nom} (${l.type}).`}
+          enCours={enCours} erreur={erreur} onConfirmer={confirmer} onAnnuler={() => setOuvert(false)}
+        />
+      )}
     </>
   );
 }
@@ -381,17 +441,21 @@ function PdfEtSignature({ l, ctx }: { l: LigneConge; ctx: Contexte }) {
 function LigneTableau({ l, ctx }: { l: LigneConge; ctx: Contexte }) {
   const cochee = ctx.selection.sel.has(l.id);
   return (
+    <>
     <tr data-conge={l.id} className={`border-t hover:bg-accent/40 ${cochee ? "bg-primary/5" : ""}`}>
       <td className={`w-9 border-l-2 px-3 py-1.5 ${BORDURE_CONGE[l.statut] ?? ""}`}>
         <input type="checkbox" checked={cochee} onChange={() => ctx.selection.toggle(l.id)} aria-label={libelleCase(l)} className={CASE_CLS} />
       </td>
-      <td className="whitespace-nowrap px-2 py-1.5"><EmployeeName id={l.employeeId} nom={l.nom} photoUrl={l.photoUrl} taille={28} /></td>
-      <td className="max-w-[8.5rem] truncate px-2 py-1.5" title={l.type}>{l.type}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums">{periode(l, ctx.anneeCourante)}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums">{libelleJours(l.nbJours)}</td>
-      <td className="px-2 py-1.5"><Pastille l={l} /></td>
+      <td className="whitespace-nowrap px-1.5 py-1.5"><EmployeeName id={l.employeeId} nom={l.nom} photoUrl={l.photoUrl} taille={28} /></td>
+      <td className="max-w-[6.5rem] truncate px-1.5 min-[1440px]:max-w-[10rem] py-1.5" title={l.type}>{l.type}</td>
+      <td className="whitespace-nowrap px-1.5 py-1.5 tabular-nums">{periode(l, ctx.anneeCourante)}</td>
+      <td className="whitespace-nowrap px-1.5 py-1.5 text-right tabular-nums">{libelleJours(l.nbJours)}</td>
+      <td className="px-1.5 py-1.5">
+        <Pastille l={l} />
+        {parQui(l) && <span className="block max-w-[6.5rem] min-[1440px]:max-w-[12rem] truncate text-[11px] leading-tight text-muted-foreground" title={`${LIBELLE_STATUT_CONGE[l.statut]} ${parQui(l)}`}>{parQui(l)}</span>}
+      </td>
       <td className="px-1 py-1.5 text-center"><MarqueSignature l={l} /></td>
-      <td className="px-2 py-1.5">
+      <td className="px-1.5 py-1.5">
         <div className="flex items-center justify-end gap-2">
           {ctx.peutApprouver && l.statut === "EN_ATTENTE" && <Decisions l={l} ctx={ctx} />}
           <PdfEtSignature l={l} ctx={ctx} />
@@ -399,6 +463,13 @@ function LigneTableau({ l, ctx }: { l: LigneConge; ctx: Contexte }) {
         </div>
       </td>
     </tr>
+    {l.statut === "REFUSE" && (
+      <tr data-motif-refus={l.id} className={`${cochee ? "bg-primary/5" : ""}`}>
+        <td className={`border-l-2 ${BORDURE_CONGE.REFUSE}`} />
+        <td colSpan={NB_COLONNES - 1} className="px-2 pb-1.5 pl-[52px] text-xs text-muted-foreground"><span className="font-medium text-foreground">Motif du refus :</span> {motifDe(l)}</td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -418,12 +489,14 @@ function CarteConge({ l, ctx }: { l: LigneConge; ctx: Contexte }) {
       <div className="mt-1 flex items-center justify-between gap-2 pl-[26px]">
         <p className="min-w-0 text-xs text-muted-foreground">
           {l.type} · <span className="whitespace-nowrap tabular-nums">{periode(l, ctx.anneeCourante)}</span> · <span className="whitespace-nowrap">{libelleJours(l.nbJours)}</span>
+          {parQui(l) && <> · <span className="whitespace-nowrap">{parQui(l)}</span></>}
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <PdfEtSignature l={l} ctx={ctx} />
           {ctx.peutApprouver && !decision && <Supprimer l={l} />}
         </div>
       </div>
+      {l.statut === "REFUSE" && <p className="mt-1 pl-[26px] text-xs text-muted-foreground"><span className="font-medium text-foreground">Motif du refus :</span> {motifDe(l)}</p>}
       {decision && (
         <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-[26px]">
           <Decisions l={l} ctx={ctx} />

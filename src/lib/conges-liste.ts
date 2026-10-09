@@ -15,6 +15,17 @@ export const LIBELLE_STATUT_CONGE: Record<StatutConge, string> = { APPROUVE: "Ap
 export const JOURS_A_VENIR = 30;
 /** Un lot de PDF (ZIP) : au plus ce nombre de demandes — même borne que les fiches de poste. */
 export const MAX_DEMANDES_PAR_LOT = 50;
+/** Longueur maximale d'un motif de refus. */
+export const MAX_MOTIF_REFUS = 500;
+
+/** Le motif d'un refus (décision Direction 2026-10-09 : OBLIGATOIRE, 500 caractères au plus). Rogné ; vide ou trop long : un message lisible, rien d'écrit. */
+export function verifierMotifRefus(brut: unknown): { motif: string } | { erreur: string } {
+  const motif = typeof brut === "string" ? brut.trim() : "";
+  if (motif === "") return { erreur: "Un motif est obligatoire pour refuser une demande de congé." };
+  if (motif.length > MAX_MOTIF_REFUS) return { erreur: `Le motif du refus est trop long (${motif.length} caractères, ${MAX_MOTIF_REFUS} au plus).` };
+  return { motif };
+}
+
 /** Suppression groupée : au plus ce nombre de demandes par lot (refusé en bloc au-delà, côté serveur comme à l'écran). */
 export const MAX_SUPPRESSIONS_PAR_LOT = 200;
 /** Sections « À traiter », « En cours », « À venir » : lues en entier, jusqu'à cette borne (au-delà, l'écran le dit). */
@@ -41,7 +52,10 @@ export type LigneConge = {
   fin: string;
   nbJours: number;
   statut: StatutConge;
+  /** Qui a décidé (approuvé OU refusé) : affiché en toutes lettres sur la ligne. */
   approuveParNom: string | null;
+  /** Motif d'un refus ; null sur une demande refusée avant que le motif existe (affichée « — »). */
+  motifRefus: string | null;
   /** État de la signature d'une demande APPROUVÉE (null : rien à signer — en attente ou refusée). */
   signature: { etat: "A_SIGNER" | "SIGNE" | "A_RESIGNER"; signeLeTexte: string | null } | null;
 };

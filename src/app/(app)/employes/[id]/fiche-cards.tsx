@@ -42,6 +42,8 @@ export type AbsenceItem = {
   dateFin: Date;
   nbJours: number;
   statut: string;
+  /** Motif d'un refus ; null sur une demande refusée avant que le motif existe (« — »). */
+  motifRefus?: string | null;
 };
 
 const LIBELLE_STATUT: Record<string, { texte: string; classe: string }> = {
@@ -74,6 +76,7 @@ export function AbsencesCard({ absences }: { absences: AbsenceItem[] }) {
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${st.classe}`}>{st.texte}</span>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">{a.nbJours} jour(s)</p>
+              {a.statut === "REFUSE" && <p className="mt-0.5 text-xs text-muted-foreground"><span className="font-medium text-foreground">Motif du refus :</span> {a.motifRefus ?? "—"}</p>}
             </div>
             <div className="flex items-center gap-2 pr-3">
               <ChipDate date={a.dateDebut} />
