@@ -147,12 +147,14 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
   const selDejaDemandees = selIds.filter((id) => toutes.some((f) => f.id === id && f.paiementDemande)).length;
   // Hors Direction, « Marquer payée » DEMANDE le paiement : les mots le disent.
   const libelleMarquer = estDirection ? "Marquer payée" : "Demander le paiement";
+  // « Sa devise » n'a de sens que si la sélection compte des factures en francs : sinon, en dollars (relecture).
+  const lotDeviseEffective: DeviseLot = lotDevise === "SA_DEVISE" && !toutes.some((f) => selNonReglees.includes(f.id) && f.devise === "CDF") ? "USD" : lotDevise;
   const libelleConfirmer = estDirection ? "Confirmer" : "Envoyer la demande";
 
   const confirmerLot = () => {
     setErreur(null); setInfo(null);
     startTransition(async () => {
-      const r = await marquerPayeesEnLot(selNonReglees, lotDate, lotDevise);
+      const r = await marquerPayeesEnLot(selNonReglees, lotDate, lotDeviseEffective);
       if (estErreur(r)) { setErreur(r.erreur); return; }
       if (r.demandePaiement !== undefined) setInfo(`Paiement de ${r.demandePaiement} facture${r.demandePaiement > 1 ? "s" : ""} demandé à la Direction (tout ou rien) : rien n'est payé avant sa validation.`);
       else if (r.reglees < r.demandees) setInfo(messageEcartLot(r.reglees, r.demandees));
@@ -267,10 +269,10 @@ export function FacturesUI({ groupes, annees, moisPlats, sansFournisseur = false
               const toutUSD = !devises.has("CDF");
               return (
                 <>
-                  <BasculeDevise petit devise={lotDevise} onDevise={setLotDevise} taux={taux} saDevise={!toutUSD} deviseFacture={devises.size === 1 ? [...devises][0] : null} />
+                  <BasculeDevise petit devise={lotDeviseEffective} onDevise={setLotDevise} taux={taux} saDevise={!toutUSD} deviseFacture={devises.size === 1 ? [...devises][0] : null} />
                   {toutUSD
-                    ? lotDevise === "CDF" && <TotalLotFrancs restes={lot.map((f) => f.reste)} taux={taux} demande={!estDirection} />
-                    : <TotalLot factures={lot.map((f) => ({ devise: f.devise ?? "USD", reste: f.reste }))} verse={lotDevise} taux={taux} demande={!estDirection} />}
+                    ? lotDeviseEffective === "CDF" && <TotalLotFrancs restes={lot.map((f) => f.reste)} taux={taux} demande={!estDirection} />
+                    : <TotalLot factures={lot.map((f) => ({ devise: f.devise ?? "USD", reste: f.reste }))} verse={lotDeviseEffective} taux={taux} demande={!estDirection} />}
                 </>
               );
             })()}

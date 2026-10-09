@@ -43,16 +43,11 @@ export type ParamsReglement = {
 };
 
 /**
- * Conversion d'un règlement en FRANCS, au taux des Paramètres LU MAINTENANT — la règle du paiement
- * direct, reprise telle quelle à la validation d'une demande (décision de la Direction, 2026-10-01 :
- * le taux appliqué est celui du jour où le paiement est enregistré, pas celui du jour de la demande).
+ * Taux des Paramètres LU MAINTENANT — la conversion d'un règlement se fait au taux du jour du
+ * paiement, repris tel quel à la validation d'une demande (décision de la Direction, 2026-10-01 :
+ * celui du jour où le paiement est enregistré, pas celui du jour de la demande). Absent ou nul :
+ * refus lisible (jamais un taux supposé).
  */
-export async function convertirFrancs(client: Tx | typeof prisma, montantCDF: number): Promise<{ montant: number; taux: number }> {
-  const taux = await lireTauxReglement(client);
-  return { montant: francsEnDollars(montantCDF, taux), taux };
-}
-
-/** Taux des Paramètres LU MAINTENANT ; absent ou nul : refus lisible (jamais un taux supposé). */
 export async function lireTauxReglement(client: Tx | typeof prisma): Promise<number> {
   const config = await client.config.findUnique({ where: { id: "singleton" } });
   const taux = Number(config?.tauxChangeCDF ?? 0);
@@ -100,6 +95,8 @@ export async function reglerFactureTx(tx: Tx, userId: string, id: string, p: Par
   const dev = m.devise;
   const verse: Verse = p.verse ?? { devise: dev, montant: m.reste };
   if (!(verse.montant > 0)) throw new Error("Le montant doit être supérieur à 0.");
+  // Au centime près : un versement à 3 décimales serait arrondi autrement sur le paiement et sur la facture.
+  if (Math.abs(verse.montant * 100 - Math.round(verse.montant * 100)) > 1e-6) throw new Error("Le montant se saisit au centime près (deux décimales au plus).");
   const taux = verse.devise !== dev ? await lireTauxReglement(tx) : null;
   const imp = imputation(dev, verse, taux, m.reste)!; // taux lu (ou refusé) ci-dessus quand il faut convertir
   if (imp.depasse) throw new Error(`Le ${type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${montantTexte(imp.impute, dev)}) dépasse le reste à payer (${montantTexte(m.reste, dev)}).`);
@@ -212,13 +209,13 @@ export async function reglerLotTx(tx: Tx, userId: string, ids: string[], dateStr
     await tx.$executeRaw`
       UPDATE "stock"."FactureFournisseur"
       SET "montantRegleUSD" = "montantUSD", "resteAPayerUSD" = 0, "statut" = 'REGLEE', "datePaiement" = ${date}
-      WHERE "id" IN (${Prisma.join(idsUSD)})`;
+      WHERE "id" IN (${Prisma.join(idsUSD)}) AND "devise" = 'USD'`; // défense en profondeur : jamais une facture en francs
   }
   if (idsCDF.length > 0) {
     await tx.$executeRaw`
       UPDATE "stock"."FactureFournisseur"
       SET "montantRegleCDF" = "montantCDF", "resteAPayerCDF" = 0, "statut" = 'REGLEE', "datePaiement" = ${date}
-      WHERE "id" IN (${Prisma.join(idsCDF)})`;
+      WHERE "id" IN (${Prisma.join(idsCDF)}) AND "devise" = 'CDF'`;
   }
   // Journal : texte d'avant pour un lot de factures en dollars ; sinon, les totaux par devise.
   const toutUSD = idsCDF.length === 0;

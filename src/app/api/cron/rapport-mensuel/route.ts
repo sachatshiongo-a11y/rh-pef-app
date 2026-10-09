@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formaterMontantFacture, totalFactures } from "@/lib/facture-devise";
+import { libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { jetonCronValide } from "@/lib/jeton-cron";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
@@ -83,14 +83,15 @@ export async function GET(request: NextRequest) {
   const facDevises = totalFactures(factures, "montant");
   const regleDevises = totalFactures(factures, "regle");
   const totalFacturesUSD = facDevises.usd;
-  const fc = (n: number) => (n > 0 ? ` + ${formaterMontantFacture(n, "CDF")}` : "");
+  // « 0,00 $ + 280 000 FC » n'a pas de sens : la part nulle disparaît (libelleTotal), dollars seuls inchangés.
+  const lib = (t: typeof facDevises) => libelleTotal(t, undefined, usd);
   const enAttente = factures.filter((f) => f.statut !== "REGLEE").length;
   const blocAchats = [
     `🛒 ACHATS — ${labelMois}`,
     "",
     `• Liste d'achat (sans facture) : ${usd(totalListe)} (${achatsListe.length} ligne(s) valorisée(s))`,
-    `• Factures fournisseurs : ${usd(totalFacturesUSD)}${fc(facDevises.cdf)} sur ${factures.length} facture(s), réglé ${usd(regleDevises.usd)}${fc(regleDevises.cdf)}${enAttente > 0 ? ` — ${enAttente} en attente de règlement` : ""}`,
-    `• Total achats du mois : ${usd(totalListe + totalFacturesUSD)}${fc(facDevises.cdf)}`,
+    `• Factures fournisseurs : ${lib(facDevises)} sur ${factures.length} facture(s), réglé ${lib(regleDevises)}${enAttente > 0 ? ` — ${enAttente} en attente de règlement` : ""}`,
+    `• Total achats du mois : ${lib({ ...facDevises, usd: totalListe + totalFacturesUSD })}`,
   ].join("\n");
 
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://gestion.patesenfolie.cd";

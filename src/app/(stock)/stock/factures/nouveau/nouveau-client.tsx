@@ -106,8 +106,12 @@ export function NouvelleFactureForm({ articles, fournisseurs, bons, bcInitial, e
         // Lignes détaillées lues sur la facture (article rapproché du catalogue + quantité + prix) ;
         // à défaut, une ligne unique avec le montant total.
         // Document libellé en francs : la facture passe en francs, montants tels que lus (jamais convertis).
-        setDevise(r.devise);
-        setNoteDevise(r.devise === "CDF" ? "Document lu en francs : facture en francs (FC), montants tels que lus — à vérifier." : null);
+        // La devise ne suit le document QUE si ses montants remplacent les lignes : un PDF illisible
+        // (rien d'extrait) ne doit jamais faire passer en dollars des prix saisis en francs (relecture).
+        if (r.lignes.length > 0 || r.montant != null) {
+          setDevise(r.devise);
+          setNoteDevise(r.devise === "CDF" ? "Document lu en francs : facture en francs (FC), montants tels que lus — à vérifier." : null);
+        }
         if (r.lignes.length > 0) {
           setLignes(r.lignes.map((l) => ({ articleId: l.articleId ?? "", designation: l.designation, unite: l.unite ?? "", quantite: canoniqueVersSaisie(l.quantite), prix: canoniqueVersSaisie(l.prixUnitaireUSD) })));
         } else if (r.montant != null) {

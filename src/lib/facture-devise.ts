@@ -43,10 +43,16 @@ export const resteFacture = (f: MontantsFactureBrut): number => montantsFacture(
 
 /** Un montant de facture formaté dans sa devise : « 1 234,50 $ » ; « 2 800 000 FC » (centimes de franc montrés s'il y en a). */
 export function formaterMontantFacture(n: number, devise: DeviseFacture): string {
-  if (devise === "USD") return formaterUSD(n);
-  const a = Math.abs(n);
-  const entier = Math.abs(a - Math.round(a)) < 0.005;
-  return `${normaliserEspaces(new Intl.NumberFormat("fr-FR", { minimumFractionDigits: entier ? 0 : 2, maximumFractionDigits: entier ? 0 : 2 }).format(entier ? Math.round(a) : a))} FC`;
+  // Négatif : entre parenthèses, jamais « − » (convention de src/lib/montant.ts) — jamais le signe perdu.
+  const negatif = n <= -0.005;
+  let texte: string;
+  if (devise === "USD") texte = formaterUSD(n);
+  else {
+    const a = Math.abs(n);
+    const entier = Math.abs(a - Math.round(a)) < 0.005;
+    texte = `${normaliserEspaces(new Intl.NumberFormat("fr-FR", { minimumFractionDigits: entier ? 0 : 2, maximumFractionDigits: entier ? 0 : 2 }).format(entier ? Math.round(a) : a))} FC`;
+  }
+  return negatif ? `(${texte})` : texte;
 }
 
 /** Suffixe court d'une devise (en-têtes de colonnes) : « $ » ou « FC ». */

@@ -149,6 +149,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
       const m = montantsFacture(aRegler[0]);
       const verse = s.reglement.montantCDF !== null ? { devise: "CDF" as const, montant: Number(s.reglement.montantCDF) } : { devise: "USD" as const, montant: Number(s.reglement.montantUSD) };
       if (!(verse.montant > 0)) throw new Error("Le montant doit être supérieur à 0.");
+      if (Math.abs(verse.montant * 100 - Math.round(verse.montant * 100)) > 1e-6) throw new Error("Le montant se saisit au centime près (deux décimales au plus).");
       const imp = imputation(m.devise, verse, verse.devise !== m.devise ? await lireTauxReglement(tx) : null, m.reste)!;
       if (imp.depasse) throw new Error(`Le ${s.reglement.type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${montantTexte(imp.impute, m.devise)}) dépasse le reste à payer (${montantTexte(m.reste, m.devise)}).`);
     }

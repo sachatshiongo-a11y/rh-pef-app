@@ -22,6 +22,9 @@ describe("montants d'une facture dans sa devise", () => {
     expect(formaterMontantFacture(1234.5, "USD")).toBe("1 234,50 $");
     expect(formaterMontantFacture(2800000, "CDF")).toBe("2 800 000 FC");
     expect(formaterMontantFacture(17502.5, "CDF")).toBe("17 502,50 FC");
+    // Négatif : entre parenthèses, le signe n'est jamais perdu (relecture).
+    expect(formaterMontantFacture(-5, "CDF")).toBe("(5 FC)");
+    expect(formaterMontantFacture(-5, "USD")).toBe("(5,00 $)");
   });
 });
 
@@ -80,6 +83,14 @@ describe("imputation d'un versement (LA règle des règlements)", () => {
     expect(imputation("CDF", { devise: "USD", montant: 35.72 }, 2800, 100000)).toEqual({ impute: 100016, depasse: true, converti: true });
     // Un centime de moins : paiement partiel (99 960 FC imputés, 40 FC restent).
     expect(imputation("CDF", { devise: "USD", montant: 35.7 }, 2800, 100000)).toEqual({ impute: 99960, depasse: false, converti: true });
+  });
+  it("à un taux non entier, les dollars PROPOSÉS soldent toujours (relecture : 2 999,99, reste 15 FC)", () => {
+    expect(dollarsPourReste(15, 2999.99)).toBe(0.01);
+    expect(imputation("CDF", { devise: "USD", montant: 0.01 }, 2999.99, 15)).toEqual({ impute: 15, depasse: false, converti: true });
+    for (const taux of [2800, 2999.99, 2312.5, 2650.75]) for (let reste = 1; reste < 20000; reste += 7) {
+      const imp = imputation("CDF", { devise: "USD", montant: dollarsPourReste(reste, taux) }, taux, reste);
+      if (dollarsPourReste(reste, taux) > 0) expect(imp, `${taux} / ${reste}`).toEqual({ impute: reste, depasse: false, converti: true });
+    }
   });
   it("taux absent ou nul alors qu'il faut convertir : null (jamais un taux supposé)", () => {
     expect(imputation("CDF", { devise: "USD", montant: 10 }, null, 100000)).toBeNull();

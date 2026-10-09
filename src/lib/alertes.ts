@@ -1,6 +1,6 @@
 import "server-only";
 
-import { formaterMontantFacture, totalFactures } from "@/lib/facture-devise";
+import { libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
@@ -178,13 +178,14 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   if (facturesDues.length > 0) {
     const echues = facturesDues.filter((f) => f.statut === "ECHUE_NON_REGLEE").length;
     const parDevise = totalFactures(facturesDues, "reste");
-    const total = parDevise.usd;
-    const fc = parDevise.cdf > 0 ? ` + ${formaterMontantFacture(parDevise.cdf, "CDF")}` : "";
+    // Dollars seuls : le texte d'avant ; avec des francs, « 120,00 $ + 280 000 FC » ou « 280 000 FC » seul.
+    const fmtUSD = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+    const montant = libelleTotal(parDevise, undefined, fmtUSD);
     alertes.push({
       type: "FACTURES",
       espace: "STOCK",
       niveau: echues > 0 ? "urgent" : "warning",
-      message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $${fc}${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
+      message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${montant}${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
       lien: "/stock/factures?statut=du",
     });
   }

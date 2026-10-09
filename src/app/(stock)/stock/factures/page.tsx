@@ -100,6 +100,9 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         GROUP BY 1
         ORDER BY solde DESC, "soldeCDF" DESC, total DESC, "totalCDF" DESC`
     : [];
+  // Tri sur le solde dû TOUTES devises : dollars + francs ÷ taux du jour (sinon 5 000 000 FC passeraient
+  // après 0,01 $ — relecture). Sans taux, l'ordre SQL (dollars d'abord) est gardé.
+  if (tauxCDF > 0) parFournisseur.sort((a, b) => (b.solde + b.soldeCDF / tauxCDF) - (a.solde + a.soldeCDF / tauxCDF) || (b.total + b.totalCDF / tauxCDF) - (a.total + a.totalCDF / tauxCDF));
 
   // Échéancier de trésorerie : les factures dues, groupées par semaine d'échéance, avec cumul.
   type EchLigne = { id: string; nom: string; fournisseurId: string | null; numero: string | null; echeance: string | null; reste: number; devise: DeviseFacture };

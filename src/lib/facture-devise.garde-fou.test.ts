@@ -21,15 +21,25 @@ import path from "node:path";
  *     filtrer aussi `resteAPayerCDF` (sinon les factures en francs disparaissent du filtre).
  *  3. SQL BRUT sur "FactureFournisseur" qui lit "montantUSD" / "resteAPayerUSD" / "montantRegleUSD" :
  *     le fichier doit lire aussi la colonne en francs ("…CDF").
- *  4. LECTURE DIRECTE d'un champ (`x.resteAPayerUSD`, `x.montantRegleUSD`) : le fichier doit aussi
- *     tenir compte de la devise (`devise`) ou passer par la porte (`montantsFacture`, `resteFacture`).
+ *  4. LECTURE DIRECTE d'un champ (`x.resteAPayerUSD`, `x.montantRegleUSD`) : le fichier doit passer
+ *     par la porte (`montantsFacture`, `resteFacture`, `totalFactures`, `deviseFacture`) ou lire la
+ *     devise de l'objet (`x.devise`) — le simple MOT « devise » ne suffit pas.
+ *  5. SÉLECTION Prisma du prix ou du total d'une LIGNE de facture (`ligneFacture.find…`,
+ *     `lignesFacture: { select`, `lignes: { select` dans un appel `factureFournisseur.…`) : doit lire
+ *     aussi `prixUnitaireCDF` / `totalLigneCDF`.
+ *  6. SÉLECTION Prisma du montant d'un PAIEMENT (`paiement.…`, `paiements: { select`) : doit lire
+ *     aussi `devise` ou `montantCDF` (le montant en dollars d'un paiement sur facture en francs est NUL).
  *
- * Ce qu'il ne couvre PAS : un `include: { factures: true }` ou un `findMany` sans `select` (tous les
- * champs reviennent, rien à vérifier dans le texte) suivi d'une lecture `Number(f.montantUSD)` — la
- * détection 4 ne vise que le réglé et le reste (`montantUSD` est aussi un champ des mouvements, des
- * paiements, des achats de légumes : trop ambigu en lecture directe). Et il prouve que la devise est
- * LUE, pas qu'elle est bien utilisée : ce sont les tests d'intégration (factures-francs.integration
- * .test.ts) qui le vérifient.
+ * Relecture du 2026-10-09 : la détection SQL juge chaque gabarit À PART (un gabarit qui lit les francs
+ * ne couvre pas son voisin) ; la détection 4 n'accepte plus le mot « devise » n'importe où.
+ *
+ * Ce qu'il ne couvre PAS : un `include: { factures: true }`, `include: { lignes: true }` ou un
+ * `findMany` sans `select` (tous les champs reviennent, rien à vérifier dans le texte) suivi d'une
+ * lecture `Number(f.montantUSD)` / `Number(l.totalLigneUSD)` — `montantUSD`, `prixUnitaireUSD` et
+ * `totalLigneUSD` sont aussi des champs des mouvements, des paiements, des bons de commande (en
+ * dollars) : trop ambigus en lecture directe. Ni un `orderBy` / `where` sur `montantUSD` d'une facture.
+ * Et il prouve que la devise est LUE, pas qu'elle est bien utilisée : ce sont les tests d'intégration
+ * (factures-francs.integration.test.ts) qui le vérifient.
  */
 
 const SRC = path.join(__dirname, "..");
@@ -99,6 +109,31 @@ export function estSelectionFacture(avant: string): boolean {
   return prof === 0;
 }
 
+/** Sélection du prix/total d'une LIGNE DE FACTURE ? */
+export function estSelectionLigneFacture(avant: string): boolean {
+  if (/\blignesFacture:\s*\{\s*select:\s*$/.test(avant)) return true;
+  const appels = [...avant.matchAll(/\b(\w+)\.(?:findMany|findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|aggregate|groupBy)\(\{/g)];
+  const dernier = appels.at(-1);
+  if (!dernier) return false;
+  if (dernier[1] === "factureFournisseur" && /\blignes:\s*\{\s*select:\s*$/.test(avant)) return true;
+  if (dernier[1] !== "ligneFacture" || !/\bselect:\s*$/.test(avant)) return false;
+  let prof = 0;
+  for (const c of avant.slice(dernier.index! + dernier[0].length)) { if (c === "{") prof++; else if (c === "}") prof--; }
+  return prof === 0;
+}
+
+/** Sélection du montant d'un PAIEMENT ? */
+export function estSelectionPaiement(avant: string): boolean {
+  if (/\bpaiements:\s*\{\s*select:\s*$/.test(avant)) return true;
+  if (!/\b(?:select|_sum):\s*$/.test(avant)) return false;
+  const appels = [...avant.matchAll(/\b(\w+)\.(?:findMany|findUnique|findUniqueOrThrow|findFirst|findFirstOrThrow|aggregate|groupBy)\(\{/g)];
+  const dernier = appels.at(-1);
+  if (!dernier || dernier[1] !== "paiement") return false;
+  let prof = 0;
+  for (const c of avant.slice(dernier.index! + dernier[0].length)) { if (c === "{") prof++; else if (c === "}") prof--; }
+  return prof === 0;
+}
+
 const CDF_DE: Record<string, string> = { montantUSD: "montantCDF", montantRegleUSD: "montantRegleCDF", resteAPayerUSD: "resteAPayerCDF" };
 
 /** Fautes d'un source (quatre détections réunies). */
@@ -119,12 +154,28 @@ export function fautesDevise(src: string): string[] {
     if (/\bresteAPayerCDF\b/.test(tableauEnglobant(src, m.index!))) continue;
     fautes.push(`filtre : ${objet.replace(/\s+/g, " ").slice(0, 120)}`);
   }
-  // 3. SQL brut : les gabarits (`…`) qui visent "FactureFournisseur" — pas une chaîne quelconque
-  //    (un nom de champ de formulaire « montantRegleUSD » n'est pas du SQL).
-  const sql = [...src.matchAll(/`[^`]*`/g)].map((m) => m[0]).filter((t) => /"FactureFournisseur"/.test(t)).join("\n");
-  if (/"(?:montantUSD|resteAPayerUSD|montantRegleUSD)"/.test(sql) && !/"(?:montantCDF|resteAPayerCDF|montantRegleCDF)"/.test(sql)) fautes.push("SQL brut : montants d'une facture lus sans les colonnes en francs");
+  // 3. SQL brut : CHAQUE gabarit (`…`) qui vise "FactureFournisseur" ou "Paiement", jugé à part —
+  //    pas une chaîne quelconque (un nom de champ de formulaire « montantRegleUSD » n'est pas du SQL).
+  for (const m of src.matchAll(/`[^`]*`/g)) {
+    const t = m[0];
+    if (!/"(?:FactureFournisseur|Paiement)"/.test(t)) continue;
+    if (/"(?:montantUSD|resteAPayerUSD|montantRegleUSD)"/.test(t) && !/"(?:montantCDF|resteAPayerCDF|montantRegleCDF|devise)"/.test(t)) fautes.push(`SQL brut : montants d'une facture lus sans les colonnes en francs (${t.replace(/\s+/g, " ").slice(0, 80)})`);
+  }
   // 4. Lectures directes du réglé / du reste.
-  if (/\.(?:resteAPayerUSD|montantRegleUSD)\b/.test(src) && !/\bdevise\b|\bmontantsFacture\(|\bresteFacture\(/.test(src)) fautes.push("lecture directe du réglé/reste en dollars sans la devise");
+  if (/\.(?:resteAPayerUSD|montantRegleUSD)\b/.test(src) && !/\b(?:montantsFacture|resteFacture|totalFactures|deviseFacture)\(|\.devise\b/.test(src)) fautes.push("lecture directe du réglé/reste en dollars sans la devise");
+  // 5. Lignes de facture.
+  for (const m of src.matchAll(/\b(prixUnitaireUSD|totalLigneUSD):\s*true\b/g)) {
+    const { objet, avant } = objetEnglobant(src, m.index!);
+    if (!estSelectionLigneFacture(avant)) continue;
+    const cdf = m[1] === "prixUnitaireUSD" ? "prixUnitaireCDF" : "totalLigneCDF";
+    if (!new RegExp(`\\b${cdf}:\\s*true\\b`).test(objet)) fautes.push(`ligne de facture : ${objet.replace(/\s+/g, " ").slice(0, 120)}`);
+  }
+  // 6. Paiements.
+  for (const m of src.matchAll(/\bmontantUSD:\s*true\b/g)) {
+    const { objet, avant } = objetEnglobant(src, m.index!);
+    if (!estSelectionPaiement(avant)) continue;
+    if (!/\b(?:devise|montantCDF):\s*true\b/.test(objet)) fautes.push(`paiement : ${objet.replace(/\s+/g, " ").slice(0, 120)}`);
+  }
   return fautes;
 }
 
@@ -171,6 +222,17 @@ describe("lecture du montant d'une facture : toujours avec sa devise", () => {
     expect(fautesDevise('formData.get("montantRegleUSD"); tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" FOR UPDATE`')).toEqual([]);
     // Fiche facture, telle qu'avant :
     expect(fautesDevise("<Info label=\"Reste\" val={usd(Number(facture.resteAPayerUSD))} />")).toHaveLength(1);
+    // Historique des prix (inventaire-export), tel qu'avant : prix d'une LIGNE de facture sans les francs.
+    expect(fautesDevise("prisma.ligneFacture.findMany({ where: { x: 1 }, select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true } } } }),")).toHaveLength(1);
+    expect(fautesDevise("prisma.factureFournisseur.findMany({ select: { id: true, lignes: { select: { totalLigneUSD: true } } } })")).toHaveLength(1);
+    // Paiements en dollars seuls :
+    expect(fautesDevise("prisma.paiement.aggregate({ where: { x: 1 }, _sum: { montantUSD: true } })")).toHaveLength(1);
+    // Relecture : deux gabarits SQL, l'un lit les francs, l'autre non → l'autre reste fautif.
+    expect(fautesDevise('a`SELECT "montantCDF" FROM "stock"."FactureFournisseur"`; b`SELECT "resteAPayerUSD" FROM "stock"."FactureFournisseur"`')).toHaveLength(1);
+    // Relecture : le mot « devise » dans un commentaire ne couvre pas une lecture directe.
+    expect(fautesDevise("// devise ignorée\nconst r = Number(f.resteAPayerUSD);")).toHaveLength(1);
+    // Sens inverse : les lignes d'un BON DE COMMANDE (en dollars) ne déclenchent rien.
+    expect(fautesDevise("prisma.bonDeCommande.findMany({ select: { id: true, lignes: { select: { articleId: true, prixUnitaireUSD: true, totalLigneUSD: true } } } })")).toEqual([]);
     // Sens inverse : un mouvement, un achat de légumes, un paiement ne déclenchent rien…
     expect(fautesDevise("prisma.mouvementStock.findMany({ where: { x: 1 }, select: { montantUSD: true, quantite: true } })")).toEqual([]);
     expect(fautesDevise("prisma.achatLegume.aggregate({ where: { x: 1 }, _sum: { montantUSD: true }, _count: true })")).toEqual([]);

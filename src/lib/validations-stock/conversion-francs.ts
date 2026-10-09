@@ -28,7 +28,9 @@ export const dollarsPourReste = (resteCDF: number, taux: number): number => Math
  * aucun montant en dollars ne tombe exactement sur un reste en francs quelconque. C'est la même
  * tolérance que dans l'autre sens (francs → dollars arrondis au centime le plus proche).
  */
-export const toleranceDollars = (taux: number): number => taux * 0.005;
+export const toleranceDollars = (taux: number): number => taux * 0.005 + 0.01;
+// (+ 0,01 FC : marge d'arrondi — à un taux non entier, le centime le plus proche d'un reste tombe
+// pile sur le demi-centime ; sans elle, les dollars PROPOSÉS par l'écran seraient refusés. Relecture.)
 
 /** Écart toléré quand le montant versé est dans la devise de la facture (arrondi au centime). */
 export const TOLERANCE_MEME_DEVISE = 0.009;

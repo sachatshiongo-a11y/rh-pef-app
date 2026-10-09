@@ -4,7 +4,7 @@
 // « Demandes à valider » (composant client) comme sur la fiche facture / article (serveur).
 import Link from "next/link";
 import type { ApercuDemande } from "@/lib/validations-stock/apercu";
-import { formaterNombre, formaterUSD, montantSigne } from "@/lib/montant";
+import { formaterFC, formaterNombre, formaterUSD, montantSigne } from "@/lib/montant";
 import { formaterMontantFacture, libelleTotal } from "@/lib/facture-devise";
 
 const dateFr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
@@ -71,7 +71,15 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
             </p>
           );
         })()}
-        {p.lot && (
+        {p.lot && p.lot.verse === "CDF" && p.factures.every((f) => (f.devise ?? "USD") === "USD") ? (
+          // Lot de factures en dollars payé en francs : le rendu d'avant, à l'identique (relecture).
+          <p>
+            Payé <b>en francs</b> :{" "}
+            {p.lot.totalVerse !== null && p.lot.tauxActuel !== null
+              ? <><b className="tabular-nums">{formaterFC(p.lot.totalVerse.cdf)}</b> ≈ {formaterUSD(p.total ?? 0)} au taux du jour ({formaterNombre(p.lot.tauxActuel)} FC/$), appliqué à la validation — chaque facture soldée, reste en dollars à 0.</>
+              : <>— (taux de change non configuré)</>}
+          </p>
+        ) : p.lot && (
           <p>
             {p.lot.verse === "SA_DEVISE" ? <>Payé <b>dans la devise de chaque facture</b> (aucune conversion)</> : <>Payé <b>en {p.lot.verse === "CDF" ? "francs" : "dollars"}</b></>}
             {p.lot.conversion && (

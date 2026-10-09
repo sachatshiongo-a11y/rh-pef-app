@@ -358,7 +358,7 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
         documentUrl,
         mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
-        lignes: { create: lignes.map(({ total: _t, ...l }) => l) },
+        lignes: { create: lignes.map((l) => { const { total, ...ligne } = l; void total; return ligne; }) },
       },
     });
     if (entrerEnStock) {
