@@ -1583,8 +1583,20 @@ enum StatutFacture {
 }
 
 // Suivi des factures fournisseurs (comptes à payer). Source : « 2026 Suivi des factures
-// fournisseurs.xlsx » (feuilles mensuelles). Montants en USD. Fournisseur optionnel (certaines
-// factures viennent de fournisseurs hors catalogue) + libellé figé.
+// fournisseurs.xlsx » (feuilles mensuelles). Fournisseur optionnel (certaines factures viennent de
+// fournisseurs hors catalogue) + libellé figé.
+//
+// DEVISE DE LA FACTURE (2026-10-09, « les factures fournisseurs doivent aussi être en francs
+// congolais au choix ») : la devise de saisie FAIT FOI, jamais d'aller-retour. `devise` USD : le
+// montant, le réglé et le reste sont `montantUSD` / `montantRegleUSD` / `resteAPayerUSD` (les trois
+// colonnes en francs sont NULLES) — toutes les factures d'avant le 2026-10-09, inchangées. `devise`
+// CDF : ce sont `montantCDF` / `montantRegleCDF` / `resteAPayerCDF` (les trois colonnes en dollars
+// sont NULLES). L'autre devise ne se stocke jamais : elle s'affiche « ≈ » au taux du jour. Porte de
+// lecture unique : src/lib/facture-devise.ts. Contrainte CHECK `FactureFournisseur_devise_check` en
+// base (non représentable dans ce fichier).
+// `tauxChangeUtilise` (facture en francs seulement) : taux des Paramètres au jour de l'ENREGISTREMENT,
+// figé pour valoriser en dollars les entrées en stock et l'historique des prix d'achat (comme la
+// Liste d'achat) — JAMAIS pour le reste dû, qui reste en francs.
 model FactureFournisseur {
   id              String         @id @default(uuid())
   fournisseurId   String?
@@ -1596,9 +1608,14 @@ model FactureFournisseur {
   date            DateTime?      @db.Date
   dateEcheance    DateTime?      @db.Date
   datePaiement    DateTime?      @db.Date
-  montantUSD      Decimal        @db.Decimal(14, 2)
-  montantRegleUSD Decimal        @default(0) @db.Decimal(14, 2)
-  resteAPayerUSD  Decimal        @default(0) @db.Decimal(14, 2)
+  devise          DeviseSaisie   @default(USD)
+  montantUSD      Decimal?       @db.Decimal(14, 2)
+  montantRegleUSD Decimal?       @default(0) @db.Decimal(14, 2)
+  resteAPayerUSD  Decimal?       @default(0) @db.Decimal(14, 2)
+  montantCDF      Decimal?       @db.Decimal(16, 2)
+  montantRegleCDF Decimal?       @db.Decimal(16, 2)
+  resteAPayerCDF  Decimal?       @db.Decimal(16, 2)
+  tauxChangeUtilise Decimal?     @db.Decimal(10, 2)
   statut          StatutFacture  @default(A_REGLER)
   modePaiement    String?
   documentUrl     String? // PDF de la facture joint
@@ -1623,9 +1640,15 @@ model Paiement {
   facture           FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
   type              String             @default("PAIEMENT") // PAIEMENT | AVOIR (note de crédit / retour marchandise)
   date              DateTime           @db.Date
-  montantUSD        Decimal            @db.Decimal(14, 2)
-  montantCDF        Decimal?           @db.Decimal(16, 2) // montant réellement versé en francs (si payé en CDF)
-  tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du paiement
+  // Devise d'IMPUTATION (2026-10-09) = celle de la facture. Le montant dans cette devise est celui qui
+  // diminue le reste ; l'AUTRE montant, s'il est présent, est ce qui a été réellement versé dans
+  // l'autre devise, avec le taux qui l'a converti. Facture en $ : `montantUSD` imputé, `montantCDF`
+  // = francs versés (payé en FC). Facture en FC : `montantCDF` imputé, `montantUSD` = dollars versés
+  // (payé en $), NUL si payé en francs. CHECK `Paiement_devise_check` en base.
+  devise            DeviseSaisie       @default(USD)
+  montantUSD        Decimal?           @db.Decimal(14, 2)
+  montantCDF        Decimal?           @db.Decimal(16, 2)
+  tauxChangeUtilise Decimal?           @db.Decimal(10, 2) // taux figé au moment du paiement (conversion d'une devise à l'autre)
   modePaiement      String?
   note              String?
   creeParId    String? // User.id (pas de FK cross-schéma)
@@ -1644,8 +1667,13 @@ model LigneFacture {
   designation     String // libellé figé (survit à la modif/suppression de l'article)
   unite           String?
   quantite        Decimal            @db.Decimal(14, 3)
-  prixUnitaireUSD Decimal            @db.Decimal(12, 4)
-  totalLigneUSD   Decimal            @db.Decimal(14, 2)
+  // Dans la devise de SA facture (2026-10-09) : facture en $ → `prixUnitaireUSD` / `totalLigneUSD`
+  // (colonnes en francs NULLES) ; facture en FC → `prixUnitaireCDF` / `totalLigneCDF` (colonnes en
+  // dollars NULLES). CHECK `LigneFacture_devise_check` en base.
+  prixUnitaireUSD Decimal?           @db.Decimal(12, 4)
+  totalLigneUSD   Decimal?           @db.Decimal(14, 2)
+  prixUnitaireCDF Decimal?           @db.Decimal(16, 2)
+  totalLigneCDF   Decimal?           @db.Decimal(16, 2)
 
   @@index([factureId])
   @@schema("stock")
