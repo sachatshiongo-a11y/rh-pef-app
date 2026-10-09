@@ -6,6 +6,7 @@ import { journaliserPlusieurs, type EntreeJournal } from "@/lib/audit";
 import { MOTIF_LIVRAISON_RESTAURANT } from "@/lib/stock-restaurant";
 import { planifierRattachementsAuto, type CibleAuto, type DecisionAuto, type RestoAuto } from "@/lib/fiches/rattachement-resto";
 import { notifierGesteStock, type AuteurGeste } from "@/lib/validations-stock/geste-notifie";
+import { libelleArticle } from "@/lib/libelle-article";
 
 // RATTACHEMENT AUTOMATIQUE des livraisons au restaurant — demande de Sacha (2026-10-08) : « je veux
 // un rattachement automatique ». La RÈGLE est pure (lib/fiches/rattachement-resto.ts,
@@ -92,7 +93,7 @@ export async function rattacherAutomatiquement(
       if (ids.length === 0) return VIDE;
       const { cibles, restos, catalogue } = await lireEtat(tx, ids);
       const decisions = planifierRattachementsAuto(cibles, restos, catalogue);
-      const nom = new Map(cibles.map((c) => [c.id, c.designation]));
+      const nom = new Map(cibles.map((c) => [c.id, libelleArticle(c)])); // nom AFFICHÉ du compte rendu (contenance comprise)
       const out: CompteRenduAuto = { rattaches: [], crees: [], laisses: [] };
       const journal: EntreeJournal[] = [];
       const ordres = new Map<"CUISINE" | "BAR", number>();

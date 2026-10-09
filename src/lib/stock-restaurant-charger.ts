@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MOTIF_LIVRAISON_RESTAURANT, type EntreesStockResto } from "@/lib/stock-restaurant";
 import { formaterNombre } from "@/lib/montant";
+import { libelleArticle } from "@/lib/libelle-article";
 
 // Chargement GROUPÉ des entrées du stock théorique du restaurant — jamais une requête par article :
 //   1. les articles du restaurant actifs (rattachements) ;
@@ -88,7 +89,7 @@ export async function chargerEntreesStockResto({ depuis, jusquA, inclureDesactiv
     })),
     comptages: comptages.map((c) => ({ articleRestoId: c.articleRestoId, date: iso(c.date), quantite: c.quantite.toString() })),
     livraisons: livraisons.map((l) => ({
-      id: l.id, articleStockId: l.articleId, designation: l.article.designation, uniteCatalogue: l.article.unite,
+      id: l.id, articleStockId: l.articleId, designation: libelleArticle(l.article), uniteCatalogue: l.article.unite,
       contenanceCatalogue: l.article.contenance?.toString() ?? null, contenanceUniteCatalogue: l.article.contenanceUnite,
       date: iso(l.date), quantite: l.quantite.toString(), categorieSortie: l.categorieSortie, domaine: l.article.domaine,
     })),
