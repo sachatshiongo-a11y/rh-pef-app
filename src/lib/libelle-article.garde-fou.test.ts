@@ -106,7 +106,7 @@ const SELECTS_SANS_CONTENANCE: Record<string, { n: number; raison: string }> = {
   "src/lib/import-inventaire.ts": { n: 3, raison: "import d'inventaire : rapprochement et messages d'import" },
   "src/lib/import-mouvements.ts": { n: 1, raison: "import de mouvements : rapprochement par nom et code" },
   "src/lib/rattachement-auto.ts": { n: 2, raison: "rattachement au restaurant : la règle (homonymes, « rattaché à ») compare des noms" },
-  "src/lib/validations-stock/article.ts": { n: 1, raison: "modification d'article : message d'erreur et contrôle de domaine" },
+  "src/lib/validations-stock/article.ts": { n: 2, raison: "modification d'article : message d'erreur et contrôle de domaine ; désignation actuelle comparée au renommage (jamais affichée)" },
   "src/lib/validations-stock/demandes.ts": { n: 2, raison: "demandes à valider : noms figés dans la demande et contrôle d'unicité de la désignation" },
 };
 

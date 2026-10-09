@@ -214,7 +214,7 @@ describe("Références vérifiées dès la proposition", () => {
     en("resp");
     expect(await C.modifierArticle(riz, fd({ categorieId: "inexistante" }))).toMatchObject({ erreur: expect.stringMatching(/catégorie introuvable/) });
     expect(await C.modifierArticle(riz, fd({ designation: "  " }))).toMatchObject({ erreur: expect.stringMatching(/ne peut pas être vide/) });
-    expect(await C.modifierArticle(riz, fd({ designation: "sel" }))).toMatchObject({ erreur: expect.stringMatching(/s'appelle déjà « Sel »/) });
+    expect(await C.modifierArticle(riz, fd({ designation: "sel" }))).toMatchObject({ erreur: expect.stringMatching(/« sel » existe déjà au catalogue : « Sel »/) });
     expect(await C.modifierArticle(riz, fd({ code: "137" }))).toMatchObject({ erreur: expect.stringMatching(/déjà celui de « Sel »/) });
     expect(await demandes()).toEqual([]);
   }, 60_000);
