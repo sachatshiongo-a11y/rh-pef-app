@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { joursAvantDlc } from "@/lib/achats-doublons";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 // DLC proches (tableau de bord Stock, demande de la Direction du 2026-10-08) : les ENTRÉES récentes
 // dont la DLC saisie sur la Liste d'achat tombe bientôt, ou est passée. INDICATIF : le stock n'est pas
@@ -46,7 +47,7 @@ export async function dlcProches(maintenant: Date, max = 10): Promise<{ lignes: 
       where,
       orderBy: [{ dlc: "asc" }, { date: "desc" }, { createdAt: "desc" }],
       take: max,
-      select: { id: true, articleId: true, quantite: true, date: true, dlc: true, article: { select: { designation: true, unite: true } } },
+      select: { id: true, articleId: true, quantite: true, date: true, dlc: true, article: { select: { ...CHAMPS_LIBELLE, unite: true } } },
     }),
     prisma.mouvementStock.count({ where }),
   ]);
@@ -56,7 +57,7 @@ export async function dlcProches(maintenant: Date, max = 10): Promise<{ lignes: 
     lignes: mouvements.map((m) => {
       const dlcISO = iso(m.dlc as Date);
       return {
-        mouvementId: m.id, articleId: m.articleId, designation: m.article.designation, unite: m.article.unite,
+        mouvementId: m.id, articleId: m.articleId, designation: libelleArticle(m.article), unite: m.article.unite,
         quantite: Number(m.quantite), dateEntreeISO: iso(m.date), dlcISO, jours: joursAvantDlc(dlcISO, aujourdhuiISO),
       };
     }),

@@ -11,6 +11,7 @@ import { construireRapportAnnuel, type DonneesRapportAnnuel } from "@/lib/exploi
 import type { RatioResultat } from "@/lib/exploitation/calcul";
 import { construireRapportVisuel, type DonneesRapportVisuel } from "@/lib/exploitation/rapport-regroupe";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { CHAMPS_CONTENANCE, CHAMPS_LIBELLE, libelleArticle, libelleLigneArticle } from "@/lib/libelle-article";
 
 export type { LigneEcritureRapport };
 
@@ -165,12 +166,12 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   }
 
   if (type === "BONS_COMMANDE") {
-    const bcs = (await prisma.bonDeCommande.findMany({ orderBy: [{ annee: "asc" }, { sequence: "asc" }], include: { fournisseur: { select: { nom: true } }, lignes: { orderBy: { designation: "asc" } } } }))
+    const bcs = (await prisma.bonDeCommande.findMany({ orderBy: [{ annee: "asc" }, { sequence: "asc" }], include: { fournisseur: { select: { nom: true } }, lignes: { orderBy: { designation: "asc" }, include: { article: { select: CHAMPS_CONTENANCE } } } } }))
       .filter((b) => dansJour(b.date, b.annee, b.mois));
     const lignes: (string | number)[][] = [];
     for (const b of bcs) {
       if (b.lignes.length === 0) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", "—", "", "", arr(Number(b.totalUSD))]);
-      for (const l of b.lignes) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", l.designation, q3(l.quantite), arr(Number(l.prixUnitaireUSD)), arr(Number(l.totalLigneUSD))]);
+      for (const l of b.lignes) lignes.push([b.numero, jj(b.date), b.fournisseur?.nom ?? "—", libelleLigneArticle(l), q3(l.quantite), arr(Number(l.prixUnitaireUSD)), arr(Number(l.totalLigneUSD))]);
     }
     return { titre, entete: ["N° BC", "Date", "Fournisseur", "Article", "Qté", "P.U. USD", "Total USD"], lignes, largeurs: ["13%", "10%", "20%", "27%", "9%", "10%", "11%"], droite: [4, 5, 6], sommables: [6] };
   }
@@ -193,7 +194,7 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
     // Demande Direction 2026-09-30 : l'UNITÉ et le PRIX UNITAIRE de chaque ligne (voir `prixUnitaireAchat`).
     // Le mouvement ne porte pas d'unité : c'est celle de l'article (« — » si elle manque). Les
     // montants et leur total ne changent pas : même colonne « Montant USD », mêmes valeurs.
-    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { designation: true, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } });
+    const rows = await prisma.mouvementStock.findMany({ where: { ...WHERE_ACHATS_LISTE, date: { gte: debut, lt: finExcl } }, orderBy: { date: "desc" }, include: { article: { select: { ...CHAMPS_LIBELLE, unite: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } });
     const taux = await tauxDuJour(); // repli « prix du catalogue » d'un article en francs : en dollars au taux du jour
     const COURT = { USD: "USD", CDF: "FC" } as const;
     const lignesPdf: CelluleRapport[][] = [];
@@ -201,9 +202,9 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
       const unite = m.article.unite?.trim() || "—";
       const montant = m.montantUSD !== null ? arr(Number(m.montantUSD)) : "";
       const pu = prixUnitaireAchat({ quantite: m.quantite, devise: m.devise, montantOrigine: m.montantOrigine, montantUSD: m.montantUSD, tauxChangeUtilise: m.tauxChangeUtilise, prixCatalogueUSD: prixArticleEnUSD(m.article, taux)?.valeur ?? null });
-      lignesPdf.push([jj(m.date), m.article.designation, unite, q3(m.quantite), cellulePrixUnitairePdf(pu), montant, m.origine ?? ""]);
+      lignesPdf.push([jj(m.date), libelleArticle(m.article), unite, q3(m.quantite), cellulePrixUnitairePdf(pu), montant, m.origine ?? ""]);
       return [
-        jj(m.date), m.article.designation, unite, q3(m.quantite),
+        jj(m.date), libelleArticle(m.article), unite, q3(m.quantite),
         pu ? pu.valeur : "—", pu ? COURT[pu.devise] : "—", pu?.equivalentUSD ?? "—", pu ? pu.source : "—",
         montant, m.origine ?? "",
       ];
@@ -221,8 +222,8 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
 
   if (type === "MOUVEMENTS") {
     const TYPE: Record<string, string> = { ENTREE: "Entrée", SORTIE: "Sortie", AJUSTEMENT: "Ajustement" };
-    const rows = await prisma.mouvementStock.findMany({ where: { date: { gte: debut, lt: finExcl } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { article: { select: { designation: true } } } });
-    const lignes = rows.map((m) => [jj(m.date), m.article.designation, TYPE[m.type] ?? m.type, `${m.type === "SORTIE" ? "−" : "+"}${q3(m.quantite)}`, m.origine ?? ""]);
+    const rows = await prisma.mouvementStock.findMany({ where: { date: { gte: debut, lt: finExcl } }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], include: { article: { select: CHAMPS_LIBELLE } } });
+    const lignes = rows.map((m) => [jj(m.date), libelleArticle(m.article), TYPE[m.type] ?? m.type, `${m.type === "SORTIE" ? "−" : "+"}${q3(m.quantite)}`, m.origine ?? ""]);
     return { titre, entete: ["Date", "Article", "Type", "Quantité", "Motif / origine"], lignes, largeurs: ["11%", "30%", "12%", "13%", "34%"], droite: [3] };
   }
 

@@ -14,6 +14,7 @@ import { BlocDisponibilitePlats, voitDisponibilitePlats } from "./_tableau-de-bo
 import { BlocDlcProches } from "./_tableau-de-bord/bloc-dlc-proches";
 import { dlcProches } from "@/lib/dlc-stock";
 import { jourCivilKinshasa, moisCourantKinshasa } from "@/lib/heure-kinshasa";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 const jfr = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : "—");
 
@@ -63,14 +64,14 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
     indicateursStock(now, { nbAlertes: 8, mois: moisValue }),
     prisma.bonDeCommande.findMany({ where: pieceDuMois, orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
     prisma.factureFournisseur.findMany({ where: pieceDuMois, orderBy: { createdAt: "desc" }, take: 5, include: { fournisseur: { select: { nom: true } } } }),
-    prisma.mouvementStock.findMany({ where: { type: { in: ["ENTREE", "SORTIE"] }, ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 8, include: { article: { select: { designation: true } } } }),
-    prisma.mouvementStock.findMany({ where: { type: "AJUSTEMENT", ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 5, include: { article: { select: { designation: true } } } }),
+    prisma.mouvementStock.findMany({ where: { type: { in: ["ENTREE", "SORTIE"] }, ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 8, include: { article: { select: CHAMPS_LIBELLE } } }),
+    prisma.mouvementStock.findMany({ where: { type: "AJUSTEMENT", ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 5, include: { article: { select: CHAMPS_LIBELLE } } }),
     prisma.bonDeCommande.count({ where: { annee, mois } }),
     prisma.ligneBonDeCommande.groupBy({ by: ["designation"], _count: { designation: true }, _sum: { quantite: true }, orderBy: { _count: { designation: "desc" } }, take: 8 }),
     prisma.bonDeCommande.groupBy({ by: ["fournisseurId"], _count: { fournisseurId: true }, orderBy: { _count: { fournisseurId: "desc" } }, take: 5 }),
     prisma.fournisseur.findMany({ select: { id: true, nom: true } }),
     prisma.sessionComptage.findMany({ where: dansLeMois, orderBy: { createdAt: "desc" }, take: 5 }),
-    prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE", ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: { designation: true } } } }),
+    prisma.mouvementStock.findMany({ where: { categorieSortie: "PERTE", ...dansLeMois }, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 6, include: { article: { select: CHAMPS_LIBELLE } } }),
     prisma.bonDeCommande.findMany({ where: { statut: "BROUILLON" }, orderBy: { createdAt: "desc" }, take: 6, include: { fournisseur: { select: { nom: true } } } }),
     // Valeur du stock d'un autre mois : l'inventaire figé à sa clôture, s'il existe (jamais reconstitué).
     estCourant ? Promise.resolve(null) : inventaireFige(annee, mois),
@@ -225,7 +226,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
             <ul className="divide-y text-sm">
               {mouvementsRecents.map((m) => (
                 <li key={m.id} className="flex items-center justify-between gap-2 py-1.5">
-                  <span className="truncate pr-2">{m.article.designation}<span className="text-xs text-muted-foreground"> · {jfr(m.date)}</span></span>
+                  <span className="truncate pr-2">{libelleArticle(m.article)}<span className="text-xs text-muted-foreground"> · {jfr(m.date)}</span></span>
                   <span className={`shrink-0 font-medium ${m.type === "SORTIE" ? "text-red-700" : "text-emerald-700"}`}>{m.type === "SORTIE" ? "−" : "+"}{qte(m.quantite)}</span>
                 </li>
               ))}
@@ -238,7 +239,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
             <ul className="divide-y text-sm">
               {reconRecentes.map((m) => (
                 <li key={m.id} className="flex items-center justify-between gap-2 py-1.5">
-                  <span className="truncate pr-2">{m.article.designation}<span className="text-xs text-muted-foreground"> · {jfr(m.date)}</span></span>
+                  <span className="truncate pr-2">{libelleArticle(m.article)}<span className="text-xs text-muted-foreground"> · {jfr(m.date)}</span></span>
                   <span className="shrink-0 text-muted-foreground">{qte(m.quantite)}</span>
                 </li>
               ))}
@@ -265,7 +266,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
               {pertesRecentes.map((m) => (
                 <li key={m.id} className="py-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate pr-2 font-medium">{m.article.designation}<span className="text-xs font-normal text-muted-foreground"> · {jfr(m.date)}</span></span>
+                    <span className="truncate pr-2 font-medium">{libelleArticle(m.article)}<span className="text-xs font-normal text-muted-foreground"> · {jfr(m.date)}</span></span>
                     <span className="shrink-0 font-medium text-red-700">−{qte(m.quantite)}</span>
                   </div>
                   {m.raisonSortie && <p className="text-xs text-muted-foreground">{m.raisonSortie}</p>}

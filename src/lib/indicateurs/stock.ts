@@ -5,6 +5,7 @@ import { tauxDuJour } from "@/lib/taux-du-jour";
 import { prisma } from "@/lib/prisma";
 import { niveauAlerte } from "@/lib/stock";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 // Indicateurs du Stock partagés : UNE seule source de vérité pour l'accueil Stock et le tableau de
 // bord de l'Exploitation. Formules recopiées à l'identique de l'accueil Stock (un test de
@@ -70,7 +71,7 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
 
   const taux = await tauxDuJour();
   const [stocks, facturesDues, facturesSemaine, facturesEchues, legumesMois, consoMois] = await Promise.all([
-    prisma.stock.findMany({ include: { article: { select: { designation: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } }),
+    prisma.stock.findMany({ include: { article: { select: { ...CHAMPS_LIBELLE, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } }),
     prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
     prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
@@ -89,7 +90,7 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
 
   const avecAlerte = stocks.map((s) => ({
     articleId: s.articleId,
-    designation: s.article.designation,
+    designation: libelleArticle(s.article), // nom affiché des alertes (contenance comprise)
     quantite: Number(s.quantite),
     niveau: niveauAlerte(s.quantite, s.stockMinimum),
     // Article en dollars : calcul d'avant, à l'identique ; en francs : au taux du jour (« ≈ »).

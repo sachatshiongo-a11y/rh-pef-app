@@ -22,6 +22,7 @@ import {
 import { FacturesUI } from "../../factures/factures-client";
 import { versFactureRow } from "../../factures/facture-row";
 import { CommandesListe } from "../../commandes/commandes-liste";
+import { CHAMPS_LIBELLE, libelleArticle } from "@/lib/libelle-article";
 
 const s = (v: string | null) => v ?? "";
 
@@ -100,7 +101,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
           where: { fournisseurId: id, type: "ENTREE" },
           orderBy: [{ date: "desc" }, { createdAt: "desc" }],
           take: MAX_ACHATS,
-          select: { id: true, date: true, quantite: true, origine: true, devise: true, montantOrigine: true, montantUSD: true, articleId: true, article: { select: { designation: true, unite: true } } },
+          select: { id: true, date: true, quantite: true, origine: true, devise: true, montantOrigine: true, montantUSD: true, articleId: true, article: { select: { ...CHAMPS_LIBELLE, unite: true } } },
         })
       : null,
     onglet === "articles"
@@ -253,7 +254,7 @@ function OngletBons({ id, nom, filtre, estDirection, bons, effectifs }: {
 // ─── Onglet Achats directs (Liste d'achat) : contenu inchangé ───
 type AchatDirect = {
   id: string; date: Date; quantite: Prisma.Decimal; origine: string | null; devise: "USD" | "CDF" | null;
-  montantOrigine: Prisma.Decimal | null; montantUSD: Prisma.Decimal | null; articleId: string; article: { designation: string; unite: string | null };
+  montantOrigine: Prisma.Decimal | null; montantUSD: Prisma.Decimal | null; articleId: string; article: { designation: string; contenance: Prisma.Decimal | null; contenanceUnite: string | null; unite: string | null };
 };
 
 function OngletAchats({ nbAchatsDirects, achatsDirects }: { nbAchatsDirects: number; achatsDirects: AchatDirect[] }) {
@@ -268,7 +269,7 @@ function OngletAchats({ nbAchatsDirects, achatsDirects }: { nbAchatsDirects: num
           {achatsDirects.map((m) => (
             <div key={m.id} className="flex items-center justify-between gap-3 px-3 py-2">
               <div className="min-w-0">
-                <Link href={`/stock/catalogue/${m.articleId}`} className="font-medium text-primary hover:underline">{m.article.designation}</Link>
+                <Link href={`/stock/catalogue/${m.articleId}`} className="font-medium text-primary hover:underline">{libelleArticle(m.article)}</Link>
                 <div className="truncate text-xs text-muted-foreground">{jjmmaaaa(m.date.toISOString())}{m.origine ? ` · ${m.origine}` : ""}</div>
               </div>
               <div className="shrink-0 text-right">
@@ -310,7 +311,7 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
               const niv: NiveauAlerte | null = a.stock ? niveauAlerte(a.stock.quantite, a.stock.stockMinimum) : null;
               return (
                 <tr key={a.id} className="border-t hover:bg-accent/40 even:bg-muted/25">
-                  <td className="px-3 py-2 font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{a.designation}</Link></td>
+                  <td className="px-3 py-2 font-medium"><Link href={`/stock/catalogue/${a.id}`} className="text-primary hover:underline">{libelleArticle(a)}</Link></td>
                   <td className="px-3 py-2 text-muted-foreground">{a.categorie?.nom ?? "—"}</td>
                   <td className="px-3 py-2 text-right">{(() => { const l = libellesPrix(a, taux); return <>{l.principal}{l.autre && <span className="block text-[11px] text-muted-foreground">{l.autre}</span>}</>; })()}</td>
                   <td className="px-3 py-2 text-right">{a.stock ? qte(a.stock.quantite) : "—"}</td>
