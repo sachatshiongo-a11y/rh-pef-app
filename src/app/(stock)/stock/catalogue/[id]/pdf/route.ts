@@ -4,7 +4,7 @@ import { renderPdfBuffer } from "@/lib/pdf/fonts";
 import { prisma } from "@/lib/prisma";
 import { exigerEspaceStock } from "@/lib/garde-route";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL } from "@/lib/stock";
-import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
+import { analyserPrix, pointDeMouvement, pointDeLigne } from "@/lib/stock-prix";
 import { FicheArticleDocument, type MouvementLigne } from "@/lib/pdf/fiche-article";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -26,7 +26,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           reception: { select: { bonDeCommande: { select: { numero: true, fournisseur: { select: { nom: true } } } } } },
         },
       },
-      lignesFacture: { include: { facture: { select: { id: true, numero: true, date: true } } } },
+      lignesFacture: { include: { facture: { select: { id: true, numero: true, date: true, tauxChangeUtilise: true } } } },
     },
   });
   if (!a) return new Response("Article introuvable", { status: 404 });
@@ -40,8 +40,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   const analyse = analyserPrix([
     ...a.lignesFacture
-      .filter((l) => l.facture.date)
-      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id as string | null, numero: l.facture.numero })),
+      // Facture en francs : francs ÷ taux figé à son enregistrement ; sans taux, pas de point (jamais 0).
+      .map((l) => pointDeLigne(l))
+      .filter((x): x is NonNullable<typeof x> => x !== null),
     ...a.mouvements
       .filter((m) => m.type === "ENTREE" && !m.factureId && m.montantUSD !== null)
       .map((m) => pointDeMouvement({ articleId: m.articleId, montantUSD: m.montantUSD, quantite: m.quantite, date: new Date(m.date), origine: m.origine }))

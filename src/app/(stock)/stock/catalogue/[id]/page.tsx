@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formaterFC } from "@/lib/montant";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -6,7 +7,7 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { EditerArticle } from "./editer-article";
 import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
-import { analyserPrix, pointDeMouvement } from "@/lib/stock-prix";
+import { analyserPrix, pointDeMouvement, pointDeLigne } from "@/lib/stock-prix";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import { demandeSurCible } from "@/lib/validations-stock/apercu";
@@ -57,7 +58,7 @@ export default async function ArticleFichePage({
           },
         },
         lignesFacture: {
-          include: { facture: { select: { id: true, numero: true, date: true } } },
+          include: { facture: { select: { id: true, numero: true, date: true, tauxChangeUtilise: true } } },
         },
         _count: { select: { mouvements: true } },
       },
@@ -83,8 +84,9 @@ export default async function ArticleFichePage({
   // Évolution du prix : chaque ligne de facture porte un prix unitaire figé + la date de la facture.
   const analyse = analyserPrix([
     ...a.lignesFacture
-      .filter((l) => l.facture.date)
-      .map((l) => ({ date: l.facture.date as Date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id as string | null, numero: l.facture.numero })),
+      // Facture en francs : francs ÷ taux figé à son enregistrement ; sans taux, pas de point (jamais 0).
+      .map((l) => pointDeLigne(l))
+      .filter((x): x is NonNullable<typeof x> => x !== null),
     // Entrées payées hors facture (liste d'achat…) : des achats quand même.
     ...a.mouvements
       .filter((m) => m.type === "ENTREE" && !m.factureId && m.montantUSD !== null)
@@ -260,7 +262,8 @@ export default async function ArticleFichePage({
                       <td className="py-1.5">{dCourt(p.date)}</td>
                       <td className="py-1.5">{p.factureId ? <Link href={`/stock/factures/${p.factureId}`} className="text-primary hover:underline">{p.numero ?? "Facture"}</Link> : <span className="text-muted-foreground">{p.numero ?? "Liste d'achat"}</span>}</td>
                       <td className="py-1.5 text-right tabular-nums">{qte(p.qte)}</td>
-                      <td className="py-1.5 text-right font-medium tabular-nums">{usd(p.prix)}</td>
+                      {/* Ligne d'une facture en francs : le prix saisi en francs, et son équivalent au taux figé de la facture. */}
+                      <td className="py-1.5 text-right font-medium tabular-nums">{p.prixCDF !== undefined ? <>{formaterFC(p.prixCDF)} <span className="block text-[11px] font-normal text-muted-foreground">≈ {usd(p.prix)}</span></> : usd(p.prix)}</td>
                     </tr>
                   ))}
                 </tbody>

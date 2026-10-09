@@ -17,7 +17,8 @@ export async function chargerHausses(domaine?: Domaine): Promise<Map<string, num
   const [lignes, entreesPayees] = await Promise.all([
     prisma.ligneFacture.findMany({
       where: { article: domaine ? { domaine } : {}, facture: { date: { not: null } } },
-      select: { articleId: true, prixUnitaireUSD: true, quantite: true, facture: { select: { id: true, numero: true, date: true } } },
+      // Ligne d'une facture en francs (2026-10-09) : prix en francs et taux figé de sa facture (stock-prix.ts).
+      select: { articleId: true, prixUnitaireUSD: true, prixUnitaireCDF: true, quantite: true, facture: { select: { id: true, numero: true, date: true, tauxChangeUtilise: true } } },
     }),
     // Entrées PAYÉES hors facture (liste d'achat, mouvement manuel avec montant) : des achats quand même.
     prisma.mouvementStock.findMany({
