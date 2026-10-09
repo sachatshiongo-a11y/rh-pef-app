@@ -78,7 +78,7 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
     prisma.mouvementStock.findMany({ where, orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: PLAFOND, include: mvtInclude }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "SORTIES") }),
     prisma.mouvementStock.count({ where: whereColonne(filtre, "ENTREES") }),
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, contenance: true, contenanceUnite: true, stock: { select: { quantite: true } } } }),
     // Rattachements au restaurant (une requête) : avertir qu'une livraison ne l'alimentera pas.
     prisma.articleResto.findMany({ where: { actif: true, articleStockId: { not: null } }, select: { id: true, designation: true, espace: true, unite: true, articleStockId: true } }),
   ]);
@@ -123,7 +123,8 @@ export default async function MouvementsPage({ searchParams }: { searchParams: P
         <span className="ml-auto text-xs text-muted-foreground">{nbTotal} mouvement(s)</span>
       </form>
 
-      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
+      {/* Stock disponible de chaque article (0 sans ligne de stock) : affiché à côté de la quantité, une sortie qui le dépasse est bloquée (2026-10-09). */}
+      <MouvementForm articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, quantite: Number(a.stock?.quantite ?? 0) }))} estDirection={estDirection} conseilsLivraison={conseilsLivraison} />
 
       {nbTotal > PLAFOND && <BandeauPlafond affiches={mouvements.length} total={nbTotal} estDirection={estDirection} />}
 

@@ -15,13 +15,19 @@ import { optionsArticles } from "@/lib/recherche-options";
 import { BORNE_TOUT_LE_FILTRE, type ColonneMouvements as Colonne, type FiltreMouvements, type SelectionMouvements } from "@/lib/filtre-mouvements";
 import { jourCourantKinshasaISO } from "@/lib/heure-kinshasa";
 import { MESSAGE_MOTIF_SORTIE } from "@/lib/motif-sortie";
+import { lireNombreSaisi } from "@/lib/nombre";
+import { similairesEnStock } from "@/lib/article-proche";
 
 /** Pour un article dont la livraison n'alimentera pas le restaurant : quoi faire, et où. */
 export type ConseilLivraison = { texte: string; href: string };
 
 export { AVERTISSEMENT_LIVRAISON };
 
-type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null };
+/**
+ * Article proposé dans une ligne. `quantite` : stock disponible (unité de l'article), lu par la page —
+ * absent = inconnu de l'écran (le serveur tranche) ; `domaine` sert aux articles proches proposés.
+ */
+type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite?: string | null; domaine?: string; quantite?: number; actif?: boolean };
 const inp = "rounded border border-input bg-background px-2 py-1 text-sm";
 
 // Version sérialisable d'un mouvement (Decimal/Date convertis) — passée du serveur au client.
@@ -301,25 +307,73 @@ function AvertissementLivraison({ ids, articles, conseils }: { ids: string[]; ar
   );
 }
 
+/** Un article proposé à la place d'un article sans stock suffisant (« Utiliser … »). */
+type Proche = { id: string; designation: string; unite: string | null; disponible: number };
+type LigneSaisie = { articleId: string; quantite: string };
+const LIGNES_VIDES = (): LigneSaisie[] => [{ articleId: "", quantite: "" }, { articleId: "", quantite: "" }, { articleId: "", quantite: "" }];
+/** Millièmes (Decimal(14,3)) : comparaisons exactes, 0,1 + 0,2 = 0,3. */
+const milliemes = (n: number) => Math.round(n * 1000);
+/** « 5 kg » ; sans unité : « 5 » ; jamais d'unité inventée. */
+export const qteUnite = (n: number, unite: string | null | undefined) => `${qte(n)}${unite?.trim() ? ` ${unite.trim()}` : ""}`;
+
+/**
+ * Lignes d'une SORTIE qui dépassent le stock connu de l'écran (2026-10-09 : un stock ne passe jamais
+ * sous 0). Les lignes d'un même article s'additionnent. Un article dont l'écran ne connaît pas le stock
+ * n'est pas jugé ici : le serveur, sous verrou, a le dernier mot.
+ */
+export function depassements(lignes: readonly LigneSaisie[], stock: ReadonlyMap<string, number>): Map<string, { disponible: number; demande: number }> {
+  const total = new Map<string, number>();
+  for (const l of lignes) {
+    const q = lireNombreSaisi(l.quantite);
+    if (!l.articleId || q === null || q <= 0) continue;
+    total.set(l.articleId, (total.get(l.articleId) ?? 0) + milliemes(q));
+  }
+  const res = new Map<string, { disponible: number; demande: number }>();
+  for (const [id, t] of total) {
+    const dispo = stock.get(id);
+    if (dispo !== undefined && t > milliemes(dispo)) res.set(id, { disponible: dispo, demande: t / 1000 });
+  }
+  return res;
+}
+
 export function MouvementForm({ articles, estDirection = false, conseilsLivraison = {} }: {
   articles: Art[]; estDirection?: boolean;
   /** Articles dont une livraison n'alimenterait pas le restaurant, avec le conseil — calculé par le serveur. */
   conseilsLivraison?: Record<string, ConseilLivraison>;
 }) {
-  const [choix, setChoix] = useState<Record<number, string>>({});
+  // Lignes CONTRÔLÉES (article + quantité) : le stock disponible s'affiche à côté de la quantité, une
+  // sortie qui dépasse est signalée dès la saisie, et « Utiliser … » remplace l'article d'une ligne.
+  const [lignes, setLignes] = useState<LigneSaisie[]>(LIGNES_VIDES);
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
   // Une liste d'options pour toutes les lignes : on y cherche par désignation, nom court ou code.
   const optionsArt = useMemo(() => optionsArticles(articles), [articles]);
-  const [nb, setNb] = useState(3);
+  const parId = useMemo(() => new Map(articles.map((a) => [a.id, a])), [articles]);
+  const stockConnu = useMemo(() => new Map(articles.flatMap((a) => (typeof a.quantite === "number" ? [[a.id, a.quantite] as const] : []))), [articles]);
   const [type, setType] = useState<"ENTREE" | "SORTIE">("ENTREE");
   const [motif, setMotif] = useState<"PERTE" | "LIVRAISON_RESTAURANT" | "">("");
   const [motifEntree, setMotifEntree] = useState<"RETOUR_RESTAURANT" | "">("");
+  /** Refus du serveur (stock insuffisant) : par article, les articles proches qui ont du stock. */
+  const [refus, setRefus] = useState<Map<string, Proche[]>>(new Map());
   // Depuis le 2026-10-07 (décision de Sacha), toute entrée/sortie manuelle est écrite tout de suite,
   // quel que soit le compte : la Direction en est notifiée, elle ne la valide plus.
   const [ouvert, setOuvert] = useState(false);
   const [cle, setCle] = useState(0);
-  const reinitialiser = () => { setNb(3); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMotifManquant(false); setMsg(null); setChoix({}); setCle((c) => c + 1); };
+  const reinitialiser = () => { setLignes(LIGNES_VIDES()); setType("ENTREE"); setMotif(""); setMotifEntree(""); setMotifManquant(false); setMsg(null); setRefus(new Map()); setCle((c) => c + 1); };
+  const majLigne = (i: number, l: Partial<LigneSaisie>) => setLignes((ls) => ls.map((x, j) => (j === i ? { ...x, ...l } : x)));
+
+  // Un stock ne passe jamais sous 0 (2026-10-09) : une SORTIE qui dépasse le stock est signalée sur sa
+  // ligne et le bouton reste bloqué ; le serveur revérifie sous verrou.
+  const depasse = type === "SORTIE" ? depassements(lignes, stockConnu) : new Map<string, { disponible: number; demande: number }>();
+  /** Articles proches en stock pour un article qui manque : ceux du refus du serveur, sinon calculés ici. */
+  const prochesDe = (id: string): Proche[] => {
+    const duServeur = refus.get(id);
+    if (duServeur) return duServeur;
+    const a = parId.get(id);
+    if (!a?.domaine) return [];
+    const catalogue = articles.flatMap((x) => (x.domaine && typeof x.quantite === "number" ? [{ ...x, domaine: x.domaine, quantite: x.quantite }] : []));
+    return similairesEnStock({ id: a.id, designation: a.designation, domaine: a.domaine }, catalogue).map((p) => ({ id: p.id, designation: p.designation, unite: p.unite ?? null, disponible: p.quantite }));
+  };
 
   // Motif OBLIGATOIRE pour toute sortie (décision du 2026-10-07), pour tous les comptes : refus à
   // l'écran (champ en erreur, rien d'envoyé) ET côté serveur.
@@ -332,11 +386,22 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
       return;
     }
     setMotifManquant(false);
-    setChoix({}); // le formulaire se vide après l'envoi : l'avertissement suit les listes
+    if (depasse.size > 0) {
+      setMsg({ ok: false, texte: "Une ligne dépasse le stock disponible : un stock ne passe jamais sous 0. Corrigez la quantité ou utilisez un article proche." });
+      return;
+    }
     startTransition(async () => {
       const r = await mouvementManuel(fd);
-      if (estErreur(r)) { setMsg({ ok: false, texte: r.erreur }); return; }
-      setMsg({ ok: true, texte: r?.message ?? (type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.") }); setNb(3);
+      if (estErreur(r)) {
+        setMsg({ ok: false, texte: r.erreur });
+        // Stock insuffisant au moment de l'écriture : les lignes restent, chaque article fautif reçoit ses remplaçants.
+        const ins = (r as { insuffisants?: { articleId: string; proches: Proche[] }[] }).insuffisants;
+        setRefus(new Map((ins ?? []).map((x) => [x.articleId, x.proches])));
+        return;
+      }
+      setRefus(new Map());
+      setLignes(LIGNES_VIDES()); // le formulaire se vide après l'envoi : l'avertissement suit les listes
+      setMsg({ ok: true, texte: r?.message ?? (type === "ENTREE" ? "Entrée enregistrée : stock incrémenté." : "Sortie enregistrée : stock décrémenté.") });
     });
   };
 
@@ -379,18 +444,58 @@ export function MouvementForm({ articles, estDirection = false, conseilsLivraiso
       </div>
 
       {type === "SORTIE" && motif === "LIVRAISON_RESTAURANT" && (
-        <AvertissementLivraison ids={Object.values(choix).filter(Boolean)} articles={articles} conseils={conseilsLivraison} />
+        <AvertissementLivraison ids={lignes.map((l) => l.articleId).filter(Boolean)} articles={articles} conseils={conseilsLivraison} />
       )}
 
-      {Array.from({ length: nb }).map((_, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <ChoixRecherche options={optionsArt} name="articleId" defaultValue="" vide="— article —" onChange={(v) => setChoix((c) => ({ ...c, [i]: v }))} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-64 flex-1`} />
-          <ChampNombre name="quantite" placeholder="Qté" aria-label={`Quantité, ligne ${i + 1}`} alerteMilliers className={`${inp} w-28`} classeConteneur="w-28" />
-        </div>
-      ))}
-      <div className="flex items-center gap-3 pt-1">
-        <button type="button" onClick={() => setNb((n) => n + 1)} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
-        <button disabled={isPending} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
+      {lignes.map((l, i) => {
+        const a = l.articleId ? parId.get(l.articleId) : undefined;
+        const dispo = l.articleId ? stockConnu.get(l.articleId) : undefined;
+        const trop = l.articleId ? depasse.get(l.articleId) : undefined;
+        const proches = trop || refus.has(l.articleId) ? prochesDe(l.articleId) : [];
+        return (
+          <div key={i} data-ligne-mouvement={i} className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <ChoixRecherche options={optionsArt} name="articleId" value={l.articleId} vide="— article —" onChange={(v) => majLigne(i, { articleId: v })} aria-label={`Article, ligne ${i + 1}`} className={`${inp} w-full min-w-64 flex-1`} />
+              <ChampNombre name="quantite" value={l.quantite} onChange={(e) => majLigne(i, { quantite: e.target.value })} placeholder="Qté" aria-label={`Quantité, ligne ${i + 1}`} aria-invalid={trop ? true : undefined} alerteMilliers
+                className={`${inp} w-28 ${trop ? "border-destructive ring-1 ring-destructive" : ""}`} classeConteneur="w-28" />
+              {/* Stock disponible à côté de la quantité, dans l'unité de l'article (jamais inventée). */}
+              {l.articleId && dispo !== undefined && (
+                <span data-stock-dispo className={`min-w-24 text-xs tabular-nums ${trop ? "font-medium text-destructive" : dispo <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                  Stock : {qteUnite(dispo, a?.unite)}
+                </span>
+              )}
+            </div>
+            {(trop || refus.has(l.articleId)) && (
+              <div role="alert" data-depasse={l.articleId} className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+                <p className="font-medium">
+                  {trop
+                    ? dispo !== undefined && dispo < 0
+                      ? `Stock déjà négatif (${qteUnite(dispo, a?.unite)}) : aucune sortie possible avant sa correction.`
+                      : `Dépasse le stock : ${qteUnite(trop.disponible, a?.unite)} disponible${Math.abs(trop.disponible) >= 2 ? "s" : ""}, ${qteUnite(trop.demande, a?.unite)} demandé${trop.demande >= 2 ? "s" : ""}${lignes.filter((x) => x.articleId === l.articleId).length > 1 ? " (toutes les lignes de cet article)" : ""}.`
+                    : "Stock insuffisant au moment de l'enregistrement (voir le message ci-dessus)."}
+                </p>
+                {proches.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5 text-foreground">
+                    <span className="text-muted-foreground">Article{proches.length > 1 ? "s" : ""} proche{proches.length > 1 ? "s" : ""} en stock :</span>
+                    {proches.map((p) => (
+                      <button key={p.id} type="button" data-utiliser={p.id}
+                        onClick={() => { majLigne(i, { articleId: p.id }); setRefus((m) => { const n = new Map(m); n.delete(l.articleId); return n; }); setMsg(null); }}
+                        className="rounded-md border bg-background px-2 py-0.5 font-medium hover:bg-accent">
+                        Utiliser « {p.designation} » ({qteUnite(p.disponible, p.unite)})
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">Aucun article proche n&apos;a de stock.</p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap items-center gap-3 pt-1">
+        <button type="button" onClick={() => setLignes((ls) => [...ls, { articleId: "", quantite: "" }])} className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent">+ Ligne</button>
+        <button disabled={isPending || depasse.size > 0} title={depasse.size > 0 ? "Une ligne dépasse le stock disponible" : undefined} className={`rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50 ${type === "ENTREE" ? "bg-success" : "bg-destructive"}`}>{isPending ? "Enregistrement…" : type === "ENTREE" ? "Valider l'entrée" : "Valider la sortie"}</button>
         <BoutonReinitialiser estDirection={estDirection} onClick={reinitialiser} />
         <button type="button" onClick={() => setOuvert(false)} className="text-sm text-muted-foreground underline">Fermer</button>
       </div>
