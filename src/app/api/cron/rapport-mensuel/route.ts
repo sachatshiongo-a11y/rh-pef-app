@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formaterMontantFacture, totalFactures } from "@/lib/facture-devise";
 import { jetonCronValide } from "@/lib/jeton-cron";
 import { prisma } from "@/lib/prisma";
 import { lignesComptees } from "@/lib/paie-hors-calcul";
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
     }),
     prisma.factureFournisseur.findMany({
       where: { mois: moisRapport, annee: anneeRapport },
-      select: { montantUSD: true, montantRegleUSD: true, statut: true },
+      select: { devise: true, montantUSD: true, montantRegleUSD: true, montantCDF: true, montantRegleCDF: true, statut: true },
     }),
   ]);
 
@@ -78,15 +79,18 @@ export async function GET(request: NextRequest) {
 
   // — Synthèse achats (module Stock) —
   const totalListe = achatsListe.reduce((a, m) => a + Number(m.montantUSD ?? 0), 0);
-  const totalFactures = factures.reduce((a, f) => a + Number(f.montantUSD), 0);
-  const totalRegle = factures.reduce((a, f) => a + Number(f.montantRegleUSD), 0);
+  // Factures en dollars et en francs (2026-10-09) : totaux par devise, jamais additionnés.
+  const facDevises = totalFactures(factures, "montant");
+  const regleDevises = totalFactures(factures, "regle");
+  const totalFacturesUSD = facDevises.usd;
+  const fc = (n: number) => (n > 0 ? ` + ${formaterMontantFacture(n, "CDF")}` : "");
   const enAttente = factures.filter((f) => f.statut !== "REGLEE").length;
   const blocAchats = [
     `🛒 ACHATS — ${labelMois}`,
     "",
     `• Liste d'achat (sans facture) : ${usd(totalListe)} (${achatsListe.length} ligne(s) valorisée(s))`,
-    `• Factures fournisseurs : ${usd(totalFactures)} sur ${factures.length} facture(s), réglé ${usd(totalRegle)}${enAttente > 0 ? ` — ${enAttente} en attente de règlement` : ""}`,
-    `• Total achats du mois : ${usd(totalListe + totalFactures)}`,
+    `• Factures fournisseurs : ${usd(totalFacturesUSD)}${fc(facDevises.cdf)} sur ${factures.length} facture(s), réglé ${usd(regleDevises.usd)}${fc(regleDevises.cdf)}${enAttente > 0 ? ` — ${enAttente} en attente de règlement` : ""}`,
+    `• Total achats du mois : ${usd(totalListe + totalFacturesUSD)}${fc(facDevises.cdf)}`,
   ].join("\n");
 
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://gestion.patesenfolie.cd";

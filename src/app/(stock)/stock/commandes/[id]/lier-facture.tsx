@@ -5,7 +5,8 @@ import { lierFactureABon } from "../../factures/actions";
 import { usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 
-type Fac = { id: string; libelle: string; montant: number };
+/** `montantTexte` : montant déjà formaté dans la devise de la facture (prioritaire sur `montant`, en dollars). */
+type Fac = { id: string; libelle: string; montant: number; montantTexte?: string };
 
 export function LierFacture({ bcId, factures }: { bcId: string; factures: Fac[] }) {
   const [choix, setChoix] = useState("");
@@ -26,7 +27,7 @@ export function LierFacture({ bcId, factures }: { bcId: string; factures: Fac[] 
     <div className="flex flex-wrap items-center gap-2">
       <select value={choix} onChange={(e) => setChoix(e.target.value)} className="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
         <option value="">— choisir une facture —</option>
-        {factures.map((f) => <option key={f.id} value={f.id}>{f.libelle} · {usd(f.montant)}</option>)}
+        {factures.map((f) => <option key={f.id} value={f.id}>{f.libelle} · {f.montantTexte ?? usd(f.montant)}</option>)}
       </select>
       <button disabled={isPending || !choix} onClick={run} className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50">Lier cette facture</button>
       {erreur && <span className="text-xs text-destructive">{erreur}</span>}

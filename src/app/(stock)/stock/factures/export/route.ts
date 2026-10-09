@@ -28,25 +28,32 @@ export async function GET(req: Request) {
     include: { fournisseur: { select: { nom: true } } },
   });
 
-  const lignes = factures.map((f) => [
-    f.fournisseur?.nom ?? f.fournisseurNom,
-    f.numero ?? "",
-    d(f.date),
-    d(f.dateEcheance),
-    d(f.datePaiement),
-    Number(f.montantUSD),
-    Number(f.montantRegleUSD),
-    Number(f.resteAPayerUSD),
-    STATUT_FACTURE_LABEL[f.statut] ?? f.statut,
-    f.modePaiement ?? "",
-  ]);
+  // Montants dans la devise de chaque facture (2026-10-09) : colonnes en francs À PART, présentes
+  // seulement si l'export compte des factures en francs (sinon le classeur d'avant, à l'identique).
+  const avecFC = factures.some((f) => f.devise === "CDF");
+  const lignes = factures.map((f) => {
+    const fc = f.devise === "CDF";
+    const usdCols = avecFC && fc ? ["", "", ""] : [Number(f.montantUSD), Number(f.montantRegleUSD), Number(f.resteAPayerUSD)];
+    const cdfCols = !avecFC ? [] : fc ? [Number(f.montantCDF), Number(f.montantRegleCDF), Number(f.resteAPayerCDF)] : ["", "", ""];
+    return [
+      f.fournisseur?.nom ?? f.fournisseurNom,
+      f.numero ?? "",
+      d(f.date),
+      d(f.dateEcheance),
+      d(f.datePaiement),
+      ...usdCols,
+      ...cdfCols,
+      STATUT_FACTURE_LABEL[f.statut] ?? f.statut,
+      f.modePaiement ?? "",
+    ];
+  });
 
   const buf = await classeurExcel({
     titre: "Factures fournisseurs",
     periode: jourKinshasa(new Date()),
     feuilles: [{
       nom: "Factures",
-      entete: ["Fournisseur", "N° facture", "Date", "Échéance", "Date paiement", "Montant USD", "Réglé USD", "Reste USD", "Statut", "Mode de paiement"],
+      entete: ["Fournisseur", "N° facture", "Date", "Échéance", "Date paiement", "Montant USD", "Réglé USD", "Reste USD", ...(avecFC ? ["Montant CDF", "Réglé CDF", "Reste CDF"] : []), "Statut", "Mode de paiement"],
       lignes,
     }],
   });

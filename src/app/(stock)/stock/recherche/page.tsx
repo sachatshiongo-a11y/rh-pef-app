@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formaterMontantFacture } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
 import { usd, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE, DOMAINE_LABEL } from "@/lib/stock";
 import { exigerPageStock } from "@/lib/garde-page";
@@ -49,7 +50,7 @@ export default async function RecherchePage({ searchParams }: { searchParams: Pr
           {factures.map((f) => (
             <Link key={f.id} href={`/stock/factures/${f.id}`} className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-accent/40">
               <span className="truncate">{f.numero ? <b>{f.numero}</b> : "Facture"} · {f.fournisseur?.nom ?? f.fournisseurNom}</span>
-              <span className="flex shrink-0 items-center gap-2 text-sm"><span className="text-muted-foreground">{usd(f.montantUSD)}</span><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></span>
+              <span className="flex shrink-0 items-center gap-2 text-sm"><span className="text-muted-foreground">{f.devise === "CDF" ? formaterMontantFacture(Number(f.montantCDF), "CDF") : usd(f.montantUSD)}</span><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span></span>
             </Link>
           ))}
         </Section>
