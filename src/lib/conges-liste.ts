@@ -27,6 +27,23 @@ export type ParamsConges = {
 };
 const CLES_PARAMS = ["statut", "type", "q", "quand", "mois", "du", "au", "groupe", "page", "par"] as const;
 
+/** Une demande, prête à l'affichage (tout en texte et en nombres : elle passe du serveur au navigateur). */
+export type LigneConge = {
+  id: string;
+  employeeId: string;
+  nom: string;
+  photoUrl: string | null;
+  type: string;
+  /** Dates pures AAAA-MM-JJ. */
+  debut: string;
+  fin: string;
+  nbJours: number;
+  statut: StatutConge;
+  approuveParNom: string | null;
+  /** État de la signature d'une demande APPROUVÉE (null : rien à signer — en attente ou refusée). */
+  signature: { etat: "A_SIGNER" | "SIGNE" | "A_RESIGNER"; signeLeTexte: string | null } | null;
+};
+
 export type Quand = "en-cours" | "a-venir";
 export type Regroupement = "etat" | "mois";
 
