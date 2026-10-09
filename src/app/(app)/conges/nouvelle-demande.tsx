@@ -13,7 +13,8 @@ const champCls = "rounded-md border border-input bg-background px-3 py-2 text-sm
  * PANNEAU LATÉRAL (plein écran sur téléphone) — plus de bloc repliable qui pousse la liste vers le bas.
  * Le formulaire, ses champs et l'action serveur sont ceux d'avant (`demanderConge`, mêmes noms de champs :
  * figés par `demande-formulaire.integration.test.ts`). Une erreur du serveur revient par `?erreur=` : le
- * panneau se rouvre alors tout seul avec le message, comme le bloc d'avant.
+ * panneau se rouvre alors tout seul avec le message, comme le bloc d'avant. La saisie n'est jamais perdue : le
+ * formulaire reste monté (masqué) quand le panneau se ferme ; il ne repart vide qu'une fois la demande enregistrée.
  */
 export function NouvelleDemandeConge({ employees, types, feries, erreur }: {
   employees: { id: string; nom: string }[];
@@ -23,6 +24,7 @@ export function NouvelleDemandeConge({ employees, types, feries, erreur }: {
   erreur?: string;
 }) {
   const [ouvertManuel, setOuvertManuel] = useState(false);
+  const [cle, setCle] = useState(0);
   // L'erreur d'une demande ratée rouvre le panneau ; la fermer (ou réussir ensuite) la fait taire jusqu'à une nouvelle erreur.
   const [erreurVue, setErreurVue] = useState<string | undefined>(undefined);
   const erreurAffichee = erreur && erreur !== erreurVue ? erreur : undefined;
@@ -34,6 +36,7 @@ export function NouvelleDemandeConge({ employees, types, feries, erreur }: {
   async function soumettre(donnees: FormData) {
     await demanderConge(donnees);
     fermer();
+    setCle((c) => c + 1); // enregistrée : le formulaire repart vide (tant qu'elle ne l'est pas, la saisie est gardée, panneau fermé ou non)
   }
 
   return (
@@ -49,10 +52,10 @@ export function NouvelleDemandeConge({ employees, types, feries, erreur }: {
         {erreurAffichee && (
           <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erreurAffichee}</p>
         )}
-        <form action={soumettre} className="grid grid-cols-2 gap-4">
+        <form key={cle} action={soumettre} className="grid grid-cols-2 gap-4">
           <div className="col-span-2 flex flex-col gap-1.5">
             <label htmlFor="employeeId" className="text-sm font-medium">Employé</label>
-            <select id="employeeId" name="employeeId" required className={champCls}>
+            <select id="employeeId" name="employeeId" required data-autofocus className={champCls}>
               {employees.map((e) => (<option key={e.id} value={e.id}>{e.nom}</option>))}
             </select>
           </div>

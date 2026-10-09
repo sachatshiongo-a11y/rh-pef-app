@@ -26,7 +26,7 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(`REDIRECT ${url}`); } }));
 vi.mock("@/lib/storage", () => ({ televerserFichier: async () => "/fichiers/x.png", lireFichier: async () => null }));
 
-const { approuverCongesEnLot, refuserCongesEnLot, supprimerCongesEnLot, approuverCongeFormulaire } = await import("./actions");
+const { approuverCongesEnLot, refuserCongesEnLot, supprimerCongesEnLot, supprimerConge, approuverCongeFormulaire } = await import("./actions");
 
 let prisma: PrismaClient;
 let fermer: () => Promise<void>;
@@ -95,6 +95,28 @@ describe("Congés — actions groupées : effets", () => {
     expect(avant).toBe(1);
     await supprimerCongesEnLot([id]);
     expect(await prisma.attendance.count({ where: { employeeId: empId, date: new Date("2026-12-08") } })).toBe(0);
+  });
+
+  it("supprimer en lot : plus de 200 demandes sont refusées EN BLOC (message clair, rien supprimé)", async () => {
+    const id = await demande("EN_ATTENTE");
+    const r = await supprimerCongesEnLot([id, ...Array.from({ length: 200 }, (_, i) => `inconnu-${i}`)]);
+    expect(r.traitees).toBe(0);
+    expect(r.echecs[0]).toContain("201 demandes sélectionnées, 200 au plus");
+    expect(await statutDe(id)).toBe("EN_ATTENTE");
+  });
+
+  it("la suppression et le retrait des codes de présence sont UNE transaction : si la suppression échoue, les codes restent", async () => {
+    const id = await demande("EN_ATTENTE", "2026-12-15");
+    await approuverCongesEnLot([id]);
+    expect(await prisma.attendance.count({ where: { employeeId: empId, date: new Date("2026-12-15") } })).toBe(1);
+    // Journal d'audit impossible (utilisateur inexistant) : la transaction échoue APRÈS le retrait des codes → tout est annulé.
+    const direction = A.user;
+    A.user = { ...direction, id: "00000000-0000-0000-0000-00000000dead" };
+    try {
+      await expect(supprimerConge(id)).rejects.toThrow();
+    } finally { A.user = direction; }
+    expect(await statutDe(id)).toBe("APPROUVE");
+    expect(await prisma.attendance.count({ where: { employeeId: empId, date: new Date("2026-12-15") } })).toBe(1);
   });
 
   it("l'échec d'approbation unitaire garde TOUS les filtres de la liste dans l'adresse de retour", async () => {

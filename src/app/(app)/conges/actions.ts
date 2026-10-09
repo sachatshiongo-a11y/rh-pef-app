@@ -10,6 +10,7 @@ import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { poserCodesConge, retirerCodesConge, chargerPreloadConges } from "@/lib/conges-presences";
+import { MAX_SUPPRESSIONS_PAR_LOT } from "@/lib/conges-liste";
 import { figerSoldesApprobation, INSTANTANE_SOLDE_EFFACE, resumeInstantane } from "@/lib/solde-conge-fige";
 
 /**
@@ -244,9 +245,11 @@ async function supprimerUneDemande(leaveRequestId: string, userId: string) {
     demande.dateDebut
   ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
 
-  if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin));
   await supprimerNotificationsPour(leaveRequestId);
   await prisma.$transaction(async (tx) => {
+    // Les codes de présence partent DANS la transaction de la suppression : un échec de l'une ne laisse
+    // jamais une demande approuvée sans ses codes (ni des codes sans demande).
+    if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), tx);
     await tx.leaveRequest.delete({ where: { id: leaveRequestId } });
     await journaliser(tx, {
       entite: "LeaveRequest",
@@ -365,6 +368,11 @@ export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConge
 export async function supprimerCongesEnLot(ids: string[]): Promise<RapportLotConges> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
+  // Plafond serveur (l'écran le fait respecter aussi) : une suppression n'est jamais tronquée en silence, elle est refusée en bloc.
+  const distincts = [...new Set(ids)];
+  if (distincts.length > MAX_SUPPRESSIONS_PAR_LOT) {
+    return { traitees: 0, echecs: [`Suppression refusée : ${distincts.length} demandes sélectionnées, ${MAX_SUPPRESSIONS_PAR_LOT} au plus par lot. Rien n'a été supprimé.`] };
+  }
   let n = 0;
   const echecs: string[] = [];
   const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });

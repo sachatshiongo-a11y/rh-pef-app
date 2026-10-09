@@ -35,7 +35,9 @@ afterEach(() => {
 });
 
 const bouton = (texte: RegExp) => [...document.querySelectorAll("button")].find((b) => texte.test(b.textContent ?? ""));
-const panneau = () => document.querySelector<HTMLElement>("[data-panneau-lateral]");
+/** Le panneau OUVERT (fermé, il reste monté mais masqué : la saisie n'est pas perdue). */
+const panneau = () => document.querySelector<HTMLElement>("[data-panneau-lateral]:not([hidden])");
+const panneauMonte = () => document.querySelector<HTMLElement>("[data-panneau-lateral]");
 const formulaire = () => panneau()!.querySelector("form")!;
 function ouvrir() { act(() => bouton(/Nouvelle demande/)!.click()); }
 function saisir(el: HTMLInputElement | HTMLSelectElement, valeur: string) {
@@ -48,10 +50,11 @@ const champs = () => [...formulaire().querySelectorAll<HTMLInputElement | HTMLSe
 const options = (nom: string) => [...formulaire().querySelectorAll<HTMLOptionElement>(`select[name="${nom}"] option`)].map((o) => [o.value, o.textContent]);
 
 describe("Nouvelle demande — le bouton et le panneau", () => {
-  it("un bouton primaire en haut ; le panneau n'existe pas tant qu'on ne l'a pas ouvert", () => {
+  it("un bouton primaire en haut ; le panneau est masqué tant qu'on ne l'a pas ouvert", () => {
     monter();
     expect(bouton(/Nouvelle demande/)).toBeTruthy();
     expect(panneau()).toBeNull();
+    expect(panneauMonte()?.hidden).toBe(true);
     expect(document.querySelector("details")).toBeNull(); // plus de bloc repliable
   });
 
@@ -84,6 +87,53 @@ describe("Nouvelle demande — le bouton et le panneau", () => {
     expect(panneau()).toBeNull();
     ouvrir(); // la même erreur, déjà vue, ne revient pas à la réouverture
     expect(panneau()!.querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+describe("Nouvelle demande — saisie gardée, focus", () => {
+  it("fermer (Fermer, Échap, voile) ne perd pas la saisie ; elle repart vide une fois la demande enregistrée", async () => {
+    monter(); ouvrir();
+    saisir(formulaire().querySelector<HTMLInputElement>('input[name="motif"]')!, "Soins");
+    saisir(formulaire().querySelector<HTMLInputElement>('input[name="dateDebut"]')!, "2026-06-29");
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+    expect(panneau()).toBeNull();
+    ouvrir();
+    expect(formulaire().querySelector<HTMLInputElement>('input[name="motif"]')!.value).toBe("Soins");
+    expect(formulaire().querySelector<HTMLInputElement>('input[name="dateDebut"]')!.value).toBe("2026-06-29");
+    saisir(formulaire().querySelector<HTMLInputElement>('input[name="dateFin"]')!, "2026-07-04");
+    await act(async () => { formulaire().requestSubmit(); });
+    expect(panneau()).toBeNull();
+    ouvrir();
+    expect(formulaire().querySelector<HTMLInputElement>('input[name="motif"]')!.value).toBe("");
+  });
+
+  it("le focus va au premier champ à l'ouverture et revient au bouton à la fermeture", () => {
+    monter();
+    const ouvreur = bouton(/Nouvelle demande/)!;
+    act(() => ouvreur.focus());
+    ouvrir();
+    expect(document.activeElement).toBe(formulaire().querySelector('select[name="employeeId"]'));
+    act(() => bouton(/Fermer/)!.click());
+    expect(document.activeElement).toBe(ouvreur);
+  });
+
+  it("piège de focus : Tab sur le dernier élément revient au premier, Maj+Tab sur le premier va au dernier", () => {
+    monter(); ouvrir();
+    const focalisables = [...panneau()!.querySelectorAll<HTMLElement>("button, input, select")];
+    const premier = focalisables[0], dernier = focalisables[focalisables.length - 1];
+    act(() => dernier.focus());
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true })); });
+    expect(document.activeElement).toBe(premier);
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true })); });
+    expect(document.activeElement).toBe(dernier);
+  });
+
+  it("le portail n'existe pas au rendu serveur (ouverture directe sur ?erreur=… : pas d'écart d'hydratation)", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const html = renderToString(h(NouvelleDemandeConge, { employees: EMPLOYES, types: TYPES, feries: [], erreur: "Boum" }));
+    expect(html).toContain("Nouvelle demande");
+    expect(html).not.toContain("dialog");
+    expect(html).not.toContain("Boum");
   });
 });
 

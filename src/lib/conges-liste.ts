@@ -15,6 +15,8 @@ export const LIBELLE_STATUT_CONGE: Record<StatutConge, string> = { APPROUVE: "Ap
 export const JOURS_A_VENIR = 30;
 /** Un lot de PDF (ZIP) : au plus ce nombre de demandes — même borne que les fiches de poste. */
 export const MAX_DEMANDES_PAR_LOT = 50;
+/** Suppression groupée : au plus ce nombre de demandes par lot (refusé en bloc au-delà, côté serveur comme à l'écran). */
+export const MAX_SUPPRESSIONS_PAR_LOT = 200;
 /** Sections « À traiter », « En cours », « À venir » : lues en entier, jusqu'à cette borne (au-delà, l'écran le dit). */
 export const PLAFOND_SECTION = 300;
 

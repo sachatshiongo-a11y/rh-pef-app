@@ -105,9 +105,10 @@ export async function rattraperCodesConges(): Promise<number> {
   return total;
 }
 
-/** Retire les codes C/S de la plage (refus, suppression ou annulation d'un congé). Ne touche pas aux autres codes. */
-export async function retirerCodesConge(employeeId: string, dateDebut: Date, dateFin: Date): Promise<number> {
-  const { count } = await prisma.attendance.deleteMany({
+/** Retire les codes C/S de la plage (refus, suppression ou annulation d'un congé). Ne touche pas aux autres codes.
+ *  `client` : la transaction de l'appelant, pour que la suppression d'une demande et le retrait de ses codes réussissent ou échouent ensemble. */
+export async function retirerCodesConge(employeeId: string, dateDebut: Date, dateFin: Date, client: Pick<typeof prisma, "attendance"> = prisma): Promise<number> {
+  const { count } = await client.attendance.deleteMany({
     where: { employeeId, code: { in: ["C", "S"] }, date: { gte: new Date(dateDebut), lte: new Date(dateFin) } },
   });
   return count;

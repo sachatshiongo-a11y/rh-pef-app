@@ -258,6 +258,16 @@ describe("actions groupées", () => {
     expect(conteneur.textContent).toContain("PDF : 50 demandes au plus par lot (51 cochées)");
   });
 
+  it("Supprimer en lot : au-delà de 200 cochées, le bouton est désactivé et dit pourquoi", () => {
+    const beaucoup = Array.from({ length: 201 }, (_, i) => ligne(`m${i}`, `Salarié ${i}`, "APPROUVE", "2026-12-01", "2026-12-02"));
+    monter("ADMIN", { sections: [{ cle: "A_VENIR", lignes: beaucoup, total: 201, tronque: false }] });
+    act(() => { conteneur.querySelector<HTMLInputElement>('[data-vue="tableau"] thead + tbody tr:first-child input[type="checkbox"]')!.click(); });
+    const b = bouton(/201 cochées, 200 au plus/)!;
+    expect(b).toBeTruthy();
+    expect(b.disabled).toBe(true);
+    expect(bouton(/Supprimer \(/)).toBeUndefined();
+  });
+
   it("Responsable : PDF en lot oui ; ni Approuver / Refuser ni Supprimer", () => {
     monter("MANAGER");
     act(() => caseDe("a1").click());

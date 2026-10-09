@@ -16,7 +16,7 @@ import { EtatVide } from "@/components/etat-vide";
 import { Icone } from "@/components/icones";
 import { TelechargerLien } from "@/components/telecharger-lien";
 import {
-  LIBELLE_STATUT_CONGE, MAX_DEMANDES_PAR_LOT, PLAFOND_SECTION, SECTIONS, libelleJours, libellePeriode,
+  LIBELLE_STATUT_CONGE, MAX_DEMANDES_PAR_LOT, MAX_SUPPRESSIONS_PAR_LOT, PLAFOND_SECTION, SECTIONS, libelleJours, libellePeriode,
   type CleSection, type LigneConge, type Regroupement,
 } from "@/lib/conges-liste";
 
@@ -142,14 +142,18 @@ export function ListeConges({
           ) : (
             <span className="text-xs text-muted-foreground">PDF : {MAX_DEMANDES_PAR_LOT} demandes au plus par lot ({ids.length} cochées)</span>
           )}
-          {peutApprouver && (
+          {peutApprouver && (ids.length <= MAX_SUPPRESSIONS_PAR_LOT ? (
             <BoutonDanger
               type="button" disabled={enCours}
               onClick={() => lot(supprimerCongesEnLot, ids, "supprimée(s)", `Supprimer ${ids.length} demande(s) de congé ? Les congés approuvés perdent leurs codes sur la feuille de présence. L'opération est tracée au journal d'audit.`)}
             >
               Supprimer ({ids.length})
             </BoutonDanger>
-          )}
+          ) : (
+            <BoutonDanger type="button" disabled title="Décochez des demandes pour supprimer">
+              {ids.length} cochées, {MAX_SUPPRESSIONS_PAR_LOT} au plus
+            </BoutonDanger>
+          ))}
           {enCours && <span className="text-xs text-muted-foreground">Traitement…</span>}
         </BulkBar>
       )}

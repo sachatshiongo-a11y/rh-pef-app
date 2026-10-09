@@ -19,9 +19,10 @@ export async function GET(request: Request) {
 
   const zip = new JSZip();
   const utilises = new Set<string>();
+  let introuvables = 0;
   for (const id of ids) {
     const pdf = await genererDemandeCongePdf(id);
-    if (!pdf) continue;
+    if (!pdf) { introuvables++; continue; }
     // Deux demandes qui donnent le même nom de fichier (même salarié, même type) : suffixe, jamais d'écrasement.
     const base = pdf.nomFichier.replace(/\.pdf$/i, "");
     let nom = base;
@@ -31,6 +32,10 @@ export async function GET(request: Request) {
   }
   if (utilises.size === 0) return new Response("Demandes de congé introuvables", { status: 404 });
 
+  // Une demande supprimée entre-temps (autre onglet) manque au ZIP : on le DIT, jamais en silence.
+  if (introuvables > 0) {
+    zip.file("LISEZMOI.txt", `${introuvables} demande(s) sur ${ids.length} n'ont pas été trouvées (supprimées depuis la sélection ?) et ne figurent pas dans cette archive.\r\n`);
+  }
   const contenu = await zip.generateAsync({ type: "nodebuffer" });
   return new Response(new Uint8Array(contenu), {
     headers: {

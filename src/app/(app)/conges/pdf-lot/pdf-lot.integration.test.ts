@@ -67,6 +67,15 @@ describe("PDF en lot des demandes de congé", () => {
     expect((await appeler("00000000-0000-0000-0000-000000000000")).status).toBe(404);
   });
 
+  it("une demande introuvable au milieu d'une sélection : le ZIP le dit (LISEZMOI.txt), les autres PDF sont là", async () => {
+    const zip = await JSZip.loadAsync(Buffer.from(await (await appeler(`${ids[0]},00000000-0000-0000-0000-000000000000`)).arrayBuffer()));
+    expect(Object.keys(zip.files).sort()).toEqual(["Demande_LOT-1.pdf", "LISEZMOI.txt"]);
+    expect(await zip.files["LISEZMOI.txt"].async("string")).toContain("1 demande(s) sur 2");
+    // Sélection complète : pas de LISEZMOI.
+    const complet = await JSZip.loadAsync(Buffer.from(await (await appeler(ids.join(","))).arrayBuffer()));
+    expect(Object.keys(complet.files)).not.toContain("LISEZMOI.txt");
+  });
+
   it("un doublon dans la liste ne donne pas deux fichiers", async () => {
     const zip = await JSZip.loadAsync(Buffer.from(await (await appeler(`${ids[0]},${ids[0]}`)).arrayBuffer()));
     expect(Object.keys(zip.files)).toEqual(["Demande_LOT-1.pdf"]);
