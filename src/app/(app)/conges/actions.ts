@@ -10,6 +10,7 @@ import { ecartJoursSoumis } from "@/lib/jours-ouvrables";
 import { formulaireLisible } from "@/lib/erreur-formulaire";
 import { creerNotification, supprimerNotificationsPour, notifierSalarie, compteSalarieDe } from "@/lib/notifications";
 import { poserCodesConge, retirerCodesConge, chargerPreloadConges } from "@/lib/conges-presences";
+import { MAX_SUPPRESSIONS_PAR_LOT, verifierMotifRefus } from "@/lib/conges-liste";
 import { figerSoldesApprobation, INSTANTANE_SOLDE_EFFACE, resumeInstantane } from "@/lib/solde-conge-fige";
 
 /**
@@ -111,7 +112,7 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
     approuvee = await prisma.$transaction(async (tx) => {
       const { count } = await tx.leaveRequest.updateMany({
         where: { id: leaveRequestId, statut: { not: "APPROUVE" } },
-        data: { statut: "APPROUVE", approuveParId: user.id },
+        data: { statut: "APPROUVE", approuveParId: user.id, motifRefus: null },
       });
       if (count === 0) return false;
       await figerSoldesApprobation(tx, [demande], new Date(), user.id);
@@ -142,7 +143,9 @@ export async function approuverConge(leaveRequestId: string): Promise<{ erreur?:
 }
 
 /** Filtres de la liste des congés, conservés dans l'URL de retour d'une décision. */
-export type FiltresListeConges = { statut?: string; type?: string; q?: string; page?: string; par?: string };
+export type FiltresListeConges = {
+  statut?: string; type?: string; q?: string; quand?: string; mois?: string; du?: string; au?: string; groupe?: string; page?: string; par?: string;
+};
 
 /**
  * `approuverConge` pour un `<form action>` (écran Congés). L'erreur revient par la page, dans
@@ -157,10 +160,10 @@ export async function approuverCongeFormulaire(leaveRequestId: string, filtres: 
   if (erreur) redirect(urlRetourConges(filtres, erreur));
 }
 
-/** `/conges?statut=…&type=…&q=…&page=…&par=…&erreurDecision=…` (la page et la taille de page sont gardées aussi) */
+/** `/conges?statut=…&type=…&q=…&quand=…&mois=…&du=…&au=…&groupe=…&page=…&par=…&erreurDecision=…` (tous les filtres de la liste, la page et la taille de page sont gardés) */
 function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
   const p = new URLSearchParams();
-  for (const cle of ["statut", "type", "q", "page", "par"] as const) {
+  for (const cle of ["statut", "type", "q", "quand", "mois", "du", "au", "groupe", "page", "par"] as const) {
     const v = filtres?.[cle];
     if (typeof v === "string" && v !== "") p.set(cle, v.slice(0, 200));
   }
@@ -168,16 +171,25 @@ function urlRetourConges(filtres: FiltresListeConges, erreur: string): string {
   return `/conges?${p.toString()}`;
 }
 
-export async function refuserConge(leaveRequestId: string) {
+/**
+ * Refuse UNE demande. Le MOTIF est OBLIGATOIRE (décision Direction 2026-10-09) : sans motif (ou au-delà de
+ * 500 caractères) rien n'est écrit et la raison est RENDUE (`erreur`), jamais lancée. Le motif est stocké,
+ * porté au journal d'audit, repris dans la notification au salarié et imprimé sur le PDF.
+ */
+export async function refuserConge(leaveRequestId: string, motifBrut: string): Promise<{ erreur?: string }> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
+  const verifie = verifierMotifRefus(motifBrut);
+  if ("erreur" in verifie) return { erreur: verifie.erreur };
+  const { motif } = verifie;
 
-  const demande = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: leaveRequestId } });
+  const demande = await prisma.leaveRequest.findUnique({ where: { id: leaveRequestId } });
+  if (!demande) return { erreur: "Demande de congé introuvable." };
   // Quitter APPROUVÉ efface le solde figé (voir INSTANTANE_SOLDE_EFFACE) : il décrivait une
   // approbation qui n'existe plus. Sa valeur reste au journal d'audit ci-dessous.
   await prisma.leaveRequest.update({
     where: { id: leaveRequestId },
-    data: { statut: "REFUSE", approuveParId: user.id, ...INSTANTANE_SOLDE_EFFACE },
+    data: { statut: "REFUSE", approuveParId: user.id, motifRefus: motif, ...INSTANTANE_SOLDE_EFFACE },
   });
   // Un congé auparavant approuvé avait posé ses codes sur la grille : on les retire.
   if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin));
@@ -188,6 +200,7 @@ export async function refuserConge(leaveRequestId: string) {
     nouvelleValeur: "REFUSE",
     userId: user.id,
   });
+  await journaliser(prisma, { entite: "LeaveRequest", entiteId: leaveRequestId, champ: "motifRefus", nouvelleValeur: motif, userId: user.id });
   const instantaneEfface = resumeInstantane(demande);
   if (instantaneEfface) {
     await journaliser(prisma, {
@@ -200,19 +213,23 @@ export async function refuserConge(leaveRequestId: string) {
     });
   }
   await supprimerNotificationsPour(leaveRequestId);
-  await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), false);
+  await notifierSalarieDecision(demande.employeeId, leaveRequestId, demande.type, new Date(demande.dateDebut), new Date(demande.dateFin), false, motif);
 
   revaliderConges();
+  return {};
 }
 
 /** Notifie le salarié concerné (cloche perso + push) de la décision sur SA demande de congé. */
-async function notifierSalarieDecision(employeeId: string, leaveRequestId: string, type: string, dateDebut: Date, dateFin: Date, approuve: boolean) {
+async function notifierSalarieDecision(employeeId: string, leaveRequestId: string, type: string, dateDebut: Date, dateFin: Date, approuve: boolean, motifRefus?: string) {
   const userId = await compteSalarieDe(employeeId);
   if (!userId) return; // pas de compte salarié → rien à notifier
   const periode = `du ${dateDebut.toLocaleDateString("fr-FR", { timeZone: "UTC" })} au ${dateFin.toLocaleDateString("fr-FR", { timeZone: "UTC" })}`;
   await notifierSalarie(userId, {
     type: "CONGE",
-    message: `Votre demande de congé (${type}) ${periode} a été ${approuve ? "approuvée ✅" : "refusée"}.`,
+    // Un refus dit POURQUOI : « Votre demande de congé du … au … est refusée : <motif> ».
+    message: approuve
+      ? `Votre demande de congé (${type}) ${periode} a été approuvée ✅.`
+      : `Votre demande de congé ${periode} est refusée : ${motifRefus ?? "—"}`,
     lien: "/espace/conges",
     refId: `${leaveRequestId}:decision`, // refId distinct → non supprimé par supprimerNotificationsPour
   });
@@ -226,7 +243,12 @@ async function notifierSalarieDecision(employeeId: string, leaveRequestId: strin
 export async function supprimerConge(leaveRequestId: string) {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
+  await supprimerUneDemande(leaveRequestId, user.id);
+  revaliderConges();
+}
 
+/** Le corps de la suppression d'UNE demande, commun à l'action unitaire et à l'action groupée (la garde Direction est posée par chacune). */
+async function supprimerUneDemande(leaveRequestId: string, userId: string) {
   const demande = await prisma.leaveRequest.findUnique({
     where: { id: leaveRequestId },
     include: { employee: { select: { nom: true, matricule: true } } },
@@ -237,20 +259,20 @@ export async function supprimerConge(leaveRequestId: string) {
     demande.dateDebut
   ).toLocaleDateString("fr-FR")} au ${new Date(demande.dateFin).toLocaleDateString("fr-FR")} — statut ${demande.statut}`;
 
-  if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin));
   await supprimerNotificationsPour(leaveRequestId);
   await prisma.$transaction(async (tx) => {
+    // Les codes de présence partent DANS la transaction de la suppression : un échec de l'une ne laisse
+    // jamais une demande approuvée sans ses codes (ni des codes sans demande).
+    if (demande.statut === "APPROUVE") await retirerCodesConge(demande.employeeId, new Date(demande.dateDebut), new Date(demande.dateFin), tx);
     await tx.leaveRequest.delete({ where: { id: leaveRequestId } });
     await journaliser(tx, {
       entite: "LeaveRequest",
       entiteId: leaveRequestId,
       champ: "suppression",
       ancienneValeur: resume,
-      userId: user.id,
+      userId,
     });
   });
-
-  revaliderConges();
 }
 
 /** Rapport d'un lot : demandes traitées + échecs NOMMÉS (l'échec d'une demande ne bloque pas
@@ -280,7 +302,7 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
       for (const d of candidates) {
         const { count } = await tx.leaveRequest.updateMany({
           where: { id: d.id, statut: "EN_ATTENTE" },
-          data: { statut: "APPROUVE", approuveParId: user.id },
+          data: { statut: "APPROUVE", approuveParId: user.id, motifRefus: null },
         });
         if (count === 1) ok.push(d);
       }
@@ -317,9 +339,13 @@ export async function approuverCongesEnLot(ids: string[]): Promise<RapportLotCon
 }
 
 /** ACTION GROUPÉE : refuse plusieurs demandes en attente d'un coup. */
-export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConges> {
+export async function refuserCongesEnLot(ids: string[], motifBrut: string): Promise<RapportLotConges> {
   const user = await verifySession();
   requireRole(user, ["ADMIN"]);
+  // Un MÊME motif (obligatoire) pour toute la sélection ; sans motif, rien n'est refusé.
+  const verifie = verifierMotifRefus(motifBrut);
+  if ("erreur" in verifie) return { traitees: 0, echecs: [verifie.erreur] };
+  const { motif } = verifie;
   let n = 0;
   const echecs: string[] = [];
   const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });
@@ -332,7 +358,7 @@ export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConge
         where: { id },
         // Seules des demandes EN ATTENTE passent ici (aucun instantané) ; l'effacement est posé
         // quand même : quitter APPROUVÉ ou refuser n'a jamais à laisser un solde figé derrière.
-        data: { statut: "REFUSE", approuveParId: user.id, ...INSTANTANE_SOLDE_EFFACE },
+        data: { statut: "REFUSE", approuveParId: user.id, motifRefus: motif, ...INSTANTANE_SOLDE_EFFACE },
       });
       await journaliser(prisma, {
         entite: "LeaveRequest",
@@ -341,8 +367,40 @@ export async function refuserCongesEnLot(ids: string[]): Promise<RapportLotConge
         nouvelleValeur: "REFUSE",
         userId: user.id,
       });
+      await journaliser(prisma, { entite: "LeaveRequest", entiteId: id, champ: "motifRefus", nouvelleValeur: motif, userId: user.id });
       await supprimerNotificationsPour(id);
-      await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), false);
+      await notifierSalarieDecision(d.employeeId, id, d.type, new Date(d.dateDebut), new Date(d.dateFin), false, motif);
+      n++;
+    } catch (e) {
+      echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);
+    }
+  }
+  revaliderConges();
+  return { traitees: n, echecs };
+}
+
+/**
+ * ACTION GROUPÉE : supprime plusieurs demandes (écran Congés, barre d'actions). Réservée à la Direction,
+ * comme l'unitaire — c'est la MÊME suppression (`supprimerUneDemande` : codes de présence retirés, journal
+ * d'audit par demande), répétée demande par demande : l'échec de l'une est nommé et ne bloque pas les autres.
+ */
+export async function supprimerCongesEnLot(ids: string[]): Promise<RapportLotConges> {
+  const user = await verifySession();
+  requireRole(user, ["ADMIN"]);
+  // Plafond serveur (l'écran le fait respecter aussi) : une suppression n'est jamais tronquée en silence, elle est refusée en bloc.
+  const distincts = [...new Set(ids)];
+  if (distincts.length > MAX_SUPPRESSIONS_PAR_LOT) {
+    return { traitees: 0, echecs: [`Suppression refusée : ${distincts.length} demandes sélectionnées, ${MAX_SUPPRESSIONS_PAR_LOT} au plus par lot. Rien n'a été supprimé.`] };
+  }
+  let n = 0;
+  const echecs: string[] = [];
+  const demandes = await prisma.leaveRequest.findMany({ where: { id: { in: ids } }, include: { employee: { select: { nom: true } } } });
+  const demandeParId = new Map(demandes.map((d) => [d.id, d]));
+  for (const id of [...new Set(ids)]) {
+    const d = demandeParId.get(id);
+    if (!d) continue; // déjà supprimée (autre onglet) : rien à faire
+    try {
+      await supprimerUneDemande(id, user.id);
       n++;
     } catch (e) {
       echecs.push(`${d.employee.nom} : ${e instanceof Error ? e.message : "erreur inattendue"}`);

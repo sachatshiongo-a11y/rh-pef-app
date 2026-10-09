@@ -46,6 +46,7 @@ export default async function EspaceConges({ searchParams }: { searchParams: Pro
         dateFin: l.dateFin,
         motif: l.motif,
         statut: l.statut,
+        motifRefus: l.motifRefus,
         signature: l.statut === "APPROUVE" ? etatSignature(sigConges.get(l.id)) : null,
       }))}
     />

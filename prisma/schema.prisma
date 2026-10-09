@@ -1177,6 +1177,10 @@ model LeaveRequest {
   approuveParId String?
   approuvePar   User?       @relation("ApprovedBy", fields: [approuveParId], references: [id])
   dateEnreg     DateTime    @default(now())
+  /// Motif d'un REFUS (décision Direction 2026-10-09 : obligatoire pour tout refus à venir, 500 caractères
+  /// au plus). Null sur une demande refusée avant ce changement (affichée « — ») et sur toute demande non refusée ;
+  /// effacé quand la demande quitte REFUSE. Imprimé sur le PDF, repris dans la notification au salarié.
+  motifRefus    String?
 
   /// SOLDE FIGÉ À L'APPROBATION (décision Direction 2026-09-29) : le solde de congé annuel du
   /// salarié tel qu'il se lisait à la source unique (`lib/solde-conge-salarie.ts`) À L'INSTANT où

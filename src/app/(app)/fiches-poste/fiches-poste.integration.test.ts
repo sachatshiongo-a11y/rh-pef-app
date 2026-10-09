@@ -80,12 +80,13 @@ describe("suppression groupée des fiches", () => {
 });
 
 describe("PDF en lot (ZIP)", () => {
-  it("un PDF par fiche demandée, nommé comme l'unitaire ; ids inconnus ignorés", async () => {
+  it("un PDF par fiche demandée, nommé comme l'unitaire ; un id inconnu est DIT dans un LISEZMOI.txt", async () => {
     const [a, b] = await fiches();
     const res = await LOT.GET(new Request(`http://x/fiches-poste/pdf-lot?ids=${a.id},${b.id},inconnu`));
     expect(res.headers.get("Content-Type")).toBe("application/zip");
     const zip = await JSZip.loadAsync(Buffer.from(await res.arrayBuffer()));
-    expect(Object.keys(zip.files).sort()).toEqual(["Fiche_de_poste_Cuisiniere.pdf", "Fiche_de_poste_Serveuse.pdf"]);
+    expect(Object.keys(zip.files).sort()).toEqual(["Fiche_de_poste_Cuisiniere.pdf", "Fiche_de_poste_Serveuse.pdf", "LISEZMOI.txt"]);
+    expect(await zip.file("LISEZMOI.txt")!.async("string")).toContain("1 fiche(s) sur 3");
     const pdf = await zip.file("Fiche_de_poste_Cuisiniere.pdf")!.async("nodebuffer");
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
   }, 60000);

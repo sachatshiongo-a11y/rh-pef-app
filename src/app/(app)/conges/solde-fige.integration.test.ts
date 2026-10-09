@@ -361,7 +361,7 @@ describe("annulation d'une approbation", () => {
     expect((await instantane(id)).jours).toBe(13);
 
     horloge(new Date("2026-10-01T08:00:00Z"));
-    await refuserConge(id);
+    await refuserConge(id, "Période de forte activité");
     expect((await relire(id)).statut).toBe("REFUSE");
     expect(await instantane(id)).toEqual({ jours: null, acquis: null, pris: null, le: null });
     const trace = await prisma.journalAudit.findFirst({ where: { entite: "LeaveRequest", entiteId: id, champ: "soldeFige" } });

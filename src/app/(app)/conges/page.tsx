@@ -1,39 +1,28 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { demanderConge, approuverCongeFormulaire, refuserConge, supprimerConge } from "./actions";
 import { CalendrierAbsences, type SPCalendrier } from "./calendrier";
-import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
-import { TelechargerLien } from "@/components/telecharger-lien";
-import { BoutonApprouver, BoutonRefuser } from "@/components/action-buttons";
-import { Avatar } from "@/components/avatar";
-import { ChampsDatesConge } from "@/components/champs-dates-conge";
 import { chargerSignatures, etatSignature } from "@/lib/signature";
-import { BoutonSigner } from "@/components/bouton-signer";
-import { faireSignerDocument } from "../signature-actions";
 import { exigerPageRH } from "@/lib/garde-page";
-import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
-import { ChampTaillePage, LienGardantTaille, Pagination } from "@/components/pagination";
-import { PLAFOND_TOUT, fenetrePage, lirePagination } from "@/lib/pagination";
+import { anneeCouranteKinshasa, jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { grouperParMois } from "@/lib/dates-fr";
+import { Pagination } from "@/components/pagination";
+import { PLAFOND_TOUT, fenetrePage, groupePartiel, lirePagination } from "@/lib/pagination";
+import {
+  ETATS, JOURS_A_VENIR, PLAFOND_SECTION, SECTIONS, TRI_PAR_MOIS, clauseAVenir, clauseConges, clauseEnCours, clauseSection, etatActif, filtreActif,
+  lireFiltresConges, triSection, type CleSection, type LigneConge, type StatutConge,
+} from "@/lib/conges-liste";
 import type { Prisma } from "@prisma/client";
+import { ListeConges, type GroupeMois, type SectionListe } from "./liste-conges";
+import { FiltresConges } from "./filtres-conges";
+import { NouvelleDemandeConge } from "./nouvelle-demande";
 
-const COULEUR_CONGE: Record<string, string> = {
-  APPROUVE: "bg-green-100 text-green-800",
-  REFUSE: "bg-red-100 text-red-800",
-  EN_ATTENTE: "bg-amber-100 text-amber-800",
-};
-const LIBELLE_CONGE: Record<string, string> = { APPROUVE: "Approuvé", REFUSE: "Refusé", EN_ATTENTE: "En attente" };
-const BORDURE_CONGE: Record<string, string> = { APPROUVE: "border-l-emerald-400", REFUSE: "border-l-red-400", EN_ATTENTE: "border-l-amber-400" };
-const MOIS_COURT = ["JAN", "FÉV", "MAR", "AVR", "MAI", "JUIN", "JUIL", "AOÛ", "SEP", "OCT", "NOV", "DÉC"];
-function chipDate(dt: Date) {
-  const x = new Date(dt);
-  return { j: x.getUTCDate(), m: MOIS_COURT[x.getUTCMonth()] };
-}
+type SP = { statut?: string; type?: string; q?: string; quand?: string; mois?: string; du?: string; au?: string; groupe?: string; vue?: string; erreur?: string; erreurDecision?: string; page?: string; par?: string } & SPCalendrier;
 
-export default async function CongesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ statut?: string; type?: string; q?: string; vue?: string; erreur?: string; erreurDecision?: string; page?: string; par?: string } & SPCalendrier>;
-}) {
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const AVEC_SALARIE = { employee: true, approuvePar: true } satisfies Prisma.LeaveRequestInclude;
+type LigneBase = Prisma.LeaveRequestGetPayload<{ include: typeof AVEC_SALARIE }>;
+
+export default async function CongesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await exigerPageRH();
   const sp = await searchParams;
 
@@ -42,57 +31,105 @@ export default async function CongesPage({
   const peutGerer = user.role === "ADMIN" || user.role === "MANAGER";
   const peutApprouver = user.role === "ADMIN";
 
-  // La liste est lue PAR PAGE (count + skip/take) : plus de plafond silencieux à 300 demandes (qui faussait aussi la
-  // synthèse). Le filtre (statut, type, recherche) est une clause SQL : il porte sur TOUTES les demandes.
-  const q = (sp.q ?? "").trim();
-  const STATUTS = ["EN_ATTENTE", "APPROUVE", "REFUSE"] as const;
-  const whereListe: Prisma.LeaveRequestWhereInput = {
-    ...(sp.statut ? { statut: STATUTS.includes(sp.statut as (typeof STATUTS)[number]) ? (sp.statut as (typeof STATUTS)[number]) : undefined } : {}),
-    ...(sp.statut && !STATUTS.includes(sp.statut as (typeof STATUTS)[number]) ? { id: { in: [] } } : {}), // statut inconnu : aucune demande
-    ...(sp.type ? { type: sp.type } : {}),
-    ...(q ? { employee: { OR: [{ nom: { contains: q, mode: "insensitive" } }, { matricule: { contains: q, mode: "insensitive" } }] } } : {}),
-  };
+  // Tout est lu CÔTÉ SERVEUR, filtre compris (clause SQL : il porte sur TOUTES les demandes) ; seuls les
+  // « Passés » (et le regroupement par mois) sont lus PAR PAGE (count + skip/take) : plus de plafond silencieux.
+  const f = lireFiltresConges(sp);
   const { page, par } = lirePagination(sp);
-  const now = jourCivilKinshasa(new Date()); // jour civil de Kinshasa : un congé du 12 au 12 est « en cours » le 12
-  const dans30 = new Date(now.getTime() + 30 * 86_400_000);
+  const maintenant = new Date();
+  const jourJ = jourCivilKinshasa(maintenant); // jour civil de Kinshasa : un congé du 12 au 12 est « en cours » le 12
+  const anneeCourante = anneeCouranteKinshasa(maintenant);
+  const parMois = f.groupe === "mois";
+  const filtre = clauseConges(f, jourJ);
+  const hasFiltre = filtreActif(f);
 
-  const nbListe = await prisma.leaveRequest.count({ where: whereListe });
+  const sectionsVivantes = SECTIONS.filter((s) => s.cle !== "PASSES");
+  const clausePasses = { AND: [filtre, clauseSection("PASSES", jourJ)] };
+  const nbListe = await prisma.leaveRequest.count({ where: parMois ? filtre : clausePasses });
   const fen = fenetrePage(nbListe, page, par, PLAFOND_TOUT);
-  const [employees, demandesPage, typesConge, feriesRows, typesGroupes, nbAttente, enCours, aVenir, nbApprouve] = await Promise.all([
-    prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" } }),
+
+  // Compteurs des pastilles : sur TOUT l'ensemble (pas sur la page). Ceux de l'état ignorent l'état choisi, ceux du type ignorent le type choisi.
+  const sansEtat = clauseConges(f, jourJ, "etat");
+  const sansType = clauseConges(f, jourJ, "type");
+  const [employees, typesConge, feriesRows, parStatut, nEnCours, nAVenir, parType, typesExistants, vivantes, lignesListe] = await Promise.all([
+    peutGerer ? prisma.employee.findMany({ where: { actif: true }, orderBy: { nom: "asc" }, select: { id: true, nom: true } }) : Promise.resolve([]),
+    peutGerer ? prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }) : Promise.resolve([]),
+    peutGerer ? prisma.jourFerie.findMany({ select: { date: true } }) : Promise.resolve([]),
+    prisma.leaveRequest.groupBy({ by: ["statut"], where: sansEtat, _count: { _all: true } }),
+    prisma.leaveRequest.count({ where: { AND: [sansEtat, clauseEnCours(jourJ)] } }),
+    prisma.leaveRequest.count({ where: { AND: [sansEtat, clauseAVenir(jourJ, JOURS_A_VENIR)] } }),
+    prisma.leaveRequest.groupBy({ by: ["type"], where: sansType, _count: { _all: true } }),
+    prisma.leaveRequest.groupBy({ by: ["type"] }),
+    // Les trois sections « vivantes » : lues en entier (bornées), triées pour l'urgence.
+    parMois
+      ? Promise.resolve([] as { cle: CleSection; lignes: LigneBase[] }[])
+      : Promise.all(sectionsVivantes.map(async (s) => ({
+          cle: s.cle,
+          lignes: await prisma.leaveRequest.findMany({ where: { AND: [filtre, clauseSection(s.cle, jourJ)] }, include: AVEC_SALARIE, orderBy: triSection(s.cle), take: PLAFOND_SECTION + 1 }),
+        }))),
+    // La liste PAGINÉE : les « Passés » (regroupement par état) ou toutes les demandes (regroupement par mois).
     prisma.leaveRequest.findMany({
-      where: whereListe,
-      include: { employee: true, approuvePar: true },
-      orderBy: [{ dateEnreg: "desc" }, { id: "asc" }],
+      where: parMois ? filtre : clausePasses,
+      include: AVEC_SALARIE,
+      orderBy: parMois ? TRI_PAR_MOIS : triSection("PASSES"),
       skip: fen.skip,
       take: fen.take,
     }),
-    prisma.typeConge.findMany({ where: { actif: true }, orderBy: { ordre: "asc" } }),
-    prisma.jourFerie.findMany({ select: { date: true } }),
-    prisma.leaveRequest.groupBy({ by: ["type"] }),
-    // Synthèse : sur TOUTES les demandes, indépendante du filtre de la liste.
-    prisma.leaveRequest.count({ where: { statut: "EN_ATTENTE" } }),
-    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { lte: now }, dateFin: { gte: now } } }),
-    prisma.leaveRequest.count({ where: { statut: "APPROUVE", dateDebut: { gt: now, lte: dans30 } } }),
-    prisma.leaveRequest.count({ where: { statut: "APPROUVE" } }),
   ]);
-  const feries = feriesRows.map((f) => new Date(f.date).toISOString().slice(0, 10));
-  const TYPES_CONGE = typesConge.map((t) => t.nom);
-  const typesPresents = typesGroupes.map((g) => g.type).sort();
-  const filtreActif = !!(sp.statut || sp.type || q);
-  // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant (page et taille comprises).
-  const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q, page: sp.page, par: sp.par };
+
+  const feries = feriesRows.map((x) => iso(new Date(x.date)));
+  const nStatut = (s: StatutConge) => parStatut.find((g) => g.statut === s)?._count._all ?? 0;
+  const compteEtat = {
+    tous: parStatut.reduce((n, g) => n + g._count._all, 0), // les trois statuts partitionnent l'ensemble
+    EN_ATTENTE: nStatut("EN_ATTENTE"), "en-cours": nEnCours, "a-venir": nAVenir, APPROUVE: nStatut("APPROUVE"), REFUSE: nStatut("REFUSE"),
+  };
+  const etats = ETATS.map((e) => ({ cle: e.cle, n: compteEtat[e.cle] }));
+  // Types : ceux qui existent, avec leur compteur dans l'ensemble filtré ; ceux à zéro disparaissent (sauf le type choisi, pour pouvoir le quitter).
+  const nbParType = new Map(parType.map((g) => [g.type, g._count._all]));
+  const nomsTypes = [...new Set([...typesExistants.map((g) => g.type), ...(f.type ? [f.type] : [])])].sort((a, b) => a.localeCompare(b, "fr"));
+  const types = nomsTypes.map((nom) => ({ nom, n: nbParType.get(nom) ?? 0 })).filter((t) => t.n > 0 || t.nom === f.type);
 
   // Signatures des demandes approuvées affichées : UNE requête, jamais une par ligne.
-  const sigConges = await chargerSignatures(
-    prisma,
-    "DEMANDE_CONGE",
-    demandesPage.filter((d) => d.statut === "APPROUVE").map((d) => d.id)
-  );
+  const affichees = [...vivantes.flatMap((s) => s.lignes.slice(0, PLAFOND_SECTION)), ...lignesListe];
+  const sigConges = await chargerSignatures(prisma, "DEMANDE_CONGE", affichees.filter((d) => d.statut === "APPROUVE").map((d) => d.id));
+  const enLigne = (d: LigneBase): LigneConge => ({
+    id: d.id,
+    employeeId: d.employee.id,
+    nom: d.employee.nom,
+    photoUrl: d.employee.photoUrl ?? null,
+    type: d.type,
+    debut: iso(d.dateDebut),
+    fin: iso(d.dateFin),
+    nbJours: Number(d.nbJours),
+    statut: d.statut,
+    approuveParNom: d.approuvePar?.nom ?? null,
+    motifRefus: d.statut === "REFUSE" ? d.motifRefus : null,
+    signature: d.statut === "APPROUVE" ? etatSignature(sigConges.get(d.id)) : null,
+  });
+
+  let sections: SectionListe[] = [];
+  let groupes: GroupeMois[] = [];
+  if (parMois) {
+    groupes = grouperParMois(lignesListe.map(enLigne), (l) => l.debut).map((g, i, tous) => ({
+      cle: g.cle, titre: g.titre, lignes: g.items, partiel: groupePartiel(i, tous.length, fen),
+    }));
+  } else {
+    sections = [
+      ...vivantes.map((s) => ({ cle: s.cle, lignes: s.lignes.slice(0, PLAFOND_SECTION).map(enLigne), total: Math.min(s.lignes.length, PLAFOND_SECTION), tronque: s.lignes.length > PLAFOND_SECTION })),
+      { cle: "PASSES" as const, lignes: lignesListe.map(enLigne), total: nbListe, tronque: false },
+    ];
+  }
+
+  const nbVivantes = sections.filter((s) => s.cle !== "PASSES").reduce((n, s) => n + s.total, 0);
+  const rienDuTout = parMois ? nbListe === 0 : nbVivantes === 0 && nbListe === 0;
+  // « Passés » s'ouvre d'office quand on a filtré, changé de page ou de taille, ou qu'il n'y a rien d'autre à voir.
+  const passesOuvertParDefaut = hasFiltre || page > 1 || !!sp.page || !!sp.par || nbVivantes === 0;
+
+  // Rendus dans l'URL de retour d'une décision en échec : la liste revient filtrée comme avant (page et taille comprises).
+  const filtresListe = { statut: sp.statut, type: sp.type, q: sp.q, quand: sp.quand, mois: sp.mois, du: sp.du, au: sp.au, groupe: sp.groupe, page: sp.page, par: sp.par };
 
   return (
     <div>
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold sm:text-2xl">Congés &amp; absences</h1>
           <div className="flex overflow-hidden rounded-md border text-sm">
@@ -100,215 +137,31 @@ export default async function CongesPage({
             <Link href="/conges?vue=calendrier" className="px-3 py-1.5 hover:bg-accent">Calendrier</Link>
           </div>
         </div>
+        {peutGerer && <NouvelleDemandeConge employees={employees} types={typesConge.map((t) => t.nom)} feries={feries} erreur={sp.erreur} />}
       </div>
 
-      {/* Synthèse façon Factorial */}
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {[
-          { label: "En attente", value: nbAttente, classe: "text-amber-600", lien: "?statut=EN_ATTENTE" },
-          { label: "En congé aujourd'hui", value: enCours, classe: "text-emerald-600", lien: "?statut=APPROUVE" },
-          { label: "À venir (30 j)", value: aVenir, classe: "text-sky-600", lien: "?statut=APPROUVE" },
-          { label: "Approuvés (total)", value: nbApprouve, classe: "text-foreground", lien: "?statut=APPROUVE" },
-        ].map((c) => (
-          <LienGardantTaille key={c.label} href={`/conges${c.lien}`} className="rounded-xl border bg-card p-4 shadow-sm transition hover:border-primary">
-            <p className="text-xs text-muted-foreground">{c.label}</p>
-            <p className={`mt-1 text-xl font-bold sm:text-2xl ${c.classe}`}>{c.value}</p>
-          </LienGardantTaille>
-        ))}
+      <div className="mb-4">
+        <FiltresConges params={filtresListe} etats={etats} etatActif={etatActif(f)} types={types} actif={hasFiltre} regroupement={f.groupe} />
       </div>
-
-      {peutGerer && (
-        <details open={!!sp.erreur} className="mb-6 rounded-xl border">
-          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold">+ Nouvelle demande de congé</summary>
-          <div className="border-t p-5">
-          {sp.erreur && (
-            <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreur}</p>
-          )}
-          <form action={demanderConge} className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="employeeId" className="text-sm font-medium">
-                Employé
-              </label>
-              <select
-                id="employeeId"
-                name="employeeId"
-                required
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.nom}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="type" className="text-sm font-medium">
-                Type
-              </label>
-              <select
-                id="type"
-                name="type"
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                {TYPES_CONGE.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {/* Dates + décompte EN DIRECT des jours ouvrables (dimanches et fériés exclus). */}
-            <ChampsDatesConge feries={feries} inputClassName="rounded-md border border-input bg-background px-3 py-2 text-sm" />
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor="remplacantId" className="text-sm font-medium">
-                Remplaçant(e)
-              </label>
-              <select
-                id="remplacantId"
-                name="remplacantId"
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">— Aucun —</option>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.nom}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-span-2 flex flex-col gap-1.5 md:col-span-2">
-              <label htmlFor="motif" className="text-sm font-medium">
-                Motif (optionnel)
-              </label>
-              <input
-                id="motif"
-                name="motif"
-                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="col-span-2 md:col-span-4">
-              <button
-                type="submit"
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-              >
-                Enregistrer la demande
-              </button>
-            </div>
-          </form>
-          </div>
-        </details>
-      )}
-
-      <form method="GET" className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border bg-card p-3">
-        <ChampTaillePage />
-        <label className="flex flex-col gap-1 text-xs">
-          Recherche (nom / matricule)
-          <input name="q" defaultValue={sp.q ?? ""} placeholder="Rechercher…" className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          Statut
-          <select name="statut" defaultValue={sp.statut ?? ""} className="rounded-md border border-input bg-background px-3 py-1.5 text-sm">
-            <option value="">Tous</option>
-            <option value="EN_ATTENTE">En attente</option>
-            <option value="APPROUVE">Approuvé</option>
-            <option value="REFUSE">Refusé</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          Type
-          <select name="type" defaultValue={sp.type ?? ""} className="rounded-md border border-input bg-background px-3 py-1.5 text-sm">
-            <option value="">Tous</option>
-            {typesPresents.map((t) => (<option key={t} value={t}>{t}</option>))}
-          </select>
-        </label>
-        <button type="submit" className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground">Filtrer</button>
-        {filtreActif && (
-          <LienGardantTaille href="/conges" className="rounded-md border px-4 py-1.5 text-sm font-medium hover:bg-accent">Réinitialiser</LienGardantTaille>
-        )}
-      </form>
 
       {/* Échec d'une décision prise dans la liste : affiché ici, au-dessus de la liste, et non
-          dans le bloc « Nouvelle demande » (qui a sa propre erreur, `?erreur=`). */}
+          dans le panneau « Nouvelle demande » (qui a sa propre erreur, `?erreur=`). */}
       {sp.erreurDecision && (
         <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{sp.erreurDecision}</p>
       )}
 
-      {nbListe === 0 ? (
-        <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-          Aucune demande de congé {filtreActif ? "pour ce filtre" : "enregistrée"}.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {demandesPage.map((d) => {
-            const cd = chipDate(d.dateDebut);
-            const cf = chipDate(d.dateFin);
-            return (
-              <div key={d.id} className={`flex flex-wrap items-center gap-3 rounded-xl border border-l-4 bg-card p-3 ${BORDURE_CONGE[d.statut] ?? ""}`}>
-                <Avatar nom={d.employee.nom} photoUrl={d.employee.photoUrl} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm">
-                    <Link href={`/employes/${d.employee.id}`} className="font-semibold hover:underline">{d.employee.nom}</Link>{" "}
-                    <span className="text-muted-foreground">— {d.type.toLowerCase()}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {Number(d.nbJours)} jour(s){d.approuvePar ? ` · approuvé par ${d.approuvePar.nom}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-col items-center rounded-lg border bg-background px-2 py-1 leading-none">
-                    <span className="text-[9px] font-medium text-muted-foreground">{cd.m}</span>
-                    <span className="text-sm font-semibold">{cd.j}</span>
-                  </div>
-                  <span className="text-muted-foreground">→</span>
-                  <div className="flex flex-col items-center rounded-lg border bg-background px-2 py-1 leading-none">
-                    <span className="text-[9px] font-medium text-muted-foreground">{cf.m}</span>
-                    <span className="text-sm font-semibold">{cf.j}</span>
-                  </div>
-                </div>
-                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${COULEUR_CONGE[d.statut] ?? ""}`}>
-                  {LIBELLE_CONGE[d.statut] ?? d.statut}
-                </span>
-                <div className="flex items-center gap-2">
-                  {peutApprouver && d.statut === "EN_ATTENTE" && (
-                    <>
-                      <form action={approuverCongeFormulaire.bind(null, d.id, filtresListe)} className="inline">
-                        <BoutonApprouver type="submit" />
-                      </form>
-                      <form action={refuserConge.bind(null, d.id)} className="inline">
-                        <BoutonRefuser type="submit" />
-                      </form>
-                    </>
-                  )}
-                  <TelechargerLien href={`/conges/demande/${d.id}`} className="text-sm text-primary underline">PDF</TelechargerLien>
-                  {peutGerer && d.statut === "APPROUVE" && (
-                    <BoutonSigner
-                      cible="DEMANDE_CONGE"
-                      cibleId={d.id}
-                      nomSalarie={d.employee.nom}
-                      libelleDocument={`${d.type} — ${d.employee.nom}`}
-                      cote="DIRECTION"
-                      action={faireSignerDocument}
-                      {...etatSignature(sigConges.get(d.id))}
-                    />
-                  )}
-                  {peutApprouver && (
-                    <form action={supprimerConge.bind(null, d.id)} className="inline">
-                      <ConfirmSubmitButton
-                        message={d.statut === "APPROUVE" ? "Supprimer ce congé approuvé ? Ses codes seront retirés de la feuille de présence." : "Supprimer cette demande de congé ?"}
-                        className="rounded-md border border-destructive/40 px-2 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
-                      >
-                        ✕
-                      </ConfirmSubmitButton>
-                    </form>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <Pagination className="mt-4" plafondTout={PLAFOND_TOUT} total={nbListe} page={fen.page} par={par} chemin="/conges" params={filtresListe} libelle="demandes" />
+      <ListeConges
+        regroupement={f.groupe}
+        sections={sections}
+        groupes={groupes}
+        passesOuvertParDefaut={passesOuvertParDefaut}
+        anneeCourante={anneeCourante}
+        peutGerer={peutGerer}
+        peutApprouver={peutApprouver}
+        filtresRetour={filtresListe}
+        vide={rienDuTout ? `Aucune demande de congé ${hasFiltre ? "pour ce filtre" : "enregistrée"}.` : null}
+        pagination={<Pagination className="mt-1" plafondTout={PLAFOND_TOUT} total={nbListe} page={fen.page} par={par} chemin="/conges" params={filtresListe} libelle="demandes" />}
+      />
     </div>
   );
 }
