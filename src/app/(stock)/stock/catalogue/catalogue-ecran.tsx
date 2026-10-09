@@ -4,15 +4,7 @@ import type { ManqueKey } from "@/lib/filtre-inventaire";
 import { CatalogueTable, type ArticleRow } from "./catalogue-table";
 import { PAR_DEFAUT, type ParPage } from "@/lib/pagination";
 import { LienGardantTaille } from "@/components/pagination";
-
-type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
-
-const DOMAINES: { cle: Domaine | ""; label: string }[] = [
-  { cle: "", label: "Tous" },
-  { cle: "NOURRITURE", label: "Nourriture" },
-  { cle: "BOISSON", label: "Boissons" },
-  { cle: "AUTRE", label: "Autre" },
-];
+import { PilulesDomaine, type DomaineCle as Domaine } from "@/components/stock/pilules-domaine";
 
 /**
  * Écran Inventaire (en-tête + tableau), sans accès aux données : `CatalogueView` les lit et les
@@ -49,15 +41,9 @@ export function CatalogueEcran({ rows, categories, fournisseurs, domaine, q, ale
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-lg font-semibold sm:text-2xl">Inventaire</h1>
-          <div className="flex overflow-hidden rounded-md border text-sm">
-            {DOMAINES.map((d) =>
-              (domaine ?? "") === d.cle ? (
-                <span key={d.label} className="bg-primary px-2.5 py-1.5 font-medium text-primary-foreground lg:px-3">{d.label}</span>
-              ) : (
-                <LienGardantTaille doux={false} garder={["q", "alerte", "manque", "hausse"]} key={d.label} href={lienDomaine(d.cle)} className="px-2.5 py-1.5 hover:bg-accent lg:px-3">{d.label}</LienGardantTaille>
-              )
-            )}
-          </div>
+          <PilulesDomaine actif={domaine ?? ""} pilule={(d, p) => (
+            <LienGardantTaille doux={false} garder={["q", "alerte", "manque", "hausse"]} href={lienDomaine(d.cle)} className={p.className}>{p.children}</LienGardantTaille>
+          )} />
         </div>
         <div className="flex flex-wrap items-center gap-2 max-lg:hidden">
           <span className="rounded-md border bg-muted/40 px-2.5 py-1 text-sm"><span className="text-muted-foreground">Valeur du stock&nbsp;: </span><span className="font-semibold tabular-nums">{rows.some((r) => r.valeurApprox) ? "≈ " : ""}{usd(rows.reduce((t, r) => t + (r.valeurUSD !== undefined ? r.valeurUSD ?? 0 : (Number(r.prix) || 0) * (Number(r.quantite) || 0)), 0))}{(() => { const n = rows.filter((r) => r.devisePrix === "CDF" && r.prixCDF && r.valeurUSD === null).length; return n ? ` (hors ${n} en FC : taux non défini)` : ""; })()}</span></span>
