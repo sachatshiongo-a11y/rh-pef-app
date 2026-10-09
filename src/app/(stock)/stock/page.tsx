@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { equivalentSomme, formaterMontantFacture, libelleSomme } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
 import { ALERTE_CLASSE, usd, qte, STATUT_BC_LABEL, STATUT_BC_CLASSE, STATUT_FACTURE_LABEL, STATUT_FACTURE_CLASSE } from "@/lib/stock";
@@ -132,10 +133,11 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
           <Kpi label="Alertes urgentes" valeur={String(nbUrgent)} sous={etiquette(AUJ)} accent={nbUrgent > 0 ? "red" : undefined} href="/stock/catalogue?alerte=URGENT" />
           <Kpi label="À réapprovisionner" valeur={String(nbAppro)} sous={etiquette(AUJ)} accent={nbAppro > 0 ? "amber" : undefined} href="/stock/catalogue?alerte=APPRO" />
           <Kpi label="Valeur du stock" valeur={`${(stockFige ? contientFrancsConvertis(stockFige) : ind.valeurStockApprox) ? "≈ " : ""}${usd(valeurAffichee)}`} sous={!stockFige && ind.articlesSansTaux > 0 ? [sousValeur, `hors ${ind.articlesSansTaux} article(s) en FC (taux du jour non défini)`].filter(Boolean).join(" · ") : sousValeur} />
-          <Kpi label="Factures à payer" valeur={usd(facturesAPayer.montant)} sous={avecEtiquette(`${facturesAPayer.nb} facture(s)`, AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+          {/* Factures en francs (2026-10-09) : leur reste s'affiche à part, jamais additionné aux dollars. */}
+          <Kpi label="Factures à payer" valeur={libelleSomme(facturesAPayer.montant, facturesAPayer.montantCDF, usd)} sous={avecEtiquette([`${facturesAPayer.nb} facture(s)`, equivalentSomme(facturesAPayer.montant, facturesAPayer.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={(facturesAPayer.montant ?? 0) > 0 || (facturesAPayer.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
           <Kpi label="Commandes du mois" valeur={String(commandesMois)} href={lienCommandes} />
-          <Kpi label="À régler cette semaine" valeur={usd(facturesSemaine.montant)} sous={avecEtiquette(`${facturesSemaine.nb} facture(s)`, "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
-          <Kpi label="Factures échues" valeur={usd(facturesEchues.montant)} sous={avecEtiquette(`${facturesEchues.nb} facture(s)`, AUJ)} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
+          <Kpi label="À régler cette semaine" valeur={libelleSomme(facturesSemaine.montant, facturesSemaine.montantCDF, usd)} sous={avecEtiquette([`${facturesSemaine.nb} facture(s)`, equivalentSomme(facturesSemaine.montant, facturesSemaine.montantCDF, taux)].filter(Boolean).join(" · "), "semaine en cours")} accent={(facturesSemaine.montant ?? 0) > 0 || (facturesSemaine.montantCDF ?? 0) > 0 ? "amber" : undefined} href="/stock/factures?statut=du" />
+          <Kpi label="Factures échues" valeur={libelleSomme(facturesEchues.montant, facturesEchues.montantCDF, usd)} sous={avecEtiquette([`${facturesEchues.nb} facture(s)`, equivalentSomme(facturesEchues.montant, facturesEchues.montantCDF, taux)].filter(Boolean).join(" · "), AUJ)} accent={facturesEchues.nb > 0 ? "red" : undefined} href="/stock/factures?statut=ECHUE_NON_REGLEE" />
           <Kpi label="Légumes frais du mois" valeur={usd(legumesMois.montant)} sous={`${legumesMois.nb} achat(s)`} href="/stock/legumes" />
           <Kpi label="Conso. du mois (sorties)" valeur={`≈ ${usd(consoMois.montant)}`} sous={`${consoMois.nb} sortie(s) valorisées${ind.consoFrancsSansTaux > 0 ? ` · dont ${ind.consoFrancsSansTaux} en FC non valorisée(s) : taux non défini` : ""}`} href={lienMouvements} />
         </div>
@@ -210,7 +212,7 @@ export default async function StockDashboard({ searchParams }: { searchParams: P
             <ul className="divide-y text-sm">
               {dernieresFactures.map((f) => (
                 <li key={f.id} className="flex items-center justify-between gap-2 py-1.5">
-                  <Link href={`/stock/factures/${f.id}`} className="truncate hover:underline">{f.fournisseur?.nom ?? f.fournisseurNom} · {usd(f.montantUSD)}</Link>
+                  <Link href={`/stock/factures/${f.id}`} className="truncate hover:underline">{f.fournisseur?.nom ?? f.fournisseurNom} · {f.devise === "CDF" ? formaterMontantFacture(Number(f.montantCDF), "CDF") : usd(f.montantUSD)}</Link>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUT_FACTURE_CLASSE[f.statut]}`}>{STATUT_FACTURE_LABEL[f.statut]}</span>
                 </li>
               ))}

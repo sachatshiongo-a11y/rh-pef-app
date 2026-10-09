@@ -135,3 +135,18 @@ export function libelleAutreDevise(n: number, devise: DeviseFacture, taux: numbe
   if (tx === null) return "≈ —";
   return devise === "CDF" ? `≈ ${formaterUSD(arr2(n / tx))}` : `≈ ${formaterMontantFacture(Math.round(n * tx), "CDF")}`;
 }
+
+/**
+ * Somme d'un agrégat de factures, dollars et francs à part (`null` = aucune facture dans cette
+ * devise). Sans francs : `fmtUSD(usd)` — EXACTEMENT l'affichage d'avant (y compris « — » pour null).
+ * Avec : « 1 234,50 $ + 2 800 000 FC » ou « 2 800 000 FC » seul.
+ */
+export function libelleSomme(usd: number | null, cdf: number | null | undefined, fmtUSD: (n: number | null) => string): string {
+  if (cdf === null || cdf === undefined || Math.abs(cdf) < 0.005) return fmtUSD(usd);
+  const fc = formaterMontantFacture(cdf, "CDF");
+  return usd === null || Math.abs(usd) < 0.005 ? fc : `${fmtUSD(usd)} + ${fc}`;
+}
+
+/** « ≈ 2 234,50 $ au taux du jour » pour une somme qui compte des francs ; null sinon (affichage d'avant). */
+export const equivalentSomme = (usd: number | null, cdf: number | null | undefined, taux: number | null | undefined): string | null =>
+  libelleEquivalent(totalDepuisSommes(usd, cdf ?? null), taux);

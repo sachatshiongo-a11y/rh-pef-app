@@ -1,3 +1,4 @@
+import { formaterMontantFacture } from "@/lib/facture-devise";
 import { Suspense, type ReactNode } from "react";
 import { Indicateur, type TeinteIndicateur } from "@/components/indicateur";
 import { montantSigne } from "@/lib/montant";
@@ -45,7 +46,13 @@ async function CartesEntreesStockChargees({ annee, mois }: { annee: number; mois
 export function CartesEntreesStockVue({ donnees: d, moisEnCours }: { donnees: IndicateursEntrees; moisEnCours: boolean }) {
   const avecAutres = d.autres.nb > 0;
   const lien = (motif: string) => `/stock/mouvements?mois=${encodeURIComponent(d.cleMois)}&motif=${motif}`;
-  const factureDiffere = d.facture.nb > 0 && d.facture.montant !== d.factures.montant;
+  // Factures en francs : leur montant est en francs, leurs entrées valorisées en dollars au taux de
+  // l'enregistrement — le facturé se dit alors par devise, jamais additionné.
+  const factureCDF = d.facture.montantCDF ?? 0;
+  const factureDiffere = d.facture.nb > 0 && (d.facture.montant !== d.factures.montant || factureCDF !== 0);
+  const libelleFacture = factureCDF !== 0
+    ? (d.facture.montant !== 0 ? `${montantSigne(d.facture.montant, "USD").texte} + ${formaterMontantFacture(factureCDF, "CDF")}` : formaterMontantFacture(factureCDF, "CDF"))
+    : montantSigne(d.facture.montant, "USD").texte;
   const egalite = avecAutres ? "Total = Liste d'achat + Factures + Autres" : "Total = Liste d'achat + Factures";
 
   // `essentiel` : la ligne de détail reste visible sur téléphone ; les autres sont masquées pour ne
@@ -56,7 +63,7 @@ export function CartesEntreesStockVue({ donnees: d, moisEnCours }: { donnees: In
     { cle: "achats", libelle: "dont Liste d'achat", somme: d.achats, href: lien("achats"), detail: "achats sans facture" },
     {
       cle: "factures", libelle: "dont Factures fournisseurs", somme: d.factures, href: lien("factures"), essentiel: factureDiffere,
-      detail: factureDiffere ? `facturé ce mois : ${montantSigne(d.facture.montant, "USD").texte}` : "lignes de factures entrées en stock",
+      detail: factureDiffere ? `facturé ce mois : ${libelleFacture}` : "lignes de factures entrées en stock",
     },
     ...(avecAutres ? [{ cle: "autres", libelle: "dont Autres entrées", somme: d.autres, href: lien("autres"), detail: "réceptions, entrées manuelles, corrections, imports" }] : []),
   ];

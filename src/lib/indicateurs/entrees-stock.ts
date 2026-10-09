@@ -41,8 +41,11 @@ export type IndicateursEntrees = {
    * (ou y figure deux fois) — l'écran le dit, jamais masqué.
    */
   ecart: { montant: number; nb: number } | null;
-  /** Montant des factures fournisseurs du mois (même chiffre que le rapport « Factures fournisseurs »). */
-  facture: { montant: number; nb: number };
+  /**
+   * Montant des factures fournisseurs du mois (même chiffre que le rapport « Factures fournisseurs »).
+   * `montant` : factures en dollars (comme avant) ; `montantCDF` : factures en francs, à part (2026-10-09).
+   */
+  facture: { montant: number; nb: number; montantCDF?: number };
 };
 
 /** Montants de ces cartes : mêmes rôles que les autres montants du tableau de bord (espace Stock). */
@@ -90,7 +93,7 @@ export async function chargerIndicateursEntrees(annee: number, mois: number): Pr
     agreger(filtre("factures")),
     agreger(filtre("autres")),
     // Le facturé du mois, comme le rapport « Factures fournisseurs » : par mois de facture.
-    prisma.factureFournisseur.aggregate({ where: { annee, mois }, _sum: { montantUSD: true }, _count: { _all: true } }),
+    prisma.factureFournisseur.aggregate({ where: { annee, mois }, _sum: { montantUSD: true, montantCDF: true }, _count: { _all: true } }),
   ]);
 
   const parts = { achats: lire(achats), factures: lire(factures), autres: lire(autres) };
@@ -106,6 +109,6 @@ export async function chargerIndicateursEntrees(annee: number, mois: number): Pr
     },
     ...s,
     ecart,
-    facture: { montant: arr(Number(facturees._sum.montantUSD ?? DEC0)), nb: facturees._count._all },
+    facture: { montant: arr(Number(facturees._sum.montantUSD ?? DEC0)), nb: facturees._count._all, montantCDF: arr(Number(facturees._sum.montantCDF ?? DEC0)) },
   };
 }
