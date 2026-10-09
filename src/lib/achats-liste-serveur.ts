@@ -1,5 +1,6 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
+import { CHAMPS_LIBELLE, contenancePourClient, libelleArticle } from "@/lib/libelle-article";
 import { prisma } from "@/lib/prisma";
 import { formaterNombre } from "@/lib/montant";
 import { jjmmaaaa, ORIGINE_LISTE_ACHAT, WHERE_ACHATS_LISTE } from "@/lib/achats-liste";
@@ -20,10 +21,10 @@ export type LigneAVerifier = { articleId: string; designation: string; quantite:
 export async function catalogueCandidats(client: Client = prisma): Promise<ArticleCandidat[]> {
   const articles = await client.articleStock.findMany({
     orderBy: { designation: "asc" },
-    select: { id: true, designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, actif: true },
+    select: { id: true, designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, actif: true, contenance: true, contenanceUnite: true },
   });
   // Prix de référence dans SA devise (2026-10-08) : un article en francs propose ses francs.
-  return articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, actif: a.actif }));
+  return articles.map((a) => ({ id: a.id, designation: a.designation, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, actif: a.actif, ...contenancePourClient(a) }));
 }
 
 /**
@@ -78,7 +79,7 @@ export async function avertissementsListeAchat(dateISO: string, lignes: readonly
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       select: {
         articleId: true, quantite: true, date: true, origine: true,
-        article: { select: { designation: true } },
+        article: { select: CHAMPS_LIBELLE },
         facture: { select: { numero: true, fournisseurNom: true } },
         reception: { select: { bonDeCommande: { select: { numero: true } } } },
       },
@@ -103,7 +104,7 @@ export async function avertissementsListeAchat(dateISO: string, lignes: readonly
         return `+${formaterNombre(Number(e.quantite), { maximumFractionDigits: 3 })} le ${jjmmaaaa(e.date.toISOString())} par ${par}`;
       });
       const suite = deja.length > 5 ? ` (et ${deja.length - 5} autre(s))` : "";
-      messages.push(`« ${deja[0].article.designation} » : déjà entré en stock à ${FENETRE_JOURS} jours près — ${detail.join(" · ")}${suite}. Si c'est le même achat, le stock le comptera deux fois.`);
+      messages.push(`« ${libelleArticle(deja[0].article)} » : déjà entré en stock à ${FENETRE_JOURS} jours près — ${detail.join(" · ")}${suite}. Si c'est le même achat, le stock le comptera deux fois.`);
     }
     const comptage = comptages.find((c) => c.articleId === articleId);
     if (comptage) {

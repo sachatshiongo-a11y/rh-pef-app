@@ -6,6 +6,7 @@
 // (`creerNouveau`, ou la ligne devenue article du catalogue) ; le serveur revérifie.
 import type { ArticleCandidat } from "@/lib/achats-doublons";
 import type { EtatLigne, Ligne } from "@/lib/liste-achat-saisie";
+import { libelleArticle } from "@/lib/libelle-article";
 
 type Props = {
   ligne: Ligne;
@@ -41,12 +42,12 @@ export function AlertesLigne({ ligne, etat, autres, onUtiliser, onCreer, onUtili
   return (
     <div data-alertes-ligne className={`space-y-1.5 ${tactile ? "text-sm" : "text-xs"}`}>
       {!ligne.articleId && d?.type === "auto" && (
-        <p data-rattache className="text-muted-foreground">→ Rattachée à l&apos;article existant <b className="text-foreground">« {d.article.designation} »</b>{d.article.actif ? "" : " (inactif)"} (même nom) : aucun nouvel article ne sera créé.</p>
+        <p data-rattache className="text-muted-foreground">→ Rattachée à l&apos;article existant <b className="text-foreground">« {libelleArticle(d.article)} »</b>{d.article.actif ? "" : " (inactif)"} (même nom) : aucun nouvel article ne sera créé.</p>
       )}
 
       {choix && (ligne.creerNouveau && creationPossible ? (
         <p data-creer-nouveau className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900">
-          Un <b>nouvel article</b> « {ligne.designation.trim()} » sera créé, bien qu&apos;il ressemble à {[...candidats.map((c) => `« ${c.designation} »`), ...etat.lignesProches.map((k) => nomLigne(k))].join(", ")}.{" "}
+          Un <b>nouvel article</b> « {ligne.designation.trim()} » sera créé, bien qu&apos;il ressemble à {[...candidats.map((c) => `« ${libelleArticle(c)} »`), ...etat.lignesProches.map((k) => nomLigne(k))].join(", ")}.{" "}
           <button type="button" onClick={() => onCreer(false)} className={`font-semibold underline ${tactile ? "min-h-11" : ""}`}>Revenir au choix</button>
         </p>
       ) : (
@@ -59,7 +60,7 @@ export function AlertesLigne({ ligne, etat, autres, onUtiliser, onCreer, onUtili
           <div className="flex flex-wrap gap-1.5">
             {candidats.map((c) => (
               <button key={c.id} type="button" data-utiliser={c.id} onClick={() => onUtiliser(c)} className={`rounded-md border border-amber-400 bg-background font-medium text-foreground hover:bg-accent ${btn}`}>
-                Utiliser « {c.designation} »{c.unite ? ` (${c.unite})` : ""}{c.actif ? "" : " (inactif)"}
+                Utiliser « {libelleArticle(c)} »{c.unite ? ` (${c.unite})` : ""}{c.actif ? "" : " (inactif)"}
               </button>
             ))}
             {creationPossible && etat.lignesProches.map((k) => (

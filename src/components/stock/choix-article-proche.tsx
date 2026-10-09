@@ -5,8 +5,9 @@
 // l'Inventaire et l'import d'inventaire (2026-10-09). Même règle (lib/article-proche.ts), même aspect
 // (encadré ambre), même vocabulaire. Le serveur revérifie toujours : cet écran informe, il ne décide pas.
 import Link from "next/link";
+import { libelleArticle } from "@/lib/libelle-article";
 
-export type CandidatProche = { id: string; designation: string; unite?: string | null; actif?: boolean };
+export type CandidatProche = { id: string; designation: string; unite?: string | null; actif?: boolean; contenance?: string | null; contenanceUnite?: string | null };
 
 export function ChoixArticleProche({ nom, candidats, creationPossible, onUtiliser, hrefUtiliser, onCreer, libelleCreer = "Créer quand même un nouvel article", desactive = false }: {
   /** Le nom tapé (ou lu dans le fichier). */
@@ -22,7 +23,7 @@ export function ChoixArticleProche({ nom, candidats, creationPossible, onUtilise
   desactive?: boolean;
 }) {
   const btn = "rounded-md border border-amber-400 bg-background px-2 py-0.5 text-xs font-medium text-foreground hover:bg-accent";
-  const libelle = (c: CandidatProche) => `Utiliser « ${c.designation} »${c.unite ? ` (${c.unite})` : ""}${c.actif === false ? " (inactif)" : ""}`;
+  const libelle = (c: CandidatProche) => `Utiliser « ${libelleArticle(c)} »${c.unite ? ` (${c.unite})` : ""}${c.actif === false ? " (inactif)" : ""}`;
   return (
     <div role="group" aria-label={`Article proche — ${nom}`} data-choix-article className="space-y-1 rounded-md border border-amber-400 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
       <p className="font-medium">

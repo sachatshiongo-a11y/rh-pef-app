@@ -119,3 +119,11 @@ export function rechercheContenance(a: Pick<ArticleLibelle, "contenance" | "cont
     : [`${enCompact(base)}g`, `${enCompact(base.div(1000))}kg`];
   return [...new Set(formes)];
 }
+
+/** Champs Prisma qu'un libellé demande : `select: { article: { select: CHAMPS_LIBELLE } }`, ou à étaler. */
+export const CHAMPS_LIBELLE = { designation: true, contenance: true, contenanceUnite: true } as const;
+
+/** Contenance prête à passer à un composant client (texte canonique « 0.75 », jamais un Decimal). */
+export function contenancePourClient(a: Pick<ArticleLibelle, "contenance" | "contenanceUnite">): { contenance: string | null; contenanceUnite: string | null } {
+  return { contenance: a.contenance === null || a.contenance === undefined ? null : String(a.contenance), contenanceUnite: a.contenanceUnite ?? null };
+}

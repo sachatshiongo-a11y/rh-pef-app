@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { prixSaisi } from "@/lib/prix-article";
+import { CHAMPS_LIBELLE, contenancePourClient, libelleArticle } from "@/lib/libelle-article";
 import { qte, usd } from "@/lib/stock";
 import { ListeAchatForm } from "./entree-client";
 import { SupprimerAchatBtn } from "./supprimer-achat-btn";
@@ -28,7 +29,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
   const fen = fenetrePage(nbAchats, demande.page, demande.par, PLAFOND_TOUT);
 
   const [articles, mouvements, config, fournisseurs] = await Promise.all([
-    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } }),
+    prisma.articleStock.findMany({ where: { actif: true }, orderBy: { designation: "asc" }, select: { id: true, designation: true, nomCourt: true, code: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true, contenance: true, contenanceUnite: true } }),
     prisma.mouvementStock.findMany({
       // Les achats saisis ICI, et eux seuls : ni les entrées par facture ou par réception de bon
       // de commande (elles vivent dans « Mouvements » — sinon le même achat s'affichait deux
@@ -37,7 +38,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "asc" }],
       skip: fen.skip,
       take: fen.take,
-      include: { article: { select: { designation: true } }, fournisseur: { select: { id: true, nom: true } } },
+      include: { article: { select: CHAMPS_LIBELLE }, fournisseur: { select: { id: true, nom: true } } },
     }),
     prisma.config.findUnique({ where: { id: "singleton" } }),
     prisma.fournisseur.findMany({ where: { actif: true }, orderBy: { nom: "asc" }, select: { id: true, nom: true } }),
@@ -100,7 +101,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
       </div>
 
       <ListeAchatForm
-        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix }))}
+        articles={articles.map((a) => ({ id: a.id, designation: a.designation, nomCourt: a.nomCourt, code: a.code, unite: a.unite, domaine: a.domaine, prix: prixSaisi(a)?.montant ?? null, devisePrix: a.devisePrix, ...contenancePourClient(a) }))}
         fournisseurs={fournisseurs}
         aujourdhui={jourKinshasaISO()}
         taux={taux}
@@ -134,7 +135,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                   {g.lignes.map((m) => (
                     <li key={m.id} className="flex items-center justify-between gap-2 px-3 py-1">
                       <span className="min-w-0 truncate pr-2">
-                        <Link href={`/stock/catalogue/${m.articleId}`} className="text-primary hover:underline">{m.article.designation}</Link>
+                        <Link href={`/stock/catalogue/${m.articleId}`} className="text-primary hover:underline">{libelleArticle(m.article)}</Link>
                         {m.fournisseur && (
                           <span className="text-xs text-muted-foreground"> · <Link href={`/stock/fournisseurs/${m.fournisseur.id}`} className="text-primary hover:underline">{m.fournisseur.nom}</Link></span>
                         )}
@@ -144,7 +145,7 @@ export default async function EntreePage({ searchParams }: { searchParams: Promi
                       <span className="flex shrink-0 items-center gap-2">
                         <span className="font-medium text-emerald-700">+{qte(m.quantite)}</span>
                         {m.montantUSD !== null && <span className="tabular-nums text-muted-foreground">{usd(m.montantUSD)}</span>}
-                        {estDirection && <SupprimerAchatBtn mouvementId={m.id} designation={m.article.designation} />}
+                        {estDirection && <SupprimerAchatBtn mouvementId={m.id} designation={libelleArticle(m.article)} />}
                       </span>
                     </li>
                   ))}

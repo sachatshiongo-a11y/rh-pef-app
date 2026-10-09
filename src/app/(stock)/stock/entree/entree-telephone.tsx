@@ -29,6 +29,7 @@ import {
 } from "@/lib/liste-achat-saisie";
 import type { ArticleCandidat } from "@/lib/achats-doublons";
 import { AlertesLigne } from "./alertes-ligne";
+import { libelleArticle } from "@/lib/libelle-article";
 
 const COURT: Record<Devise, string> = { USD: "USD", CDF: "FC" };
 /** Champ du panneau : 48 px de haut, 16 px de police (iOS ne zoome pas), même bordure que les champs du logiciel. */
@@ -114,7 +115,11 @@ function ConfirmerDevise({ lignes, devise, titres, onOui, onNon }: { lignes: Lig
   );
 }
 
-const titreDe = (l: Ligne, parId: Map<string, Art>) => l.designation.trim() || parId.get(l.articleId)?.designation || "Article sans nom";
+// Article du catalogue : son LIBELLÉ (contenance comprise) ; nouvel article : le nom tapé.
+const titreDe = (l: Ligne, parId: Map<string, Art>) => {
+  const a = l.articleId ? parId.get(l.articleId) : undefined;
+  return (a ? libelleArticle(a) : "") || l.designation.trim() || "Article sans nom";
+};
 
 /** « 3 kg × 18,00 $ = 54,00 $ » — ce que la ligne enregistrera ; alerte si elle serait ignorée (quantité absente). La DLC est montrée à part. */
 function calculDe(l: Ligne): { texte: string; alerte: boolean } {

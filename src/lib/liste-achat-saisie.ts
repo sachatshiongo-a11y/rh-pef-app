@@ -16,7 +16,7 @@ import { cleArticleExacte, doublonsDansListe, erreurDlc, type AnalyseLigne, type
 import { prochesDansListe } from "@/lib/article-proche";
 
 /** `prix` : prix de référence du catalogue dans SA devise (`devisePrix`, absente = USD). */
-export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise };
+export type Art = { id: string; designation: string; nomCourt?: string | null; code?: string | null; unite: string | null; domaine: string; prix: string | null; devisePrix?: Devise; contenance?: string | null; contenanceUnite?: string | null };
 export type Fourn = { id: string; nom: string };
 export type Devise = "USD" | "CDF";
 export type Domaine = "NOURRITURE" | "BOISSON" | "AUTRE";
@@ -230,7 +230,7 @@ export function avecArticleChoisi(l: Ligne, a: Art, taux: number): Ligne {
 export const avecNomDeLigne = (l: Ligne, modele: Ligne): Ligne => ({ ...l, designation: modele.designation, unite: modele.unite, domaine: modele.domaine, creerNouveau: modele.creerNouveau });
 
 /** Le candidat proposé, en article de l'écran (pour « Utiliser … ») : la ligne devient une ligne du catalogue. */
-export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, unite: c.unite, domaine: c.domaine, prix: c.prix, ...(c.devisePrix === "CDF" ? { devisePrix: "CDF" as const } : {}) });
+export const artDeCandidat = (c: ArticleCandidat): Art => ({ id: c.id, designation: c.designation, unite: c.unite, domaine: c.domaine, prix: c.prix, ...(c.devisePrix === "CDF" ? { devisePrix: "CDF" as const } : {}), ...(c.contenance ? { contenance: c.contenance, contenanceUnite: c.contenanceUnite ?? null } : {}) });
 
 /** Lignes de la même désignation libre (même clé exacte) : un choix « Utiliser » ou « Créer quand même » vaut pour toutes. */
 export function memeNomLibre(lignes: readonly Ligne[], i: number): number[] {

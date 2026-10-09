@@ -51,7 +51,7 @@ export function memeDesignation(a: string, b: string): boolean {
 
 /** Un article du catalogue proposé à la place d'une ligne libre (assez pour en faire une ligne du catalogue). */
 /** `prix` : prix de référence dans sa devise `devisePrix` (absente = USD). */
-export type ArticleCandidat = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean };
+export type ArticleCandidat = { id: string; designation: string; unite: string | null; domaine: string; prix: string | null; devisePrix?: "USD" | "CDF"; actif: boolean; contenance?: string | null; contenanceUnite?: string | null };
 
 /**
  * Sort d'une ligne au catalogue :

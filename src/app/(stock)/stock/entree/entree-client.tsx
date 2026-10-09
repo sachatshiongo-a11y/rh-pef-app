@@ -53,7 +53,7 @@ export function ListeAchatForm({ articles, fournisseurs, aujourdhui, taux, estDi
   // Plus les articles HORS de cette liste (inactifs) choisis par « Utiliser … » : visibles dans le champ, marqués « (inactif) ».
   const [horsListe, setHorsListe] = useState<ArticleCandidat[]>([]);
   const optionsArt = useMemo(
-    () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, actif: c.actif })), { marquerInactifs: true })],
+    () => [...optionsArticles(articles), ...optionsArticles(horsListe.map((c) => ({ id: c.id, designation: c.designation, actif: c.actif, contenance: c.contenance, contenanceUnite: c.contenanceUnite })), { marquerInactifs: true })],
     [articles, horsListe],
   );
   const [msg, setMsg] = useState<{ ok: boolean; texte: string } | null>(null);
