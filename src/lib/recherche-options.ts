@@ -11,6 +11,7 @@
 //    d'un tableur qui partagent la même liste ne la normalisent pas vingt fois.
 
 import { normTexte } from "@/lib/texte";
+import { libelleArticle, rechercheContenance } from "@/lib/libelle-article";
 
 export type OptionChoix = {
   /** Valeur soumise / renvoyée (id de l'article, du fournisseur…). */
@@ -92,10 +93,15 @@ export type ArticleRecherchable = {
   nomCourt?: string | null;
   code?: string | null;
   actif?: boolean;
+  /** Contenance enregistrée (texte canonique « 0.75 », nombre ou Decimal) : s'ajoute au libellé (`libelleArticle`). */
+  contenance?: string | number | { toString(): string } | null;
+  contenanceUnite?: string | null;
 };
 
 /**
- * Options d'un choix d'article : on cherche dans la désignation, le nom court et le code. À
+ * Options d'un choix d'article : le LIBELLÉ affiché (`libelleArticle` : désignation + contenance si le
+ * nom ne la porte pas), et l'on cherche dans ce libellé, la désignation, le nom court, le code et les
+ * écritures compactes de la contenance (« bacardi 1l » trouve « Bacardi » enregistré 1 l). À
  * calculer UNE fois par écran (`useMemo`) et à partager entre toutes les lignes : la liste n'est
  * jamais recopiée par ligne. Un article inactif garde la règle de l'écran (c'est lui qui décide de
  * le proposer) ; s'il l'est, il s'affiche « (inactif) ».
@@ -104,8 +110,8 @@ export function optionsArticles(articles: readonly ArticleRecherchable[], opts: 
   const p = opts.prefixe ?? "";
   return articles.map((a) => ({
     id: `${p}${a.id}`,
-    libelle: `${a.designation}${opts.marquerInactifs && a.actif === false ? " (inactif)" : ""}`,
-    recherche: [a.nomCourt, a.code],
+    libelle: `${libelleArticle(a)}${opts.marquerInactifs && a.actif === false ? " (inactif)" : ""}`,
+    recherche: [a.nomCourt, a.code, ...rechercheContenance(a)],
     ...(opts.groupe ? { groupe: opts.groupe } : {}),
     ...(opts.marquerInactifs && a.actif === false ? { attenue: true } : {}),
   }));

@@ -222,6 +222,23 @@ export function contenanceDansNom(nom: string): { quantite: Decimal; unite: Unit
 }
 
 /**
+ * TOUTES les contenances écrites dans un nom, dans l'ordre (même lecture que `contenanceDansNom`,
+ * qui n'en garde que la dernière) : « Pack 6 x 33cl 2L » → [33 cl, 2 l]. Sert à savoir si le nom
+ * porte DÉJÀ la contenance enregistrée de l'article (libellé affiché, `lib/libelle-article.ts`).
+ */
+export function contenancesDansNom(nom: string): { quantite: Decimal; unite: UniteContenance }[] {
+  const texte = nom.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const out: { quantite: Decimal; unite: UniteContenance }[] = [];
+  for (const m of texte.matchAll(CONTENANCE_REGEX)) {
+    const avant = texte[(m.index ?? 0) - 1];
+    if (avant && /[a-z0-9./,]/i.test(avant)) continue;
+    const quantite = new Decimal(m[1]!.replace(",", "."));
+    if (quantite.greaterThan(0)) out.push({ quantite, unite: UNITE_LUE[m[2]!.toLowerCase()]! });
+  }
+  return out;
+}
+
+/**
  * Le nom SANS ses mentions de contenance (celles que `contenanceDansNom` sait lire, même règle du
  * nombre « collé ») : « Coca-Cola 33cl » → « Coca-Cola  », « V8 1L » → « V8  ». Accents retirés.
  * Sert à comparer deux écritures d'un même article, la contenance étant comparée à part sous sa
