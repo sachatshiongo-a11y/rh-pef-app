@@ -14,7 +14,7 @@ import { ChoixRecherche } from "@/components/choix-recherche";
 import { optionsArticles } from "@/lib/recherche-options";
 
 const mvtInclude = {
-  article: { select: { designation: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
+  article: { select: { designation: true, unite: true, domaine: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } },
   facture: { select: { id: true, numero: true, fournisseurId: true, fournisseurNom: true } },
   reception: { select: { bonDeCommande: { select: { id: true, numero: true, fournisseurId: true, fournisseur: { select: { nom: true } } } } } },
   fournisseur: { select: { id: true, nom: true } }, // achat direct de la Liste d'achat
@@ -42,6 +42,7 @@ const versLite = (m: Mvt, taux: number | null): MvtLite => {
     origine: m.origine,
     type: m.type,
     quantite: Number(m.quantite),
+    unite: m.article.unite, // le mouvement ne porte pas d'unité : celle de l'article
     valeur: va ? va.v : null,
     valeurEstimee: va ? va.estime : false,
     facture: m.facture ? { id: m.facture.id, numero: m.facture.numero } : null,

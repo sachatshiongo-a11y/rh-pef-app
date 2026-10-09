@@ -5,7 +5,7 @@ import { classeurInventaire, type FeuilleInventaire } from "@/lib/export-excel";
 import { TableauDocument } from "@/lib/pdf/tableau";
 import { MOIS_FR } from "@/lib/dates-fr";
 import { inventaireDuMois, parDomaine, alerteLabel } from "@/lib/cloture-inventaire";
-import { niveauAlerte } from "@/lib/stock";
+import { niveauAlerte, uniteAffichee } from "@/lib/stock";
 import { formaterNombre } from "@/lib/montant";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     where: { date: { gte: debut, lt: fin } },
     orderBy: [{ date: "asc" }],
     take: 8000,
-    include: { article: { select: { code: true, designation: true, domaine: true } } },
+    include: { article: { select: { code: true, designation: true, unite: true, domaine: true } } },
   });
   const mvtParDomaine = (dom: string) => mouvements.filter((x) => String(x.article.domaine) === dom);
 
@@ -74,11 +74,13 @@ export async function GET(req: Request) {
         invTotauxCols: [9],
         alerteCol: 7,
         mvtTitre: `MOUVEMENTS DU MOIS — ${g.label}`,
-        mvtEntete: ["Date", "Code", "Désignation", "Entrées", "Sorties", "Valeur USD"],
+        // Unité de l'article à côté des quantités (2026-10-09) ; « — » si elle manque, jamais devinée.
+        mvtEntete: ["Date", "Code", "Désignation", "Unité", "Entrées", "Sorties", "Valeur USD"],
         mvtLignes: mvts.map((x) => [
           new Date(x.date).toLocaleDateString("fr-FR"),
           x.article.code ?? "",
           x.article.designation,
+          uniteAffichee(x.article.unite),
           x.type !== "SORTIE" ? num(Number(x.quantite)) : "",
           x.type === "SORTIE" ? num(Number(x.quantite)) : "",
           x.montantUSD !== null ? r2(Number(x.montantUSD)) : "",

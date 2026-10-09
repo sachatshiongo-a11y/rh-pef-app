@@ -89,6 +89,15 @@ export function usd(v: Prisma.Decimal | number | string | null | undefined): str
 }
 
 /** Formate une quantité (jusqu'à 3 décimales, sans zéros inutiles). */
+/**
+ * Unité d'un article à côté d'une quantité (Sacha, 2026-10-09 : « dans les mouvements des articles, les
+ * unités des articles doivent figurer également ») : celle de l'article, telle que saisie ; « — » si
+ * elle manque — jamais une unité devinée.
+ */
+export function uniteAffichee(unite: string | null | undefined): string {
+  return unite?.trim() || "—";
+}
+
 export function qte(v: Prisma.Decimal | number | string | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
   return Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 3 });

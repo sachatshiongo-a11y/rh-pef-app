@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { supprimerArticle } from "../actions";
 import { EditerArticle } from "./editer-article";
-import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
+import { niveauAlerte, ALERTE_LABEL, DOMAINE_LABEL, usd, qte, uniteAffichee, type NiveauAlerte } from "@/lib/stock";
 import { analyserPrix, pointDeMouvement, pointDeLigne } from "@/lib/stock-prix";
 import { exigerPageStock } from "@/lib/garde-page";
 import { TelechargerLien } from "@/components/telecharger-lien";
@@ -324,7 +324,7 @@ export default async function ArticleFichePage({
                       </div>
                     </div>
                     <div className={`shrink-0 text-right font-semibold tabular-nums ${sortie ? "text-red-700" : "text-emerald-700"}`}>
-                      {sortie ? "−" : "+"}{qte(m.quantite)}
+                      {sortie ? "−" : "+"}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${a.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(a.unite)}</span>
                     </div>
                   </div>
                 );

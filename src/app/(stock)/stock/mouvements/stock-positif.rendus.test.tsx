@@ -129,3 +129,15 @@ describe("depassements (pur)", () => {
     expect(depassements([{ articleId: "inconnu", quantite: "99" }, { articleId: "b", quantite: "abc" }], stock).size).toBe(0);
   });
 });
+
+describe("unité de l'article à côté de chaque quantité (2026-10-09)", () => {
+  it("colonnes Entrées/Sorties : « 3 kg », « 2 Bouteille » ; sans unité : « — », jamais devinée", async () => {
+    const { ColonneMouvements } = await import("./mouvements-client");
+    conteneur = document.createElement("div");
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    const m = (id: string, designation: string, quantite: number, unite: string | null) => ({ id, articleId: id, designation, dateISO: "2026-10-09", origine: null, type: "SORTIE", quantite, unite, valeur: null, valeurEstimee: false, facture: null, bc: null, fournId: null, fournNom: null, motif: "PERTE" });
+    act(() => racine.render(createElement(ColonneMouvements, { titre: "Sorties", signe: "−", couleur: "", estDirection: false, mouvements: [m("riz", "Riz", 3, "kg"), m("vodka", "Vodka", 2, "Bouteille"), m("sel", "Sel", 1, null)] })));
+    expect([...conteneur.querySelectorAll("[data-unite]")].map((e) => e.closest("div")!.textContent)).toEqual(["−3 kg", "−2 Bouteille", "−1 —"]);
+  });
+});

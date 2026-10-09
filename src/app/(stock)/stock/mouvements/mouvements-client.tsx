@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { mouvementManuel, supprimerMouvement, supprimerMouvementsEnLot } from "./actions";
 import { BoutonReinitialiser } from "../_rapport/bouton-reinitialiser";
-import { qte, usd } from "@/lib/stock";
+import { qte, uniteAffichee, usd } from "@/lib/stock";
 import { estErreur } from "@/lib/action-lisible";
 import { AVERTISSEMENT_LIVRAISON } from "@/lib/stock-restaurant";
 import { ChangerMotif } from "./changer-motif";
@@ -39,6 +39,8 @@ export type MvtLite = {
   origine: string | null;
   type: string;
   quantite: number;
+  /** Unité de l'article (le mouvement n'en porte pas) ; absente : « — » à l'écran, jamais devinée. */
+  unite?: string | null;
   valeur: number | null;
   valeurEstimee: boolean;
   facture: { id: string; numero: string | null } | null;
@@ -239,7 +241,7 @@ export function ColonneMouvements({ titre, mouvements, signe, couleur, estDirect
                     </div>
                     <div className="flex shrink-0 items-center gap-3 text-right">
                       <div>
-                        <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)}</div>
+                        <div className="font-semibold tabular-nums">{signe}{qte(m.quantite)} <span data-unite className={`text-xs font-normal ${m.unite?.trim() ? "" : "text-muted-foreground"}`}>{uniteAffichee(m.unite)}</span></div>
                         <div className="text-[11px] tabular-nums text-muted-foreground">{m.valeur !== null ? `${m.valeurEstimee ? "≈ " : ""}${usd(m.valeur)}` : "—"}</div>
                       </div>
                       {dateOuverteAuCompte && m.type === "SORTIE" && (
