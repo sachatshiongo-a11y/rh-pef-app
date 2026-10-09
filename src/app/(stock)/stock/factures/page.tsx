@@ -13,6 +13,7 @@ import { versFactureRow } from "./facture-row";
 import { STATUTS_FACTURE_A_REGLER } from "@/lib/fiche-fournisseur";
 import { LienGardantTaille } from "@/components/pagination";
 import { lirePagination } from "@/lib/pagination";
+import { aDesFrancs, additionnerTotaux, ajouterAuTotal, formaterMontantFacture, libelleEquivalent, libelleTotal, montantsFacture, totalVide, type DeviseFacture, type TotalDevises } from "@/lib/facture-devise";
 
 type SP = { statut?: string; tri?: string; vue?: string; annee?: string; page?: string; par?: string };
 const d = (v: Date | null) => (v ? new Date(v).toLocaleDateString("fr-FR") : null);
@@ -52,8 +53,15 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
   // KPIs et soldes calculés en SQL (agrégats) : on ne recharge plus TOUTE la table à chaque affichage.
   const [factures, kpiRows, config, enAttente] = await Promise.all([
     prisma.factureFournisseur.findMany({ where, orderBy, include: { fournisseur: { select: { nom: true } } } }),
-    prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number; nbTotal: number; nbReglees: number; nbDues: number; nbEchues: number }[]>`
+    // Par devise (2026-10-09) : une facture en dollars a ses colonnes en francs NULLES et inversement,
+    // donc chaque somme est exactement le total de sa devise — jamais additionnées entre elles.
+    prisma.$queryRaw<{ total: number; regle: number; du: number; echu: number; totalCDF: number; regleCDF: number; duCDF: number; echuCDF: number; nbTotal: number; nbReglees: number; nbDues: number; nbEchues: number; nbCDF: number }[]>`
       SELECT COALESCE(SUM("montantUSD"), 0)::float                                              AS total,
+             COALESCE(SUM("montantCDF"), 0)::float                                              AS "totalCDF",
+             COALESCE(SUM("montantCDF" - "resteAPayerCDF"), 0)::float                           AS "regleCDF",
+             COALESCE(SUM("resteAPayerCDF") FILTER (WHERE statut <> 'REGLEE'), 0)::float        AS "duCDF",
+             COALESCE(SUM("resteAPayerCDF") FILTER (WHERE statut = 'ECHUE_NON_REGLEE'), 0)::float AS "echuCDF",
+             COUNT(*) FILTER (WHERE "devise" = 'CDF')::int                                      AS "nbCDF",
              COUNT(*)::int                                                                      AS "nbTotal",
              COALESCE(SUM("montantUSD" - "resteAPayerUSD"), 0)::float                           AS regle,
              COUNT(*) FILTER (WHERE statut = 'REGLEE')::int                                     AS "nbReglees",
@@ -65,35 +73,44 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
     prisma.config.findUnique({ where: { id: "singleton" } }),
     ciblesEnAttente(), // factures dont le paiement attend la Direction
   ]);
-  const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0, nbTotal: 0, nbReglees: 0, nbDues: 0, nbEchues: 0 };
+  const kpi = kpiRows[0] ?? { total: 0, regle: 0, du: 0, echu: 0, totalCDF: 0, regleCDF: 0, duCDF: 0, echuCDF: 0, nbTotal: 0, nbReglees: 0, nbDues: 0, nbEchues: 0, nbCDF: 0 };
+  // Un total par devise : « 1 234,50 $ + 2 800 000 FC » (dollars seuls : l'affichage d'avant).
+  const t = (usdV: number, cdfV: number): TotalDevises => ({ usd: usdV, cdf: cdfV, nbUSD: kpi.nbTotal - kpi.nbCDF, nbCDF: kpi.nbCDF });
 
   // Solde par fournisseur : agrégé en SQL, et seulement quand la vue « fournisseur » est affichée.
   const anneeC = config?.anneeCourante ?? anneeCouranteKinshasa();
   const moisC = config?.moisCourant ?? numeroMoisCourantKinshasa();
   const tauxCDF = config ? Number(config.tauxChangeCDF) : 0;
   const cdfEq = (v: number) => (tauxCDF > 0 && v > 0 ? ` · ≈ ${Math.round(v * tauxCDF).toLocaleString("fr-FR")} CDF` : "");
+  // Total qui compte des francs : son équivalent unique en dollars, annoncé « ≈ » au taux du jour ; sinon, l'équivalent d'avant.
+  const equivalent = (x: TotalDevises) => (aDesFrancs(x) ? ` · ${libelleEquivalent(x, tauxCDF)}` : cdfEq(x.usd));
   const parFournisseur = vue === "fournisseur"
-    ? await prisma.$queryRaw<{ id: string | null; nom: string; solde: number; total: number; nb: number; nbAnnee: number; nbMois: number }[]>`
+    ? await prisma.$queryRaw<{ id: string | null; nom: string; solde: number; total: number; soldeCDF: number; totalCDF: number; nb: number; nbAnnee: number; nbMois: number }[]>`
         SELECT COALESCE(f."nom", x."fournisseurNom")                                            AS nom,
                (ARRAY_AGG(x."fournisseurId") FILTER (WHERE x."fournisseurId" IS NOT NULL))[1]   AS id,
                COALESCE(SUM(x."resteAPayerUSD") FILTER (WHERE x.statut <> 'REGLEE'), 0)::float  AS solde,
                COALESCE(SUM(x."montantUSD"), 0)::float                                          AS total,
+               COALESCE(SUM(x."resteAPayerCDF") FILTER (WHERE x.statut <> 'REGLEE'), 0)::float  AS "soldeCDF",
+               COALESCE(SUM(x."montantCDF"), 0)::float                                          AS "totalCDF",
                COUNT(*)::int                                                                    AS nb,
                COUNT(*) FILTER (WHERE x.annee = ${anneeC})::int                                 AS "nbAnnee",
                COUNT(*) FILTER (WHERE x.annee = ${anneeC} AND x.mois = ${moisC})::int           AS "nbMois"
         FROM "stock"."FactureFournisseur" x
         LEFT JOIN "stock"."Fournisseur" f ON f."id" = x."fournisseurId"
         GROUP BY 1
-        ORDER BY solde DESC, total DESC`
+        ORDER BY solde DESC, "soldeCDF" DESC, total DESC, "totalCDF" DESC`
     : [];
+  // Tri sur le solde dû TOUTES devises : dollars + francs ÷ taux du jour (sinon 5 000 000 FC passeraient
+  // après 0,01 $ — relecture). Sans taux, l'ordre SQL (dollars d'abord) est gardé.
+  if (tauxCDF > 0) parFournisseur.sort((a, b) => (b.solde + b.soldeCDF / tauxCDF) - (a.solde + a.soldeCDF / tauxCDF) || (b.total + b.totalCDF / tauxCDF) - (a.total + a.totalCDF / tauxCDF));
 
   // Échéancier de trésorerie : les factures dues, groupées par semaine d'échéance, avec cumul.
-  type EchLigne = { id: string; nom: string; fournisseurId: string | null; numero: string | null; echeance: string | null; reste: number };
-  type EchGroupe = { cle: string; titre: string; retard?: boolean; lignes: EchLigne[]; sousTotal: number };
+  type EchLigne = { id: string; nom: string; fournisseurId: string | null; numero: string | null; echeance: string | null; reste: number; devise: DeviseFacture };
+  type EchGroupe = { cle: string; titre: string; retard?: boolean; lignes: EchLigne[]; sousTotal: TotalDevises };
   const echeancier: EchGroupe[] = [];
   if (vue === "echeancier") {
     const dues = await prisma.factureFournisseur.findMany({
-      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, resteAPayerUSD: { gt: 0 } },
+      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, OR: [{ resteAPayerUSD: { gt: 0 } }, { resteAPayerCDF: { gt: 0 } }] },
       orderBy: [{ dateEcheance: { sort: "asc", nulls: "last" } }],
       include: { fournisseur: { select: { nom: true } } },
     });
@@ -109,10 +126,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         cle = lundi.toISOString().slice(0, 10);
         titre = `Semaine du ${lundi.getUTCDate()} ${MOIS_FR_COURT[lundi.getUTCMonth()]} au ${dim.getUTCDate()} ${MOIS_FR_COURT[dim.getUTCMonth()]}`;
       }
-      if (!idx.has(cle)) { idx.set(cle, echeancier.length); echeancier.push({ cle, titre, retard, lignes: [], sousTotal: 0 }); }
+      if (!idx.has(cle)) { idx.set(cle, echeancier.length); echeancier.push({ cle, titre, retard, lignes: [], sousTotal: totalVide() }); }
       const g = echeancier[idx.get(cle)!];
-      g.lignes.push({ id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero, echeance: d(x.dateEcheance), reste: Number(x.resteAPayerUSD) });
-      g.sousTotal += Number(x.resteAPayerUSD);
+      const m = montantsFacture(x);
+      g.lignes.push({ id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero, echeance: d(x.dateEcheance), reste: m.reste, devise: m.devise });
+      g.sousTotal = ajouterAuTotal(g.sousTotal, m.devise, m.reste);
     }
     echeancier.sort((a, b) => a.cle.localeCompare(b.cle));
   }
@@ -166,10 +184,10 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
 
       {/* KPIs épurés — cliquables : chaque carte applique le filtre correspondant. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={usd(kpi.total)} sous={`${kpi.nbTotal} facture(s)${cdfEq(kpi.total)}`} href={lien({ statut: "" })} />
-        <Kpi label="Réglé" valeur={usd(kpi.regle)} sous={`${kpi.nbReglees} réglée(s)${cdfEq(kpi.regle)}`} accent="green" href={lien({ statut: "REGLEE" })} />
-        <Kpi label="À payer (dont échu)" valeur={usd(kpi.du)} sous={`${kpi.nbDues} à régler${cdfEq(kpi.du)}`} accent={kpi.du > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
-        <Kpi label="Échu" valeur={usd(kpi.echu)} sous={`${kpi.nbEchues} échue(s)${cdfEq(kpi.echu)}`} accent={kpi.echu > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
+        <Kpi label="Total facturé" valeur={libelleTotal(t(kpi.total, kpi.totalCDF), undefined, usd)} sous={`${kpi.nbTotal} facture(s)${equivalent(t(kpi.total, kpi.totalCDF))}`} href={lien({ statut: "" })} />
+        <Kpi label="Réglé" valeur={libelleTotal(t(kpi.regle, kpi.regleCDF), undefined, usd)} sous={`${kpi.nbReglees} réglée(s)${equivalent(t(kpi.regle, kpi.regleCDF))}`} accent="green" href={lien({ statut: "REGLEE" })} />
+        <Kpi label="À payer (dont échu)" valeur={libelleTotal(t(kpi.du, kpi.duCDF), undefined, usd)} sous={`${kpi.nbDues} à régler${equivalent(t(kpi.du, kpi.duCDF))}`} accent={kpi.du > 0 || kpi.duCDF > 0 ? "amber" : undefined} href={lien({ statut: "du" })} />
+        <Kpi label="Échu" valeur={libelleTotal(t(kpi.echu, kpi.echuCDF), undefined, usd)} sous={`${kpi.nbEchues} échue(s)${equivalent(t(kpi.echu, kpi.echuCDF))}`} accent={kpi.echu > 0 || kpi.echuCDF > 0 ? "red" : undefined} href={lien({ statut: "ECHUE_NON_REGLEE" })} />
       </div>
 
       {/* Bascule de vue */}
@@ -198,8 +216,8 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
                   <td className="px-3 py-2 font-medium">
                     {s.id ? <Link href={`/stock/fournisseurs/${s.id}`} className="text-primary hover:underline">{s.nom}</Link> : s.nom}
                   </td>
-                  <td className="px-3 py-2 text-right">{s.solde > 0 ? <span className="font-semibold text-red-700">{usd(s.solde)}</span> : "—"}</td>
-                  <td className="px-3 py-2 text-right">{usd(s.total)}</td>
+                  <td className="px-3 py-2 text-right">{s.solde > 0 || s.soldeCDF > 0 ? <span className="font-semibold text-red-700">{libelleTotal({ usd: s.solde, cdf: s.soldeCDF, nbUSD: 0, nbCDF: 0 }, undefined, usd)}</span> : "—"}</td>
+                  <td className="px-3 py-2 text-right">{libelleTotal({ usd: s.total, cdf: s.totalCDF, nbUSD: s.totalCDF > 0 ? 0 : 1, nbCDF: s.totalCDF > 0 ? 1 : 0 }, undefined, usd)}</td>
                   <td className="px-3 py-2 text-right">{s.nb}</td>
                   <td className="px-3 py-2 text-right text-muted-foreground">{s.nbAnnee}</td>
                   <td className="px-3 py-2 text-right text-muted-foreground">{s.nbMois}</td>
@@ -212,11 +230,11 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">Ce qu&apos;il y a à sortir, semaine par semaine (reste à payer des factures non réglées). Le cumul aide à planifier la trésorerie.</p>
           {echeancier.length === 0 && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Aucune facture à payer — tout est réglé. 🎉</p>}
-          {(() => { let cumul = 0; return echeancier.map((g) => { cumul += g.sousTotal; const cum = cumul; return (
+          {(() => { let cumul = totalVide(); return echeancier.map((g) => { cumul = additionnerTotaux(cumul, g.sousTotal); const cum = cumul; return (
             <div key={g.cle} className={`overflow-hidden rounded-lg border ${g.retard ? "border-red-300" : ""}`}>
               <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-sm font-semibold ${g.retard ? "bg-red-50 text-red-800" : "bg-muted/50"}`}>
                 <span>{g.retard ? "⚠ " : ""}{g.titre} <span className="font-normal text-muted-foreground">· {g.lignes.length} facture(s)</span></span>
-                <span className="tabular-nums">{usd(g.sousTotal)} <span className="text-xs font-normal text-muted-foreground">· cumul {usd(cum)}</span></span>
+                <span className="tabular-nums">{libelleTotal(g.sousTotal, undefined, usd)} <span className="text-xs font-normal text-muted-foreground">· cumul {libelleTotal(cum, undefined, usd)}</span></span>
               </div>
               <ul className="divide-y text-sm">
                 {g.lignes.map((l) => (
@@ -226,7 +244,7 @@ export default async function FacturesPage({ searchParams }: { searchParams: Pro
                       <span className="text-xs text-muted-foreground"> {l.numero ? `· N° ${l.numero}` : ""}{l.echeance ? ` · éch. ${l.echeance}` : ""}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-3">
-                      <span className="font-semibold tabular-nums">{usd(l.reste)}</span>
+                      <span className="font-semibold tabular-nums">{l.devise === "USD" ? usd(l.reste) : formaterMontantFacture(l.reste, "CDF")}</span>
                       <Link href={`/stock/factures/${l.id}`} className="text-xs text-primary underline">Détail</Link>
                     </span>
                   </li>

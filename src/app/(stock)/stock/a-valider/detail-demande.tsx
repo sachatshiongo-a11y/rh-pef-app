@@ -5,6 +5,7 @@
 import Link from "next/link";
 import type { ApercuDemande } from "@/lib/validations-stock/apercu";
 import { formaterFC, formaterNombre, formaterUSD, montantSigne } from "@/lib/montant";
+import { formaterMontantFacture, libelleTotal } from "@/lib/facture-devise";
 
 const dateFr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const nb = (s: string) => formaterNombre(Number(s), { maximumFractionDigits: 3 });
@@ -31,43 +32,64 @@ export function DetailDemande({ a }: { a: ApercuDemande }) {
     return (
       <div className="space-y-1.5 text-sm">
         <ul className="divide-y rounded-md border">
-          {p.factures.map((f) => (
-            <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
-              <Link href={`/stock/factures/${f.id}`} className="font-medium text-primary hover:underline">{f.numero ? `N° ${f.numero}` : "Sans numéro"} · {f.nom}</Link>
-              <span className="tabular-nums">
-                {p.reglement ? <span className="text-muted-foreground">reste {formaterUSD(f.resteDemande)}</span> : <b>{formaterUSD(f.resteDemande)}</b>}
-                {f.resteActuel !== null && Math.abs(f.resteActuel - f.resteDemande) > 0.001 && <span className="ml-2 text-red-700">aujourd&apos;hui {formaterUSD(f.resteActuel)}</span>}
-              </span>
-            </li>
-          ))}
+          {p.factures.map((f) => {
+            // Restes dans la devise de LA facture (factures en francs depuis le 2026-10-09).
+            const fm = (n: number) => formaterMontantFacture(n, f.devise ?? "USD");
+            return (
+              <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5">
+                <Link href={`/stock/factures/${f.id}`} className="font-medium text-primary hover:underline">{f.numero ? `N° ${f.numero}` : "Sans numéro"} · {f.nom}</Link>
+                <span className="tabular-nums">
+                  {p.reglement ? <span className="text-muted-foreground">reste {fm(f.resteDemande)}</span> : <b>{fm(f.resteDemande)}</b>}
+                  {f.resteActuel !== null && Math.abs(f.resteActuel - f.resteDemande) > 0.001 && <span className="ml-2 text-red-700">aujourd&apos;hui {fm(f.resteActuel)}</span>}
+                </span>
+              </li>
+            );
+          })}
         </ul>
-        {p.reglement && (
-          <p>
-            {p.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de{" "}
-            {p.reglement.montantCDF !== null ? (
-              // En francs : le montant saisi, et son équivalent au taux qui SERA appliqué (celui des
-              // Paramètres au moment de la validation — aujourd'hui, s'il est validé maintenant).
-              <>
-                <b className="tabular-nums">{formaterFC(p.reglement.montantCDF)}</b>{" "}
-                {p.reglement.montantUSD !== null && p.reglement.tauxActuel !== null
-                  ? <>≈ <b className="tabular-nums">{formaterUSD(p.reglement.montantUSD)}</b> au taux du jour ({formaterNombre(p.reglement.tauxActuel)} FC/$), appliqué à la validation</>
-                  : <>— équivalent en dollars : — (taux de change non configuré)</>}
-              </>
-            ) : <b className="tabular-nums">{p.reglement.montantUSD === null ? "—" : formaterUSD(p.reglement.montantUSD)}</b>}
-            {p.reglement.mode && <> · {p.reglement.mode}</>}
-            {p.reglement.note && <> · « {p.reglement.note} »</>}
-            {p.reglement.resteApres !== null && <> · reste après paiement : <b className="tabular-nums">{formaterUSD(p.reglement.resteApres)}</b></>}
-          </p>
-        )}
-        {p.lotFrancs && (
+        {p.reglement && (() => {
+          const r = p.reglement;
+          const df = r.deviseFacture ?? "USD";
+          const dv = r.verse ?? (r.montantCDF !== null && df === "USD" ? "CDF" : df);
+          const verseMontant = dv === "CDF" ? r.montantCDF : r.montantUSD; // dans la devise verseMontante
+          const impute = df === "CDF" ? r.montantCDF : r.montantUSD; // dans la devise de la facture
+          return (
+            <p>
+              {r.type === "AVOIR" ? "Avoir" : "Paiement"} de{" "}
+              {dv !== df ? (
+                // Versé dans l'autre devise : le montant saisi, et son équivalent au taux qui SERA
+                // appliqué (celui des Paramètres au moment de la validation — aujourd'hui, s'il est validé maintenant).
+                <>
+                  <b className="tabular-nums">{verseMontant === null ? "—" : formaterMontantFacture(verseMontant, dv)}</b>{" "}
+                  {impute !== null && r.tauxActuel !== null
+                    ? <>≈ <b className="tabular-nums">{formaterMontantFacture(impute, df)}</b> au taux du jour ({formaterNombre(r.tauxActuel)} FC/$), appliqué à la validation</>
+                    : <>— équivalent en {df === "USD" ? "dollars" : "francs"} : — (taux de change non configuré)</>}
+                </>
+              ) : <b className="tabular-nums">{impute === null ? "—" : formaterMontantFacture(impute, df)}</b>}
+              {r.mode && <> · {r.mode}</>}
+              {r.note && <> · « {r.note} »</>}
+              {r.resteApres !== null && <> · reste après paiement : <b className="tabular-nums">{formaterMontantFacture(r.resteApres, df)}</b></>}
+            </p>
+          );
+        })()}
+        {p.lot && p.lot.verse === "CDF" && p.factures.every((f) => (f.devise ?? "USD") === "USD") ? (
+          // Lot de factures en dollars payé en francs : le rendu d'avant, à l'identique (relecture).
           <p>
             Payé <b>en francs</b> :{" "}
-            {p.lotFrancs.totalCDF !== null && p.lotFrancs.tauxActuel !== null
-              ? <><b className="tabular-nums">{formaterFC(p.lotFrancs.totalCDF)}</b> ≈ {formaterUSD(p.total ?? 0)} au taux du jour ({formaterNombre(p.lotFrancs.tauxActuel)} FC/$), appliqué à la validation — chaque facture soldée, reste en dollars à 0.</>
+            {p.lot.totalVerse !== null && p.lot.tauxActuel !== null
+              ? <><b className="tabular-nums">{formaterFC(p.lot.totalVerse.cdf)}</b> ≈ {formaterUSD(p.total ?? 0)} au taux du jour ({formaterNombre(p.lot.tauxActuel)} FC/$), appliqué à la validation — chaque facture soldée, reste en dollars à 0.</>
               : <>— (taux de change non configuré)</>}
           </p>
+        ) : p.lot && (
+          <p>
+            {p.lot.verse === "SA_DEVISE" ? <>Payé <b>dans la devise de chaque facture</b> (aucune conversion)</> : <>Payé <b>en {p.lot.verse === "CDF" ? "francs" : "dollars"}</b></>}
+            {p.lot.conversion && (
+              p.lot.totalVerse !== null && p.lot.tauxActuel !== null
+                ? <> : <b className="tabular-nums">{libelleTotal(p.lot.totalVerse)}</b> au taux du jour ({formaterNombre(p.lot.tauxActuel)} FC/$), appliqué à la validation — chaque facture soldée dans sa devise.</>
+                : <> : — (taux de change non configuré)</>
+            )}
+          </p>
         )}
-        {!p.reglement && p.factures.length > 1 && <p>Total : <b className="tabular-nums">{p.total === null ? "—" : formaterUSD(p.total)}</b> — tout ou rien.</p>}
+        {!p.reglement && p.factures.length > 1 && <p>Total : <b className="tabular-nums">{p.totalDevises ? libelleTotal(p.totalDevises, "—") : p.total === null ? "—" : formaterUSD(p.total)}</b> — tout ou rien.</p>}
         <p className="text-xs text-muted-foreground">Date de paiement proposée : {dateFr(p.date)}</p>
       </div>
     );

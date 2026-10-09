@@ -9,11 +9,14 @@ import { prisma } from "@/lib/prisma";
 import { verifySession, requireModule, requireRole } from "@/lib/auth";
 import { journaliser } from "@/lib/audit";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
-import { parserClasseurFactures } from "@/lib/import-factures-excel";
+import { donneesMontantsImportee, parserClasseurFactures } from "@/lib/import-factures-excel";
+import { sigExistante, sigImportee } from "@/lib/import-factures";
 import { extraireFacturePDF } from "@/lib/import-facture-pdf";
 import { meilleurFournisseur } from "@/lib/fournisseur-match";
 import { meilleurArticle } from "@/lib/article-match";
-import { convertirFrancs, reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture } from "@/lib/validations-stock/reglement";
+import { reglerFactureTx, reglerLotTx, notifierReglements, statutDe, verrouillerFacture, type VerseLot } from "@/lib/validations-stock/reglement";
+import { deviseFacture, resteFacture } from "@/lib/facture-devise";
+import { tauxDuJour } from "@/lib/taux-du-jour";
 import { apresCommit, demanderPaiement, estDirection, exigerAucunPaiementDemande } from "@/lib/validations-stock/demandes";
 import { texteDecimal } from "@/lib/validations-stock/charge";
 import { verrouillerStocks } from "@/lib/validations-stock/comptage";
@@ -75,12 +78,13 @@ export type LigneAnalyse = {
   articleId: string | null; articleNom: string | null; unite: string | null; // article du catalogue rapproché
 };
 export type AnalyseFacture = {
-  montant: number | null; date: string | null; numero: string | null;
+  /** Montant et prix des lignes dans `devise` (CDF : document libellé en francs, jamais converti). */
+  montant: number | null; date: string | null; numero: string | null; devise: "USD" | "CDF";
   fournisseur: { nom: string | null; rccm: string | null; idNational: string | null; telephone: string | null; email: string | null; adresse: string | null; ville: string | null };
   match: { id: string; nom: string; score: number } | null; // fournisseur existant proche
   lignes: LigneAnalyse[];
 };
-const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, lignes: [] };
+const VIDE: AnalyseFacture = { montant: null, date: null, numero: null, devise: "USD", fournisseur: { nom: null, rccm: null, idNational: null, telephone: null, email: null, adresse: null, ville: null }, match: null, lignes: [] };
 
 export const analyserFacturePDF = actionLisible(async (formData: FormData): Promise<AnalyseFacture> => {
   const user = await verifySession();
@@ -116,7 +120,7 @@ export const analyserFacturePDF = actionLisible(async (formData: FormData): Prom
         unite: art?.unite ?? l.unite ?? null,
       };
     });
-    return { montant: ex.montant, date: ex.date, numero: ex.numero, fournisseur: ex.fournisseur, match, lignes };
+    return { montant: ex.montant, date: ex.date, numero: ex.numero, devise: ex.devise, fournisseur: ex.fournisseur, match, lignes };
   } catch {
     return VIDE;
   }
@@ -144,7 +148,7 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
   for (const f of fichiers) {
     const anneeFichier = Number((f.name.match(/(20\d{2})/) ?? [])[1]) || anneeCourante;
     try {
-      lignes.push(...(await parserClasseurFactures(await f.arrayBuffer(), anneeFichier, taux)));
+      lignes.push(...(await parserClasseurFactures(await f.arrayBuffer(), anneeFichier, taux, erreurs)));
     } catch (e) {
       erreurs.push(`${f.name} : ${e instanceof Error ? e.message : "illisible"}`);
     }
@@ -162,13 +166,11 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
     fournisseursCrees.push(nom);
   }
 
-  // Dé-duplication (signature) contre l'existant + à l'intérieur du lot.
-  const sig = (r: { annee: number; mois: number; fournisseurNom: string; montantUSD: number; numero: string | null }) =>
-    `${r.annee}|${r.mois}|${normNom(r.fournisseurNom)}|${r.montantUSD.toFixed(2)}|${r.numero ?? ""}`;
-  const existantes = await prisma.factureFournisseur.findMany({ select: { annee: true, mois: true, fournisseurNom: true, montantUSD: true, numero: true } });
-  const vues = new Set(existantes.map((e) => sig({ annee: e.annee, mois: e.mois, fournisseurNom: e.fournisseurNom, montantUSD: Number(e.montantUSD), numero: e.numero })));
+  // Dé-duplication (signature, dans la devise de chaque facture) contre l'existant + à l'intérieur du lot.
+  const existantes = await prisma.factureFournisseur.findMany({ select: { annee: true, mois: true, fournisseurNom: true, numero: true, devise: true, montantUSD: true, montantCDF: true } });
+  const vues = new Set(existantes.map(sigExistante));
 
-  const aInserer = lignes.filter((r) => { const s = sig(r); if (vues.has(s)) return false; vues.add(s); return true; });
+  const aInserer = lignes.filter((r) => { const s = sigImportee(r); if (vues.has(s)) return false; vues.add(s); return true; });
 
   if (aInserer.length > 0) {
     await prisma.factureFournisseur.createMany({
@@ -176,7 +178,7 @@ export const importerFacturesExcel = actionLisible(async (formData: FormData): P
         fournisseurId: parNom.get(normNom(r.fournisseurNom)) ?? null,
         fournisseurNom: r.fournisseurNom, numero: r.numero,
         date: r.date, dateEcheance: r.dateEcheance, datePaiement: r.datePaiement,
-        montantUSD: r.montantUSD, montantRegleUSD: r.montantRegleUSD, resteAPayerUSD: r.resteAPayerUSD,
+        ...donneesMontantsImportee(r),
         statut: r.statut, modePaiement: r.modePaiement, mois: r.mois, annee: r.annee,
       })),
     });
@@ -218,11 +220,22 @@ export const lierFactureABon = actionLisible(async (factureId: string, bonDeComm
 /**
  * Crée une facture fournisseur détaillée (avec ses lignes d'articles et quantités).
  * Le montant total est calculé à partir des lignes.
+ *
+ * DEVISE (2026-10-09) : `devise` = USD (défaut, comme avant) ou CDF. Une facture en francs a ses
+ * prix de ligne, son montant, son réglé et son reste EN FRANCS (la devise de saisie fait foi,
+ * src/lib/facture-devise.ts). Son entrée en stock garde la devise et le taux comme la Liste d'achat :
+ * chaque mouvement porte la devise (CDF), le montant saisi, le taux des Paramètres du jour et
+ * l'équivalent en dollars figé (francs ÷ taux) ; sans taux, l'entrée en stock est refusée, rien
+ * n'est écrit (jamais un montant en francs valorisé à 0 ou à un taux supposé).
  */
 export const creerFactureAvecLignes = actionLisible(async (formData: FormData) => {
   const user = await garde();
   const fournisseurNom = String(formData.get("fournisseurNom") ?? "").trim();
   if (!fournisseurNom) throw new Error("Le fournisseur est requis.");
+  const deviseBrute = String(formData.get("devise") ?? "USD").trim() || "USD";
+  // On ne devine jamais la devise d'un montant : seules USD et CDF passent.
+  if (deviseBrute !== "USD" && deviseBrute !== "CDF") throw new Error("Devise de la facture inconnue : choisissez dollars ($) ou francs (FC).");
+  const devise: "USD" | "CDF" = deviseBrute;
 
   const ids = formData.getAll("ligne_articleId").map(String);
   const desigs = formData.getAll("ligne_designation").map((v) => String(v).trim());
@@ -230,29 +243,32 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   const qtes = formData.getAll("ligne_quantite").map((v, i) => decSaisi(v, `quantité, ligne ${i + 1}`));
   const prixs = formData.getAll("ligne_prix").map((v, i) => decSaisi(v, `prix, ligne ${i + 1}`));
 
+  const arr2 = (n: number) => Math.round(n * 100) / 100;
   const lignes = desigs
-    .map((designation, i) => ({
-      articleId: ids[i] || null,
-      designation,
-      unite: unites[i] || null,
-      quantite: qtes[i] ?? 0,
-      prixUnitaireUSD: prixs[i] ?? 0,
-      totalLigneUSD: (qtes[i] ?? 0) * (prixs[i] ?? 0),
-    }))
+    .map((designation, i) => {
+      const quantite = qtes[i] ?? 0;
+      const base = { articleId: ids[i] || null, designation, unite: unites[i] || null, quantite };
+      // En dollars : exactement comme avant. En francs : prix au centime de franc (précision de la
+      // colonne), total = quantité × prix, au centime.
+      if (devise === "USD") return { ...base, prixUnitaireUSD: prixs[i] ?? 0, totalLigneUSD: quantite * (prixs[i] ?? 0), total: quantite * (prixs[i] ?? 0) };
+      const pu = arr2(prixs[i] ?? 0);
+      return { ...base, prixUnitaireCDF: pu, totalLigneCDF: arr2(quantite * pu), total: arr2(quantite * pu) };
+    })
     .filter((l) => l.designation && l.quantite > 0);
 
   if (lignes.length === 0) throw new Error("Ajoutez au moins une ligne (désignation + quantité).");
 
-  const montantUSD = lignes.reduce((t, l) => t + l.totalLigneUSD, 0);
+  const montant = devise === "USD" ? lignes.reduce((t, l) => t + l.total, 0) : arr2(lignes.reduce((t, l) => t + l.total, 0));
   const dateStr = String(formData.get("date") ?? "").trim() || null;
   const echeanceStr = String(formData.get("dateEcheance") ?? "").trim() || null;
-  const montantRegleUSD = decSaisi(formData.get("montantRegleUSD"), "montant déjà réglé");
+  // « Déjà réglé », dans la devise de la facture (ancien nom du champ : montantRegleUSD).
+  const montantRegle = decSaisi(formData.get("montantRegle") ?? formData.get("montantRegleUSD"), "montant déjà réglé");
   // Un montant déjà réglé à la création EST un paiement : hors Direction, il passe par une demande
   // (fiche de la facture → « Marquer payée » ou « + Paiement »), jamais par ce raccourci.
-  if (montantRegleUSD !== 0 && !estDirection(user)) {
+  if (montantRegle !== 0 && !estDirection(user)) {
     throw new Error("Un règlement doit être validé par la Direction : enregistrez la facture sans montant réglé, puis demandez le paiement depuis sa fiche (« Marquer payée » ou « + Paiement »).");
   }
-  const reste = Math.max(0, montantUSD - montantRegleUSD);
+  const reste = Math.max(0, montant - montantRegle);
   const d = new Date(dateStr ?? echeanceStr ?? AUJ());
   const numero = String(formData.get("numero") ?? "").trim() || null;
   // C'est l'enregistrement de la facture (articles + quantités) qui fait entrer la marchandise
@@ -264,6 +280,14 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   // écrire dans ce mois figé.
   if (entrerEnStock) await exigerPeriodeOuverte(d);
   const origine = `Facture ${fournisseurNom}${numero ? ` ${numero}` : ""}`;
+  // Facture en francs : taux des Paramètres du jour de l'enregistrement, figé sur la facture et sur
+  // ses entrées en stock (valorisation en dollars, comme la Liste d'achat). Sans taux, une entrée en
+  // stock valorisée est refusée — rien n'est écrit.
+  const tauxFC = devise === "CDF" ? await tauxDuJour() : null;
+  if (devise === "CDF" && entrerEnStock && tauxFC === null) {
+    const rangs = lignes.map((l, i) => (l.articleId && l.total > 0 ? i + 1 : 0)).filter((x) => x > 0);
+    if (rangs.length > 0) throw new Error(`Facture en francs (FC) à entrer en stock : le taux de change CDF/USD n'est pas défini (Paramètres), la valeur en dollars ${rangs.length > 1 ? `des lignes ${rangs.join(", ")}` : `de la ligne ${rangs[0]}`} est impossible. Rien n'a été enregistré — faites définir le taux, ou décochez « entrer en stock ».`);
+  }
 
   // Garde-fou anti-double comptage : le même achat saisi dans la Liste d'achat (ou en entrée
   // manuelle) PUIS enregistré ici avec ses lignes ferait entrer le stock DEUX FOIS. On détecte
@@ -326,12 +350,15 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
         numero,
         date: dateStr ? new Date(dateStr) : null,
         dateEcheance: echeanceStr ? new Date(echeanceStr) : null,
-        montantUSD, montantRegleUSD, resteAPayerUSD: reste,
+        // Montants dans la devise de la facture ; ceux de l'autre devise NULS (FactureFournisseur_devise_check).
+        ...(devise === "USD"
+          ? { montantUSD: montant, montantRegleUSD: montantRegle, resteAPayerUSD: reste }
+          : { devise: "CDF" as const, montantCDF: montant, montantRegleCDF: montantRegle, resteAPayerCDF: reste, montantUSD: null, montantRegleUSD: null, resteAPayerUSD: null, tauxChangeUtilise: tauxFC }),
         statut: statutDe(reste, echeanceStr),
         modePaiement: String(formData.get("modePaiement") ?? "").trim() || null,
         documentUrl,
         mois: d.getUTCMonth() + 1, annee: d.getUTCFullYear(),
-        lignes: { create: lignes },
+        lignes: { create: lignes.map((l) => { const { total, ...ligne } = l; void total; return ligne; }) },
       },
     });
     if (entrerEnStock) {
@@ -340,7 +367,12 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
         await tx.mouvementStock.create({
           data: {
             articleId: l.articleId, type: "ENTREE", quantite: l.quantite, date: d,
-            origine, montantUSD: l.totalLigneUSD, factureId: f.id, creeParId: user.id,
+            origine, factureId: f.id, creeParId: user.id,
+            // En dollars : comme avant (le total de la ligne). En francs : devise, montant saisi, taux
+            // et équivalent en dollars figé — comme une ligne en francs de la Liste d'achat.
+            ...(devise === "USD"
+              ? { montantUSD: l.total }
+              : l.total > 0 ? { devise: "CDF" as const, montantOrigine: l.total, tauxChangeUtilise: tauxFC, montantUSD: l.total / tauxFC! } : {}),
           },
         });
         await tx.stock.upsert({
@@ -356,11 +388,11 @@ export const creerFactureAvecLignes = actionLisible(async (formData: FormData) =
   // Facture enregistrée par un compte non-Direction : notifiée à la Direction (2026-10-07), après
   // l'écriture et avant la redirection, jamais bloquante.
   await notifierGesteStock(user, {
-    genre: "FACTURE", factureId: fac.id, numero, fournisseurNom, montantUSD, nbLignes: lignes.length,
+    genre: "FACTURE", factureId: fac.id, numero, fournisseurNom, montantUSD: devise === "USD" ? montant : 0, ...(devise === "CDF" ? { devise, montantCDF: montant } : {}), nbLignes: lignes.length,
     entreeEnStock: entrerEnStock, nbEntrees: entrerEnStock ? lignes.filter((l) => l.articleId).length : 0,
   });
 
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montantUSD} USD (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: fac.id, champ: "creation", nouvelleValeur: `${fournisseurNom} — ${montant} ${devise} (${lignes.length} ligne(s))${entrerEnStock ? " · entrée stock" : ""}`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
@@ -384,7 +416,7 @@ export const supprimerFacture = actionLisible(async (id: string) => {
     }
     await tx.factureFournisseur.delete({ where: { id } });
   });
-  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "suppression", ancienneValeur: `${f.fournisseurNom} — ${f.montantUSD}`, userId: user.id });
+  await journaliser(prisma, { entite: "FactureFournisseur", entiteId: id, champ: "suppression", ancienneValeur: `${f.fournisseurNom} — ${f.devise === "CDF" ? `${f.montantCDF} CDF` : f.montantUSD}`, userId: user.id });
   revalidatePath("/stock/factures");
   revalidatePath("/stock/catalogue");
   revalidatePath("/stock/mouvements");
@@ -408,23 +440,34 @@ function rafraichirFactures(ids: string[]) {
  * Hors Direction : rien n'est payé, une DEMANDE est adressée à la Direction (demandes.ts).
  *
  * `francs` (2026-10-08, « payer des factures en francs ») : le montant versé EN FRANCS (saisie à la
- * française, proposé à reste × taux du jour). Converti par LA conversion des règlements
- * (`convertirFrancs`, taux des Paramètres du jour du paiement — ou de la validation pour une demande) ;
- * la facture garde son reste en dollars ; moins que le reste = paiement partiel, plus = refusé.
- * C'est le même chemin que « + Paiement » en francs (REGLEMENT), avec la note « Marquée payée ».
+ * française). Sur une facture en dollars, converti par LA conversion des règlements (taux des
+ * Paramètres du jour du paiement — ou de la validation, pour une demande) ; la facture garde son reste
+ * en dollars ; moins que le reste = paiement partiel, plus = refusé.
+ * `dollars` (2026-10-09, factures en francs) : le montant versé EN DOLLARS sur une facture tenue en
+ * francs, converti au taux du jour (sens inverse). Sans l'un ni l'autre : le reste, dans la devise de
+ * la facture (une facture en francs se solde en francs, sans taux).
+ * C'est le même chemin que « + Paiement » (REGLEMENT), avec la note « Marquée payée ».
  */
-export const marquerPayee = actionLisible(async (id: string, dateStr?: string, francs?: string): Promise<DemandeEnvoyee | void> => {
+export const marquerPayee = actionLisible(async (id: string, dateStr?: string, francs?: string, dollars?: string): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
-  // `francs` présent = paiement EN FRANCS : un montant vide est refusé (jamais un repli silencieux en dollars).
-  const enFrancs = francs !== undefined && francs !== null;
-  if (enFrancs && String(francs).trim() === "") throw new Error("Saisissez le montant versé en francs.");
-  const fc = enFrancs ? decSaisi(francs, "montant en francs") : null;
-  if (fc !== null && !(fc > 0)) throw new Error("Le montant en francs doit être supérieur à 0.");
+  // `francs` / `dollars` présent = montant versé dans CETTE devise : un montant vide est refusé
+  // (jamais un repli silencieux dans l'autre devise).
+  const lire = (v: string | undefined, devise: "USD" | "CDF") => {
+    if (v === undefined || v === null) return null;
+    if (String(v).trim() === "") throw new Error(devise === "CDF" ? "Saisissez le montant versé en francs." : "Saisissez le montant versé en dollars.");
+    const n = decSaisi(v, devise === "CDF" ? "montant en francs" : "montant en dollars");
+    if (!(n > 0)) throw new Error(devise === "CDF" ? "Le montant en francs doit être supérieur à 0." : "Le montant en dollars doit être supérieur à 0.");
+    return { devise, montant: n };
+  };
+  const fc = lire(francs, "CDF");
+  const usd = lire(dollars, "USD");
+  if (fc && usd) throw new Error("Un seul montant versé : en francs OU en dollars.");
+  const verse = fc ?? usd;
   if (!estDirection(user)) {
-    if (fc !== null) {
+    if (verse) {
       await demanderPaiement(user, {
         mode: "REGLEMENT", factureId: id, dateStr,
-        reglement: { type: "PAIEMENT", montantUSD: null, montantCDF: texteDecimal(fc), taux: null, modePaiement: null, note: "Marquée payée (en francs)" },
+        reglement: { type: "PAIEMENT", montantUSD: verse.devise === "USD" ? texteDecimal(verse.montant) : null, montantCDF: verse.devise === "CDF" ? texteDecimal(verse.montant) : null, taux: null, modePaiement: null, note: verse.devise === "CDF" ? "Marquée payée (en francs)" : "Marquée payée (en dollars)" },
       });
     } else {
       await demanderPaiement(user, { mode: "SOLDE", factureId: id, dateStr });
@@ -433,18 +476,15 @@ export const marquerPayee = actionLisible(async (id: string, dateStr?: string, f
     return { demande: true, message: MESSAGE_DEMANDE };
   }
   const reg = await prisma.$transaction(async (tx) => {
-    if (fc !== null) {
-      await verrouillerFacture(tx, id); // avant la lecture des demandes (voir ci-dessous)
-      await exigerAucunPaiementDemande(tx, [id]);
-      const { montant, taux } = await convertirFrancs(tx, fc);
-      return reglerFactureTx(tx, user.id, id, { montant, montantCDF: fc, taux, dateStr, note: "Marquée payée (en francs)" });
-    }
     // Verrou de la facture AVANT de lire les demandes : une demande déposée en même temps attend.
     const f = await verrouillerFacture(tx, id);
     await exigerAucunPaiementDemande(tx, [id]);
-    const reste = Number(f.resteAPayerUSD);
-    if (reste <= 0.001) return null; // déjà soldée
-    return reglerFactureTx(tx, user.id, id, { montant: reste, dateStr, note: "Marquée payée" });
+    if (verse) {
+      const memeDevise = verse.devise === deviseFacture(f);
+      return reglerFactureTx(tx, user.id, id, { verse, dateStr, note: memeDevise ? "Marquée payée" : verse.devise === "CDF" ? "Marquée payée (en francs)" : "Marquée payée (en dollars)" });
+    }
+    if (resteFacture(f) <= 0.001) return null; // déjà soldée
+    return reglerFactureTx(tx, user.id, id, { dateStr, note: "Marquée payée" });
   });
   rafraichirFactures([id]);
   // Après le paiement : un échec de notification ne doit JAMAIS revenir comme une erreur (un nouvel
@@ -456,6 +496,7 @@ export const marquerPayee = actionLisible(async (id: string, dateStr?: string, f
 export const enregistrerPaiement = actionLisible(async (id: string, formData: FormData): Promise<DemandeEnvoyee | void> => {
   const user = await garde();
   const type = String(formData.get("type") ?? "PAIEMENT") === "AVOIR" ? "AVOIR" : "PAIEMENT";
+  // Devise du montant VERSÉ ; la facture, elle, garde sa devise (conversion au taux du jour si elles diffèrent).
   const devise = String(formData.get("devise") ?? "USD") === "CDF" ? "CDF" : "USD";
   const saisi = decSaisi(formData.get("montant"), "montant");
   if (saisi <= 0) throw new Error("Le montant doit être supérieur à 0.");
@@ -464,8 +505,9 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
   const note = String(formData.get("note") ?? "").trim() || null;
   if (type === "AVOIR" && !note) throw new Error("Indiquez le motif de l'avoir (ex. retour marchandise).");
 
-  // Hors Direction : une demande, en DEVISE DE SAISIE. Un montant en francs sera converti au taux
-  // des Paramètres au moment de la validation (comme le paiement direct, ci-dessous, le fait maintenant).
+  // Hors Direction : une demande, en DEVISE DE SAISIE. Un montant dans l'autre devise que la facture
+  // sera converti au taux des Paramètres au moment de la validation (comme le paiement direct,
+  // ci-dessous, le fait maintenant).
   if (!estDirection(user)) {
     await demanderPaiement(user, {
       mode: "REGLEMENT", factureId: id, dateStr,
@@ -474,14 +516,11 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
     rafraichirFactures([id]);
     return { demande: true, message: type === "AVOIR" ? "Avoir demandé : il sera enregistré quand la Direction l'aura validé." : MESSAGE_DEMANDE };
   }
-  // Payé en francs : conversion au taux courant, montant CDF et taux figés sur le paiement.
-  let montant = saisi, montantCDF: number | null = null, taux: number | null = null;
-  if (devise === "CDF") ({ montant, taux } = await convertirFrancs(prisma, (montantCDF = saisi)));
-
   const reg = await prisma.$transaction(async (tx) => {
     await verrouillerFacture(tx, id); // avant la lecture des demandes (voir marquerPayee)
     await exigerAucunPaiementDemande(tx, [id]);
-    return reglerFactureTx(tx, user.id, id, { montant, montantCDF, taux, dateStr, mode, note, type });
+    // Conversion (si la devise versée n'est pas celle de la facture) au taux lu dans CETTE transaction.
+    return reglerFactureTx(tx, user.id, id, { verse: { devise, montant: saisi }, dateStr, mode, note, type });
   });
   rafraichirFactures([id]);
   await apresCommit(() => notifierReglements([reg]));
@@ -499,17 +538,19 @@ export const enregistrerPaiement = actionLisible(async (id: string, formData: Fo
  * (`demandees`) : l'écart se dit à l'écran plutôt que de vider la sélection en silence.
  * Hors Direction : rien n'est payé, UNE demande (tout ou rien) est adressée à la Direction ;
  * `demandePaiement` = nombre de factures qu'elle porte.
+ *
+ * `devise` = ce qui est VERSÉ : "USD" (défaut, comme avant), "CDF" (2026-10-08), ou "SA_DEVISE"
+ * (2026-10-09 : chaque facture dans sa devise, aucune conversion).
  */
 export type ResultatLot = { reglees: number; demandees: number; demandePaiement?: number };
-export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string, devise?: "USD" | "CDF"): Promise<ResultatLot> => {
+export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: string, devise?: "USD" | "CDF" | "SA_DEVISE"): Promise<ResultatLot> => {
   const user = await garde();
   const uniq = [...new Set(ids.map(String))].filter(Boolean);
   if (uniq.length === 0) return { reglees: 0, demandees: 0 };
-  // En francs (2026-10-08) : chaque facture soldée par reste × taux du jour francs (voir reglerLotTx).
-  const enFrancs = devise === "CDF";
+  const verse: VerseLot = devise === "CDF" || devise === "SA_DEVISE" ? devise : "USD";
 
   if (!estDirection(user)) {
-    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr, enFrancs });
+    const r = await demanderPaiement(user, { mode: "LOT", factureIds: uniq, dateStr, verse });
     rafraichirFactures([]);
     return { reglees: 0, demandees: uniq.length, demandePaiement: r.nbFactures };
   }
@@ -517,7 +558,7 @@ export const marquerPayeesEnLot = actionLisible(async (ids: string[], dateStr?: 
   const regs = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(uniq)}) ORDER BY "id" FOR UPDATE`; // avant la lecture des demandes
     await exigerAucunPaiementDemande(tx, uniq);
-    return reglerLotTx(tx, user.id, uniq, dateStr, enFrancs ? "Marquée payée (lot en francs)" : "Marquée payée (lot)", { enFrancs });
+    return reglerLotTx(tx, user.id, uniq, dateStr, verse === "CDF" ? "Marquée payée (lot en francs)" : verse === "SA_DEVISE" ? "Marquée payée (lot, dans la devise de chaque facture)" : "Marquée payée (lot)", { verse });
   });
 
   if (regs.length > 0) {

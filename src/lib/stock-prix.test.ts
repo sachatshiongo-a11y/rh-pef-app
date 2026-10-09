@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { analyserPrix, articlesEnHausse, SEUIL_HAUSSE_PRIX, type PointPrix, type LignePrix } from "./stock-prix";
+import { analyserPrix, articlesEnHausse, pointDeLigne, SEUIL_HAUSSE_PRIX, type PointPrix, type LignePrix } from "./stock-prix";
 
 const p = (jour: number, prix: number): PointPrix => ({ date: new Date(Date.UTC(2026, 0, jour)), prix, qte: 1, factureId: `f${jour}`, numero: `F${jour}` });
 const ligne = (articleId: string | null, jour: number, prix: number): LignePrix => ({ articleId, prixUnitaireUSD: prix, quantite: 1, facture: { id: `f${articleId}${jour}`, numero: `F${jour}`, date: new Date(Date.UTC(2026, 0, jour)) } });
@@ -63,5 +63,21 @@ describe("articlesEnHausse", () => {
     const sansDate: LignePrix = { articleId: "X", prixUnitaireUSD: 3, quantite: 1, facture: { id: "fx", numero: null, date: null } };
     const m = articlesEnHausse([ligne("X", 1, 1), ligne("X", 2, 1), sansDate]);
     expect(m.has("X")).toBe(false); // sans la 3e ligne (datée), pas de hausse
+  });
+});
+
+describe("ligne d'une facture en francs (2026-10-09)", () => {
+  const facture = (t: number | null, d = "2026-10-01") => ({ id: "f", numero: "7", date: new Date(d), tauxChangeUtilise: t });
+  it("francs ÷ taux figé de la facture, « prixCDF » gardé ; sans taux, aucun point (jamais 0)", () => {
+    expect(pointDeLigne({ articleId: "a", prixUnitaireUSD: null, prixUnitaireCDF: "7000", quantite: "2", facture: facture(2800) })).toMatchObject({ prix: 2.5, prixCDF: 7000, qte: 2 });
+    expect(pointDeLigne({ articleId: "a", prixUnitaireUSD: null, prixUnitaireCDF: "7000", quantite: "2", facture: facture(null) })).toBeNull();
+    expect(pointDeLigne({ articleId: "a", prixUnitaireUSD: "3", quantite: "1", facture: facture(null) })).toMatchObject({ prix: 3 });
+  });
+  it("une ligne en francs sans taux ne fabrique pas de hausse", () => {
+    const lignes = [
+      { articleId: "a", prixUnitaireUSD: null, prixUnitaireCDF: "7000", quantite: "1", facture: facture(null, "2026-09-01") },
+      { articleId: "a", prixUnitaireUSD: "3", quantite: "1", facture: facture(null, "2026-10-01") },
+    ];
+    expect(articlesEnHausse(lignes).size).toBe(0);
   });
 });

@@ -10,8 +10,14 @@ export type FournisseurExtrait = {
   nom: string | null; rccm: string | null; idNational: string | null;
   telephone: string | null; email: string | null; adresse: string | null; ville: string | null;
 };
+/**
+ * `devise` (2026-10-09) : CDF quand le document est libellé en francs (FC/CDF, sans « $ ») — le
+ * montant et les prix des lignes sont alors ceux du document, EN FRANCS, jamais convertis (la devise
+ * de saisie fait foi). Sinon USD, comme avant (`prixUnitaireUSD`/`totalLigneUSD` des lignes : dans
+ * la devise du document).
+ */
 export type FactureExtrait = {
-  montant: number | null; date: string | null; numero: string | null;
+  montant: number | null; date: string | null; numero: string | null; devise: "USD" | "CDF";
   fournisseur: FournisseurExtrait; lignes: LigneBonCommande[];
 };
 
@@ -127,11 +133,11 @@ export async function extraireFacturePDF(buffer: ArrayBuffer, tauxCDF: number): 
   }
   if (montant == null && nombres.length) montant = Math.max(...nombres);
 
-  // Devise : si le document est libellé en francs (FC/CDF) sans « $ », on convertit en USD.
-  if (montant != null) {
-    const enCDF = (/\bfc\b|cdf|franc/.test(nt)) && !/\$|usd|dollar/.test(nt);
-    if (enCDF && tauxCDF > 0) montant = montant / tauxCDF;
-    else if (montant >= 10000 && tauxCDF > 0) montant = montant / tauxCDF; // sécurité : montant énorme = francs
+  // Devise : un document libellé en francs (FC/CDF) sans « $ » est une facture EN FRANCS (depuis le
+  // 2026-10-09 : plus de conversion, la facture se saisit en francs). Sinon, comme avant.
+  const enCDF = (/\bfc\b|cdf|franc/.test(nt)) && !/\$|usd|dollar/.test(nt);
+  if (montant != null && !enCDF) {
+    if (montant >= 10000 && tauxCDF > 0) montant = montant / tauxCDF; // sécurité : montant énorme = francs
     montant = Math.round(montant * 100) / 100;
   }
 
@@ -139,5 +145,5 @@ export async function extraireFacturePDF(buffer: ArrayBuffer, tauxCDF: number): 
   let lignes = extraireLignesBonCommande(t);
   if (lignes.length === 0) lignes = extraireLignesImexco(t);
 
-  return { montant, date, numero, fournisseur: extraireFournisseur(t), lignes };
+  return { montant, date, numero, devise: enCDF ? "CDF" : "USD", fournisseur: extraireFournisseur(t), lignes };
 }

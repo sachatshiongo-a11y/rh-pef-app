@@ -1,5 +1,5 @@
-import type { Prisma } from "@prisma/client";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
+import { montantsFacture, type MontantsFactureBrut } from "@/lib/facture-devise";
 import type { FactureRow } from "./factures-client";
 
 // Une facture telle que la liste la montre — UN seul passage de la base à la ligne d'écran, partagé
@@ -18,20 +18,22 @@ export function joursAvant(echeance: Date | null, statut: string): number | null
   return Math.round((e0 - a0) / JOUR_MS);
 }
 
-type FactureBase = {
+type FactureBase = MontantsFactureBrut & {
   id: string; fournisseurId: string | null; fournisseurNom: string; numero: string | null;
   date: Date | null; dateEcheance: Date | null; datePaiement: Date | null;
-  montantUSD: Prisma.Decimal; resteAPayerUSD: Prisma.Decimal; statut: string; documentUrl: string | null;
+  statut: string; documentUrl: string | null;
   fournisseur?: { nom: string } | null;
 };
 
 /** `enAttente` : ids des factures dont un paiement attend la Direction (`ciblesEnAttente().factures`). */
 export function versFactureRow(x: FactureBase, enAttente: Set<string>): FactureRow {
+  // Montant et reste DANS LA DEVISE de la facture (factures en francs depuis le 2026-10-09).
+  const m = montantsFacture(x);
   return {
     id: x.id, nom: x.fournisseur?.nom ?? x.fournisseurNom, fournisseurId: x.fournisseurId ?? null, numero: x.numero,
     date: d(x.date), echeance: d(x.dateEcheance),
     joursRestants: joursAvant(x.dateEcheance, x.statut), datePaiement: d(x.datePaiement),
-    montant: x.montantUSD.toString(), reste: Number(x.resteAPayerUSD), statut: x.statut,
+    devise: m.devise, montant: String(m.montant), reste: m.reste, statut: x.statut,
     documentUrl: x.documentUrl ?? null,
     paiementDemande: enAttente.has(x.id),
   };

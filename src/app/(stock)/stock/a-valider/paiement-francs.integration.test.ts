@@ -61,8 +61,8 @@ const etat = async (id: string) => {
   const f = await prisma.factureFournisseur.findUniqueOrThrow({ where: { id } });
   const p = await prisma.paiement.findMany({ where: { factureId: id }, orderBy: { createdAt: "asc" } });
   return {
-    statut: f.statut, regle: f.montantRegleUSD.toString(), reste: f.resteAPayerUSD.toString(),
-    paiements: p.map((x) => ({ montantUSD: x.montantUSD.toString(), montantCDF: x.montantCDF?.toString() ?? null, taux: x.tauxChangeUtilise?.toString() ?? null, note: x.note })),
+    statut: f.statut, regle: f.montantRegleUSD!.toString(), reste: f.resteAPayerUSD!.toString(),
+    paiements: p.map((x) => ({ montantUSD: x.montantUSD!.toString(), montantCDF: x.montantCDF?.toString() ?? null, taux: x.tauxChangeUtilise?.toString() ?? null, note: x.note })),
   };
 };
 const fd = (o: Record<string, string>) => { const f = new FormData(); for (const [k, x] of Object.entries(o)) f.set(k, x); return f; };

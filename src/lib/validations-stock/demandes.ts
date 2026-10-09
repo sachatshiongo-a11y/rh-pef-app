@@ -28,7 +28,9 @@ import {
   CHAMPS_ARTICLE, NATURE_LIBELLE, cleMouvement, type ChampArticle, type ChargeMouvement, cleArticle, cleComptage, cleFacture, fusionnerChangements, libelleValeur, lireCharge, texteDecimal, valeursEgales,
   type ArticleDemande, type ChargeArticle, type ChargeComptage, type ChargePaiement, type NatureDemande, type ReglementDemande,
 } from "./charge";
-import { convertirFrancs, lireTauxReglement, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit } from "./reglement";
+import { lireTauxReglement, reglerFactureTx, reglerLotTx, notifierReglements, verrouillerFacture, type ReglementEcrit, type VerseLot } from "./reglement";
+import { imputation } from "./conversion-francs";
+import { deviseFacture, formaterMontantFacture, libelleTotal, montantsFacture, resteFacture, totalFactures, type DeviseFacture } from "@/lib/facture-devise";
 import { apresMouvements, ecrireMouvementsTx, type MouvementSaisi } from "./mouvement";
 import { exigerPeriodeOuverte } from "@/lib/cloture-stock";
 import { prixArticleEnUSDTexte } from "@/lib/prix-article";
@@ -52,6 +54,10 @@ export class ConflitDemande extends Error {
 }
 
 const dateFr = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+/** Montant d'un message d'erreur : « 100.00 $ » (forme d'avant, inchangée) ou « 280 000 FC ». */
+const montantTexte = (n: number, d: DeviseFacture) => (d === "USD" ? `${n.toFixed(2)} $` : formaterMontantFacture(n, "CDF"));
+/** Montant d'un message lisible : « 100,00 $ » ou « 280 000 FC ». */
+const montantTexteFr = (n: number, d: DeviseFacture) => formaterMontantFacture(n, d);
 const nomFacture = (f: { numero: string | null; fournisseurNom: string }) => `${f.numero ? `facture n° ${f.numero}` : "facture sans numéro"} de ${f.fournisseurNom}`;
 
 // ── Création ────────────────────────────────────────────────────────────────
@@ -112,7 +118,7 @@ async function notifierNouvelleDemande(d: { id: string; resume: string; auteurNo
 // ── Paiement de facture ─────────────────────────────────────────────────────
 export type DemandePaiementSaisie =
   | { mode: "SOLDE"; factureId: string; dateStr?: string }
-  | { mode: "LOT"; factureIds: string[]; dateStr?: string; enFrancs?: boolean }
+  | { mode: "LOT"; factureIds: string[]; dateStr?: string; enFrancs?: boolean; verse?: VerseLot }
   | { mode: "REGLEMENT"; factureId: string; dateStr?: string; reglement: ReglementDemande };
 
 /**
@@ -128,7 +134,7 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
     await tx.$queryRaw`SELECT "id" FROM "stock"."FactureFournisseur" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
     // Ordre de la sélection (jamais l'ordre physique de la base) : le résumé se relit à l'identique.
     const facs = (await tx.factureFournisseur.findMany({ where: { id: { in: ids } } })).sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-    const aRegler = facs.filter((f) => f.statut !== "REGLEE" && Number(f.resteAPayerUSD) > 0.001);
+    const aRegler = facs.filter((f) => f.statut !== "REGLEE" && resteFacture(f) > 0.001);
     if (aRegler.length === 0) throw new Error(ids.length > 1 ? "Aucune de ces factures n'est à régler." : "Cette facture est déjà réglée.");
     const maintenant = new Date();
     for (const f of aRegler) {
@@ -138,35 +144,49 @@ export async function demanderPaiement(auteur: Acteur, s: DemandePaiementSaisie)
     }
     const date = lireDatePaiement(s.dateStr, null, maintenant);
     if (s.mode === "REGLEMENT") {
-      // En francs : contrôle avec le taux d'AUJOURD'HUI (indicatif) — la validation reconvertit au
-      // taux de son jour et recontrôle.
-      const m = s.reglement.montantCDF !== null ? (await convertirFrancs(tx, Number(s.reglement.montantCDF))).montant : Number(s.reglement.montantUSD);
-      const reste = Number(aRegler[0].resteAPayerUSD);
-      if (!(m > 0)) throw new Error("Le montant doit être supérieur à 0.");
-      if (m > reste + 0.009) throw new Error(`Le ${s.reglement.type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${m.toFixed(2)} $) dépasse le reste à payer (${reste.toFixed(2)} $).`);
+      // Versé dans l'autre devise que la facture : contrôle avec le taux d'AUJOURD'HUI (indicatif) —
+      // la validation reconvertit au taux de son jour et recontrôle.
+      const m = montantsFacture(aRegler[0]);
+      const verse = s.reglement.montantCDF !== null ? { devise: "CDF" as const, montant: Number(s.reglement.montantCDF) } : { devise: "USD" as const, montant: Number(s.reglement.montantUSD) };
+      if (!(verse.montant > 0)) throw new Error("Le montant doit être supérieur à 0.");
+      if (Math.abs(verse.montant * 100 - Math.round(verse.montant * 100)) > 1e-6) throw new Error("Le montant se saisit au centime près (deux décimales au plus).");
+      const imp = imputation(m.devise, verse, verse.devise !== m.devise ? await lireTauxReglement(tx) : null, m.reste)!;
+      if (imp.depasse) throw new Error(`Le ${s.reglement.type === "AVOIR" ? "montant de l'avoir" : "paiement"} (${montantTexte(imp.impute, m.devise)}) dépasse le reste à payer (${montantTexte(m.reste, m.devise)}).`);
     }
     await exigerCiblesLibres(tx, aRegler.map((f) => cleFacture(f.id)), (cle) => {
       const f = aRegler.find((x) => cleFacture(x.id) === cle);
       return f ? `${nomFacture(f).charAt(0).toUpperCase()}${nomFacture(f).slice(1)}` : "Facture";
     });
+    const verseLot: VerseLot = s.mode === "LOT" ? (s.verse ?? (s.enFrancs ? "CDF" : "USD")) : "USD";
     const charge: ChargePaiement = {
       v: 1, mode: s.mode, date,
-      factures: aRegler.map((f) => ({ id: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, resteUSD: f.resteAPayerUSD.toString() })),
+      factures: aRegler.map((f) => {
+        const m = montantsFacture(f);
+        return m.devise === "CDF"
+          ? { id: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, devise: "CDF" as const, resteCDF: m.resteTexte }
+          : { id: f.id, fournisseurNom: f.fournisseurNom, numero: f.numero, resteUSD: m.resteTexte };
+      }),
       reglement: s.mode === "REGLEMENT" ? s.reglement : null,
-      ...(s.mode === "LOT" && s.enFrancs ? { enFrancs: true as const } : {}),
+      ...(s.mode === "LOT" && verseLot === "CDF" ? { enFrancs: true as const } : {}),
+      ...(s.mode === "LOT" && verseLot === "SA_DEVISE" ? { saDevise: true as const } : {}),
     };
-    const total = aRegler.reduce((t, f) => t + Number(f.resteAPayerUSD), 0);
-    const lotFC = s.mode === "LOT" && s.enFrancs;
-    // Lot en francs : le taux est celui de la VALIDATION ; il doit exister dès la demande (refus lisible).
-    if (lotFC) await lireTauxReglement(tx);
+    const total = totalFactures(aRegler, "reste");
+    const toutUSD = total.nbCDF === 0;
+    const lotFC = s.mode === "LOT" && verseLot === "CDF";
+    // Une facture payée dans l'autre devise : le taux est celui de la VALIDATION ; il doit exister dès la demande (refus lisible).
+    if (s.mode === "LOT" && aRegler.some((f) => (verseLot === "SA_DEVISE" ? deviseFacture(f) : verseLot) !== deviseFacture(f))) await lireTauxReglement(tx);
+    const noms = aRegler.map((f) => (f.numero ? `${f.fournisseurNom} n° ${f.numero}` : f.fournisseurNom)).join(", ");
     const resume =
-      lotFC
-        ? `Payer ${aRegler.length > 1 ? `${aRegler.length} factures` : `la ${nomFacture(aRegler[0])}`} en francs le ${dateFr(date)} — ${formaterUSD(total)} en FC au taux du jour de la validation${aRegler.length > 1 ? ` (${aRegler.map((f) => (f.numero ? `${f.fournisseurNom} n° ${f.numero}` : f.fournisseurNom)).join(", ")})` : ""}`
+      lotFC && toutUSD
+        ? `Payer ${aRegler.length > 1 ? `${aRegler.length} factures` : `la ${nomFacture(aRegler[0])}`} en francs le ${dateFr(date)} — ${formaterUSD(total.usd)} en FC au taux du jour de la validation${aRegler.length > 1 ? ` (${noms})` : ""}`
+        : s.mode === "LOT" && !toutUSD
+        // Lot qui compte des factures en francs : total par devise ; la devise versée est dite.
+        ? `Payer ${aRegler.length > 1 ? `${aRegler.length} factures` : `la ${nomFacture(aRegler[0])}`} le ${dateFr(date)} — ${libelleTotal(total)}, ${verseLot === "SA_DEVISE" ? "chacune dans sa devise" : verseLot === "CDF" ? "versé en francs (au taux du jour de la validation)" : "versé en dollars (au taux du jour de la validation)"}${aRegler.length > 1 ? ` (${noms})` : ""}`
         : s.mode === "LOT" && aRegler.length > 1
-        ? `Payer ${aRegler.length} factures le ${dateFr(date)} — ${formaterUSD(total)} (${aRegler.map((f) => (f.numero ? `${f.fournisseurNom} n° ${f.numero}` : f.fournisseurNom)).join(", ")})`
+        ? `Payer ${aRegler.length} factures le ${dateFr(date)} — ${formaterUSD(total.usd)} (${noms})`
         : s.mode === "REGLEMENT"
           ? `${s.reglement.type === "AVOIR" ? "Avoir" : "Paiement"} de ${s.reglement.montantCDF !== null ? formaterFC(Number(s.reglement.montantCDF)) : formaterUSD(Number(s.reglement.montantUSD))} sur la ${nomFacture(aRegler[0])} le ${dateFr(date)}`
-          : `Payer la ${nomFacture(aRegler[0])} le ${dateFr(date)} — ${formaterUSD(total)}`;
+          : `Payer la ${nomFacture(aRegler[0])} le ${dateFr(date)} — ${libelleTotal(total)}`;
     return creerDemandeTx(tx, { nature: "PAIEMENT_FACTURE", resume, charge, cles: aRegler.map((f) => cleFacture(f.id)), auteur });
   }).catch(traduireConflitCible);
   await apresCommit(() => notifierNouvelleDemande(d));
@@ -184,40 +204,48 @@ export async function exigerAucunPaiementDemande(client: Tx | typeof prisma, fac
 
 async function executerPaiementTx(tx: Tx, decideur: Acteur, d: { auteurNom: string }, c: ChargePaiement, dateCorrigee?: string): Promise<ReglementEcrit[]> {
   const date = dateCorrigee?.trim() || c.date;
-  const courantes = new Map<string, number>();
+  const courantes = new Map<string, { devise: "USD" | "CDF"; reste: number }>();
   // Verrous pris dans un ordre fixe (par id) : pas d'interblocage avec un lot concurrent.
   for (const f of [...c.factures].sort((a, b) => (a.id < b.id ? -1 : 1))) {
     const existe = await tx.factureFournisseur.findUnique({ where: { id: f.id }, select: { id: true } });
     if (!existe) throw new ConflitDemande(`La ${nomFacture(f)} a été supprimée depuis la demande`);
     const cur = await verrouillerFacture(tx, f.id);
-    if (cur.statut === "REGLEE" || Number(cur.resteAPayerUSD) <= 0.001) throw new ConflitDemande(`La ${nomFacture(f)} a déjà été réglée depuis la demande`);
-    if (!new Decimal(cur.resteAPayerUSD.toString()).equals(new Decimal(f.resteUSD))) {
-      throw new ConflitDemande(`Le reste à payer de la ${nomFacture(f)} a changé depuis la demande (${formaterUSD(Number(f.resteUSD))} → ${formaterUSD(Number(cur.resteAPayerUSD))})`);
+    const m = montantsFacture(cur);
+    if (cur.statut === "REGLEE" || m.reste <= 0.001) throw new ConflitDemande(`La ${nomFacture(f)} a déjà été réglée depuis la demande`);
+    // Jeton : la devise et le reste VUS par le demandeur, dans la devise de la facture.
+    const deviseVue = f.devise === "CDF" ? "CDF" : "USD";
+    const resteVu = f.devise === "CDF" ? f.resteCDF : f.resteUSD;
+    if (m.devise !== deviseVue) throw new ConflitDemande(`La devise de la ${nomFacture(f)} a changé depuis la demande`);
+    if (!new Decimal(m.resteTexte).equals(new Decimal(resteVu))) {
+      throw new ConflitDemande(`Le reste à payer de la ${nomFacture(f)} a changé depuis la demande (${montantTexteFr(Number(resteVu), m.devise)} → ${montantTexteFr(m.reste, m.devise)})`);
     }
-    courantes.set(f.id, Number(cur.resteAPayerUSD));
+    courantes.set(f.id, { devise: m.devise, reste: m.reste });
   }
   const trace = `demandé par ${d.auteurNom}, validé par ${decideur.nom}`;
   if (c.mode === "SOLDE") {
     const f = c.factures[0];
-    return [await reglerFactureTx(tx, decideur.id, f.id, { montant: courantes.get(f.id)!, dateStr: date, note: `Marquée payée (${trace})` })];
+    // Le reste, dans la devise de la facture (vérifié ci-dessus : celui que le demandeur a vu).
+    return [await reglerFactureTx(tx, decideur.id, f.id, { dateStr: date, note: `Marquée payée (${trace})` })];
   }
   if (c.mode === "LOT") {
-    const regs = await reglerLotTx(tx, decideur.id, c.factures.map((f) => f.id), date, `Marquée payée (lot${c.enFrancs ? " en francs" : ""} — ${trace})`, { enFrancs: c.enFrancs === true });
+    const verse: VerseLot = c.saDevise ? "SA_DEVISE" : c.enFrancs ? "CDF" : "USD";
+    const regs = await reglerLotTx(tx, decideur.id, c.factures.map((f) => f.id), date, `Marquée payée (lot${c.enFrancs ? " en francs" : c.saDevise ? " dans la devise de chaque facture" : ""} — ${trace})`, { verse });
     if (regs.length !== c.factures.length) throw new ConflitDemande("Une facture du lot n'est plus à régler");
     return regs;
   }
   const r = c.reglement!;
-  // En francs : conversion au taux des Paramètres MAINTENANT, comme le paiement direct de ce jour.
-  const enFrancs = r.montantCDF !== null ? await convertirFrancs(tx, Number(r.montantCDF)) : null;
-  // Au taux de CE jour, les francs demandés valent peut-être plus que le reste : la demande est périmée.
-  const resteActuel = courantes.get(c.factures[0].id)!;
-  if (enFrancs && enFrancs.montant > resteActuel + 0.009) {
-    throw new ConflitDemande(`Au taux de ce jour (${formaterNombre(enFrancs.taux)} FC/$), ${formaterFC(Number(r.montantCDF))} font ${formaterUSD(enFrancs.montant)} : plus que le reste à payer (${formaterUSD(resteActuel)})`);
+  const cur = courantes.get(c.factures[0].id)!;
+  const verse = r.montantCDF !== null ? { devise: "CDF" as const, montant: Number(r.montantCDF) } : { devise: "USD" as const, montant: Number(r.montantUSD) };
+  // Versé dans l'autre devise : conversion au taux des Paramètres MAINTENANT, comme le paiement direct
+  // de ce jour. À ce taux, le versement vaut peut-être plus que le reste : la demande est périmée.
+  if (verse.devise !== cur.devise) {
+    const taux = await lireTauxReglement(tx);
+    const imp = imputation(cur.devise, verse, taux, cur.reste)!;
+    if (imp.depasse) {
+      throw new ConflitDemande(`Au taux de ce jour (${formaterNombre(taux)} FC/$), ${montantTexteFr(verse.montant, verse.devise)} font ${montantTexteFr(imp.impute, cur.devise)} : plus que le reste à payer (${montantTexteFr(cur.reste, cur.devise)})`);
+    }
   }
-  return [await reglerFactureTx(tx, decideur.id, c.factures[0].id, {
-    montant: enFrancs ? enFrancs.montant : Number(r.montantUSD), montantCDF: r.montantCDF === null ? null : Number(r.montantCDF), taux: enFrancs ? enFrancs.taux : null,
-    dateStr: date, mode: r.modePaiement, note: r.note, type: r.type,
-  })];
+  return [await reglerFactureTx(tx, decideur.id, c.factures[0].id, { verse, dateStr: date, mode: r.modePaiement, note: r.note, type: r.type })];
 }
 
 // ── Réconciliation ──────────────────────────────────────────────────────────

@@ -56,26 +56,50 @@ function mapColonnes(ws: any): { headerRow: number; col: Record<string, number> 
       else if (h.includes("reste")) col.reste = c;
       else if (h.includes("statut")) col.statut = c;
       else if (h.includes("mode")) col.mode = c;
+      else if (h === "devise" || h === "monnaie" || h.startsWith("devise")) col.devise = c;
     }
     if (col.fournisseur && col.montant) return { headerRow: r, col };
   }
   return null;
 }
 
+/**
+ * Une facture lue. `devise` (2026-10-09) : celle de la colonne « Devise » quand le classeur en a une
+ * et que la cellule est remplie (FC/CDF/francs → CDF ; $/USD/dollars → USD) ; sinon USD, comme avant.
+ * `montant`, `regle`, `reste` sont DANS cette devise — une facture en francs n'est jamais convertie.
+ */
 export type FactureImportee = {
   fournisseurNom: string; numero: string | null;
   date: Date | null; dateEcheance: Date | null; datePaiement: Date | null;
-  montantUSD: number; montantRegleUSD: number; resteAPayerUSD: number;
+  devise: "USD" | "CDF"; montant: number; regle: number; reste: number;
   statut: "A_REGLER" | "REGLEE" | "ECHUE_NON_REGLEE"; modePaiement: string | null;
   mois: number; annee: number;
 };
 
+/** Devise lue dans une cellule « Devise » : null si vide (→ comportement d'avant), "?" si illisible (jamais devinée). */
+export function lireDeviseCellule(v: unknown): "USD" | "CDF" | null | "?" {
+  const t = norm(v).replace(/\s+/g, "");
+  if (t === "") return null;
+  if (t === "fc" || t === "cdf" || t.startsWith("franc")) return "CDF";
+  if (t === "$" || t === "usd" || t === "us$" || t.startsWith("dollar")) return "USD";
+  return "?";
+}
+
+/** Les champs Prisma d'une facture importée, dans sa devise (l'autre devise NULLE). */
+export function donneesMontantsImportee(r: FactureImportee) {
+  return r.devise === "CDF"
+    ? { devise: "CDF" as const, montantCDF: r.montant, montantRegleCDF: r.regle, resteAPayerCDF: r.reste, montantUSD: null, montantRegleUSD: null, resteAPayerUSD: null }
+    : { montantUSD: r.montant, montantRegleUSD: r.regle, resteAPayerUSD: r.reste };
+}
+
 /**
  * Parse un classeur Excel. `defautAnnee` sert de repli quand une ligne n'a pas de date.
- * `taux` : les montants ≥ 10 000 sont considérés comme saisis en CDF (impossible en USD pour
- * une facture) et convertis en USD (÷ taux).
+ * Sans devise indiquée (pas de colonne « Devise », ou cellule vide) : comme avant — `taux` : les
+ * montants ≥ 10 000 sont considérés comme saisis en CDF (impossible en USD pour une facture) et
+ * convertis en USD (÷ taux). Avec « FC » dans la colonne Devise : facture EN FRANCS, montants gardés
+ * tels quels. Une devise illisible : la ligne est écartée et nommée dans `erreurs`.
  */
-export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defautAnnee: number, taux: number): Promise<FactureImportee[]> {
+export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defautAnnee: number, taux: number, erreurs: string[] = []): Promise<FactureImportee[]> {
   const wb = new ExcelJS.Workbook();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(buffer as any);
@@ -108,8 +132,14 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
       else if (reste == null) { reste = Math.max(0, montant - (regle ?? 0)); }
       else if (regle == null) { regle = Math.max(0, montant - reste); }
 
-      // Conversion CDF → USD si le montant est manifestement en francs.
-      if (montant >= 10000 && taux > 0) { montant /= taux; regle = (regle ?? 0) / taux; reste = (reste ?? 0) / taux; }
+      const devCellule = col.devise ? lireDeviseCellule(cellVal(row.getCell(col.devise))) : null;
+      if (devCellule === "?") {
+        erreurs.push(`${ws.name}, ligne ${r} (${fournisseur}) : devise « ${String(cellVal(row.getCell(col.devise!)) ?? "").trim()} » illisible — indiquez FC ou $ ; ligne ignorée.`);
+        continue;
+      }
+      const devise = devCellule ?? "USD";
+      // Sans devise indiquée : conversion CDF → USD si le montant est manifestement en francs (comme avant).
+      if (devCellule === null && montant >= 10000 && taux > 0) { montant /= taux; regle = (regle ?? 0) / taux; reste = (reste ?? 0) / taux; }
       const rnd = (x: number) => Math.round(x * 100) / 100;
       montant = rnd(montant); regle = rnd(regle ?? 0); reste = rnd(reste ?? 0);
       if (statut === "REGLEE") reste = 0;
@@ -118,7 +148,7 @@ export async function parserClasseurFactures(buffer: ArrayBuffer | Buffer, defau
         fournisseurNom: fournisseur,
         numero: numeroRaw == null || String(numeroRaw).trim() === "" ? null : String(numeroRaw).trim(),
         date, dateEcheance: echeance, datePaiement: paiement,
-        montantUSD: montant, montantRegleUSD: regle, resteAPayerUSD: reste, statut,
+        devise, montant, regle, reste, statut,
         modePaiement: col.mode ? (cellVal(row.getCell(col.mode)) ? String(cellVal(row.getCell(col.mode))).trim() : null) : null,
         mois: (date ? date.getUTCMonth() : moisIdx) + 1,
         annee: date ? date.getUTCFullYear() : defautAnnee,

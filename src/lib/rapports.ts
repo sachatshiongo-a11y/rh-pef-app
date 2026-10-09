@@ -76,11 +76,15 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
   const titre = TYPES_RAPPORT[type];
 
   if (type === "FACTURES") {
-    const rows = await prisma.factureFournisseur.findMany({ where: { annee: { gte: debut.getUTCFullYear() } }, select: { annee: true, mois: true, montantUSD: true, resteAPayerUSD: true } });
-    const parMois = new Map<string, { fac: number; du: number }>();
-    for (const r of rows) { const k = cle(r.annee, r.mois); const e = parMois.get(k) ?? { fac: 0, du: 0 }; e.fac += Number(r.montantUSD); e.du += Number(r.resteAPayerUSD); parMois.set(k, e); }
+    // Factures en francs (2026-10-09) : colonnes en francs À PART (jamais additionnées aux dollars),
+    // présentes seulement s'il existe des factures en francs — sinon le rapport d'avant, à l'identique.
+    const rows = await prisma.factureFournisseur.findMany({ where: { annee: { gte: debut.getUTCFullYear() } }, select: { annee: true, mois: true, devise: true, montantUSD: true, resteAPayerUSD: true, montantCDF: true, resteAPayerCDF: true } });
+    const parMois = new Map<string, { fac: number; du: number; facFC: number; duFC: number }>();
+    for (const r of rows) { const k = cle(r.annee, r.mois); const e = parMois.get(k) ?? { fac: 0, du: 0, facFC: 0, duFC: 0 }; e.fac += Number(r.montantUSD ?? 0); e.du += Number(r.resteAPayerUSD ?? 0); e.facFC += Number(r.montantCDF ?? 0); e.duFC += Number(r.resteAPayerCDF ?? 0); parMois.set(k, e); }
+    const avecFC = rows.some((r) => r.devise === "CDF");
     let prev: number | null = null;
-    const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { fac: 0, du: 0 }; const l = [labelMois(annee, m), arr(e.fac), arr(e.du), variation(e.fac, prev)]; prev = e.fac; return l; });
+    const lignes = mois.map(({ annee, mois: m }) => { const e = parMois.get(cle(annee, m)) ?? { fac: 0, du: 0, facFC: 0, duFC: 0 }; const l = [labelMois(annee, m), arr(e.fac), arr(e.du), ...(avecFC ? [arr(e.facFC), arr(e.duFC)] : []), variation(e.fac, prev)]; prev = e.fac; return l; });
+    if (avecFC) return { titre, entete: ["Mois", "Total facturé USD", "Reste dû USD", "Total facturé CDF", "Reste dû CDF", "Variation facturé USD"], lignes, largeurs: ["22%", "16%", "15%", "17%", "15%", "15%"], droite: [1, 2, 3, 4], sommables: [1, 2, 3, 4], variationCol: 5 };
     return { titre, entete: ["Mois", "Total facturé USD", "Reste dû USD", "Variation facturé"], lignes, largeurs: ["34%", "24%", "22%", "20%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
   }
 
@@ -94,11 +98,13 @@ export async function genererDonneesRapport(type: TypeRapport, debut: Date, fin:
   }
 
   if (type === "PAIEMENTS") {
-    const rows = await prisma.factureFournisseur.findMany({ where: { statut: "ECHUE_NON_REGLEE" }, select: { annee: true, mois: true, resteAPayerUSD: true } });
-    const parMois = new Map<string, number>();
-    for (const r of rows) { const k = cle(r.annee, r.mois); parMois.set(k, (parMois.get(k) ?? 0) + Number(r.resteAPayerUSD)); }
+    const rows = await prisma.factureFournisseur.findMany({ where: { statut: "ECHUE_NON_REGLEE" }, select: { annee: true, mois: true, devise: true, resteAPayerUSD: true, resteAPayerCDF: true } });
+    const parMois = new Map<string, number>(), parMoisFC = new Map<string, number>();
+    for (const r of rows) { const k = cle(r.annee, r.mois); parMois.set(k, (parMois.get(k) ?? 0) + Number(r.resteAPayerUSD ?? 0)); parMoisFC.set(k, (parMoisFC.get(k) ?? 0) + Number(r.resteAPayerCDF ?? 0)); }
+    const avecFC = rows.some((r) => r.devise === "CDF");
     let prev: number | null = null;
-    const lignes = mois.map(({ annee, mois: m }) => { const v = parMois.get(cle(annee, m)) ?? 0; const l = [labelMois(annee, m), arr(v), variation(v, prev)]; prev = v; return l; });
+    const lignes = mois.map(({ annee, mois: m }) => { const v = parMois.get(cle(annee, m)) ?? 0; const l = [labelMois(annee, m), arr(v), ...(avecFC ? [arr(parMoisFC.get(cle(annee, m)) ?? 0)] : []), variation(v, prev)]; prev = v; return l; });
+    if (avecFC) return { titre, entete: ["Mois", "Échu non réglé USD", "Échu non réglé CDF", "Variation USD"], lignes, largeurs: ["30%", "25%", "25%", "20%"], droite: [1, 2], sommables: [1, 2], variationCol: 3 };
     return { titre, entete: ["Mois", "Échu non réglé USD", "Variation"], lignes, largeurs: ["40%", "34%", "26%"], droite: [1], sommables: [1], variationCol: 2 };
   }
 
@@ -145,6 +151,15 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
   if (type === "FACTURES") {
     const rows = (await prisma.factureFournisseur.findMany({ orderBy: [{ annee: "asc" }, { mois: "asc" }, { date: "asc" }], include: { fournisseur: { select: { nom: true } } } }))
       .filter((r) => dansJour(r.date, r.annee, r.mois));
+    // Montants dans la devise de chaque facture : colonnes en francs à part (vides pour une facture en
+    // dollars, et inversement), seulement s'il existe des factures en francs.
+    if (rows.some((r) => r.devise === "CDF")) {
+      const lignes = rows.map((r) => {
+        const fc = r.devise === "CDF";
+        return [jj(r.date), r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), fc ? "" : arr(Number(r.montantUSD)), fc ? "" : arr(Number(r.resteAPayerUSD)), fc ? arr(Number(r.montantCDF)) : "", fc ? arr(Number(r.resteAPayerCDF)) : "", STATUT_FACTURE_LABEL[r.statut] ?? r.statut];
+      });
+      return { titre, entete: ["Date", "Fournisseur", "N°", "Échéance", "Montant USD", "Reste USD", "Montant CDF", "Reste CDF", "Statut"], lignes, largeurs: ["9%", "19%", "9%", "9%", "11%", "10%", "12%", "11%", "10%"], droite: [4, 5, 6, 7], sommables: [4, 5, 6, 7] };
+    }
     const lignes = rows.map((r) => [jj(r.date), r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), arr(Number(r.montantUSD)), arr(Number(r.resteAPayerUSD)), STATUT_FACTURE_LABEL[r.statut] ?? r.statut]);
     return { titre, entete: ["Date", "Fournisseur", "N°", "Échéance", "Montant USD", "Reste USD", "Statut"], lignes, largeurs: ["11%", "24%", "12%", "12%", "13%", "13%", "15%"], droite: [4, 5], sommables: [4, 5] };
   }
@@ -164,10 +179,13 @@ export async function genererDonneesRapportDetail(type: TypeRapport, debut: Date
     const rows = (await prisma.factureFournisseur.findMany({ where: { statut: "ECHUE_NON_REGLEE" }, orderBy: { dateEcheance: "asc" }, include: { fournisseur: { select: { nom: true } } } }));
     // Retard en jours CIVILS de Kinshasa (échéance = minuit UTC d'un jour civil) : plus d'arrondi à midi.
     const auj = jourCivilKinshasa(new Date()).getTime();
+    const avecFC = rows.some((r) => r.devise === "CDF");
     const lignes = rows.map((r) => {
       const jrs = r.dateEcheance ? Math.round((auj - new Date(r.dateEcheance).getTime()) / 86400000) : null;
-      return [r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), jrs !== null ? `${jrs} j` : "—", arr(Number(r.resteAPayerUSD))];
+      const base = [r.fournisseur?.nom ?? r.fournisseurNom, r.numero ?? "—", jj(r.dateEcheance), jrs !== null ? `${jrs} j` : "—"];
+      return avecFC ? [...base, r.devise === "CDF" ? "" : arr(Number(r.resteAPayerUSD)), r.devise === "CDF" ? arr(Number(r.resteAPayerCDF)) : ""] : [...base, arr(Number(r.resteAPayerUSD))];
     });
+    if (avecFC) return { titre, entete: ["Fournisseur", "N°", "Échéance", "Retard", "Reste USD", "Reste CDF"], lignes, largeurs: ["30%", "14%", "14%", "12%", "15%", "15%"], droite: [4, 5], sommables: [4, 5] };
     return { titre, entete: ["Fournisseur", "N°", "Échéance", "Retard", "Reste USD"], lignes, largeurs: ["34%", "16%", "16%", "14%", "20%"], droite: [4], sommables: [4] };
   }
 

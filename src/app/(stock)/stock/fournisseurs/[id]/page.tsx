@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { niveauAlerte, ALERTE_CLASSE, ALERTE_LABEL, usd, qte, type NiveauAlerte } from "@/lib/stock";
 import { EditerFournisseur } from "./editer-fournisseur";
 import { formaterMontant, formaterUSD } from "@/lib/montant";
+import { aDesFrancs, additionnerTotaux, libelleEquivalent, libelleTotal, totalDepuisSommes, totalVide, type TotalDevises } from "@/lib/facture-devise";
 import { jjmmaaaa } from "@/lib/achats-liste";
 import { exigerPageStock } from "@/lib/garde-page";
 import { OngletsDefilants } from "@/components/onglets-defilants";
@@ -45,7 +46,7 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
   // l'onglet affiché : plus de 500 factures + 300 bons + 300 achats à chaque ouverture.
   const [f, statsFactures, statsBons, nbAchatsDirects, taux] = await Promise.all([
     prisma.fournisseur.findUnique({ where: { id }, include: { _count: { select: { articles: true } } } }),
-    prisma.factureFournisseur.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true }, _sum: { montantUSD: true, resteAPayerUSD: true } }),
+    prisma.factureFournisseur.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true, montantCDF: true }, _sum: { montantUSD: true, resteAPayerUSD: true, montantCDF: true, resteAPayerCDF: true } }),
     prisma.bonDeCommande.groupBy({ by: ["statut"], where: { fournisseurId: id }, _count: { _all: true } }),
     // Le VRAI total des achats DIRECTS (la liste de l'onglet est plafonnée).
     prisma.mouvementStock.count({ where: { fournisseurId: id, type: "ENTREE" } }),
@@ -53,15 +54,23 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
   ]);
   if (!f) notFound();
 
-  // Agrégats factures : mêmes règles qu'avant (réglé = montant − reste ; impayé = reste des non réglées ; échu = reste des échues).
-  let total = 0, regle = 0, impaye = 0, echu = 0, nbFactures = 0, nbARegler = 0, nbPayees = 0, nbEchu = 0;
+  // Agrégats factures : mêmes règles qu'avant (réglé = montant − reste ; impayé = reste des non réglées ;
+  // échu = reste des échues), TENUES PAR DEVISE (2026-10-09) : une facture en dollars a ses colonnes
+  // en francs NULLES et inversement — chaque somme est le total de sa devise, jamais additionnées.
+  let total = totalVide(), regle = totalVide(), impaye = totalVide(), echu = totalVide(), nbFactures = 0, nbARegler = 0, nbPayees = 0, nbEchu = 0;
   for (const g of statsFactures) {
-    const m = Number(g._sum.montantUSD ?? 0), r = Number(g._sum.resteAPayerUSD ?? 0), n = g._count._all;
-    total += m; regle += m - r; nbFactures += n;
+    const n = g._count._all, nb = { usd: n - g._count.montantCDF, cdf: g._count.montantCDF };
+    const m = totalDepuisSommes(g._sum.montantUSD, g._sum.montantCDF, nb), r = totalDepuisSommes(g._sum.resteAPayerUSD, g._sum.resteAPayerCDF, nb);
+    const moins = (a: TotalDevises, b: TotalDevises): TotalDevises => ({ ...a, usd: a.usd - b.usd, cdf: a.cdf - b.cdf });
+    total = additionnerTotaux(total, m); regle = additionnerTotaux(regle, moins(m, r)); nbFactures += n;
     if (g.statut === "REGLEE") nbPayees += n;
-    else { impaye += r; nbARegler += n; }
-    if (g.statut === "ECHUE_NON_REGLEE") { echu += r; nbEchu += n; }
+    else { impaye = additionnerTotaux(impaye, r); nbARegler += n; }
+    if (g.statut === "ECHUE_NON_REGLEE") { echu = additionnerTotaux(echu, r); nbEchu += n; }
   }
+  // « 100,00 $ + 280 000 FC » ; dollars seuls : l'affichage d'avant. Équivalent unique « ≈ » au taux du jour s'il y a des francs.
+  const lib = (t: TotalDevises) => libelleTotal(t, undefined, usd);
+  const eq = (t: TotalDevises) => libelleEquivalent(t, taux) ?? undefined;
+  const du = (t: TotalDevises) => t.usd > 0 || aDesFrancs(t);
   const nbBonsDe = (statuts: string[]) => statsBons.filter((g) => statuts.includes(g.statut)).reduce((n, g) => n + g._count._all, 0);
   const nbBons = statsBons.reduce((n, g) => n + g._count._all, 0);
   const nbBonsEnCours = nbBonsDe(STATUTS_BC_EN_COURS), nbBonsRecus = nbBonsDe(["RECU"]);
@@ -138,10 +147,10 @@ export default async function FournisseurDetailPage({ params, searchParams }: { 
 
       {/* KPIs factures — au-dessus des onglets, visibles quel que soit l'onglet : le solde dû au fournisseur est ce qu'on vient chercher sur sa fiche. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi label="Total facturé" valeur={usd(total)} />
-        <Kpi label="Réglé" valeur={usd(regle)} accent="green" />
-        <Kpi label={`Impayé (${nbARegler})`} valeur={usd(impaye)} accent={impaye > 0 ? "amber" : undefined} />
-        <Kpi label={`Échu (${nbEchu})`} valeur={usd(echu)} accent={echu > 0 ? "red" : undefined} />
+        <Kpi label="Total facturé" valeur={lib(total)} sous={eq(total)} />
+        <Kpi label="Réglé" valeur={lib(regle)} sous={eq(regle)} accent="green" />
+        <Kpi label={`Impayé (${nbARegler})`} valeur={lib(impaye)} sous={eq(impaye)} accent={du(impaye) ? "amber" : undefined} />
+        <Kpi label={`Échu (${nbEchu})`} valeur={lib(echu)} sous={eq(echu)} accent={du(echu) ? "red" : undefined} />
       </div>
 
       <OngletsDefilants
@@ -317,12 +326,13 @@ function OngletArticles({ articles, taux }: { articles: ArticleFourni[]; taux: n
   );
 }
 
-function Kpi({ label, valeur, accent }: { label: string; valeur: string; accent?: "green" | "amber" | "red" }) {
+function Kpi({ label, valeur, accent, sous }: { label: string; valeur: string; accent?: "green" | "amber" | "red"; sous?: string }) {
   const cls = accent === "red" ? "border-red-200 bg-red-50" : accent === "amber" ? "border-amber-200 bg-amber-50" : accent === "green" ? "border-emerald-200 bg-emerald-50" : "";
   return (
     <div className={`rounded-lg border p-3 ${cls}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-lg font-semibold tabular-nums">{valeur}</p>
+      {sous && <p className="mt-0.5 text-[11px] text-muted-foreground">{sous}</p>}
     </div>
   );
 }

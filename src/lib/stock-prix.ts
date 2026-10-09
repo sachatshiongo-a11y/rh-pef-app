@@ -5,7 +5,12 @@
 /** Au-delà de ce % au-dessus de la moyenne des achats précédents, on signale une hausse anormale. */
 export const SEUIL_HAUSSE_PRIX = 15;
 
-export type PointPrix = { date: Date; prix: number; qte: number; factureId: string | null; numero: string | null };
+/**
+ * `prix` : en dollars (les analyses comparent des dollars, comme avant). `prixCDF` : le prix SAISI en
+ * francs d'une ligne de facture en francs (2026-10-09), dont `prix` est l'équivalent au taux figé de
+ * son enregistrement (« ≈ ») — comme un achat en francs de la Liste d'achat.
+ */
+export type PointPrix = { date: Date; prix: number; qte: number; factureId: string | null; numero: string | null; prixCDF?: number };
 
 /** Entrée payée hors facture (liste d'achat, mouvement manuel avec montant). */
 export type MouvementPrix = { articleId: string | null; montantUSD: unknown; quantite: unknown; date: Date; origine: string | null };
@@ -29,8 +34,32 @@ export type AnalysePrix = {
   hausse: { pct: number; moyenneAnterieure: number; prix: number } | null; // hausse anormale détectée
 };
 
-/** Ligne de facture brute (avec la date de sa facture) telle que lue en base. */
-export type LignePrix = { articleId: string | null; prixUnitaireUSD: unknown; quantite: unknown; facture: { id: string; numero: string | null; date: Date | null } };
+/**
+ * Ligne de facture brute (avec la date de sa facture) telle que lue en base. Facture en francs
+ * (2026-10-09) : `prixUnitaireUSD` est NUL, le prix est `prixUnitaireCDF` et le taux figé à
+ * l'enregistrement est `facture.tauxChangeUtilise`.
+ */
+export type LignePrix = {
+  articleId: string | null; prixUnitaireUSD: unknown; prixUnitaireCDF?: unknown; quantite: unknown;
+  facture: { id: string; numero: string | null; date: Date | null; tauxChangeUtilise?: unknown };
+};
+
+/**
+ * Point de prix d'une ligne de facture : en dollars tel quel ; en francs, francs ÷ taux figé à
+ * l'enregistrement de la facture (fait passé au taux de son jour, « ≈ »). Sans prix, sans date, ou
+ * en francs sans taux : null — jamais un point à 0 (qui fabriquerait une « hausse » ou un minimum faux).
+ */
+export function pointDeLigne(l: LignePrix): PointPrix | null {
+  if (!l.facture.date) return null;
+  const qte = Number(l.quantite);
+  if (l.prixUnitaireUSD !== null && l.prixUnitaireUSD !== undefined) {
+    return { date: l.facture.date, prix: Number(l.prixUnitaireUSD), qte, factureId: l.facture.id, numero: l.facture.numero };
+  }
+  const fc = l.prixUnitaireCDF === null || l.prixUnitaireCDF === undefined ? null : Number(l.prixUnitaireCDF);
+  const taux = Number(l.facture.tauxChangeUtilise ?? 0);
+  if (fc === null || !(fc > 0) || !(taux > 0)) return null;
+  return { date: l.facture.date, prix: fc / taux, qte, factureId: l.facture.id, numero: l.facture.numero, prixCDF: fc };
+}
 
 /**
  * Regroupe des lignes de facture par article et renvoie, pour chaque article dont le dernier achat
@@ -39,9 +68,11 @@ export type LignePrix = { articleId: string | null; prixUnitaireUSD: unknown; qu
 export function articlesEnHausse(lignes: LignePrix[], mouvementsPayes: MouvementPrix[] = []): Map<string, number> {
   const parArticle = new Map<string, PointPrix[]>();
   for (const l of lignes) {
-    if (!l.articleId || !l.facture.date) continue;
+    if (!l.articleId) continue;
+    const p = pointDeLigne(l);
+    if (!p) continue;
     const arr = parArticle.get(l.articleId) ?? [];
-    arr.push({ date: l.facture.date, prix: Number(l.prixUnitaireUSD), qte: Number(l.quantite), factureId: l.facture.id, numero: l.facture.numero });
+    arr.push(p);
     parArticle.set(l.articleId, arr);
   }
   for (const m of mouvementsPayes) {

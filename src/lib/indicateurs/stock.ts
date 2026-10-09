@@ -12,8 +12,12 @@ import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
 export type ArticleEnAlerte = { articleId: string; designation: string; quantite: number; niveau: "URGENT" | "APPRO" };
 
-/** `montant` : null quand il n'y a rien à sommer (l'accueil affiche alors « — », jamais « 0,00 $ »). */
-export type SommeComptee = { montant: number | null; nb: number };
+/**
+ * `montant` : null quand il n'y a rien à sommer (l'accueil affiche alors « — », jamais « 0,00 $ »).
+ * `montantCDF` (factures, 2026-10-09) : la part des factures tenues en FRANCS, à part — jamais
+ * additionnée aux dollars (`montant` reste la somme des seules factures en dollars, comme avant).
+ */
+export type SommeComptee = { montant: number | null; nb: number; montantCDF?: number | null };
 
 export type IndicateursStock = {
   valeurStock: number;
@@ -37,9 +41,10 @@ export type IndicateursStock = {
   consoFrancsSansTaux: number;
 };
 
-const somme = (agg: { _sum: Record<string, unknown>; _count: number }, champ: string): SommeComptee => {
+const somme = (agg: { _sum: Record<string, unknown>; _count: number }, champ: string, champCDF?: string): SommeComptee => {
   const v = agg._sum[champ];
-  return { montant: v === null || v === undefined ? null : Number(v), nb: agg._count };
+  const c = champCDF ? agg._sum[champCDF] : undefined;
+  return { montant: v === null || v === undefined ? null : Number(v), nb: agg._count, ...(champCDF ? { montantCDF: c === null || c === undefined ? null : Number(c) } : {}) };
 };
 
 /**
@@ -66,11 +71,11 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
   const taux = await tauxDuJour();
   const [stocks, facturesDues, facturesSemaine, facturesEchues, legumesMois, consoMois] = await Promise.all([
     prisma.stock.findMany({ include: { article: { select: { designation: true, devisePrix: true, prixUnitaireUSD: true, prixUnitaireCDF: true } } } }),
-    prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true }, _count: true }),
+    prisma.factureFournisseur.aggregate({ where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Factures dont l'échéance tombe cette semaine (lun→dim), non réglées.
-    prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true }, _count: true }),
+    prisma.factureFournisseur.aggregate({ where: { statut: { not: "REGLEE" }, dateEcheance: { gte: lundi, lte: dimanche } }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Factures échues non réglées.
-    prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true }, _count: true }),
+    prisma.factureFournisseur.aggregate({ where: { statut: "ECHUE_NON_REGLEE" }, _sum: { resteAPayerUSD: true, resteAPayerCDF: true }, _count: true }),
     // Achats de légumes frais du mois (en cours, ou celui de `options.mois`).
     prisma.achatLegume.aggregate({ where: { date: { gte: debutMois, lt: debutMoisSuivant } }, _sum: { montantUSD: true }, _count: true }),
     // Consommation du mois : sorties valorisées (montant saisi, sinon quantité × prix catalogue ; un
@@ -106,9 +111,9 @@ export async function indicateursStock(aujourdhui: Date, options: { nbAlertes?: 
     nbUrgent: avecAlerte.filter((a) => a.niveau === "URGENT").length,
     nbAppro: avecAlerte.filter((a) => a.niveau === "APPRO").length,
     alertes,
-    facturesAPayer: somme(facturesDues, "resteAPayerUSD"),
-    facturesSemaine: somme(facturesSemaine, "resteAPayerUSD"),
-    facturesEchues: somme(facturesEchues, "resteAPayerUSD"),
+    facturesAPayer: somme(facturesDues, "resteAPayerUSD", "resteAPayerCDF"),
+    facturesSemaine: somme(facturesSemaine, "resteAPayerUSD", "resteAPayerCDF"),
+    facturesEchues: somme(facturesEchues, "resteAPayerUSD", "resteAPayerCDF"),
     legumesMois: somme(legumesMois, "montantUSD"),
     consoMois: { montant: consoMois[0]?.total ?? 0, nb: consoMois[0]?.n ?? 0 },
     consoFrancsSansTaux: consoMois[0]?.nfc ?? 0,

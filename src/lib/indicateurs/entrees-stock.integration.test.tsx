@@ -159,7 +159,7 @@ describe("Entrées de stock — septembre 2026", () => {
     expect(i.achats.montant).toBe(achats.lignes[0][1]);
     const factures = await genererDonneesRapport("FACTURES", SEPT_DEBUT, SEPT_FIN);
     // Facturé 46,70 (dont 20 $ de transport hors stock) + 100 $ non entrés = 146,70 : ≠ entrées par facture, annoncé.
-    expect(i.facture).toEqual({ montant: 146.7, nb: 2 });
+    expect(i.facture).toEqual({ montant: 146.7, nb: 2, montantCDF: 0 });
     expect(i.facture.montant).toBe(factures.lignes[0][1]);
   });
 
@@ -203,7 +203,7 @@ describe("le mois reçu est respecté", () => {
     expect(aout.achats).toEqual({ montant: 1000, nb: 1, nbSansValeur: 0 });
     expect(aout.autres).toEqual({ montant: 70, nb: 1, nbSansValeur: 0 });
     expect(aout.factures).toEqual({ montant: 0, nb: 0, nbSansValeur: 0 });
-    expect(aout.facture).toEqual({ montant: 0, nb: 0 });
+    expect(aout.facture).toEqual({ montant: 0, nb: 0, montantCDF: 0 });
     expect(aout.total).toEqual({ montant: 1070, nb: 2, nbSansValeur: 0 });
     expect((await chargerIndicateursEntrees(2026, 7)).total).toEqual({ montant: 0, nb: 0, nbSansValeur: 0 });
     for (const [a, m] of [[2026, 0], [2026, 13], [2026, 9.5], [Number.NaN, 9]]) {

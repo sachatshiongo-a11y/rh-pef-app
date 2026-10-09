@@ -180,9 +180,9 @@ describe("indicateurs de stock : mois et semaine en cours", () => {
     // lundi 00 h 30 à Kinshasa (= dimanche 11 octobre 23 h 30 UTC), pas avant.
     await prisma.factureFournisseur.create({ data: { fournisseurNom: "Fourn. lundi", montantUSD: 55, resteAPayerUSD: 55, mois: 10, annee: 2026, statut: "A_REGLER", dateEcheance: jour("2026-10-12") } });
     const lundiNuit = await indicateursStock(new Date("2026-10-11T23:30:00Z"));
-    expect(lundiNuit.facturesSemaine).toEqual({ montant: 55, nb: 1 });
+    expect(lundiNuit.facturesSemaine).toEqual({ montant: 55, nb: 1, montantCDF: null });
     const dimancheSoir = await indicateursStock(new Date("2026-10-11T22:30:00Z")); // dimanche 23 h 30 à Kinshasa
-    expect(dimancheSoir.facturesSemaine).toEqual({ montant: null, nb: 0 });
+    expect(dimancheSoir.facturesSemaine).toEqual({ montant: null, nb: 0, montantCDF: null });
   }, 60_000);
 });
 

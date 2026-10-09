@@ -26,6 +26,7 @@ import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { envoyerPush } from "@/lib/push";
 import { formaterFC, formaterNombre, formaterUSD } from "@/lib/montant";
+import { formaterMontantFacture } from "@/lib/facture-devise";
 import { heureKinshasa } from "@/lib/heure-kinshasa";
 import { avantApres } from "@/lib/date-sortie";
 
@@ -48,7 +49,8 @@ export type GesteStock =
       /** Articles visés aussi par une ANCIENNE demande de mouvement en attente (double saisie possible). */
       demandesEnAttente?: string[];
     }
-  | { genre: "FACTURE"; factureId: string; numero: string | null; fournisseurNom: string; montantUSD: number; nbLignes: number; entreeEnStock: boolean; nbEntrees: number }
+  /** `montantUSD` : montant d'une facture en dollars (comme avant) ; facture en francs : `devise` CDF et `montantCDF`. */
+  | { genre: "FACTURE"; factureId: string; numero: string | null; fournisseurNom: string; montantUSD: number; devise?: "USD" | "CDF"; montantCDF?: number; nbLignes: number; entreeEnStock: boolean; nbEntrees: number }
   | { genre: "ACHAT"; nbLignes: number; montants: { devise: "USD" | "CDF"; montant: number }[] }
   | { genre: "ACHAT_LEGUMES"; nbLignes: number; montantsCDF: (number | null)[] }
   | { genre: "RECEPTION"; bonDeCommandeId: string; numero: string; fournisseurNom: string | null; nbLignes: number; complete: boolean }
@@ -132,7 +134,9 @@ export function texteGeste(auteurNom: string, g: GesteStock): TexteGeste {
     }
     case "FACTURE": {
       const nom = `${g.numero ? `Facture n° ${g.numero}` : "Facture sans numéro"} de ${g.fournisseurNom}`;
-      const montant = g.montantUSD > 0 ? formaterUSD(g.montantUSD) : "montant : —";
+      const montant = g.devise === "CDF"
+        ? ((g.montantCDF ?? 0) > 0 ? formaterMontantFacture(g.montantCDF!, "CDF") : "montant : —")
+        : g.montantUSD > 0 ? formaterUSD(g.montantUSD) : "montant : —";
       const stock = g.entreeEnStock
         ? g.nbEntrees > 0 ? ` (entrée en stock : ${pluriel(g.nbEntrees, "article")})` : " (aucune ligne reliée au catalogue : rien n'est entré en stock)"
         : " (sans entrée en stock)";

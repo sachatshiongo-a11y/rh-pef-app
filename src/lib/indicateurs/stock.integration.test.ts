@@ -83,7 +83,7 @@ describe("indicateursStock — fonction partagée", () => {
     // Janvier 2020 : aucun légume, aucune facture à échéance cette semaine-là, aucune sortie.
     const i = await indicateursStock(new Date(Date.UTC(2020, 0, 15)));
     expect(i.legumesMois).toEqual({ montant: null, nb: 0 });
-    expect(i.facturesSemaine).toEqual({ montant: null, nb: 0 });
+    expect(i.facturesSemaine).toEqual({ montant: null, nb: 0, montantCDF: null });
     expect(i.consoMois).toEqual({ montant: 0, nb: 0 });
   }, 60_000);
 

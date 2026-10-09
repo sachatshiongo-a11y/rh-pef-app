@@ -5,6 +5,7 @@ import { analyserFacturesAction, appliquerFacturesAction } from "./actions";
 import { estErreur } from "@/lib/action-lisible";
 import type { PreviewFactures } from "@/lib/import-factures";
 import { usd } from "@/lib/stock";
+import { formaterMontantFacture, libelleTotal } from "@/lib/facture-devise";
 import { ListePaginee } from "@/components/liste-paginee";
 
 export function ImportFacturesClient() {
@@ -58,7 +59,7 @@ export function ImportFacturesClient() {
             <Kpi label="Factures à ajouter" val={String(preview.resume.aInserer)} />
             <Kpi label="Doublons ignorés" val={String(preview.resume.doublons)} />
             <Kpi label="Fournisseurs créés" val={String(preview.resume.fournisseursCrees)} accent={preview.resume.fournisseursCrees > 0} />
-            <Kpi label="Total à ajouter" val={usd(preview.resume.totalUSD)} />
+            <Kpi label="Total à ajouter" val={libelleTotal(preview.resume.total, usd(0), usd)} />
           </div>
 
           {preview.fournisseursCrees.length > 0 && (
@@ -71,7 +72,7 @@ export function ImportFacturesClient() {
           <details className="rounded-md border p-2 text-sm">
             <summary className="cursor-pointer font-medium">Voir les {preview.factures.length} ligne(s) lue(s)</summary>
             <ListePaginee items={preview.factures} libelle="lignes" className="mt-1 space-y-0.5 text-xs" ligne={(f, i) => (
-              <li key={i} className={f.nouvelle ? "" : "text-muted-foreground line-through"}>{f.fournisseurNom} · {f.numero ?? "sans n°"} · {f.periode} · {usd(f.montantUSD)}{f.nouvelle ? "" : " (doublon)"}</li>
+              <li key={i} className={f.nouvelle ? "" : "text-muted-foreground line-through"}>{f.fournisseurNom} · {f.numero ?? "sans n°"} · {f.periode} · {f.devise === "USD" ? usd(f.montant) : formaterMontantFacture(f.montant, "CDF")}{f.nouvelle ? "" : " (doublon)"}</li>
             )} />
           </details>
 

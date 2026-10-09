@@ -1,5 +1,6 @@
 import "server-only";
 
+import { libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { prisma } from "@/lib/prisma";
 import { jourCivilKinshasa } from "@/lib/heure-kinshasa";
 
@@ -64,8 +65,9 @@ export async function calculerAlertes(): Promise<Alerte[]> {
       select: { mois: true, annee: true, statut: true },
     }),
     prisma.factureFournisseur.findMany({
-      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, resteAPayerUSD: { gt: 0 }, dateEcheance: { not: null, lte: dans7j } },
-      select: { resteAPayerUSD: true, statut: true },
+      // Factures en dollars OU en francs (2026-10-09) : reste lu dans la devise de chacune.
+      where: { statut: { in: ["A_REGLER", "ECHUE_NON_REGLEE"] }, OR: [{ resteAPayerUSD: { gt: 0 } }, { resteAPayerCDF: { gt: 0 } }], dateEcheance: { not: null, lte: dans7j } },
+      select: { devise: true, resteAPayerUSD: true, resteAPayerCDF: true, statut: true },
     }),
   ]);
 
@@ -175,12 +177,15 @@ export async function calculerAlertes(): Promise<Alerte[]> {
   // Factures fournisseurs à payer sous 7 jours (ou déjà échues) — une alerte agrégée, pas une par facture.
   if (facturesDues.length > 0) {
     const echues = facturesDues.filter((f) => f.statut === "ECHUE_NON_REGLEE").length;
-    const total = facturesDues.reduce((t, f) => t + Number(f.resteAPayerUSD), 0);
+    const parDevise = totalFactures(facturesDues, "reste");
+    // Dollars seuls : le texte d'avant ; avec des francs, « 120,00 $ + 280 000 FC » ou « 280 000 FC » seul.
+    const fmtUSD = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
+    const montant = libelleTotal(parDevise, undefined, fmtUSD);
     alertes.push({
       type: "FACTURES",
       espace: "STOCK",
       niveau: echues > 0 ? "urgent" : "warning",
-      message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${total.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
+      message: `${facturesDues.length} facture(s) fournisseur à payer sous 7 jours — ${montant}${echues > 0 ? ` (dont ${echues} échue(s))` : ""}`,
       lien: "/stock/factures?statut=du",
     });
   }

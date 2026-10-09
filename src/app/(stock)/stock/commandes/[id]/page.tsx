@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formaterMontantFacture, libelleTotal, totalFactures } from "@/lib/facture-devise";
 import { FilAriane } from "@/components/fil-ariane";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -37,21 +38,26 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
     ? await prisma.factureFournisseur.findMany({
         where: { fournisseurId: bc.fournisseurId, bonDeCommandeId: null },
         orderBy: { date: "desc" }, take: 100,
-        select: { id: true, numero: true, date: true, montantUSD: true },
+        select: { id: true, numero: true, date: true, devise: true, montantUSD: true, montantCDF: true },
       })
     : [];
   const facturesLiables = facturesLiablesRaw.map((f) => ({
     id: f.id,
     libelle: (f.numero ? `Facture ${f.numero}` : "Facture") + (f.date ? ` · ${new Date(f.date).toLocaleDateString("fr-FR")}` : ""),
-    montant: Number(f.montantUSD),
+    montant: Number(f.montantUSD ?? 0),
+    ...(f.devise === "CDF" ? { montantTexte: formaterMontantFacture(Number(f.montantCDF), "CDF") } : {}),
   }));
 
   const lignesArticle = bc.lignes.filter((l) => l.articleId).map((l) => ({ id: l.id, designation: l.designation, quantite: l.quantite.toString() }));
   const estBrouillon = bc.statut === "BROUILLON";
   const peutExporter = !estBrouillon && bc.statut !== "ANNULE";
   const receptionnable = ["VALIDE", "ENVOYE", "RECU_PARTIEL"].includes(bc.statut) && lignesArticle.length > 0;
-  const totalFacture = bc.factures.reduce((t, f) => t + Number(f.montantUSD), 0);
+  // Le bon est en dollars ; une facture en francs ne s'y compare pas (jamais convertie en silence) :
+  // le facturé se dit par devise, l'écart n'est calculé que s'il n'y a que des factures en dollars.
+  const facturesDevises = totalFactures(bc.factures, "montant");
+  const totalFacture = facturesDevises.usd;
   const ecartFacture = totalFacture - Number(bc.totalUSD);
+  const avecFC = facturesDevises.nbCDF > 0;
 
   return (
     <div className="w-full space-y-5">
@@ -208,17 +214,24 @@ export default async function BonDetailPage({ params, searchParams }: { params: 
               {bc.factures.map((f) => (
                 <li key={f.id} className="flex items-center justify-between py-1.5">
                   <span>{f.numero ? `Facture ${f.numero}` : "Facture"}{f.date ? ` · ${new Date(f.date).toLocaleDateString("fr-FR")}` : ""}</span>
-                  <span className="font-medium">{usd(f.montantUSD)}</span>
+                  <span className="font-medium">{f.devise === "CDF" ? formaterMontantFacture(Number(f.montantCDF), "CDF") : usd(f.montantUSD)}</span>
                 </li>
               ))}
             </ul>
             <div className="grid grid-cols-3 gap-3 text-center text-sm">
               <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Commandé</p><p className="font-semibold">{usd(bc.totalUSD)}</p></div>
-              <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Facturé</p><p className="font-semibold">{usd(totalFacture)}</p></div>
+              <div className="rounded-md border p-2"><p className="text-xs text-muted-foreground">Facturé</p><p className="font-semibold">{libelleTotal(facturesDevises, undefined, usd)}</p></div>
+              {avecFC ? (
+                <div className="rounded-md border p-2">
+                  <p className="text-xs text-muted-foreground">Écart</p>
+                  <p className="text-xs text-muted-foreground">— (facture en francs, bon en dollars : non comparés)</p>
+                </div>
+              ) : (
               <div className={`rounded-md border p-2 ${Math.abs(ecartFacture) < 0.01 ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
                 <p className="text-xs text-muted-foreground">Écart</p>
                 <p className={`font-semibold ${Math.abs(ecartFacture) < 0.01 ? "text-emerald-700" : "text-amber-800"}`}>{ecartFacture > 0 ? "+" : ""}{usd(ecartFacture)}</p>
               </div>
+              )}
             </div>
           </>
         )}
